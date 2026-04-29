@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skforecast-ai"
+version = "0.1.0"
+description = "AI-powered forecasting assistant built on top of skforecast."
+readme = "README.md"
+authors = [
+    {name = "Joaquin Amat Rodrigo", email = "j.amatrodrigo@gmail.com"},
+    {name = "Javier Escobar Ortiz", email = "javier.escobar.ortiz@gmail.com"},
+]
+
+maintainers = [
+    {name = "Joaquin Amat Rodrigo", email = "j.amatrodrigo@gmail.com"},
+    {name = "Javier Escobar Ortiz", email = "javier.escobar.ortiz@gmail.com"},
+]
+
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX",
+    "Operating System :: Unix",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+license = "BSD-3-Clause"
+license-files = ["LICENSE", "CITATION.cff"]
+
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "pandas>=2.1",
+    "skforecast>=0.22",
+]
+
+[project.optional-dependencies]
+llm = ["pydantic-ai"]
+cli = ["typer[all]"]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+skforecast-ai = "skforecast_ai.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["skforecast_ai*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
