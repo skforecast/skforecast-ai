@@ -159,3 +159,74 @@ def test_recommend_plan_output_when_no_datetime_index():
     plan = recommend_plan(profile=profile_no_datetime, horizon=10)
 
     assert any("datetimeindex" in req.lower() for req in plan.data_requirements)
+
+
+def test_recommend_plan_dropna_true_when_missing_values_and_ridge():
+    """
+    Test recommend_plan sets dropna_from_series=True when there are missing
+    values and the estimator (Ridge) does not tolerate NaN natively.
+    """
+    from skforecast_ai.schemas import DataProfile
+
+    profile = DataProfile(
+        n_observations         = 200,
+        n_series               = 1,
+        index_type             = "datetime",
+        frequency              = "D",
+        target                 = "y",
+        missing_values         = {"y": 3},
+        inferred_seasonalities = [7],
+    )
+    plan = recommend_plan(profile=profile, horizon=10)
+
+    assert plan.estimator == "Ridge"
+    assert plan.dropna_from_series is True
+
+
+def test_recommend_plan_dropna_false_when_missing_values_and_lgbm():
+    """
+    Test recommend_plan sets dropna_from_series=False when there are missing
+    values but the estimator (LGBMRegressor) handles NaN natively.
+    """
+    plan = recommend_plan(profile=profile_with_missing, horizon=10)
+
+    assert plan.estimator == "Ridge"
+    # profile_with_missing has 365 obs → Ridge (<500)
+    # Let's use a profile with >500 obs to get LGBMRegressor
+    from skforecast_ai.schemas import DataProfile
+
+    profile_large_missing = DataProfile(
+        n_observations         = 600,
+        n_series               = 1,
+        index_type             = "datetime",
+        frequency              = "D",
+        target                 = "y",
+        missing_values         = {"y": 5},
+        inferred_seasonalities = [7],
+    )
+    plan = recommend_plan(profile=profile_large_missing, horizon=10)
+
+    assert plan.estimator == "LGBMRegressor"
+    assert plan.dropna_from_series is False
+
+
+def test_recommend_plan_dropna_false_when_no_missing_values():
+    """
+    Test recommend_plan sets dropna_from_series=False when no missing values
+    exist, regardless of estimator.
+    """
+    plan = recommend_plan(profile=profile_single_daily, horizon=10)
+
+    assert plan.dropna_from_series is False
+
+
+def test_recommend_plan_dropna_none_when_statistical():
+    """
+    Test recommend_plan sets dropna_from_series=None for statistical models
+    (the parameter does not apply).
+    """
+    plan = recommend_plan(
+        profile=profile_single_daily, horizon=10, prefer_statistical=True
+    )
+
+    assert plan.dropna_from_series is None

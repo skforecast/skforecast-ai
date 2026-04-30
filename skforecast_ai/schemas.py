@@ -1,8 +1,10 @@
 """Pydantic schemas for skforecast-ai data contracts."""
 
-from typing import Literal
+from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DataProfile(BaseModel):
@@ -79,6 +81,10 @@ class ForecastPlan(BaseModel):
     interval_method : str, default None
         Method for prediction intervals. One of `'bootstrapping'`,
         `'conformal'`.
+    dropna_from_series : bool, default None
+        Whether to drop NaN rows from training matrices. `None` when
+        not applicable (statistical, foundation). `True` when the
+        estimator does not support NaN. `False` when NaN-tolerant.
     use_exog : bool, default False
         Whether to include exogenous variables.
     data_requirements : list
@@ -106,7 +112,101 @@ class ForecastPlan(BaseModel):
     metric: str
     backtesting_strategy: str
     interval_method: Literal["bootstrapping", "conformal"] | None = None
+    dropna_from_series: bool | None = None
     use_exog: bool = False
     data_requirements: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     rationale: str
+
+
+class RecommendResult(BaseModel):
+    """
+    Result of the recommend workflow.
+
+    Attributes
+    ----------
+    profile : DataProfile
+        Profile of the input dataset.
+    plan : ForecastPlan
+        Recommended forecasting plan.
+    """
+
+    profile: DataProfile
+    plan: ForecastPlan
+
+
+class GenerateResult(BaseModel):
+    """
+    Result of the generate_code workflow.
+
+    Attributes
+    ----------
+    profile : DataProfile
+        Profile of the input dataset.
+    plan : ForecastPlan
+        Recommended forecasting plan.
+    code : str
+        Generated Python script.
+    """
+
+    profile: DataProfile
+    plan: ForecastPlan
+    code: str
+
+
+class AskResult(BaseModel):
+    """
+    Result of the ask workflow (requires LLM).
+
+    Attributes
+    ----------
+    profile : DataProfile, default None
+        Profile of the input dataset, if data was provided.
+    plan : ForecastPlan, default None
+        Recommended forecasting plan, if the agent produced one.
+    code : str, default None
+        Generated Python script, if the agent produced one.
+    explanation : str
+        LLM-generated explanation or response.
+    """
+
+    profile: DataProfile | None = None
+    plan: ForecastPlan | None = None
+    code: str | None = None
+    explanation: str
+
+
+class RunResult(BaseModel):
+    """
+    Result of the run workflow (executes the forecasting pipeline end-to-end).
+
+    Attributes
+    ----------
+    profile : DataProfile
+        Profile of the input dataset.
+    plan : ForecastPlan
+        Recommended forecasting plan that was executed.
+    code : str
+        Generated Python script equivalent to the execution.
+    metric_value : float
+        Backtesting metric value.
+    metric_name : str
+        Name of the metric used for evaluation.
+    predictions : pandas DataFrame
+        Forecasted values for the requested horizon.
+    intervals : pandas DataFrame, default None
+        Prediction intervals or quantile predictions when available.
+    warnings : list
+        Warnings generated during validation and execution.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    profile: DataProfile
+    plan: ForecastPlan
+    code: str
+    metric_value: float
+    metric_name: str
+    predictions: Any  # pd.DataFrame
+    intervals: Any = None  # pd.DataFrame | None
+    warnings: list[str] = Field(default_factory=list)

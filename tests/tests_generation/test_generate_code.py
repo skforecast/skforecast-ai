@@ -242,3 +242,55 @@ def test_generate_code_output_when_unknown_estimator_syntax():
     compile(code, "<test>", "exec")
     assert "GradientBoostingRegressor" in code
     assert "TODO" in code
+
+
+def test_generate_code_output_when_dropna_from_series_true():
+    """
+    Test generate_code includes dropna_from_series=True in the forecaster
+    constructor when the plan specifies it.
+    """
+    from skforecast_ai.schemas import DataProfile, ForecastPlan
+
+    profile = DataProfile(
+        n_observations         = 200,
+        n_series               = 1,
+        index_type             = "datetime",
+        frequency              = "D",
+        target                 = "y",
+        missing_values         = {"y": 5},
+        inferred_seasonalities = [7],
+    )
+    plan = ForecastPlan(
+        task_type            = "single_series",
+        forecaster           = "ForecasterRecursive",
+        estimator            = "Ridge",
+        horizon              = 10,
+        frequency            = "D",
+        lags                 = [1, 2, 3, 4, 5, 6, 7],
+        metric               = "mean_absolute_error",
+        backtesting_strategy = "TimeSeriesFold",
+        interval_method      = None,
+        dropna_from_series   = True,
+        use_exog             = False,
+        rationale            = "Ridge with missing values.",
+    )
+
+    code = generate_code(plan=plan, profile=profile)
+
+    compile(code, "<test>", "exec")
+    assert "dropna_from_series = True" in code
+
+
+def test_generate_code_output_when_dropna_from_series_none():
+    """
+    Test generate_code does NOT include dropna_from_series in the forecaster
+    constructor when the plan has dropna_from_series=None (statistical).
+    """
+    code = generate_code(
+        plan=plan_statistical,
+        profile=profile_statistical,
+        data_path="data.csv",
+    )
+
+    compile(code, "<test>", "exec")
+    assert "dropna_from_series" not in code

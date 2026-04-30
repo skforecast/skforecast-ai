@@ -6,6 +6,7 @@ from .rules import (
     build_rationale,
     check_exog_usage,
     select_backtesting,
+    select_dropna_from_series,
     select_estimator,
     select_forecaster,
     select_interval_method,
@@ -63,6 +64,9 @@ def recommend_plan(
     metric = select_metric(task_type)
     backtesting_strategy = select_backtesting(profile.n_observations, horizon)
     interval_method = select_interval_method(forecaster, profile.n_observations)
+    dropna_from_series = select_dropna_from_series(
+        estimator, profile.missing_values, task_type
+    )
     use_exog = check_exog_usage(profile.exog_columns)
     data_requirements = build_data_requirements(profile)
 
@@ -78,17 +82,18 @@ def recommend_plan(
     )
 
     return ForecastPlan(
-        task_type         = task_type,
-        forecaster        = forecaster,
-        estimator         = estimator,
-        horizon           = horizon,
-        frequency         = profile.frequency,
-        lags              = lags,
-        metric            = metric,
+        task_type            = task_type,
+        forecaster           = forecaster,
+        estimator            = estimator,
+        horizon              = horizon,
+        frequency            = profile.frequency,
+        lags                 = lags,
+        metric               = metric,
         backtesting_strategy = backtesting_strategy,
-        interval_method   = interval_method,
-        use_exog          = use_exog,
-        data_requirements = data_requirements,
-        warnings          = warnings,
-        rationale         = rationale,
+        interval_method      = interval_method,
+        dropna_from_series   = dropna_from_series,
+        use_exog             = use_exog,
+        data_requirements    = data_requirements,
+        warnings             = warnings,
+        rationale            = rationale,
     )

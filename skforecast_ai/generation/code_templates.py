@@ -105,11 +105,15 @@ def _template_single_series(
         lines.append(f"    steps     = {plan.horizon},")
         lines.append(f"    estimator = {plan.estimator}(random_state=123),")
         lines.append(f"    lags      = {plan.lags},")
+        if plan.dropna_from_series is not None:
+            lines.append(f"    dropna_from_series = {plan.dropna_from_series},")
         lines.append(")")
     else:
         lines.append(f"forecaster = {forecaster_class}(")
         lines.append(f"    estimator = {plan.estimator}(random_state=123),")
         lines.append(f"    lags      = {plan.lags},")
+        if plan.dropna_from_series is not None:
+            lines.append(f"    dropna_from_series = {plan.dropna_from_series},")
         lines.append(")")
     lines.append("")
 
@@ -238,6 +242,8 @@ def _template_multi_series(
     lines.append(f"    estimator = {plan.estimator}(random_state=123),")
     lines.append(f"    lags      = {plan.lags},")
     lines.append("    encoding  = 'ordinal',")
+    if plan.dropna_from_series is not None:
+        lines.append(f"    dropna_from_series = {plan.dropna_from_series},")
     lines.append(")")
     lines.append("")
 

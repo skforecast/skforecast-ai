@@ -8,9 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .generation.code_templates import generate_code
-from .profiling.data_profile import create_data_profile
-from .recommendation.forecaster_selection import recommend_plan
+from .assistant import ForecastingAssistant
 
 app = typer.Typer(
     name="skforecast-ai",
@@ -67,6 +65,8 @@ def _print_plan(plan) -> None:
     table.add_row("Metric", plan.metric)
     table.add_row("Backtesting", plan.backtesting_strategy)
     table.add_row("Interval method", plan.interval_method or "—")
+    if plan.dropna_from_series is not None:
+        table.add_row("dropna_from_series", str(plan.dropna_from_series))
     table.add_row("Use exog", str(plan.use_exog))
 
     if plan.data_requirements:
@@ -96,7 +96,8 @@ def inspect(
 ) -> None:
     """Profile a time series dataset."""
     try:
-        profile = create_data_profile(
+        assistant = ForecastingAssistant()
+        profile = assistant.inspect(
             data=data_path,
             target=target,
             date_column=date,
@@ -137,13 +138,15 @@ def recommend(
 ) -> None:
     """Profile a dataset and generate a forecasting plan."""
     try:
-        profile = create_data_profile(
+        assistant = ForecastingAssistant()
+        result = assistant.recommend(
             data=data_path,
             target=target,
             date_column=date,
             series_id_column=series_id,
+            horizon=horizon,
         )
-        plan = recommend_plan(profile=profile, horizon=horizon)
+        plan = result.plan
     except FileNotFoundError:
         console.print(f"[red]Error:[/red] File not found: {data_path}")
         raise typer.Exit(code=1)
@@ -182,14 +185,17 @@ def generate_code_cmd(
 ) -> None:
     """Profile, recommend, and generate forecasting code."""
     try:
-        profile = create_data_profile(
+        assistant = ForecastingAssistant()
+        result = assistant.generate_code(
             data=data_path,
             target=target,
             date_column=date,
             series_id_column=series_id,
+            horizon=horizon,
+            data_path=str(data_path),
         )
-        plan = recommend_plan(profile=profile, horizon=horizon)
-        code = generate_code(plan=plan, profile=profile, data_path=str(data_path))
+        plan = result.plan
+        code = result.code
     except FileNotFoundError:
         console.print(f"[red]Error:[/red] File not found: {data_path}")
         raise typer.Exit(code=1)
@@ -208,3 +214,137 @@ def generate_code_cmd(
         console.print(f"[green]Code written to:[/green] {output}")
     else:
         typer.echo(code)
+
+
+@app.command()
+def run(
+    data_path: Annotated[Path, typer.Argument(help="Path to the CSV file.")],
+    target: Annotated[str, typer.Option("--target", help="Target column name.")],
+    date: Annotated[
+        str | None, typer.Option("--date", help="Date column name.")
+    ] = None,
+    series_id: Annotated[
+        str | None, typer.Option("--series-id", help="Series ID column name.")
+    ] = None,
+    horizon: Annotated[
+        int, typer.Option("--horizon", help="Forecast horizon (steps ahead).")
+    ] = 10,
+    output_json: Annotated[
+        bool, typer.Option("--json", help="Output as JSON.")
+    ] = False,
+) -> None:
+    """Execute a full forecasting workflow end-to-end."""
+    try:
+        assistant = ForecastingAssistant()
+        result = assistant.run(
+            data=data_path,
+            target=target,
+            date_column=date,
+            series_id_column=series_id,
+            horizon=horizon,
+        )
+    except FileNotFoundError:
+        console.print(f"[red]Error:[/red] File not found: {data_path}")
+        raise typer.Exit(code=1)
+    except (ValueError, KeyError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1)
+    except Exception as exc:
+        console.print(f"[red]Unexpected error:[/red] {exc}")
+        raise typer.Exit(code=2)
+
+    if output_json:
+        output = {
+            "plan": result.plan.model_dump(),
+            "metric_name": result.metric_name,
+            "metric_value": result.metric_value,
+            "predictions": result.predictions.to_dict(orient="list"),
+            "warnings": result.warnings,
+        }
+        if result.intervals is not None:
+            output["intervals"] = result.intervals.to_dict(orient="list")
+        typer.echo(json.dumps(output, indent=2))
+    else:
+        _print_plan(result.plan)
+        console.print("")
+        _print_run_result(result)
+
+
+@app.command()
+def explain(
+    data_path: Annotated[Path, typer.Argument(help="Path to the CSV file.")],
+    target: Annotated[str, typer.Option("--target", help="Target column name.")],
+    date: Annotated[
+        str | None, typer.Option("--date", help="Date column name.")
+    ] = None,
+    series_id: Annotated[
+        str | None, typer.Option("--series-id", help="Series ID column name.")
+    ] = None,
+    horizon: Annotated[
+        int, typer.Option("--horizon", help="Forecast horizon (steps ahead).")
+    ] = 10,
+    llm: Annotated[
+        str | None,
+        typer.Option("--llm", help="LLM provider string (e.g. 'openai:gpt-4o-mini')."),
+    ] = None,
+    output_json: Annotated[
+        bool, typer.Option("--json", help="Output as JSON.")
+    ] = False,
+) -> None:
+    """Explain a forecasting plan in plain language."""
+    try:
+        assistant = ForecastingAssistant(llm=llm)
+        result = assistant.recommend(
+            data=data_path,
+            target=target,
+            date_column=date,
+            series_id_column=series_id,
+            horizon=horizon,
+        )
+        plan = result.plan
+
+        if llm is not None:
+            explanation = assistant.explain(plan=plan, profile=result.profile)
+        else:
+            explanation = plan.rationale
+    except FileNotFoundError:
+        console.print(f"[red]Error:[/red] File not found: {data_path}")
+        raise typer.Exit(code=1)
+    except (ValueError, KeyError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1)
+    except Exception as exc:
+        console.print(f"[red]Unexpected error:[/red] {exc}")
+        raise typer.Exit(code=2)
+
+    if output_json:
+        output = {"plan": plan.model_dump(), "explanation": explanation}
+        typer.echo(json.dumps(output, indent=2))
+    else:
+        _print_plan(plan)
+        console.print("")
+        console.print("[bold]Explanation:[/bold]")
+        console.print(explanation)
+
+
+def _print_run_result(result) -> None:
+    """Print the execution results as a Rich table."""
+    table = Table(title="Execution Results")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+
+    table.add_row("Metric", f"{result.metric_name} = {result.metric_value:.6f}")
+
+    if result.warnings:
+        table.add_row("Warnings", "\n".join(result.warnings))
+
+    console.print(table)
+
+    console.print("")
+    console.print("[bold]Predictions (first 10 rows):[/bold]")
+    console.print(str(result.predictions.head(10)))
+
+    if result.intervals is not None:
+        console.print("")
+        console.print("[bold]Prediction intervals (first 10 rows):[/bold]")
+        console.print(str(result.intervals.head(10)))

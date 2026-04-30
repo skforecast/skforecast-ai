@@ -226,6 +226,51 @@ def select_interval_method(
     return None
 
 
+NAN_TOLERANT_ESTIMATORS: set[str] = {
+    "LGBMRegressor",
+    "CatBoostRegressor",
+    "XGBRegressor",
+}
+
+
+def select_dropna_from_series(
+    estimator: str | None,
+    missing_values: dict[str, int],
+    task_type: str,
+) -> bool | None:
+    """
+    Determine whether to drop NaN rows from training matrices.
+
+    Parameters
+    ----------
+    estimator : str or None
+        Name of the scikit-learn compatible estimator.
+    missing_values : dict
+        Mapping of column name to count of missing values.
+    task_type : str
+        Forecasting task category.
+
+    Returns
+    -------
+    dropna_from_series : bool or None
+        `None` for forecasters without the parameter. `True` when NaN
+        rows must be dropped. `False` when the estimator handles NaN
+        natively or no missing values exist.
+
+    Notes
+    -----
+    Source: `skforecast_ai/skills/troubleshooting-common-errors/SKILL.md`,
+    `skforecast_ai/resources/llms-full.txt` (NaN handling section).
+    """
+    if task_type in ("statistical", "foundation", "baseline"):
+        return None
+    if not missing_values:
+        return False
+    if estimator in NAN_TOLERANT_ESTIMATORS:
+        return False
+    return True
+
+
 def check_exog_usage(exog_columns: list[str]) -> bool:
     """
     Determine whether exogenous variables should be included.

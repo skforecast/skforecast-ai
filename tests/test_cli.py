@@ -199,3 +199,87 @@ def test_generate_code_output_when_json_flag(tmp_path):
     assert "code" in output
     assert "import" in output["code"]
     assert output["plan"]["horizon"] == 5
+
+
+def test_run_output_when_valid_csv_json(tmp_path):
+    """
+    Test that the run command with --json produces valid JSON output
+    containing metric_value and predictions.
+    """
+    csv_file = _write_csv(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(csv_file),
+            "--target", "sales",
+            "--date", "date",
+            "--horizon", "5",
+            "--json",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert "metric_value" in output
+    assert "metric_name" in output
+    assert "predictions" in output
+    assert isinstance(output["metric_value"], float)
+
+
+def test_run_error_when_nonexistent_file():
+    """
+    Test that the run command exits with code 1 when the CSV file does not
+    exist.
+    """
+    result = runner.invoke(
+        app,
+        ["run", "nonexistent_file.csv", "--target", "sales", "--json"],
+    )
+    assert result.exit_code == 1
+    assert "not found" in result.stdout.lower() or "error" in result.stdout.lower()
+
+
+def test_explain_output_when_no_llm(tmp_path):
+    """
+    Test that the explain command without --llm produces a plain-text
+    explanation using the deterministic rationale.
+    """
+    csv_file = _write_csv(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "explain",
+            str(csv_file),
+            "--target", "sales",
+            "--horizon", "5",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    # Should contain some explanation text (the rationale)
+    assert "forecaster" in result.stdout.lower() or "series" in result.stdout.lower()
+
+
+def test_explain_output_when_json_flag(tmp_path):
+    """
+    Test that the explain command with --json returns a JSON object
+    containing the plan and explanation.
+    """
+    csv_file = _write_csv(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "explain",
+            str(csv_file),
+            "--target", "sales",
+            "--horizon", "5",
+            "--json",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert "plan" in output
+    assert "explanation" in output
+    assert len(output["explanation"]) > 0
