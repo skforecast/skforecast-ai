@@ -7,16 +7,16 @@ from skforecast_ai import ForecastingAssistant, RunResult
 from .fixtures_execution import df_single
 
 
-# Tests: assistant.run()
+# Tests: assistant.forecast()
 
 
-def test_assistant_run_returns_RunResult():
+def test_assistant_forecast_returns_RunResult():
     """
-    Test that assistant.run() returns a RunResult instance with all fields
+    Test that assistant.forecast() returns a RunResult instance with all fields
     populated.
     """
     assistant = ForecastingAssistant()
-    result = assistant.run(
+    result = assistant.forecast(
         data         = df_single,
         target       = "sales",
         date_column  = "date",
@@ -32,13 +32,13 @@ def test_assistant_run_returns_RunResult():
     assert result.predictions is not None
 
 
-def test_assistant_run_predictions_length_matches_horizon():
+def test_assistant_forecast_predictions_length_matches_horizon():
     """
     Test that the number of prediction rows matches the requested horizon.
     """
     horizon = 7
     assistant = ForecastingAssistant()
-    result = assistant.run(
+    result = assistant.forecast(
         data         = df_single,
         target       = "sales",
         date_column  = "date",
@@ -48,13 +48,13 @@ def test_assistant_run_predictions_length_matches_horizon():
     assert len(result.predictions) == horizon
 
 
-def test_assistant_run_includes_code_string():
+def test_assistant_forecast_includes_code_string():
     """
     Test that the generated code field is a non-empty string containing
     skforecast imports.
     """
     assistant = ForecastingAssistant()
-    result = assistant.run(
+    result = assistant.forecast(
         data         = df_single,
         target       = "sales",
         date_column  = "date",

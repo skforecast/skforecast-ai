@@ -111,15 +111,28 @@ def test_build_system_prompt_includes_reference():
     assert "(Reference not included)" not in result
 
 
-def test_build_system_prompt_includes_all_skills_when_none():
+def test_build_system_prompt_includes_default_skills_when_none():
     """
-    Test that build_system_prompt loads all available skills when the
-    skills parameter is None.
+    Test that build_system_prompt loads DEFAULT_SKILLS when the skills
+    parameter is None.
     """
     result = build_system_prompt(skills=None, include_reference=False)
     assert "choosing-a-forecaster" in result
     assert "forecasting-single-series" in result
+    assert "forecasting-multiple-series" in result
+
+
+def test_build_system_prompt_includes_all_skills_when_explicit():
+    """
+    Test that build_system_prompt loads all skills when ALL_SKILLS is
+    passed explicitly.
+    """
+    from skforecast_ai.llm.prompts import ALL_SKILLS
+
+    result = build_system_prompt(skills=ALL_SKILLS, include_reference=False)
+    assert "choosing-a-forecaster" in result
     assert "statistical-models" in result
+    assert "deep-learning-forecasting" in result
 
 
 def test_build_explain_prompt_uses_plan():

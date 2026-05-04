@@ -47,7 +47,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-llm = ["pydantic-ai"]
+llm = ["pydantic-ai", "nest-asyncio"]
 cli = ["typer[all]"]
 dev = ["pytest", "ruff"]
 

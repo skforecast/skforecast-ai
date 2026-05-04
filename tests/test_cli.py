@@ -70,14 +70,14 @@ def _write_csv(tmp_path):
     return csv_file
 
 
-def test_inspect_output_when_valid_csv(tmp_path):
+def test_profile_output_when_valid_csv(tmp_path):
     """
-    Test that the inspect command with --json produces valid JSON output
+    Test that the profile command with --json produces valid JSON output
     matching the DataProfile schema and exits with code 0.
     """
     csv_file = _write_csv(tmp_path)
     result = runner.invoke(
-        app, ["inspect", str(csv_file), "--target", "sales", "--json"],
+        app, ["profile", str(csv_file), "--target", "sales", "--json"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0
@@ -88,13 +88,13 @@ def test_inspect_output_when_valid_csv(tmp_path):
     assert profile["index_type"] == "datetime"
 
 
-def test_inspect_error_when_missing_target(tmp_path):
+def test_profile_error_when_missing_target(tmp_path):
     """
-    Test that the inspect command fails with a clear error when the --target
+    Test that the profile command fails with a clear error when the --target
     option is not provided.
     """
     csv_file = _write_csv(tmp_path)
-    result = runner.invoke(app, ["inspect", str(csv_file)])
+    result = runner.invoke(app, ["profile", str(csv_file)])
     assert result.exit_code != 0
 
 
@@ -163,14 +163,14 @@ def test_generate_code_output_when_file(tmp_path):
     assert "skforecast" in code
 
 
-def test_inspect_error_when_nonexistent_file():
+def test_profile_error_when_nonexistent_file():
     """
-    Test that the inspect command exits with code 1 and prints an error
+    Test that the profile command exits with code 1 and prints an error
     message when the CSV file does not exist.
     """
     result = runner.invoke(
         app,
-        ["inspect", "nonexistent_file.csv", "--target", "sales", "--json"],
+        ["profile", "nonexistent_file.csv", "--target", "sales", "--json"],
     )
     assert result.exit_code == 1
     assert "not found" in result.stdout.lower() or "error" in result.stdout.lower()
@@ -201,16 +201,16 @@ def test_generate_code_output_when_json_flag(tmp_path):
     assert output["plan"]["horizon"] == 5
 
 
-def test_run_output_when_valid_csv_json(tmp_path):
+def test_forecast_output_when_valid_csv_json(tmp_path):
     """
-    Test that the run command with --json produces valid JSON output
+    Test that the forecast command with --json produces valid JSON output
     containing metric_value and predictions.
     """
     csv_file = _write_csv(tmp_path)
     result = runner.invoke(
         app,
         [
-            "run",
+            "forecast",
             str(csv_file),
             "--target", "sales",
             "--date", "date",
@@ -227,14 +227,14 @@ def test_run_output_when_valid_csv_json(tmp_path):
     assert isinstance(output["metric_value"], float)
 
 
-def test_run_error_when_nonexistent_file():
+def test_forecast_error_when_nonexistent_file():
     """
-    Test that the run command exits with code 1 when the CSV file does not
-    exist.
+    Test that the forecast command exits with code 1 when the CSV file does
+    not exist.
     """
     result = runner.invoke(
         app,
-        ["run", "nonexistent_file.csv", "--target", "sales", "--json"],
+        ["forecast", "nonexistent_file.csv", "--target", "sales", "--json"],
     )
     assert result.exit_code == 1
     assert "not found" in result.stdout.lower() or "error" in result.stdout.lower()

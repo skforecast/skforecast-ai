@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import warnings
 from pathlib import Path
 
@@ -60,7 +61,7 @@ class ForecastingAssistant:
         self.send_data_to_llm = send_data_to_llm
         self._model = None
 
-    def inspect(
+    def profile(
         self,
         data: pd.DataFrame | str | Path,
         target: str,
@@ -179,7 +180,7 @@ class ForecastingAssistant:
         code = generate_code(plan=plan, profile=profile, data_path=data_path)
         return GenerateResult(profile=profile, plan=plan, code=code)
 
-    def run(
+    def forecast(
         self,
         data: pd.DataFrame | str | Path,
         target: str,
@@ -252,7 +253,7 @@ class ForecastingAssistant:
         question: str,
         data: pd.DataFrame | str | Path | None = None,
         skills: list[str] | None = None,
-        include_reference: bool = True,
+        include_reference: bool = False,
     ) -> AskResult:
         """
         Ask a free-form forecasting question using the LLM agent.
@@ -265,8 +266,12 @@ class ForecastingAssistant:
             Optional dataset or path to a CSV file for context.
         skills : list, default None
             List of skill names to include in the agent system prompt.
-        include_reference : bool, default True
+            If None, a compact default set is loaded. Pass ``'all'`` as
+            a single-element list to load every available skill.
+        include_reference : bool, default False
             Whether to include the skforecast API reference in the prompt.
+            The reference is ~195 KB and may exceed the context window of
+            smaller models. Enable only with large-context models.
 
         Returns
         -------
@@ -291,7 +296,10 @@ class ForecastingAssistant:
                 skills=skills,
                 include_reference=include_reference,
             )
-            result = agent.run_sync(question)
+            _patch_event_loop()
+            result = agent.run_sync(
+                question, model_settings=self._build_model_settings()
+            )
 
             plan = result.output if isinstance(result.output, ForecastPlan) else None
             return AskResult(
@@ -382,7 +390,10 @@ class ForecastingAssistant:
                 system_prompt="You are a forecasting expert. Explain plans clearly.",
             )
             prompt = build_explain_prompt(plan=plan, profile=profile)
-            result = explain_agent.run_sync(prompt)
+            _patch_event_loop()
+            result = explain_agent.run_sync(
+                prompt, model_settings=self._build_model_settings()
+            )
             return result.output
         except LLMRequiredError:
             raise
@@ -408,3 +419,39 @@ class ForecastingAssistant:
 
             self._model = create_model(llm=self.llm, base_url=self.base_url)
         return self._model
+
+    def _build_model_settings(self) -> dict | None:
+        """
+        Build provider-specific model settings.
+
+        For Ollama models, sets ``num_ctx`` to ensure the context window
+        is large enough for the system prompt, tool schemas, and
+        conversation history.
+
+        Returns
+        -------
+        settings : dict, None
+            Model settings dict or None for cloud providers.
+        """
+        if self.llm is not None and self.llm.startswith("ollama:"):
+            return {"extra_body": {"options": {"num_ctx": 32768}}}
+        return None
+
+
+def _patch_event_loop() -> None:
+    """
+    Apply ``nest_asyncio`` when an event loop is already running.
+
+    This enables ``run_sync()`` to work inside Jupyter notebooks and
+    other environments that already have an active asyncio event loop.
+    The patch is applied at most once per process.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # No running loop — nothing to patch
+
+    if not getattr(loop, "_nest_patched", False):
+        import nest_asyncio
+
+        nest_asyncio.apply()

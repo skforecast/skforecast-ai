@@ -62,15 +62,15 @@ def test_send_data_to_llm_default_false():
 
 
 # ---------------------------------------------------------------------------
-# Tests: Tier 0 — inspect
+# Tests: Tier 0 — profile
 # ---------------------------------------------------------------------------
-def test_tier0_inspect_output_when_valid_dataframe():
+def test_tier0_profile_output_when_valid_dataframe():
     """
-    Test that inspect() returns a DataProfile from a pandas DataFrame
+    Test that profile() returns a DataProfile from a pandas DataFrame
     without requiring an LLM.
     """
     assistant = ForecastingAssistant()
-    profile = assistant.inspect(data=df_fixture, target="sales", date_column="date")
+    profile = assistant.profile(data=df_fixture, target="sales", date_column="date")
 
     assert isinstance(profile, DataProfile)
     assert profile.target == "sales"
@@ -82,11 +82,11 @@ def test_tier0_inspect_output_when_valid_dataframe():
 
 def test_assistant_accept_csv_path(tmp_path):
     """
-    Test that inspect() accepts a string path to a CSV file.
+    Test that profile() accepts a string path to a CSV file.
     """
     csv_path = _write_csv(tmp_path)
     assistant = ForecastingAssistant()
-    profile = assistant.inspect(
+    profile = assistant.profile(
         data=str(csv_path), target="sales", date_column="date"
     )
 

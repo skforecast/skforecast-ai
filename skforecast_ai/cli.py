@@ -81,7 +81,7 @@ def _print_plan(plan) -> None:
 
 
 @app.command()
-def inspect(
+def profile(
     data_path: Annotated[Path, typer.Argument(help="Path to the CSV file.")],
     target: Annotated[str, typer.Option("--target", help="Target column name.")],
     date: Annotated[
@@ -97,7 +97,7 @@ def inspect(
     """Profile a time series dataset."""
     try:
         assistant = ForecastingAssistant()
-        profile = assistant.inspect(
+        profile = assistant.profile(
             data=data_path,
             target=target,
             date_column=date,
@@ -217,7 +217,7 @@ def generate_code_cmd(
 
 
 @app.command()
-def run(
+def forecast(
     data_path: Annotated[Path, typer.Argument(help="Path to the CSV file.")],
     target: Annotated[str, typer.Option("--target", help="Target column name.")],
     date: Annotated[
@@ -236,7 +236,7 @@ def run(
     """Execute a full forecasting workflow end-to-end."""
     try:
         assistant = ForecastingAssistant()
-        result = assistant.run(
+        result = assistant.forecast(
             data=data_path,
             target=target,
             date_column=date,

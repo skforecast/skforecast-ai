@@ -24,6 +24,12 @@ ALL_SKILLS = [
     "troubleshooting-common-errors",
 ]
 
+DEFAULT_SKILLS = [
+    "choosing-a-forecaster",
+    "forecasting-single-series",
+    "forecasting-multiple-series",
+]
+
 _SYSTEM_PROMPT_TEMPLATE = """\
 You are a forecasting assistant built on skforecast. Your role is to help \
 users build accurate time series forecasting pipelines.
@@ -174,7 +180,7 @@ def build_system_prompt(
     prompt : str
         Complete system prompt string ready for agent configuration.
     """
-    skill_names = skills if skills is not None else ALL_SKILLS
+    skill_names = skills if skills is not None else DEFAULT_SKILLS
 
     skills_parts = []
     for name in skill_names:
