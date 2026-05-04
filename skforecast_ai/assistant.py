@@ -420,6 +420,7 @@ class ForecastingAssistant:
             self._model = create_model(llm=self.llm, base_url=self.base_url)
         return self._model
 
+    # TODO: Review when reviews LLMs capabilities
     def _build_model_settings(self) -> dict | None:
         """
         Build provider-specific model settings.
