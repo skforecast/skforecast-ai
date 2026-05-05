@@ -71,14 +71,14 @@ def create_forecasting_agent(
     async def recommend(
         ctx: RunContext[None],
         profile: DataProfile,
-        horizon: int = 10,
+        steps: int = 10,
         prefer_foundation: bool = False,
         prefer_statistical: bool = False,
     ) -> ForecastPlan:
         """Generate a deterministic forecasting plan from a data profile."""
         return recommend_plan(
             profile=profile,
-            horizon=horizon,
+            steps=steps,
             prefer_foundation=prefer_foundation,
             prefer_statistical=prefer_statistical,
         )

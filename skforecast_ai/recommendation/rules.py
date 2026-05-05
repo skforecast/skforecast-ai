@@ -108,19 +108,16 @@ def select_estimator(
 
 
 def select_lags(
-    frequency: str | None,
-    inferred_seasonalities: list[int],
     n_observations: int,
 ) -> list[int]:
     """
-    Determine lag structure from frequency and detected seasonalities.
+    Determine a default lag structure based on dataset size.
+
+    This is a placeholder until ACF/PACF-based lag selection is
+    implemented.
 
     Parameters
     ----------
-    frequency : str or None
-        Pandas frequency string (e.g. `'h'`, `'D'`, `'ME'`).
-    inferred_seasonalities : list
-        Seasonal periods detected during profiling.
     n_observations : int
         Number of observations in the dataset.
 
@@ -131,20 +128,10 @@ def select_lags(
 
     Notes
     -----
-    Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md`,
-    `skforecast_ai/skills/feature-engineering/SKILL.md`.
+    Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md`.
     """
     max_lag = max(n_observations // 3, 1)
-
-    if not inferred_seasonalities:
-        return list(range(1, min(8, max_lag + 1)))
-
-    lags = set(range(1, min(8, max_lag + 1)))
-    for period in inferred_seasonalities:
-        if period <= max_lag:
-            lags.add(period)
-
-    return sorted(lags)
+    return list(range(1, min(8, max_lag + 1)))
 
 
 def select_metric(task_type: str) -> str:
@@ -170,7 +157,7 @@ def select_metric(task_type: str) -> str:
     return "mean_absolute_error"
 
 
-def select_backtesting(n_observations: int, horizon: int) -> str:
+def select_backtesting(n_observations: int, steps: int) -> str:
     """
     Choose the backtesting fold strategy.
 
@@ -178,8 +165,8 @@ def select_backtesting(n_observations: int, horizon: int) -> str:
     ----------
     n_observations : int
         Number of observations in the dataset.
-    horizon : int
-        Forecast horizon in number of steps.
+    steps : int
+        Forecast steps in number of steps.
 
     Returns
     -------
@@ -235,7 +222,8 @@ NAN_TOLERANT_ESTIMATORS: set[str] = {
 
 def select_dropna_from_series(
     estimator: str | None,
-    missing_values: dict[str, int],
+    missing_target: dict[str, int],
+    missing_exog: dict[str, int],
     task_type: str,
 ) -> bool | None:
     """
@@ -245,8 +233,10 @@ def select_dropna_from_series(
     ----------
     estimator : str or None
         Name of the scikit-learn compatible estimator.
-    missing_values : dict
-        Mapping of column name to count of missing values.
+    missing_target : dict
+        Mapping of target/series name to NaN count.
+    missing_exog : dict
+        Mapping of exogenous column name to count of missing values.
     task_type : str
         Forecasting task category.
 
@@ -264,7 +254,8 @@ def select_dropna_from_series(
     """
     if task_type in ("statistical", "foundation", "baseline"):
         return None
-    if not missing_values:
+    has_missing = bool(missing_target) or bool(missing_exog)
+    if not has_missing:
         return False
     if estimator in NAN_TOLERANT_ESTIMATORS:
         return False
@@ -309,13 +300,14 @@ def build_data_requirements(profile: DataProfile) -> list[str]:
     """
     requirements: list[str] = []
 
-    if profile.missing_values:
+    if profile.missing_target or profile.missing_exog:
         requirements.append("Impute missing values before training.")
 
     if profile.categorical_exog:
         requirements.append(
-            "Encode categorical exogenous variables or use an estimator "
-            "with native categorical support (e.g. LightGBM, CatBoost)."
+            "Categorical exogenous variables detected: "
+            f"{profile.categorical_exog}. These are handled automatically "
+            "by skforecast (categorical_features='auto')."
         )
 
     if profile.index_type != "datetime":

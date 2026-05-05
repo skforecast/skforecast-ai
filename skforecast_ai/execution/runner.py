@@ -21,6 +21,7 @@ def run_forecast(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
+    exog_future: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
     Execute a forecasting workflow programmatically.
@@ -33,6 +34,10 @@ def run_forecast(
         Profiled dataset metadata.
     plan : ForecastPlan
         Validated forecast plan produced by the recommendation engine.
+    exog_future : pandas DataFrame, default None
+        Exogenous variables covering the forecast horizon. If None and
+        exog is used, the last ``plan.steps`` rows of training exog are
+        used as a fallback.
 
     Returns
     -------
@@ -55,7 +60,7 @@ def run_forecast(
             f"Supported types: {supported}"
         )
 
-    return runner_fn(data, profile, plan)
+    return runner_fn(data, profile, plan, exog_future=exog_future)
 
 
 def _resolve_estimator(name: str | None):
@@ -133,6 +138,7 @@ def _run_single_series(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
+    exog_future: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
     Execute single-series forecasting with ForecasterRecursive or ForecasterDirect.
@@ -145,6 +151,8 @@ def _run_single_series(
         Profiled dataset metadata.
     plan : ForecastPlan
         Forecast plan.
+    exog_future : pandas DataFrame, default None
+        Exogenous variables for the forecast horizon.
 
     Returns
     -------
@@ -164,7 +172,7 @@ def _run_single_series(
         from skforecast.direct import ForecasterDirect
 
         forecaster = ForecasterDirect(
-            steps     = plan.horizon,
+            steps     = plan.steps,
             estimator = estimator,
             lags      = plan.lags,
         )
@@ -179,7 +187,6 @@ def _run_single_series(
     # Fit
     y_train = y.iloc[:n_train]
     exog_train = exog.iloc[:n_train] if exog is not None else None
-    exog_test = exog.iloc[n_train:] if exog is not None else None
 
     fit_kwargs: dict[str, Any] = {"y": y_train}
     if exog_train is not None:
@@ -190,7 +197,7 @@ def _run_single_series(
 
     # Backtesting
     cv = TimeSeriesFold(
-        steps              = plan.horizon,
+        steps              = plan.steps,
         initial_train_size = n_train,
         refit              = False,
     )
@@ -207,22 +214,32 @@ def _run_single_series(
     metric_value = float(metric_result.iloc[0, 0])
 
     # Re-fit for final predictions.
-    # With exog: fit on n-horizon rows, predict using last horizon rows' exog.
-    # Without exog: fit on ALL data, predict truly future steps.
-    if exog is not None:
-        n_final_train = len(y) - plan.horizon
-        y_final = y.iloc[:n_final_train]
-        exog_final_train = exog.iloc[:n_final_train]
-        exog_future = exog.iloc[n_final_train : n_final_train + plan.horizon]
-
-        final_fit_kwargs: dict[str, Any] = {"y": y_final, "exog": exog_final_train}
+    if exog_future is not None:
+        # User provided explicit future exog — fit on ALL data, predict forward.
+        final_fit_kwargs: dict[str, Any] = {"y": y, "exog": exog}
         if plan.interval_method is not None:
             final_fit_kwargs["store_in_sample_residuals"] = True
         forecaster.fit(**final_fit_kwargs)
 
         predict_kwargs: dict[str, Any] = {
-            "steps": plan.horizon,
+            "steps": plan.steps,
             "exog": exog_future,
+        }
+    elif exog is not None:
+        # No explicit future exog — fallback: use last `steps` rows as proxy.
+        n_final_train = len(y) - plan.steps
+        y_final = y.iloc[:n_final_train]
+        exog_final_train = exog.iloc[:n_final_train]
+        exog_fallback = exog.iloc[n_final_train : n_final_train + plan.steps]
+
+        final_fit_kwargs = {"y": y_final, "exog": exog_final_train}
+        if plan.interval_method is not None:
+            final_fit_kwargs["store_in_sample_residuals"] = True
+        forecaster.fit(**final_fit_kwargs)
+
+        predict_kwargs = {
+            "steps": plan.steps,
+            "exog": exog_fallback,
         }
     else:
         final_fit_kwargs = {"y": y}
@@ -230,7 +247,7 @@ def _run_single_series(
             final_fit_kwargs["store_in_sample_residuals"] = True
         forecaster.fit(**final_fit_kwargs)
 
-        predict_kwargs = {"steps": plan.horizon}
+        predict_kwargs = {"steps": plan.steps}
 
     predictions = forecaster.predict(**predict_kwargs)
 
@@ -238,12 +255,14 @@ def _run_single_series(
     intervals = None
     if plan.interval_method is not None:
         interval_kwargs: dict[str, Any] = {
-            "steps": plan.horizon,
+            "steps": plan.steps,
             "method": plan.interval_method,
             "interval": [10, 90],
         }
-        if exog is not None:
-            interval_kwargs["exog"] = exog_future
+        # Use the same exog that was passed to predict()
+        predict_exog = predict_kwargs.get("exog")
+        if predict_exog is not None:
+            interval_kwargs["exog"] = predict_exog
         intervals = forecaster.predict_interval(**interval_kwargs)
 
     preds = (
@@ -265,6 +284,7 @@ def _run_multi_series(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
+    exog_future: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
     Execute multi-series forecasting with ForecasterRecursiveMultiSeries.
@@ -277,6 +297,8 @@ def _run_multi_series(
         Profiled dataset metadata.
     plan : ForecastPlan
         Forecast plan.
+    exog_future : pandas DataFrame, default None
+        Exogenous variables for the forecast horizon (not yet supported).
 
     Returns
     -------
@@ -319,7 +341,7 @@ def _run_multi_series(
 
     # Backtesting
     cv = TimeSeriesFold(
-        steps              = plan.horizon,
+        steps              = plan.steps,
         initial_train_size = n_train,
         refit              = False,
     )
@@ -338,13 +360,13 @@ def _run_multi_series(
     forecaster.fit(**fit_kwargs)
 
     # Predict future steps beyond the end of the series
-    predictions = forecaster.predict(steps=plan.horizon)
+    predictions = forecaster.predict(steps=plan.steps)
 
     # Intervals
     intervals = None
     if plan.interval_method is not None:
         intervals = forecaster.predict_interval(
-            steps    = plan.horizon,
+            steps    = plan.steps,
             method   = plan.interval_method,
             interval = [10, 90],
         )
@@ -362,6 +384,7 @@ def _run_statistical(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
+    exog_future: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
     Execute statistical forecasting with ForecasterStats and Arima.
@@ -374,6 +397,8 @@ def _run_statistical(
         Profiled dataset metadata.
     plan : ForecastPlan
         Forecast plan.
+    exog_future : pandas DataFrame, default None
+        Exogenous variables for the forecast horizon (not yet supported).
 
     Returns
     -------
@@ -381,7 +406,8 @@ def _run_statistical(
         Execution results.
     """
     from skforecast.model_selection import TimeSeriesFold, backtesting_stats
-    from skforecast.stats import Arima, ForecasterStats
+    from skforecast.recursive import ForecasterStats
+    from skforecast.stats import Arima
 
     prepared = _prepare_single_series(data, profile, plan)
     y = prepared["y"]
@@ -397,7 +423,7 @@ def _run_statistical(
 
     # Backtesting
     cv = TimeSeriesFold(
-        steps              = plan.horizon,
+        steps              = plan.steps,
         initial_train_size = n_train,
         refit              = False,
     )
@@ -414,11 +440,11 @@ def _run_statistical(
     forecaster.fit(y=y)
 
     # Predict future steps beyond the end of the series
-    predictions = forecaster.predict(steps=plan.horizon)
+    predictions = forecaster.predict(steps=plan.steps)
 
     # Intervals (native)
     intervals = forecaster.predict_interval(
-        steps    = plan.horizon,
+        steps    = plan.steps,
         interval = [10, 90],
     )
 
@@ -441,6 +467,7 @@ def _run_foundation(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
+    exog_future: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
     Execute foundation model forecasting with ForecasterFoundation.
@@ -453,6 +480,8 @@ def _run_foundation(
         Profiled dataset metadata.
     plan : ForecastPlan
         Forecast plan.
+    exog_future : pandas DataFrame, default None
+        Exogenous variables for the forecast horizon (not yet supported).
 
     Returns
     -------
@@ -484,7 +513,7 @@ def _run_foundation(
 
     # Backtesting
     cv = TimeSeriesFold(
-        steps              = plan.horizon,
+        steps              = plan.steps,
         initial_train_size = n_train,
         refit              = False,
     )
@@ -498,11 +527,11 @@ def _run_foundation(
     metric_value = float(metric_result.iloc[0, 0])
 
     # Predict
-    predictions = forecaster.predict(steps=plan.horizon)
+    predictions = forecaster.predict(steps=plan.steps)
 
     # Quantile predictions (native)
     intervals = forecaster.predict_quantiles(
-        steps     = plan.horizon,
+        steps     = plan.steps,
         quantiles = [0.1, 0.5, 0.9],
     )
 

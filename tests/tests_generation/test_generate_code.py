@@ -74,8 +74,8 @@ def test_generate_code_output_when_direct_includes_steps():
 
     assert "ForecasterDirect" in code
     assert "steps" in code
-    assert (f"steps     = {plan_direct.horizon}" in code
-            or f"steps={plan_direct.horizon}" in code)
+    assert (f"steps     = {plan_direct.steps}" in code
+            or f"steps={plan_direct.steps}" in code)
 
 
 def test_generate_code_output_when_correct_metric():
@@ -183,18 +183,17 @@ def test_generate_code_ValueError_when_unsupported_task_type():
     from skforecast_ai.schemas import DataProfile, ForecastPlan
 
     profile = DataProfile(
-        n_observations         = 365,
         n_series               = 1,
+        n_observations         = 365,
+        target                 = "y",
         index_type             = "datetime",
         frequency              = "D",
-        target                 = "y",
-        inferred_seasonalities = [7],
     )
     plan = ForecastPlan(
         task_type            = "multivariate",
         forecaster           = "ForecasterDirectMultiVariate",
         estimator            = "Ridge",
-        horizon              = 10,
+        steps              = 10,
         frequency            = "D",
         lags                 = [1, 2, 3],
         metric               = "mean_absolute_error",
@@ -216,18 +215,17 @@ def test_generate_code_output_when_unknown_estimator_syntax():
     from skforecast_ai.schemas import DataProfile, ForecastPlan
 
     profile = DataProfile(
-        n_observations         = 365,
         n_series               = 1,
+        n_observations         = 365,
+        target                 = "y",
         index_type             = "datetime",
         frequency              = "D",
-        target                 = "y",
-        inferred_seasonalities = [7],
     )
     plan = ForecastPlan(
         task_type            = "single_series",
         forecaster           = "ForecasterRecursive",
         estimator            = "GradientBoostingRegressor",
-        horizon              = 10,
+        steps              = 10,
         frequency            = "D",
         lags                 = [1, 2, 3],
         metric               = "mean_absolute_error",
@@ -252,19 +250,18 @@ def test_generate_code_output_when_dropna_from_series_true():
     from skforecast_ai.schemas import DataProfile, ForecastPlan
 
     profile = DataProfile(
-        n_observations         = 200,
         n_series               = 1,
-        index_type             = "datetime",
-        frequency              = "D",
+        n_observations         = 200,
         target                 = "y",
         missing_values         = {"y": 5},
-        inferred_seasonalities = [7],
+        index_type             = "datetime",
+        frequency              = "D",
     )
     plan = ForecastPlan(
         task_type            = "single_series",
         forecaster           = "ForecasterRecursive",
         estimator            = "Ridge",
-        horizon              = 10,
+        steps              = 10,
         frequency            = "D",
         lags                 = [1, 2, 3, 4, 5, 6, 7],
         metric               = "mean_absolute_error",

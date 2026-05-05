@@ -64,7 +64,7 @@ class ForecastingAssistant:
     def profile(
         self,
         data: pd.DataFrame | str | Path,
-        target: str,
+        target: str | list[str],
         date_column: str | None = None,
         series_id_column: str | None = None,
     ) -> DataProfile:
@@ -75,8 +75,9 @@ class ForecastingAssistant:
         ----------
         data : pandas DataFrame, str, Path
             Input dataset or path to a CSV file.
-        target : str
-            Name of the column to forecast.
+        target : str, list
+            Name of the column to forecast. For wide-format multi-series,
+            pass a list of column names where each column is a series.
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
@@ -97,10 +98,10 @@ class ForecastingAssistant:
     def recommend(
         self,
         data: pd.DataFrame | str | Path,
-        target: str,
+        target: str | list[str],
         date_column: str | None = None,
         series_id_column: str | None = None,
-        horizon: int = 10,
+        steps: int = 10,
         **kwargs,
     ) -> RecommendResult:
         """
@@ -110,13 +111,14 @@ class ForecastingAssistant:
         ----------
         data : pandas DataFrame, str, Path
             Input dataset or path to a CSV file.
-        target : str
-            Name of the column to forecast.
+        target : str, list
+            Name of the column to forecast. For wide-format multi-series,
+            pass a list of column names where each column is a series.
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
             Name of the column identifying individual series.
-        horizon : int, default 10
+        steps : int, default 10
             Number of steps ahead to predict.
         **kwargs
             Additional keyword arguments passed to `recommend_plan()`.
@@ -126,22 +128,25 @@ class ForecastingAssistant:
         result : RecommendResult
             Contains the data profile and recommended forecast plan.
         """
+        if isinstance(data, (str, Path)):
+            data = pd.read_csv(data, parse_dates=True)
+
         profile = create_data_profile(
             data=data,
             target=target,
             date_column=date_column,
             series_id_column=series_id_column,
         )
-        plan = recommend_plan(profile=profile, horizon=horizon, **kwargs)
+        plan = recommend_plan(profile=profile, steps=steps, data=data, **kwargs)
         return RecommendResult(profile=profile, plan=plan)
 
     def generate_code(
         self,
         data: pd.DataFrame | str | Path,
-        target: str,
+        target: str | list[str],
         date_column: str | None = None,
         series_id_column: str | None = None,
-        horizon: int = 10,
+        steps: int = 10,
         data_path: str = "data.csv",
         **kwargs,
     ) -> GenerateResult:
@@ -152,13 +157,14 @@ class ForecastingAssistant:
         ----------
         data : pandas DataFrame, str, Path
             Input dataset or path to a CSV file.
-        target : str
-            Name of the column to forecast.
+        target : str, list
+            Name of the column to forecast. For wide-format multi-series,
+            pass a list of column names where each column is a series.
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
             Name of the column identifying individual series.
-        horizon : int, default 10
+        steps : int, default 10
             Number of steps ahead to predict.
         data_path : str, default `'data.csv'`
             File path used in the generated script for loading data.
@@ -170,23 +176,27 @@ class ForecastingAssistant:
         result : GenerateResult
             Contains the data profile, forecast plan, and generated code.
         """
+        if isinstance(data, (str, Path)):
+            data = pd.read_csv(data, parse_dates=True)
+
         profile = create_data_profile(
             data=data,
             target=target,
             date_column=date_column,
             series_id_column=series_id_column,
         )
-        plan = recommend_plan(profile=profile, horizon=horizon, **kwargs)
+        plan = recommend_plan(profile=profile, steps=steps, data=data, **kwargs)
         code = generate_code(plan=plan, profile=profile, data_path=data_path)
         return GenerateResult(profile=profile, plan=plan, code=code)
 
     def forecast(
         self,
         data: pd.DataFrame | str | Path,
-        target: str,
+        target: str | list[str],
         date_column: str | None = None,
         series_id_column: str | None = None,
-        horizon: int = 10,
+        steps: int = 10,
+        exog_future: pd.DataFrame | None = None,
         **kwargs,
     ) -> RunResult:
         """
@@ -196,14 +206,20 @@ class ForecastingAssistant:
         ----------
         data : pandas DataFrame, str, Path
             Input dataset or path to a CSV file.
-        target : str
-            Name of the column to forecast.
+        target : str, list
+            Name of the column to forecast. For wide-format multi-series,
+            pass a list of column names where each column is a series.
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
             Name of the column identifying individual series.
-        horizon : int, default 10
+        steps : int, default 10
             Number of steps ahead to predict.
+        exog_future : pandas DataFrame, default None
+            Exogenous variables covering the forecast horizon (``steps``
+            rows). Required for final predictions when exogenous variables
+            are used. If None and exog is present, the last ``steps`` rows
+            of the training data exog are used (backtesting mode).
         **kwargs
             Additional keyword arguments passed to `recommend_plan()`.
 
@@ -220,7 +236,7 @@ class ForecastingAssistant:
         parameters derived from the recommended `ForecastPlan`.
         """
         if isinstance(data, (str, Path)):
-            data = pd.read_csv(data)
+            data = pd.read_csv(data, parse_dates=True)
 
         profile = create_data_profile(
             data=data,
@@ -228,12 +244,14 @@ class ForecastingAssistant:
             date_column=date_column,
             series_id_column=series_id_column,
         )
-        plan = recommend_plan(profile=profile, horizon=horizon, **kwargs)
+        plan = recommend_plan(profile=profile, steps=steps, data=data, **kwargs)
         code = generate_code(plan=plan, profile=profile, data_path="data.csv")
 
         run_warnings = validate_run_inputs(data=data, profile=profile, plan=plan)
 
-        result = run_forecast(data=data, profile=profile, plan=plan)
+        result = run_forecast(
+            data=data, profile=profile, plan=plan, exog_future=exog_future
+        )
 
         all_warnings = run_warnings + result.get("warnings", [])
 
@@ -326,7 +344,7 @@ class ForecastingAssistant:
                 result = self.recommend(
                     data=data,
                     target=_target,
-                    horizon=10,
+                    steps=10,
                 )
                 return AskResult(
                     plan=result.plan,
@@ -376,8 +394,8 @@ class ForecastingAssistant:
 
             if profile is None:
                 profile = DataProfile(
-                    n_observations=0,
                     n_series=1,
+                    n_observations=0,
                     index_type="datetime",
                     target="unknown",
                 )

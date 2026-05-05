@@ -19,13 +19,25 @@ app = typer.Typer(
 console = Console()
 
 
+def _parse_target(target: str) -> str | list[str]:
+    """Parse comma-separated target into str or list[str]."""
+    parts = [t.strip() for t in target.split(",")]
+    if len(parts) == 1:
+        return parts[0]
+    return parts
+
+
 def _print_profile(profile) -> None:
     """Print a DataProfile as a Rich table."""
     table = Table(title="Data Profile")
     table.add_column("Field", style="bold")
     table.add_column("Value")
 
-    table.add_row("Target", profile.target)
+    target_str = (
+        ", ".join(profile.target) if isinstance(profile.target, list)
+        else profile.target
+    )
+    table.add_row("Target", target_str)
     table.add_row("Observations", str(profile.n_observations))
     table.add_row("Series", str(profile.n_series))
     table.add_row("Index type", profile.index_type)
@@ -34,13 +46,16 @@ def _print_profile(profile) -> None:
     table.add_row("Series ID column", profile.series_id_column or "—")
     table.add_row("Exog columns", ", ".join(profile.exog_columns) or "None")
     table.add_row("Categorical exog", ", ".join(profile.categorical_exog) or "None")
-    table.add_row("Seasonalities", str(profile.inferred_seasonalities) or "None")
 
-    if profile.missing_values:
-        missing_str = ", ".join(
-            f"{col}: {count}" for col, count in profile.missing_values.items()
+    if profile.missing_target or profile.missing_exog:
+        parts = []
+        parts.extend(
+            f"{col}: {count}" for col, count in profile.missing_target.items()
         )
-        table.add_row("Missing values", missing_str)
+        parts.extend(
+            f"{col}: {count}" for col, count in profile.missing_exog.items()
+        )
+        table.add_row("Missing values", ", ".join(parts))
     else:
         table.add_row("Missing values", "None")
 
@@ -59,7 +74,7 @@ def _print_plan(plan) -> None:
     table.add_row("Task type", plan.task_type)
     table.add_row("Forecaster", plan.forecaster)
     table.add_row("Estimator", plan.estimator or "—")
-    table.add_row("Horizon", str(plan.horizon))
+    table.add_row("steps", str(plan.steps))
     table.add_row("Frequency", plan.frequency or "Unknown")
     table.add_row("Lags", str(plan.lags))
     table.add_row("Metric", plan.metric)
@@ -99,7 +114,7 @@ def profile(
         assistant = ForecastingAssistant()
         profile = assistant.profile(
             data=data_path,
-            target=target,
+            target=_parse_target(target),
             date_column=date,
             series_id_column=series_id,
         )
@@ -129,8 +144,8 @@ def recommend(
     series_id: Annotated[
         str | None, typer.Option("--series-id", help="Series ID column name.")
     ] = None,
-    horizon: Annotated[
-        int, typer.Option("--horizon", help="Forecast horizon (steps ahead).")
+    steps: Annotated[
+        int, typer.Option("--steps", help="Forecast steps (steps ahead).")
     ] = 10,
     output_json: Annotated[
         bool, typer.Option("--json", help="Output as JSON.")
@@ -141,10 +156,10 @@ def recommend(
         assistant = ForecastingAssistant()
         result = assistant.recommend(
             data=data_path,
-            target=target,
+            target=_parse_target(target),
             date_column=date,
             series_id_column=series_id,
-            horizon=horizon,
+            steps=steps,
         )
         plan = result.plan
     except FileNotFoundError:
@@ -173,8 +188,8 @@ def generate_code_cmd(
     series_id: Annotated[
         str | None, typer.Option("--series-id", help="Series ID column name.")
     ] = None,
-    horizon: Annotated[
-        int, typer.Option("--horizon", help="Forecast horizon (steps ahead).")
+    steps: Annotated[
+        int, typer.Option("--steps", help="Forecast steps (steps ahead).")
     ] = 10,
     output: Annotated[
         Path | None, typer.Option("--output", help="Write code to this file.")
@@ -188,10 +203,10 @@ def generate_code_cmd(
         assistant = ForecastingAssistant()
         result = assistant.generate_code(
             data=data_path,
-            target=target,
+            target=_parse_target(target),
             date_column=date,
             series_id_column=series_id,
-            horizon=horizon,
+            steps=steps,
             data_path=str(data_path),
         )
         plan = result.plan
@@ -226,8 +241,8 @@ def forecast(
     series_id: Annotated[
         str | None, typer.Option("--series-id", help="Series ID column name.")
     ] = None,
-    horizon: Annotated[
-        int, typer.Option("--horizon", help="Forecast horizon (steps ahead).")
+    steps: Annotated[
+        int, typer.Option("--steps", help="Forecast steps (steps ahead).")
     ] = 10,
     output_json: Annotated[
         bool, typer.Option("--json", help="Output as JSON.")
@@ -238,10 +253,10 @@ def forecast(
         assistant = ForecastingAssistant()
         result = assistant.forecast(
             data=data_path,
-            target=target,
+            target=_parse_target(target),
             date_column=date,
             series_id_column=series_id,
-            horizon=horizon,
+            steps=steps,
         )
     except FileNotFoundError:
         console.print(f"[red]Error:[/red] File not found: {data_path}")
@@ -280,8 +295,8 @@ def explain(
     series_id: Annotated[
         str | None, typer.Option("--series-id", help="Series ID column name.")
     ] = None,
-    horizon: Annotated[
-        int, typer.Option("--horizon", help="Forecast horizon (steps ahead).")
+    steps: Annotated[
+        int, typer.Option("--steps", help="Forecast steps (steps ahead).")
     ] = 10,
     llm: Annotated[
         str | None,
@@ -299,7 +314,7 @@ def explain(
             target=target,
             date_column=date,
             series_id_column=series_id,
-            horizon=horizon,
+            steps=steps,
         )
         plan = result.plan
 

@@ -29,7 +29,6 @@ def test_create_data_profile_output_when_single_series_daily():
     assert profile.date_column is None
     assert profile.series_id_column is None
     assert profile.exog_columns == []
-    assert 7 in profile.inferred_seasonalities
 
 
 def test_create_data_profile_output_when_single_series_hourly_with_exog():
@@ -44,7 +43,6 @@ def test_create_data_profile_output_when_single_series_hourly_with_exog():
     assert profile.index_type == "datetime"
     assert set(profile.exog_columns) == {"temperature", "promo_budget", "holiday"}
     assert "holiday" in profile.categorical_exog
-    assert 24 in profile.inferred_seasonalities
 
 
 def test_create_data_profile_output_when_multi_series_long_format():
@@ -60,6 +58,9 @@ def test_create_data_profile_output_when_multi_series_long_format():
     )
 
     assert profile.n_series == 3
+    assert profile.n_observations == 100  # min series length (all equal here)
+    assert profile.series_lengths == {"A": 100, "B": 100, "C": 100}
+    assert profile.data_format == "long"
     assert profile.series_id_column == "series_id"
     assert profile.date_column == "date"
     assert profile.index_type == "datetime"
@@ -76,7 +77,8 @@ def test_create_data_profile_output_when_missing_values_detected():
     """
     profile = create_data_profile(data=df_with_missing, target="target")
 
-    assert profile.missing_values == {"target": 3, "exog": 2}
+    assert profile.missing_target == {"target": 3}
+    assert profile.missing_exog == {"exog": 2}
 
 
 def test_create_data_profile_output_when_no_datetime_index():
@@ -88,7 +90,6 @@ def test_create_data_profile_output_when_no_datetime_index():
 
     assert profile.index_type == "range"
     assert profile.frequency is None
-    assert profile.inferred_seasonalities == []
     assert any("No datetime index" in w for w in profile.warnings)
 
 

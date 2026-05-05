@@ -4,19 +4,18 @@ from skforecast_ai.schemas import DataProfile, ForecastPlan
 
 # --- Single series, ForecasterRecursive, no exog ---
 profile_recursive_no_exog = DataProfile(
-    n_observations         = 365,
     n_series               = 1,
+    n_observations         = 365,
+    target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
-    target                 = "y",
-    inferred_seasonalities = [7, 365],
 )
 
 plan_recursive_no_exog = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
     estimator            = "LGBMRegressor",
-    horizon              = 30,
+    steps              = 30,
     frequency            = "D",
     lags                 = [1, 2, 3, 4, 5, 6, 7],
     metric               = "mean_absolute_error",
@@ -28,21 +27,20 @@ plan_recursive_no_exog = ForecastPlan(
 
 # --- Single series, ForecasterRecursive, with exog ---
 profile_recursive_with_exog = DataProfile(
-    n_observations         = 720,
     n_series               = 1,
+    n_observations         = 720,
+    target                 = "sales",
     index_type             = "datetime",
     frequency              = "h",
-    target                 = "sales",
     exog_columns           = ["temperature", "promo_budget"],
     categorical_exog       = [],
-    inferred_seasonalities = [24, 168],
 )
 
 plan_recursive_with_exog = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
     estimator            = "LGBMRegressor",
-    horizon              = 24,
+    steps              = 24,
     frequency            = "h",
     lags                 = [1, 2, 3, 4, 5, 6, 7, 24],
     metric               = "mean_absolute_error",
@@ -54,26 +52,25 @@ plan_recursive_with_exog = ForecastPlan(
 
 # --- Single series, ForecasterDirect ---
 profile_direct = DataProfile(
-    n_observations         = 365,
     n_series               = 1,
+    n_observations         = 365,
+    target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
-    target                 = "y",
-    inferred_seasonalities = [7],
 )
 
 plan_direct = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterDirect",
     estimator            = "Ridge",
-    horizon              = 14,
+    steps              = 14,
     frequency            = "D",
     lags                 = [1, 2, 3, 4, 5, 6, 7],
     metric               = "mean_absolute_error",
     backtesting_strategy = "TimeSeriesFold",
     interval_method      = "bootstrapping",
     use_exog             = False,
-    rationale            = "Direct forecaster for horizon-dependent patterns.",
+    rationale            = "Direct forecaster for steps-dependent patterns.",
 )
 
 # --- Single series, no interval method ---
@@ -81,7 +78,7 @@ plan_recursive_no_interval = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
     estimator            = "Ridge",
-    horizon              = 10,
+    steps              = 10,
     frequency            = "D",
     lags                 = [1, 2, 3, 4, 5, 6, 7],
     metric               = "mean_absolute_error",
@@ -93,22 +90,21 @@ plan_recursive_no_interval = ForecastPlan(
 
 # --- Multi-series ---
 profile_multi_series = DataProfile(
-    n_observations         = 300,
     n_series               = 3,
-    index_type             = "datetime",
-    frequency              = "D",
+    n_observations         = 300,
     target                 = "sales",
     date_column            = "date",
     series_id_column       = "series_id",
+    index_type             = "datetime",
+    frequency              = "D",
     exog_columns           = [],
-    inferred_seasonalities = [7],
 )
 
 plan_multi_series = ForecastPlan(
     task_type            = "multi_series",
     forecaster           = "ForecasterRecursiveMultiSeries",
     estimator            = "LGBMRegressor",
-    horizon              = 14,
+    steps              = 14,
     frequency            = "D",
     lags                 = [1, 2, 3, 4, 5, 6, 7],
     metric               = "mean_absolute_error",
@@ -120,19 +116,18 @@ plan_multi_series = ForecastPlan(
 
 # --- Statistical ---
 profile_statistical = DataProfile(
-    n_observations         = 365,
     n_series               = 1,
+    n_observations         = 365,
+    target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
-    target                 = "y",
-    inferred_seasonalities = [7, 365],
 )
 
 plan_statistical = ForecastPlan(
     task_type            = "statistical",
     forecaster           = "ForecasterStats",
     estimator            = None,
-    horizon              = 30,
+    steps              = 30,
     frequency            = "D",
     lags                 = None,
     metric               = "mean_absolute_error",
@@ -144,19 +139,18 @@ plan_statistical = ForecastPlan(
 
 # --- Foundation ---
 profile_foundation = DataProfile(
-    n_observations         = 365,
     n_series               = 1,
+    n_observations         = 365,
+    target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
-    target                 = "y",
-    inferred_seasonalities = [7, 365],
 )
 
 plan_foundation = ForecastPlan(
     task_type            = "foundation",
     forecaster           = "ForecasterFoundation",
     estimator            = None,
-    horizon              = 30,
+    steps              = 30,
     frequency            = "D",
     lags                 = None,
     metric               = "mean_absolute_error",

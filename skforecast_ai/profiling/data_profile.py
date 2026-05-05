@@ -2,15 +2,16 @@
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from ..schemas import DataProfile
-from .frequency import estimate_seasonality, infer_frequency
+from .frequency import infer_frequency
 
 
 def create_data_profile(
     data: pd.DataFrame | str | Path,
-    target: str,
+    target: str | list[str],
     date_column: str | None = None,
     series_id_column: str | None = None,
 ) -> DataProfile:
@@ -22,14 +23,16 @@ def create_data_profile(
     data : pandas DataFrame, str, Path
         Input dataset. If a string or Path, it is treated as a CSV file path
         and loaded with `pandas.read_csv`.
-    target : str
-        Name of the column to forecast.
+    target : str, list
+        Name of the column to forecast. For wide-format multi-series data,
+        pass a list of column names where each column is a series.
     date_column : str, default None
         Name of the column containing timestamps. If None, the function
         attempts to detect it from the index or columns.
     series_id_column : str, default None
         Name of the column identifying individual series in long format.
-        If None, the dataset is treated as a single series.
+        If None and target is a string, the dataset is treated as a
+        single series.
 
     Returns
     -------
@@ -38,45 +41,88 @@ def create_data_profile(
         warnings about the dataset.
     """
     if isinstance(data, (str, Path)):
+        # Assumes the CSV was exported from a DataFrame with a DatetimeIndex,
+        # so the first column is the date index. When called via the assistant,
+        # CSV loading is done before reaching this function (without index_col)
+        # to support explicit date_column detection.
         data = pd.read_csv(data, parse_dates=True, index_col=0)
+
+    # Determine data format from user input
+    data_format = _resolve_data_format(target, series_id_column)
+
+    # Validate target columns exist
+    _validate_target_exists(data, target)
 
     date_col, index_type = detect_date_column(data, date_column)
 
-    if index_type == "datetime" and date_col is None:
-        datetime_index = data.index
-    elif date_col is not None and date_col in data.columns:
-        datetime_index = pd.DatetimeIndex(data[date_col])
-    else:
-        datetime_index = None
+    # Extract a datetime index suitable for quality checks (frequency,
+    # gaps, duplicates, monotonicity). For long format, use a single
+    # representative series to avoid stacked dates breaking inference.
+    datetime_index = _extract_datetime_index(
+        data, date_col, index_type, data_format, series_id_column
+    )
 
     frequency = infer_frequency(datetime_index) if datetime_index is not None else None
 
-    n_series, resolved_series_id = detect_series_structure(
-        data, target, date_col, series_id_column
+    # Compute n_series, n_observations, and series_lengths
+    n_series, n_observations, series_lengths = _compute_series_metrics(
+        data, target, series_id_column, data_format
     )
 
-    exog_columns = detect_exog_columns(data, target, date_col, resolved_series_id)
-    categorical_exog = detect_categorical_exog(data, exog_columns)
-    missing_values = count_missing_values(data)
-    inferred_seasonalities = estimate_seasonality(frequency)
+    # Target dtype (use first target column for multi)
+    first_target = target[0] if isinstance(target, list) else target
+    target_dtype = detect_target_dtype(data, first_target)
 
-    n_observations = len(data)
+    has_gaps = detect_gaps(datetime_index, frequency)
+    has_duplicate_timestamps = detect_duplicate_timestamps(datetime_index)
+    index_is_monotonic = _check_monotonic(datetime_index, data)
+    frequency_is_set = _check_frequency_is_set(datetime_index, data)
+
+    # Early stop: constant target makes forecasting meaningless
+    if _check_target_is_constant(data, first_target):
+        raise ValueError(
+            f"Target column '{first_target}' is constant (zero variance). "
+            "Forecasting a constant series is not meaningful."
+        )
+
+    exog_columns = detect_exog_columns(
+        data, target, date_col, series_id_column
+    )
+    categorical_exog = detect_categorical_exog(data, exog_columns)
+    missing_target, missing_exog = count_missing_values(
+        data, target, exog_columns, data_format, series_id_column
+    )
+    target_stats = compute_target_stats(data, target, data_format, series_id_column)
+
     warnings = generate_warnings(
-        n_observations, frequency, missing_values, index_type
+        n_observations, frequency, missing_target, missing_exog, index_type
     )
 
     return DataProfile(
-        n_observations=n_observations,
+        # Structure / Format
+        data_format=data_format,
         n_series=n_series,
+        n_observations=n_observations,
+        series_lengths=series_lengths,
+        # Target
+        target=target,
+        target_dtype=target_dtype,
+        target_stats=target_stats,
+        missing_target=missing_target,
+        # Index / Time
+        date_column=date_col,
+        series_id_column=series_id_column,
         index_type=index_type,
         frequency=frequency,
-        target=target,
-        date_column=date_col,
-        series_id_column=resolved_series_id,
+        frequency_is_set=frequency_is_set,
+        index_is_monotonic=index_is_monotonic,
+        has_gaps=has_gaps,
+        has_duplicate_timestamps=has_duplicate_timestamps,
+        # Exogenous
         exog_columns=exog_columns,
         categorical_exog=categorical_exog,
-        missing_values=missing_values,
-        inferred_seasonalities=inferred_seasonalities,
+        missing_exog=missing_exog,
+        # Diagnostics
         warnings=warnings,
     )
 
@@ -130,6 +176,10 @@ def detect_series_structure(
     """
     Determine the number of series and the series identifier column.
 
+    .. deprecated::
+        Use `_compute_series_metrics` instead. Kept for backwards
+        compatibility with any external callers.
+
     Parameters
     ----------
     data : pandas DataFrame
@@ -155,9 +205,148 @@ def detect_series_structure(
     return 1, None
 
 
+def _resolve_data_format(
+    target: str | list[str],
+    series_id_column: str | None,
+) -> str:
+    """
+    Derive the data format from user-provided arguments.
+
+    Parameters
+    ----------
+    target : str, list
+        Target column name(s).
+    series_id_column : str, None
+        Series identifier column for long format.
+
+    Returns
+    -------
+    data_format : str
+        One of `'single'`, `'wide'`, `'long'`.
+    """
+    if isinstance(target, list):
+        return "wide"
+    if series_id_column is not None:
+        return "long"
+    return "single"
+
+
+def _compute_series_metrics(
+    data: pd.DataFrame,
+    target: str | list[str],
+    series_id_column: str | None,
+    data_format: str,
+) -> tuple[int, int, dict[str, int] | None]:
+    """
+    Compute n_series, n_observations (per series), and series_lengths.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    target : str, list
+        Target column name(s).
+    series_id_column : str, None
+        Series identifier column for long format.
+    data_format : str
+        One of `'single'`, `'wide'`, `'long'`.
+
+    Returns
+    -------
+    n_series : int
+        Number of individual time series.
+    n_observations : int
+        Observations per series (min for long format).
+    series_lengths : dict, None
+        Per-series observation counts. None for single series.
+    """
+    if data_format == "wide":
+        target_cols = target if isinstance(target, list) else [target]
+        n_series = len(target_cols)
+        # All series share the same index, so physical length = len(data)
+        series_lengths = {col: len(data) for col in target_cols}
+        n_observations = len(data)
+        return n_series, n_observations, series_lengths
+
+    if data_format == "long":
+        if series_id_column is not None and series_id_column in data.columns:
+            group_sizes = data.groupby(series_id_column).size()
+            series_lengths = {
+                str(name): int(length)
+                for name, length in group_sizes.items()
+            }
+            n_series = len(series_lengths)
+            n_observations = min(series_lengths.values())
+            return n_series, n_observations, series_lengths
+        # Fallback: series_id_column not in data
+        return 1, len(data), None
+
+    # Single series
+    return 1, len(data), None
+
+
+def _extract_datetime_index(
+    data: pd.DataFrame,
+    date_col: str | None,
+    index_type: str,
+    data_format: str,
+    series_id_column: str | None,
+) -> pd.DatetimeIndex | None:
+    """
+    Extract a representative DatetimeIndex for quality checks.
+
+    For single and wide formats, the index comes directly from the
+    DataFrame's index or a detected date column. For long format,
+    uses the first series to avoid stacked dates from multiple series
+    breaking frequency inference and duplicate detection.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    date_col : str, None
+        Resolved date column name.
+    index_type : str
+        One of `'datetime'`, `'range'`, `'other'`.
+    data_format : str
+        One of `'single'`, `'wide'`, `'long'`.
+    series_id_column : str, None
+        Series identifier column (only relevant for long format).
+
+    Returns
+    -------
+    datetime_index : pandas DatetimeIndex, None
+        A DatetimeIndex representing one series, suitable for frequency
+        inference and quality checks. None if no datetime source exists.
+    """
+    if index_type != "datetime":
+        return None
+
+    if data_format == "long" and series_id_column is not None:
+        # Extract dates from the first series only
+        if series_id_column in data.columns:
+            first_id = data[series_id_column].iloc[0]
+            sample = data[data[series_id_column] == first_id]
+            if date_col is not None and date_col in sample.columns:
+                return pd.DatetimeIndex(sample[date_col])
+            if isinstance(sample.index, pd.DatetimeIndex):
+                return sample.index
+        return None
+
+    # Single or wide format
+    if date_col is None:
+        # DatetimeIndex is already the DataFrame index
+        return data.index if isinstance(data.index, pd.DatetimeIndex) else None
+
+    if date_col in data.columns:
+        return pd.DatetimeIndex(data[date_col])
+
+    return None
+
+
 def detect_exog_columns(
     data: pd.DataFrame,
-    target: str,
+    target: str | list[str],
     date_column: str | None,
     series_id_column: str | None,
 ) -> list[str]:
@@ -168,8 +357,8 @@ def detect_exog_columns(
     ----------
     data : pandas DataFrame
         Input dataset.
-    target : str
-        Name of the target column.
+    target : str, list
+        Name(s) of the target column(s).
     date_column : str, default None
         Name of the date column.
     series_id_column : str, default None
@@ -180,7 +369,11 @@ def detect_exog_columns(
     exog_columns : list
         Names of exogenous predictor columns.
     """
-    excluded = {target}
+    excluded: set[str] = set()
+    if isinstance(target, list):
+        excluded.update(target)
+    else:
+        excluded.add(target)
     if date_column is not None:
         excluded.add(date_column)
     if series_id_column is not None:
@@ -220,29 +413,149 @@ def detect_categorical_exog(
     return categorical
 
 
-def count_missing_values(data: pd.DataFrame) -> dict[str, int]:
+def count_missing_values(
+    data: pd.DataFrame,
+    target: str | list[str],
+    exog_columns: list[str],
+    data_format: str = "single",
+    series_id_column: str | None = None,
+) -> tuple[dict[str, int], dict[str, int]]:
     """
-    Count missing values per column.
+    Count missing values separately for target and exogenous columns.
 
     Parameters
     ----------
     data : pandas DataFrame
         Input dataset.
+    target : str, list
+        Name(s) of the target column(s).
+    exog_columns : list
+        Names of exogenous columns.
+    data_format : str, default 'single'
+        One of `'single'`, `'wide'`, `'long'`.
+    series_id_column : str, default None
+        Series identifier column (only for long format).
 
     Returns
     -------
-    missing : dict
-        Mapping of column name to count of missing values. Only columns
-        with at least one missing value are included.
+    missing_target : dict
+        Mapping of target column or series name to NaN count.
+        Only entries with at least one missing value are included.
+    missing_exog : dict
+        Mapping of exogenous column name to count of missing values.
+        Only columns with at least one missing value are included.
     """
-    counts = data.isna().sum()
-    return {col: int(count) for col, count in counts.items() if count > 0}
+    target_cols = target if isinstance(target, list) else [target]
+
+    if data_format == "long" and series_id_column is not None:
+        # Count NaN in target per series_id
+        target_col = target_cols[0]
+        missing_per_series = (
+            data.groupby(series_id_column)[target_col]
+            .apply(lambda s: int(s.isna().sum()))
+        )
+        missing_target = {
+            str(name): count
+            for name, count in missing_per_series.items()
+            if count > 0
+        }
+    else:
+        # Single or wide: each target column is a key
+        missing_target = {}
+        for col in target_cols:
+            count = int(data[col].isna().sum())
+            if count > 0:
+                missing_target[col] = count
+
+    missing_exog = {}
+    for col in exog_columns:
+        count = int(data[col].isna().sum())
+        if count > 0:
+            missing_exog[col] = count
+
+    return missing_target, missing_exog
+
+
+def compute_target_stats(
+    data: pd.DataFrame,
+    target: str | list[str],
+    data_format: str = "single",
+    series_id_column: str | None = None,
+) -> dict[str, dict[str, float]]:
+    """
+    Compute descriptive statistics (min, max, mean, std) for each target series.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    target : str, list
+        Name(s) of the target column(s).
+    data_format : str, default 'single'
+        One of `'single'`, `'wide'`, `'long'`.
+    series_id_column : str, default None
+        Series identifier column (only for long format).
+
+    Returns
+    -------
+    target_stats : dict
+        Mapping of series/column name to a dict with keys ``'min'``,
+        ``'max'``, ``'mean'``, ``'std'``. Series with no valid
+        observations are omitted.
+    """
+    target_cols = target if isinstance(target, list) else [target]
+    stats: dict[str, dict[str, float]] = {}
+
+    if data_format == "long" and series_id_column is not None:
+        target_col = target_cols[0]
+        for series_name, group in data.groupby(series_id_column):
+            series_stats = _series_stats(group[target_col])
+            if series_stats is not None:
+                stats[str(series_name)] = series_stats
+    else:
+        for col in target_cols:
+            col_stats = _series_stats(data[col])
+            if col_stats is not None:
+                stats[col] = col_stats
+
+    return stats
+
+
+def _series_stats(series: pd.Series) -> dict[str, float] | None:
+    """
+    Compute min, max, mean, std from a pandas Series, ignoring NaN.
+
+    Returns None if the series is non-numeric or has no valid values.
+    """
+    if not pd.api.types.is_numeric_dtype(series):
+        return None
+    values = series.to_numpy(dtype=float, na_value=np.nan)
+    return _array_stats(values)
+
+
+def _array_stats(values: np.ndarray) -> dict[str, float] | None:
+    """
+    Compute min, max, mean, std from a 1-D numpy array, ignoring NaN.
+
+    Returns None if no valid (non-NaN) values exist.
+    """
+    mask = ~np.isnan(values)
+    clean = values[mask]
+    if len(clean) == 0:
+        return None
+    return {
+        "min": float(np.min(clean)),
+        "max": float(np.max(clean)),
+        "mean": float(np.mean(clean)),
+        "std": float(np.std(clean, ddof=1)) if len(clean) > 1 else 0.0,
+    }
 
 
 def generate_warnings(
     n_observations: int,
     frequency: str | None,
-    missing_values: dict[str, int],
+    missing_target: dict[str, int],
+    missing_exog: dict[str, int],
     index_type: str,
 ) -> list[str]:
     """
@@ -254,8 +567,10 @@ def generate_warnings(
         Total number of observations.
     frequency : str, None
         Inferred frequency string.
-    missing_values : dict
-        Mapping of column name to count of missing values.
+    missing_target : dict
+        Mapping of target/series name to NaN count.
+    missing_exog : dict
+        Mapping of exogenous column name to count of missing values.
     index_type : str
         Type of the index (`'datetime'`, `'range'`, `'other'`).
 
@@ -284,9 +599,14 @@ def generate_warnings(
             "The series may have irregular spacing or gaps."
         )
 
-    if missing_values:
-        total_missing = sum(missing_values.values())
-        missing_rate = total_missing / (n_observations * len(missing_values))
+    total_target_missing = sum(missing_target.values())
+    total_exog_missing = sum(missing_exog.values())
+    total_missing = total_target_missing + total_exog_missing
+    if total_missing > 0:
+        n_cols = len(missing_target) + len(missing_exog)
+        if n_cols == 0:
+            n_cols = 1
+        missing_rate = total_missing / (n_observations * n_cols)
         if missing_rate > 0.2:
             warnings.append(
                 f"High missing value rate ({missing_rate:.1%}). "
@@ -294,3 +614,226 @@ def generate_warnings(
             )
 
     return warnings
+
+
+def _validate_target_exists(data: pd.DataFrame, target: str | list[str]) -> None:
+    """
+    Validate that the target column(s) exist in the DataFrame.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    target : str, list
+        Name(s) of the target column(s).
+    """
+    targets = target if isinstance(target, list) else [target]
+    missing = [col for col in targets if col not in data.columns]
+    if missing:
+        raise ValueError(
+            f"Target column(s) {missing} not found in the DataFrame. "
+            f"Available columns: {list(data.columns)}"
+        )
+
+
+def detect_data_format(
+    data: pd.DataFrame,
+    target: str | list[str],
+    series_id_column: str | None,
+) -> str:
+    """
+    Detect whether the dataset is single series, wide, or long format.
+
+    .. deprecated::
+        Use `_resolve_data_format` instead, which derives the format
+        directly from user arguments without heuristics.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    target : str, list
+        Name(s) of the target column(s).
+    series_id_column : str, default None
+        Resolved series identifier column.
+
+    Returns
+    -------
+    data_format : str
+        One of `'single'`, `'wide'`, `'long'`.
+    """
+    return _resolve_data_format(target, series_id_column)
+
+
+def detect_target_dtype(data: pd.DataFrame, target: str) -> str:
+    """
+    Determine the data type category of the target column.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    target : str
+        Name of the target column.
+
+    Returns
+    -------
+    target_dtype : str
+        One of `'numeric'`, `'categorical'`, `'other'`.
+    """
+    dtype = data[target].dtype
+
+    if pd.api.types.is_numeric_dtype(dtype):
+        return "numeric"
+    if isinstance(dtype, pd.CategoricalDtype):
+        return "categorical"
+    if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_bool_dtype(dtype):
+        return "categorical"
+
+    return "other"
+
+
+def detect_gaps(
+    datetime_index: pd.DatetimeIndex | None,
+    frequency: str | None,
+) -> bool:
+    """
+    Detect whether the datetime index has missing timestamps.
+
+    Parameters
+    ----------
+    datetime_index : pandas DatetimeIndex, None
+        The datetime index to check.
+    frequency : str, None
+        Inferred frequency string.
+
+    Returns
+    -------
+    has_gaps : bool
+        True if there are missing timestamps within the date range.
+
+    Notes
+    -----
+    This function requires a known ``frequency`` to compare actual vs
+    expected timestamps. When ``pd.infer_freq`` returns None (often
+    because the gaps themselves prevent inference), this function
+    returns False — meaning "gaps not detected", not "no gaps exist".
+    In such cases, a separate warning about uninferable frequency is
+    emitted by the profiler.
+    """
+    if datetime_index is None or frequency is None:
+        return False
+
+    if len(datetime_index) < 2:
+        return False
+
+    try:
+        expected = pd.date_range(
+            start=datetime_index.min(),
+            end=datetime_index.max(),
+            freq=frequency,
+        )
+    except ValueError:
+        return False
+
+    return len(expected) > len(datetime_index)
+
+
+def detect_duplicate_timestamps(
+    datetime_index: pd.DatetimeIndex | None,
+) -> bool:
+    """
+    Detect whether the index contains duplicate timestamps.
+
+    Parameters
+    ----------
+    datetime_index : pandas DatetimeIndex, None
+        The datetime index to check.
+
+    Returns
+    -------
+    has_duplicates : bool
+        True if duplicate timestamps exist.
+    """
+    if datetime_index is None:
+        return False
+
+    return bool(datetime_index.duplicated().any())
+
+
+def _check_monotonic(
+    datetime_index: pd.DatetimeIndex | None,
+    data: pd.DataFrame,
+) -> bool:
+    """
+    Check whether the index is monotonically increasing.
+
+    Parameters
+    ----------
+    datetime_index : pandas DatetimeIndex, None
+        The datetime index (if available).
+    data : pandas DataFrame
+        The input DataFrame (used when no datetime index is available).
+
+    Returns
+    -------
+    is_monotonic : bool
+        True if the index is sorted in ascending order.
+    """
+    if datetime_index is not None:
+        return bool(datetime_index.is_monotonic_increasing)
+    return bool(data.index.is_monotonic_increasing)
+
+
+def _check_frequency_is_set(
+    datetime_index: pd.DatetimeIndex | None,
+    data: pd.DataFrame,
+) -> bool:
+    """
+    Check whether the index already has a frequency attribute set.
+
+    When the datetime source is a regular column (not the index),
+    the constructed DatetimeIndex will never have ``.freq`` set —
+    this correctly indicates that ``asfreq()`` is still needed.
+
+    Parameters
+    ----------
+    datetime_index : pandas DatetimeIndex, None
+        The datetime index (if available).
+    data : pandas DataFrame
+        The input DataFrame.
+
+    Returns
+    -------
+    frequency_is_set : bool
+        True if ``index.freq`` is not None.
+    """
+    if datetime_index is not None:
+        return datetime_index.freq is not None
+    if isinstance(data.index, pd.DatetimeIndex):
+        return data.index.freq is not None
+    return False
+
+
+def _check_target_is_constant(data: pd.DataFrame, target: str) -> bool:
+    """
+    Check whether the target column has zero variance.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    target : str
+        Name of the target column.
+
+    Returns
+    -------
+    is_constant : bool
+        True if the target has zero variance or only one unique value.
+    """
+    series = data[target].dropna()
+    if len(series) == 0:
+        return True
+    if not pd.api.types.is_numeric_dtype(series.dtype):
+        return series.nunique() <= 1
+    return bool(series.std() == 0)

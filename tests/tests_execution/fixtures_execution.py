@@ -28,16 +28,16 @@ df_single = pd.DataFrame(
 )
 
 profile_single = DataProfile(
-    n_observations=_n_obs,
     n_series=1,
-    index_type="datetime",
-    frequency="D",
+    n_observations=_n_obs,
     target="sales",
     date_column="date",
+    index_type="datetime",
+    frequency="D",
     exog_columns=["promo"],
     categorical_exog=[],
-    missing_values={},
-    inferred_seasonalities=[7],
+    missing_target={},
+    missing_exog={},
     warnings=[],
 )
 
@@ -45,7 +45,7 @@ plan_single = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterRecursive",
     estimator="Ridge",
-    horizon=10,
+    steps=10,
     frequency="D",
     lags=[1, 2, 3, 4, 5, 6, 7],
     metric="mean_absolute_error",
@@ -61,7 +61,7 @@ plan_single_with_intervals = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterRecursive",
     estimator="Ridge",
-    horizon=10,
+    steps=10,
     frequency="D",
     lags=[1, 2, 3, 4, 5, 6, 7],
     metric="mean_absolute_error",
@@ -88,17 +88,17 @@ df_multi = pd.DataFrame(
 )
 
 profile_multi = DataProfile(
-    n_observations=_n_obs_multi,
     n_series=2,
-    index_type="datetime",
-    frequency="D",
+    n_observations=_n_obs_multi,
     target="value",
     date_column="date",
     series_id_column="series_id",
+    index_type="datetime",
+    frequency="D",
     exog_columns=[],
     categorical_exog=[],
-    missing_values={},
-    inferred_seasonalities=[7],
+    missing_target={},
+    missing_exog={},
     warnings=[],
 )
 
@@ -106,7 +106,7 @@ plan_multi = ForecastPlan(
     task_type="multi_series",
     forecaster="ForecasterRecursiveMultiSeries",
     estimator="Ridge",
-    horizon=5,
+    steps=5,
     frequency="D",
     lags=[1, 2, 3, 4, 5, 6, 7],
     metric="mean_absolute_error",
@@ -131,16 +131,16 @@ df_short = pd.DataFrame(
 )
 
 profile_short = DataProfile(
-    n_observations=_n_obs_short,
     n_series=1,
-    index_type="datetime",
-    frequency="D",
+    n_observations=_n_obs_short,
     target="sales",
     date_column="date",
+    index_type="datetime",
+    frequency="D",
     exog_columns=[],
     categorical_exog=[],
-    missing_values={},
-    inferred_seasonalities=[],
+    missing_target={},
+    missing_exog={},
     warnings=[],
 )
 
@@ -148,7 +148,7 @@ plan_short = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterRecursive",
     estimator="Ridge",
-    horizon=5,
+    steps=5,
     frequency="D",
     lags=[1, 2, 3],
     metric="mean_absolute_error",

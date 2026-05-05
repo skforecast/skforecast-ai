@@ -115,7 +115,7 @@ Example:
 def recommend(
     data: pd.DataFrame,
     target: str,
-    horizon: int,
+    steps: int,
     date_column: str | None = None,
 ) -> ForecastPlan:
     """
@@ -127,7 +127,7 @@ def recommend(
         Input dataset containing the target series and optional exogenous variables.
     target : str
         Name of the column to forecast.
-    horizon : int
+    steps : int
         Number of steps ahead to predict.
     date_column : str, default None
         Name of the column with timestamps. If None, the index is assumed
@@ -172,7 +172,7 @@ class ForecastPlan(BaseModel):
     ]
     forecaster: str
     estimator: str | None = None
-    horizon: int = Field(gt=0)
+    steps: int = Field(gt=0)
     frequency: str | None = None
     lags: int | list[int] | None = None
     metric: str

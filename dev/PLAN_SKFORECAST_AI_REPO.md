@@ -253,7 +253,7 @@ Responsibilities:
 - Detect exogenous variables.
 - Detect categorical exogenous variables.
 - Detect missing values and gaps.
-- Check series length vs requested horizon.
+- Check series length vs requested steps.
 - Estimate seasonality candidates.
 - Identify whether future exogenous values are required.
 - Generate warnings.
@@ -314,7 +314,7 @@ class ForecastPlan(BaseModel):
     ]
     forecaster: str
     estimator: str | None
-    horizon: int
+    steps: int
     frequency: str | None
     lags: int | list[int] | None
     metric: str
@@ -364,14 +364,14 @@ Build a package/CLI that targets analysts and developers first.
 
 ```bash
 skforecast-ai inspect data.csv
-skforecast-ai recommend data.csv --date date --target sales --horizon 30
-skforecast-ai generate-code data.csv --date date --target sales --horizon 30
+skforecast-ai recommend data.csv --date date --target sales --steps 30
+skforecast-ai generate-code data.csv --date date --target sales --steps 30
 ```
 
 Optional after MVP:
 
 ```bash
-skforecast-ai run data.csv --date date --target sales --horizon 30
+skforecast-ai run data.csv --date date --target sales --steps 30
 skforecast-ai explain results.json --question "Why is the error high?"
 ```
 
@@ -386,7 +386,7 @@ result = assistant.recommend(
     data=data,
     target="sales",
     date_column="date",
-    horizon=30,
+    steps=30,
 )
 
 print(result.plan)
@@ -568,7 +568,7 @@ Examples:
 ### Phase 4: Multi-Series and Exog
 
 - Add robust support for wide, long, and dict-style multi-series inputs.
-- Add exog future-horizon validation.
+- Add exog future-steps validation.
 - Add categorical feature recommendations.
 - Add `ForecasterRecursiveMultiSeries` workflows.
 

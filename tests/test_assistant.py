@@ -104,13 +104,13 @@ def test_tier0_recommend_output_when_valid_dataframe():
     """
     assistant = ForecastingAssistant()
     result = assistant.recommend(
-        data=df_fixture, target="sales", date_column="date", horizon=10
+        data=df_fixture, target="sales", date_column="date", steps=10
     )
 
     assert isinstance(result, RecommendResult)
     assert isinstance(result.profile, DataProfile)
     assert isinstance(result.plan, ForecastPlan)
-    assert result.plan.horizon == 10
+    assert result.plan.steps == 10
     assert result.plan.task_type == "single_series"
 
 
@@ -123,7 +123,7 @@ def test_tier0_generate_code_output_when_valid_dataframe():
     """
     assistant = ForecastingAssistant()
     result = assistant.generate_code(
-        data=df_fixture, target="sales", date_column="date", horizon=10
+        data=df_fixture, target="sales", date_column="date", steps=10
     )
 
     assert isinstance(result, GenerateResult)
@@ -159,7 +159,7 @@ def test_tier0_explain_LLMRequiredError_when_no_llm():
         task_type="single_series",
         forecaster="ForecasterRecursive",
         estimator="Ridge",
-        horizon=10,
+        steps=10,
         lags=[1, 2, 3, 4, 5, 6, 7],
         metric="mean_absolute_error",
         backtesting_strategy="TimeSeriesFold",
@@ -188,12 +188,12 @@ def test_assistant_with_llm_recommend_output(tmp_path):
     assistant._model = TestModel()
 
     result = assistant.recommend(
-        data=df_fixture, target="sales", date_column="date", horizon=10
+        data=df_fixture, target="sales", date_column="date", steps=10
     )
 
     assert isinstance(result, RecommendResult)
     assert isinstance(result.plan, ForecastPlan)
-    assert result.plan.horizon == 10
+    assert result.plan.steps == 10
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +284,7 @@ def test_explain_fallback_when_llm_fails(monkeypatch):
         task_type="single_series",
         forecaster="ForecasterRecursive",
         estimator="Ridge",
-        horizon=10,
+        steps=10,
         lags=[1, 2, 3, 4, 5, 6, 7],
         metric="mean_absolute_error",
         backtesting_strategy="TimeSeriesFold",

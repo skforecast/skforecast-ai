@@ -39,9 +39,9 @@ def validate_run_inputs(
         )
 
     test_size = int(profile.n_observations * 0.2)
-    if plan.horizon > test_size:
+    if plan.steps > test_size:
         warnings.append(
-            f"Horizon ({plan.horizon}) exceeds test set size ({test_size}). "
+            f"steps ({plan.steps}) exceeds test set size ({test_size}). "
             f"Backtesting may not produce meaningful results."
         )
 
@@ -54,12 +54,18 @@ def validate_run_inputs(
                 f"Exogenous columns missing from data: {missing_cols}."
             )
 
-    if profile.missing_values:
-        total_missing = sum(profile.missing_values.values())
+    if profile.missing_target or profile.missing_exog:
+        total_missing = (
+            sum(profile.missing_target.values())
+            + sum(profile.missing_exog.values())
+        )
         if total_missing > 0:
+            cols_with_missing = list(profile.missing_target.keys()) + list(
+                profile.missing_exog.keys()
+            )
             warnings.append(
                 f"Data contains {total_missing} missing value(s) across "
-                f"columns: {list(profile.missing_values.keys())}. "
+                f"columns: {cols_with_missing}. "
                 f"This may cause errors during execution."
             )
 

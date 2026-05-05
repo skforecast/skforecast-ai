@@ -7,21 +7,25 @@ from .exceptions import LLMRequiredError
 from .generation import generate_code
 from .recommendation import recommend_plan
 from .schemas import (
+    AnalysisContext,
     AskResult,
     DataProfile,
     ForecastPlan,
     GenerateResult,
+    PreprocessingStep,
     RecommendResult,
     RunResult,
 )
 
 __all__ = [
+    "AnalysisContext",
     "AskResult",
     "DataProfile",
     "ForecastingAssistant",
     "ForecastPlan",
     "GenerateResult",
     "LLMRequiredError",
+    "PreprocessingStep",
     "RecommendResult",
     "RunResult",
     "generate_code",

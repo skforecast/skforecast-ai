@@ -102,7 +102,7 @@ def _template_single_series(
     lines.append("# Create forecaster")
     if is_direct:
         lines.append(f"forecaster = {forecaster_class}(")
-        lines.append(f"    steps     = {plan.horizon},")
+        lines.append(f"    steps     = {plan.steps},")
         lines.append(f"    estimator = {plan.estimator}(random_state=123),")
         lines.append(f"    lags      = {plan.lags},")
         if plan.dropna_from_series is not None:
@@ -129,18 +129,18 @@ def _template_single_series(
     lines.append("# Predict")
     if plan.use_exog and exog_columns:
         lines.append(
-            f"predictions = forecaster.predict(steps={plan.horizon}, "
-            f"exog=exog_test.iloc[:{plan.horizon}])"
+            f"predictions = forecaster.predict(steps={plan.steps}, "
+            f"exog=exog_test.iloc[:{plan.steps}])"
         )
     else:
-        lines.append(f"predictions = forecaster.predict(steps={plan.horizon})")
+        lines.append(f"predictions = forecaster.predict(steps={plan.steps})")
     lines.append("print(predictions)")
     lines.append("")
 
     # Backtesting
     lines.append("# Backtesting")
     lines.append("cv = TimeSeriesFold(")
-    lines.append(f"    steps              = {plan.horizon},")
+    lines.append(f"    steps              = {plan.steps},")
     lines.append("    initial_train_size = n_train,")
     lines.append("    refit              = False,")
     lines.append(")")
@@ -165,8 +165,8 @@ def _template_single_series(
                 "store_in_sample_residuals=True)"
             )
             lines.append("predictions_interval = forecaster.predict_interval(")
-            lines.append(f"    steps    = {plan.horizon},")
-            lines.append(f"    exog     = exog_test.iloc[:{plan.horizon}],")
+            lines.append(f"    steps    = {plan.steps},")
+            lines.append(f"    exog     = exog_test.iloc[:{plan.steps}],")
             lines.append(f"    method   = '{plan.interval_method}',")
             lines.append("    interval = [10, 90],")
             lines.append(")")
@@ -175,7 +175,7 @@ def _template_single_series(
                 "forecaster.fit(y=y_train, store_in_sample_residuals=True)"
             )
             lines.append("predictions_interval = forecaster.predict_interval(")
-            lines.append(f"    steps    = {plan.horizon},")
+            lines.append(f"    steps    = {plan.steps},")
             lines.append(f"    method   = '{plan.interval_method}',")
             lines.append("    interval = [10, 90],")
             lines.append(")")
@@ -254,14 +254,14 @@ def _template_multi_series(
 
     # Predict
     lines.append("# Predict")
-    lines.append(f"predictions = forecaster.predict(steps={plan.horizon})")
+    lines.append(f"predictions = forecaster.predict(steps={plan.steps})")
     lines.append("print(predictions)")
     lines.append("")
 
     # Backtesting
     lines.append("# Backtesting")
     lines.append("cv = TimeSeriesFold(")
-    lines.append(f"    steps              = {plan.horizon},")
+    lines.append(f"    steps              = {plan.steps},")
     lines.append("    initial_train_size = n_train,")
     lines.append("    refit              = False,")
     lines.append(")")
@@ -282,7 +282,7 @@ def _template_multi_series(
             "forecaster.fit(series=series, store_in_sample_residuals=True)"
         )
         lines.append("predictions_interval = forecaster.predict_interval(")
-        lines.append(f"    steps    = {plan.horizon},")
+        lines.append(f"    steps    = {plan.steps},")
         lines.append(f"    method   = '{plan.interval_method}',")
         lines.append("    interval = [10, 90],")
         lines.append(")")
@@ -337,14 +337,14 @@ def _template_statistical(
 
     # Predict
     lines.append("# Predict")
-    lines.append(f"predictions = forecaster.predict(steps={plan.horizon})")
+    lines.append(f"predictions = forecaster.predict(steps={plan.steps})")
     lines.append("print(predictions)")
     lines.append("")
 
     # Backtesting
     lines.append("# Backtesting")
     lines.append("cv = TimeSeriesFold(")
-    lines.append(f"    steps              = {plan.horizon},")
+    lines.append(f"    steps              = {plan.steps},")
     lines.append("    initial_train_size = n_train,")
     lines.append("    refit              = False,")
     lines.append(")")
@@ -361,7 +361,7 @@ def _template_statistical(
     # Prediction intervals (native)
     lines.append("# Prediction intervals (native)")
     lines.append("predictions_interval = forecaster.predict_interval(")
-    lines.append(f"    steps    = {plan.horizon},")
+    lines.append(f"    steps    = {plan.steps},")
     lines.append("    interval = [10, 90],")
     lines.append(")")
     lines.append("print(predictions_interval)")
@@ -417,14 +417,14 @@ def _template_foundation(
 
     # Predict
     lines.append("# Predict")
-    lines.append(f"predictions = forecaster.predict(steps={plan.horizon})")
+    lines.append(f"predictions = forecaster.predict(steps={plan.steps})")
     lines.append("print(predictions)")
     lines.append("")
 
     # Backtesting
     lines.append("# Backtesting")
     lines.append("cv = TimeSeriesFold(")
-    lines.append(f"    steps              = {plan.horizon},")
+    lines.append(f"    steps              = {plan.steps},")
     lines.append("    initial_train_size = int(len(data) * 0.8),")
     lines.append("    refit              = False,")
     lines.append(")")
@@ -441,7 +441,7 @@ def _template_foundation(
     # Quantile predictions
     lines.append("# Quantile predictions (native)")
     lines.append("predictions_quantiles = forecaster.predict_quantiles(")
-    lines.append(f"    steps     = {plan.horizon},")
+    lines.append(f"    steps     = {plan.steps},")
     lines.append("    quantiles = [0.1, 0.5, 0.9],")
     lines.append(")")
     lines.append("print(predictions_quantiles)")

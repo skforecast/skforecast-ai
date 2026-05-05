@@ -16,10 +16,10 @@ def test_data_profile_invalid_index_type():
     err_msg = re.escape("index_type")
     with pytest.raises(ValidationError, match=err_msg):
         DataProfile(
-            n_observations=100,
             n_series=1,
-            index_type="invalid",
+            n_observations=100,
             target="y",
+            index_type="invalid",
         )
 
 
@@ -33,23 +33,23 @@ def test_forecast_plan_invalid_task_type():
         ForecastPlan(
             task_type="unknown_task",
             forecaster="ForecasterRecursive",
-            horizon=24,
+            steps=24,
             metric="mean_absolute_error",
             backtesting_strategy="TimeSeriesFold",
             rationale="Test.",
         )
 
 
-def test_forecast_plan_invalid_horizon_zero():
+def test_forecast_plan_invalid_steps_zero():
     """
-    Test ForecastPlan raises ValidationError when horizon is 0.
+    Test ForecastPlan raises ValidationError when steps is 0.
     """
-    err_msg = re.escape("horizon")
+    err_msg = re.escape("steps")
     with pytest.raises(ValidationError, match=err_msg):
         ForecastPlan(
             task_type="single_series",
             forecaster="ForecasterRecursive",
-            horizon=0,
+            steps=0,
             metric="mean_absolute_error",
             backtesting_strategy="TimeSeriesFold",
             rationale="Test.",
@@ -62,10 +62,10 @@ def test_data_profile_minimal():
     are correctly assigned.
     """
     profile = DataProfile(
-        n_observations=100,
         n_series=1,
-        index_type="datetime",
+        n_observations=100,
         target="y",
+        index_type="datetime",
     )
     assert profile.n_observations == 100
     assert profile.n_series == 1
@@ -76,8 +76,8 @@ def test_data_profile_minimal():
     assert profile.series_id_column is None
     assert profile.exog_columns == []
     assert profile.categorical_exog == []
-    assert profile.missing_values == {}
-    assert profile.inferred_seasonalities == []
+    assert profile.missing_target == {}
+    assert profile.missing_exog == {}
     assert profile.warnings == []
 
 
@@ -86,17 +86,17 @@ def test_data_profile_full():
     Test DataProfile with all fields populated.
     """
     profile = DataProfile(
-        n_observations=500,
         n_series=3,
+        n_observations=500,
+        target="sales",
         index_type="datetime",
         frequency="h",
-        target="sales",
         date_column="timestamp",
         series_id_column="store_id",
         exog_columns=["temperature", "holiday"],
         categorical_exog=["holiday"],
-        missing_values={"sales": 5, "temperature": 2},
-        inferred_seasonalities=[24, 168],
+        missing_target={"sales": 5},
+        missing_exog={"temperature": 2},
         warnings=["Missing values detected"],
     )
     assert profile.n_series == 3
@@ -105,8 +105,8 @@ def test_data_profile_full():
     assert profile.series_id_column == "store_id"
     assert profile.exog_columns == ["temperature", "holiday"]
     assert profile.categorical_exog == ["holiday"]
-    assert profile.missing_values == {"sales": 5, "temperature": 2}
-    assert profile.inferred_seasonalities == [24, 168]
+    assert profile.missing_target == {"sales": 5}
+    assert profile.missing_exog == {"temperature": 2}
     assert profile.warnings == ["Missing values detected"]
 
 
@@ -118,14 +118,14 @@ def test_forecast_plan_minimal():
     plan = ForecastPlan(
         task_type="single_series",
         forecaster="ForecasterRecursive",
-        horizon=24,
+        steps=24,
         metric="mean_absolute_error",
         backtesting_strategy="TimeSeriesFold",
         rationale="Single univariate series with regular frequency.",
     )
     assert plan.task_type == "single_series"
     assert plan.forecaster == "ForecasterRecursive"
-    assert plan.horizon == 24
+    assert plan.steps == 24
     assert plan.estimator is None
     assert plan.lags is None
     assert plan.interval_method is None
@@ -140,10 +140,10 @@ def test_data_profile_json_roundtrip():
     roundtrip without data loss.
     """
     profile = DataProfile(
-        n_observations=200,
         n_series=1,
-        index_type="range",
+        n_observations=200,
         target="value",
+        index_type="range",
         exog_columns=["x1", "x2"],
     )
     json_str = profile.model_dump_json()
@@ -160,7 +160,7 @@ def test_forecast_plan_json_roundtrip():
         task_type="multi_series",
         forecaster="ForecasterRecursiveMultiSeries",
         estimator="LGBMRegressor",
-        horizon=12,
+        steps=12,
         frequency="ME",
         lags=[1, 2, 3, 12],
         metric="mean_squared_error",

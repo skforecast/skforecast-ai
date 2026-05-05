@@ -86,7 +86,7 @@ focus on why each choice was made.
 - Task type: {task_type}
 - Forecaster: {forecaster}
 - Estimator: {estimator}
-- Horizon: {horizon}
+- steps: {steps}
 - Lags: {lags}
 - Metric: {metric}
 - Backtesting: {backtesting_strategy}
@@ -235,7 +235,7 @@ def build_explain_prompt(plan: ForecastPlan, profile: DataProfile) -> str:
         task_type=plan.task_type,
         forecaster=plan.forecaster,
         estimator=plan.estimator or "none",
-        horizon=plan.horizon,
+        steps=plan.steps,
         lags=plan.lags,
         metric=plan.metric,
         backtesting_strategy=plan.backtesting_strategy,

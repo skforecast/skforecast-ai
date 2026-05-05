@@ -13,16 +13,16 @@ from skforecast_ai.llm.prompts import (
 from skforecast_ai.schemas import DataProfile, ForecastPlan
 
 profile_single_daily = DataProfile(
-    n_observations=365,
     n_series=1,
-    index_type="datetime",
-    frequency="D",
+    n_observations=365,
     target="sales",
     date_column="date",
+    index_type="datetime",
+    frequency="D",
     exog_columns=["temperature", "promotion"],
     categorical_exog=["promotion"],
-    missing_values={},
-    inferred_seasonalities=[7, 365],
+    missing_target={},
+    missing_exog={},
     warnings=[],
 )
 
@@ -30,7 +30,7 @@ plan_single_recursive = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterRecursive",
     estimator="LGBMRegressor",
-    horizon=10,
+    steps=10,
     frequency="D",
     lags=[1, 2, 3, 4, 5, 6, 7],
     metric="mean_absolute_error",

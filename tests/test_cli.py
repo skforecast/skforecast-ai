@@ -101,17 +101,17 @@ def test_profile_error_when_missing_target(tmp_path):
 def test_recommend_output_when_valid_csv(tmp_path):
     """
     Test that the recommend command with --json produces valid JSON output
-    matching the ForecastPlan schema with the correct horizon.
+    matching the ForecastPlan schema with the correct steps.
     """
     csv_file = _write_csv(tmp_path)
     result = runner.invoke(
         app,
-        ["recommend", str(csv_file), "--target", "sales", "--horizon", "5", "--json"],
+        ["recommend", str(csv_file), "--target", "sales", "--steps", "5", "--json"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0
     plan = json.loads(result.stdout)
-    assert plan["horizon"] == 5
+    assert plan["steps"] == 5
     assert plan["forecaster"]
     assert plan["metric"]
     assert plan["task_type"] == "single_series"
@@ -129,7 +129,7 @@ def test_generate_code_output_when_stdout(tmp_path):
             "generate-code",
             str(csv_file),
             "--target", "sales",
-            "--horizon", "5",
+            "--steps", "5",
         ],
         catch_exceptions=False,
     )
@@ -151,7 +151,7 @@ def test_generate_code_output_when_file(tmp_path):
             "generate-code",
             str(csv_file),
             "--target", "sales",
-            "--horizon", "5",
+            "--steps", "5",
             "--output", str(output_file),
         ],
         catch_exceptions=False,
@@ -188,7 +188,7 @@ def test_generate_code_output_when_json_flag(tmp_path):
             "generate-code",
             str(csv_file),
             "--target", "sales",
-            "--horizon", "5",
+            "--steps", "5",
             "--json",
         ],
         catch_exceptions=False,
@@ -198,7 +198,7 @@ def test_generate_code_output_when_json_flag(tmp_path):
     assert "plan" in output
     assert "code" in output
     assert "import" in output["code"]
-    assert output["plan"]["horizon"] == 5
+    assert output["plan"]["steps"] == 5
 
 
 def test_forecast_output_when_valid_csv_json(tmp_path):
@@ -214,7 +214,7 @@ def test_forecast_output_when_valid_csv_json(tmp_path):
             str(csv_file),
             "--target", "sales",
             "--date", "date",
-            "--horizon", "5",
+            "--steps", "5",
             "--json",
         ],
         catch_exceptions=False,
@@ -252,7 +252,7 @@ def test_explain_output_when_no_llm(tmp_path):
             "explain",
             str(csv_file),
             "--target", "sales",
-            "--horizon", "5",
+            "--steps", "5",
         ],
         catch_exceptions=False,
     )
@@ -273,7 +273,7 @@ def test_explain_output_when_json_flag(tmp_path):
             "explain",
             str(csv_file),
             "--target", "sales",
-            "--horizon", "5",
+            "--steps", "5",
             "--json",
         ],
         catch_exceptions=False,

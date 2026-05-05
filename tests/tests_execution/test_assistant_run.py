@@ -20,7 +20,7 @@ def test_assistant_forecast_returns_RunResult():
         data         = df_single,
         target       = "sales",
         date_column  = "date",
-        horizon      = 10,
+        steps      = 10,
     )
 
     assert isinstance(result, RunResult)
@@ -32,20 +32,20 @@ def test_assistant_forecast_returns_RunResult():
     assert result.predictions is not None
 
 
-def test_assistant_forecast_predictions_length_matches_horizon():
+def test_assistant_forecast_predictions_length_matches_steps():
     """
-    Test that the number of prediction rows matches the requested horizon.
+    Test that the number of prediction rows matches the requested steps.
     """
-    horizon = 7
+    steps = 7
     assistant = ForecastingAssistant()
     result = assistant.forecast(
         data         = df_single,
         target       = "sales",
         date_column  = "date",
-        horizon      = horizon,
+        steps      = steps,
     )
 
-    assert len(result.predictions) == horizon
+    assert len(result.predictions) == steps
 
 
 def test_assistant_forecast_includes_code_string():
@@ -58,7 +58,7 @@ def test_assistant_forecast_includes_code_string():
         data         = df_single,
         target       = "sales",
         date_column  = "date",
-        horizon      = 5,
+        steps      = 5,
     )
 
     assert isinstance(result.code, str)
