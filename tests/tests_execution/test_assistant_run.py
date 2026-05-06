@@ -24,7 +24,7 @@ def test_assistant_forecast_returns_RunResult():
     )
 
     assert isinstance(result, RunResult)
-    assert result.profile is not None
+    assert result.forecaster_profile is not None
     assert result.plan is not None
     assert result.code is not None
     assert result.metric_value > 0

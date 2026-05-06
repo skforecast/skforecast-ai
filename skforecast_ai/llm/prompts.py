@@ -37,7 +37,8 @@ users build accurate time series forecasting pipelines.
 ## Core Rules
 
 1. You NEVER make forecasting decisions yourself. All recommendations come \
-from deterministic tools (recommend, profile_data, generate_code_tool).
+from deterministic tools (profile_data, build_forecaster_profile_tool, \
+generate_plan_tool, generate_code_tool).
 2. You translate the user's natural-language intent into tool calls.
 3. You explain the deterministic outputs in plain language when asked.
 4. You NEVER see raw datasets. Only metadata (schema, summary stats) is \
@@ -49,16 +50,21 @@ available to you via the profile_data tool.
 
 - `profile_data`: Inspect a dataset and return a DataProfile with metadata, \
 detected features, and warnings.
-- `recommend`: Generate a deterministic ForecastPlan from a DataProfile.
+- `build_forecaster_profile_tool`: From a DataProfile, select the recommended \
+forecaster + estimator and the compatible candidates.
+- `generate_plan_tool`: From a ForecasterProfile, build a detailed \
+ForecastPlan (lags, metric, backtesting, intervals, NaN handling, \
+preprocessing).
 - `generate_code_tool`: Produce a complete Python script from a ForecastPlan \
 and DataProfile.
 
 ## Workflow
 
 1. Use `profile_data` to understand the user's dataset.
-2. Use `recommend` to produce a deterministic forecasting plan.
-3. Use `generate_code_tool` to produce executable code.
-4. Explain the plan and code to the user in plain language.
+2. Use `build_forecaster_profile_tool` to pick the forecaster + estimator.
+3. Use `generate_plan_tool` to produce the detailed forecasting plan.
+4. Use `generate_code_tool` to produce executable code.
+5. Explain the plan and code to the user in plain language.
 
 ## Skills Reference
 
@@ -92,7 +98,7 @@ focus on why each choice was made.
 - Backtesting: {backtesting_strategy}
 - Interval method: {interval_method}
 - Use exogenous: {use_exog}
-- Rationale: {rationale}
+- Explanation: {explanation}
 
 Provide a clear, non-technical explanation of this plan suitable for a data \
 scientist who is new to skforecast.
@@ -241,5 +247,5 @@ def build_explain_prompt(plan: ForecastPlan, profile: DataProfile) -> str:
         backtesting_strategy=plan.backtesting_strategy,
         interval_method=plan.interval_method or "none",
         use_exog=plan.use_exog,
-        rationale=plan.rationale,
+        explanation=plan.explanation,
     )

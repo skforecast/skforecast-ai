@@ -7,6 +7,7 @@ import pandas as pd
 from .._constants import (
     FOUNDATION_FORECASTERS,
     MULTI_SERIES_FORECASTERS,
+    MULTIVARIATE_FORECASTERS,
     SINGLE_ML_FORECASTERS,
     STATS_FORECASTERS,
 )
@@ -37,6 +38,8 @@ def create_analysis_context(
     """
     if forecaster in MULTI_SERIES_FORECASTERS:
         return _analyze_multi_series(data, profile)
+    if forecaster in MULTIVARIATE_FORECASTERS:
+        return _analyze_multivariate(data, profile)
     if forecaster in SINGLE_ML_FORECASTERS:
         return _analyze_single_ml(data, profile)
     if forecaster in FOUNDATION_FORECASTERS:
@@ -69,13 +72,14 @@ def _analyze_multi_series(
     # Use series_lengths from the profile (already computed in Stage 1)
     if profile.series_lengths is not None:
         lengths = profile.series_lengths
+        total_len = sum(lengths.values())
         min_len = min(lengths.values())
         max_len = max(lengths.values())
         ratio = max_len / min_len if min_len > 0 else None
         short = [name for name, n in lengths.items() if n < 50]
 
         return AnalysisContext(
-            effective_n_observations=min_len,
+            effective_n_observations=total_len,
             min_series_length=min_len,
             max_series_length=max_len,
             series_length_ratio=ratio,
@@ -88,6 +92,36 @@ def _analyze_multi_series(
         min_series_length=None,
         max_series_length=None,
         series_length_ratio=None,
+    )
+
+
+def _analyze_multivariate(
+    data: pd.DataFrame | None,
+    profile: DataProfile,
+) -> AnalysisContext:
+    """
+    Compute analysis context for multivariate forecasters.
+
+    For `ForecasterDirectMultiVariate`, the effective number of
+    observations is the length of the target series (all series share
+    the same time axis and the target is what constrains training).
+
+    Parameters
+    ----------
+    data : pandas DataFrame, None
+        Raw input data.
+    profile : DataProfile
+        Universal data profile.
+
+    Returns
+    -------
+    context : AnalysisContext
+        Context based on target series length.
+    """
+    # n_observations in DataProfile already reflects per-series length
+    # for wide-format data (all columns share the same index).
+    return AnalysisContext(
+        effective_n_observations=profile.n_observations,
     )
 
 

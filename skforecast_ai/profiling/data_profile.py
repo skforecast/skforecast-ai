@@ -41,11 +41,11 @@ def create_data_profile(
         warnings about the dataset.
     """
     if isinstance(data, (str, Path)):
-        # Assumes the CSV was exported from a DataFrame with a DatetimeIndex,
-        # so the first column is the date index. When called via the assistant,
-        # CSV loading is done before reaching this function (without index_col)
-        # to support explicit date_column detection.
-        data = pd.read_csv(data, parse_dates=True, index_col=0)
+        data = pd.read_csv(data, parse_dates=True)
+        # Attempt to parse the first object-dtype column as datetime.
+        # This handles CSVs exported with df.to_csv() where the date
+        # index becomes a regular column that parse_dates=True misses.
+        data = _try_parse_first_date_column(data)
 
     # Determine data format from user input
     data_format = _resolve_data_format(target, series_id_column)
@@ -125,6 +125,38 @@ def create_data_profile(
         # Diagnostics
         warnings=warnings,
     )
+
+
+def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
+    """
+    Try to convert the first object-dtype column to datetime.
+
+    When a CSV is exported via ``DataFrame.to_csv()`` the DatetimeIndex
+    becomes a regular column with object dtype (e.g. ``"Unnamed: 0"`` or
+    ``"date"``). ``pd.read_csv(parse_dates=True)`` often fails to
+    auto-parse these. This helper converts the first parseable column
+    in-place so that downstream ``detect_date_column`` can identify it.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        DataFrame loaded from CSV.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        DataFrame with the first date-like column converted (if found).
+    """
+    for col in data.columns:
+        if data[col].dtype == object:
+            try:
+                parsed = pd.to_datetime(data[col], format="mixed")
+                if parsed.notna().all():
+                    data[col] = parsed
+                    break
+            except (ValueError, TypeError):
+                continue
+    return data
 
 
 def detect_date_column(

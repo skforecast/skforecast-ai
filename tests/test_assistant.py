@@ -10,9 +10,9 @@ import pytest
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
 from skforecast_ai.schemas import (
     DataProfile,
+    ForecasterProfile,
     ForecastPlan,
     GenerateResult,
-    RecommendResult,
 )
 
 # ---------------------------------------------------------------------------
@@ -66,18 +66,23 @@ def test_send_data_to_llm_default_false():
 # ---------------------------------------------------------------------------
 def test_tier0_profile_output_when_valid_dataframe():
     """
-    Test that profile() returns a DataProfile from a pandas DataFrame
-    without requiring an LLM.
+    Test that profile() returns a ForecasterProfile (with embedded
+    DataProfile) from a pandas DataFrame without requiring an LLM.
     """
     assistant = ForecastingAssistant()
-    profile = assistant.profile(data=df_fixture, target="sales", date_column="date")
+    forecaster_profile = assistant.profile(
+        data=df_fixture, target="sales", date_column="date"
+    )
 
-    assert isinstance(profile, DataProfile)
-    assert profile.target == "sales"
-    assert profile.n_observations == 100
-    assert profile.n_series == 1
-    assert profile.index_type == "datetime"
-    assert "promo" in profile.exog_columns
+    assert isinstance(forecaster_profile, ForecasterProfile)
+    assert isinstance(forecaster_profile.data_profile, DataProfile)
+    assert forecaster_profile.data_profile.target == "sales"
+    assert forecaster_profile.data_profile.n_observations == 100
+    assert forecaster_profile.data_profile.n_series == 1
+    assert forecaster_profile.data_profile.index_type == "datetime"
+    assert "promo" in forecaster_profile.data_profile.exog_columns
+    assert forecaster_profile.forecaster_candidates
+    assert forecaster_profile.forecaster == forecaster_profile.forecaster_candidates[0]
 
 
 def test_assistant_accept_csv_path(tmp_path):
@@ -86,32 +91,51 @@ def test_assistant_accept_csv_path(tmp_path):
     """
     csv_path = _write_csv(tmp_path)
     assistant = ForecastingAssistant()
-    profile = assistant.profile(
+    forecaster_profile = assistant.profile(
         data=str(csv_path), target="sales", date_column="date"
     )
 
-    assert isinstance(profile, DataProfile)
-    assert profile.target == "sales"
-    assert profile.n_observations == 100
+    assert isinstance(forecaster_profile, ForecasterProfile)
+    assert forecaster_profile.data_profile.target == "sales"
+    assert forecaster_profile.data_profile.n_observations == 100
 
 
 # ---------------------------------------------------------------------------
-# Tests: Tier 0 — recommend
+# Tests: Tier 0 — generate_plan
 # ---------------------------------------------------------------------------
-def test_tier0_recommend_output_when_valid_dataframe():
+def test_tier0_generate_plan_output_when_valid_dataframe():
     """
-    Test that recommend() returns a RecommendResult without an LLM.
+    Test that generate_plan() takes a ForecasterProfile and returns a
+    ForecastPlan without an LLM.
     """
     assistant = ForecastingAssistant()
-    result = assistant.recommend(
-        data=df_fixture, target="sales", date_column="date", steps=10
+    forecaster_profile = assistant.profile(
+        data=df_fixture, target="sales", date_column="date",
+    )
+    plan = assistant.generate_plan(forecaster_profile, steps=10)
+
+    assert isinstance(plan, ForecastPlan)
+    assert plan.steps == 10
+    assert plan.task_type == "single_series"
+    assert plan.forecaster == forecaster_profile.forecaster
+
+
+def test_tier0_generate_plan_output_when_forecaster_selected():
+    """
+    Test that profile() + generate_plan() honor an explicit forecaster.
+    """
+    assistant = ForecastingAssistant()
+    forecaster_profile = assistant.profile(
+        data=df_fixture,
+        target="sales",
+        date_column="date",
+    )
+    plan = assistant.generate_plan(
+        forecaster_profile, steps=10, forecaster="ForecasterDirect",
     )
 
-    assert isinstance(result, RecommendResult)
-    assert isinstance(result.profile, DataProfile)
-    assert isinstance(result.plan, ForecastPlan)
-    assert result.plan.steps == 10
-    assert result.plan.task_type == "single_series"
+    assert plan.forecaster == "ForecasterDirect"
+    assert "ForecasterDirect" in forecaster_profile.forecaster_candidates
 
 
 # ---------------------------------------------------------------------------
@@ -127,11 +151,29 @@ def test_tier0_generate_code_output_when_valid_dataframe():
     )
 
     assert isinstance(result, GenerateResult)
-    assert isinstance(result.profile, DataProfile)
+    assert isinstance(result.forecaster_profile, ForecasterProfile)
     assert isinstance(result.plan, ForecastPlan)
     assert isinstance(result.code, str)
     assert "import" in result.code
     assert "ForecasterRecursive" in result.code or "Forecaster" in result.code
+
+
+def test_tier0_generate_code_output_when_forecaster_selected():
+    """
+    Test that generate_code() generates code for an explicitly selected
+    forecaster.
+    """
+    assistant = ForecastingAssistant()
+    result = assistant.generate_code(
+        data=df_fixture,
+        target="sales",
+        date_column="date",
+        steps=10,
+        forecaster="ForecasterDirect",
+    )
+
+    assert result.plan.forecaster == "ForecasterDirect"
+    assert "ForecasterDirect" in result.code
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +205,7 @@ def test_tier0_explain_LLMRequiredError_when_no_llm():
         lags=[1, 2, 3, 4, 5, 6, 7],
         metric="mean_absolute_error",
         backtesting_strategy="TimeSeriesFold",
-        rationale="Single series with daily frequency.",
+        explanation="Single series with daily frequency.",
     )
     err_msg = re.escape(
         "`explain()` requires an LLM. "
@@ -176,23 +218,22 @@ def test_tier0_explain_LLMRequiredError_when_no_llm():
 # ---------------------------------------------------------------------------
 # Tests: Tier 1/2 — with mocked LLM
 # ---------------------------------------------------------------------------
-def test_assistant_with_llm_recommend_output(tmp_path):
+def test_assistant_with_llm_generate_code_output(tmp_path):
     """
-    Test that recommend() works with a TestModel mock.
+    Test that generate_code() works with a TestModel mock (deterministic
+    path is unaffected by the presence of an LLM).
     """
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
 
     assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
-    # Override the _model with TestModel to avoid real API calls
     assistant._model = TestModel()
 
-    result = assistant.recommend(
+    result = assistant.generate_code(
         data=df_fixture, target="sales", date_column="date", steps=10
     )
 
-    assert isinstance(result, RecommendResult)
-    assert isinstance(result.plan, ForecastPlan)
+    assert isinstance(result, GenerateResult)
     assert result.plan.steps == 10
 
 
@@ -270,7 +311,7 @@ def test_ask_fallback_when_llm_fails_no_data(monkeypatch):
 
 def test_explain_fallback_when_llm_fails(monkeypatch):
     """
-    Test that explain() falls back to plan.rationale when LLM fails,
+    Test that explain() falls back to plan.explanation when LLM fails,
     emitting a UserWarning instead of crashing.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
@@ -288,7 +329,7 @@ def test_explain_fallback_when_llm_fails(monkeypatch):
         lags=[1, 2, 3, 4, 5, 6, 7],
         metric="mean_absolute_error",
         backtesting_strategy="TimeSeriesFold",
-        rationale="Single series with daily frequency.",
+        explanation="Single series with daily frequency.",
     )
 
     with pytest.warns(UserWarning, match="LLM call failed"):

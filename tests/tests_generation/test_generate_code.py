@@ -200,7 +200,7 @@ def test_generate_code_ValueError_when_unsupported_task_type():
         backtesting_strategy = "TimeSeriesFold",
         interval_method      = None,
         use_exog             = False,
-        rationale            = "Multivariate forecaster.",
+        explanation            = "Multivariate forecaster.",
     )
 
     with pytest.raises(ValueError, match="Unsupported task_type"):
@@ -232,7 +232,7 @@ def test_generate_code_output_when_unknown_estimator_syntax():
         backtesting_strategy = "TimeSeriesFold",
         interval_method      = None,
         use_exog             = False,
-        rationale            = "Unknown estimator test.",
+        explanation            = "Unknown estimator test.",
     )
 
     code = generate_code(plan=plan, profile=profile)
@@ -269,7 +269,7 @@ def test_generate_code_output_when_dropna_from_series_true():
         interval_method      = None,
         dropna_from_series   = True,
         use_exog             = False,
-        rationale            = "Ridge with missing values.",
+        explanation            = "Ridge with missing values.",
     )
 
     code = generate_code(plan=plan, profile=profile)

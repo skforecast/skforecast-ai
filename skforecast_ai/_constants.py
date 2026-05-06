@@ -2,13 +2,15 @@
 
 MULTI_SERIES_FORECASTERS: set[str] = {
     "ForecasterRecursiveMultiSeries",
+}
+
+MULTIVARIATE_FORECASTERS: set[str] = {
     "ForecasterDirectMultiVariate",
 }
 
 SINGLE_ML_FORECASTERS: set[str] = {
     "ForecasterRecursive",
     "ForecasterDirect",
-    "ForecasterRecursiveClassifier",
 }
 
 FOUNDATION_FORECASTERS: set[str] = {
@@ -24,7 +26,6 @@ REQUIRES_DATETIME_FREQ: set[str] = {
     "ForecasterDirect",
     "ForecasterRecursiveMultiSeries",
     "ForecasterDirectMultiVariate",
-    "ForecasterRnn",
     "ForecasterStats",
     "ForecasterFoundation",
 }

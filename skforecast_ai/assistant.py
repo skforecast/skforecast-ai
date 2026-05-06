@@ -10,40 +10,66 @@ import pandas as pd
 
 from .exceptions import LLMRequiredError
 from .execution import run_forecast, validate_run_inputs
-from .generation import generate_code
-from .profiling import create_data_profile
-from .recommendation import recommend_plan
+from .generation import generate_code as _generate_code
+from .preparation import derive_preprocessing_steps
+from .profiling import create_analysis_context, create_data_profile
 from .schemas import (
     AskResult,
     DataProfile,
+    ForecasterProfile,
     ForecastPlan,
     GenerateResult,
-    RecommendResult,
     RunResult,
+)
+from .recommendation import (
+    _build_profile_explanation,
+    build_data_requirements,
+    build_explanation,
+    check_exog_usage,
+    select_backtesting,
+    select_dropna_from_series,
+    select_estimator_and_candidates,
+    select_forecaster_and_candidates,
+    select_interval_method,
+    select_lags,
+    select_metric,
+    select_task_type_from_forecaster,
 )
 
 
 class ForecastingAssistant:
     """
-    Unified forecasting assistant that ties profiling, recommendation,
-    code generation, and optional LLM capabilities into a single API.
+    Unified forecasting assistant.
+
+    Exposes a two-step deterministic workflow:
+
+    1. `profile()` — inspects the dataset and returns a
+       `ForecasterProfile` with the recommended forecaster + estimator
+       and their compatible candidates.
+    2. `generate_plan()` — takes the `ForecasterProfile` and produces a
+       detailed `ForecastPlan` (lags, metric, backtesting, intervals,
+       NaN handling, preprocessing).
+
+    `generate_code()` and `forecast()` are convenience wrappers that
+    chain the two stages plus code generation / execution. `ask()` and
+    `explain()` provide LLM-powered interfaces.
 
     Parameters
     ----------
     llm : str, default None
         LLM provider string in format `'provider:model_name'`. If None,
-        only deterministic Tier 0 methods are available.
+        only deterministic methods are available.
     base_url : str, default None
         Custom base URL for the LLM provider (used for Ollama or
         OpenAI-compatible endpoints).
     send_data_to_llm : bool, default False
-        Whether raw data may be sent to the LLM. When False, only metadata
-        (schema, summary stats) is shared with the LLM.
+        Whether raw data may be sent to the LLM. When False, only
+        metadata (schema, summary stats) is shared with the LLM.
 
     Attributes
     ----------
     llm : str, None
-        LLM provider string or None for Tier 0 mode.
+        LLM provider string or None for deterministic-only mode.
     base_url : str, None
         Custom base URL for the LLM provider.
     send_data_to_llm : bool
@@ -67,9 +93,14 @@ class ForecastingAssistant:
         target: str | list[str],
         date_column: str | None = None,
         series_id_column: str | None = None,
-    ) -> DataProfile:
+    ) -> ForecasterProfile:
         """
-        Profile a time series dataset.
+        Profile a dataset and select the recommended forecaster + estimator.
+
+        Wraps `create_data_profile` and `build_forecaster_profile` into a
+        single call. The returned `ForecasterProfile` carries the
+        `DataProfile` plus the coarse modeling decisions and their
+        alternative candidates.
 
         Parameters
         ----------
@@ -85,60 +116,162 @@ class ForecastingAssistant:
 
         Returns
         -------
-        profile : DataProfile
-            Structured profile with metadata, detected features, and warnings.
+        forecaster_profile : ForecasterProfile
+            Dataset profile + recommended forecaster + estimator
+            (with alternative candidates) + analysis context.
+        
         """
-        return create_data_profile(
-            data=data,
-            target=target,
-            date_column=date_column,
-            series_id_column=series_id_column,
+
+        data = _coerce_to_dataframe(data)
+
+        data_profile = create_data_profile(
+            data             = data,
+            target           = target,
+            date_column      = date_column,
+            series_id_column = series_id_column,
         )
 
-    def recommend(
+        fc, forecaster_candidates = select_forecaster_and_candidates(data_profile)
+        task_type = select_task_type_from_forecaster(fc)
+        analysis_context = create_analysis_context(data, data_profile, fc)
+
+        est, estimator_candidates = select_estimator_and_candidates(
+            task_type=task_type, n_observations=analysis_context.effective_n_observations
+        )
+
+        explanation = _build_profile_explanation(
+            task_type=task_type,
+            forecaster=fc,
+            forecaster_candidates=forecaster_candidates,
+            estimator=est,
+            estimator_candidates=estimator_candidates,
+            data_profile=data_profile,
+        )
+
+        return ForecasterProfile(
+            data_profile          = data_profile,
+            task_type             = task_type,
+            forecaster            = fc,
+            forecaster_candidates = forecaster_candidates,
+            estimator             = est,
+            estimator_candidates  = estimator_candidates,
+            analysis_context      = analysis_context,
+            explanation           = explanation,
+        )
+
+    def generate_plan(
         self,
-        data: pd.DataFrame | str | Path,
-        target: str | list[str],
-        date_column: str | None = None,
-        series_id_column: str | None = None,
+        forecaster_profile: ForecasterProfile,
         steps: int = 10,
-        **kwargs,
-    ) -> RecommendResult:
+        forecaster: str | None = None,
+        estimator: str | None = None,
+    ) -> ForecastPlan:
         """
-        Profile a dataset and generate a deterministic forecasting plan.
+        Build a detailed `ForecastPlan` from a `ForecasterProfile`.
+
+        Performs the fine-grained configuration (lags, metric,
+        backtesting strategy, prediction intervals, NaN handling,
+        exogenous usage, preprocessing steps) without re-evaluating the
+        coarse decisions already encoded in `forecaster_profile`.
 
         Parameters
         ----------
-        data : pandas DataFrame, str, Path
-            Input dataset or path to a CSV file.
-        target : str, list
-            Name of the column to forecast. For wide-format multi-series,
-            pass a list of column names where each column is a series.
-        date_column : str, default None
-            Name of the column containing timestamps.
-        series_id_column : str, default None
-            Name of the column identifying individual series.
+        forecaster_profile : ForecasterProfile
+            Output of `profile()`.
         steps : int, default 10
-            Number of steps ahead to predict.
-        **kwargs
-            Additional keyword arguments passed to `recommend_plan()`.
+            Forecast horizon (number of steps ahead to predict).
+        forecaster : str, default None
+            Explicit forecaster class name to override the profile
+            recommendation. Must be in `forecaster_profile.forecaster_candidates`.
+        estimator : str, default None
+            Explicit estimator class name to override the profile
+            recommendation. Must be in `forecaster_profile.estimator_candidates`.
 
         Returns
         -------
-        result : RecommendResult
-            Contains the data profile and recommended forecast plan.
+        plan : ForecastPlan
+            Detailed forecasting plan.
+        
         """
-        if isinstance(data, (str, Path)):
-            data = pd.read_csv(data, parse_dates=True)
 
-        profile = create_data_profile(
-            data=data,
-            target=target,
-            date_column=date_column,
-            series_id_column=series_id_column,
+        data_profile = forecaster_profile.data_profile
+        context      = forecaster_profile.analysis_context
+
+        fc = forecaster_profile.forecaster
+        if forecaster is not None:
+            if forecaster not in forecaster_profile.forecaster_candidates:
+                raise ValueError(
+                    f"Forecaster '{forecaster}' is not compatible with this "
+                    f"profile. Available candidates: "
+                    f"{forecaster_profile.forecaster_candidates}."
+                )
+            fc = forecaster
+
+        task_type = select_task_type_from_forecaster(fc)
+
+        est = forecaster_profile.estimator
+        if task_type in ("statistical", "foundation", "baseline"):
+            est = None
+        if estimator is not None:
+            if estimator not in forecaster_profile.estimator_candidates:
+                raise ValueError(
+                    f"Estimator '{estimator}' is not compatible with this "
+                    f"profile. Available candidates: "
+                    f"{forecaster_profile.estimator_candidates}."
+                )
+            est = estimator
+
+        if task_type in ("statistical", "foundation", "baseline"):
+            lags = None
+        else:
+            lags = select_lags(context.effective_n_observations)
+
+        metric               = select_metric(task_type)
+        backtesting_strategy = select_backtesting(
+            context.effective_n_observations, steps
         )
-        plan = recommend_plan(profile=profile, steps=steps, data=data, **kwargs)
-        return RecommendResult(profile=profile, plan=plan)
+        interval_method      = select_interval_method(
+            fc, context.effective_n_observations
+        )
+        dropna_from_series   = select_dropna_from_series(
+            est,
+            data_profile.missing_target,
+            data_profile.missing_exog,
+            task_type,
+        )
+        use_exog             = check_exog_usage(data_profile.exog_columns)
+        data_requirements    = build_data_requirements(data_profile)
+        preprocessing_steps  = derive_preprocessing_steps(data_profile, fc)
+
+        plan_warnings: list[str] = []
+        if steps > data_profile.n_observations:
+            plan_warnings.append(
+                f"Forecast horizon ({steps}) exceeds available observations "
+                f"({data_profile.n_observations})."
+            )
+
+        explanation = build_explanation(
+            task_type, fc, est, lags, metric, interval_method,
+            data_profile,
+        )
+
+        return ForecastPlan(
+            task_type            = task_type,
+            forecaster           = fc,
+            estimator            = est,
+            steps                = steps,
+            frequency            = data_profile.frequency,
+            lags                 = lags,
+            metric               = metric,
+            backtesting_strategy = backtesting_strategy,
+            interval_method      = interval_method,
+            dropna_from_series   = dropna_from_series,
+            use_exog             = use_exog,
+            preprocessing_steps  = preprocessing_steps,
+            data_requirements    = data_requirements,
+            warnings             = plan_warnings,
+            explanation          = explanation,
+        )
 
     def generate_code(
         self,
@@ -147,47 +280,62 @@ class ForecastingAssistant:
         date_column: str | None = None,
         series_id_column: str | None = None,
         steps: int = 10,
+        forecaster: str | None = None,
+        estimator: str | None = None,
         data_path: str = "data.csv",
-        **kwargs,
     ) -> GenerateResult:
         """
-        Profile, recommend, and generate a complete forecasting script.
+        Profile, plan, and generate a complete forecasting script.
+
+        Convenience wrapper that chains `profile()`, `generate_plan()`,
+        and code generation in a single call.
 
         Parameters
         ----------
         data : pandas DataFrame, str, Path
             Input dataset or path to a CSV file.
         target : str, list
-            Name of the column to forecast. For wide-format multi-series,
-            pass a list of column names where each column is a series.
+            Name of the column to forecast.
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
             Name of the column identifying individual series.
         steps : int, default 10
-            Number of steps ahead to predict.
+            Forecast horizon.
+        forecaster : str, default None
+            Explicit forecaster class name. See `profile()`.
+        estimator : str, default None
+            Explicit estimator class name. See `profile()`.
         data_path : str, default `'data.csv'`
             File path used in the generated script for loading data.
-        **kwargs
-            Additional keyword arguments passed to `recommend_plan()`.
 
         Returns
         -------
         result : GenerateResult
-            Contains the data profile, forecast plan, and generated code.
+            Forecaster profile, plan, and generated code.
         """
-        if isinstance(data, (str, Path)):
-            data = pd.read_csv(data, parse_dates=True)
-
-        profile = create_data_profile(
-            data=data,
-            target=target,
-            date_column=date_column,
-            series_id_column=series_id_column,
+        forecaster_profile = self.profile(
+            data             = data,
+            target           = target,
+            date_column      = date_column,
+            series_id_column = series_id_column,
         )
-        plan = recommend_plan(profile=profile, steps=steps, data=data, **kwargs)
-        code = generate_code(plan=plan, profile=profile, data_path=data_path)
-        return GenerateResult(profile=profile, plan=plan, code=code)
+        plan = self.generate_plan(
+            forecaster_profile,
+            steps      = steps,
+            forecaster = forecaster,
+            estimator  = estimator,
+        )
+        code = _generate_code(
+            plan      = plan,
+            profile   = forecaster_profile.data_profile,
+            data_path = data_path,
+        )
+        return GenerateResult(
+            forecaster_profile = forecaster_profile,
+            plan               = plan,
+            code               = code,
+        )
 
     def forecast(
         self,
@@ -196,74 +344,95 @@ class ForecastingAssistant:
         date_column: str | None = None,
         series_id_column: str | None = None,
         steps: int = 10,
+        forecaster: str | None = None,
+        estimator: str | None = None,
         exog_future: pd.DataFrame | None = None,
-        **kwargs,
     ) -> RunResult:
         """
         Execute a full forecasting workflow end-to-end.
+
+        Convenience wrapper that chains `profile()`, `generate_plan()`,
+        validation and programmatic execution.
 
         Parameters
         ----------
         data : pandas DataFrame, str, Path
             Input dataset or path to a CSV file.
         target : str, list
-            Name of the column to forecast. For wide-format multi-series,
-            pass a list of column names where each column is a series.
+            Name of the column to forecast.
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
             Name of the column identifying individual series.
         steps : int, default 10
-            Number of steps ahead to predict.
+            Forecast horizon.
+        forecaster : str, default None
+            Explicit forecaster class name. See `profile()`.
+        estimator : str, default None
+            Explicit estimator class name. See `profile()`.
         exog_future : pandas DataFrame, default None
-            Exogenous variables covering the forecast horizon (``steps``
-            rows). Required for final predictions when exogenous variables
-            are used. If None and exog is present, the last ``steps`` rows
-            of the training data exog are used (backtesting mode).
-        **kwargs
-            Additional keyword arguments passed to `recommend_plan()`.
+            Exogenous variables covering the forecast horizon
+            (`steps` rows). Required for final predictions when
+            exogenous variables are used. If None and exog is present,
+            the last `steps` rows of the training data exog are used
+            (backtesting mode).
 
         Returns
         -------
         result : RunResult
-            Contains the profile, plan, generated code, predictions,
+            Forecaster profile, plan, generated code, predictions,
             backtesting metric, and optional prediction intervals.
 
         Notes
         -----
         This method does not use `exec()`. The workflow is executed
         programmatically by calling skforecast functions directly with
-        parameters derived from the recommended `ForecastPlan`.
+        parameters derived from the `ForecastPlan`.
         """
-        if isinstance(data, (str, Path)):
-            data = pd.read_csv(data, parse_dates=True)
+        data_df = _coerce_to_dataframe(data)
 
-        profile = create_data_profile(
-            data=data,
-            target=target,
-            date_column=date_column,
-            series_id_column=series_id_column,
+        forecaster_profile = self.profile(
+            data             = data_df,
+            target           = target,
+            date_column      = date_column,
+            series_id_column = series_id_column,
         )
-        plan = recommend_plan(profile=profile, steps=steps, data=data, **kwargs)
-        code = generate_code(plan=plan, profile=profile, data_path="data.csv")
+        plan = self.generate_plan(
+            forecaster_profile,
+            steps      = steps,
+            forecaster = forecaster,
+            estimator  = estimator,
+        )
+        code = _generate_code(
+            plan      = plan,
+            profile   = forecaster_profile.data_profile,
+            data_path = "data.csv",
+        )
 
-        run_warnings = validate_run_inputs(data=data, profile=profile, plan=plan)
+        run_warnings = validate_run_inputs(
+            data    = data_df,
+            profile = forecaster_profile.data_profile,
+            plan    = plan,
+        )
 
         result = run_forecast(
-            data=data, profile=profile, plan=plan, exog_future=exog_future
+            data        = data_df,
+            profile     = forecaster_profile.data_profile,
+            plan        = plan,
+            exog_future = exog_future,
         )
 
         all_warnings = run_warnings + result.get("warnings", [])
 
         return RunResult(
-            profile      = profile,
-            plan         = plan,
-            code         = code,
-            metric_value = result["metric_value"],
-            metric_name  = result["metric_name"],
-            predictions  = result["predictions"],
-            intervals    = result["intervals"],
-            warnings     = all_warnings,
+            forecaster_profile = forecaster_profile,
+            plan               = plan,
+            code               = code,
+            metric_value       = result["metric_value"],
+            metric_name        = result["metric_name"],
+            predictions        = result["predictions"],
+            intervals          = result["intervals"],
+            warnings           = all_warnings,
         )
 
     def ask(
@@ -284,22 +453,22 @@ class ForecastingAssistant:
             Optional dataset or path to a CSV file for context.
         skills : list, default None
             List of skill names to include in the agent system prompt.
-            If None, a compact default set is loaded. Pass ``'all'`` as
+            If None, a compact default set is loaded. Pass `'all'` as
             a single-element list to load every available skill.
         include_reference : bool, default False
-            Whether to include the skforecast API reference in the prompt.
-            The reference is ~195 KB and may exceed the context window of
-            smaller models. Enable only with large-context models.
+            Whether to include the skforecast API reference in the
+            prompt. The reference is ~195 KB and may exceed the context
+            window of smaller models.
 
         Returns
         -------
         result : AskResult
-            Contains the agent's structured response with optional profile,
-            plan, code, and explanation.
+            Agent's structured response with optional forecaster
+            profile, plan, code, and explanation.
 
         Notes
         -----
-        This method requires an LLM. If `llm=None` was passed at init,
+        Requires an LLM. If `llm=None` was passed at init,
         `LLMRequiredError` is raised.
         """
         if self.llm is None:
@@ -310,9 +479,9 @@ class ForecastingAssistant:
             from .llm.agent import create_forecasting_agent
 
             agent = create_forecasting_agent(
-                model=model,
-                skills=skills,
-                include_reference=include_reference,
+                model             = model,
+                skills            = skills,
+                include_reference = include_reference,
             )
             _patch_event_loop()
             result = agent.run_sync(
@@ -321,8 +490,8 @@ class ForecastingAssistant:
 
             plan = result.output if isinstance(result.output, ForecastPlan) else None
             return AskResult(
-                plan=plan,
-                explanation=str(result.output),
+                plan        = plan,
+                explanation = str(result.output),
             )
         except LLMRequiredError:
             raise
@@ -333,24 +502,18 @@ class ForecastingAssistant:
                 stacklevel=2,
             )
             if data is not None:
-                if isinstance(data, (str, Path)):
-                    import pandas as _pd
-                    _df = _pd.read_csv(data)
-                else:
-                    _df = data
-                # Use first numeric column as fallback target
-                _numeric = _df.select_dtypes(include="number").columns
-                _target = _numeric[0] if len(_numeric) > 0 else _df.columns[-1]
-                result = self.recommend(
-                    data=data,
-                    target=_target,
-                    steps=10,
+                df = _coerce_to_dataframe(data)
+                numeric = df.select_dtypes(include="number").columns
+                target = numeric[0] if len(numeric) > 0 else df.columns[-1]
+                forecaster_profile = self.profile(
+                    data   = df,
+                    target = target,
                 )
+                plan = self.generate_plan(forecaster_profile, steps=10)
                 return AskResult(
-                    plan=result.plan,
-                    explanation=(
-                        f"[LLM unavailable] {result.plan.rationale}"
-                    ),
+                    forecaster_profile = forecaster_profile,
+                    plan               = plan,
+                    explanation        = f"[LLM unavailable] {plan.explanation}",
                 )
             return AskResult(
                 explanation=(
@@ -372,8 +535,8 @@ class ForecastingAssistant:
         plan : ForecastPlan
             Validated forecast plan to explain.
         profile : DataProfile, default None
-            Data profile providing context. If None, a minimal profile is
-            constructed from the plan metadata.
+            Data profile providing context. If None, a minimal profile
+            is constructed from the plan metadata.
 
         Returns
         -------
@@ -382,7 +545,7 @@ class ForecastingAssistant:
 
         Notes
         -----
-        This method requires an LLM. If `llm=None` was passed at init,
+        Requires an LLM. If `llm=None` was passed at init,
         `LLMRequiredError` is raised.
         """
         if self.llm is None:
@@ -394,18 +557,18 @@ class ForecastingAssistant:
 
             if profile is None:
                 profile = DataProfile(
-                    n_series=1,
-                    n_observations=0,
-                    index_type="datetime",
-                    target="unknown",
+                    n_series       = 1,
+                    n_observations = 0,
+                    index_type     = "datetime",
+                    target         = "unknown",
                 )
 
             from pydantic_ai import Agent
 
             explain_agent = Agent(
                 model,
-                output_type=str,
-                system_prompt="You are a forecasting expert. Explain plans clearly.",
+                output_type   = str,
+                system_prompt = "You are a forecasting expert. Explain plans clearly.",
             )
             prompt = build_explain_prompt(plan=plan, profile=profile)
             _patch_event_loop()
@@ -417,12 +580,13 @@ class ForecastingAssistant:
             raise
         except Exception as exc:
             warnings.warn(
-                f"LLM call failed ({exc}), using deterministic rationale.",
+                f"LLM call failed ({exc}), using deterministic explanation.",
                 UserWarning,
                 stacklevel=2,
             )
-            return f"[LLM unavailable] {plan.rationale}"
+            return f"[LLM unavailable] {plan.explanation}"
 
+    # --------------------------------------------------------------- private
     def _resolve_model(self):
         """
         Lazily resolve the LLM model from the provider string.
@@ -443,7 +607,7 @@ class ForecastingAssistant:
         """
         Build provider-specific model settings.
 
-        For Ollama models, sets ``num_ctx`` to ensure the context window
+        For Ollama models, sets `num_ctx` to ensure the context window
         is large enough for the system prompt, tool schemas, and
         conversation history.
 
@@ -457,13 +621,42 @@ class ForecastingAssistant:
         return None
 
 
+def _coerce_to_dataframe(
+    data: pd.DataFrame | str | Path,
+) -> pd.DataFrame:
+    """
+    Load a CSV path into a DataFrame, or return the DataFrame unchanged.
+
+    The CSV is loaded with `parse_dates=True` (no `index_col`), leaving
+    every column intact so callers can reference a `date_column` by
+    name. When the input is already a DataFrame, it is returned
+    unchanged.
+
+    Parameters
+    ----------
+    data : pandas DataFrame, str, Path
+        Input dataset or path to a CSV file.
+
+    Returns
+    -------
+    df : pandas DataFrame
+        Loaded DataFrame.
+    """
+    if isinstance(data, (str, Path)):
+        from .profiling.data_profile import _try_parse_first_date_column
+
+        df = pd.read_csv(data, parse_dates=True)
+        return _try_parse_first_date_column(df)
+    return data
+
+
 def _patch_event_loop() -> None:
     """
-    Apply ``nest_asyncio`` when an event loop is already running.
+    Apply `nest_asyncio` when an event loop is already running.
 
-    This enables ``run_sync()`` to work inside Jupyter notebooks and
-    other environments that already have an active asyncio event loop.
-    The patch is applied at most once per process.
+    Enables `run_sync()` to work inside Jupyter notebooks and other
+    environments that already have an active asyncio event loop. The
+    patch is applied at most once per process.
     """
     try:
         loop = asyncio.get_running_loop()

@@ -7,81 +7,124 @@ from ..schemas import DataProfile
 
 def select_task_type(
     profile: DataProfile,
-    prefer_foundation: bool = False,
-    prefer_statistical: bool = False,
 ) -> Literal[
     "single_series",
     "multi_series",
-    "statistical",
-    "foundation",
 ]:
     """
-    Determine the forecasting task type from profile shape and user hints.
+    Determine the default forecasting task type from profile shape.
 
     Parameters
     ----------
     profile : DataProfile
         Profiled dataset metadata.
-    prefer_foundation : bool, default False
-        If `True`, override with `'foundation'` task type.
-    prefer_statistical : bool, default False
-        If `True`, override with `'statistical'` task type.
 
     Returns
     -------
     task_type : str
-        One of `'single_series'`, `'multi_series'`, `'statistical'`,
-        `'foundation'`.
+        One of `'single_series'`, `'multi_series'`.
 
     Notes
     -----
     Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md` Step 1.
     """
-    if prefer_foundation:
-        return "foundation"
-    if prefer_statistical:
-        return "statistical"
     if profile.n_series > 1:
         return "multi_series"
     return "single_series"
 
 
-def select_forecaster(task_type: str) -> str:
+# TODO: ENhance with checks for date column presence, frequency inference, etc. to
+def select_forecaster_and_candidates(
+    profile: DataProfile
+) -> tuple[str, list[str]]:
     """
-    Map a task type to the recommended skforecast forecaster class name.
+    Select the preferred forecaster and ordered compatible candidates.
 
     Parameters
     ----------
-    task_type : str
-        Forecasting task category produced by `select_task_type`.
+    profile : DataProfile
+        Profiled dataset metadata.
 
     Returns
     -------
-    forecaster : str
-        Name of the skforecast forecaster class.
+    preferred : str
+        Name of the recommended forecaster class.
+    candidates : list
+        Ordered list of compatible skforecast forecaster class names.
+        The first item matches `preferred`.
 
     Notes
     -----
-    Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md` flowchart.
+    Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md`.
+
+    """
+    
+    if profile.n_series > 1:
+        
+        preferred = "ForecasterRecursiveMultiSeries"
+        candidates = [
+            "ForecasterRecursiveMultiSeries",
+            "ForecasterDirectMultiVariate"
+        ]            
+
+    else:
+        
+        preferred = "ForecasterRecursive"
+        candidates = [
+            "ForecasterRecursive",
+            "ForecasterDirect",
+            "ForecasterFoundation",
+            "ForecasterStats",
+        ]
+
+    return preferred, candidates
+
+
+def select_task_type_from_forecaster(
+    forecaster: str,
+) -> Literal[
+    "single_series",
+    "multi_series",
+    "multivariate",
+    "statistical",
+    "foundation",
+    "classification",
+    "baseline",
+]:
+    """
+    Resolve the task type implied by a selected forecaster.
+
+    Parameters
+    ----------
+    forecaster : str
+        Name of the selected skforecast forecaster class.
+
+    Returns
+    -------
+    task_type : str
+        Forecasting task category associated with `forecaster`.
     """
     mapping = {
-        "single_series": "ForecasterRecursive",
-        "multi_series": "ForecasterRecursiveMultiSeries",
-        "statistical": "ForecasterStats",
-        "foundation": "ForecasterFoundation",
-        "baseline": "ForecasterEquivalentDate",
-        "classification": "ForecasterRecursiveClassifier",
-        "multivariate": "ForecasterDirectMultiVariate",
+        "ForecasterRecursive": "single_series",
+        "ForecasterDirect": "single_series",
+        "ForecasterRecursiveMultiSeries": "multi_series",
+        "ForecasterDirectMultiVariate": "multivariate",
+        "ForecasterStats": "statistical",
+        "ForecasterFoundation": "foundation"
     }
-    return mapping[task_type]
+
+    if forecaster not in mapping:
+        raise ValueError(f"Unknown forecaster '{forecaster}'.")
+
+    return mapping[forecaster]
 
 
-def select_estimator(
+def select_estimator_and_candidates(
     task_type: str,
     n_observations: int,
-) -> str | None:
+) -> tuple[str, list[str]]:
     """
-    Choose an ML estimator based on task type and data size.
+    Select the preferred estimator and ordered compatible candidates.
 
     Parameters
     ----------
@@ -92,19 +135,36 @@ def select_estimator(
 
     Returns
     -------
-    estimator : str or None
-        Name of the scikit-learn compatible estimator, or `None` for tasks
-        that do not use an external estimator.
+    preferred : str
+        Name of the recommended estimator class.
+    candidates : list
+        Ordered list of compatible estimator class names.
+        The first item matches `preferred`.
 
     Notes
     -----
     Source: `skforecast_ai/skills/forecasting-single-series/SKILL.md`.
+
     """
-    if task_type in ("statistical", "foundation", "baseline"):
-        return None
-    if n_observations < 500:
-        return "Ridge"
-    return "LGBMRegressor"
+
+    if task_type == "statistical":
+        return "AutoARIMA", ["AutoARIMA"]
+    
+    if task_type == "foundation":
+        return "Chronos-2", ["Chronos-2"]
+
+    if n_observations < 250:
+        return "Ridge", ["Ridge", "RandomForestRegressor", "LGBMRegressor"]
+    
+    preferred = "LGBMRegressor"
+    candidates = [
+        "LGBMRegressor",
+        "XGBRegressor",
+        "CatBoostRegressor",
+        "Ridge",
+    ]
+
+    return preferred, candidates
 
 
 def select_lags(
@@ -318,7 +378,7 @@ def build_data_requirements(profile: DataProfile) -> list[str]:
     return requirements
 
 
-def build_rationale(
+def build_explanation(
     task_type: str,
     forecaster: str,
     estimator: str | None,
@@ -349,7 +409,7 @@ def build_rationale(
 
     Returns
     -------
-    rationale : str
+    explanation : str
         Multi-sentence explanation of the recommendation.
     """
     parts = []
@@ -358,6 +418,11 @@ def build_rationale(
         parts.append(
             f"The dataset contains {profile.n_series} series, so a multi-series "
             f"forecaster ({forecaster}) is recommended."
+        )
+    elif task_type == "multivariate":
+        parts.append(
+            f"A multivariate forecaster ({forecaster}) is recommended for "
+            "predicting the target using multiple correlated series as features."
         )
     elif task_type == "foundation":
         parts.append(

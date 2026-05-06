@@ -30,7 +30,7 @@ def test_analysis_context_multi_series_computes_series_lengths():
     assert ctx.min_series_length == 50
     assert ctx.max_series_length == 100
     assert ctx.series_length_ratio == 2.0
-    assert ctx.effective_n_observations == 50
+    assert ctx.effective_n_observations == 150
 
 
 def test_analysis_context_multi_series_without_data_uses_defaults():
@@ -45,7 +45,7 @@ def test_analysis_context_multi_series_without_data_uses_defaults():
         frequency="D",
     )
     ctx = create_analysis_context(None, profile, "ForecasterRecursiveMultiSeries")
-    assert ctx.effective_n_observations == 100
+    assert ctx.effective_n_observations == 300
     assert ctx.min_series_length == 100
 
 

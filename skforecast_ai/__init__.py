@@ -5,15 +5,14 @@ __version__ = "0.1.0"
 from .assistant import ForecastingAssistant
 from .exceptions import LLMRequiredError
 from .generation import generate_code
-from .recommendation import recommend_plan
 from .schemas import (
     AnalysisContext,
     AskResult,
     DataProfile,
+    ForecasterProfile,
     ForecastPlan,
     GenerateResult,
     PreprocessingStep,
-    RecommendResult,
     RunResult,
 )
 
@@ -21,14 +20,13 @@ __all__ = [
     "AnalysisContext",
     "AskResult",
     "DataProfile",
+    "ForecasterProfile",
     "ForecastingAssistant",
     "ForecastPlan",
     "GenerateResult",
     "LLMRequiredError",
     "PreprocessingStep",
-    "RecommendResult",
     "RunResult",
     "generate_code",
-    "recommend_plan",
     "__version__",
 ]

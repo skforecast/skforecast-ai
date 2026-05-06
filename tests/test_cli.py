@@ -73,7 +73,7 @@ def _write_csv(tmp_path):
 def test_profile_output_when_valid_csv(tmp_path):
     """
     Test that the profile command with --json produces valid JSON output
-    matching the DataProfile schema and exits with code 0.
+    matching the ForecasterProfile schema and exits with code 0.
     """
     csv_file = _write_csv(tmp_path)
     result = runner.invoke(
@@ -81,11 +81,13 @@ def test_profile_output_when_valid_csv(tmp_path):
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    profile = json.loads(result.stdout)
-    assert profile["target"] == "sales"
-    assert profile["n_observations"] == 50
-    assert profile["n_series"] == 1
-    assert profile["index_type"] == "datetime"
+    forecaster_profile = json.loads(result.stdout)
+    assert forecaster_profile["data_profile"]["target"] == "sales"
+    assert forecaster_profile["data_profile"]["n_observations"] == 50
+    assert forecaster_profile["data_profile"]["n_series"] == 1
+    assert forecaster_profile["data_profile"]["index_type"] == "datetime"
+    assert forecaster_profile["forecaster_candidates"]
+    assert forecaster_profile["task_type"] == "single_series"
 
 
 def test_profile_error_when_missing_target(tmp_path):
@@ -98,15 +100,15 @@ def test_profile_error_when_missing_target(tmp_path):
     assert result.exit_code != 0
 
 
-def test_recommend_output_when_valid_csv(tmp_path):
+def test_plan_output_when_valid_csv(tmp_path):
     """
-    Test that the recommend command with --json produces valid JSON output
+    Test that the plan command with --json produces valid JSON output
     matching the ForecastPlan schema with the correct steps.
     """
     csv_file = _write_csv(tmp_path)
     result = runner.invoke(
         app,
-        ["recommend", str(csv_file), "--target", "sales", "--steps", "5", "--json"],
+        ["plan", str(csv_file), "--target", "sales", "--steps", "5", "--json"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0
@@ -115,6 +117,29 @@ def test_recommend_output_when_valid_csv(tmp_path):
     assert plan["forecaster"]
     assert plan["metric"]
     assert plan["task_type"] == "single_series"
+
+
+def test_plan_output_when_forecaster_selected(tmp_path):
+    """
+    Test that the plan command accepts --forecaster and returns a plan
+    for the selected candidate.
+    """
+    csv_file = _write_csv(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "plan",
+            str(csv_file),
+            "--target", "sales",
+            "--steps", "5",
+            "--forecaster", "ForecasterDirect",
+            "--json",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    plan = json.loads(result.stdout)
+    assert plan["forecaster"] == "ForecasterDirect"
 
 
 def test_generate_code_output_when_stdout(tmp_path):
@@ -136,6 +161,27 @@ def test_generate_code_output_when_stdout(tmp_path):
     assert result.exit_code == 0
     assert "import" in result.stdout
     assert "skforecast" in result.stdout
+
+
+def test_generate_code_output_when_forecaster_selected(tmp_path):
+    """
+    Test that the generate-code command accepts --forecaster and emits code
+    for the selected candidate.
+    """
+    csv_file = _write_csv(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "generate-code",
+            str(csv_file),
+            "--target", "sales",
+            "--steps", "5",
+            "--forecaster", "ForecasterDirect",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "ForecasterDirect" in result.stdout
 
 
 def test_generate_code_output_when_file(tmp_path):
@@ -243,7 +289,7 @@ def test_forecast_error_when_nonexistent_file():
 def test_explain_output_when_no_llm(tmp_path):
     """
     Test that the explain command without --llm produces a plain-text
-    explanation using the deterministic rationale.
+    explanation using the deterministic explanation.
     """
     csv_file = _write_csv(tmp_path)
     result = runner.invoke(
@@ -257,7 +303,7 @@ def test_explain_output_when_no_llm(tmp_path):
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    # Should contain some explanation text (the rationale)
+    # Should contain some explanation text (the explanation)
     assert "forecaster" in result.stdout.lower() or "series" in result.stdout.lower()
 
 

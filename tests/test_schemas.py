@@ -36,7 +36,7 @@ def test_forecast_plan_invalid_task_type():
             steps=24,
             metric="mean_absolute_error",
             backtesting_strategy="TimeSeriesFold",
-            rationale="Test.",
+            explanation="Test.",
         )
 
 
@@ -52,7 +52,7 @@ def test_forecast_plan_invalid_steps_zero():
             steps=0,
             metric="mean_absolute_error",
             backtesting_strategy="TimeSeriesFold",
-            rationale="Test.",
+            explanation="Test.",
         )
 
 
@@ -121,7 +121,7 @@ def test_forecast_plan_minimal():
         steps=24,
         metric="mean_absolute_error",
         backtesting_strategy="TimeSeriesFold",
-        rationale="Single univariate series with regular frequency.",
+        explanation="Single univariate series with regular frequency.",
     )
     assert plan.task_type == "single_series"
     assert plan.forecaster == "ForecasterRecursive"
@@ -169,7 +169,7 @@ def test_forecast_plan_json_roundtrip():
         use_exog=True,
         data_requirements=["At least 2 complete seasonal cycles"],
         warnings=["High cardinality in series_id"],
-        rationale="Multiple correlated series benefit from shared learning.",
+        explanation="Multiple correlated series benefit from shared learning.",
     )
     json_str = plan.model_dump_json()
     restored = ForecastPlan.model_validate_json(json_str)

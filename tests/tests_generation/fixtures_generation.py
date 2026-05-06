@@ -22,7 +22,7 @@ plan_recursive_no_exog = ForecastPlan(
     backtesting_strategy = "TimeSeriesFold",
     interval_method      = "bootstrapping",
     use_exog             = False,
-    rationale            = "Single daily series, ML forecaster.",
+    explanation            = "Single daily series, ML forecaster.",
 )
 
 # --- Single series, ForecasterRecursive, with exog ---
@@ -47,7 +47,7 @@ plan_recursive_with_exog = ForecastPlan(
     backtesting_strategy = "TimeSeriesFold",
     interval_method      = "bootstrapping",
     use_exog             = True,
-    rationale            = "Hourly series with exogenous variables.",
+    explanation            = "Hourly series with exogenous variables.",
 )
 
 # --- Single series, ForecasterDirect ---
@@ -70,7 +70,7 @@ plan_direct = ForecastPlan(
     backtesting_strategy = "TimeSeriesFold",
     interval_method      = "bootstrapping",
     use_exog             = False,
-    rationale            = "Direct forecaster for steps-dependent patterns.",
+    explanation            = "Direct forecaster for steps-dependent patterns.",
 )
 
 # --- Single series, no interval method ---
@@ -85,7 +85,7 @@ plan_recursive_no_interval = ForecastPlan(
     backtesting_strategy = "TimeSeriesFold",
     interval_method      = None,
     use_exog             = False,
-    rationale            = "Short series, no intervals.",
+    explanation            = "Short series, no intervals.",
 )
 
 # --- Multi-series ---
@@ -111,7 +111,7 @@ plan_multi_series = ForecastPlan(
     backtesting_strategy = "TimeSeriesFold",
     interval_method      = "conformal",
     use_exog             = False,
-    rationale            = "Multi-series with global model.",
+    explanation            = "Multi-series with global model.",
 )
 
 # --- Statistical ---
@@ -134,7 +134,7 @@ plan_statistical = ForecastPlan(
     backtesting_strategy = "TimeSeriesFold",
     interval_method      = None,
     use_exog             = False,
-    rationale            = "Statistical model per user preference.",
+    explanation            = "Statistical model per user preference.",
 )
 
 # --- Foundation ---
@@ -157,5 +157,5 @@ plan_foundation = ForecastPlan(
     backtesting_strategy = "TimeSeriesFold",
     interval_method      = None,
     use_exog             = False,
-    rationale            = "Foundation model per user preference.",
+    explanation            = "Foundation model per user preference.",
 )

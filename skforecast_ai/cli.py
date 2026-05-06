@@ -65,6 +65,30 @@ def _print_profile(profile) -> None:
     console.print(table)
 
 
+def _print_forecaster_profile(forecaster_profile) -> None:
+    """Print a ForecasterProfile as a Rich table."""
+    table = Table(title="Forecaster Profile")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+
+    table.add_row("Task type", forecaster_profile.task_type)
+    table.add_row("Forecaster", forecaster_profile.forecaster)
+    if forecaster_profile.forecaster_candidates:
+        table.add_row(
+            "Forecaster candidates",
+            ", ".join(forecaster_profile.forecaster_candidates),
+        )
+    table.add_row("Estimator", forecaster_profile.estimator or "—")
+    if forecaster_profile.estimator_candidates:
+        table.add_row(
+            "Estimator candidates",
+            ", ".join(forecaster_profile.estimator_candidates),
+        )
+    table.add_row("Explanation", forecaster_profile.explanation)
+
+    console.print(table)
+
+
 def _print_plan(plan) -> None:
     """Print a ForecastPlan as a Rich table."""
     table = Table(title="Forecast Plan")
@@ -90,7 +114,7 @@ def _print_plan(plan) -> None:
     if plan.warnings:
         table.add_row("Warnings", "\n".join(plan.warnings))
 
-    table.add_row("Rationale", plan.rationale)
+    table.add_row("Explanation", plan.explanation)
 
     console.print(table)
 
@@ -109,10 +133,10 @@ def profile(
         bool, typer.Option("--json", help="Output as JSON.")
     ] = False,
 ) -> None:
-    """Profile a time series dataset."""
+    """Profile a dataset and select the recommended forecaster + estimator."""
     try:
         assistant = ForecastingAssistant()
-        profile = assistant.profile(
+        forecaster_profile = assistant.profile(
             data=data_path,
             target=_parse_target(target),
             date_column=date,
@@ -129,13 +153,14 @@ def profile(
         raise typer.Exit(code=2)
 
     if output_json:
-        typer.echo(profile.model_dump_json(indent=2))
+        typer.echo(forecaster_profile.model_dump_json(indent=2))
     else:
-        _print_profile(profile)
+        _print_profile(forecaster_profile.data_profile)
+        _print_forecaster_profile(forecaster_profile)
 
 
 @app.command()
-def recommend(
+def plan(
     data_path: Annotated[Path, typer.Argument(help="Path to the CSV file.")],
     target: Annotated[str, typer.Option("--target", help="Target column name.")],
     date: Annotated[
@@ -145,23 +170,35 @@ def recommend(
         str | None, typer.Option("--series-id", help="Series ID column name.")
     ] = None,
     steps: Annotated[
-        int, typer.Option("--steps", help="Forecast steps (steps ahead).")
+        int, typer.Option("--steps", help="Forecast horizon.")
     ] = 10,
+    forecaster: Annotated[
+        str | None,
+        typer.Option("--forecaster", help="Explicit skforecast forecaster class."),
+    ] = None,
+    estimator: Annotated[
+        str | None,
+        typer.Option("--estimator", help="Explicit estimator class."),
+    ] = None,
     output_json: Annotated[
         bool, typer.Option("--json", help="Output as JSON.")
     ] = False,
 ) -> None:
-    """Profile a dataset and generate a forecasting plan."""
+    """Profile a dataset and build the detailed forecasting plan."""
     try:
         assistant = ForecastingAssistant()
-        result = assistant.recommend(
+        forecaster_profile = assistant.profile(
             data=data_path,
             target=_parse_target(target),
             date_column=date,
             series_id_column=series_id,
-            steps=steps,
         )
-        plan = result.plan
+        forecast_plan = assistant.generate_plan(
+            forecaster_profile,
+            steps=steps,
+            forecaster=forecaster,
+            estimator=estimator,
+        )
     except FileNotFoundError:
         console.print(f"[red]Error:[/red] File not found: {data_path}")
         raise typer.Exit(code=1)
@@ -173,9 +210,10 @@ def recommend(
         raise typer.Exit(code=2)
 
     if output_json:
-        typer.echo(plan.model_dump_json(indent=2))
+        typer.echo(forecast_plan.model_dump_json(indent=2))
     else:
-        _print_plan(plan)
+        _print_forecaster_profile(forecaster_profile)
+        _print_plan(forecast_plan)
 
 
 @app.command("generate-code")
@@ -191,6 +229,10 @@ def generate_code_cmd(
     steps: Annotated[
         int, typer.Option("--steps", help="Forecast steps (steps ahead).")
     ] = 10,
+    forecaster: Annotated[
+        str | None,
+        typer.Option("--forecaster", help="Explicit skforecast forecaster class."),
+    ] = None,
     output: Annotated[
         Path | None, typer.Option("--output", help="Write code to this file.")
     ] = None,
@@ -207,6 +249,7 @@ def generate_code_cmd(
             date_column=date,
             series_id_column=series_id,
             steps=steps,
+            forecaster=forecaster,
             data_path=str(data_path),
         )
         plan = result.plan
@@ -244,6 +287,10 @@ def forecast(
     steps: Annotated[
         int, typer.Option("--steps", help="Forecast steps (steps ahead).")
     ] = 10,
+    forecaster: Annotated[
+        str | None,
+        typer.Option("--forecaster", help="Explicit skforecast forecaster class."),
+    ] = None,
     output_json: Annotated[
         bool, typer.Option("--json", help="Output as JSON.")
     ] = False,
@@ -257,6 +304,7 @@ def forecast(
             date_column=date,
             series_id_column=series_id,
             steps=steps,
+            forecaster=forecaster,
         )
     except FileNotFoundError:
         console.print(f"[red]Error:[/red] File not found: {data_path}")
@@ -298,6 +346,10 @@ def explain(
     steps: Annotated[
         int, typer.Option("--steps", help="Forecast steps (steps ahead).")
     ] = 10,
+    forecaster: Annotated[
+        str | None,
+        typer.Option("--forecaster", help="Explicit skforecast forecaster class."),
+    ] = None,
     llm: Annotated[
         str | None,
         typer.Option("--llm", help="LLM provider string (e.g. 'openai:gpt-4o-mini')."),
@@ -309,19 +361,24 @@ def explain(
     """Explain a forecasting plan in plain language."""
     try:
         assistant = ForecastingAssistant(llm=llm)
-        result = assistant.recommend(
+        forecaster_profile = assistant.profile(
             data=data_path,
             target=target,
             date_column=date,
             series_id_column=series_id,
-            steps=steps,
         )
-        plan = result.plan
+        plan = assistant.generate_plan(
+            forecaster_profile,
+            steps=steps,
+            forecaster=forecaster,
+        )
 
         if llm is not None:
-            explanation = assistant.explain(plan=plan, profile=result.profile)
+            explanation = assistant.explain(
+                plan=plan, profile=forecaster_profile.data_profile,
+            )
         else:
-            explanation = plan.rationale
+            explanation = plan.explanation
     except FileNotFoundError:
         console.print(f"[red]Error:[/red] File not found: {data_path}")
         raise typer.Exit(code=1)

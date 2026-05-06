@@ -104,7 +104,7 @@ def test_run_forecast_statistical_returns_predictions():
         use_exog=False,
         data_requirements=[],
         warnings=[],
-        rationale="Statistical ARIMA model.",
+        explanation="Statistical ARIMA model.",
     )
 
     result = run_forecast(data=df_single, profile=profile_single, plan=plan_stats)
@@ -130,7 +130,7 @@ def test_run_forecast_ValueError_when_unsupported_task_type():
         steps=5,
         metric="accuracy",
         backtesting_strategy="TimeSeriesFold",
-        rationale="Unsupported.",
+        explanation="Unsupported.",
     )
 
     err_msg = re.escape(
@@ -171,7 +171,7 @@ def test_validate_run_inputs_warns_steps_exceeds_test_size():
         lags=[1, 2, 3],
         metric="mean_absolute_error",
         backtesting_strategy="TimeSeriesFold",
-        rationale="Large steps.",
+        explanation="Large steps.",
     )
 
     warnings = validate_run_inputs(

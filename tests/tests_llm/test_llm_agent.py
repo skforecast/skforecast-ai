@@ -39,7 +39,7 @@ plan_single_recursive = ForecastPlan(
     use_exog=True,
     data_requirements=["impute_missing", "encode_categorical"],
     warnings=[],
-    rationale="Single daily series with exogenous variables.",
+    explanation="Single daily series with exogenous variables.",
 )
 
 
@@ -169,8 +169,9 @@ def test_create_forecasting_agent_returns_agent():
 
 def test_agent_tools_registered():
     """
-    Test that the forecasting agent has the three expected tools
-    registered (profile_data, recommend, generate_code_tool).
+    Test that the forecasting agent has the four expected tools
+    registered (profile_data, build_forecaster_profile_tool,
+    generate_plan_tool, generate_code_tool).
     """
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
@@ -185,7 +186,8 @@ def test_agent_tools_registered():
 
     tool_names = set(agent._function_toolset.tools.keys())
     assert "profile_data" in tool_names
-    assert "recommend" in tool_names
+    assert "build_forecaster_profile_tool" in tool_names
+    assert "generate_plan_tool" in tool_names
     assert "generate_code_tool" in tool_names
 
 

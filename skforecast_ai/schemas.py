@@ -135,6 +135,63 @@ class AnalysisContext(BaseModel):
     viable_context_length: int | None = None
 
 
+class ForecasterProfile(BaseModel):
+    """
+    High-level profile of the forecasting problem.
+
+    Combines the dataset profile with the *coarse* modeling decisions:
+    which forecaster family to use, which estimator to pair with it,
+    and the alternative candidates the user could switch to. Detailed
+    configuration (lags, metric, intervals, NaN handling, preprocessing)
+    is left to `ForecastPlan`.
+
+    Attributes
+    ----------
+    data_profile : DataProfile
+        Profile of the input dataset (independent of the forecasting
+        decisions).
+    task_type : str
+        Forecasting task category implied by the selected forecaster.
+        One of `'single_series'`, `'multi_series'`, `'multivariate'`,
+        `'statistical'`, `'foundation'`, `'classification'`, `'baseline'`.
+    forecaster : str
+        Selected skforecast forecaster class name.
+    forecaster_candidates : list
+        Ordered list of compatible forecaster class names. The first
+        item is the preferred default.
+    estimator : str, default None
+        Selected scikit-learn compatible estimator name. `None` for
+        forecaster families that do not use an external estimator
+        (statistical, foundation, baseline).
+    estimator_candidates : list
+        Ordered list of compatible estimator names. Empty when the
+        selected forecaster does not use an external estimator.
+    analysis_context : AnalysisContext
+        Forecaster-specific analysis (per-series stats, viable context
+        length, etc.).
+    explanation : str
+        Human-readable explanation of why this forecaster + estimator
+        combination was chosen.
+    """
+
+    data_profile: DataProfile
+    task_type: Literal[
+        "single_series",
+        "multi_series",
+        "multivariate",
+        "statistical",
+        "foundation",
+        "classification",
+        "baseline",
+    ]
+    forecaster: str
+    forecaster_candidates: list[str] = Field(default_factory=list)
+    estimator: str | None = None
+    estimator_candidates: list[str] = Field(default_factory=list)
+    analysis_context: AnalysisContext
+    explanation: str
+
+
 class PreprocessingStep(BaseModel):
     """
     A preprocessing action required before forecasting.
@@ -162,12 +219,17 @@ class PreprocessingStep(BaseModel):
 
 class ForecastPlan(BaseModel):
     """
-    Recommended forecasting plan produced by the recommendation engine.
+    Detailed forecasting plan produced from a `ForecasterProfile`.
+
+    Carries every concrete decision needed to fit, evaluate and predict:
+    lag structure, metric, backtesting strategy, prediction intervals,
+    NaN handling, exogenous usage and preprocessing steps.
 
     Attributes
     ----------
     task_type : str
-        Forecasting task category. One of `'single_series'`,
+        Forecasting task category (mirrored from the source
+        `ForecasterProfile`). One of `'single_series'`,
         `'multi_series'`, `'multivariate'`, `'statistical'`,
         `'foundation'`, `'classification'`, `'baseline'`.
     forecaster : str
@@ -199,8 +261,8 @@ class ForecastPlan(BaseModel):
         Conditions the data must meet before training.
     warnings : list
         Human-readable warnings about the plan.
-    rationale : str
-        Explanation of why this plan was chosen.
+    explanation : str
+        Explanation of the plan-level decisions.
     """
 
     task_type: Literal[
@@ -225,61 +287,46 @@ class ForecastPlan(BaseModel):
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
     data_requirements: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    rationale: str
-
-
-class RecommendResult(BaseModel):
-    """
-    Result of the recommend workflow.
-
-    Attributes
-    ----------
-    profile : DataProfile
-        Profile of the input dataset.
-    plan : ForecastPlan
-        Recommended forecasting plan.
-    """
-
-    profile: DataProfile
-    plan: ForecastPlan
+    explanation: str
 
 
 class GenerateResult(BaseModel):
     """
-    Result of the generate_code workflow.
+    Result of the `generate_code` workflow.
 
     Attributes
     ----------
-    profile : DataProfile
-        Profile of the input dataset.
+    forecaster_profile : ForecasterProfile
+        Profile of the input dataset and high-level modeling decisions.
     plan : ForecastPlan
-        Recommended forecasting plan.
+        Detailed forecasting plan.
     code : str
         Generated Python script.
     """
 
-    profile: DataProfile
+    forecaster_profile: ForecasterProfile
     plan: ForecastPlan
     code: str
 
 
 class AskResult(BaseModel):
     """
-    Result of the ask workflow (requires LLM).
+    Result of the `ask` workflow (requires LLM).
 
     Attributes
     ----------
-    profile : DataProfile, default None
-        Profile of the input dataset, if data was provided.
+    forecaster_profile : ForecasterProfile, default None
+        Profile of the input dataset and high-level modeling decisions,
+        if data was provided.
     plan : ForecastPlan, default None
-        Recommended forecasting plan, if the agent produced one.
+        Detailed forecasting plan, if the agent produced one.
     code : str, default None
         Generated Python script, if the agent produced one.
     explanation : str
         LLM-generated explanation or response.
     """
 
-    profile: DataProfile | None = None
+    forecaster_profile: ForecasterProfile | None = None
     plan: ForecastPlan | None = None
     code: str | None = None
     explanation: str
@@ -287,14 +334,14 @@ class AskResult(BaseModel):
 
 class RunResult(BaseModel):
     """
-    Result of the run workflow (executes the forecasting pipeline end-to-end).
+    Result of the `forecast` workflow (executes the pipeline end-to-end).
 
     Attributes
     ----------
-    profile : DataProfile
-        Profile of the input dataset.
+    forecaster_profile : ForecasterProfile
+        Profile of the input dataset and high-level modeling decisions.
     plan : ForecastPlan
-        Recommended forecasting plan that was executed.
+        Detailed forecasting plan that was executed.
     code : str
         Generated Python script equivalent to the execution.
     metric_value : float
@@ -311,7 +358,7 @@ class RunResult(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    profile: DataProfile
+    forecaster_profile: ForecasterProfile
     plan: ForecastPlan
     code: str
     metric_value: float

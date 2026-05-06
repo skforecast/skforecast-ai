@@ -54,7 +54,7 @@ plan_single = ForecastPlan(
     use_exog=True,
     data_requirements=[],
     warnings=[],
-    rationale="Single series with exog, Ridge for moderate dataset size.",
+    explanation="Single series with exog, Ridge for moderate dataset size.",
 )
 
 plan_single_with_intervals = ForecastPlan(
@@ -70,7 +70,7 @@ plan_single_with_intervals = ForecastPlan(
     use_exog=False,
     data_requirements=[],
     warnings=[],
-    rationale="Single series with bootstrapping intervals.",
+    explanation="Single series with bootstrapping intervals.",
 )
 
 # --- Multi-series fixture (200 observations, 2 series) ---
@@ -115,7 +115,7 @@ plan_multi = ForecastPlan(
     use_exog=False,
     data_requirements=[],
     warnings=[],
-    rationale="Multi-series with Ridge, ordinal encoding.",
+    explanation="Multi-series with Ridge, ordinal encoding.",
 )
 
 # --- Short series fixture (30 observations) ---
@@ -157,5 +157,5 @@ plan_short = ForecastPlan(
     use_exog=False,
     data_requirements=[],
     warnings=[],
-    rationale="Short series with Ridge.",
+    explanation="Short series with Ridge.",
 )

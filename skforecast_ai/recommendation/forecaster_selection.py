@@ -1,4 +1,4 @@
-"""Orchestrator: assemble a ForecastPlan from deterministic rules."""
+"""Two-stage recommendation: ForecasterProfile then ForecastPlan."""
 
 from __future__ import annotations
 
@@ -6,151 +6,130 @@ import pandas as pd
 
 from ..preparation import derive_preprocessing_steps
 from ..profiling.analysis import create_analysis_context
-from ..schemas import DataProfile, ForecastPlan
+from ..schemas import DataProfile, ForecasterProfile, ForecastPlan
 from .rules import (
     build_data_requirements,
-    build_rationale,
+    build_explanation,
     check_exog_usage,
     select_backtesting,
     select_dropna_from_series,
-    select_estimator,
-    select_forecaster,
+    select_estimator_and_candidates,
+    select_forecaster_and_candidates,
     select_interval_method,
     select_lags,
     select_metric,
-    select_task_type,
+    select_task_type_from_forecaster,
 )
 
 
-def select_forecaster_type(
-    profile: DataProfile,
-    prefer_foundation: bool = False,
-    prefer_statistical: bool = False,
+def _resolve_choice(
+    name: str | None,
+    candidates: list[str],
+    label: str,
+) -> str | None:
+    """
+    Resolve a user-supplied choice against the compatible candidates.
+
+    Parameters
+    ----------
+    name : str, None
+        User-supplied class name. If `None`, the first candidate is used.
+    candidates : list
+        Ordered list of compatible candidates.
+    label : str
+        Label used in the error message (e.g. `'Forecaster'`,
+        `'Estimator'`).
+
+    Returns
+    -------
+    resolved : str or None
+        The resolved name, or `None` when no candidates exist and no
+        explicit name was provided.
+    """
+    if name is None:
+        return candidates[0] if candidates else None
+
+    if not candidates:
+        raise ValueError(
+            f"{label} '{name}' was provided but no candidates are available "
+            f"for this problem."
+        )
+
+    if name not in candidates:
+        raise ValueError(
+            f"{label} '{name}' is not compatible with this profile. "
+            f"Available candidates: {candidates}."
+        )
+
+    return name
+
+
+def _build_profile_explanation(
+    task_type: str,
+    forecaster: str,
+    forecaster_candidates: list[str],
+    estimator: str | None,
+    estimator_candidates: list[str],
+    data_profile: DataProfile,
 ) -> str:
     """
-    Select the appropriate forecaster class based on data profile.
-
-    This is the Stage 2 entry point that combines task type detection
-    and forecaster mapping into a single call.
+    Build a short explanation of the coarse modeling decisions.
 
     Parameters
     ----------
-    profile : DataProfile
-        Profiled dataset metadata.
-    prefer_foundation : bool, default False
-        If `True`, recommend a foundation model forecaster.
-    prefer_statistical : bool, default False
-        If `True`, recommend a statistical model forecaster.
-
-    Returns
-    -------
+    task_type : str
+        Selected task type.
     forecaster : str
-        Name of the skforecast forecaster class (e.g.
-        `'ForecasterRecursive'`, `'ForecasterRecursiveMultiSeries'`).
-    """
-    task_type = select_task_type(profile, prefer_foundation, prefer_statistical)
-    return select_forecaster(task_type)
-
-
-def recommend_plan(
-    profile: DataProfile,
-    steps: int = 10,
-    data: pd.DataFrame | None = None,
-    prefer_foundation: bool = False,
-    prefer_statistical: bool = False,
-) -> ForecastPlan:
-    """
-    Generate a deterministic forecasting plan from a data profile.
-
-    Internally orchestrates four stages:
-      1. Profile (already done — receives ``profile``)
-      2. Select forecaster type
-      3. Build analysis context (forecaster-specific)
-      4. Assemble strategy (lags, backtesting, preprocessing steps)
-
-    Parameters
-    ----------
-    profile : DataProfile
-        Profiled dataset metadata produced by `create_data_profile`.
-    steps : int, default 10
-        Number of steps ahead to predict.
-    data : pandas DataFrame, default None
-        Raw input data. When provided, enables forecaster-specific
-        analysis (e.g. per-series length for multi-series). When None,
-        safe defaults derived from the profile are used.
-    prefer_foundation : bool, default False
-        If `True`, recommend a foundation model forecaster regardless of
-        data characteristics.
-    prefer_statistical : bool, default False
-        If `True`, recommend a statistical model forecaster regardless of
-        data characteristics.
+        Selected forecaster class name.
+    forecaster_candidates : list
+        Compatible forecaster alternatives.
+    estimator : str or None
+        Selected estimator name.
+    estimator_candidates : list
+        Compatible estimator alternatives.
+    data_profile : DataProfile
+        Profiled dataset metadata.
 
     Returns
     -------
-    plan : ForecastPlan
-        Structured plan with the recommended forecaster, lags, metric,
-        backtesting strategy, preprocessing steps, and rationale.
-
-    Notes
-    -----
-    The recommendation is fully deterministic. The LLM is not invoked by
-    this function.
+    explanation : str
+        Multi-sentence explanation of the coarse decisions.
     """
-    # Stage 2: Select forecaster
-    task_type = select_task_type(profile, prefer_foundation, prefer_statistical)
-    forecaster = select_forecaster(task_type)
+    parts: list[str] = []
 
-    # Stage 3: Forecaster-specific analysis
-    context = create_analysis_context(data, profile, forecaster)
-
-    # Stage 4: Build strategy using context
-    estimator = select_estimator(task_type, context.effective_n_observations)
-
-    if task_type in ("statistical", "foundation", "baseline"):
-        lags = None
+    if task_type == "multi_series":
+        parts.append(
+            f"The dataset contains {data_profile.n_series} series, so a "
+            f"multi-series forecaster ({forecaster}) is recommended."
+        )
+    elif task_type == "multivariate":
+        parts.append(
+            f"A multivariate forecaster ({forecaster}) is recommended for "
+            "predicting the target using multiple correlated series as features."
+        )
+    elif task_type == "foundation":
+        parts.append(
+            f"A foundation model ({forecaster}) was selected per user "
+            "preference."
+        )
+    elif task_type == "statistical":
+        parts.append(
+            f"A statistical model ({forecaster}) was selected per user "
+            "preference."
+        )
     else:
-        lags = select_lags(
-            context.effective_n_observations,
-        )
-    metric = select_metric(task_type)
-    backtesting_strategy = select_backtesting(
-        context.effective_n_observations, steps
-    )
-    interval_method = select_interval_method(
-        forecaster, context.effective_n_observations
-    )
-    dropna_from_series = select_dropna_from_series(
-        estimator, profile.missing_target, profile.missing_exog, task_type
-    )
-    use_exog = check_exog_usage(profile.exog_columns)
-    data_requirements = build_data_requirements(profile)
-    preprocessing_steps = derive_preprocessing_steps(profile, forecaster)
-
-    warnings: list[str] = []
-    if steps > context.effective_n_observations:
-        warnings.append(
-            f"steps ({steps}) exceeds the number of observations "
-            f"({context.effective_n_observations}). Results may be unreliable."
+        parts.append(
+            f"A single-series ML forecaster ({forecaster}) is recommended."
         )
 
-    rationale = build_rationale(
-        task_type, forecaster, estimator, lags, metric, interval_method, profile
-    )
+    alt_forecasters = [c for c in forecaster_candidates if c != forecaster]
+    if alt_forecasters:
+        parts.append(f"Alternative forecasters: {alt_forecasters}.")
 
-    return ForecastPlan(
-        task_type            = task_type,
-        forecaster           = forecaster,
-        estimator            = estimator,
-        steps                = steps,
-        frequency            = profile.frequency,
-        lags                 = lags,
-        metric               = metric,
-        backtesting_strategy = backtesting_strategy,
-        interval_method      = interval_method,
-        dropna_from_series   = dropna_from_series,
-        use_exog             = use_exog,
-        preprocessing_steps  = preprocessing_steps,
-        data_requirements    = data_requirements,
-        warnings             = warnings,
-        rationale            = rationale,
-    )
+    if estimator is not None:
+        parts.append(f"Estimator: {estimator}.")
+        alt_estimators = [c for c in estimator_candidates if c != estimator]
+        if alt_estimators:
+            parts.append(f"Alternative estimators: {alt_estimators}.")
+
+    return " ".join(parts)
