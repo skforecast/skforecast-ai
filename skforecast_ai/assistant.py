@@ -233,7 +233,11 @@ class ForecastingAssistant:
             transformer_exog = None
             dropna_from_series = None
         else:
-            lags, window_features = select_autoregressive(context.effective_n_observations)
+            lags, window_features = select_autoregressive(
+                n_observations = context.effective_n_observations,
+                frequency      = data_profile.frequency,
+                target_series  = context.target_series,
+            )
 
             transformer_series = select_transformer_series(est, task_type)
 
@@ -261,6 +265,8 @@ class ForecastingAssistant:
             transformer_exog   = transformer_exog,
             dropna_from_series = dropna_from_series,
         )
+
+        # TODO: COntinue from ehre, start optimizing lags and window features
 
         interval_method = None
         if interval is not None:

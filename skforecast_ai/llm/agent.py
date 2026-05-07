@@ -128,8 +128,13 @@ def create_forecasting_agent(
 
         if task_type in ("statistical", "foundation"):
             lags = None
+            window_features = None
         else:
-            lags = select_autoregressive(context.effective_n_observations)
+            lags, window_features = select_autoregressive(
+                n_observations = context.effective_n_observations,
+                frequency      = data_profile.frequency,
+                target_series  = context.target_series,
+            )
 
         metric               = select_metric(task_type)
         backtesting_strategy = select_backtesting(

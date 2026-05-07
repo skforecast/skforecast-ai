@@ -2,6 +2,8 @@
 
 import re
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from skforecast_ai.profiling.analysis import create_analysis_context
@@ -65,6 +67,15 @@ def _build_profile(data_profile):
     task_type = select_task_type_from_forecaster(fc)
     context = create_analysis_context(None, data_profile, fc)
 
+    # Inject synthetic target_series when real data is not available
+    if context.target_series is None:
+        rng = np.random.default_rng(123)
+        n = data_profile.n_observations
+        y = np.zeros(n)
+        for i in range(1, n):
+            y[i] = 0.6 * y[i - 1] + rng.normal(0, 1)
+        context.target_series = pd.Series(y, name="target")
+
     est, est_candidates = select_estimator_and_candidates(
         task_type=task_type, n_observations=context.effective_n_observations
     )
@@ -124,7 +135,11 @@ def _plan(profile, steps, forecaster=None, estimator=None):
         lags = None
         window_features = None
     else:
-        lags, window_features = select_autoregressive(context.effective_n_observations)
+        lags, window_features = select_autoregressive(
+            n_observations = context.effective_n_observations,
+            frequency      = data_profile.frequency,
+            target_series  = context.target_series,
+        )
 
     metric               = select_metric(task_type)
     backtesting_strategy = select_backtesting(context.effective_n_observations, steps)

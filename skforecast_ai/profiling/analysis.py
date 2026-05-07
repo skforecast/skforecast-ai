@@ -78,12 +78,23 @@ def _analyze_multi_series(
         ratio = max_len / min_len if min_len > 0 else None
         short = [name for name, n in lengths.items() if n < 50]
 
+        # Pick first target series for PACF-based lag selection
+        target_series = None
+        if data is not None and isinstance(profile.target, list):
+            for col in profile.target:
+                if col in data.columns:
+                    s = _prepare_series_for_pacf(data[col])
+                    if len(s) > 0:
+                        target_series = s
+                        break
+
         return AnalysisContext(
             effective_n_observations=total_len,
             min_series_length=min_len,
             max_series_length=max_len,
             series_length_ratio=ratio,
             short_series=short if short else None,
+            target_series=target_series,
         )
 
     # Fallback: no series_lengths available
@@ -146,6 +157,7 @@ def _analyze_single_ml(
     """
     target_has_trend = None
     target_variance = None
+    target_series = None
 
     if data is not None:
         target_col = (
@@ -153,16 +165,15 @@ def _analyze_single_ml(
             else profile.target
         )
         if target_col in data.columns:
-            target_series = data[target_col].dropna()
+            target_series = _prepare_series_for_pacf(data[target_col])
             if len(target_series) > 0:
                 target_variance = float(target_series.var())
-            # TODO: trend detection (compare mean of first/second half,
-            #       or Mann-Kendall heuristic)
 
     return AnalysisContext(
         effective_n_observations=profile.n_observations,
         target_has_trend=target_has_trend,
         target_variance=target_variance,
+        target_series=target_series,
     )
 
 
@@ -218,3 +229,38 @@ def _analyze_stats(
     return AnalysisContext(
         effective_n_observations=profile.n_observations,
     )
+
+
+def _prepare_series_for_pacf(series: pd.Series) -> pd.Series:
+    """
+    Prepare a series for PACF computation by trimming edge NaNs and
+    interpolating interior ones.
+
+    Dropping interspersed NaNs would collapse the temporal structure,
+    making lag relationships meaningless. Instead, leading/trailing NaNs
+    are stripped and interior gaps are filled with linear interpolation.
+
+    Parameters
+    ----------
+    series : pandas Series
+        Raw target series (may contain NaN).
+
+    Returns
+    -------
+    clean : pandas Series
+        Series without NaN, preserving temporal ordering.
+    """
+    # Strip leading and trailing NaNs
+    first_valid = series.first_valid_index()
+    last_valid = series.last_valid_index()
+
+    if first_valid is None:
+        return series.iloc[0:0]  # empty series
+
+    trimmed = series.loc[first_valid:last_valid]
+
+    # Interpolate interior NaNs (linear preserves temporal structure)
+    if trimmed.isna().any():
+        trimmed = trimmed.interpolate(method="linear")
+
+    return trimmed

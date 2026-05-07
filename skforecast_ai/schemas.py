@@ -121,9 +121,14 @@ class AnalysisContext(BaseModel):
         Whether the target exhibits a monotonic trend (single ML only).
     target_variance : float, default None
         Variance of the target column (single ML only).
+    target_series : pandas Series, default None
+        Target series (NaN-free) used for data-aware lag selection via
+        PACF analysis. Excluded from serialization.
     viable_context_length : int, default None
         Usable context length for foundation models.
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     effective_n_observations: int
     min_series_length: int | None = None
@@ -132,6 +137,7 @@ class AnalysisContext(BaseModel):
     short_series: list[str] | None = None
     target_has_trend: bool | None = None
     target_variance: float | None = None
+    target_series: Any = Field(default=None, exclude=True)
     viable_context_length: int | None = None
 
 
