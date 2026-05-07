@@ -93,7 +93,7 @@ focus on why each choice was made.
 - Forecaster: {forecaster}
 - Estimator: {estimator}
 - steps: {steps}
-- Lags: {lags}
+- Forecaster kwargs: {forecaster_kwargs}
 - Metric: {metric}
 - Backtesting: {backtesting_strategy}
 - Interval method: {interval_method}
@@ -242,7 +242,7 @@ def build_explain_prompt(plan: ForecastPlan, profile: DataProfile) -> str:
         forecaster=plan.forecaster,
         estimator=plan.estimator or "none",
         steps=plan.steps,
-        lags=plan.lags,
+        forecaster_kwargs=plan.forecaster_kwargs,
         metric=plan.metric,
         backtesting_strategy=plan.backtesting_strategy,
         interval_method=plan.interval_method or "none",

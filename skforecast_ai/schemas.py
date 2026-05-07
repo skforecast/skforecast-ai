@@ -153,7 +153,7 @@ class ForecasterProfile(BaseModel):
     task_type : str
         Forecasting task category implied by the selected forecaster.
         One of `'single_series'`, `'multi_series'`, `'multivariate'`,
-        `'statistical'`, `'foundation'`, `'classification'`, `'baseline'`.
+        `'statistical'`, `'foundation'`.
     forecaster : str
         Selected skforecast forecaster class name.
     forecaster_candidates : list
@@ -162,7 +162,7 @@ class ForecasterProfile(BaseModel):
     estimator : str, default None
         Selected scikit-learn compatible estimator name. `None` for
         forecaster families that do not use an external estimator
-        (statistical, foundation, baseline).
+        (statistical, foundation).
     estimator_candidates : list
         Ordered list of compatible estimator names. Empty when the
         selected forecaster does not use an external estimator.
@@ -181,8 +181,6 @@ class ForecasterProfile(BaseModel):
         "multivariate",
         "statistical",
         "foundation",
-        "classification",
-        "baseline",
     ]
     forecaster: str
     forecaster_candidates: list[str] = Field(default_factory=list)
@@ -231,7 +229,7 @@ class ForecastPlan(BaseModel):
         Forecasting task category (mirrored from the source
         `ForecasterProfile`). One of `'single_series'`,
         `'multi_series'`, `'multivariate'`, `'statistical'`,
-        `'foundation'`, `'classification'`, `'baseline'`.
+        `'foundation'`.
     forecaster : str
         Name of the skforecast forecaster class.
     estimator : str, default None
@@ -240,19 +238,22 @@ class ForecastPlan(BaseModel):
         Number of steps ahead to predict. Must be greater than 0.
     frequency : str, default None
         Pandas frequency string for the series.
-    lags : int, list, default None
-        Lag structure to use as predictors.
-    metric : str
-        Name of the evaluation metric.
-    backtesting_strategy : str
-        Name of the backtesting fold strategy.
+    forecaster_kwargs : dict, default {}
+        Keyword arguments for the forecaster constructor (e.g. `lags`,
+        `steps`, `encoding`, `dropna_from_series`). Can be unpacked
+        directly into the constructor alongside `estimator`.
+    metric : str, default None
+        Deprecated. Evaluation metric is determined at execution time
+        by `generate_code` / `forecast`.
+    backtesting_strategy : str, default None
+        Deprecated. Backtesting configuration is determined at
+        execution time by `generate_code` / `forecast`.
+    interval : list, default None
+        Prediction interval percentiles as `[lower, upper]`
+        (e.g. `[10, 90]`). If None, no intervals are computed.
     interval_method : str, default None
         Method for prediction intervals. One of `'bootstrapping'`,
         `'conformal'`.
-    dropna_from_series : bool, default None
-        Whether to drop NaN rows from training matrices. `None` when
-        not applicable (statistical, foundation). `True` when the
-        estimator does not support NaN. `False` when NaN-tolerant.
     use_exog : bool, default False
         Whether to include exogenous variables.
     preprocessing_steps : list
@@ -271,18 +272,16 @@ class ForecastPlan(BaseModel):
         "multivariate",
         "statistical",
         "foundation",
-        "classification",
-        "baseline",
     ]
     forecaster: str
     estimator: str | None = None
     steps: int = Field(gt=0)
     frequency: str | None = None
-    lags: int | list[int] | None = None
-    metric: str
-    backtesting_strategy: str
+    forecaster_kwargs: dict[str, Any] = Field(default_factory=dict)
+    metric: str | None = None  # TODO: remove once runner/code_templates handle their own config
+    backtesting_strategy: str | None = None  # TODO: remove once runner/code_templates handle their own config
+    interval: list[int] | None = None
     interval_method: Literal["bootstrapping", "conformal"] | None = None
-    dropna_from_series: bool | None = None
     use_exog: bool = False
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
     data_requirements: list[str] = Field(default_factory=list)

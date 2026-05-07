@@ -97,7 +97,7 @@ def test_run_forecast_statistical_returns_predictions():
         estimator=None,
         steps=5,
         frequency="D",
-        lags=None,
+        forecaster_kwargs={},
         metric="mean_absolute_error",
         backtesting_strategy="TimeSeriesFold",
         interval_method=None,
@@ -121,7 +121,7 @@ def test_run_forecast_statistical_returns_predictions():
 def test_run_forecast_ValueError_when_unsupported_task_type():
     """
     Test that run_forecast raises ValueError for unsupported task types like
-    classification or baseline.
+    classification.
     """
     plan_unsupported = ForecastPlan(
         task_type="classification",
@@ -168,7 +168,7 @@ def test_validate_run_inputs_warns_steps_exceeds_test_size():
         estimator="Ridge",
         steps=100,
         frequency="D",
-        lags=[1, 2, 3],
+        forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
         metric="mean_absolute_error",
         backtesting_strategy="TimeSeriesFold",
         explanation="Large steps.",

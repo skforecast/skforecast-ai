@@ -16,7 +16,7 @@ from .rules import (
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
     select_interval_method,
-    select_lags,
+    select_autoregressive,
     select_metric,
     select_task_type_from_forecaster,
 )

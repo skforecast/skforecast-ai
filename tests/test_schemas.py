@@ -127,7 +127,7 @@ def test_forecast_plan_minimal():
     assert plan.forecaster == "ForecasterRecursive"
     assert plan.steps == 24
     assert plan.estimator is None
-    assert plan.lags is None
+    assert plan.forecaster_kwargs == {}
     assert plan.interval_method is None
     assert plan.use_exog is False
     assert plan.data_requirements == []
@@ -162,7 +162,7 @@ def test_forecast_plan_json_roundtrip():
         estimator="LGBMRegressor",
         steps=12,
         frequency="ME",
-        lags=[1, 2, 3, 12],
+        forecaster_kwargs={"lags": [1, 2, 3, 12], "encoding": "ordinal", "dropna_from_series": False},
         metric="mean_squared_error",
         backtesting_strategy="TimeSeriesFold",
         interval_method="bootstrapping",

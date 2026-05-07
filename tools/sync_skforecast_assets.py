@@ -24,7 +24,7 @@ from urllib.request import Request, urlopen
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SKFORECAST_VERSION = "0.22.0"
+SKFORECAST_VERSION = "0.23.x"
 SKFORECAST_RAW_URL = (
     f"https://raw.githubusercontent.com/skforecast/skforecast/"
     f"v{SKFORECAST_VERSION}/llms-full.txt"

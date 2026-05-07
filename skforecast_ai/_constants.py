@@ -21,6 +21,32 @@ STATS_FORECASTERS: set[str] = {
     "ForecasterStats",
 }
 
+AUTOREG_FORECASTERS: set[str] = {
+    "ForecasterRecursive",
+    "ForecasterDirect",
+    "ForecasterRecursiveMultiSeries",
+    "ForecasterDirectMultiVariate",
+}
+
+DIRECT_FORECASTERS: set[str] = {
+    "ForecasterDirect",
+    "ForecasterDirectMultiVariate",
+}
+
+CATEGORICAL_FORECASTERS: set[str] = {
+    "ForecasterRecursive",
+    "ForecasterDirect",
+    "ForecasterRecursiveMultiSeries",
+    "ForecasterDirectMultiVariate",
+}
+
+DROPNA_FORECASTERS: set[str] = {
+    "ForecasterRecursive",
+    "ForecasterDirect",
+    "ForecasterRecursiveMultiSeries",
+    "ForecasterDirectMultiVariate",
+}
+
 REQUIRES_DATETIME_FREQ: set[str] = {
     "ForecasterRecursive",
     "ForecasterDirect",
@@ -28,4 +54,21 @@ REQUIRES_DATETIME_FREQ: set[str] = {
     "ForecasterDirectMultiVariate",
     "ForecasterStats",
     "ForecasterFoundation",
+}
+
+TREE_BASED_ESTIMATORS: set[str] = {
+    "LGBMRegressor",
+    "XGBRegressor",
+    "CatBoostRegressor",
+    "RandomForestRegressor",
+    "GradientBoostingRegressor",
+    "HistGradientBoostingRegressor",
+    "ExtraTreesRegressor",
+}
+
+NAN_TOLERANT_ESTIMATORS: set[str] = {
+    "LGBMRegressor",
+    "CatBoostRegressor",
+    "XGBRegressor",
+    "HistGradientBoostingRegressor",
 }

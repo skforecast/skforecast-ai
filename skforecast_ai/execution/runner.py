@@ -172,16 +172,16 @@ def _run_single_series(
         from skforecast.direct import ForecasterDirect
 
         forecaster = ForecasterDirect(
-            steps     = plan.steps,
+            steps     = plan.forecaster_kwargs.get("steps", plan.steps),
             estimator = estimator,
-            lags      = plan.lags,
+            lags      = plan.forecaster_kwargs.get("lags"),
         )
     else:
         from skforecast.recursive import ForecasterRecursive
 
         forecaster = ForecasterRecursive(
             estimator = estimator,
-            lags      = plan.lags,
+            lags      = plan.forecaster_kwargs.get("lags"),
         )
 
     # Fit
@@ -329,8 +329,8 @@ def _run_multi_series(
 
     forecaster = ForecasterRecursiveMultiSeries(
         estimator = estimator,
-        lags      = plan.lags,
-        encoding  = "ordinal",
+        lags      = plan.forecaster_kwargs.get("lags"),
+        encoding  = plan.forecaster_kwargs.get("encoding", "ordinal"),
     )
 
     # Fit

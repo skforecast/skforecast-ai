@@ -77,6 +77,8 @@ def _template_single_series(
         "from skforecast.model_selection import backtesting_forecaster, TimeSeriesFold"
     )
     lines.append(estimator_import)
+    if plan.forecaster_kwargs.get("transformer_y") or plan.forecaster_kwargs.get("transformer_exog"):
+        lines.append("from sklearn.preprocessing import StandardScaler")
     lines.append("")
 
     # Load data
@@ -100,20 +102,32 @@ def _template_single_series(
 
     # Create forecaster
     lines.append("# Create forecaster")
+    lags = plan.forecaster_kwargs.get("lags")
+    dropna = plan.forecaster_kwargs.get("dropna_from_series")
+    transformer_y = plan.forecaster_kwargs.get("transformer_y")
+    transformer_exog = plan.forecaster_kwargs.get("transformer_exog")
     if is_direct:
         lines.append(f"forecaster = {forecaster_class}(")
         lines.append(f"    steps     = {plan.steps},")
         lines.append(f"    estimator = {plan.estimator}(random_state=123),")
-        lines.append(f"    lags      = {plan.lags},")
-        if plan.dropna_from_series is not None:
-            lines.append(f"    dropna_from_series = {plan.dropna_from_series},")
+        lines.append(f"    lags      = {lags},")
+        if transformer_y is not None:
+            lines.append(f"    transformer_y = {transformer_y}(),")
+        if transformer_exog is not None:
+            lines.append(f"    transformer_exog = {transformer_exog}(),")
+        if dropna is not None:
+            lines.append(f"    dropna_from_series = {dropna},")
         lines.append(")")
     else:
         lines.append(f"forecaster = {forecaster_class}(")
         lines.append(f"    estimator = {plan.estimator}(random_state=123),")
-        lines.append(f"    lags      = {plan.lags},")
-        if plan.dropna_from_series is not None:
-            lines.append(f"    dropna_from_series = {plan.dropna_from_series},")
+        lines.append(f"    lags      = {lags},")
+        if transformer_y is not None:
+            lines.append(f"    transformer_y = {transformer_y}(),")
+        if transformer_exog is not None:
+            lines.append(f"    transformer_exog = {transformer_exog}(),")
+        if dropna is not None:
+            lines.append(f"    dropna_from_series = {dropna},")
         lines.append(")")
     lines.append("")
 
@@ -210,6 +224,8 @@ def _template_multi_series(
         "backtesting_forecaster_multiseries, TimeSeriesFold"
     )
     lines.append(estimator_import)
+    if plan.forecaster_kwargs.get("transformer_series") or plan.forecaster_kwargs.get("transformer_exog"):
+        lines.append("from sklearn.preprocessing import StandardScaler")
     lines.append("")
 
     # Load data
@@ -237,13 +253,22 @@ def _template_multi_series(
     lines.append("")
 
     # Create forecaster
+    lags = plan.forecaster_kwargs.get("lags")
+    encoding = plan.forecaster_kwargs.get("encoding", "ordinal")
+    dropna = plan.forecaster_kwargs.get("dropna_from_series")
+    transformer_series = plan.forecaster_kwargs.get("transformer_series")
+    transformer_exog = plan.forecaster_kwargs.get("transformer_exog")
     lines.append("# Create forecaster")
     lines.append("forecaster = ForecasterRecursiveMultiSeries(")
     lines.append(f"    estimator = {plan.estimator}(random_state=123),")
-    lines.append(f"    lags      = {plan.lags},")
-    lines.append("    encoding  = 'ordinal',")
-    if plan.dropna_from_series is not None:
-        lines.append(f"    dropna_from_series = {plan.dropna_from_series},")
+    lines.append(f"    lags      = {lags},")
+    lines.append(f"    encoding  = '{encoding}',")
+    if transformer_series is not None:
+        lines.append(f"    transformer_series = {transformer_series}(),")
+    if transformer_exog is not None:
+        lines.append(f"    transformer_exog = {transformer_exog}(),")
+    if dropna is not None:
+        lines.append(f"    dropna_from_series = {dropna},")
     lines.append(")")
     lines.append("")
 

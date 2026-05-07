@@ -9,15 +9,18 @@ from skforecast_ai.recommendation import (
     _build_profile_explanation,
     build_data_requirements,
     build_explanation,
+    build_forecaster_kwargs,
     check_exog_usage,
     select_backtesting,
     select_dropna_from_series,
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
     select_interval_method,
-    select_lags,
+    select_autoregressive,
     select_metric,
     select_task_type_from_forecaster,
+    select_transformer_exog,
+    select_transformer_series,
 )
 from skforecast_ai.preparation import derive_preprocessing_steps
 from skforecast_ai.schemas import (
@@ -104,7 +107,7 @@ def _plan(profile, steps, forecaster=None, estimator=None):
     task_type = select_task_type_from_forecaster(fc)
 
     est = fp.estimator
-    if task_type in ("statistical", "foundation", "baseline"):
+    if task_type in ("statistical", "foundation"):
         est = None
     if estimator is not None:
         if estimator not in fp.estimator_candidates:
@@ -117,10 +120,11 @@ def _plan(profile, steps, forecaster=None, estimator=None):
     data_profile = fp.data_profile
     context      = fp.analysis_context
 
-    if task_type in ("statistical", "foundation", "baseline"):
+    if task_type in ("statistical", "foundation"):
         lags = None
+        window_features = None
     else:
-        lags = select_lags(context.effective_n_observations)
+        lags, window_features = select_autoregressive(context.effective_n_observations)
 
     metric               = select_metric(task_type)
     backtesting_strategy = select_backtesting(context.effective_n_observations, steps)
@@ -132,6 +136,22 @@ def _plan(profile, steps, forecaster=None, estimator=None):
     data_requirements    = build_data_requirements(data_profile)
     preprocessing_steps  = derive_preprocessing_steps(data_profile, fc)
 
+    transformer_series = select_transformer_series(est, task_type)
+    transformer_exog = select_transformer_exog(
+        est, task_type, data_profile.exog_columns, data_profile.categorical_exog,
+    )
+
+    forecaster_kwargs = build_forecaster_kwargs(
+        forecaster         = fc,
+        task_type          = task_type,
+        lags               = lags,
+        steps              = steps,
+        window_features    = window_features,
+        dropna_from_series = dropna_from_series,
+        transformer_series = transformer_series,
+        transformer_exog   = transformer_exog,
+    )
+
     warnings_list = []
     if steps > data_profile.n_observations:
         warnings_list.append(
@@ -140,7 +160,7 @@ def _plan(profile, steps, forecaster=None, estimator=None):
         )
 
     explanation = build_explanation(
-        task_type, fc, est, lags, metric, interval_method, data_profile
+        task_type, fc, est, lags, interval_method, data_profile
     )
 
     plan = ForecastPlan(
@@ -149,11 +169,10 @@ def _plan(profile, steps, forecaster=None, estimator=None):
         estimator            = est,
         steps                = steps,
         frequency            = data_profile.frequency,
-        lags                 = lags,
+        forecaster_kwargs    = forecaster_kwargs,
         metric               = metric,
         backtesting_strategy = backtesting_strategy,
         interval_method      = interval_method,
-        dropna_from_series   = dropna_from_series,
         use_exog             = use_exog,
         preprocessing_steps  = preprocessing_steps,
         data_requirements    = data_requirements,
@@ -284,8 +303,8 @@ def test_generate_plan_output_when_single_series_defaults():
     assert plan.metric == "mean_absolute_error"
     assert plan.frequency == "D"
     assert plan.steps == 30
-    assert plan.lags is not None
-    assert 7 in plan.lags
+    assert plan.forecaster_kwargs.get("lags") is not None
+    assert 7 in plan.forecaster_kwargs["lags"]
     assert plan.use_exog is False
     assert plan.backtesting_strategy == "TimeSeriesFold"
 
@@ -298,7 +317,7 @@ def test_generate_plan_output_when_single_series_with_exog():
     _, plan = _plan(profile_single_hourly_exog, steps=24)
 
     assert plan.use_exog is True
-    assert plan.lags is not None
+    assert plan.forecaster_kwargs.get("lags") is not None
     assert plan.forecaster == "ForecasterRecursive"
     assert plan.estimator == "LGBMRegressor"
 
@@ -322,8 +341,8 @@ def test_generate_plan_output_when_short_series():
     _, plan = _plan(profile_short, steps=10)
 
     assert plan.estimator == "Ridge"
-    assert plan.lags is not None
-    assert max(plan.lags) <= profile_short.n_observations // 3
+    assert plan.forecaster_kwargs.get("lags") is not None
+    assert max(plan.forecaster_kwargs["lags"]) <= profile_short.n_observations // 3
 
 
 def test_generate_plan_output_when_foundation_forecaster_selected():
@@ -335,7 +354,7 @@ def test_generate_plan_output_when_foundation_forecaster_selected():
     assert plan.task_type == "foundation"
     assert plan.forecaster == "ForecasterFoundation"
     assert plan.estimator is None
-    assert plan.lags is None
+    assert plan.forecaster_kwargs == {}
 
 
 def test_generate_plan_output_when_direct_forecaster_selected():
@@ -348,7 +367,7 @@ def test_generate_plan_output_when_direct_forecaster_selected():
     assert plan.task_type == "single_series"
     assert plan.forecaster == "ForecasterDirect"
     assert plan.estimator == "LGBMRegressor"
-    assert plan.lags is not None
+    assert plan.forecaster_kwargs.get("lags") is not None
     assert plan.interval_method == "bootstrapping"
 
 
@@ -402,7 +421,7 @@ def test_generate_plan_output_when_statistical_forecaster_selected():
     assert plan.forecaster == "ForecasterStats"
     assert plan.estimator is None
     assert plan.interval_method is None
-    assert plan.lags is None
+    assert plan.forecaster_kwargs == {}
 
 
 def test_generate_plan_output_when_missing_values_detected():
@@ -441,7 +460,7 @@ def test_generate_plan_dropna_true_when_missing_values_and_ridge():
     _, plan = _plan(profile, steps=10)
 
     assert plan.estimator == "Ridge"
-    assert plan.dropna_from_series is True
+    assert plan.forecaster_kwargs.get("dropna_from_series") is True
 
 
 def test_generate_plan_dropna_false_when_missing_values_and_lgbm():
@@ -460,7 +479,7 @@ def test_generate_plan_dropna_false_when_missing_values_and_lgbm():
     _, plan = _plan(profile_large_missing, steps=10)
 
     assert plan.estimator == "LGBMRegressor"
-    assert plan.dropna_from_series is False
+    assert plan.forecaster_kwargs.get("dropna_from_series") is False
 
 
 def test_generate_plan_dropna_false_when_no_missing_values():
@@ -470,14 +489,14 @@ def test_generate_plan_dropna_false_when_no_missing_values():
     """
     _, plan = _plan(profile_single_daily, steps=10)
 
-    assert plan.dropna_from_series is False
+    assert plan.forecaster_kwargs.get("dropna_from_series") is False
 
 
 def test_generate_plan_dropna_none_when_statistical():
     """
-    Test generate_plan sets dropna_from_series=None for statistical models
-    (the parameter does not apply).
+    Test generate_plan sets forecaster_kwargs to empty dict for statistical
+    models (the dropna_from_series parameter does not apply).
     """
     _, plan = _plan(profile_single_daily, steps=10, forecaster="ForecasterStats")
 
-    assert plan.dropna_from_series is None
+    assert "dropna_from_series" not in plan.forecaster_kwargs

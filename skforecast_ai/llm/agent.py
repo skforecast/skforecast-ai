@@ -15,7 +15,7 @@ from ..recommendation import (
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
     select_interval_method,
-    select_lags,
+    select_autoregressive,
     select_metric,
     select_task_type_from_forecaster,
 )
@@ -126,10 +126,10 @@ def create_forecasting_agent(
         fc           = forecaster_profile.forecaster
         est          = forecaster_profile.estimator
 
-        if task_type in ("statistical", "foundation", "baseline"):
+        if task_type in ("statistical", "foundation"):
             lags = None
         else:
-            lags = select_lags(context.effective_n_observations)
+            lags = select_autoregressive(context.effective_n_observations)
 
         metric               = select_metric(task_type)
         backtesting_strategy = select_backtesting(
