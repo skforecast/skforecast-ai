@@ -4,7 +4,7 @@ import pandas as pd
 
 from skforecast_ai import ForecastingAssistant, RunResult
 
-from .fixtures_execution import df_single
+from tests.tests_execution.fixtures_execution import df_single
 
 
 # Tests: assistant.forecast()

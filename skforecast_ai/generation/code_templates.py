@@ -2,6 +2,7 @@
 
 from ..schemas import DataProfile, ForecastPlan  # noqa: I001
 
+_DEFAULT_METRIC = "mean_absolute_error"
 
 ESTIMATOR_IMPORTS: dict[str, str] = {
     "LGBMRegressor": "from lightgbm import LGBMRegressor",
@@ -165,7 +166,7 @@ def _template_single_series(
     if plan.use_exog and exog_columns:
         lines.append(f"    exog       = data[{repr(exog_columns)}],")
     lines.append("    cv         = cv,")
-    lines.append(f"    metric     = '{plan.metric}',")
+    lines.append(f"    metric     = '{_DEFAULT_METRIC}',")
     lines.append(")")
     lines.append('print(f"Backtest {metric}")')
     lines.append("")
@@ -295,7 +296,7 @@ def _template_multi_series(
     lines.append("    forecaster = forecaster,")
     lines.append("    series     = series,")
     lines.append("    cv         = cv,")
-    lines.append(f"    metric     = '{plan.metric}',")
+    lines.append(f"    metric     = '{_DEFAULT_METRIC}',")
     lines.append(")")
     lines.append('print(f"Backtest {metric}")')
     lines.append("")
@@ -378,7 +379,7 @@ def _template_statistical(
     lines.append("    forecaster = forecaster,")
     lines.append(f"    y          = data['{profile.target}'],")
     lines.append("    cv         = cv,")
-    lines.append(f"    metric     = '{plan.metric}',")
+    lines.append(f"    metric     = '{_DEFAULT_METRIC}',")
     lines.append(")")
     lines.append('print(f"Backtest {metric}")')
     lines.append("")
@@ -458,7 +459,7 @@ def _template_foundation(
     lines.append("    forecaster = forecaster,")
     lines.append(f"    series     = data['{profile.target}'],")
     lines.append("    cv         = cv,")
-    lines.append(f"    metric     = '{plan.metric}',")
+    lines.append(f"    metric     = '{_DEFAULT_METRIC}',")
     lines.append(")")
     lines.append('print(f"Backtest {metric}")')
     lines.append("")

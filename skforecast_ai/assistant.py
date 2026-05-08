@@ -11,8 +11,8 @@ import pandas as pd
 from .exceptions import LLMRequiredError
 from .execution import run_forecast, validate_run_inputs
 from .generation import generate_code as _generate_code
-from .preparation import derive_preprocessing_steps
-from .profiling import create_analysis_context, create_data_profile
+from .recommendation import derive_preprocessing_steps
+from .profiling import create_forecaster_analysis, create_data_profile
 from .schemas import (
     AskResult,
     DataProfile,
@@ -23,15 +23,13 @@ from .schemas import (
 )
 from .recommendation import (
     _build_profile_explanation,
-    build_data_requirements,
-    build_explanation,
+    build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
     select_dropna_from_series,
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
-    select_interval_method,
-    select_autoregressive,
+    select_lags_and_window_features,
     select_task_type_from_forecaster,
     select_transformer_exog,
     select_transformer_series,
@@ -134,7 +132,7 @@ class ForecastingAssistant:
 
         forecaster, forecaster_candidates = select_forecaster_and_candidates(data_profile)
         task_type = select_task_type_from_forecaster(forecaster)
-        analysis_context = create_analysis_context(data, data_profile, forecaster)
+        analysis_context = create_forecaster_analysis(data, data_profile, forecaster)
 
         estimator, estimator_candidates = select_estimator_and_candidates(
             task_type=task_type, n_observations=analysis_context.effective_n_observations
@@ -215,7 +213,14 @@ class ForecastingAssistant:
 
         task_type = select_task_type_from_forecaster(fc)
 
-        est = forecaster_profile.estimator
+        if task_type != forecaster_profile.task_type:
+            est, _ = select_estimator_and_candidates(
+                task_type      = task_type,
+                n_observations = context.effective_n_observations,
+            )
+        else:
+            est = forecaster_profile.estimator
+
         if estimator is not None:
             if estimator not in forecaster_profile.estimator_candidates:
                 raise ValueError(
@@ -233,7 +238,7 @@ class ForecastingAssistant:
             transformer_exog = None
             dropna_from_series = None
         else:
-            lags, window_features = select_autoregressive(
+            lags, window_features = select_lags_and_window_features(
                 n_observations = context.effective_n_observations,
                 frequency      = data_profile.frequency,
                 target_series  = context.target_series,
@@ -266,34 +271,26 @@ class ForecastingAssistant:
             dropna_from_series = dropna_from_series,
         )
 
-        # TODO: COntinue from ehre, start optimizing lags and window features
-
         interval_method = None
         if interval is not None:
-            interval_method = select_interval_method(
-                fc, context.effective_n_observations
-            )
-        use_exog             = check_exog_usage(data_profile.exog_columns)
+            if task_type in {"statistical", "foundation"}:
+                interval_method = "native"
+            else:
+                interval_method = "bootstrapping"
 
-        data_requirements    = build_data_requirements(data_profile)
-        preprocessing_steps  = derive_preprocessing_steps(data_profile, fc)
+        use_exog = check_exog_usage(data_profile.exog_columns)
 
-        plan_warnings: list[str] = []
-        if steps > data_profile.n_observations:
-            plan_warnings.append(
-                f"Forecast horizon ({steps}) exceeds available observations "
-                f"({data_profile.n_observations})."
-            )
+        preprocessing_steps = derive_preprocessing_steps(data_profile, fc)
 
-        explanation = build_explanation(
-            task_type, fc, est, lags, interval_method,
-            data_profile,
+        explanation = build_plan_explanation(
+            forecaster         = fc,
+            estimator          = est,
+            lags               = lags,
+            window_features    = window_features,
+            interval_method    = interval_method,
+            dropna_from_series = dropna_from_series,
+            use_exog           = use_exog,
         )
-
-        # TODO: backtesting configuration (initial_train_size, refit,
-        # fixed_train_size) should be determined by generate_code /
-        # forecast at execution time, not here. The plan describes
-        # "what to build", not "how to validate".
 
         return ForecastPlan(
             task_type            = task_type,
@@ -306,8 +303,6 @@ class ForecastingAssistant:
             interval_method      = interval_method,
             use_exog             = use_exog,
             preprocessing_steps  = preprocessing_steps,
-            data_requirements    = data_requirements,
-            warnings             = plan_warnings,
             explanation          = explanation,
         )
 

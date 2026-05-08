@@ -6,7 +6,7 @@ from .assistant import ForecastingAssistant
 from .exceptions import LLMRequiredError
 from .generation import generate_code
 from .schemas import (
-    AnalysisContext,
+    ForecasterAnalysis,
     AskResult,
     DataProfile,
     ForecasterProfile,
@@ -17,7 +17,7 @@ from .schemas import (
 )
 
 __all__ = [
-    "AnalysisContext",
+    "ForecasterAnalysis",
     "AskResult",
     "DataProfile",
     "ForecasterProfile",

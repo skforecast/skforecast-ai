@@ -1,4 +1,4 @@
-"""Unit tests for the recommendation pipeline (profile + plan)."""
+"""Unit tests for the recommendation rules."""
 
 import re
 
@@ -6,25 +6,21 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast_ai.profiling.analysis import create_analysis_context
+from skforecast_ai.profiling.analysis import create_forecaster_analysis
 from skforecast_ai.recommendation import (
     _build_profile_explanation,
-    build_data_requirements,
-    build_explanation,
+    build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
-    select_backtesting,
     select_dropna_from_series,
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
-    select_interval_method,
-    select_autoregressive,
-    select_metric,
+    select_lags_and_window_features,
     select_task_type_from_forecaster,
     select_transformer_exog,
     select_transformer_series,
 )
-from skforecast_ai.preparation import derive_preprocessing_steps
+from skforecast_ai.recommendation import derive_preprocessing_steps
 from skforecast_ai.schemas import (
     DataProfile,
     ForecasterProfile,
@@ -65,7 +61,7 @@ def _build_profile(data_profile):
     fc, fc_candidates = select_forecaster_and_candidates(data_profile)
 
     task_type = select_task_type_from_forecaster(fc)
-    context = create_analysis_context(None, data_profile, fc)
+    context = create_forecaster_analysis(None, data_profile, fc)
 
     # Inject synthetic target_series when real data is not available
     if context.target_series is None:
@@ -117,9 +113,14 @@ def _plan(profile, steps, forecaster=None, estimator=None):
 
     task_type = select_task_type_from_forecaster(fc)
 
-    est = fp.estimator
-    if task_type in ("statistical", "foundation"):
-        est = None
+    if task_type != fp.task_type:
+        est, _ = select_estimator_and_candidates(
+            task_type      = task_type,
+            n_observations = fp.analysis_context.effective_n_observations,
+        )
+    else:
+        est = fp.estimator
+
     if estimator is not None:
         if estimator not in fp.estimator_candidates:
             raise ValueError(
@@ -134,27 +135,24 @@ def _plan(profile, steps, forecaster=None, estimator=None):
     if task_type in ("statistical", "foundation"):
         lags = None
         window_features = None
+        transformer_series = None
+        transformer_exog = None
+        dropna_from_series = None
     else:
-        lags, window_features = select_autoregressive(
+        lags, window_features = select_lags_and_window_features(
             n_observations = context.effective_n_observations,
             frequency      = data_profile.frequency,
             target_series  = context.target_series,
         )
-
-    metric               = select_metric(task_type)
-    backtesting_strategy = select_backtesting(context.effective_n_observations, steps)
-    interval_method      = select_interval_method(fc, context.effective_n_observations)
-    dropna_from_series   = select_dropna_from_series(
-        est, data_profile.missing_target, data_profile.missing_exog, task_type
-    )
-    use_exog             = check_exog_usage(data_profile.exog_columns)
-    data_requirements    = build_data_requirements(data_profile)
-    preprocessing_steps  = derive_preprocessing_steps(data_profile, fc)
-
-    transformer_series = select_transformer_series(est, task_type)
-    transformer_exog = select_transformer_exog(
-        est, task_type, data_profile.exog_columns, data_profile.categorical_exog,
-    )
+        transformer_series = select_transformer_series(est, task_type)
+        transformer_exog = select_transformer_exog(
+            est, task_type, data_profile.exog_columns,
+            data_profile.categorical_exog,
+        )
+        dropna_from_series = select_dropna_from_series(
+            est, data_profile.missing_target, data_profile.missing_exog,
+            task_type,
+        )
 
     forecaster_kwargs = build_forecaster_kwargs(
         forecaster         = fc,
@@ -167,32 +165,30 @@ def _plan(profile, steps, forecaster=None, estimator=None):
         transformer_exog   = transformer_exog,
     )
 
-    warnings_list = []
-    if steps > data_profile.n_observations:
-        warnings_list.append(
-            f"Forecast horizon ({steps}) exceeds available observations "
-            f"({data_profile.n_observations})."
-        )
+    use_exog            = check_exog_usage(data_profile.exog_columns)
+    preprocessing_steps = derive_preprocessing_steps(data_profile, fc)
 
-    explanation = build_explanation(
-        task_type, fc, est, lags, interval_method, data_profile
+    explanation = build_plan_explanation(
+        forecaster         = fc,
+        estimator          = est,
+        lags               = lags,
+        window_features    = window_features,
+        interval_method    = None,
+        dropna_from_series = dropna_from_series,
+        use_exog           = use_exog,
     )
 
     plan = ForecastPlan(
-        task_type            = task_type,
-        forecaster           = fc,
-        estimator            = est,
-        steps                = steps,
-        frequency            = data_profile.frequency,
-        forecaster_kwargs    = forecaster_kwargs,
-        metric               = metric,
-        backtesting_strategy = backtesting_strategy,
-        interval_method      = interval_method,
-        use_exog             = use_exog,
-        preprocessing_steps  = preprocessing_steps,
-        data_requirements    = data_requirements,
-        warnings             = warnings_list,
-        explanation          = explanation,
+        task_type           = task_type,
+        forecaster          = fc,
+        estimator           = est,
+        steps               = steps,
+        frequency           = data_profile.frequency,
+        forecaster_kwargs   = forecaster_kwargs,
+        interval_method     = None,
+        use_exog            = use_exog,
+        preprocessing_steps = preprocessing_steps,
+        explanation         = explanation,
     )
 
     return fp, plan
@@ -248,13 +244,13 @@ def test_build_forecaster_profile_output_when_large_series_picks_lgbm():
 def test_build_forecaster_profile_output_when_foundation_selected():
     """
     Test generate_plan honors an explicit foundation forecaster override
-    and clears the estimator.
+    and assigns the foundation estimator.
     """
     _, plan = _plan(profile_single_daily, steps=30, forecaster="ForecasterFoundation")
 
     assert plan.task_type == "foundation"
     assert plan.forecaster == "ForecasterFoundation"
-    assert plan.estimator is None
+    assert plan.estimator == "Chronos-2"
 
 
 def test_build_forecaster_profile_output_when_estimator_overridden():
@@ -315,13 +311,11 @@ def test_generate_plan_output_when_single_series_defaults():
     assert plan.task_type == "single_series"
     assert plan.forecaster == "ForecasterRecursive"
     assert plan.estimator == "LGBMRegressor"
-    assert plan.metric == "mean_absolute_error"
     assert plan.frequency == "D"
     assert plan.steps == 30
     assert plan.forecaster_kwargs.get("lags") is not None
     assert 7 in plan.forecaster_kwargs["lags"]
     assert plan.use_exog is False
-    assert plan.backtesting_strategy == "TimeSeriesFold"
 
 
 def test_generate_plan_output_when_single_series_with_exog():
@@ -339,14 +333,14 @@ def test_generate_plan_output_when_single_series_with_exog():
 
 def test_generate_plan_output_when_multi_series():
     """
-    Test generate_plan keeps the multi-series choice and uses conformal
-    intervals.
+    Test generate_plan keeps the multi-series choice and interval_method
+    is None when no interval is requested.
     """
     _, plan = _plan(profile_multi_long, steps=10)
 
     assert plan.task_type == "multi_series"
     assert plan.forecaster == "ForecasterRecursiveMultiSeries"
-    assert plan.interval_method == "conformal"
+    assert plan.interval_method is None
 
 
 def test_generate_plan_output_when_short_series():
@@ -362,13 +356,14 @@ def test_generate_plan_output_when_short_series():
 
 def test_generate_plan_output_when_foundation_forecaster_selected():
     """
-    Test generate_plan emits no estimator and no lags for foundation models.
+    Test generate_plan uses the foundation estimator and no lags for
+    foundation models.
     """
     _, plan = _plan(profile_single_daily, steps=30, forecaster="ForecasterFoundation")
 
     assert plan.task_type == "foundation"
     assert plan.forecaster == "ForecasterFoundation"
-    assert plan.estimator is None
+    assert plan.estimator == "Chronos-2"
     assert plan.forecaster_kwargs == {}
 
 
@@ -383,27 +378,30 @@ def test_generate_plan_output_when_direct_forecaster_selected():
     assert plan.forecaster == "ForecasterDirect"
     assert plan.estimator == "LGBMRegressor"
     assert plan.forecaster_kwargs.get("lags") is not None
-    assert plan.interval_method == "bootstrapping"
+    assert plan.interval_method is None
 
 
 def test_generate_plan_output_when_steps_larger_than_data():
     """
-    Test generate_plan adds a warning when steps exceeds the number of
-    observations.
+    Test generate_plan does not include runtime warnings (horizon check
+    has been moved to validate_run_inputs).
     """
     _, plan = _plan(profile_single_daily, steps=500)
 
-    assert any("exceeds" in w.lower() for w in plan.warnings)
+    assert plan.warnings == []
 
 
 def test_generate_plan_output_when_categorical_exog_noted():
     """
-    Test generate_plan includes a data requirement about categorical
+    Test generate_plan includes a preprocessing step about categorical
     encoding when categorical exogenous variables are present.
     """
     _, plan = _plan(profile_categorical_exog, steps=10)
 
-    assert any("categorical" in req.lower() for req in plan.data_requirements)
+    assert any(
+        "categorical" in step.reason.lower()
+        for step in plan.preprocessing_steps
+    )
 
 
 def test_generate_plan_explanation_not_empty():
@@ -428,35 +426,42 @@ def test_generate_plan_deterministic():
 
 def test_generate_plan_output_when_statistical_forecaster_selected():
     """
-    Test generate_plan emits no estimator and no lags for ForecasterStats.
+    Test generate_plan uses the statistical estimator and no lags for
+    ForecasterStats.
     """
     _, plan = _plan(profile_single_daily, steps=30, forecaster="ForecasterStats")
 
     assert plan.task_type == "statistical"
     assert plan.forecaster == "ForecasterStats"
-    assert plan.estimator is None
+    assert plan.estimator == "Arima"
     assert plan.interval_method is None
     assert plan.forecaster_kwargs == {}
 
 
 def test_generate_plan_output_when_missing_values_detected():
     """
-    Test generate_plan includes a data requirement about imputing missing
+    Test generate_plan includes a preprocessing step about imputing missing
     values when the profile reports them.
     """
     _, plan = _plan(profile_with_missing, steps=10)
 
-    assert any("impute" in req.lower() for req in plan.data_requirements)
+    assert any(
+        "impute" in step.reason.lower() or "missing" in step.reason.lower()
+        for step in plan.preprocessing_steps
+    )
 
 
 def test_generate_plan_output_when_no_datetime_index():
     """
-    Test generate_plan includes a data requirement about providing a
+    Test generate_plan includes a preprocessing step about providing a
     DatetimeIndex when the profile has a range index.
     """
     _, plan = _plan(profile_no_datetime, steps=10)
 
-    assert any("datetimeindex" in req.lower() for req in plan.data_requirements)
+    assert any(
+        "datetimeindex" in step.reason.lower()
+        for step in plan.preprocessing_steps
+    )
 
 
 def test_generate_plan_dropna_true_when_missing_values_and_ridge():

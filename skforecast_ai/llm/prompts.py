@@ -5,7 +5,8 @@ from pathlib import Path
 from ..schemas import DataProfile, ForecastPlan
 
 _PACKAGE_DIR = Path(__file__).resolve().parent.parent
-_SKILLS_DIR = _PACKAGE_DIR / "skills"
+_REPO_DIR = _PACKAGE_DIR.parent
+_SKILLS_DIR = _REPO_DIR / "skills"
 _RESOURCES_DIR = _PACKAGE_DIR / "resources"
 
 ALL_SKILLS = [
@@ -94,8 +95,6 @@ focus on why each choice was made.
 - Estimator: {estimator}
 - steps: {steps}
 - Forecaster kwargs: {forecaster_kwargs}
-- Metric: {metric}
-- Backtesting: {backtesting_strategy}
 - Interval method: {interval_method}
 - Use exogenous: {use_exog}
 - Explanation: {explanation}
@@ -243,8 +242,6 @@ def build_explain_prompt(plan: ForecastPlan, profile: DataProfile) -> str:
         estimator=plan.estimator or "none",
         steps=plan.steps,
         forecaster_kwargs=plan.forecaster_kwargs,
-        metric=plan.metric,
-        backtesting_strategy=plan.backtesting_strategy,
         interval_method=plan.interval_method or "none",
         use_exog=plan.use_exog,
         explanation=plan.explanation,

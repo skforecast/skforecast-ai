@@ -34,8 +34,6 @@ def test_forecast_plan_invalid_task_type():
             task_type="unknown_task",
             forecaster="ForecasterRecursive",
             steps=24,
-            metric="mean_absolute_error",
-            backtesting_strategy="TimeSeriesFold",
             explanation="Test.",
         )
 
@@ -50,8 +48,6 @@ def test_forecast_plan_invalid_steps_zero():
             task_type="single_series",
             forecaster="ForecasterRecursive",
             steps=0,
-            metric="mean_absolute_error",
-            backtesting_strategy="TimeSeriesFold",
             explanation="Test.",
         )
 
@@ -119,8 +115,6 @@ def test_forecast_plan_minimal():
         task_type="single_series",
         forecaster="ForecasterRecursive",
         steps=24,
-        metric="mean_absolute_error",
-        backtesting_strategy="TimeSeriesFold",
         explanation="Single univariate series with regular frequency.",
     )
     assert plan.task_type == "single_series"
@@ -130,7 +124,6 @@ def test_forecast_plan_minimal():
     assert plan.forecaster_kwargs == {}
     assert plan.interval_method is None
     assert plan.use_exog is False
-    assert plan.data_requirements == []
     assert plan.warnings == []
 
 
@@ -163,11 +156,8 @@ def test_forecast_plan_json_roundtrip():
         steps=12,
         frequency="ME",
         forecaster_kwargs={"lags": [1, 2, 3, 12], "encoding": "ordinal", "dropna_from_series": False},
-        metric="mean_squared_error",
-        backtesting_strategy="TimeSeriesFold",
         interval_method="bootstrapping",
         use_exog=True,
-        data_requirements=["At least 2 complete seasonal cycles"],
         warnings=["High cardinality in series_id"],
         explanation="Multiple correlated series benefit from shared learning.",
     )

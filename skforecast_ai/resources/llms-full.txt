@@ -4,15 +4,15 @@
 
 # Skforecast
 
-> Python library for time series forecasting using machine learning models
+> Python library for time series forecasting using scikit-learn compatible models, statistical methods, and foundation models
 
-This document is for skforecast v0.22.0+. If you are using an older version, check the documentation at skforecast.org.
+This document is for skforecast v0.23.0+. If you are using an older version, check the documentation at skforecast.org.
 
-Skforecast is a Python library that simplifies time series forecasting using machine learning. It works with any estimator compatible with the scikit-learn API (LightGBM, XGBoost, CatBoost, Keras, etc.).
+Skforecast is a Python library for time series forecasting using scikit-learn compatible models, statistical methods, and foundation models. It works with any estimator compatible with the scikit-learn API (LightGBM, XGBoost, CatBoost, Keras, etc.).
 
 ## Quick Info
 
-- Version: 0.22.0
+- Version: 0.23.0
 - License: BSD-3-Clause
 - Python: 3.10, 3.11, 3.12, 3.13, 3.14
 - Repository: https://github.com/skforecast/skforecast
@@ -43,7 +43,7 @@ skforecast/
 ├── deep_learning/           # ForecasterRnn, create_and_compile_model
 ├── foundation/              # FoundationModel, ForecasterFoundation
 │                            # (zero-shot: Chronos-2, TimesFM 2.5, Moirai-2, TabICL)
-├── stats/                   # Arima, Sarimax, Ets, Arar (sklearn-compatible wrappers)
+├── stats/                   # Arima, Sarimax, Ets, Arar, acf, pacf, calculate_lag_autocorrelation
 ├── preprocessing/           # TimeSeriesDifferentiator, RollingFeatures, DateTimeFeatureTransformer,
 │                            # QuantileBinner, ConformalIntervalCalibrator, reshape_* functions
 ├── model_selection/         # backtesting_forecaster, grid/random/bayesian search, TimeSeriesFold
@@ -400,7 +400,7 @@ def search_space(trial):
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True)
     }
 
-results, best_trial = bayesian_search_forecaster(
+results, study = bayesian_search_forecaster(
     forecaster=forecaster,
     y=data['target'],
     cv=cv,
@@ -412,15 +412,18 @@ results, best_trial = bayesian_search_forecaster(
     n_jobs='auto',
     show_progress=True
 )
+# Access the best trial with study.best_trial
 ```
 
 ## Statistical Models (ARIMA, ETS, ARAR)
 
 Statistical models are wrapped by `ForecasterStats` for a sklearn-compatible interface. Available models: `Arima`, `Sarimax`, `Ets`, `Arar`.
+Autocorrelation utilities are also available in `skforecast.stats`: `acf`, `pacf`, and `calculate_lag_autocorrelation`.
 
 ```python
 from skforecast.recursive import ForecasterStats
 from skforecast.stats import Arima, Ets, Sarimax, Arar
+from skforecast.stats import acf, pacf, calculate_lag_autocorrelation
 
 # ARIMA model (order=(p,d,q), seasonal_order=(P,D,Q), m=seasonal_period)
 forecaster = ForecasterStats(estimator=Arima(order=(1, 1, 1), seasonal_order=(1, 1, 1), m=12))
@@ -559,6 +562,7 @@ from skforecast.preprocessing import RollingFeaturesClassification
 from skforecast.preprocessing import TimeSeriesDifferentiator
 from skforecast.preprocessing import DateTimeFeatureTransformer
 from skforecast.preprocessing import create_datetime_features
+from skforecast.preprocessing import calculate_distance_from_holiday
 from skforecast.preprocessing import QuantileBinner
 from skforecast.preprocessing import ConformalIntervalCalibrator
 # Data reshaping utilities
@@ -588,6 +592,7 @@ from skforecast.metrics import create_mean_pinball_loss
 
 # Statistical models (used with ForecasterStats)
 from skforecast.stats import Arima, Ets, Sarimax, Arar
+from skforecast.stats import acf, pacf, calculate_lag_autocorrelation
 
 # Drift Detection
 from skforecast.drift_detection import RangeDriftDetector
@@ -598,13 +603,28 @@ from skforecast.plot import plot_residuals
 from skforecast.plot import plot_multivariate_time_series_corr
 from skforecast.plot import plot_prediction_distribution
 from skforecast.plot import plot_prediction_intervals
-from skforecast.plot import calculate_lag_autocorrelation
 from skforecast.plot import backtesting_gif_creator
 from skforecast.plot import set_dark_theme
 
 # Exceptions and Warnings
+from skforecast.exceptions import DataTypeWarning
+from skforecast.exceptions import DataTransformationWarning
+from skforecast.exceptions import ExogenousInterpretationWarning
+from skforecast.exceptions import FeatureOutOfRangeWarning
+from skforecast.exceptions import IgnoredArgumentWarning
+from skforecast.exceptions import InputTypeWarning
+from skforecast.exceptions import LongTrainingWarning
+from skforecast.exceptions import MissingExogWarning
+from skforecast.exceptions import MissingValuesWarning
+from skforecast.exceptions import OneStepAheadValidationWarning
+from skforecast.exceptions import ResidualsUsageWarning
+from skforecast.exceptions import SaveLoadSkforecastWarning
+from skforecast.exceptions import SkforecastVersionWarning
+from skforecast.exceptions import UnknownLevelWarning
 from skforecast.exceptions import set_warnings_style
 from skforecast.exceptions import warn_skforecast_categories
+from skforecast.exceptions import runtime_deprecated
+
 ```
 
 ## Available Datasets
@@ -644,7 +664,7 @@ show_datasets_info()
 ## Citation
 
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast (Version 0.22.0) [Computer software]. https://doi.org/10.5281/zenodo.8382787
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast (Version 0.23.0) [Computer software]. https://doi.org/10.5281/zenodo.8382787
 ```
 
 ================================================================================
@@ -659,6 +679,14 @@ Use this workflow when you have **one time series** and want to predict its futu
 
 - **ForecasterRecursive**: Default choice. Uses its own predictions as inputs for multi-step forecasting. Works with any sklearn-compatible regressor.
 - **ForecasterDirect**: Trains one model per forecast step. Better when the relationship between lags and target changes across the horizon.
+
+### Related skills
+
+- **Before**: `choosing-a-forecaster` (decide between Recursive and Direct based on the data)
+- **Before**: `autocorrelation-and-lag-selection` (pick the `lags` argument from ACF/PACF analysis)
+- **Before**: `feature-engineering` (assemble the rolling, calendar, and exogenous features)
+- **After**: `hyperparameter-optimization` (tune the forecaster once a baseline is trained)
+- **After**: `prediction-intervals` (add bootstrap or conformal intervals on top of the point forecasts)
 
 ## Complete Workflow
 
@@ -773,6 +801,14 @@ predictions = forecaster.predict(exog=exog_test)
 
 - **ForecasterRecursiveMultiSeries**: A single global model learns patterns across many series. Each series is predicted independently but the model shares parameters. Best default for multi-series.
 - **ForecasterDirectMultiVariate**: Uses values from multiple series as input features to predict one target series. Use when series are strongly correlated and influence each other.
+
+### Related skills
+
+- **Before**: `choosing-a-forecaster` (decide between MultiSeries, MultiVariate, Rnn, or Foundation for multi-series problems)
+- **Before**: `autocorrelation-and-lag-selection` (analyse representative series to inform the shared `lags` argument)
+- **Before**: `feature-engineering` (build per-series exogenous and rolling features)
+- **After**: `hyperparameter-optimization` (tune the global model across series)
+- **After**: `prediction-intervals` (add intervals to the multi-series forecasts)
 
 ## Data Formats
 
@@ -919,6 +955,12 @@ Use statistical models when:
 - Interpretability is important (ARIMA coefficients, ETS components)
 - You need built-in prediction intervals without residual bootstrapping
 - As a baseline to compare against ML models
+
+### Related skills
+
+- **Before**: `autocorrelation-and-lag-selection` (read ACF/PACF to identify ARIMA orders `p`, `d`, `q` before fitting)
+- **After**: `prediction-intervals` (`ForecasterStats` provides built-in parametric intervals via the `interval_method` argument)
+- **After**: `hyperparameter-optimization` (tune ARIMA `order` / `seasonal_order` via grid search)
 
 ## Available Models
 
@@ -1349,6 +1391,12 @@ Use hyperparameter search after establishing a baseline forecaster to improve pr
 | **Random Search** | Large parameter space, limited compute budget | Medium |
 | **Grid Search** | Small parameter space, exhaustive exploration | Slowest |
 
+### Related skills
+
+- **Before**: `autocorrelation-and-lag-selection` (narrow the `lags` search space to a statistically informed candidate set)
+- **Before**: `feature-selection` (run the search on a reduced feature set to make it tractable)
+- **After**: `prediction-intervals` (add uncertainty quantification once the configuration is fixed)
+
 ## Bayesian Search (Recommended)
 
 Always prefer Bayesian search as the default strategy. It uses Optuna to intelligently explore the search space.
@@ -1380,7 +1428,7 @@ def search_space(trial):
     }
 
 # n_trials=20 is the default. Increase for better results (50-200 recommended).
-results, best_trial = bayesian_search_forecaster(
+results, study = bayesian_search_forecaster(
     forecaster=forecaster,
     y=data['target'],
     exog=exog,
@@ -1395,6 +1443,7 @@ results, best_trial = bayesian_search_forecaster(
     output_file='search_results.csv',  # Save results incrementally
 )
 # results is a DataFrame sorted by metric (best first)
+# study is the full Optuna Study; access the best trial with study.best_trial
 ```
 
 ## Grid Search
@@ -1471,7 +1520,7 @@ cv = TimeSeriesFold(
     refit=False,
 )
 
-results, best_trial = bayesian_search_forecaster_multiseries(
+results, study = bayesian_search_forecaster_multiseries(
     forecaster=forecaster,
     series=series,
     exog=exog,
@@ -1485,6 +1534,7 @@ results, best_trial = bayesian_search_forecaster_multiseries(
     n_jobs='auto',
     show_progress=True,
 )
+# Access the best trial with study.best_trial
 ```
 
 ## Statistical Models Search
@@ -1522,7 +1572,7 @@ cv_fast = OneStepAheadFold(
     initial_train_size=len(data) - 100,
 )
 
-results, best_trial = bayesian_search_forecaster(
+results, study = bayesian_search_forecaster(
     forecaster=forecaster,
     y=data['target'],
     cv=cv_fast,
@@ -1531,6 +1581,7 @@ results, best_trial = bayesian_search_forecaster(
     n_trials=100,
     return_best=True,
 )
+# Access the best trial with study.best_trial
 ```
 
 ## Common Mistakes
@@ -1713,7 +1764,7 @@ param_grid = {
 
 ```python
 # Advanced: customize Optuna study
-results, best_trial = bayesian_search_forecaster(
+results, study = bayesian_search_forecaster(
     ...,
     kwargs_create_study={
         'sampler': optuna.samplers.TPESampler(seed=123),
@@ -1724,20 +1775,21 @@ results, best_trial = bayesian_search_forecaster(
         'gc_after_trial': True,
     },
 )
+# Access the best trial with study.best_trial
 ```
 
 ## Return Values
 
-| Function | Returns | Best trial object |
+| Function | Returns | Study object |
 |----------|---------|:-:|
 | `grid_search_*` | `pd.DataFrame` sorted by metric | — |
 | `random_search_*` | `pd.DataFrame` sorted by metric | — |
-| `bayesian_search_*` | `tuple[pd.DataFrame, optuna.FrozenTrial]` | ✓ |
+| `bayesian_search_*` | `tuple[pd.DataFrame, optuna Study]` | ✓ |
 | `*_stats` | `pd.DataFrame` sorted by metric | — |
 
 When `return_best=True`, the forecaster is automatically updated with the
 best parameters found. The results DataFrame always has rows sorted by
-metric (best first).
+metric (best first). Access the best Optuna trial with `study.best_trial`.
 
 ================================================================================
 # SKILL: prediction-intervals
@@ -1760,6 +1812,12 @@ Use prediction intervals to quantify forecast uncertainty. Skforecast offers thr
 | **Bootstrapping** | Recursive, Direct | Resample from training residuals |
 | **Conformal** | All ML forecasters | Distribution-free intervals via conformal prediction |
 | **Built-in** | ForecasterStats (ARIMA, ETS) | Parametric intervals from the statistical model |
+
+### Related skills
+
+- **Before**: `forecasting-single-series` / `forecasting-multiple-series` (have a fitted forecaster before adding intervals)
+- **Before**: `hyperparameter-optimization` (interval calibration assumes a tuned point forecaster)
+- **After**: `drift-detection` (monitor whether residual assumptions still hold once the model is in production)
 
 ## Bootstrapping Method
 
@@ -2118,6 +2176,167 @@ forecaster.predict_dist(
 | Using `method` on ForecasterStats | Stats models use built-in parametric intervals | Remove `method`, use `alpha` or `interval` |
 
 ================================================================================
+# SKILL: autocorrelation-and-lag-selection
+================================================================================
+
+# Autocorrelation and Lag Selection
+
+## When to Use This Skill
+
+Use this skill when the user wants to:
+
+- Inspect the ACF / PACF of a series before training a forecaster.
+- Pick a sensible starting set of lags for `ForecasterRecursive`, `ForecasterDirect`, or any multi-series forecaster.
+- Detect seasonality (peaks at multiples of the period) from autocorrelation.
+- Replace `statsmodels.tsa.stattools.acf` / `pacf` calls with a faster equivalent on long series.
+
+### Related skills
+
+- **After**: `feature-engineering` (turn the candidate lags into a full feature pipeline with rolling and calendar features)
+- **After**: `hyperparameter-optimization` (refine the candidate set via cross-validation with `bayesian_search_forecaster`)
+- **After**: `feature-selection` (prune redundant lags or exog variables with `select_features` once the forecaster is configured)
+
+## Overview
+
+| Function | Module | Purpose |
+|----------|--------|---------|
+| `acf` | `skforecast.stats` | Biased ACF via FFT; optional Bartlett confidence intervals |
+| `pacf` | `skforecast.stats` | PACF via FFT + Levinson&ndash;Durbin; white-noise CI |
+| `calculate_lag_autocorrelation` | `skforecast.stats` | Tabular ACF + PACF, ranked by &#124;PACF&#124; |
+
+> The skforecast functions mirror the public API of `statsmodels.tsa.stattools.acf` / `pacf` but are reimplemented from scratch (FFT for the ACF, Levinson&ndash;Durbin for the PACF) to **maximise speed on long series**. Only the most common configuration options are exposed.
+>
+> If the user needs the wider catalogue offered by statsmodels — alternative estimators (`'ywunbiased'`, `'ols'`, `'ld'`, `'burg'`), Ljung&ndash;Box statistics, etc. — recommend calling `statsmodels.tsa` directly.
+>
+> For plotting, keep the statsmodels helpers with their fastest configuration: `plot_acf(..., alpha=0.05, fft=True)` and `plot_pacf(..., alpha=0.05, method='burg')`.
+
+## Computing the ACF
+
+```python
+from skforecast.stats import acf
+
+# Just the values (lag 0 included; output length = nlags + 1)
+acf_vals = acf(y, nlags=20)
+
+# With 95% Bartlett confidence intervals
+acf_vals, confint = acf(y, nlags=20, alpha=0.05)
+
+# Unbiased estimator (denominator n - k)
+acf_vals = acf(y, nlags=20, adjusted=True)
+```
+
+Notes:
+- `nlags` must satisfy `0 < nlags < len(x)`. If `None`, defaults to `min(int(10 * log10(n)), n - 1)`.
+- `acf_vals[0]` is always `1.0`.
+- Default is the **biased estimator** (`adjusted=False`, denominator `n`). It guarantees a positive semi-definite Toeplitz matrix and is required for downstream PACF computation.
+
+## Computing the PACF
+
+```python
+from skforecast.stats import pacf
+
+pacf_vals = pacf(y, nlags=20)
+pacf_vals, confint = pacf(y, nlags=20, alpha=0.05)
+```
+
+Notes:
+- `nlags` must satisfy `0 < nlags < len(x) // 2` — Levinson&ndash;Durbin becomes unreliable when the AR order approaches half the sample size; the function raises explicitly.
+- Confidence intervals are asymptotic under the white-noise null: `±z_{α/2} / sqrt(n)` for all lags `≥ 1`. Lag 0 has no uncertainty.
+- The implementation uses the biased ACF internally, so values can differ slightly (~2e-2 for typical series) from `statsmodels.pacf(method='yw')`, which uses the unbiased estimator.
+
+## Reading ACF / PACF Patterns
+
+| Pattern | Suggests |
+|---------|----------|
+| ACF cuts off after lag *q* | MA(q) component |
+| ACF decays slowly | AR or mixed process — use PACF |
+| PACF cuts off after lag *p* | AR(p) component (lags 1..*p* are the relevant ones) |
+| PACF decays slowly | MA or mixed process |
+| ACF peaks at lags *k*, *2k*, *3k* | Seasonality of period *k* |
+| Persistent slow decay touching every lag | Trend — difference the series before reading orders |
+
+```python
+import matplotlib.pyplot as plt
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 3))
+plot_acf(y, lags=36, alpha=0.05, fft=True, ax=axes[0])
+plot_pacf(y, lags=36, alpha=0.05, method='burg', ax=axes[1])
+plt.tight_layout()
+```
+
+## Ranking Lags with `calculate_lag_autocorrelation`
+
+```python
+from skforecast.stats import calculate_lag_autocorrelation
+
+# Default: rows ordered by |PACF| descending, lags 1..n_lags
+lag_table = calculate_lag_autocorrelation(
+    data=y,
+    n_lags=24,
+    sort_by='partial_autocorrelation_abs',
+)
+
+# Other valid sort keys
+calculate_lag_autocorrelation(data=y, n_lags=24, sort_by='lag')
+calculate_lag_autocorrelation(data=y, n_lags=24, sort_by='autocorrelation_abs')
+```
+
+Returns a DataFrame with columns
+`['lag', 'partial_autocorrelation_abs', 'partial_autocorrelation', 'autocorrelation_abs', 'autocorrelation']`
+covering lags 1..`n_lags` (lag 0 dropped because it is always 1.0).
+
+`last_n_samples` keeps only the most recent observations — useful when the series is very long and only the recent dynamics matter:
+
+```python
+calculate_lag_autocorrelation(data=y, n_lags=24, last_n_samples=2000)
+```
+
+`data` accepts a `pd.Series` or a single-column `pd.DataFrame`. `n_lags` must be strictly less than `len(data) // 2`.
+
+## End-to-End: From PACF to a Forecaster
+
+```python
+import numpy as np
+from skforecast.stats import calculate_lag_autocorrelation
+from skforecast.recursive import ForecasterRecursive
+from sklearn.ensemble import HistGradientBoostingRegressor
+
+# 1. Rank lags by |PACF|
+lag_table = calculate_lag_autocorrelation(data=y_train, n_lags=24)
+
+# 2. Threshold against the asymptotic 95% white-noise band (1.96 / sqrt(n))
+threshold = 1.96 / np.sqrt(len(y_train))
+selected_lags = (
+    lag_table
+    .loc[lag_table['partial_autocorrelation_abs'] > threshold, 'lag']
+    .astype(int)
+    .sort_values()
+    .tolist()
+)
+
+# 3. Feed directly into any forecaster
+forecaster = ForecasterRecursive(
+    estimator=HistGradientBoostingRegressor(random_state=963),
+    lags=selected_lags,
+)
+forecaster.fit(y=y_train)
+predictions = forecaster.predict(steps=12)
+```
+
+The selected lags are an *informed starting point*, not a final answer — refine with `bayesian_search_forecaster` (see `hyperparameter-optimization`) or prune with `select_features` (see `feature-selection`).
+
+## Common Mistakes
+
+1. **Using `nlags >= n // 2` for PACF.** Levinson&ndash;Durbin loses stability as the AR order approaches half the sample size; the function raises explicitly. Reduce `nlags` or use a longer series.
+2. **Reading the ACF to choose AR order.** ACF is contaminated by indirect dependencies through earlier lags and rarely cuts off cleanly for AR processes — use the PACF for AR order, the ACF for MA order.
+3. **Treating the confidence bands as joint tests.** Bartlett (ACF) and white-noise (PACF) bands are *pointwise*. Several lags will cross the band by chance; use them to spot candidates, not to formally reject white noise.
+4. **Skipping detrending / differencing.** A strong trend dominates the ACF and masks higher-lag structure. If the series shows visible trend, read ACF / PACF on `y.diff().dropna()` (or use `differentiation=1` in the forecaster).
+5. **Switching to `adjusted=True` by default.** The biased estimator is preferred for forecasting workflows; the unbiased one can produce `|ACF| > 1` at high lags and breaks the positive semi-definite property required by Levinson&ndash;Durbin.
+6. **Expecting statsmodels-only options.** `method='ols'`, `method='burg'`, alternative confidence intervals, etc. are *not* exposed by `skforecast.stats.pacf`. For those, call `statsmodels.tsa.stattools.pacf` directly — the API is the same.
+7. **Passing a multi-column DataFrame to `calculate_lag_autocorrelation`.** It accepts a `Series` or a single-column `DataFrame` and raises otherwise. Select the target column first.
+
+================================================================================
 # SKILL: feature-engineering
 ================================================================================
 
@@ -2132,88 +2351,191 @@ feature name generation formula, window behavior, and `kwargs_stats` usage.
 ## When to Use This Skill
 
 Use this skill when the user wants to create features to improve forecasting
-accuracy: calendar/datetime features, rolling statistics, cyclical encoding,
-sunlight features, differencing, or data scaling.
+accuracy: calendar/datetime features, cyclical / onehot / spline encoding,
+holiday distance features, rolling statistics, differencing, or data scaling.
+
+### Related skills
+
+- **Before**: `autocorrelation-and-lag-selection` (use ACF/PACF to choose a candidate set of lags before adding rolling and calendar features)
+- **After**: `feature-selection` (prune redundant features with `select_features` after engineering)
+- **After**: `hyperparameter-optimization` (jointly tune the engineered configuration and the estimator hyperparameters)
 
 ## Overview
 
-| Tool | Package | Purpose |
-|------|---------|---------|
-| `DatetimeFeatures` | feature_engine | Extract calendar features from datetime index |
-| `CyclicalFeatures` | feature_engine | Encode cyclical features with sin/cos |
-| `RollingFeatures` | skforecast | Rolling window statistics (mean, std, min, max, etc.) |
-| `differentiation` param | skforecast | Make non-stationary series stationary |
+| Tool | Module | Purpose |
+|------|--------|---------|
+| `DateTimeFeatureTransformer` | `skforecast.preprocessing` | Sklearn-compatible transformer: extract calendar features from a `DatetimeIndex` and (optionally) encode them. Use as `transformer_exog` or in a `Pipeline`. |
+| `create_datetime_features` | `skforecast.preprocessing` | Function form of the same logic, for one-shot use without a transformer. |
+| `calculate_distance_from_holiday` | `skforecast.preprocessing` | Periods to next / since last holiday |
+| `RollingFeatures` | `skforecast.preprocessing` | Rolling window statistics (mean, std, min, max, etc.) |
+| `differentiation` param | skforecast forecasters | Make non-stationary series stationary |
 
+> All calendar tools are built into skforecast — no `feature_engine` (or any
+> other extra) dependency is required.
 
-## Calendar Features with feature_engine
+## Calendar Features
 
-### Manual extraction (pandas)
+`DateTimeFeatureTransformer` extracts features from a `DatetimeIndex` and, in
+the same `fit_transform` call, applies the chosen encoding. The result is a
+single DataFrame ready to pass as `exog`. Because it is sklearn-compatible, it
+can be used as `transformer_exog` in any forecaster or inside a `Pipeline` /
+`ColumnTransformer`.
+
+### Supported features
+
+`'year'`, `'month'`, `'week'`, `'day_of_week'`, `'day_of_month'`,
+`'day_of_year'`, `'weekend'`, `'hour'`, `'minute'`, `'second'`, `'quarter'`.
+
+By default all are extracted; pass `features=[...]` to subset.
+
+### Supported encodings
+
+| `encoding` | Output | Notes |
+|-----------|--------|-------|
+| `'cyclical'` (default) | `{feature}_sin`, `{feature}_cos` | sin/cos pair per cyclical feature |
+| `'onehot'` | One column per known category (e.g. `month_1` … `month_12`) | Stable schema across train / predict |
+| `'spline'` | `≈ max_val` columns per feature, periodic B-splines | Smooth alternative to onehot |
+| `None` | Raw integer columns | No transformation |
+
+`'year'` and `'weekend'` are **never** encoded (they are not cyclical) and are
+always kept as raw integers regardless of `encoding`.
+
+### Basic usage — `DateTimeFeatureTransformer`
 
 ```python
 import pandas as pd
+from skforecast.preprocessing import DateTimeFeatureTransformer
 
 # Data must have a DatetimeIndex with frequency set
 data = data.asfreq('h')
 
-data['year'] = data.index.year
-data['month'] = data.index.month
-data['day_of_week'] = data.index.dayofweek
-data['hour'] = data.index.hour
+calendar_transformer = DateTimeFeatureTransformer(
+    features=['month', 'week', 'day_of_week', 'hour'],
+    encoding='cyclical',                 # 'cyclical' | 'onehot' | 'spline' | None
+    keep_original_columns=False,         # True merges with X's columns
+)
+exog_calendar = calendar_transformer.fit_transform(data)
+# Columns: month_sin, month_cos, week_sin, week_cos,
+#          day_of_week_sin, day_of_week_cos, hour_sin, hour_cos
+
+# After fit, the resulting column names are available via the sklearn API
+calendar_transformer.get_feature_names_out()
 ```
 
-### Automated extraction (DatetimeFeatures)
+Defaults for `max_values` (`{'month': 12, 'week': 53, 'day_of_week': 7,
+'day_of_month': 31, 'day_of_year': 366, 'hour': 24, 'minute': 60, 'second': 60,
+'quarter': 4}`) handle leap years and ISO week 53 correctly. Override only the
+keys you need:
 
 ```python
-from feature_engine.datetime import DatetimeFeatures
-
-features_to_extract = ['month', 'week', 'day_of_week', 'hour']
-calendar_transformer = DatetimeFeatures(
-    variables           = 'index',
-    features_to_extract = features_to_extract,
-    drop_original       = True,
+calendar_transformer = DateTimeFeatureTransformer(
+    features=['month', 'hour'],
+    encoding='cyclical',
+    max_values={'month': 6},   # Custom semester period; hour keeps default 24
 )
-
-calendar_features = calendar_transformer.fit_transform(data)
+exog_calendar = calendar_transformer.fit_transform(data)
 ```
 
-> `DatetimeFeatures` is sklearn-compatible and can be passed directly as
-> `transformer_exog` in skforecast forecasters.
-
-## Cyclical Encoding
-
-Cyclical features (hour, day_of_week, month) should NOT be treated as linear
-integers — hour 23 is only 1 hour from hour 0. Use sin/cos encoding to
-preserve the cyclical relationship.
+### Onehot and spline encoding
 
 ```python
-from feature_engine.datetime import DatetimeFeatures
-from feature_engine.creation import CyclicalFeatures
-
-# Step 1: Extract calendar features
-features_to_extract = ['month', 'week', 'day_of_week', 'hour']
-calendar_transformer = DatetimeFeatures(
-    variables           = 'index',
-    features_to_extract = features_to_extract,
-    drop_original       = True,
+# Onehot — stable column schema (e.g. month_1 … month_12 always present)
+calendar_transformer = DateTimeFeatureTransformer(
+    features=['month', 'day_of_week'],
+    encoding='onehot',
+    keep_original_columns=False,
 )
-calendar_features = calendar_transformer.fit_transform(data)
+exog_calendar = calendar_transformer.fit_transform(data)
 
-# Step 2: Encode as cyclical (sin/cos)
-features_to_encode = ['month', 'week', 'day_of_week', 'hour']
-max_values = {
-    'month': 12,
-    'week': 52,
-    'day_of_week': 7,
-    'hour': 24,
-}
-cyclical_encoder = CyclicalFeatures(
-    variables     = features_to_encode,
-    max_values    = max_values,
-    drop_original = True,
+# Spline — smooth periodic B-splines, ≈ max_val columns per feature
+calendar_transformer = DateTimeFeatureTransformer(
+    features=['day_of_year'],
+    encoding='spline',
+    spline_kwargs={'degree': 3, 'n_knots': 12},   # optional
+    keep_original_columns=False,
 )
-exog_calendar = cyclical_encoder.fit_transform(calendar_features)
-# Produces columns: month_sin, month_cos, week_sin, week_cos, ...
+exog_calendar = calendar_transformer.fit_transform(data)
 ```
+
+`spline_kwargs` accepts any argument of `sklearn.preprocessing.SplineTransformer`
+**except** `knots` (computed internally from `max_values`) and `sparse_output`
+(incompatible with the DataFrame output).
+
+### Encoding only some features
+
+Use `features_to_encode` to extract a feature but leave it as a raw integer:
+
+```python
+calendar_transformer = DateTimeFeatureTransformer(
+    features=['year', 'month', 'hour'],
+    features_to_encode=['month', 'hour'],   # 'year' kept as raw int
+    encoding='cyclical',
+)
+exog_calendar = calendar_transformer.fit_transform(data)
+```
+
+### Function form — `create_datetime_features`
+
+For one-shot use without instantiating a transformer, the same logic is
+exposed as a function:
+
+```python
+from skforecast.preprocessing import create_datetime_features
+
+exog_calendar = create_datetime_features(
+    X=data,
+    features=['month', 'day_of_week', 'hour'],
+    encoding='cyclical',
+    keep_original_columns=False,
+)
+```
+
+All parameters match `DateTimeFeatureTransformer`. Prefer the transformer when
+you want to fit / re-apply the same configuration, plug it into a `Pipeline`,
+or pass it as `transformer_exog`.
+
+## Holiday Distance Features
+
+`calculate_distance_from_holiday` computes the number of periods to the next
+and since the last holiday. The time unit is inferred from the index frequency
+(days, hours, minutes, …) when `date_column=None`, and is always days when a
+date column is used.
+
+```python
+from skforecast.preprocessing import calculate_distance_from_holiday
+
+# Index-based (preferred): unit follows the index frequency
+holiday_dist = calculate_distance_from_holiday(
+    X=data[['is_holiday']],          # boolean / 0-1 column
+    holiday_column='is_holiday',
+    fill_na=0,                       # value for rows before first / after last holiday
+)
+# Columns: time_to_holiday, time_since_holiday
+
+# Series form: values used directly as the holiday indicator
+holiday_dist = calculate_distance_from_holiday(
+    X=data['is_holiday'],
+    fill_na=0,
+)
+```
+
+Combine with calendar features into a single `exog`:
+
+```python
+exog = pd.concat([exog_calendar, holiday_dist], axis=1)
+```
+
+## Cyclical / Onehot / Spline — Choosing an Encoding
+
+| Encoding | Columns per feature | Best for |
+|----------|---------------------|----------|
+| `'cyclical'` | 2 (sin + cos) | Compact, smooth — good default for tree and linear models |
+| `'onehot'` | `max_val` | Stable schema; tree models can split on individual categories |
+| `'spline'` | `≈ max_val` (dense) | Smooth + flexible; useful for high-cardinality features (`day_of_year`) when memory allows |
+| `None` | 1 | Tree models that benefit from raw ordinal values |
+
+For high-cardinality features (`day_of_year` → 366, `day_of_month` → 31),
+`'cyclical'` or `'spline'` are typically more memory-efficient than `'onehot'`.
 
 ## Rolling Features (Window Statistics)
 
@@ -2225,13 +2547,13 @@ from lightgbm import LGBMRegressor
 # Single window size for all stats
 rolling = RollingFeatures(
     stats=['mean', 'std', 'min', 'max'],
-    window_sizes=7,  # int applies same window to all stats
+    window_sizes=7,                  # int applies same window to all stats
 )
 
 # Different window sizes per statistic
 rolling = RollingFeatures(
     stats=['mean', 'std', 'min', 'max'],
-    window_sizes=[7, 7, 14, 14],  # Must match length of stats
+    window_sizes=[7, 7, 14, 14],     # Must match length of stats
 )
 
 # Multiple RollingFeatures objects
@@ -2241,7 +2563,7 @@ rolling_long = RollingFeatures(stats=['mean', 'std'], window_sizes=30)
 forecaster = ForecasterRecursive(
     estimator=LGBMRegressor(),
     lags=24,
-    window_features=[rolling_short, rolling_long],  # List of RollingFeatures
+    window_features=[rolling_short, rolling_long],   # List of RollingFeatures
 )
 ```
 
@@ -2258,6 +2580,83 @@ rolling = RollingFeatures(
 )
 ```
 
+### The `window_features` parameter
+
+The forecaster's `window_features` argument accepts **any object (or list of objects)** that implements the contract:
+
+```python
+def transform_batch(y: pd.Series) -> pd.DataFrame:
+    # Returns one row per training sample, indexed to align with y[max_window_size:]
+    ...
+```
+
+`RollingFeatures` is the built-in implementation; user-defined classes that follow the same contract are accepted. See [references/rolling-stats-reference.md](references/rolling-stats-reference.md#custom-window-feature-classes-protocol) for the full protocol and a custom-class example.
+
+**Effective `window_size`.** The forecaster sets `window_size = max(max_lag, max_size_window_features) (+ differentiation)`. A `RollingFeatures(window_sizes=30)` combined with `lags=7` raises `window_size` to 30 — `last_window` must hold ≥ 30 values and the first 30 rows of training data are dropped. This is a frequent source of "not enough data to train" errors when the rolling window is much larger than the lags.
+
+**Lags-free configuration.** `lags=None, window_features=...` is valid (and useful for purely smoothed-history models). At least one of `lags` / `window_features` must be non-`None` — passing both as `None` raises `ValueError`.
+
+**Multiple `RollingFeatures` instances.** When passing a list, each instance is processed independently and their feature names are concatenated. Names must be unique across instances; collisions silently overwrite columns. Use the `features_names=` argument of `RollingFeatures` to disambiguate when reusing the same `stat`/`window_size` combination.
+
+**Runtime mutation.** After construction, use `forecaster.set_window_features(new_window_features)` to swap the configuration (analogous to `set_lags`). This recomputes `window_size`, `max_size_window_features`, `window_features_names`, and the differentiator's window. Useful inside manual hyperparameter loops.
+
+**Interaction with `differentiation`.** Window features are computed on the **differenced** series, not the original one. With `differentiation=1`, `roll_mean_7` is the mean of seven consecutive *changes*, not seven raw values. Take this into account when interpreting feature importances.
+
+**Multi-series.** In `ForecasterRecursiveMultiSeries`, the same `RollingFeatures` instance is applied independently to each series — configuration is global but the computed values are per-series (no leakage between series).
+
+**Classifier variant.** For `ForecasterRecursiveClassifier`, use `RollingFeaturesClassification` (also in `skforecast.preprocessing`) instead of `RollingFeatures`.
+
+### Choosing window features
+
+**When window features help:**
+- Noisy series — a smoothed signal (`mean`, `ewm`) reduces variance the lags cannot.
+- Capturing a longer scale than the lags without exploding column count: with hourly data and `lags=24`, a `roll_mean_168` represents the weekly level with one feature instead of adding 144 more lags.
+- Heteroscedastic or regime-changing series (energy, finance, traffic) — `roll_std`, `coef_variation`.
+- When extreme behaviour drives decisions (peak demand, drawdowns) — `roll_min`, `roll_max`.
+
+**When they don't help:**
+- Short series — each large window discards training rows (`window_size` grows).
+- Highly periodic, low-noise series — lags + calendar features are usually enough.
+- Redundant ranges — a `roll_mean_24` alongside `lags=range(1, 25)` adds little for a gradient boosting model that can already construct the average from splits.
+
+**Which statistic for which signal:**
+
+| Stat | Adds signal when… | Notes |
+|------|------------------|-------|
+| `mean` | Default smoothing — recent level. | Start here. |
+| `ewm` | Recent observations should dominate. | Tune `alpha` in `kwargs_stats` (0.1 slow, 0.5 reactive). |
+| `std` | Volatility / heteroscedasticity matters. | Near-mandatory in finance and energy demand. |
+| `median` | Frequent outliers. | Replaces `mean`, do not combine. |
+| `min` / `max` | Threshold crossings, peaks, operational floors. | Useful in capacity planning. |
+| `sum` | Cumulative quantities (rainfall, sales) rather than levels. | Scale-sensitive — pair with `transformer_y` or scaling. |
+| `ratio_min_max` | Bounded regime indicator. | Often noisy on stationary series. |
+| `coef_variation` | Scale-free volatility. | Useful in `ForecasterRecursiveMultiSeries` to compare series of different magnitudes. |
+
+**Window sizes:**
+- Tie them to actual seasonality: hourly → 24, 168; daily → 7, 30; weekly → 4, 13, 52; monthly → 12.
+- Multi-scale usually wins: combine one short (reactive) and one long (trend) window — e.g. `stats=['mean', 'std', 'mean', 'std'], window_sizes=[7, 7, 30, 30]`.
+- Keep `max_window_size < ~25-30% of len(y_train)` to preserve enough training rows.
+
+**Practical recipe:**
+1. **Baseline**: lags only (from ACF/PACF) + calendar features if applicable. Measure via backtesting.
+2. **If residuals track recent level** → add `roll_mean_<seasonal_period>`.
+3. **If errors scale with magnitude** → add `roll_std_<seasonal_period>`.
+4. **If outliers/peaks matter** → add `roll_max` or `roll_min` with the same window.
+5. **One addition per iteration**, validated with backtesting. Drop it if MAE/RMSE doesn't improve on independent folds.
+6. **Prune with `select_features`** at the end — typically 2-4 of 6-8 candidates survive.
+
+**Combinations that tend to work:**
+- **Hourly electricity demand**: `lags=[1..24, 168]` + `RollingFeatures(['mean', 'std'], [24, 24])` + cyclical calendar.
+- **Daily sales with promotions**: `lags=[1..14]` + `RollingFeatures(['mean', 'median'], [7, 28])` + holiday distance + promo exog.
+- **Financial series**: `lags=[1..5]` + `RollingFeatures(['std', 'coef_variation'], [5, 20])` + `differentiation=1` (window features compute on returns, which is usually what you want).
+- **Multi-series with heterogeneous scales**: prefer `coef_variation` and `ratio_min_max` (scale-free), or apply per-series `transformer_series`.
+
+**Anti-patterns:**
+- Adding 6-8 statistics at once "just in case" — dilutes signal and increases overfitting risk.
+- `roll_sum` without scaling the target — its magnitude dominates the lags and destabilises training.
+- `min` / `max` with very long windows on trending series — the feature becomes near-constant or monotone.
+- Duplicating information: keeping `lags=range(1, 31)` together with `roll_mean_30` rarely helps a gradient boosting model — shrink the lag set when you add the rolling stat.
+
 ## Differencing (Non-Stationary Series)
 
 ```python
@@ -2265,11 +2664,11 @@ rolling = RollingFeatures(
 forecaster = ForecasterRecursive(
     estimator=LGBMRegressor(),
     lags=24,
-    differentiation=1,  # First-order differencing (removes linear trend)
-    # differentiation=2,  # Second-order (removes quadratic trend)
+    differentiation=1,               # First-order differencing (removes linear trend)
+    # differentiation=2,             # Second-order (removes quadratic trend)
 )
 forecaster.fit(y=y_train)
-predictions = forecaster.predict(steps=10)  # Auto inverse-transformed
+predictions = forecaster.predict(steps=10)   # Auto inverse-transformed
 ```
 
 ## Categorical Exogenous Variables
@@ -2284,7 +2683,7 @@ XGBoost, and HistGradientBoostingRegressor.
 forecaster = ForecasterRecursive(
     estimator=LGBMRegressor(),
     lags=24,
-    categorical_features='auto',  # Default — auto-detect non-numeric columns
+    categorical_features='auto',     # Default — auto-detect non-numeric columns
 )
 ```
 
@@ -2324,7 +2723,7 @@ forecaster = ForecasterRecursive(
     estimator=LGBMRegressor(),
     lags=24,
     transformer_exog=transformer_exog,
-    categorical_features='auto',  # Detects remaining non-numeric columns
+    categorical_features='auto',     # Detects remaining non-numeric columns
 )
 ```
 
@@ -2332,32 +2731,34 @@ forecaster = ForecasterRecursive(
 
 ```python
 import pandas as pd
-from feature_engine.datetime import DatetimeFeatures
-from feature_engine.creation import CyclicalFeatures
-from skforecast.preprocessing import RollingFeatures
+from skforecast.preprocessing import (
+    DateTimeFeatureTransformer,
+    calculate_distance_from_holiday,
+    RollingFeatures,
+)
 from skforecast.recursive import ForecasterRecursive
 from sklearn.preprocessing import StandardScaler
 from lightgbm import LGBMRegressor
 
-# 1. Calendar features with cyclical encoding
-calendar_transformer = DatetimeFeatures(
-    variables='index',
-    features_to_extract=['month', 'day_of_week', 'hour'],
-    drop_original=True,
+# 1. Calendar features with cyclical encoding (no extra deps)
+calendar_transformer = DateTimeFeatureTransformer(
+    features=['month', 'day_of_week', 'hour'],
+    encoding='cyclical',
+    keep_original_columns=False,
 )
-cyclical_encoder = CyclicalFeatures(
-    variables=['month', 'day_of_week', 'hour'],
-    max_values={'month': 12, 'day_of_week': 7, 'hour': 24},
-    drop_original=True,
-)
-exog_calendar = cyclical_encoder.fit_transform(
-    calendar_transformer.fit_transform(data)
+exog_calendar = calendar_transformer.fit_transform(data)
+
+# 2. Holiday distance features (unit inferred from index frequency)
+exog_holiday = calculate_distance_from_holiday(
+    X=data[['is_holiday']],
+    holiday_column='is_holiday',
+    fill_na=0,
 )
 
-# 2. Combine with other exogenous variables
-exog = pd.concat([exog_external, exog_calendar], axis=1)
+# 3. Combine with other exogenous variables
+exog = pd.concat([exog_external, exog_calendar, exog_holiday], axis=1)
 
-# 3. Rolling features + lags + differencing
+# 4. Rolling features + lags + differencing
 rolling = RollingFeatures(stats=['mean', 'std'], window_sizes=[7, 14])
 
 forecaster = ForecasterRecursive(
@@ -2373,10 +2774,14 @@ predictions = forecaster.predict(steps=10, exog=exog.loc[forecast_index])
 
 ## Common Mistakes
 
-1. **Not encoding cyclical features**: Using raw integers for hour/month/day_of_week loses the cyclical relationship (hour 23 appears far from hour 0). Always use sin/cos encoding.
-2. **Forgetting frequency on index**: Calendar transformers require `DatetimeIndex` with frequency set (`data.asfreq('h')`).
-3. **Not covering forecast horizon with exog**: Calendar features for `predict()` must include future dates covering the entire forecast horizon.
-4. **Over-engineering features**: Start with lags only, then add rolling features and calendar features incrementally. Validate each addition with backtesting.
+1. **Not encoding cyclical features**: Using raw integers for hour/month/day_of_week loses the cyclical relationship (hour 23 appears far from hour 0). Use `encoding='cyclical'` (or `'onehot'` / `'spline'`).
+2. **Forgetting frequency on index**: `DateTimeFeatureTransformer` requires a `DatetimeIndex`; `calculate_distance_from_holiday` (index mode) infers the time unit from the frequency. Always set `data.asfreq('h')` (or similar) first.
+3. **Not covering forecast horizon with exog**: Calendar / holiday features for `predict()` must include future dates covering the entire forecast horizon.
+4. **Overriding `max_values` for `'week'` or `'day_of_year'`**: The defaults (53, 366) are intentional — they handle ISO week 53 and leap years correctly. Use the smaller value (52 / 365) only if you have verified your data never reaches the maximum.
+5. **Over-engineering features**: Start with lags only, then add rolling features and calendar features incrementally. Validate each addition with backtesting.
+6. **Rolling window larger than lags without checking training size**: The forecaster's `window_size` is `max(max_lag, max_size_window_features)`. A 30-step rolling window with `lags=7` drops the first 30 rows of training data and requires `last_window` of length ≥ 30 at predict time.
+7. **Colliding feature names across multiple `RollingFeatures`**: When passing `window_features=[wf1, wf2]`, names like `roll_mean_7` produced by both instances overwrite each other. Override with `features_names=[...]` on at least one instance.
+8. **Forgetting that window features run on the differenced series**: With `differentiation=1`, `roll_mean_7` is the mean of seven changes, not seven raw values. Adjust interpretation accordingly.
 
 ---
 ### Reference: rolling-stats-reference
@@ -2538,16 +2943,110 @@ Used only in `transform_batch()` method (not in recursive prediction):
 
 ## Forecaster Compatibility
 
-| Forecaster | `window_features` supported |
-|------------|:--:|
-| ForecasterRecursive | ✓ |
-| ForecasterDirect | ✓ |
-| ForecasterRecursiveMultiSeries | ✓ |
-| ForecasterDirectMultiVariate | ✓ |
-| ForecasterRecursiveClassifier | ✓ |
-| ForecasterRnn | — |
-| ForecasterStats | — |
-| ForecasterEquivalentDate | — |
+| Forecaster | `window_features` supported | Notes |
+|------------|:--:|-------|
+| ForecasterRecursive | ✓ | |
+| ForecasterDirect | ✓ | |
+| ForecasterRecursiveMultiSeries | ✓ | Same instance applied independently per series |
+| ForecasterDirectMultiVariate | ✓ | Same instance applied independently per input series |
+| ForecasterRecursiveClassifier | ✓ | Use `RollingFeaturesClassification` (not `RollingFeatures`) |
+| ForecasterRnn | — | |
+| ForecasterStats | — | |
+| ForecasterEquivalentDate | — | |
+| ForecasterFoundation | — | |
+
+## How the forecaster uses `window_features`
+
+When the forecaster builds the training matrix, it calls `wf.transform_batch(y)` on each instance once. The returned DataFrame is appended to the lag matrix as additional predictors. At prediction time, the forecaster slices the last `max_size_window_features` values of the running history and calls `wf.transform(...)` (numpy fast path) for each step.
+
+**Effective `window_size`:**
+
+```
+window_size = max(max_lag, max_size_window_features) [+ differentiation]
+```
+
+Consequences:
+- The first `window_size` rows of `y_train` cannot be used as targets (no full history available to compute predictors).
+- `last_window` passed to `predict(..., last_window=...)` must contain at least `window_size` observations.
+- A large rolling window combined with short series may leave too few training samples — check `len(y) - window_size` before fitting.
+
+**Differentiation interaction:** the forecaster differentiates the series first, then computes window features on the differenced values. `roll_mean_7` with `differentiation=1` therefore averages seven *changes*, not seven raw observations. Inverse-differentiation only applies to the predictions, not to the predictors themselves.
+
+**Multiple instances:** `window_features=[wf1, wf2]` calls `transform_batch` on each instance and concatenates the columns. Feature names must be unique across the combined set; duplicates silently collide. Use `RollingFeatures(features_names=[...])` to disambiguate.
+
+**Lags-free mode:** `lags=None, window_features=...` is supported. `window_size` falls back to `max_size_window_features`. At least one of the two must be non-`None` — passing both as `None` raises `ValueError` from `set_lags` / `set_window_features`.
+
+**Runtime mutation:** `forecaster.set_window_features(new_wf)` (analogous to `set_lags`) replaces the configuration after init and recomputes `window_size`, `window_features_names`, `window_features_class_names`, and the differentiator's window size. Useful in manual hyperparameter loops where the forecaster instance is reused across configurations.
+
+## Custom window feature classes (protocol)
+
+`window_features` accepts any object implementing the following contract — `RollingFeatures` is one such implementation, but user-defined classes are accepted as long as they conform.
+
+**Required methods:**
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `transform_batch` | `(y: pd.Series) -> pd.DataFrame` | Computes features for the full training series. Used during `fit`. |
+| `transform` | `(X: np.ndarray) -> np.ndarray` | Computes features for a single (or batched) prediction window. Used during `predict`. |
+
+**Required attributes:**
+
+| Attribute | Type | Purpose |
+|-----------|------|---------|
+| `max_window_size` | `int` | Largest window the class needs — drives the forecaster's `window_size`. |
+| `features_names` | `list[str]` | Output column / feature names (must match `transform_batch` columns and the order produced by `transform`). |
+
+**Validation enforced by the forecaster** (see `_create_window_features`):
+- `transform_batch` must return a `pd.DataFrame` (`TypeError` otherwise).
+- The DataFrame length must equal `len(y) - max_window_size` (`ValueError` otherwise).
+- The DataFrame index must equal the forecaster's `train_index` (`ValueError` otherwise).
+
+**Minimal custom example:**
+
+```python
+import numpy as np
+import pandas as pd
+
+class LastDeltaFeature:
+    """Feature: difference between the last and the first value of the window."""
+
+    def __init__(self, window_size: int):
+        self.max_window_size = window_size
+        self.features_names = [f'last_minus_first_{window_size}']
+
+    def transform_batch(self, y: pd.Series) -> pd.DataFrame:
+        # closed='left' to avoid leakage — last point excluded
+        last = y.shift(1).rolling(self.max_window_size).apply(lambda w: w[-1], raw=True)
+        first = y.shift(1).rolling(self.max_window_size).apply(lambda w: w[0], raw=True)
+        out = (last - first).iloc[self.max_window_size:]
+        return out.to_frame(name=self.features_names[0])
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        # X shape: (window_length,) or (window_length, n_samples)
+        if X.ndim == 1:
+            return np.array([X[-1] - X[0]])
+        return (X[-1, :] - X[0, :]).reshape(-1, 1)
+
+# Use it like a RollingFeatures instance
+forecaster = ForecasterRecursive(
+    estimator=LGBMRegressor(),
+    lags=7,
+    window_features=LastDeltaFeature(window_size=14),
+)
+```
+
+Combine custom and built-in instances freely:
+
+```python
+forecaster = ForecasterRecursive(
+    estimator=LGBMRegressor(),
+    lags=7,
+    window_features=[
+        RollingFeatures(stats=['mean', 'std'], window_sizes=14),
+        LastDeltaFeature(window_size=14),
+    ],
+)
+```
 
 ## Feature Selection Interaction
 
@@ -2578,6 +3077,12 @@ Use feature selection when:
 - You have many lags or exogenous variables and want to reduce overfitting
 - You want to identify which features matter most
 - You need to speed up training by removing irrelevant features
+
+### Related skills
+
+- **Before**: `autocorrelation-and-lag-selection` (generate an informed candidate set of lags before running the selector)
+- **Before**: `feature-engineering` (create the rolling, calendar, and exogenous features that the selector will rank)
+- **After**: `hyperparameter-optimization` (tune the estimator on the reduced feature set)
 
 ## Single Series
 
@@ -2725,6 +3230,11 @@ Use drift detection to monitor whether new data falls outside the patterns seen 
 | `RangeDriftDetector` | Very fast | Real-time inference — checks if values are in training range |
 | `PopulationDriftDetector` | Moderate | Batch monitoring — statistical tests for distribution shifts |
 
+### Related skills
+
+- **Before**: `forecasting-single-series` / `forecasting-multiple-series` (the detector is fitted on the training data of an existing forecaster)
+- **Before**: `prediction-intervals` (intervals quantify uncertainty under the training distribution; drift detection flags when that distribution changes)
+
 ## RangeDriftDetector
 
 Checks whether new observations fall within the ranges seen during training. Lightweight and suitable for real-time scoring.
@@ -2869,6 +3379,13 @@ Use `ForecasterRnn` when:
 - Multi-series problems where series share deep temporal patterns
 
 **Requirements**: `pip install skforecast[deeplearning]` (installs keras)
+
+### Related skills
+
+- **Before**: `choosing-a-forecaster` (confirm `ForecasterRnn` is the right choice for the data size and pattern)
+- **Before**: `feature-engineering` (RNN models still benefit from cyclical / calendar exogenous features)
+- **After**: `hyperparameter-optimization` (tune RNN architecture and training hyperparameters)
+- **After**: `prediction-intervals` (only conformal intervals are supported for `ForecasterRnn`)
 
 ## Quick Start
 
@@ -3614,6 +4131,13 @@ backend for the adapter you actually use needs to be installed.
 
 Use this skill when the user needs help choosing a forecaster, comparing forecaster types (recursive vs direct, single vs multi-series), or understanding which skforecast class fits their problem.
 
+### Related skills
+
+- **After**: `forecasting-single-series` (apply the chosen forecaster to one target series)
+- **After**: `forecasting-multiple-series` (apply the chosen forecaster to several series jointly)
+- **After**: `autocorrelation-and-lag-selection` (analyse the series dynamics before configuring `lags`)
+- **After**: `feature-engineering` (build the input feature set: calendar, rolling, exogenous)
+
 ## Overview
 
 Skforecast is a **machine learning-first** library. The ML forecasters are the primary tools; statistical models (`ForecasterStats`) and naive baselines (`ForecasterEquivalentDate`) serve as comparison benchmarks.
@@ -3859,36 +4383,40 @@ predictions = forecaster.predict(steps=10, exog=exog_test)
 ```python
 # ❌ WRONG: using backtesting_forecaster with ForecasterStats
 from skforecast.model_selection import backtesting_forecaster
-backtesting_forecaster(forecaster=forecaster_stats, ...)  # Error!
+backtesting_forecaster(forecaster=forecaster_stats, y=y, cv=cv, metric=metric)  # Error!
 
 # ✅ CORRECT: use backtesting_stats for statistical models
 from skforecast.model_selection import backtesting_stats
-backtesting_stats(forecaster=forecaster_stats, ...)
+backtesting_stats(forecaster=forecaster_stats, y=y, cv=cv, metric=metric)
 
 # ❌ WRONG: using backtesting_forecaster with ForecasterRecursiveMultiSeries
-backtesting_forecaster(forecaster=forecaster_multi, ...)  # Error!
+backtesting_forecaster(forecaster=forecaster_multi, y=y, cv=cv, metric=metric)  # Error!
 
 # ✅ CORRECT: use backtesting_forecaster_multiseries
 from skforecast.model_selection import backtesting_forecaster_multiseries
-backtesting_forecaster_multiseries(forecaster=forecaster_multi, series=series, ...)
+backtesting_forecaster_multiseries(
+    forecaster=forecaster_multi, series=series, cv=cv, metric=metric
+)
 ```
 
 ## Wrong Search Function
 
 ```python
 # ❌ WRONG: grid_search_forecaster with ForecasterStats
-grid_search_forecaster(forecaster=forecaster_stats, ...)
+grid_search_forecaster(forecaster=forecaster_stats, y=y, cv=cv, param_grid=param_grid)
 
 # ✅ CORRECT: grid_search_stats for statistical models
 from skforecast.model_selection import grid_search_stats
-grid_search_stats(forecaster=forecaster_stats, ...)
+grid_search_stats(forecaster=forecaster_stats, y=y, cv=cv, param_grid=param_grid)
 
 # ❌ WRONG: grid_search_forecaster with ForecasterRecursiveMultiSeries
-grid_search_forecaster(forecaster=forecaster_multi, ...)
+grid_search_forecaster(forecaster=forecaster_multi, y=y, cv=cv, param_grid=param_grid)
 
 # ✅ CORRECT: grid_search_forecaster_multiseries
 from skforecast.model_selection import grid_search_forecaster_multiseries
-grid_search_forecaster_multiseries(forecaster=forecaster_multi, series=series, ...)
+grid_search_forecaster_multiseries(
+    forecaster=forecaster_multi, series=series, cv=cv, param_grid=param_grid
+)
 ```
 
 ## Prediction Interval Errors

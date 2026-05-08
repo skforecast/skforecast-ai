@@ -203,8 +203,6 @@ def test_tier0_explain_LLMRequiredError_when_no_llm():
         estimator="Ridge",
         steps=10,
         forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
-        metric="mean_absolute_error",
-        backtesting_strategy="TimeSeriesFold",
         explanation="Single series with daily frequency.",
     )
     err_msg = re.escape(
@@ -327,8 +325,6 @@ def test_explain_fallback_when_llm_fails(monkeypatch):
         estimator="Ridge",
         steps=10,
         forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
-        metric="mean_absolute_error",
-        backtesting_strategy="TimeSeriesFold",
         explanation="Single series with daily frequency.",
     )
 

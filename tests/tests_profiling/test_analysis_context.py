@@ -3,8 +3,8 @@
 import numpy as np
 import pandas as pd
 
-from skforecast_ai.profiling import create_analysis_context, create_data_profile
-from skforecast_ai.schemas import AnalysisContext, DataProfile
+from skforecast_ai.profiling import create_forecaster_analysis, create_data_profile
+from skforecast_ai.schemas import ForecasterAnalysis, DataProfile
 
 
 def test_analysis_context_multi_series_computes_series_lengths():
@@ -25,8 +25,8 @@ def test_analysis_context_multi_series_computes_series_lengths():
         index_type="datetime",
         frequency="D",
     )
-    ctx = create_analysis_context(df, profile, "ForecasterRecursiveMultiSeries")
-    assert isinstance(ctx, AnalysisContext)
+    ctx = create_forecaster_analysis(df, profile, "ForecasterRecursiveMultiSeries")
+    assert isinstance(ctx, ForecasterAnalysis)
     assert ctx.min_series_length == 50
     assert ctx.max_series_length == 100
     assert ctx.series_length_ratio == 2.0
@@ -44,7 +44,7 @@ def test_analysis_context_multi_series_without_data_uses_defaults():
         index_type="datetime",
         frequency="D",
     )
-    ctx = create_analysis_context(None, profile, "ForecasterRecursiveMultiSeries")
+    ctx = create_forecaster_analysis(None, profile, "ForecasterRecursiveMultiSeries")
     assert ctx.effective_n_observations == 300
     assert ctx.min_series_length == 100
 
@@ -61,7 +61,7 @@ def test_analysis_context_single_ml_returns_n_observations():
         index_type="datetime",
         frequency="D",
     )
-    ctx = create_analysis_context(df, profile, "ForecasterRecursive")
+    ctx = create_forecaster_analysis(df, profile, "ForecasterRecursive")
     assert ctx.effective_n_observations == 365
     assert ctx.target_variance is not None
     assert ctx.target_variance > 0
@@ -75,7 +75,7 @@ def test_analysis_context_foundation_computes_viable_context_length():
         index_type="datetime",
         frequency="D",
     )
-    ctx = create_analysis_context(None, profile, "ForecasterFoundation")
+    ctx = create_forecaster_analysis(None, profile, "ForecasterFoundation")
     assert ctx.effective_n_observations == 500
     assert ctx.viable_context_length == 500  # min(500, 2048)
 
@@ -88,7 +88,7 @@ def test_analysis_context_foundation_caps_context_length():
         index_type="datetime",
         frequency="D",
     )
-    ctx = create_analysis_context(None, profile, "ForecasterFoundation")
+    ctx = create_forecaster_analysis(None, profile, "ForecasterFoundation")
     assert ctx.viable_context_length == 2048
 
 
@@ -100,5 +100,5 @@ def test_analysis_context_stats_returns_basic():
         index_type="datetime",
         frequency="D",
     )
-    ctx = create_analysis_context(None, profile, "ForecasterStats")
+    ctx = create_forecaster_analysis(None, profile, "ForecasterStats")
     assert ctx.effective_n_observations == 200

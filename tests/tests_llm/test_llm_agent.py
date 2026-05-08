@@ -33,8 +33,6 @@ plan_single_recursive = ForecastPlan(
     steps=10,
     frequency="D",
     forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
-    metric="mean_absolute_error",
-    backtesting_strategy="TimeSeriesFold",
     interval_method="bootstrapping",
     use_exog=True,
     data_requirements=["impute_missing", "encode_categorical"],
@@ -145,7 +143,6 @@ def test_build_explain_prompt_uses_plan():
     assert "single_series" in result
     assert "365" in result
     assert "LGBMRegressor" in result
-    assert "mean_absolute_error" in result
     assert "temperature" in result
 
 

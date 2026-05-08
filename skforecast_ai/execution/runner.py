@@ -8,6 +8,79 @@ import pandas as pd
 
 from ..schemas import DataProfile, ForecastPlan
 
+_DEFAULT_METRIC = "mean_absolute_error"
+
+
+def validate_run_inputs(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+) -> list[str]:
+    """
+    Validate preconditions before executing a forecasting workflow.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Validated forecast plan.
+
+    Returns
+    -------
+    warnings : list
+        List of human-readable warning strings. Empty if all checks pass.
+    """
+    warnings: list[str] = []
+
+    if plan.steps > profile.n_observations:
+        warnings.append(
+            f"Forecast horizon ({plan.steps}) exceeds available observations "
+            f"({profile.n_observations})."
+        )
+
+    if profile.n_observations < 50:
+        warnings.append(
+            f"Series has only {profile.n_observations} observations. "
+            f"Backtesting results may be unreliable with fewer than 50 "
+            f"observations."
+        )
+
+    test_size = int(profile.n_observations * 0.2)
+    if plan.steps > test_size:
+        warnings.append(
+            f"steps ({plan.steps}) exceeds test set size ({test_size}). "
+            f"Backtesting may not produce meaningful results."
+        )
+
+    if plan.use_exog and profile.exog_columns:
+        missing_cols = [
+            col for col in profile.exog_columns if col not in data.columns
+        ]
+        if missing_cols:
+            warnings.append(
+                f"Exogenous columns missing from data: {missing_cols}."
+            )
+
+    if profile.missing_target or profile.missing_exog:
+        total_missing = (
+            sum(profile.missing_target.values())
+            + sum(profile.missing_exog.values())
+        )
+        if total_missing > 0:
+            cols_with_missing = list(profile.missing_target.keys()) + list(
+                profile.missing_exog.keys()
+            )
+            warnings.append(
+                f"Data contains {total_missing} missing value(s) across "
+                f"columns: {cols_with_missing}. "
+                f"This may cause errors during execution."
+            )
+
+    return warnings
+
 ESTIMATOR_MAP: dict[str, tuple[str, str]] = {
     "LGBMRegressor": ("lightgbm", "LGBMRegressor"),
     "Ridge": ("sklearn.linear_model", "Ridge"),
@@ -206,7 +279,7 @@ def _run_single_series(
         "forecaster": forecaster,
         "y": y,
         "cv": cv,
-        "metric": plan.metric,
+        "metric": _DEFAULT_METRIC,
     }
     if exog is not None:
         bt_kwargs["exog"] = exog
@@ -273,7 +346,7 @@ def _run_single_series(
 
     return {
         "metric_value": metric_value,
-        "metric_name": plan.metric,
+        "metric_name": _DEFAULT_METRIC,
         "predictions": preds,
         "intervals": intervals,
         "warnings": [],
@@ -350,11 +423,11 @@ def _run_multi_series(
         forecaster = forecaster,
         series     = series,
         cv         = cv,
-        metric     = plan.metric,
+        metric     = _DEFAULT_METRIC,
     )
     # Multi-series backtesting returns per-level metrics; use the "average" row
     avg_row = metric_result[metric_result["levels"] == "average"]
-    metric_value = float(avg_row[plan.metric].iloc[0])
+    metric_value = float(avg_row[_DEFAULT_METRIC].iloc[0])
 
     # Re-fit on ALL data for final predictions
     forecaster.fit(**fit_kwargs)
@@ -373,7 +446,7 @@ def _run_multi_series(
 
     return {
         "metric_value": metric_value,
-        "metric_name": plan.metric,
+        "metric_name": _DEFAULT_METRIC,
         "predictions": predictions,
         "intervals": intervals,
         "warnings": [],
@@ -432,7 +505,7 @@ def _run_statistical(
         forecaster = forecaster,
         y          = y,
         cv         = cv,
-        metric     = plan.metric,
+        metric     = _DEFAULT_METRIC,
     )
     metric_value = float(metric_result.iloc[0, 0])
 
@@ -456,7 +529,7 @@ def _run_statistical(
 
     return {
         "metric_value": metric_value,
-        "metric_name": plan.metric,
+        "metric_name": _DEFAULT_METRIC,
         "predictions": preds,
         "intervals": intervals,
         "warnings": [],
@@ -522,7 +595,7 @@ def _run_foundation(
         forecaster = forecaster,
         series     = y,
         cv         = cv,
-        metric     = plan.metric,
+        metric     = _DEFAULT_METRIC,
     )
     metric_value = float(metric_result.iloc[0, 0])
 
@@ -543,7 +616,7 @@ def _run_foundation(
 
     return {
         "metric_value": metric_value,
-        "metric_name": plan.metric,
+        "metric_name": _DEFAULT_METRIC,
         "predictions": preds,
         "intervals": intervals,
         "warnings": [],

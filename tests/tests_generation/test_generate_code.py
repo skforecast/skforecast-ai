@@ -80,14 +80,14 @@ def test_generate_code_output_when_direct_includes_steps():
 
 def test_generate_code_output_when_correct_metric():
     """
-    Test generate_code embeds the plan's metric in the backtesting call.
+    Test generate_code embeds the default metric in the backtesting call.
     """
     code = generate_code(
         plan=plan_recursive_no_exog,
         profile=profile_recursive_no_exog,
     )
 
-    assert plan_recursive_no_exog.metric in code
+    assert "mean_absolute_error" in code
 
 
 def test_generate_code_output_when_correct_lags():
@@ -196,8 +196,6 @@ def test_generate_code_ValueError_when_unsupported_task_type():
         steps              = 10,
         frequency            = "D",
         forecaster_kwargs    = {"lags": [1, 2, 3], "steps": 10, "dropna_from_series": False},
-        metric               = "mean_absolute_error",
-        backtesting_strategy = "TimeSeriesFold",
         interval_method      = None,
         use_exog             = False,
         explanation            = "Multivariate forecaster.",
@@ -228,8 +226,6 @@ def test_generate_code_output_when_unknown_estimator_syntax():
         steps              = 10,
         frequency            = "D",
         forecaster_kwargs    = {"lags": [1, 2, 3], "dropna_from_series": False},
-        metric               = "mean_absolute_error",
-        backtesting_strategy = "TimeSeriesFold",
         interval_method      = None,
         use_exog             = False,
         explanation            = "Unknown estimator test.",
@@ -264,8 +260,6 @@ def test_generate_code_output_when_dropna_from_series_true():
         steps              = 10,
         frequency            = "D",
         forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": True},
-        metric               = "mean_absolute_error",
-        backtesting_strategy = "TimeSeriesFold",
         interval_method      = None,
         use_exog             = False,
         explanation            = "Ridge with missing values.",

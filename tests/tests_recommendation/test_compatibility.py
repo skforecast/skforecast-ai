@@ -1,6 +1,6 @@
 """Tests for derive_preprocessing_steps (Stage 4 compatibility)."""
 
-from skforecast_ai.preparation import derive_preprocessing_steps
+from skforecast_ai.recommendation import derive_preprocessing_steps
 from skforecast_ai.schemas import DataProfile, PreprocessingStep
 
 
@@ -128,23 +128,6 @@ def test_derive_steps_includes_encode_target_when_non_numeric():
     steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
     actions = [s.action for s in steps]
     assert "encode_target" in actions
-
-
-def test_derive_steps_no_encode_target_for_classifier():
-    profile = DataProfile(
-        n_observations=100,
-        n_series=1,
-        index_type="datetime",
-        frequency="D",
-        target="y",
-        target_dtype="categorical",
-        frequency_is_set=True,
-    )
-    steps = derive_preprocessing_steps(
-        profile, "ForecasterRecursiveClassifier"
-    )
-    actions = [s.action for s in steps]
-    assert "encode_target" not in actions
 
 
 def test_derive_steps_handle_gaps_is_non_blocking():

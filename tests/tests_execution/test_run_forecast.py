@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from skforecast_ai.execution.runner import run_forecast
-from skforecast_ai.execution.validation import validate_run_inputs
+from skforecast_ai.execution.runner import validate_run_inputs
 from skforecast_ai.schemas import ForecastPlan
 
 from .fixtures_execution import (
@@ -98,8 +98,6 @@ def test_run_forecast_statistical_returns_predictions():
         steps=5,
         frequency="D",
         forecaster_kwargs={},
-        metric="mean_absolute_error",
-        backtesting_strategy="TimeSeriesFold",
         interval_method=None,
         use_exog=False,
         data_requirements=[],
@@ -120,21 +118,19 @@ def test_run_forecast_statistical_returns_predictions():
 
 def test_run_forecast_ValueError_when_unsupported_task_type():
     """
-    Test that run_forecast raises ValueError for unsupported task types like
-    classification.
+    Test that run_forecast raises ValueError for task types not yet
+    supported by the execution engine (e.g. multivariate).
     """
     plan_unsupported = ForecastPlan(
-        task_type="classification",
-        forecaster="SomeForecaster",
-        estimator=None,
+        task_type="multivariate",
+        forecaster="ForecasterDirectMultiVariate",
+        estimator="Ridge",
         steps=5,
-        metric="accuracy",
-        backtesting_strategy="TimeSeriesFold",
         explanation="Unsupported.",
     )
 
     err_msg = re.escape(
-        "Unsupported task_type 'classification' for execution. "
+        "Unsupported task_type 'multivariate' for execution. "
         "Supported types: ['single_series', 'multi_series', 'statistical', "
         "'foundation']"
     )
@@ -143,6 +139,28 @@ def test_run_forecast_ValueError_when_unsupported_task_type():
 
 
 # Tests: validate_run_inputs
+
+
+def test_validate_run_inputs_warns_horizon_exceeds_observations():
+    """
+    Test that validate_run_inputs returns a warning when steps exceeds
+    the total number of observations.
+    """
+    plan_huge_steps = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        estimator="Ridge",
+        steps=500,
+        frequency="D",
+        forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
+        explanation="Huge steps.",
+    )
+
+    warnings = validate_run_inputs(
+        data=df_short, profile=profile_short, plan=plan_huge_steps
+    )
+
+    assert any("exceeds available observations" in w for w in warnings)
 
 
 def test_validate_run_inputs_warns_short_series():
@@ -169,8 +187,6 @@ def test_validate_run_inputs_warns_steps_exceeds_test_size():
         steps=100,
         frequency="D",
         forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
-        metric="mean_absolute_error",
-        backtesting_strategy="TimeSeriesFold",
         explanation="Large steps.",
     )
 

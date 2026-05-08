@@ -98,7 +98,7 @@ class DataProfile(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-class AnalysisContext(BaseModel):
+class ForecasterAnalysis(BaseModel):
     """
     Forecaster-specific analysis computed after selecting the forecaster type.
 
@@ -172,7 +172,7 @@ class ForecasterProfile(BaseModel):
     estimator_candidates : list
         Ordered list of compatible estimator names. Empty when the
         selected forecaster does not use an external estimator.
-    analysis_context : AnalysisContext
+    analysis_context : ForecasterAnalysis
         Forecaster-specific analysis (per-series stats, viable context
         length, etc.).
     explanation : str
@@ -192,7 +192,7 @@ class ForecasterProfile(BaseModel):
     forecaster_candidates: list[str] = Field(default_factory=list)
     estimator: str | None = None
     estimator_candidates: list[str] = Field(default_factory=list)
-    analysis_context: AnalysisContext
+    analysis_context: ForecasterAnalysis
     explanation: str
 
 
@@ -226,8 +226,8 @@ class ForecastPlan(BaseModel):
     Detailed forecasting plan produced from a `ForecasterProfile`.
 
     Carries every concrete decision needed to fit, evaluate and predict:
-    lag structure, metric, backtesting strategy, prediction intervals,
-    NaN handling, exogenous usage and preprocessing steps.
+    lag structure, prediction intervals, NaN handling, exogenous usage
+    and preprocessing steps.
 
     Attributes
     ----------
@@ -248,24 +248,16 @@ class ForecastPlan(BaseModel):
         Keyword arguments for the forecaster constructor (e.g. `lags`,
         `steps`, `encoding`, `dropna_from_series`). Can be unpacked
         directly into the constructor alongside `estimator`.
-    metric : str, default None
-        Deprecated. Evaluation metric is determined at execution time
-        by `generate_code` / `forecast`.
-    backtesting_strategy : str, default None
-        Deprecated. Backtesting configuration is determined at
-        execution time by `generate_code` / `forecast`.
     interval : list, default None
         Prediction interval percentiles as `[lower, upper]`
         (e.g. `[10, 90]`). If None, no intervals are computed.
     interval_method : str, default None
         Method for prediction intervals. One of `'bootstrapping'`,
-        `'conformal'`.
+        `'conformal'`, `'native'`.
     use_exog : bool, default False
         Whether to include exogenous variables.
     preprocessing_steps : list
         Ordered list of preprocessing steps required before forecasting.
-    data_requirements : list
-        Conditions the data must meet before training.
     warnings : list
         Human-readable warnings about the plan.
     explanation : str
@@ -284,13 +276,10 @@ class ForecastPlan(BaseModel):
     steps: int = Field(gt=0)
     frequency: str | None = None
     forecaster_kwargs: dict[str, Any] = Field(default_factory=dict)
-    metric: str | None = None  # TODO: remove once runner/code_templates handle their own config
-    backtesting_strategy: str | None = None  # TODO: remove once runner/code_templates handle their own config
     interval: list[int] | None = None
-    interval_method: Literal["bootstrapping", "conformal"] | None = None
+    interval_method: Literal["bootstrapping", "conformal", "native"] | None = None
     use_exog: bool = False
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
-    data_requirements: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     explanation: str
 

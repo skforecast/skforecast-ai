@@ -4,22 +4,21 @@ from pydantic_ai import Agent, RunContext
 
 from ..generation.code_templates import generate_code
 from ..profiling.data_profile import create_data_profile
-from ..profiling.analysis import create_analysis_context
+from ..profiling.analysis import create_forecaster_analysis
 from ..recommendation import (
     _build_profile_explanation,
-    build_data_requirements,
-    build_explanation,
+    build_plan_explanation,
+    build_forecaster_kwargs,
     check_exog_usage,
-    select_backtesting,
     select_dropna_from_series,
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
-    select_interval_method,
-    select_autoregressive,
-    select_metric,
+    select_lags_and_window_features,
     select_task_type_from_forecaster,
+    select_transformer_exog,
+    select_transformer_series,
 )
-from ..preparation import derive_preprocessing_steps
+from ..recommendation import derive_preprocessing_steps
 from ..schemas import DataProfile, ForecasterProfile, ForecastPlan
 from .prompts import build_system_prompt
 
@@ -90,7 +89,7 @@ def create_forecasting_agent(
         """Select forecaster + estimator (with candidates) from a DataProfile."""
         fc, fc_candidates = select_forecaster_and_candidates(data_profile)
         task_type = select_task_type_from_forecaster(fc)
-        context = create_analysis_context(None, data_profile, fc)
+        context = create_forecaster_analysis(None, data_profile, fc)
         est, est_candidates = select_estimator_and_candidates(
             task_type=task_type, n_observations=context.effective_n_observations
         )
@@ -129,54 +128,62 @@ def create_forecasting_agent(
         if task_type in ("statistical", "foundation"):
             lags = None
             window_features = None
+            transformer_series = None
+            transformer_exog = None
+            dropna_from_series = None
         else:
-            lags, window_features = select_autoregressive(
+            lags, window_features = select_lags_and_window_features(
                 n_observations = context.effective_n_observations,
                 frequency      = data_profile.frequency,
                 target_series  = context.target_series,
             )
-
-        metric               = select_metric(task_type)
-        backtesting_strategy = select_backtesting(
-            context.effective_n_observations, steps
-        )
-        interval_method      = select_interval_method(
-            fc, context.effective_n_observations
-        )
-        dropna_from_series   = select_dropna_from_series(
-            est, data_profile.missing_target, data_profile.missing_exog, task_type
-        )
-        use_exog             = check_exog_usage(data_profile.exog_columns)
-        data_requirements    = build_data_requirements(data_profile)
-        preprocessing_steps  = derive_preprocessing_steps(data_profile, fc)
-
-        plan_warnings: list[str] = []
-        if steps > data_profile.n_observations:
-            plan_warnings.append(
-                f"Forecast horizon ({steps}) exceeds available observations "
-                f"({data_profile.n_observations})."
+            transformer_series = select_transformer_series(est, task_type)
+            transformer_exog = select_transformer_exog(
+                estimator        = est,
+                task_type        = task_type,
+                exog_columns     = data_profile.exog_columns,
+                categorical_exog = data_profile.categorical_exog,
+            )
+            dropna_from_series = select_dropna_from_series(
+                est, data_profile.missing_target,
+                data_profile.missing_exog, task_type,
             )
 
-        explanation = build_explanation(
-            task_type, fc, est, lags, metric, interval_method, data_profile
+        forecaster_kwargs = build_forecaster_kwargs(
+            forecaster         = fc,
+            task_type          = task_type,
+            steps              = steps,
+            lags               = lags,
+            window_features    = window_features,
+            transformer_series = transformer_series,
+            transformer_exog   = transformer_exog,
+            dropna_from_series = dropna_from_series,
+        )
+
+        use_exog            = check_exog_usage(data_profile.exog_columns)
+        preprocessing_steps = derive_preprocessing_steps(data_profile, fc)
+
+        explanation = build_plan_explanation(
+            forecaster         = fc,
+            estimator          = est,
+            lags               = lags,
+            window_features    = window_features,
+            interval_method    = None,
+            dropna_from_series = dropna_from_series,
+            use_exog           = use_exog,
         )
 
         return ForecastPlan(
-            task_type            = task_type,
-            forecaster           = fc,
-            estimator            = est,
-            steps                = steps,
-            frequency            = data_profile.frequency,
-            lags                 = lags,
-            metric               = metric,
-            backtesting_strategy = backtesting_strategy,
-            interval_method      = interval_method,
-            dropna_from_series   = dropna_from_series,
-            use_exog             = use_exog,
-            preprocessing_steps  = preprocessing_steps,
-            data_requirements    = data_requirements,
-            warnings             = plan_warnings,
-            explanation          = explanation,
+            task_type           = task_type,
+            forecaster          = fc,
+            estimator           = est,
+            steps               = steps,
+            frequency           = data_profile.frequency,
+            forecaster_kwargs   = forecaster_kwargs,
+            interval_method     = None,
+            use_exog            = use_exog,
+            preprocessing_steps = preprocessing_steps,
+            explanation         = explanation,
         )
 
     @agent.tool

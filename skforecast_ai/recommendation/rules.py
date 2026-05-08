@@ -1,44 +1,26 @@
 """Deterministic rule functions for the recommendation engine."""
 
+from __future__ import annotations
+
 from typing import Any, Literal
+
+import numpy as np
+import pandas as pd
+from skforecast.stats import calculate_lag_autocorrelation
 
 from .._constants import (
     AUTOREG_FORECASTERS,
     DIRECT_FORECASTERS,
     CATEGORICAL_FORECASTERS,
     DROPNA_FORECASTERS,
-    TREE_BASED_ESTIMATORS, 
-    NAN_TOLERANT_ESTIMATORS
+    MULTI_SERIES_FORECASTERS,
+    REQUIRES_DATETIME_FREQ,
+    TREE_BASED_ESTIMATORS,
+    NAN_TOLERANT_ESTIMATORS,
 )
-from ..schemas import DataProfile
+from ..profiling.frequency import estimate_seasonality
+from ..schemas import DataProfile, PreprocessingStep
 
-
-def select_task_type(
-    profile: DataProfile,
-) -> Literal[
-    "single_series",
-    "multi_series",
-]:
-    """
-    Determine the default forecasting task type from profile shape.
-
-    Parameters
-    ----------
-    profile : DataProfile
-        Profiled dataset metadata.
-
-    Returns
-    -------
-    task_type : str
-        One of `'single_series'`, `'multi_series'`.
-
-    Notes
-    -----
-    Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md` Step 1.
-    """
-    if profile.n_series > 1:
-        return "multi_series"
-    return "single_series"
 
 
 # TODO: ENhance with checks for date column presence, frequency inference, etc. to
@@ -173,56 +155,10 @@ def select_estimator_and_candidates(
     return preferred, candidates
 
 
-def select_metric(task_type: str) -> str:
-    """
-    Choose the default evaluation metric for a task type.
-
-    Parameters
-    ----------
-    task_type : str
-        Forecasting task category.
-
-    Returns
-    -------
-    metric : str
-        Name of the evaluation metric.
-
-    Notes
-    -----
-    Source: `skforecast_ai/skills/hyperparameter-optimization/SKILL.md`.
-    """
-    if task_type == "classification":
-        return "accuracy"
-    return "mean_absolute_error"
-
-
-def select_backtesting(n_observations: int, steps: int) -> str:
-    """
-    Choose the backtesting fold strategy.
-
-    Parameters
-    ----------
-    n_observations : int
-        Number of observations in the dataset.
-    steps : int
-        Forecast steps in number of steps.
-
-    Returns
-    -------
-    backtesting_strategy : str
-        Name of the backtesting fold class.
-
-    Notes
-    -----
-    Source: `skforecast_ai/skills/hyperparameter-optimization/SKILL.md`.
-    """
-    return "TimeSeriesFold"
-
-
-def select_autoregressive(
+def select_lags_and_window_features(
     n_observations: int,
     frequency: str | None = None,
-    target_series: "pd.Series" = None,
+    target_series: pd.Series = None,
 ) -> tuple[list[int], list[dict] | None]:
     """
     Select lags and window features using PACF analysis of the target series.
@@ -287,12 +223,11 @@ def select_autoregressive(
     - When the series is very short (< 30), only minimal lags are used
       and window features are skipped.
     """
-    from ..profiling.frequency import estimate_seasonality
 
     if target_series is None:
         raise ValueError(
             "`target_series` is required for lag selection. The series "
-            "must be available from `AnalysisContext.target_series`."
+            "must be available from `ForecasterAnalysis.target_series`."
         )
 
     max_lag_allowed = max(n_observations // 3, 1)
@@ -329,7 +264,7 @@ def select_autoregressive(
 
 
 def _select_lags_from_pacf(
-    target_series: "pd.Series",
+    target_series: pd.Series,
     max_lag_allowed: int,
     primary_season: int | None,
     secondary_season: int | None,
@@ -357,8 +292,6 @@ def _select_lags_from_pacf(
     -----
     Source: `skforecast_ai/skills/autocorrelation-and-lag-selection/SKILL.md`.
     """
-    import numpy as np
-    from skforecast.stats import calculate_lag_autocorrelation
 
     n = len(target_series)
     # PACF requires nlags < n // 2
@@ -406,7 +339,7 @@ def _build_window_features(
     max_window_allowed: int,
     primary_season: int | None,
     secondary_season: int | None,
-    target_series: "pd.Series" = None,
+    target_series: pd.Series = None,
 ) -> list[dict] | None:
     """
     Build window feature configurations following the feature-engineering
@@ -446,7 +379,6 @@ def _build_window_features(
     # Determine whether std is warranted (heteroscedasticity check)
     include_std = True
     if target_series is not None and len(target_series) > 0:
-        import numpy as np
         mean_abs = abs(float(np.mean(target_series)))
         if mean_abs > 0:
             cv = float(np.std(target_series)) / mean_abs
@@ -556,39 +488,6 @@ def _prune_redundant_lags(
         return lags
 
     return sorted(pruned)
-
-
-def select_interval_method(
-    forecaster: str,
-    n_observations: int,
-) -> Literal["bootstrapping", "conformal"] | None:
-    """
-    Choose the prediction interval method based on the forecaster type.
-
-    Parameters
-    ----------
-    forecaster : str
-        Name of the skforecast forecaster class.
-    n_observations : int
-        Number of observations in the dataset.
-
-    Returns
-    -------
-    interval_method : str or None
-        `'bootstrapping'`, `'conformal'`, or `None` for forecasters with
-        native intervals.
-
-    Notes
-    -----
-    Source: `skforecast_ai/skills/prediction-intervals/SKILL.md`.
-    """
-    if n_observations < 100:
-        return None
-    if forecaster in ("ForecasterRecursive", "ForecasterDirect"):
-        return "bootstrapping"
-    if forecaster == "ForecasterRecursiveMultiSeries":
-        return "conformal"
-    return None
 
 
 def select_transformer_series(
@@ -744,45 +643,6 @@ def check_exog_usage(exog_columns: list[str]) -> bool:
     return len(exog_columns) > 0
 
 
-def build_data_requirements(profile: DataProfile) -> list[str]:
-    """
-    Build a list of data preparation steps the user should perform.
-
-    Parameters
-    ----------
-    profile : DataProfile
-        Profiled dataset metadata.
-
-    Returns
-    -------
-    data_requirements : list
-        Human-readable data preparation instructions.
-
-    Notes
-    -----
-    Source: `skforecast_ai/skills/forecasting-single-series/SKILL.md`,
-    `skforecast_ai/skills/troubleshooting-common-errors/SKILL.md`.
-    """
-    requirements: list[str] = []
-
-    if profile.missing_target or profile.missing_exog:
-        requirements.append("Impute missing values before training.")
-
-    if profile.categorical_exog:
-        requirements.append(
-            "Categorical exogenous variables detected: "
-            f"{profile.categorical_exog}. These are handled automatically "
-            "by skforecast (categorical_features='auto')."
-        )
-
-    if profile.index_type != "datetime":
-        requirements.append(
-            "Provide a DatetimeIndex or date column for time-based features."
-        )
-
-    return requirements
-
-
 def build_forecaster_kwargs(
     forecaster: str,
     task_type: str,
@@ -869,16 +729,84 @@ def build_forecaster_kwargs(
     return kwargs
 
 
-def build_explanation(
-    task_type: str,
+def build_plan_explanation(
     forecaster: str,
     estimator: str | None,
     lags: list[int] | None,
+    window_features: list[dict] | None,
     interval_method: str | None,
-    profile: DataProfile,
+    dropna_from_series: bool | None,
+    use_exog: bool,
 ) -> str:
     """
-    Assemble a human-readable explanation of the recommendation.
+    Assemble a human-readable explanation of the plan-level decisions.
+
+    Focuses on *what* the plan configures (lags, window features,
+    interval method, NaN handling) rather than *why* a forecaster was
+    chosen (which belongs in the profile explanation).
+
+    Parameters
+    ----------
+    forecaster : str
+        Selected forecaster class name.
+    estimator : str, None
+        Selected estimator name.
+    lags : list, None
+        Selected lag indices.
+    window_features : list, None
+        Window feature configurations.
+    interval_method : str, None
+        Selected prediction interval method.
+    dropna_from_series : bool, None
+        NaN handling strategy.
+    use_exog : bool
+        Whether exogenous variables are included.
+
+    Returns
+    -------
+    explanation : str
+        Multi-sentence explanation of the plan configuration.
+    """
+    parts = []
+
+    parts.append(f"Plan: {forecaster}")
+    if estimator is not None:
+        parts[-1] += f" + {estimator}"
+    parts[-1] += "."
+
+    if lags is not None:
+        parts.append(f"Lags: {lags}.")
+
+    if window_features is not None:
+        stats = [wf.get("stats", []) for wf in window_features] if isinstance(window_features, list) else []
+        flat_stats = [s for sublist in stats for s in sublist] if stats else []
+        if flat_stats:
+            parts.append(f"Window features: {flat_stats}.")
+
+    if interval_method is not None:
+        parts.append(f"Prediction intervals via {interval_method}.")
+
+    if dropna_from_series is True:
+        parts.append("NaN rows will be dropped before fitting.")
+    elif dropna_from_series is False:
+        parts.append("NaN rows kept (NaN-tolerant estimator).")
+
+    if use_exog:
+        parts.append("Exogenous variables included.")
+
+    return " ".join(parts)
+
+
+def _build_profile_explanation(
+    task_type: str,
+    forecaster: str,
+    forecaster_candidates: list[str],
+    estimator: str | None,
+    estimator_candidates: list[str],
+    data_profile: DataProfile,
+) -> str:
+    """
+    Build a short explanation of the coarse modeling decisions.
 
     Parameters
     ----------
@@ -886,26 +814,26 @@ def build_explanation(
         Selected task type.
     forecaster : str
         Selected forecaster class name.
+    forecaster_candidates : list
+        Compatible forecaster alternatives.
     estimator : str or None
         Selected estimator name.
-    lags : list or None
-        Selected lag indices.
-    interval_method : str or None
-        Selected prediction interval method.
-    profile : DataProfile
+    estimator_candidates : list
+        Compatible estimator alternatives.
+    data_profile : DataProfile
         Profiled dataset metadata.
 
     Returns
     -------
     explanation : str
-        Multi-sentence explanation of the recommendation.
+        Multi-sentence explanation of the coarse decisions.
     """
-    parts = []
+    parts: list[str] = []
 
     if task_type == "multi_series":
         parts.append(
-            f"The dataset contains {profile.n_series} series, so a multi-series "
-            f"forecaster ({forecaster}) is recommended."
+            f"The dataset contains {data_profile.n_series} series, so a "
+            f"multi-series forecaster ({forecaster}) is recommended."
         )
     elif task_type == "multivariate":
         parts.append(
@@ -914,29 +842,208 @@ def build_explanation(
         )
     elif task_type == "foundation":
         parts.append(
-            f"A foundation model ({forecaster}) was selected per user preference."
+            f"A foundation model ({forecaster}) was selected per user "
+            "preference."
         )
     elif task_type == "statistical":
         parts.append(
-            f"A statistical model ({forecaster}) was selected per user preference."
+            f"A statistical model ({forecaster}) was selected per user "
+            "preference."
         )
     else:
         parts.append(
             f"A single-series ML forecaster ({forecaster}) is recommended."
         )
 
+    alt_forecasters = [c for c in forecaster_candidates if c != forecaster]
+    if alt_forecasters:
+        parts.append(f"Alternative forecasters: {alt_forecasters}.")
+
     if estimator is not None:
-        parts.append(f"The estimator is {estimator}.")
-
-    if lags is not None:
-        parts.append(f"Lags: {lags}.")
-
-    if interval_method is not None:
-        parts.append(f"Prediction intervals via {interval_method}.")
-
-    if profile.exog_columns:
-        parts.append(
-            f"Exogenous variables detected: {profile.exog_columns}."
-        )
+        parts.append(f"Estimator: {estimator}.")
+        alt_estimators = [c for c in estimator_candidates if c != estimator]
+        if alt_estimators:
+            parts.append(f"Alternative estimators: {alt_estimators}.")
 
     return " ".join(parts)
+
+
+def derive_preprocessing_steps(
+    profile: DataProfile,
+    forecaster: str,
+) -> list[PreprocessingStep]:
+    """
+    Determine required preprocessing steps for a given profile and forecaster.
+
+    Each step maps an incompatibility between the data (as described by
+    the profile) and the requirements of the selected skforecast
+    forecaster.
+
+    Parameters
+    ----------
+    profile : DataProfile
+        Universal data profile from Stage 1.
+    forecaster : str
+        Name of the skforecast forecaster class.
+
+    Returns
+    -------
+    steps : list of PreprocessingStep
+        Ordered preprocessing steps. Blocking steps must be applied for
+        the forecaster to work; non-blocking steps are recommended.
+    """
+    steps: list[PreprocessingStep] = []
+
+    # --- Common to all forecasters ---
+    if not profile.index_is_monotonic and profile.index_type == "datetime":
+        steps.append(PreprocessingStep(
+            action="sort_index",
+            reason="skforecast requires a monotonically increasing index.",
+            code_snippet="data = data.sort_index()",
+            blocking=True,
+        ))
+
+    if profile.has_duplicate_timestamps:
+        steps.append(PreprocessingStep(
+            action="drop_duplicates",
+            reason="Duplicate timestamps cause errors in skforecast.",
+            code_snippet=(
+                "data = data[~data.index.duplicated(keep='first')]"
+            ),
+            blocking=True,
+        ))
+
+    # --- Datetime frequency requirement ---
+    if forecaster in REQUIRES_DATETIME_FREQ:
+        if profile.index_type != "datetime":
+            if profile.date_column is not None:
+                steps.append(PreprocessingStep(
+                    action="set_datetime_index",
+                    reason=(
+                        "skforecast requires a DatetimeIndex. The date column "
+                        "must be parsed and set as index."
+                    ),
+                    code_snippet=(
+                        "data['{date_column}'] = pd.to_datetime("
+                        "data['{date_column}'])\n"
+                        "data = data.set_index('{date_column}').sort_index()"
+                    ),
+                    blocking=True,
+                ))
+            else:
+                steps.append(PreprocessingStep(
+                    action="provide_datetime_index",
+                    reason=(
+                        "Provide a DatetimeIndex or date column for "
+                        "time-based features."
+                    ),
+                    code_snippet=(
+                        "# Set a DatetimeIndex:\n"
+                        "# data.index = pd.date_range(start=..., "
+                        "periods=len(data), freq=...)"
+                    ),
+                    blocking=True,
+                ))
+
+        if (
+            profile.index_type == "datetime"
+            and not profile.frequency_is_set
+            and profile.frequency is not None
+        ):
+            steps.append(PreprocessingStep(
+                action="asfreq",
+                reason=(
+                    "skforecast requires the DatetimeIndex to have a "
+                    "frequency set via asfreq()."
+                ),
+                code_snippet="data = data.asfreq('{frequency}')",
+                blocking=True,
+            ))
+
+        if profile.has_gaps and profile.frequency is not None:
+            steps.append(PreprocessingStep(
+                action="handle_gaps",
+                reason=(
+                    "The series has missing timestamps. After asfreq(), "
+                    "gaps become NaN rows."
+                ),
+                code_snippet=(
+                    "# After asfreq(), missing timestamps become NaN.\n"
+                    "# Handle with dropna_from_series=True or imputation."
+                ),
+                blocking=False,
+            ))
+
+    # --- Multi-series specific ---
+    if forecaster in MULTI_SERIES_FORECASTERS:
+        if profile.data_format == "long":
+            steps.append(PreprocessingStep(
+                action="reshape_long_to_dict",
+                reason=(
+                    "ForecasterRecursiveMultiSeries does not accept long "
+                    "format directly. Convert to dict of Series."
+                ),
+                code_snippet=(
+                    "from skforecast.preprocessing import "
+                    "reshape_series_long_to_dict\n"
+                    "series_dict = reshape_series_long_to_dict(\n"
+                    "    data=data,\n"
+                    "    series_id='{series_id_column}',\n"
+                    "    index='{date_column}',\n"
+                    "    values='{target}',\n"
+                    ")"
+                ),
+                blocking=True,
+            ))
+
+    # --- Target dtype ---
+    if profile.target_dtype != "numeric":
+        steps.append(PreprocessingStep(
+            action="encode_target",
+            reason=(
+                "The target column is not numeric. Regression forecasters "
+                "require a numeric target."
+            ),
+            code_snippet=(
+                "# Convert target to numeric"
+            ),
+            blocking=True,
+        ))
+
+    # --- Missing values ---
+    if profile.missing_target or profile.missing_exog:
+        steps.append(PreprocessingStep(
+            action="handle_missing_values",
+            reason=(
+                "Impute or handle missing values before training. Use "
+                "dropna_from_series=True or a NaN-tolerant estimator."
+            ),
+            code_snippet=(
+                "# Option 1: Use dropna_from_series=True\n"
+                "# Option 2: Use a NaN-tolerant estimator (LightGBM, "
+                "CatBoost, HistGradientBoosting)\n"
+                "# Option 3: Impute missing values manually"
+            ),
+            blocking=False,
+        ))
+
+    # --- Categorical exogenous variables ---
+    if profile.categorical_exog:
+        steps.append(PreprocessingStep(
+            action="handle_categorical_exog",
+            reason=(
+                f"Categorical exogenous variables detected: "
+                f"{profile.categorical_exog}. These are handled "
+                f"automatically by skforecast (categorical_features='auto')."
+            ),
+            code_snippet=(
+                "# skforecast handles categorical variables automatically\n"
+                "# with categorical_features='auto' (default)."
+            ),
+            blocking=False,
+        ))
+
+    return steps
+
+
+
