@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from skforecast_ai.profiling import create_forecaster_analysis, create_data_profile
+from skforecast_ai.profiling import create_forecaster_analysis
 from skforecast_ai.schemas import ForecasterAnalysis, DataProfile
 
 

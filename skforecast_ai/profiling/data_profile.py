@@ -14,6 +14,7 @@ def create_data_profile(
     target: str | list[str],
     date_column: str | None = None,
     series_id_column: str | None = None,
+    data_path: str = "data.csv",
 ) -> DataProfile:
     """
     Generate a deterministic data profile from a dataset.
@@ -33,6 +34,8 @@ def create_data_profile(
         Name of the column identifying individual series in long format.
         If None and target is a string, the dataset is treated as a
         single series.
+    data_path : str, default 'data.csv'
+        Path to the source CSV file used in generated scripts.
 
     Returns
     -------
@@ -98,6 +101,9 @@ def create_data_profile(
         n_observations, frequency, missing_target, missing_exog, index_type
     )
 
+    # Compute end_train: the datetime at the 80% mark of the index
+    end_train = _compute_end_train(datetime_index)
+
     return DataProfile(
         # Structure / Format
         data_format=data_format,
@@ -122,6 +128,10 @@ def create_data_profile(
         exog_columns=exog_columns,
         categorical_exog=categorical_exog,
         missing_exog=missing_exog,
+        # Source
+        data_path=data_path,
+        # Train/test split
+        end_train=end_train,
         # Diagnostics
         warnings=warnings,
     )
@@ -869,3 +879,27 @@ def _check_target_is_constant(data: pd.DataFrame, target: str) -> bool:
     if not pd.api.types.is_numeric_dtype(series.dtype):
         return series.nunique() <= 1
     return bool(series.std() == 0)
+
+
+def _compute_end_train(
+    datetime_index: pd.DatetimeIndex | None,
+) -> str | None:
+    """
+    Compute the end-of-training date at the 80 % mark of the index.
+
+    Parameters
+    ----------
+    datetime_index : pandas DatetimeIndex, None
+        The sorted datetime index of the dataset.
+
+    Returns
+    -------
+    end_train : str, None
+        ISO-formatted date string (e.g. ``'2005-03-01'``) at the 80 %
+        position. None if no datetime index is available.
+    """
+    if datetime_index is None or len(datetime_index) == 0:
+        return None
+    idx = int(len(datetime_index) * 0.8) - 1
+    idx = max(0, min(idx, len(datetime_index) - 1))
+    return str(datetime_index[idx].date())

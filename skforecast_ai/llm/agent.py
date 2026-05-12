@@ -2,7 +2,13 @@
 
 from pydantic_ai import Agent, RunContext
 
-from ..generation.code_templates import generate_code
+from ..generation.code_templates import (
+    _template_foundation,
+    _template_multi_series,
+    _template_multivariate,
+    _template_single_series,
+    _template_statistical,
+)
 from ..profiling.data_profile import create_data_profile
 from ..profiling.analysis import create_forecaster_analysis
 from ..recommendation import (
@@ -191,13 +197,22 @@ def create_forecasting_agent(
         ctx: RunContext[None],
         plan: ForecastPlan,
         profile: DataProfile,
-        data_path: str = "data.csv",
     ) -> str:
         """Produce a complete Python script from a forecast plan and profile."""
-        return generate_code(
-            plan=plan,
-            profile=profile,
-            data_path=data_path,
-        )
+        dispatch = {
+            "single_series": _template_single_series,
+            "multi_series": _template_multi_series,
+            "multivariate": _template_multivariate,
+            "statistical": _template_statistical,
+            "foundation": _template_foundation,
+        }
+        template_fn = dispatch.get(plan.task_type)
+        if template_fn is None:
+            supported = list(dispatch.keys())
+            raise ValueError(
+                f"Unsupported task_type '{plan.task_type}'. "
+                f"Supported types: {supported}"
+            )
+        return template_fn(plan, profile, profile.data_path)
 
     return agent

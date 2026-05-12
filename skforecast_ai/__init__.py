@@ -4,7 +4,6 @@ __version__ = "0.1.0"
 
 from .assistant import ForecastingAssistant
 from .exceptions import LLMRequiredError
-from .generation import generate_code
 from .schemas import (
     ForecasterAnalysis,
     AskResult,
@@ -27,6 +26,5 @@ __all__ = [
     "LLMRequiredError",
     "PreprocessingStep",
     "RunResult",
-    "generate_code",
     "__version__",
 ]

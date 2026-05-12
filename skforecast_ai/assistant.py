@@ -10,22 +10,14 @@ import pandas as pd
 
 from .exceptions import LLMRequiredError
 from .execution import run_forecast, validate_run_inputs
-from .generation import generate_code as _generate_code
-from .recommendation import derive_preprocessing_steps
+from .generation.code_templates import _TEMPLATE_DISPATCH
 from .profiling import create_forecaster_analysis, create_data_profile
-from .schemas import (
-    AskResult,
-    DataProfile,
-    ForecasterProfile,
-    ForecastPlan,
-    GenerateResult,
-    RunResult,
-)
 from .recommendation import (
     _build_profile_explanation,
     build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
+    derive_preprocessing_steps,
     select_dropna_from_series,
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
@@ -33,6 +25,14 @@ from .recommendation import (
     select_task_type_from_forecaster,
     select_transformer_exog,
     select_transformer_series,
+)
+from .schemas import (
+    AskResult,
+    DataProfile,
+    ForecasterProfile,
+    ForecastPlan,
+    GenerateResult,
+    RunResult,
 )
 
 
@@ -121,6 +121,7 @@ class ForecastingAssistant:
         
         """
 
+        data_path = str(data) if isinstance(data, (str, Path)) else "data.csv"
         data = _coerce_to_dataframe(data)
 
         data_profile = create_data_profile(
@@ -128,6 +129,7 @@ class ForecastingAssistant:
             target           = target,
             date_column      = date_column,
             series_id_column = series_id_column,
+            data_path        = data_path,
         )
 
         forecaster, forecaster_candidates = select_forecaster_and_candidates(data_profile)
@@ -293,18 +295,96 @@ class ForecastingAssistant:
         )
 
         return ForecastPlan(
-            task_type            = task_type,
-            forecaster           = fc,
-            estimator            = est,
-            steps                = steps,
-            frequency            = data_profile.frequency,
-            forecaster_kwargs    = forecaster_kwargs,
-            interval             = interval,
-            interval_method      = interval_method,
-            use_exog             = use_exog,
-            preprocessing_steps  = preprocessing_steps,
-            explanation          = explanation,
+            task_type           = task_type,
+            forecaster          = fc,
+            estimator           = est,
+            steps               = steps,
+            frequency           = data_profile.frequency,
+            forecaster_kwargs   = forecaster_kwargs,
+            interval            = interval,
+            interval_method     = interval_method,
+            use_exog            = use_exog,
+            preprocessing_steps = preprocessing_steps,
+            explanation         = explanation,
         )
+
+    def refine_plan(
+        self,
+        plan: ForecastPlan,
+        forecaster_profile: ForecasterProfile,
+        **overrides,
+    ) -> ForecastPlan:
+        """
+        Re-derive a forecast plan applying user overrides.
+
+        .. note:: Not implemented yet.
+
+        Parameters
+        ----------
+        plan : ForecastPlan
+            Existing plan to refine.
+        forecaster_profile : ForecasterProfile
+            Original profile that produced the plan.
+        **overrides
+            Keyword arguments to override (e.g. ``forecaster``,
+            ``estimator``, ``steps``, ``lags``, ``interval``).
+
+        Returns
+        -------
+        plan : ForecastPlan
+            Updated plan with overrides applied.
+        """
+        # TODO: Implement interactive refinement of an existing plan.
+        #
+        # The idea is to let users (or the LLM agent via a
+        # `refine_plan_tool`) request changes on top of a previously
+        # generated plan — e.g. "use RandomForest instead", "predict 48
+        # steps", "add 90 % prediction intervals".
+        #
+        # The LLM's role is limited to mapping natural-language requests
+        # into concrete override parameters; every decision stays
+        # deterministic: `generate_plan()` is called again with the
+        # overrides merged into the existing profile/plan.
+        #
+        # A corresponding `refine_plan_tool` should be registered in
+        # `llm/agent.py` so the agent can invoke this method during a
+        # conversation.
+        raise NotImplementedError("refine_plan is not yet implemented.")
+
+    def generate_code_from_plan(
+        self,
+        plan: ForecastPlan,
+        data_profile: DataProfile,
+    ) -> str:
+        """
+        Generate a complete Python script from a plan and data profile.
+
+        Unlike the convenience `generate_code()` method, this allows
+        advanced users to modify the `ForecastPlan` or `DataProfile`
+        before generating code.
+
+        Parameters
+        ----------
+        plan : ForecastPlan
+            Validated forecast plan (output of `generate_plan()`).
+        data_profile : DataProfile
+            Profile of the input dataset (available via
+            ``forecaster_profile.data_profile``).
+
+        Returns
+        -------
+        code : str
+            Syntactically valid Python script implementing the
+            forecasting workflow.
+        """
+        template_fn = _TEMPLATE_DISPATCH.get(plan.task_type)
+        if template_fn is None:
+            supported = list(_TEMPLATE_DISPATCH.keys())
+            raise ValueError(
+                f"Unsupported task_type '{plan.task_type}'. "
+                f"Supported types: {supported}"
+            )
+        return template_fn(plan, data_profile)
 
     def generate_code(
         self,
@@ -315,7 +395,7 @@ class ForecastingAssistant:
         steps: int = 10,
         forecaster: str | None = None,
         estimator: str | None = None,
-        data_path: str = "data.csv",
+        interval: list[int] | None = None,
     ) -> GenerateResult:
         """
         Profile, plan, and generate a complete forecasting script.
@@ -339,8 +419,10 @@ class ForecastingAssistant:
             Explicit forecaster class name. See `profile()`.
         estimator : str, default None
             Explicit estimator class name. See `profile()`.
-        data_path : str, default `'data.csv'`
-            File path used in the generated script for loading data.
+        interval : list, default None
+            Prediction interval percentiles as a two-element list
+            `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
+            None, no prediction intervals are computed.
 
         Returns
         -------
@@ -358,12 +440,9 @@ class ForecastingAssistant:
             steps      = steps,
             forecaster = forecaster,
             estimator  = estimator,
+            interval   = interval,
         )
-        code = _generate_code(
-            plan      = plan,
-            profile   = forecaster_profile.data_profile,
-            data_path = data_path,
-        )
+        code = self.generate_code_from_plan(plan, forecaster_profile.data_profile)
         return GenerateResult(
             forecaster_profile = forecaster_profile,
             plan               = plan,
@@ -379,6 +458,7 @@ class ForecastingAssistant:
         steps: int = 10,
         forecaster: str | None = None,
         estimator: str | None = None,
+        interval: list[int] | None = None,
         exog_future: pd.DataFrame | None = None,
     ) -> RunResult:
         """
@@ -403,6 +483,10 @@ class ForecastingAssistant:
             Explicit forecaster class name. See `profile()`.
         estimator : str, default None
             Explicit estimator class name. See `profile()`.
+        interval : list, default None
+            Prediction interval percentiles as a two-element list
+            `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
+            None, no prediction intervals are computed.
         exog_future : pandas DataFrame, default None
             Exogenous variables covering the forecast horizon
             (`steps` rows). Required for final predictions when
@@ -425,7 +509,7 @@ class ForecastingAssistant:
         data_df = _coerce_to_dataframe(data)
 
         forecaster_profile = self.profile(
-            data             = data_df,
+            data             = data,
             target           = target,
             date_column      = date_column,
             series_id_column = series_id_column,
@@ -435,12 +519,9 @@ class ForecastingAssistant:
             steps      = steps,
             forecaster = forecaster,
             estimator  = estimator,
+            interval   = interval,
         )
-        code = _generate_code(
-            plan      = plan,
-            profile   = forecaster_profile.data_profile,
-            data_path = "data.csv",
-        )
+        code = self.generate_code_from_plan(plan, forecaster_profile.data_profile)
 
         run_warnings = validate_run_inputs(
             data    = data_df,

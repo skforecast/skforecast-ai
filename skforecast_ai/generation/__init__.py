@@ -1,5 +1,7 @@
 """Code generation: produce executable forecasting scripts."""
 
-from .code_templates import generate_code
+from .code_templates import _TEMPLATE_DISPATCH
 
-__all__ = ["generate_code"]
+__all__ = [
+    "_TEMPLATE_DISPATCH",
+]
