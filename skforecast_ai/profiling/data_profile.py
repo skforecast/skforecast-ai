@@ -67,6 +67,13 @@ def create_data_profile(
 
     frequency = infer_frequency(datetime_index) if datetime_index is not None else None
 
+    has_duplicate_timestamps = detect_duplicate_timestamps(datetime_index)
+
+    # If frequency inference failed due to duplicates, retry on deduplicated index
+    if frequency is None and has_duplicate_timestamps and datetime_index is not None:
+        deduped_index = datetime_index[~datetime_index.duplicated(keep="first")]
+        frequency = infer_frequency(deduped_index)
+
     # Compute n_series, n_observations, and series_lengths
     n_series, n_observations, series_lengths = _compute_series_metrics(
         data, target, series_id_column, data_format
@@ -77,7 +84,6 @@ def create_data_profile(
     target_dtype = detect_target_dtype(data, first_target)
 
     has_gaps = detect_gaps(datetime_index, frequency)
-    has_duplicate_timestamps = detect_duplicate_timestamps(datetime_index)
     index_is_monotonic = _check_monotonic(datetime_index, data)
     frequency_is_set = _check_frequency_is_set(datetime_index, data)
 

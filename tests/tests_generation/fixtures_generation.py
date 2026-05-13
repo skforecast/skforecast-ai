@@ -9,6 +9,7 @@ profile_recursive_no_exog = DataProfile(
     target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
+    end_train              = "2024-10-01",
 )
 
 plan_recursive_no_exog = ForecastPlan(
@@ -32,6 +33,7 @@ profile_recursive_with_exog = DataProfile(
     frequency              = "h",
     exog_columns           = ["temperature", "promo_budget"],
     categorical_exog       = [],
+    end_train              = "2024-10-01",
 )
 
 plan_recursive_with_exog = ForecastPlan(
@@ -55,6 +57,7 @@ profile_recursive_full = DataProfile(
     frequency              = "h",
     exog_columns           = ["temperature", "day_of_week"],
     categorical_exog       = ["day_of_week"],
+    end_train              = "2024-10-01",
 )
 
 plan_recursive_full = ForecastPlan(
@@ -87,6 +90,7 @@ profile_direct = DataProfile(
     target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
+    end_train              = "2024-10-01",
 )
 
 plan_direct = ForecastPlan(
@@ -125,6 +129,7 @@ profile_multi_series = DataProfile(
     index_type             = "datetime",
     frequency              = "D",
     exog_columns           = [],
+    end_train              = "2024-10-01",
 )
 
 plan_multi_series = ForecastPlan(
@@ -148,6 +153,7 @@ profile_multi_series_wide = DataProfile(
     index_type             = "datetime",
     frequency              = "D",
     exog_columns           = [],
+    end_train              = "2024-10-01",
 )
 
 plan_multi_series_wide = ForecastPlan(
@@ -174,6 +180,7 @@ profile_multi_series_exog = DataProfile(
     frequency              = "D",
     exog_columns           = ["temperature", "holiday"],
     categorical_exog       = ["holiday"],
+    end_train              = "2024-10-01",
 )
 
 plan_multi_series_exog = ForecastPlan(
@@ -204,6 +211,7 @@ profile_multivariate = DataProfile(
     index_type             = "datetime",
     frequency              = "D",
     exog_columns           = [],
+    end_train              = "2024-10-01",
 )
 
 plan_multivariate = ForecastPlan(
@@ -225,6 +233,7 @@ profile_statistical = DataProfile(
     target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
+    end_train              = "2024-10-01",
 )
 
 plan_statistical = ForecastPlan(
@@ -259,6 +268,7 @@ profile_foundation = DataProfile(
     target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
+    end_train              = "2024-10-01",
 )
 
 plan_foundation = ForecastPlan(
@@ -295,6 +305,8 @@ profile_needs_preprocessing = DataProfile(
     frequency              = "D",
     frequency_is_set       = False,
     index_is_monotonic     = False,
+    has_duplicate_timestamps = True,
+    end_train              = "2024-10-01",
 )
 
 plan_with_preprocessing = ForecastPlan(
@@ -308,15 +320,9 @@ plan_with_preprocessing = ForecastPlan(
     use_exog             = False,
     preprocessing_steps  = [
         PreprocessingStep(
-            action="sort_index",
-            reason="skforecast requires a monotonically increasing index.",
-            code_snippet="data = data.sort_index()",
-            blocking=True,
-        ),
-        PreprocessingStep(
-            action="asfreq",
-            reason="skforecast requires the DatetimeIndex to have a frequency.",
-            code_snippet="data = data.asfreq('{frequency}')",
+            action="drop_duplicates",
+            reason="Duplicate timestamps cause errors in skforecast.",
+            code_snippet="data = data[~data.index.duplicated(keep='first')]",
             blocking=True,
         ),
     ],
@@ -331,6 +337,7 @@ profile_statistical_exog = DataProfile(
     index_type             = "datetime",
     frequency              = "MS",
     exog_columns           = ["temperature", "holiday"],
+    end_train              = "2024-10-01",
 )
 
 plan_statistical_sarimax_exog = ForecastPlan(
@@ -368,6 +375,7 @@ profile_multivariate_exog = DataProfile(
     index_type             = "datetime",
     frequency              = "D",
     exog_columns           = ["temperature", "promo"],
+    end_train              = "2024-10-01",
 )
 
 plan_multivariate_exog = ForecastPlan(
@@ -390,6 +398,7 @@ profile_foundation_exog = DataProfile(
     index_type             = "datetime",
     frequency              = "h",
     exog_columns           = ["temperature"],
+    end_train              = "2024-10-01",
 )
 
 plan_foundation_custom = ForecastPlan(
@@ -413,6 +422,7 @@ profile_foundation_multi = DataProfile(
     target                 = ["series_a", "series_b", "series_c"],
     index_type             = "datetime",
     frequency              = "D",
+    end_train              = "2024-10-01",
 )
 
 plan_foundation_multi = ForecastPlan(
@@ -438,4 +448,27 @@ plan_recursive_differentiation = ForecastPlan(
     interval_method      = None,
     use_exog             = False,
     explanation            = "Single series with differentiation.",
+)
+
+# --- Single series with date_column (date is not the index) ---
+profile_with_date_column = DataProfile(
+    n_series               = 1,
+    n_observations         = 365,
+    target                 = "y",
+    date_column            = "datetime",
+    index_type             = "range",
+    frequency              = "D",
+    end_train              = "2024-10-01",
+)
+
+plan_with_date_column = ForecastPlan(
+    task_type            = "single_series",
+    forecaster           = "ForecasterRecursive",
+    estimator            = "LGBMRegressor",
+    steps              = 10,
+    frequency            = "D",
+    forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
+    interval_method      = None,
+    use_exog             = False,
+    explanation            = "Single series where date is a regular column.",
 )

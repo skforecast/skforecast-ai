@@ -80,13 +80,29 @@ def _analyze_multi_series(
 
         # Pick first target series for PACF-based lag selection
         target_series = None
-        if data is not None and isinstance(profile.target, list):
-            for col in profile.target:
-                if col in data.columns:
-                    s = _prepare_series_for_pacf(data[col])
-                    if len(s) > 0:
-                        target_series = s
-                        break
+        if data is not None:
+            if isinstance(profile.target, list):
+                # Wide format: columns are series
+                for col in profile.target:
+                    if col in data.columns:
+                        s = _prepare_series_for_pacf(data[col])
+                        if len(s) > 0:
+                            target_series = s
+                            break
+            elif (
+                isinstance(profile.target, str)
+                and profile.series_id_column is not None
+                and profile.series_id_column in data.columns
+                and profile.target in data.columns
+            ):
+                # Long format: extract target from first series group
+                first_id = data[profile.series_id_column].iloc[0]
+                subset = data.loc[
+                    data[profile.series_id_column] == first_id, profile.target
+                ]
+                s = _prepare_series_for_pacf(subset.reset_index(drop=True))
+                if len(s) > 0:
+                    target_series = s
 
         return ForecasterAnalysis(
             effective_n_observations=total_len,

@@ -24,6 +24,7 @@ from .fixtures_generation import (
     plan_statistical_ets,
     plan_statistical_sarimax_exog,
     plan_statistical_with_interval,
+    plan_with_date_column,
     plan_with_preprocessing,
     profile_direct,
     profile_foundation,
@@ -40,6 +41,7 @@ from .fixtures_generation import (
     profile_statistical,
     profile_statistical_exog,
     profile_needs_preprocessing,
+    profile_with_date_column,
 )
 
 assistant = ForecastingAssistant()
@@ -237,6 +239,7 @@ def test_generate_code_output_when_unknown_estimator_syntax():
         target                 = "y",
         index_type             = "datetime",
         frequency              = "D",
+        end_train              = "2024-10-01",
     )
     plan = ForecastPlan(
         task_type            = "single_series",
@@ -271,6 +274,7 @@ def test_generate_code_output_when_dropna_from_series_true():
         missing_target         = {"y": 5},
         index_type             = "datetime",
         frequency              = "D",
+        end_train              = "2024-10-01",
     )
     plan = ForecastPlan(
         task_type            = "single_series",
@@ -500,7 +504,7 @@ def test_generate_code_output_when_foundation_with_quantiles():
 def test_generate_code_output_when_preprocessing_steps_emitted():
     """
     Test generate_code includes preprocessing code from
-    plan.preprocessing_steps.
+    plan.preprocessing_steps and deterministic loading block.
     """
     code = generate_code(
         plan=plan_with_preprocessing,
@@ -508,8 +512,11 @@ def test_generate_code_output_when_preprocessing_steps_emitted():
     )
 
     compile(code, "<test>", "exec")
-    assert "data = data.sort_index()" in code
+    # Deterministic loading emits sort_index and asfreq
     assert "data = data.asfreq('D')" in code
+    assert "data = data.sort_index()" in code
+    # Preprocessing step emits drop_duplicates
+    assert "data = data[~data.index.duplicated(keep='first')]" in code
 
 
 def test_generate_code_output_when_multi_series_exog_categorical():
@@ -603,9 +610,11 @@ def test_generate_code_output_when_multivariate_with_exog():
     )
 
     compile(code, "<test>", "exec")
-    assert "exog" in code
-    assert "exog_train" in code
-    assert "exog_test" in code
+    assert "series_cols" in code
+    assert "exog_features" in code
+    assert "data_train[series_cols]" in code
+    assert "data_train[exog_features]" in code
+    assert "data_test[exog_features]" in code
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -685,3 +694,59 @@ def test_generate_code_output_when_recursive_with_differentiation():
     compile(code, "<test>", "exec")
     assert "differentiation" in code
     assert "= 1," in code
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Data loading: date_column scenarios
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_generate_code_output_when_date_column_present():
+    """
+    Test generate_code emits to_datetime + set_index when date_column is set.
+    """
+    code = generate_code(
+        plan=plan_with_date_column,
+        profile=profile_with_date_column,
+    )
+
+    compile(code, "<test>", "exec")
+    assert "pd.to_datetime(data['datetime'])" in code
+    assert "data = data.set_index('datetime')" in code
+    assert "data = data.asfreq('D')" in code
+    assert "data = data.sort_index()" in code
+    # Should NOT use index_col=0
+    assert "index_col=0" not in code
+
+
+def test_generate_code_output_when_no_date_column():
+    """
+    Test generate_code emits index_col=0, parse_dates=True when no date_column.
+    """
+    code = generate_code(
+        plan=plan_recursive_no_exog,
+        profile=profile_recursive_no_exog,
+    )
+
+    compile(code, "<test>", "exec")
+    assert "index_col=0, parse_dates=True" in code
+    assert "data = data.asfreq('D')" in code
+    assert "data = data.sort_index()" in code
+    assert "pd.to_datetime" not in code
+
+
+def test_generate_code_output_when_multi_series_long_uses_sort_values():
+    """
+    Test generate_code uses sort_values for long-format multi-series
+    (no set_index since reshape functions expect date as column).
+    """
+    code = generate_code(
+        plan=plan_multi_series,
+        profile=profile_multi_series,
+    )
+
+    compile(code, "<test>", "exec")
+    assert "pd.to_datetime(data['date'])" in code
+    assert "data = data.sort_values('date')" in code
+    assert "set_index" not in code
+    assert "reshape_series_long_to_dict" in code

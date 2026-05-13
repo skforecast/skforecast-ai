@@ -879,6 +879,10 @@ def derive_preprocessing_steps(
     the profile) and the requirements of the selected skforecast
     forecaster.
 
+    Standard data-loading operations (to_datetime, set_index, asfreq,
+    sort_index/sort_values) are handled deterministically by the code
+    generation templates and are NOT included here.
+
     Parameters
     ----------
     profile : DataProfile
@@ -894,15 +898,7 @@ def derive_preprocessing_steps(
     """
     steps: list[PreprocessingStep] = []
 
-    # --- Common to all forecasters ---
-    if not profile.index_is_monotonic and profile.index_type == "datetime":
-        steps.append(PreprocessingStep(
-            action="sort_index",
-            reason="skforecast requires a monotonically increasing index.",
-            code_snippet="data = data.sort_index()",
-            blocking=True,
-        ))
-
+    # --- Duplicate timestamps ---
     if profile.has_duplicate_timestamps:
         steps.append(PreprocessingStep(
             action="drop_duplicates",
@@ -913,50 +909,20 @@ def derive_preprocessing_steps(
             blocking=True,
         ))
 
-    # --- Datetime frequency requirement ---
+    # --- No datetime index and no date column (unresolvable) ---
     if forecaster in REQUIRES_DATETIME_FREQ:
-        if profile.index_type != "datetime":
-            if profile.date_column is not None:
-                steps.append(PreprocessingStep(
-                    action="set_datetime_index",
-                    reason=(
-                        "skforecast requires a DatetimeIndex. The date column "
-                        "must be parsed and set as index."
-                    ),
-                    code_snippet=(
-                        "data['{date_column}'] = pd.to_datetime("
-                        "data['{date_column}'])\n"
-                        "data = data.set_index('{date_column}').sort_index()"
-                    ),
-                    blocking=True,
-                ))
-            else:
-                steps.append(PreprocessingStep(
-                    action="provide_datetime_index",
-                    reason=(
-                        "Provide a DatetimeIndex or date column for "
-                        "time-based features."
-                    ),
-                    code_snippet=(
-                        "# Set a DatetimeIndex:\n"
-                        "# data.index = pd.date_range(start=..., "
-                        "periods=len(data), freq=...)"
-                    ),
-                    blocking=True,
-                ))
-
-        if (
-            profile.index_type == "datetime"
-            and not profile.frequency_is_set
-            and profile.frequency is not None
-        ):
+        if profile.index_type != "datetime" and profile.date_column is None:
             steps.append(PreprocessingStep(
-                action="asfreq",
+                action="provide_datetime_index",
                 reason=(
-                    "skforecast requires the DatetimeIndex to have a "
-                    "frequency set via asfreq()."
+                    "Provide a DatetimeIndex or date column for "
+                    "time-based features."
                 ),
-                code_snippet="data = data.asfreq('{frequency}')",
+                code_snippet=(
+                    "# Set a DatetimeIndex:\n"
+                    "# data.index = pd.date_range(start=..., "
+                    "periods=len(data), freq=...)"
+                ),
                 blocking=True,
             ))
 
@@ -972,28 +938,6 @@ def derive_preprocessing_steps(
                     "# Handle with dropna_from_series=True or imputation."
                 ),
                 blocking=False,
-            ))
-
-    # --- Multi-series specific ---
-    if forecaster in MULTI_SERIES_FORECASTERS:
-        if profile.data_format == "long":
-            steps.append(PreprocessingStep(
-                action="reshape_long_to_dict",
-                reason=(
-                    "ForecasterRecursiveMultiSeries does not accept long "
-                    "format directly. Convert to dict of Series."
-                ),
-                code_snippet=(
-                    "from skforecast.preprocessing import "
-                    "reshape_series_long_to_dict\n"
-                    "series_dict = reshape_series_long_to_dict(\n"
-                    "    data=data,\n"
-                    "    series_id='{series_id_column}',\n"
-                    "    index='{date_column}',\n"
-                    "    values='{target}',\n"
-                    ")"
-                ),
-                blocking=True,
             ))
 
     # --- Target dtype ---

@@ -22,7 +22,8 @@ def test_derive_steps_returns_empty_when_no_issues():
     assert steps == []
 
 
-def test_derive_steps_includes_sort_index_when_not_monotonic():
+def test_derive_steps_no_sort_index_step():
+    """sort_index is now handled by the template, not preprocessing steps."""
     profile = DataProfile(
         n_observations=100,
         n_series=1,
@@ -34,7 +35,7 @@ def test_derive_steps_includes_sort_index_when_not_monotonic():
     )
     steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
     actions = [s.action for s in steps]
-    assert "sort_index" in actions
+    assert "sort_index" not in actions
 
 
 def test_derive_steps_includes_drop_duplicates_when_duplicates():
@@ -52,7 +53,8 @@ def test_derive_steps_includes_drop_duplicates_when_duplicates():
     assert "drop_duplicates" in actions
 
 
-def test_derive_steps_includes_asfreq_when_frequency_not_set():
+def test_derive_steps_no_asfreq_step():
+    """asfreq is now handled by the template, not preprocessing steps."""
     profile = DataProfile(
         n_observations=100,
         n_series=1,
@@ -63,10 +65,11 @@ def test_derive_steps_includes_asfreq_when_frequency_not_set():
     )
     steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
     actions = [s.action for s in steps]
-    assert "asfreq" in actions
+    assert "asfreq" not in actions
 
 
-def test_derive_steps_includes_set_datetime_index_when_not_datetime():
+def test_derive_steps_no_set_datetime_index_step():
+    """set_datetime_index is now handled by the template."""
     profile = DataProfile(
         n_observations=100,
         n_series=1,
@@ -76,10 +79,25 @@ def test_derive_steps_includes_set_datetime_index_when_not_datetime():
     )
     steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
     actions = [s.action for s in steps]
-    assert "set_datetime_index" in actions
+    assert "set_datetime_index" not in actions
 
 
-def test_derive_steps_includes_reshape_for_multi_series_long():
+def test_derive_steps_provides_datetime_index_when_no_date_column():
+    """provide_datetime_index is kept for unresolvable case."""
+    profile = DataProfile(
+        n_observations=100,
+        n_series=1,
+        index_type="other",
+        target="y",
+        date_column=None,
+    )
+    steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
+    actions = [s.action for s in steps]
+    assert "provide_datetime_index" in actions
+
+
+def test_derive_steps_no_reshape_for_multi_series_long():
+    """reshape_long_to_dict is now handled by the template."""
     profile = DataProfile(
         n_observations=300,
         n_series=3,
@@ -95,7 +113,7 @@ def test_derive_steps_includes_reshape_for_multi_series_long():
         profile, "ForecasterRecursiveMultiSeries"
     )
     actions = [s.action for s in steps]
-    assert "reshape_long_to_dict" in actions
+    assert "reshape_long_to_dict" not in actions
 
 
 def test_derive_steps_no_reshape_for_multi_series_wide():
@@ -164,4 +182,4 @@ def test_derive_steps_all_steps_are_preprocessing_step_instances():
         profile, "ForecasterRecursiveMultiSeries"
     )
     assert all(isinstance(s, PreprocessingStep) for s in steps)
-    assert len(steps) >= 3  # sort_index + asfreq + reshape + handle_gaps
+    assert len(steps) >= 1  # handle_gaps (non-blocking)

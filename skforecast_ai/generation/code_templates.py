@@ -99,7 +99,68 @@ def _emit_preprocessing_steps(
         snippet = step.code_snippet.format_map(replacements)
         for snippet_line in snippet.split("\n"):
             lines.append(snippet_line)
+
+    # After deduplication, set the frequency that was deferred during loading
+    if profile.has_duplicate_timestamps and profile.frequency:
+        lines.append(f"data = data.asfreq('{profile.frequency}')")
+
     lines.append("")
+
+
+def _emit_data_loading(
+    lines: list[str],
+    profile: DataProfile,
+    long_format: bool = False,
+) -> None:
+    """
+    Append deterministic data-loading and index-setup code lines.
+
+    Parameters
+    ----------
+    lines : list
+        Output list of code lines to append to.
+    profile : DataProfile
+        Data profile with `data_path`, `date_column`, and `frequency`.
+    long_format : bool, default False
+        If `False` (wide format), emits set_index + asfreq + sort_index.
+        If `True` (long format), emits to_datetime + sort_values only
+        (reshape functions handle index and frequency downstream).
+
+    Returns
+    -------
+    None
+    
+    """
+
+    data_path = profile.data_path
+    date_col = profile.date_column
+    frequency = profile.frequency
+
+    if long_format:
+        lines.append("# Load data")
+        lines.append(f"data = pd.read_csv({repr(data_path)})")
+        if date_col:
+            lines.append(
+                f"data[{repr(date_col)}] = pd.to_datetime(data[{repr(date_col)}])"
+            )
+            lines.append(f"data = data.sort_values({repr(date_col)})")
+        lines.append("")
+    else:
+        lines.append("# Load data")
+        if date_col:
+            lines.append(f"data = pd.read_csv({repr(data_path)})")
+            lines.append(
+                f"data[{repr(date_col)}] = pd.to_datetime(data[{repr(date_col)}])"
+            )
+            lines.append(f"data = data.set_index({repr(date_col)})")
+        else:
+            lines.append(
+                f"data = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
+            )
+        if frequency and not profile.has_duplicate_timestamps:
+            lines.append(f"data = data.asfreq('{frequency}')")
+        lines.append("data = data.sort_index()")
+        lines.append("")
 
 
 def _emit_window_features(lines: list[str], window_features: list[dict]) -> None:
@@ -371,7 +432,6 @@ def _template_single_series(
 ) -> str:
     """Generate code for ForecasterRecursive or ForecasterDirect."""
 
-    data_path = profile.data_path
     is_direct = plan.forecaster == "ForecasterDirect"
     forecaster_module = "direct" if is_direct else "recursive"
     forecaster_class = plan.forecaster
@@ -406,12 +466,7 @@ def _template_single_series(
     lines.append("")
 
     # --- Load data ---
-    lines.append("# Load data")
-    lines.append(f"data = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)")
-    has_asfreq_step = any(s.action == "asfreq" for s in plan.preprocessing_steps)
-    if profile.frequency and not has_asfreq_step:
-        lines.append(f"data = data.asfreq('{profile.frequency}')")
-    lines.append("")
+    _emit_data_loading(lines, profile)
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(lines, plan, profile)
@@ -545,7 +600,6 @@ def _template_multi_series(
 ) -> str:
     """Generate code for ForecasterRecursiveMultiSeries."""
 
-    data_path = profile.data_path
     estimator_import = _get_estimator_import(plan.estimator)
 
     kwargs = plan.forecaster_kwargs
@@ -591,15 +645,8 @@ def _template_multi_series(
     lines.append("")
 
     # --- Load data ---
-    has_asfreq_step = any(s.action == "asfreq" for s in plan.preprocessing_steps)
     if is_wide:
-        lines.append("# Load data (wide format)")
-        lines.append(
-            f"data = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
-        )
-        if profile.frequency and not has_asfreq_step:
-            lines.append(f"data = data.asfreq('{profile.frequency}')")
-        lines.append("")
+        _emit_data_loading(lines, profile)
 
         # --- Preprocessing steps ---
         _emit_preprocessing_steps(lines, plan, profile)
@@ -619,9 +666,7 @@ def _template_multi_series(
                 "series_dict = data.to_dict('series')"
             )
     else:
-        lines.append("# Load data (long format)")
-        lines.append(f"data = pd.read_csv({repr(data_path)}, parse_dates=[{repr(date_col)}])")
-        lines.append("")
+        _emit_data_loading(lines, profile, long_format=True)
 
         # --- Preprocessing steps ---
         _emit_preprocessing_steps(lines, plan, profile)
@@ -633,11 +678,11 @@ def _template_multi_series(
             " (optimal for ForecasterRecursiveMultiSeries)"
         )
         lines.append("series_dict = reshape_series_long_to_dict(")
-        lines.append("    data      = data,")
-        lines.append(f"    freq      = {repr(profile.frequency)},")
+        lines.append(f"    data      = data,")
         lines.append(f"    series_id = {repr(series_id)},")
         lines.append(f"    index     = {repr(date_col)},")
         lines.append(f"    values    = {repr(target)},")
+        lines.append(f"    freq      = {repr(profile.frequency)},")
         lines.append(")")
     lines.append("")
 
@@ -656,9 +701,9 @@ def _template_multi_series(
             exog_select_repr = repr(exog_select_cols)
             lines.append("exog_dict = reshape_exog_long_to_dict(")
             lines.append(f"    data      = data[{exog_select_repr}],")
-            lines.append(f"    freq      = {repr(profile.frequency)},")
             lines.append(f"    series_id = {repr(series_id)},")
             lines.append(f"    index     = {repr(date_col)},")
+            lines.append(f"    freq      = {repr(profile.frequency)},")
             lines.append(")")
         lines.append("")
 
@@ -793,7 +838,6 @@ def _template_multivariate(
 ) -> str:
     """Generate code for ForecasterDirectMultiVariate."""
 
-    data_path = profile.data_path
     estimator_import = _get_estimator_import(plan.estimator)
 
     kwargs = plan.forecaster_kwargs
@@ -829,25 +873,11 @@ def _template_multivariate(
     lines.append("")
 
     # --- Load data ---
-    has_asfreq_step = any(s.action == "asfreq" for s in plan.preprocessing_steps)
     if is_wide:
-        lines.append("# Load data (wide format)")
-        lines.append(
-            f"data = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
-        )
-        if profile.frequency and not has_asfreq_step:
-            lines.append(f"data = data.asfreq('{profile.frequency}')")
-        lines.append("")
+        _emit_data_loading(lines, profile)
         _emit_preprocessing_steps(lines, plan, profile)
-        if isinstance(profile.target, list):
-            target_cols_repr = repr(profile.target)
-            lines.append(f"series = data[{target_cols_repr}]")
-        else:
-            lines.append("series = data")
     else:
-        lines.append("# Load data (long format)")
-        lines.append(f"data = pd.read_csv({repr(data_path)}, parse_dates=[{repr(date_col)}])")
-        lines.append("")
+        _emit_data_loading(lines, profile, long_format=True)
         _emit_preprocessing_steps(lines, plan, profile)
         lines.append("# Pivot to wide format (columns = series)")
         lines.append("series = data.pivot_table(")
@@ -856,28 +886,30 @@ def _template_multivariate(
             f" values={repr(target)}"
         )
         lines.append(")")
-        lines.append("series.index = pd.DatetimeIndex(series.index)")
+        lines.append("series.columns = series.columns.droplevel(0)")
         lines.append("series.index.name = None")
-        if profile.frequency and not has_asfreq_step:
+        lines.append("series.columns.name = None")
+        if profile.frequency:
             lines.append(f"series = series.asfreq('{profile.frequency}')")
-    lines.append("")
+        lines.append("")
 
     # --- Exog ---
     exog_columns = profile.exog_columns
     use_exog = plan.use_exog and bool(exog_columns)
-    if use_exog:
-        exog_cols_repr = repr(exog_columns)
-        lines.append(f"exog = data[{exog_cols_repr}]")
-        lines.append("")
 
     # --- Train/test split ---
     lines.append("# Train/test split")
     _emit_end_train(lines, profile)
-    lines.append("series_train = series.loc[:end_train]")
-    lines.append("series_test  = series.loc[series.index > end_train]")
+    if use_exog and isinstance(profile.target, list):
+        lines.append(f"series_cols = {repr(profile.target)}")
     if use_exog:
-        lines.append("exog_train = exog.loc[:end_train]")
-        lines.append("exog_test  = exog.loc[exog.index > end_train]")
+        lines.append(f"exog_features = {repr(exog_columns)}")
+    if is_wide:
+        lines.append("data_train = data.loc[:end_train]")
+        lines.append("data_test  = data.loc[data.index > end_train]")
+    else:
+        lines.append("series_train = series.loc[:end_train]")
+        lines.append("series_test  = series.loc[series.index > end_train]")
     lines.append("")
 
     # --- Window features ---
@@ -919,13 +951,26 @@ def _template_multivariate(
     lines.append("")
 
     # --- Fit & Predict ---
+    if is_wide:
+        series_train_expr = "data_train[series_cols]" if use_exog else "data_train"
+        exog_train_expr = "data_train[exog_features]"
+        exog_test_expr = "data_test[exog_features]"
+        actual_expr = f"data_test[{repr(target)}].iloc[:steps]"
+        train_expr = f"data_train[{repr(target)}]"
+    else:
+        series_train_expr = "series_train"
+        exog_train_expr = "exog_train"
+        exog_test_expr = "exog_test"
+        actual_expr = f"series_test[{repr(target)}].iloc[:steps]"
+        train_expr = f"series_train[{repr(target)}]"
+
     if plan.interval_method is not None:
         interval_repr = _get_interval_repr(plan)
         lines.append("# Fit")
         fit_kwargs: list[tuple[str, str]] = []
-        fit_kwargs.append(("series", "series_train"))
+        fit_kwargs.append(("series", series_train_expr))
         if use_exog:
-            fit_kwargs.append(("exog", "exog_train"))
+            fit_kwargs.append(("exog", exog_train_expr))
         fit_kwargs.append(("store_in_sample_residuals", "True"))
         _emit_aligned_kwargs(lines, "forecaster.fit(", fit_kwargs)
 
@@ -935,7 +980,7 @@ def _template_multivariate(
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if use_exog:
-            predict_kwargs.append(("exog", "exog_test"))
+            predict_kwargs.append(("exog", exog_test_expr))
         predict_kwargs.append(("method", f"'{plan.interval_method}'"))
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(
@@ -944,16 +989,19 @@ def _template_multivariate(
     else:
         lines.append("# Fit")
         if use_exog:
-            lines.append("forecaster.fit(series=series_train, exog=exog_train)")
+            lines.append(
+                f"forecaster.fit(series={series_train_expr},"
+                f" exog={exog_train_expr})"
+            )
         else:
-            lines.append("forecaster.fit(series=series_train)")
+            lines.append(f"forecaster.fit(series={series_train_expr})")
         lines.append("")
         lines.append("# Predict")
         lines.append(f"steps = {plan.steps}")
         if use_exog:
             lines.append(
-                "predictions = forecaster.predict("
-                "steps=steps, exog=exog_test)"
+                f"predictions = forecaster.predict("
+                f"steps=steps, exog={exog_test_expr})"
             )
         else:
             lines.append("predictions = forecaster.predict(steps=steps)")
@@ -962,9 +1010,9 @@ def _template_multivariate(
 
     _emit_metrics_section(
         lines,
-        actual_expr=f"series_test[{repr(target)}].iloc[:steps]",
+        actual_expr=actual_expr,
         pred_expr="predictions['pred']",
-        train_expr=f"series_train[{repr(target)}]",
+        train_expr=train_expr,
     )
     lines.append("")
     _emit_production_note(lines, use_exog=use_exog)
@@ -983,7 +1031,6 @@ def _template_statistical(
 ) -> str:
     """Generate code for ForecasterStats (Arima, Sarimax, Ets, Arar)."""
 
-    data_path = profile.data_path
     target = _get_target_str(profile)
     kwargs = plan.forecaster_kwargs
     stats_model = kwargs.get("stats_model", "Arima")
@@ -1004,12 +1051,7 @@ def _template_statistical(
     lines.append("")
 
     # --- Load data ---
-    lines.append("# Load data")
-    lines.append(f"data = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)")
-    has_asfreq_step = any(s.action == "asfreq" for s in plan.preprocessing_steps)
-    if profile.frequency and not has_asfreq_step:
-        lines.append(f"data = data.asfreq('{profile.frequency}')")
-    lines.append("")
+    _emit_data_loading(lines, profile)
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(lines, plan, profile)
@@ -1125,7 +1167,6 @@ def _template_foundation(
 ) -> str:
     """Generate code for ForecasterFoundation (Chronos-2, TimesFM, Moirai, TabICL)."""
 
-    data_path = profile.data_path
     target = _get_target_str(profile)
     kwargs = plan.forecaster_kwargs
     model_id = kwargs.get("model_id", "autogluon/chronos-2-small")
@@ -1150,12 +1191,7 @@ def _template_foundation(
     lines.append("")
 
     # --- Load data ---
-    lines.append("# Load data")
-    lines.append(f"data = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)")
-    has_asfreq_step = any(s.action == "asfreq" for s in plan.preprocessing_steps)
-    if profile.frequency and not has_asfreq_step:
-        lines.append(f"data = data.asfreq('{profile.frequency}')")
-    lines.append("")
+    _emit_data_loading(lines, profile)
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(lines, plan, profile)
