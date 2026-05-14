@@ -253,16 +253,20 @@ class ForecastPlan(BaseModel):
         `'foundation'`.
     forecaster : str
         Name of the skforecast forecaster class.
-    estimator : str, default None
-        Name of the scikit-learn compatible estimator.
-    steps : int
-        Number of steps ahead to predict. Must be greater than 0.
-    frequency : str, default None
-        Pandas frequency string for the series.
     forecaster_kwargs : dict, default {}
         Keyword arguments for the forecaster constructor (e.g. `lags`,
         `steps`, `encoding`, `dropna_from_series`). Can be unpacked
         directly into the constructor alongside `estimator`.
+    estimator : str, default None
+        Name of the scikit-learn compatible estimator.
+    estimator_kwargs : dict, default {}
+        Keyword arguments for the estimator constructor (e.g.
+        `n_estimators`, `learning_rate`). Merged on top of built-in
+        defaults (`random_state`, silencing flags).
+    steps : int
+        Number of steps ahead to predict. Must be greater than 0.
+    frequency : str, default None
+        Pandas frequency string for the series.
     interval : list, default None
         Prediction interval percentiles as `[lower, upper]`
         (e.g. `[10, 90]`). If None, no intervals are computed.
@@ -287,16 +291,51 @@ class ForecastPlan(BaseModel):
         "foundation",
     ]
     forecaster: str
+    forecaster_kwargs: dict[str, Any] = Field(default_factory=dict)
     estimator: str | None = None
+    estimator_kwargs: dict[str, Any] = Field(default_factory=dict)
     steps: int = Field(gt=0)
     frequency: str | None = None
-    forecaster_kwargs: dict[str, Any] = Field(default_factory=dict)
     interval: list[int] | None = None
     interval_method: Literal["bootstrapping", "conformal", "native"] | None = None
     use_exog: bool = False
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     explanation: str
+
+
+class GeneratedCode(BaseModel):
+    """
+    Structured representation of generated forecasting code.
+
+    Splits the generated script into logical sections so that
+    `forecast()` can exec the core logic while `generate_code()`
+    returns the full standalone script.
+
+    Attributes
+    ----------
+    imports : str
+        Import statements required by the script.
+    data_loading : str
+        Code that loads data from CSV and sets up the index.
+    core : str
+        Core execution logic (preprocessing, split, fit, predict,
+        metrics). Operates on a pre-existing `data` DataFrame variable.
+    """
+
+    imports: str
+    data_loading: str
+    core: str
+
+    @property
+    def full_script(self) -> str:
+        """Return the complete standalone script (imports + loading + core)."""
+        return self.imports + "\n" + self.data_loading + "\n" + self.core
+
+    @property
+    def executable(self) -> str:
+        """Return code suitable for exec() (imports + core, no CSV loading)."""
+        return self.imports + "\n" + self.core
 
 
 class GenerateResult(BaseModel):
@@ -353,16 +392,14 @@ class RunResult(BaseModel):
         Detailed forecasting plan that was executed.
     code : str
         Generated Python script equivalent to the execution.
-    metric_value : float
-        Backtesting metric value.
-    metric_name : str
-        Name of the metric used for evaluation.
+    metrics : pandas DataFrame
+        Evaluation metrics. DataFrame with columns
+        ``['series', 'MAE', 'MSE', 'MASE']``. For single-series tasks
+        this contains one row; for multi-series tasks one row per level.
     predictions : pandas DataFrame
         Forecasted values for the requested steps.
     intervals : pandas DataFrame, default None
         Prediction intervals or quantile predictions when available.
-    warnings : list
-        Warnings generated during validation and execution.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -370,8 +407,6 @@ class RunResult(BaseModel):
     forecaster_profile: ForecasterProfile
     plan: ForecastPlan
     code: str
-    metric_value: float
-    metric_name: str
+    metrics: Any  # pd.DataFrame
     predictions: Any  # pd.DataFrame
     intervals: Any = None  # pd.DataFrame | None
-    warnings: list[str] = Field(default_factory=list)

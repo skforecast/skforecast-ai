@@ -9,9 +9,12 @@ from pathlib import Path
 import pandas as pd
 
 from .exceptions import LLMRequiredError
-from .execution import run_forecast, validate_run_inputs
-from .generation.code_templates import _TEMPLATE_DISPATCH
+from .execution import run_forecast
+from .generation.code_templates import generate_template
+from .llm.agent import create_forecasting_agent
+from .llm.provider import create_model
 from .profiling import create_forecaster_analysis, create_data_profile
+from .profiling.data_profile import _try_parse_first_date_column
 from .recommendation import (
     _build_profile_explanation,
     build_plan_explanation,
@@ -50,8 +53,8 @@ class ForecastingAssistant:
        NaN handling, preprocessing).
 
     `generate_code()` and `forecast()` are convenience wrappers that
-    chain the two stages plus code generation / execution. `ask()` and
-    `explain()` provide LLM-powered interfaces.
+    chain the two stages plus code generation / execution. `ask()`
+    provides an LLM-powered interface.
 
     Parameters
     ----------
@@ -73,6 +76,9 @@ class ForecastingAssistant:
         Custom base URL for the LLM provider.
     send_data_to_llm : bool
         Whether raw data may be sent to the LLM.
+    _model : object, None
+        Cached LLM model instance (internal use).    
+    
     """
 
     def __init__(
@@ -81,6 +87,7 @@ class ForecastingAssistant:
         base_url: str | None = None,
         send_data_to_llm: bool = False,
     ) -> None:
+        
         self.llm = llm
         self.base_url = base_url
         self.send_data_to_llm = send_data_to_llm
@@ -166,6 +173,7 @@ class ForecastingAssistant:
         steps: int,
         forecaster: str | None = None,
         estimator: str | None = None,
+        estimator_kwargs: dict | None = None,
         interval: list[int] | None = None,
     ) -> ForecastPlan:
         """
@@ -188,6 +196,11 @@ class ForecastingAssistant:
         estimator : str, default None
             Explicit estimator class name to override the profile
             recommendation. Must be in `forecaster_profile.estimator_candidates`.
+        estimator_kwargs : dict, default None
+            Keyword arguments for the estimator constructor (e.g.
+            `{'n_estimators': 200, 'learning_rate': 0.05}`). Merged
+            on top of built-in defaults (`random_state`, silencing
+            flags). User values take precedence.
         interval : list, default None
             Prediction interval percentiles as a two-element list
             `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
@@ -216,19 +229,19 @@ class ForecastingAssistant:
         task_type = select_task_type_from_forecaster(fc)
 
         if task_type != forecaster_profile.task_type:
-            est, _ = select_estimator_and_candidates(
+            est, est_candidates = select_estimator_and_candidates(
                 task_type      = task_type,
                 n_observations = context.effective_n_observations,
             )
         else:
             est = forecaster_profile.estimator
+            est_candidates = forecaster_profile.estimator_candidates
 
         if estimator is not None:
-            if estimator not in forecaster_profile.estimator_candidates:
+            if estimator not in est_candidates:
                 raise ValueError(
                     f"Estimator '{estimator}' is not compatible with this "
-                    f"profile. Available candidates: "
-                    f"{forecaster_profile.estimator_candidates}."
+                    f"profile. Available candidates: {est_candidates}."
                 )
             est = estimator
 
@@ -240,11 +253,18 @@ class ForecastingAssistant:
             transformer_exog = None
             dropna_from_series = None
         else:
-            lags, window_features = select_lags_and_window_features(
-                n_observations = context.effective_n_observations,
-                frequency      = data_profile.frequency,
-                target_series  = context.target_series,
-            )
+            if context.target_series is None or len(context.target_series) == 0:
+                # Fallback: PACF-based selection requires a non-empty series.
+                # Use a safe default lag range when the target is unavailable.
+                n_lags = min(5, max(context.effective_n_observations // 3, 1))
+                lags = list(range(1, n_lags + 1))
+                window_features = None
+            else:
+                lags, window_features = select_lags_and_window_features(
+                    n_observations = context.effective_n_observations,
+                    frequency      = data_profile.frequency,
+                    target_series  = context.target_series,
+                )
 
             transformer_series = select_transformer_series(est, task_type)
 
@@ -297,10 +317,11 @@ class ForecastingAssistant:
         return ForecastPlan(
             task_type           = task_type,
             forecaster          = fc,
+            forecaster_kwargs   = forecaster_kwargs,
             estimator           = est,
+            estimator_kwargs    = estimator_kwargs or {},
             steps               = steps,
             frequency           = data_profile.frequency,
-            forecaster_kwargs   = forecaster_kwargs,
             interval            = interval,
             interval_method     = interval_method,
             use_exog            = use_exog,
@@ -333,6 +354,7 @@ class ForecastingAssistant:
         -------
         plan : ForecastPlan
             Updated plan with overrides applied.
+        
         """
         # TODO: Implement interactive refinement of an existing plan.
         #
@@ -376,15 +398,12 @@ class ForecastingAssistant:
         code : str
             Syntactically valid Python script implementing the
             forecasting workflow.
+        
         """
-        template_fn = _TEMPLATE_DISPATCH.get(plan.task_type)
-        if template_fn is None:
-            supported = list(_TEMPLATE_DISPATCH.keys())
-            raise ValueError(
-                f"Unsupported task_type '{plan.task_type}'. "
-                f"Supported types: {supported}"
-            )
-        return template_fn(plan, data_profile)
+
+        generated = generate_template(plan, data_profile)
+
+        return generated.full_script
 
     def generate_code(
         self,
@@ -395,6 +414,7 @@ class ForecastingAssistant:
         steps: int = 10,
         forecaster: str | None = None,
         estimator: str | None = None,
+        estimator_kwargs: dict | None = None,
         interval: list[int] | None = None,
     ) -> GenerateResult:
         """
@@ -419,6 +439,9 @@ class ForecastingAssistant:
             Explicit forecaster class name. See `profile()`.
         estimator : str, default None
             Explicit estimator class name. See `profile()`.
+        estimator_kwargs : dict, default None
+            Keyword arguments for the estimator constructor (e.g.
+            `{'n_estimators': 200}`). See `generate_plan()`.
         interval : list, default None
             Prediction interval percentiles as a two-element list
             `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
@@ -428,21 +451,27 @@ class ForecastingAssistant:
         -------
         result : GenerateResult
             Forecaster profile, plan, and generated code.
+        
         """
+
         forecaster_profile = self.profile(
             data             = data,
             target           = target,
             date_column      = date_column,
             series_id_column = series_id_column,
         )
+
         plan = self.generate_plan(
             forecaster_profile,
-            steps      = steps,
-            forecaster = forecaster,
-            estimator  = estimator,
-            interval   = interval,
+            steps            = steps,
+            forecaster       = forecaster,
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            interval         = interval,
         )
+
         code = self.generate_code_from_plan(plan, forecaster_profile.data_profile)
+
         return GenerateResult(
             forecaster_profile = forecaster_profile,
             plan               = plan,
@@ -458,6 +487,7 @@ class ForecastingAssistant:
         steps: int = 10,
         forecaster: str | None = None,
         estimator: str | None = None,
+        estimator_kwargs: dict | None = None,
         interval: list[int] | None = None,
         exog_future: pd.DataFrame | None = None,
     ) -> RunResult:
@@ -483,6 +513,9 @@ class ForecastingAssistant:
             Explicit forecaster class name. See `profile()`.
         estimator : str, default None
             Explicit estimator class name. See `profile()`.
+        estimator_kwargs : dict, default None
+            Keyword arguments for the estimator constructor (e.g.
+            `{'n_estimators': 200}`). See `generate_plan()`.
         interval : list, default None
             Prediction interval percentiles as a two-element list
             `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
@@ -502,31 +535,27 @@ class ForecastingAssistant:
 
         Notes
         -----
-        This method does not use `exec()`. The workflow is executed
-        programmatically by calling skforecast functions directly with
-        parameters derived from the `ForecastPlan`.
+        This method executes the same code that ``generate_code()``
+        produces, ensuring perfect fidelity between the inspectable
+        script (``RunResult.code``) and the actual execution.
+
         """
+
         data_df = _coerce_to_dataframe(data)
 
         forecaster_profile = self.profile(
-            data             = data,
+            data             = data_df,
             target           = target,
             date_column      = date_column,
             series_id_column = series_id_column,
         )
         plan = self.generate_plan(
-            forecaster_profile,
-            steps      = steps,
-            forecaster = forecaster,
-            estimator  = estimator,
-            interval   = interval,
-        )
-        code = self.generate_code_from_plan(plan, forecaster_profile.data_profile)
-
-        run_warnings = validate_run_inputs(
-            data    = data_df,
-            profile = forecaster_profile.data_profile,
-            plan    = plan,
+            forecaster_profile = forecaster_profile,
+            steps              = steps,
+            forecaster         = forecaster,
+            estimator          = estimator,
+            estimator_kwargs   = estimator_kwargs,
+            interval           = interval,
         )
 
         result = run_forecast(
@@ -536,17 +565,13 @@ class ForecastingAssistant:
             exog_future = exog_future,
         )
 
-        all_warnings = run_warnings + result.get("warnings", [])
-
         return RunResult(
             forecaster_profile = forecaster_profile,
             plan               = plan,
-            code               = code,
-            metric_value       = result["metric_value"],
-            metric_name        = result["metric_name"],
+            code               = result["generated_code"].full_script,
+            metrics            = result["metrics"],
             predictions        = result["predictions"],
             intervals          = result["intervals"],
-            warnings           = all_warnings,
         )
 
     def ask(
@@ -584,13 +609,14 @@ class ForecastingAssistant:
         -----
         Requires an LLM. If `llm=None` was passed at init,
         `LLMRequiredError` is raised.
+
         """
+
         if self.llm is None:
             raise LLMRequiredError("ask")
 
         try:
             model = self._resolve_model()
-            from .llm.agent import create_forecasting_agent
 
             agent = create_forecasting_agent(
                 model             = model,
@@ -636,70 +662,6 @@ class ForecastingAssistant:
                 ),
             )
 
-    def explain(
-        self,
-        plan: ForecastPlan,
-        profile: DataProfile | None = None,
-    ) -> str:
-        """
-        Generate a plain-language explanation of a forecasting plan.
-
-        Parameters
-        ----------
-        plan : ForecastPlan
-            Validated forecast plan to explain.
-        profile : DataProfile, default None
-            Data profile providing context. If None, a minimal profile
-            is constructed from the plan metadata.
-
-        Returns
-        -------
-        explanation : str
-            Human-readable explanation of the plan.
-
-        Notes
-        -----
-        Requires an LLM. If `llm=None` was passed at init,
-        `LLMRequiredError` is raised.
-        """
-        if self.llm is None:
-            raise LLMRequiredError("explain")
-
-        try:
-            model = self._resolve_model()
-            from .llm.prompts import build_explain_prompt
-
-            if profile is None:
-                profile = DataProfile(
-                    n_series       = 1,
-                    n_observations = 0,
-                    index_type     = "datetime",
-                    target         = "unknown",
-                )
-
-            from pydantic_ai import Agent
-
-            explain_agent = Agent(
-                model,
-                output_type   = str,
-                system_prompt = "You are a forecasting expert. Explain plans clearly.",
-            )
-            prompt = build_explain_prompt(plan=plan, profile=profile)
-            _patch_event_loop()
-            result = explain_agent.run_sync(
-                prompt, model_settings=self._build_model_settings()
-            )
-            return result.output
-        except LLMRequiredError:
-            raise
-        except Exception as exc:
-            warnings.warn(
-                f"LLM call failed ({exc}), using deterministic explanation.",
-                UserWarning,
-                stacklevel=2,
-            )
-            return f"[LLM unavailable] {plan.explanation}"
-
     # --------------------------------------------------------------- private
     def _resolve_model(self):
         """
@@ -709,11 +671,12 @@ class ForecastingAssistant:
         -------
         model : str, OllamaModel
             Resolved Pydantic AI model instance.
+        
         """
-        if self._model is None:
-            from .llm.provider import create_model
 
+        if self._model is None:
             self._model = create_model(llm=self.llm, base_url=self.base_url)
+        
         return self._model
 
     # TODO: Review when reviews LLMs capabilities
@@ -729,9 +692,12 @@ class ForecastingAssistant:
         -------
         settings : dict, None
             Model settings dict or None for cloud providers.
+
         """
+
         if self.llm is not None and self.llm.startswith("ollama:"):
             return {"extra_body": {"options": {"num_ctx": 32768}}}
+        
         return None
 
 
@@ -741,10 +707,10 @@ def _coerce_to_dataframe(
     """
     Load a CSV path into a DataFrame, or return the DataFrame unchanged.
 
-    The CSV is loaded with `parse_dates=True` (no `index_col`), leaving
-    every column intact so callers can reference a `date_column` by
-    name. When the input is already a DataFrame, it is returned
-    unchanged.
+    The CSV is loaded without ``parse_dates`` (deprecated in pandas
+    2.2+). Date columns are detected and parsed by
+    ``_try_parse_first_date_column`` instead, leaving every column
+    intact so callers can reference a ``date_column`` by name.
 
     Parameters
     ----------
@@ -755,12 +721,13 @@ def _coerce_to_dataframe(
     -------
     df : pandas DataFrame
         Loaded DataFrame.
+    
     """
-    if isinstance(data, (str, Path)):
-        from .profiling.data_profile import _try_parse_first_date_column
 
-        df = pd.read_csv(data, parse_dates=True)
+    if isinstance(data, (str, Path)):
+        df = pd.read_csv(data)
         return _try_parse_first_date_column(df)
+    
     return data
 
 
@@ -771,7 +738,9 @@ def _patch_event_loop() -> None:
     Enables `run_sync()` to work inside Jupyter notebooks and other
     environments that already have an active asyncio event loop. The
     patch is applied at most once per process.
+
     """
+
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:

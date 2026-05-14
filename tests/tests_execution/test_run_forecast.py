@@ -5,6 +5,7 @@ import re
 import pandas as pd
 import pytest
 
+from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.execution.runner import run_forecast
 from skforecast_ai.execution.runner import validate_run_inputs
 from skforecast_ai.schemas import ForecastPlan
@@ -16,6 +17,7 @@ from .fixtures_execution import (
     plan_multi,
     plan_short,
     plan_single,
+    plan_single_custom_kwargs,
     plan_single_with_intervals,
     profile_multi,
     profile_short,
@@ -37,16 +39,21 @@ def test_run_forecast_single_series_returns_predictions():
     assert len(result["predictions"]) == plan_single.steps
 
 
-def test_run_forecast_single_series_returns_metric():
+def test_run_forecast_single_series_returns_metrics():
     """
-    Test that run_forecast returns metric_name and a positive metric_value
-    for a single-series task.
+    Test that run_forecast returns a metrics DataFrame with MAE, MSE, and
+    MASE for a single-series task.
     """
     result = run_forecast(data=df_single, profile=profile_single, plan=plan_single)
 
-    assert result["metric_name"] == "mean_absolute_error"
-    assert isinstance(result["metric_value"], float)
-    assert result["metric_value"] > 0
+    metrics = result["metrics"]
+    assert isinstance(metrics, pd.DataFrame)
+    assert list(metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert len(metrics) == 1
+    assert metrics["series"].iloc[0] == "sales"
+    assert metrics["MAE"].iloc[0] > 0
+    assert metrics["MSE"].iloc[0] > 0
+    assert metrics["MASE"].iloc[0] > 0
 
 
 def test_run_forecast_single_series_with_intervals():
@@ -77,9 +84,11 @@ def test_run_forecast_multi_series_returns_predictions():
     # Multi-series returns steps * n_series rows
     n_series = profile_multi.n_series
     assert len(result["predictions"]) == plan_multi.steps * n_series
-    assert result["metric_name"] == "mean_absolute_error"
-    assert isinstance(result["metric_value"], float)
-    assert result["metric_value"] > 0
+    metrics = result["metrics"]
+    assert isinstance(metrics, pd.DataFrame)
+    assert list(metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert len(metrics) == n_series
+    assert (metrics["MAE"] > 0).all()
 
 
 # Tests: run_forecast — statistical
@@ -94,11 +103,11 @@ def test_run_forecast_statistical_returns_predictions():
     plan_stats = ForecastPlan(
         task_type="statistical",
         forecaster="ForecasterStats",
+        forecaster_kwargs={},
         estimator=None,
         steps=5,
         frequency="D",
-        forecaster_kwargs={},
-        interval_method=None,
+        interval_method="native",
         use_exog=False,
         data_requirements=[],
         warnings=[],
@@ -109,33 +118,31 @@ def test_run_forecast_statistical_returns_predictions():
 
     assert isinstance(result["predictions"], pd.DataFrame)
     assert len(result["predictions"]) == plan_stats.steps
-    assert isinstance(result["metric_value"], float)
+    assert isinstance(result["metrics"], pd.DataFrame)
+    assert result["metrics"]["MAE"].iloc[0] > 0
     assert result["intervals"] is not None
 
 
 # Tests: run_forecast — unsupported task type
 
 
-def test_run_forecast_ValueError_when_unsupported_task_type():
+def test_run_forecast_ForecastExecutionError_when_invalid_estimator():
     """
-    Test that run_forecast raises ValueError for task types not yet
-    supported by the execution engine (e.g. multivariate).
+    Test that run_forecast raises ForecastExecutionError when the generated
+    code references an estimator that cannot be imported.
     """
-    plan_unsupported = ForecastPlan(
-        task_type="multivariate",
-        forecaster="ForecasterDirectMultiVariate",
-        estimator="Ridge",
+    plan_bad = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
+        estimator="NonExistentEstimator",
         steps=5,
-        explanation="Unsupported.",
+        frequency="D",
+        explanation="Bad estimator.",
     )
 
-    err_msg = re.escape(
-        "Unsupported task_type 'multivariate' for execution. "
-        "Supported types: ['single_series', 'multi_series', 'statistical', "
-        "'foundation']"
-    )
-    with pytest.raises(ValueError, match=err_msg):
-        run_forecast(data=df_single, profile=profile_single, plan=plan_unsupported)
+    with pytest.raises((ValueError, ForecastExecutionError)):
+        run_forecast(data=df_single, profile=profile_single, plan=plan_bad)
 
 
 # Tests: validate_run_inputs
@@ -149,10 +156,10 @@ def test_validate_run_inputs_warns_horizon_exceeds_observations():
     plan_huge_steps = ForecastPlan(
         task_type="single_series",
         forecaster="ForecasterRecursive",
+        forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
         estimator="Ridge",
         steps=500,
         frequency="D",
-        forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
         explanation="Huge steps.",
     )
 
@@ -183,10 +190,10 @@ def test_validate_run_inputs_warns_steps_exceeds_test_size():
     plan_large_steps = ForecastPlan(
         task_type="single_series",
         forecaster="ForecasterRecursive",
+        forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
         estimator="Ridge",
         steps=100,
         frequency="D",
-        forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
         explanation="Large steps.",
     )
 
@@ -196,3 +203,17 @@ def test_validate_run_inputs_warns_steps_exceeds_test_size():
 
     assert len(warnings) >= 1
     assert any("exceeds test set size" in w for w in warnings)
+
+
+def test_run_forecast_single_series_with_custom_estimator_kwargs():
+    """
+    Test that run_forecast correctly passes estimator_kwargs to the
+    estimator constructor (Ridge with alpha=0.5).
+    """
+    result = run_forecast(
+        data=df_single, profile=profile_single, plan=plan_single_custom_kwargs
+    )
+
+    assert isinstance(result["predictions"], pd.DataFrame)
+    assert len(result["predictions"]) == plan_single_custom_kwargs.steps
+    assert result["metrics"]["MAE"].iloc[0] > 0

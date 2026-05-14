@@ -27,8 +27,10 @@ def test_assistant_forecast_returns_RunResult():
     assert result.forecaster_profile is not None
     assert result.plan is not None
     assert result.code is not None
-    assert result.metric_value > 0
-    assert result.metric_name == "mean_absolute_error"
+    assert isinstance(result.metrics, pd.DataFrame)
+    assert list(result.metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert len(result.metrics) == 1
+    assert result.metrics["MAE"].iloc[0] > 0
     assert result.predictions is not None
 
 

@@ -44,10 +44,10 @@ def create_data_profile(
         warnings about the dataset.
     """
     if isinstance(data, (str, Path)):
-        data = pd.read_csv(data, parse_dates=True)
+        data = pd.read_csv(data)
         # Attempt to parse the first object-dtype column as datetime.
         # This handles CSVs exported with df.to_csv() where the date
-        # index becomes a regular column that parse_dates=True misses.
+        # index becomes a regular column.
         data = _try_parse_first_date_column(data)
 
     # Determine data format from user input
@@ -213,44 +213,6 @@ def detect_date_column(
         return None, "range"
 
     return None, "other"
-
-
-def detect_series_structure(
-    data: pd.DataFrame,
-    target: str,
-    date_column: str | None,
-    series_id_column: str | None,
-) -> tuple[int, str | None]:
-    """
-    Determine the number of series and the series identifier column.
-
-    .. deprecated::
-        Use `_compute_series_metrics` instead. Kept for backwards
-        compatibility with any external callers.
-
-    Parameters
-    ----------
-    data : pandas DataFrame
-        Input dataset.
-    target : str
-        Name of the target column.
-    date_column : str, default None
-        Name of the date column.
-    series_id_column : str, default None
-        User-specified series identifier column.
-
-    Returns
-    -------
-    n_series : int
-        Number of individual time series detected.
-    series_id_column : str, None
-        Resolved name of the series identifier column.
-    """
-    if series_id_column is not None and series_id_column in data.columns:
-        n_series = data[series_id_column].nunique()
-        return n_series, series_id_column
-
-    return 1, None
 
 
 def _resolve_data_format(

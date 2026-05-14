@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from ..schemas import DataProfile, ForecastPlan
+from ..schemas import DataProfile, ForecastPlan, GeneratedCode
 
 # Mapping from pandas frequency strings to seasonal period (m)
 _FREQUENCY_TO_M: dict[str, int] = {
@@ -37,21 +37,13 @@ _ESTIMATOR_IMPORTS: dict[str, str] = {
     "RandomForestRegressor": "from sklearn.ensemble import RandomForestRegressor",
 }
 
-# Statistical model imports (class → import line)
-_STATS_MODEL_IMPORTS: dict[str, str] = {
-    "Arima": "from skforecast.stats import Arima",
-    "Sarimax": "from skforecast.stats import Sarimax",
-    "Ets": "from skforecast.stats import Ets",
-    "Arar": "from skforecast.stats import Arar",
-}
-
-# Estimator constructor calls with appropriate default kwargs
-_ESTIMATOR_CONSTRUCTORS: dict[str, str] = {
-    "LGBMRegressor": "LGBMRegressor(random_state=123, verbose=-1)",
-    "XGBRegressor": "XGBRegressor(random_state=123, verbosity=0)",
-    "CatBoostRegressor": "CatBoostRegressor(random_state=123, verbose=0)",
-    "RandomForestRegressor": "RandomForestRegressor(random_state=123)",
-    "Ridge": "Ridge()",
+# Default kwargs injected into estimator constructors (silencing + reproducibility)
+_ESTIMATOR_DEFAULTS: dict[str, dict[str, object]] = {
+    "LGBMRegressor": {"random_state": 123, "verbose": -1},
+    "XGBRegressor": {"random_state": 123, "verbosity": 0},
+    "CatBoostRegressor": {"random_state": 123, "verbose": 0},
+    "RandomForestRegressor": {"random_state": 123},
+    "Ridge": {},
 }
 
 
@@ -113,7 +105,7 @@ def _emit_data_loading(
     long_format: bool = False,
 ) -> None:
     """
-    Append deterministic data-loading and index-setup code lines.
+    Append CSV-loading code lines (only the read_csv call).
 
     Parameters
     ----------
@@ -122,9 +114,8 @@ def _emit_data_loading(
     profile : DataProfile
         Data profile with `data_path`, `date_column`, and `frequency`.
     long_format : bool, default False
-        If `False` (wide format), emits set_index + asfreq + sort_index.
-        If `True` (long format), emits to_datetime + sort_values only
-        (reshape functions handle index and frequency downstream).
+        If `False` (wide format), emits read_csv only.
+        If `True` (long format), emits read_csv only.
 
     Returns
     -------
@@ -134,11 +125,52 @@ def _emit_data_loading(
 
     data_path = profile.data_path
     date_col = profile.date_column
+
+    lines.append("# Load data")
+    if long_format:
+        lines.append(f"data = pd.read_csv({repr(data_path)})")
+    else:
+        if date_col:
+            lines.append(f"data = pd.read_csv({repr(data_path)})")
+        else:
+            lines.append(
+                f"data = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
+            )
+    lines.append("")
+
+
+def _emit_index_setup(
+    lines: list[str],
+    profile: DataProfile,
+    long_format: bool = False,
+) -> None:
+    """
+    Append index-setup code (to_datetime, set_index, asfreq, sort).
+
+    This section is emitted into the core code so that it runs both
+    in standalone scripts (after CSV loading) and in exec mode (when
+    data is injected as a raw DataFrame).
+
+    Parameters
+    ----------
+    lines : list
+        Output list of code lines to append to.
+    profile : DataProfile
+        Data profile with `date_column` and `frequency`.
+    long_format : bool, default False
+        If `False` (wide format), emits set_index + asfreq + sort_index.
+        If `True` (long format), emits to_datetime + sort_values only.
+
+    Returns
+    -------
+    None
+    
+    """
+
+    date_col = profile.date_column
     frequency = profile.frequency
 
     if long_format:
-        lines.append("# Load data")
-        lines.append(f"data = pd.read_csv({repr(data_path)})")
         if date_col:
             lines.append(
                 f"data[{repr(date_col)}] = pd.to_datetime(data[{repr(date_col)}])"
@@ -146,17 +178,11 @@ def _emit_data_loading(
             lines.append(f"data = data.sort_values({repr(date_col)})")
         lines.append("")
     else:
-        lines.append("# Load data")
         if date_col:
-            lines.append(f"data = pd.read_csv({repr(data_path)})")
             lines.append(
                 f"data[{repr(date_col)}] = pd.to_datetime(data[{repr(date_col)}])"
             )
             lines.append(f"data = data.set_index({repr(date_col)})")
-        else:
-            lines.append(
-                f"data = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
-            )
         if frequency and not profile.has_duplicate_timestamps:
             lines.append(f"data = data.asfreq('{frequency}')")
         lines.append("data = data.sort_index()")
@@ -384,12 +410,24 @@ def _get_estimator_import(estimator: str | None) -> str:
     )
 
 
-def _get_estimator_constructor(estimator: str | None) -> str:
-    """Return estimator constructor call with appropriate kwargs."""
-    return _ESTIMATOR_CONSTRUCTORS.get(
-        estimator or "",
-        f"{estimator}(random_state=123)",
-    )
+def _get_estimator_constructor(
+    estimator: str | None,
+    estimator_kwargs: dict[str, object] | None = None,
+) -> str:
+    """Return estimator constructor call with merged kwargs.
+
+    Merges built-in defaults (silencing, random_state) with user-provided
+    kwargs. User kwargs take precedence over defaults.
+    """
+    name = estimator or ""
+    defaults = _ESTIMATOR_DEFAULTS.get(name, {})
+    merged = {**defaults, **(estimator_kwargs or {})}
+
+    if not merged:
+        return f"{name}()"
+
+    params = ", ".join(f"{k}={repr(v)}" for k, v in merged.items())
+    return f"{name}({params})"
 
 
 def _get_target_str(profile: DataProfile) -> str:
@@ -429,7 +467,7 @@ def _emit_aligned_kwargs(
 def _template_single_series(
     plan: ForecastPlan,
     profile: DataProfile,
-) -> str:
+) -> GeneratedCode:
     """Generate code for ForecasterRecursive or ForecasterDirect."""
 
     is_direct = plan.forecaster == "ForecasterDirect"
@@ -447,62 +485,67 @@ def _template_single_series(
     window_features = kwargs.get("window_features")
     categorical_features = kwargs.get("categorical_features")
 
-    lines: list[str] = []
+    import_lines: list[str] = []
+    loading_lines: list[str] = []
+    core_lines: list[str] = []
 
     # --- Imports ---
-    lines.append("import pandas as pd")
+    import_lines.append("import pandas as pd")
     if transformer_y or transformer_exog:
-        lines.append("from sklearn.preprocessing import StandardScaler")
+        import_lines.append("from sklearn.preprocessing import StandardScaler")
     if transformer_exog and _needs_column_transformer(profile):
-        lines.append("from sklearn.compose import make_column_transformer")
-    lines.append(
+        import_lines.append("from sklearn.compose import make_column_transformer")
+    import_lines.append(
         "from sklearn.metrics import mean_absolute_error, mean_squared_error"
     )
-    lines.append(estimator_import)
-    lines.append("from skforecast.metrics import mean_absolute_scaled_error")
+    import_lines.append(estimator_import)
+    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
     if window_features:
-        lines.append("from skforecast.preprocessing import RollingFeatures")
-    lines.append(f"from skforecast.{forecaster_module} import {forecaster_class}")
-    lines.append("")
+        import_lines.append("from skforecast.preprocessing import RollingFeatures")
+    import_lines.append(f"from skforecast.{forecaster_module} import {forecaster_class}")
+    import_lines.append("")
 
     # --- Load data ---
-    _emit_data_loading(lines, profile)
+    _emit_data_loading(loading_lines, profile)
+
+    # --- Index setup (runs in both standalone and exec modes) ---
+    _emit_index_setup(core_lines, profile)
 
     # --- Preprocessing steps ---
-    _emit_preprocessing_steps(lines, plan, profile)
+    _emit_preprocessing_steps(core_lines, plan, profile)
 
     # --- Train/test split ---
     exog_columns = profile.exog_columns
-    lines.append("# Train/test split")
-    _emit_end_train(lines, profile)
-    lines.append("data_train = data.loc[:end_train]")
-    lines.append("data_test  = data.loc[data.index > end_train]")
+    core_lines.append("# Train/test split")
+    _emit_end_train(core_lines, profile)
+    core_lines.append("data_train = data.loc[:end_train]")
+    core_lines.append("data_test  = data.loc[data.index > end_train]")
     if plan.use_exog and exog_columns:
         exog_cols_repr = repr(exog_columns)
-        lines.append(f"exog_features = {exog_cols_repr}")
-    lines.append("")
-    lines.append("print(")
-    lines.append('    f"Train dates : {data_train.index.min()} --- '
+        core_lines.append(f"exog_features = {exog_cols_repr}")
+    core_lines.append("")
+    core_lines.append("print(")
+    core_lines.append('    f"Train dates : {data_train.index.min()} --- '
                  '{data_train.index.max()}  (n={len(data_train)})"')
-    lines.append(")")
-    lines.append("print(")
-    lines.append('    f"Test dates  : {data_test.index.min()} --- '
+    core_lines.append(")")
+    core_lines.append("print(")
+    core_lines.append('    f"Test dates  : {data_test.index.min()} --- '
                  '{data_test.index.max()}  (n={len(data_test)})"')
-    lines.append(")")
-    lines.append("")
+    core_lines.append(")")
+    core_lines.append("")
 
     # --- Window features ---
     if window_features:
-        _emit_window_features(lines, window_features)
-        lines.append("")
+        _emit_window_features(core_lines, window_features)
+        core_lines.append("")
 
     # --- Transformer exog ---
     if transformer_exog and plan.use_exog and exog_columns:
-        _emit_transformer_exog(lines, transformer_exog, profile)
+        _emit_transformer_exog(core_lines, transformer_exog, profile)
 
     # --- Create forecaster ---
-    lines.append("# Create forecaster")
-    estimator_str = _get_estimator_constructor(plan.estimator)
+    core_lines.append("# Create forecaster")
+    estimator_str = _get_estimator_constructor(plan.estimator, plan.estimator_kwargs)
 
     forecaster_kwargs: list[tuple[str, str]] = []
     if is_direct:
@@ -527,67 +570,71 @@ def _template_single_series(
         forecaster_kwargs.append(("dropna_from_series", str(dropna)))
 
     _emit_aligned_kwargs(
-        lines,
+        core_lines,
         f"forecaster = {forecaster_class}(",
         forecaster_kwargs,
     )
-    lines.append("")
+    core_lines.append("")
 
     # --- Fit & Predict ---
     if plan.interval_method is not None:
         interval_repr = _get_interval_repr(plan)
-        lines.append("# Fit")
+        core_lines.append("# Fit")
         fit_kwargs: list[tuple[str, str]] = []
         fit_kwargs.append(("y", f"data_train[{repr(target)}]"))
         if plan.use_exog and exog_columns:
             fit_kwargs.append(("exog", "data_train[exog_features]"))
         fit_kwargs.append(("store_in_sample_residuals", "True"))
-        _emit_aligned_kwargs(lines, "forecaster.fit(", fit_kwargs)
-        lines.append("")
+        _emit_aligned_kwargs(core_lines, "forecaster.fit(", fit_kwargs)
+        core_lines.append("")
 
-        lines.append("# Predict intervals")
-        lines.append(f"steps = {plan.steps}")
+        core_lines.append("# Predict intervals")
+        core_lines.append(f"steps = {plan.steps}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if plan.use_exog and exog_columns:
             predict_kwargs.append(("exog", "data_test[exog_features]"))
         predict_kwargs.append(("method", f"'{plan.interval_method}'"))
         predict_kwargs.append(("interval", interval_repr))
-        _emit_aligned_kwargs(lines, "predictions = forecaster.predict_interval(", predict_kwargs)
+        _emit_aligned_kwargs(core_lines, "predictions = forecaster.predict_interval(", predict_kwargs)
     else:
-        lines.append("# Fit")
+        core_lines.append("# Fit")
         if plan.use_exog and exog_columns:
-            lines.append(
+            core_lines.append(
                 f"forecaster.fit(y=data_train[{repr(target)}], "
                 f"exog=data_train[exog_features])"
             )
         else:
-            lines.append(f"forecaster.fit(y=data_train[{repr(target)}])")
-        lines.append("")
-        lines.append("# Predict")
-        lines.append(f"steps = {plan.steps}")
+            core_lines.append(f"forecaster.fit(y=data_train[{repr(target)}])")
+        core_lines.append("")
+        core_lines.append("# Predict")
+        core_lines.append(f"steps = {plan.steps}")
         if plan.use_exog and exog_columns:
-            lines.append(
+            core_lines.append(
                 "predictions = forecaster.predict("
                 "steps=steps, exog=data_test[exog_features])"
             )
         else:
-            lines.append("predictions = forecaster.predict(steps=steps)")
-    lines.append("print(predictions)")
-    lines.append("")
+            core_lines.append("predictions = forecaster.predict(steps=steps)")
+    core_lines.append("print(predictions)")
+    core_lines.append("")
 
     pred_expr = "predictions['pred']" if plan.interval_method else "predictions"
     _emit_metrics_section(
-        lines,
+        core_lines,
         actual_expr=f"data_test[{repr(target)}].iloc[:steps]",
         pred_expr=pred_expr,
         train_expr=f"data_train[{repr(target)}]",
     )
-    lines.append("")
-    _emit_production_note(lines, use_exog=bool(plan.use_exog and exog_columns))
-    lines.append("")
+    core_lines.append("")
+    _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
+    core_lines.append("")
 
-    return "\n".join(lines)
+    return GeneratedCode(
+        imports="\n".join(import_lines),
+        data_loading="\n".join(loading_lines),
+        core="\n".join(core_lines),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -597,7 +644,7 @@ def _template_single_series(
 def _template_multi_series(
     plan: ForecastPlan,
     profile: DataProfile,
-) -> str:
+) -> GeneratedCode:
     """Generate code for ForecasterRecursiveMultiSeries."""
 
     estimator_import = _get_estimator_import(plan.estimator)
@@ -616,19 +663,21 @@ def _template_multi_series(
     series_id = profile.series_id_column or "series_id"
     date_col = profile.date_column or "date"
 
-    lines: list[str] = []
+    import_lines: list[str] = []
+    loading_lines: list[str] = []
+    core_lines: list[str] = []
 
     # --- Imports ---
-    lines.append("import pandas as pd")
+    import_lines.append("import pandas as pd")
     if transformer_series or transformer_exog:
-        lines.append("from sklearn.preprocessing import StandardScaler")
+        import_lines.append("from sklearn.preprocessing import StandardScaler")
     if transformer_exog and _needs_column_transformer(profile):
-        lines.append("from sklearn.compose import make_column_transformer")
-    lines.append(
+        import_lines.append("from sklearn.compose import make_column_transformer")
+    import_lines.append(
         "from sklearn.metrics import mean_absolute_error, mean_squared_error"
     )
-    lines.append(estimator_import)
-    lines.append("from skforecast.metrics import mean_absolute_scaled_error")
+    import_lines.append(estimator_import)
+    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
     preprocessing_imports: list[str] = []
     if window_features:
         preprocessing_imports.append("RollingFeatures")
@@ -637,54 +686,57 @@ def _template_multi_series(
         if plan.use_exog and profile.exog_columns:
             preprocessing_imports.append("reshape_exog_long_to_dict")
     if preprocessing_imports:
-        lines.append(
+        import_lines.append(
             "from skforecast.preprocessing import "
             + ", ".join(preprocessing_imports)
         )
-    lines.append("from skforecast.recursive import ForecasterRecursiveMultiSeries")
-    lines.append("")
+    import_lines.append("from skforecast.recursive import ForecasterRecursiveMultiSeries")
+    import_lines.append("")
 
     # --- Load data ---
     if is_wide:
-        _emit_data_loading(lines, profile)
+        _emit_data_loading(loading_lines, profile)
+    else:
+        _emit_data_loading(loading_lines, profile, long_format=True)
 
-        # --- Preprocessing steps ---
-        _emit_preprocessing_steps(lines, plan, profile)
+    # --- Index setup (runs in both standalone and exec modes) ---
+    if is_wide:
+        _emit_index_setup(core_lines, profile)
+    else:
+        _emit_index_setup(core_lines, profile, long_format=True)
 
-        # Convert to dict (optimal for ForecasterRecursiveMultiSeries)
-        lines.append(
+    # --- Preprocessing steps ---
+    _emit_preprocessing_steps(core_lines, plan, profile)
+
+    # --- Reshape to dict ---
+    if is_wide:
+        core_lines.append(
             "# Reshape to dict format"
             " (optimal for ForecasterRecursiveMultiSeries)"
         )
         if isinstance(profile.target, list):
             target_cols_repr = repr(profile.target)
-            lines.append(
+            core_lines.append(
                 f"series_dict = data[{target_cols_repr}].to_dict('series')"
             )
         else:
-            lines.append(
+            core_lines.append(
                 "series_dict = data.to_dict('series')"
             )
     else:
-        _emit_data_loading(lines, profile, long_format=True)
-
-        # --- Preprocessing steps ---
-        _emit_preprocessing_steps(lines, plan, profile)
-
-        # Reshape to dict using skforecast utility
         target = _get_target_str(profile)
-        lines.append(
+        core_lines.append(
             "# Reshape to dict format"
             " (optimal for ForecasterRecursiveMultiSeries)"
         )
-        lines.append("series_dict = reshape_series_long_to_dict(")
-        lines.append(f"    data      = data,")
-        lines.append(f"    series_id = {repr(series_id)},")
-        lines.append(f"    index     = {repr(date_col)},")
-        lines.append(f"    values    = {repr(target)},")
-        lines.append(f"    freq      = {repr(profile.frequency)},")
-        lines.append(")")
-    lines.append("")
+        core_lines.append("series_dict = reshape_series_long_to_dict(")
+        core_lines.append("    data      = data,")
+        core_lines.append(f"    series_id = {repr(series_id)},")
+        core_lines.append(f"    index     = {repr(date_col)},")
+        core_lines.append(f"    values    = {repr(target)},")
+        core_lines.append(f"    freq      = {repr(profile.frequency)},")
+        core_lines.append(")")
+    core_lines.append("")
 
     # --- Exog setup (multi-series) ---
     exog_columns = profile.exog_columns
@@ -693,60 +745,57 @@ def _template_multi_series(
     if plan.use_exog and exog_columns:
         if is_wide:
             exog_cols_repr = repr(exog_columns)
-            lines.append(f"exog = data[{exog_cols_repr}]")
+            core_lines.append(f"exog = data[{exog_cols_repr}]")
         else:
             exog_train_var = "exog_dict_train"
             exog_test_var = "exog_dict_test"
             exog_select_cols = [series_id, date_col] + list(exog_columns)
             exog_select_repr = repr(exog_select_cols)
-            lines.append("exog_dict = reshape_exog_long_to_dict(")
-            lines.append(f"    data      = data[{exog_select_repr}],")
-            lines.append(f"    series_id = {repr(series_id)},")
-            lines.append(f"    index     = {repr(date_col)},")
-            lines.append(f"    freq      = {repr(profile.frequency)},")
-            lines.append(")")
-        lines.append("")
+            core_lines.append("exog_dict = reshape_exog_long_to_dict(")
+            core_lines.append(f"    data      = data[{exog_select_repr}],")
+            core_lines.append(f"    series_id = {repr(series_id)},")
+            core_lines.append(f"    index     = {repr(date_col)},")
+            core_lines.append(f"    freq      = {repr(profile.frequency)},")
+            core_lines.append(")")
+        core_lines.append("")
 
     # --- Train/test split ---
-    lines.append("# Train/test split")
-    _emit_end_train(
-        lines,
-        profile,
-    )
-    lines.append(
+    core_lines.append("# Train/test split")
+    _emit_end_train(core_lines, profile)
+    core_lines.append(
         "series_dict_train = {k: v.loc[:end_train] for k, v in series_dict.items()}"
     )
-    lines.append(
+    core_lines.append(
         "series_dict_test  = {k: v.loc[v.index > end_train]"
         " for k, v in series_dict.items()}"
     )
     if plan.use_exog and exog_columns:
         if is_wide:
-            lines.append("exog_train = exog.loc[:end_train]")
-            lines.append("exog_test  = exog.loc[exog.index > end_train]")
+            core_lines.append("exog_train = exog.loc[:end_train]")
+            core_lines.append("exog_test  = exog.loc[exog.index > end_train]")
         else:
-            lines.append(
+            core_lines.append(
                 "exog_dict_train = {k: v.loc[:end_train]"
                 " for k, v in exog_dict.items()}"
             )
-            lines.append(
+            core_lines.append(
                 "exog_dict_test  = {k: v.loc[v.index > end_train]"
                 " for k, v in exog_dict.items()}"
             )
-    lines.append("")
+    core_lines.append("")
 
     # --- Window features ---
     if window_features:
-        _emit_window_features(lines, window_features)
-        lines.append("")
+        _emit_window_features(core_lines, window_features)
+        core_lines.append("")
 
     # --- Transformer exog ---
     if transformer_exog and plan.use_exog and exog_columns:
-        _emit_transformer_exog(lines, transformer_exog, profile)
+        _emit_transformer_exog(core_lines, transformer_exog, profile)
 
     # --- Create forecaster ---
-    lines.append("# Create forecaster")
-    estimator_str = _get_estimator_constructor(plan.estimator)
+    core_lines.append("# Create forecaster")
+    estimator_str = _get_estimator_constructor(plan.estimator, plan.estimator_kwargs)
 
     forecaster_kwargs: list[tuple[str, str]] = []
     forecaster_kwargs.append(("estimator", estimator_str))
@@ -766,26 +815,26 @@ def _template_multi_series(
         forecaster_kwargs.append(("dropna_from_series", str(dropna)))
 
     _emit_aligned_kwargs(
-        lines,
+        core_lines,
         "forecaster = ForecasterRecursiveMultiSeries(",
         forecaster_kwargs,
     )
-    lines.append("")
+    core_lines.append("")
 
     # --- Fit & Predict ---
     if plan.interval_method is not None:
         interval_repr = _get_interval_repr(plan)
-        lines.append("# Fit")
+        core_lines.append("# Fit")
         fit_kwargs: list[tuple[str, str]] = []
         fit_kwargs.append(("series", "series_dict_train"))
         if plan.use_exog and exog_columns:
             fit_kwargs.append(("exog", exog_train_var))
         fit_kwargs.append(("store_in_sample_residuals", "True"))
-        _emit_aligned_kwargs(lines, "forecaster.fit(", fit_kwargs)
-        lines.append("")
+        _emit_aligned_kwargs(core_lines, "forecaster.fit(", fit_kwargs)
+        core_lines.append("")
 
-        lines.append("# Predict intervals")
-        lines.append(f"steps = {plan.steps}")
+        core_lines.append("# Predict intervals")
+        core_lines.append(f"steps = {plan.steps}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if plan.use_exog and exog_columns:
@@ -793,39 +842,43 @@ def _template_multi_series(
         predict_kwargs.append(("method", f"'{plan.interval_method}'"))
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(
-            lines, "predictions = forecaster.predict_interval(", predict_kwargs
+            core_lines, "predictions = forecaster.predict_interval(", predict_kwargs
         )
     else:
-        lines.append("# Fit")
+        core_lines.append("# Fit")
         if plan.use_exog and exog_columns:
-            lines.append(
+            core_lines.append(
                 f"forecaster.fit(series=series_dict_train, exog={exog_train_var})"
             )
         else:
-            lines.append("forecaster.fit(series=series_dict_train)")
-        lines.append("")
-        lines.append("# Predict")
-        lines.append(f"steps = {plan.steps}")
+            core_lines.append("forecaster.fit(series=series_dict_train)")
+        core_lines.append("")
+        core_lines.append("# Predict")
+        core_lines.append(f"steps = {plan.steps}")
         if plan.use_exog and exog_columns:
-            lines.append(
+            core_lines.append(
                 f"predictions = forecaster.predict("
                 f"steps=steps, exog={exog_test_var})"
             )
         else:
-            lines.append("predictions = forecaster.predict(steps=steps)")
-    lines.append("print(predictions)")
-    lines.append("")
+            core_lines.append("predictions = forecaster.predict(steps=steps)")
+    core_lines.append("print(predictions)")
+    core_lines.append("")
     _emit_metrics_section_multiseries(
-        lines,
+        core_lines,
         test_dict_var="series_dict_test",
         train_dict_var="series_dict_train",
         pred_var="predictions",
     )
-    lines.append("")
-    _emit_production_note(lines, use_exog=bool(plan.use_exog and exog_columns))
-    lines.append("")
+    core_lines.append("")
+    _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
+    core_lines.append("")
 
-    return "\n".join(lines)
+    return GeneratedCode(
+        imports="\n".join(import_lines),
+        data_loading="\n".join(loading_lines),
+        core="\n".join(core_lines),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -835,7 +888,7 @@ def _template_multi_series(
 def _template_multivariate(
     plan: ForecastPlan,
     profile: DataProfile,
-) -> str:
+) -> GeneratedCode:
     """Generate code for ForecasterDirectMultiVariate."""
 
     estimator_import = _get_estimator_import(plan.estimator)
@@ -854,76 +907,88 @@ def _template_multivariate(
     date_col = profile.date_column or "date"
     target = _get_target_str(profile)
 
-    lines: list[str] = []
+    import_lines: list[str] = []
+    loading_lines: list[str] = []
+    core_lines: list[str] = []
 
     # --- Imports ---
-    lines.append("import pandas as pd")
+    import_lines.append("import pandas as pd")
     if transformer_series or transformer_exog:
-        lines.append("from sklearn.preprocessing import StandardScaler")
+        import_lines.append("from sklearn.preprocessing import StandardScaler")
     if transformer_exog and _needs_column_transformer(profile):
-        lines.append("from sklearn.compose import make_column_transformer")
-    lines.append(
+        import_lines.append("from sklearn.compose import make_column_transformer")
+    import_lines.append(
         "from sklearn.metrics import mean_absolute_error, mean_squared_error"
     )
-    lines.append(estimator_import)
-    lines.append("from skforecast.metrics import mean_absolute_scaled_error")
+    import_lines.append(estimator_import)
+    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
     if window_features:
-        lines.append("from skforecast.preprocessing import RollingFeatures")
-    lines.append("from skforecast.direct import ForecasterDirectMultiVariate")
-    lines.append("")
+        import_lines.append("from skforecast.preprocessing import RollingFeatures")
+    import_lines.append("from skforecast.direct import ForecasterDirectMultiVariate")
+    import_lines.append("")
 
     # --- Load data ---
     if is_wide:
-        _emit_data_loading(lines, profile)
-        _emit_preprocessing_steps(lines, plan, profile)
+        _emit_data_loading(loading_lines, profile)
     else:
-        _emit_data_loading(lines, profile, long_format=True)
-        _emit_preprocessing_steps(lines, plan, profile)
-        lines.append("# Pivot to wide format (columns = series)")
-        lines.append("series = data.pivot_table(")
-        lines.append(
+        _emit_data_loading(loading_lines, profile, long_format=True)
+
+    # --- Index setup (runs in both standalone and exec modes) ---
+    if is_wide:
+        _emit_index_setup(core_lines, profile)
+    else:
+        _emit_index_setup(core_lines, profile, long_format=True)
+
+    # --- Preprocessing / pivot ---
+    if is_wide:
+        _emit_preprocessing_steps(core_lines, plan, profile)
+    else:
+        _emit_preprocessing_steps(core_lines, plan, profile)
+        core_lines.append("# Pivot to wide format (columns = series)")
+        core_lines.append("series = data.pivot_table(")
+        core_lines.append(
             f"    index={repr(date_col)}, columns={repr(series_id)},"
             f" values={repr(target)}"
         )
-        lines.append(")")
-        lines.append("series.columns = series.columns.droplevel(0)")
-        lines.append("series.index.name = None")
-        lines.append("series.columns.name = None")
+        core_lines.append(")")
+        core_lines.append("series.columns = series.columns.droplevel(0)")
+        core_lines.append("series.index.name = None")
+        core_lines.append("series.columns.name = None")
         if profile.frequency:
-            lines.append(f"series = series.asfreq('{profile.frequency}')")
-        lines.append("")
+            core_lines.append(f"series = series.asfreq('{profile.frequency}')")
+        core_lines.append("")
 
     # --- Exog ---
     exog_columns = profile.exog_columns
     use_exog = plan.use_exog and bool(exog_columns)
 
     # --- Train/test split ---
-    lines.append("# Train/test split")
-    _emit_end_train(lines, profile)
+    core_lines.append("# Train/test split")
+    _emit_end_train(core_lines, profile)
     if use_exog and isinstance(profile.target, list):
-        lines.append(f"series_cols = {repr(profile.target)}")
+        core_lines.append(f"series_cols = {repr(profile.target)}")
     if use_exog:
-        lines.append(f"exog_features = {repr(exog_columns)}")
+        core_lines.append(f"exog_features = {repr(exog_columns)}")
     if is_wide:
-        lines.append("data_train = data.loc[:end_train]")
-        lines.append("data_test  = data.loc[data.index > end_train]")
+        core_lines.append("data_train = data.loc[:end_train]")
+        core_lines.append("data_test  = data.loc[data.index > end_train]")
     else:
-        lines.append("series_train = series.loc[:end_train]")
-        lines.append("series_test  = series.loc[series.index > end_train]")
-    lines.append("")
+        core_lines.append("series_train = series.loc[:end_train]")
+        core_lines.append("series_test  = series.loc[series.index > end_train]")
+    core_lines.append("")
 
     # --- Window features ---
     if window_features:
-        _emit_window_features(lines, window_features)
-        lines.append("")
+        _emit_window_features(core_lines, window_features)
+        core_lines.append("")
 
     # --- Transformer exog ---
     if transformer_exog and use_exog:
-        _emit_transformer_exog(lines, transformer_exog, profile)
+        _emit_transformer_exog(core_lines, transformer_exog, profile)
 
     # --- Create forecaster ---
-    lines.append("# Create forecaster")
-    estimator_str = _get_estimator_constructor(plan.estimator)
+    core_lines.append("# Create forecaster")
+    estimator_str = _get_estimator_constructor(plan.estimator, plan.estimator_kwargs)
 
     forecaster_kwargs: list[tuple[str, str]] = []
     forecaster_kwargs.append(("estimator", estimator_str))
@@ -944,11 +1009,11 @@ def _template_multivariate(
         forecaster_kwargs.append(("dropna_from_series", str(dropna)))
 
     _emit_aligned_kwargs(
-        lines,
+        core_lines,
         "forecaster = ForecasterDirectMultiVariate(",
         forecaster_kwargs,
     )
-    lines.append("")
+    core_lines.append("")
 
     # --- Fit & Predict ---
     if is_wide:
@@ -966,17 +1031,17 @@ def _template_multivariate(
 
     if plan.interval_method is not None:
         interval_repr = _get_interval_repr(plan)
-        lines.append("# Fit")
+        core_lines.append("# Fit")
         fit_kwargs: list[tuple[str, str]] = []
         fit_kwargs.append(("series", series_train_expr))
         if use_exog:
             fit_kwargs.append(("exog", exog_train_expr))
         fit_kwargs.append(("store_in_sample_residuals", "True"))
-        _emit_aligned_kwargs(lines, "forecaster.fit(", fit_kwargs)
+        _emit_aligned_kwargs(core_lines, "forecaster.fit(", fit_kwargs)
 
-        lines.append("")
-        lines.append("# Predict intervals")
-        lines.append(f"steps = {plan.steps}")
+        core_lines.append("")
+        core_lines.append("# Predict intervals")
+        core_lines.append(f"steps = {plan.steps}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if use_exog:
@@ -984,41 +1049,45 @@ def _template_multivariate(
         predict_kwargs.append(("method", f"'{plan.interval_method}'"))
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(
-            lines, "predictions = forecaster.predict_interval(", predict_kwargs
+            core_lines, "predictions = forecaster.predict_interval(", predict_kwargs
         )
     else:
-        lines.append("# Fit")
+        core_lines.append("# Fit")
         if use_exog:
-            lines.append(
+            core_lines.append(
                 f"forecaster.fit(series={series_train_expr},"
                 f" exog={exog_train_expr})"
             )
         else:
-            lines.append(f"forecaster.fit(series={series_train_expr})")
-        lines.append("")
-        lines.append("# Predict")
-        lines.append(f"steps = {plan.steps}")
+            core_lines.append(f"forecaster.fit(series={series_train_expr})")
+        core_lines.append("")
+        core_lines.append("# Predict")
+        core_lines.append(f"steps = {plan.steps}")
         if use_exog:
-            lines.append(
+            core_lines.append(
                 f"predictions = forecaster.predict("
                 f"steps=steps, exog={exog_test_expr})"
             )
         else:
-            lines.append("predictions = forecaster.predict(steps=steps)")
-    lines.append("print(predictions)")
-    lines.append("")
+            core_lines.append("predictions = forecaster.predict(steps=steps)")
+    core_lines.append("print(predictions)")
+    core_lines.append("")
 
     _emit_metrics_section(
-        lines,
+        core_lines,
         actual_expr=actual_expr,
         pred_expr="predictions['pred']",
         train_expr=train_expr,
     )
-    lines.append("")
-    _emit_production_note(lines, use_exog=use_exog)
-    lines.append("")
+    core_lines.append("")
+    _emit_production_note(core_lines, use_exog=use_exog)
+    core_lines.append("")
 
-    return "\n".join(lines)
+    return GeneratedCode(
+        imports="\n".join(import_lines),
+        data_loading="\n".join(loading_lines),
+        core="\n".join(core_lines),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1028,133 +1097,121 @@ def _template_multivariate(
 def _template_statistical(
     plan: ForecastPlan,
     profile: DataProfile,
-) -> str:
-    """Generate code for ForecasterStats (Arima, Sarimax, Ets, Arar)."""
+) -> GeneratedCode:
+    """Generate code for ForecasterStats (Auto-ARIMA)."""
 
     target = _get_target_str(profile)
-    kwargs = plan.forecaster_kwargs
-    stats_model = kwargs.get("stats_model", "Arima")
     m = _get_seasonal_period(profile.frequency)
     exog_columns = profile.exog_columns
 
-    lines: list[str] = []
+    import_lines: list[str] = []
+    loading_lines: list[str] = []
+    core_lines: list[str] = []
 
     # --- Imports ---
-    lines.append("import pandas as pd")
-    lines.append(
+    import_lines.append("import pandas as pd")
+    import_lines.append(
         "from sklearn.metrics import mean_absolute_error, mean_squared_error"
     )
-    model_import = _STATS_MODEL_IMPORTS.get(stats_model, f"from skforecast.stats import {stats_model}")
-    lines.append("from skforecast.metrics import mean_absolute_scaled_error")
-    lines.append(model_import)
-    lines.append("from skforecast.recursive import ForecasterStats")
-    lines.append("")
+    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
+    import_lines.append("from skforecast.stats import Arima")
+    import_lines.append("from skforecast.recursive import ForecasterStats")
+    import_lines.append("")
 
     # --- Load data ---
-    _emit_data_loading(lines, profile)
+    _emit_data_loading(loading_lines, profile)
+
+    # --- Index setup (runs in both standalone and exec modes) ---
+    _emit_index_setup(core_lines, profile)
 
     # --- Preprocessing steps ---
-    _emit_preprocessing_steps(lines, plan, profile)
+    _emit_preprocessing_steps(core_lines, plan, profile)
 
     # --- Train/test split ---
-    lines.append("# Train/test split")
-    _emit_end_train(lines, profile)
-    lines.append("data_train = data.loc[:end_train]")
-    lines.append("data_test  = data.loc[data.index > end_train]")
+    core_lines.append("# Train/test split")
+    _emit_end_train(core_lines, profile)
+    core_lines.append("data_train = data.loc[:end_train]")
+    core_lines.append("data_test  = data.loc[data.index > end_train]")
     if plan.use_exog and exog_columns:
         exog_cols_repr = repr(exog_columns)
-        lines.append(f"exog_features = {exog_cols_repr}")
-    lines.append("")
-    lines.append("print(")
-    lines.append('    f"Train dates : {data_train.index.min()} --- '
+        core_lines.append(f"exog_features = {exog_cols_repr}")
+    core_lines.append("")
+    core_lines.append("print(")
+    core_lines.append('    f"Train dates : {data_train.index.min()} --- '
                  '{data_train.index.max()}  (n={len(data_train)})"')
-    lines.append(")")
-    lines.append("print(")
-    lines.append('    f"Test dates  : {data_test.index.min()} --- '
+    core_lines.append(")")
+    core_lines.append("print(")
+    core_lines.append('    f"Test dates  : {data_test.index.min()} --- '
                  '{data_test.index.max()}  (n={len(data_test)})"')
-    lines.append(")")
-    lines.append("")
+    core_lines.append(")")
+    core_lines.append("")
 
     # --- Create forecaster ---
-    if stats_model == "Arima":
-        if m is not None:
-            estimator_str = f"Arima(order=None, seasonal=True, m={m})"
-        else:
-            estimator_str = "Arima(order=None, seasonal=True)"
-        comment = "# Create forecaster (Auto-ARIMA)"
-    elif stats_model == "Sarimax":
-        if m is not None:
-            estimator_str = f"Sarimax(order=None, seasonal_order=None, m={m})"
-        else:
-            estimator_str = "Sarimax(order=None, seasonal_order=None)"
-        comment = "# Create forecaster (Sarimax)"
-    elif stats_model == "Ets":
-        if m is not None:
-            estimator_str = f"Ets(m={m}, model='ZZZ')"
-        else:
-            estimator_str = "Ets(model='ZZZ')"
-        comment = "# Create forecaster (ETS)"
-    elif stats_model == "Arar":
-        estimator_str = "Arar()"
-        comment = "# Create forecaster (ARAR)"
-    else:
-        estimator_str = f"{stats_model}()"
-        comment = f"# Create forecaster ({stats_model})"
+    arima_defaults: dict[str, object] = {"order": None, "seasonal_order": None}
+    if m is not None:
+        arima_defaults["m"] = m
+    arima_kwargs = {**arima_defaults, **(plan.estimator_kwargs or {})}
+    arima_params = ", ".join(f"{k}={repr(v)}" for k, v in arima_kwargs.items())
+    estimator_str = f"Arima({arima_params})"
 
-    lines.append(comment)
-    lines.append("forecaster = ForecasterStats(")
-    lines.append(f"    estimator = {estimator_str},")
-    lines.append(")")
-    lines.append("")
+    core_lines.append("# Create forecaster (Auto-ARIMA)")
+    core_lines.append("forecaster = ForecasterStats(")
+    core_lines.append(f"    estimator = {estimator_str},")
+    core_lines.append(")")
+    core_lines.append("")
 
     # --- Fit & Predict ---
-    lines.append("# Fit")
+    core_lines.append("# Fit")
     if plan.use_exog and exog_columns:
-        lines.append(
+        core_lines.append(
             f"forecaster.fit(y=data_train[{repr(target)}], "
             f"exog=data_train[exog_features])"
         )
     else:
-        lines.append(f"forecaster.fit(y=data_train[{repr(target)}])")
-    lines.append("")
+        core_lines.append(f"forecaster.fit(y=data_train[{repr(target)}])")
+    core_lines.append("")
 
     if plan.interval_method is not None:
         interval_repr = _get_interval_repr(plan)
-        lines.append("# Predict intervals (native)")
-        lines.append(f"steps = {plan.steps}")
+        core_lines.append("# Predict intervals (native)")
+        core_lines.append(f"steps = {plan.steps}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if plan.use_exog and exog_columns:
             predict_kwargs.append(("exog", "data_test[exog_features]"))
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(
-            lines, "predictions = forecaster.predict_interval(", predict_kwargs
+            core_lines, "predictions = forecaster.predict_interval(", predict_kwargs
         )
     else:
-        lines.append("# Predict")
-        lines.append(f"steps = {plan.steps}")
+        core_lines.append("# Predict")
+        core_lines.append(f"steps = {plan.steps}")
         if plan.use_exog and exog_columns:
-            lines.append(
+            core_lines.append(
                 "predictions = forecaster.predict("
                 "steps=steps, exog=data_test[exog_features])"
             )
         else:
-            lines.append("predictions = forecaster.predict(steps=steps)")
-    lines.append("print(predictions)")
-    lines.append("")
+            core_lines.append("predictions = forecaster.predict(steps=steps)")
+    core_lines.append("print(predictions)")
+    core_lines.append("")
 
     pred_expr = "predictions['pred']" if plan.interval_method else "predictions"
     _emit_metrics_section(
-        lines,
+        core_lines,
         actual_expr=f"data_test[{repr(target)}].iloc[:steps]",
         pred_expr=pred_expr,
         train_expr=f"data_train[{repr(target)}]",
     )
-    lines.append("")
-    _emit_production_note(lines, use_exog=bool(plan.use_exog and exog_columns))
-    lines.append("")
+    core_lines.append("")
+    _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
+    core_lines.append("")
 
-    return "\n".join(lines)
+    return GeneratedCode(
+        imports="\n".join(import_lines),
+        data_loading="\n".join(loading_lines),
+        core="\n".join(core_lines),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1164,81 +1221,87 @@ def _template_statistical(
 def _template_foundation(
     plan: ForecastPlan,
     profile: DataProfile,
-) -> str:
+) -> GeneratedCode:
     """Generate code for ForecasterFoundation (Chronos-2, TimesFM, Moirai, TabICL)."""
 
     target = _get_target_str(profile)
-    kwargs = plan.forecaster_kwargs
-    model_id = kwargs.get("model_id", "autogluon/chronos-2-small")
-    context_length = kwargs.get("context_length", 2048)
+    foundation_defaults = {
+        "model_id": "autogluon/chronos-2-small",
+        "context_length": 8192,
+    }
+    foundation_kwargs = {**foundation_defaults, **(plan.estimator_kwargs or {})}
+    model_id = foundation_kwargs["model_id"]
     exog_columns = profile.exog_columns
     use_exog = plan.use_exog and bool(exog_columns)
 
     # Multi-series: if profile has multiple target columns (wide format)
     is_multi_series = isinstance(profile.target, list) and len(profile.target) > 1
 
-    lines: list[str] = []
+    import_lines: list[str] = []
+    loading_lines: list[str] = []
+    core_lines: list[str] = []
 
     # --- Imports ---
-    lines.append("import pandas as pd")
-    lines.append(
+    import_lines.append("import pandas as pd")
+    import_lines.append(
         "from sklearn.metrics import mean_absolute_error, mean_squared_error"
     )
-    lines.append("from skforecast.metrics import mean_absolute_scaled_error")
-    lines.append(
+    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
+    import_lines.append(
         "from skforecast.foundation import FoundationModel, ForecasterFoundation"
     )
-    lines.append("")
+    import_lines.append("")
 
     # --- Load data ---
-    _emit_data_loading(lines, profile)
+    _emit_data_loading(loading_lines, profile)
+
+    # --- Index setup (runs in both standalone and exec modes) ---
+    _emit_index_setup(core_lines, profile)
 
     # --- Preprocessing steps ---
-    _emit_preprocessing_steps(lines, plan, profile)
+    _emit_preprocessing_steps(core_lines, plan, profile)
 
     # --- Series / exog extraction ---
     if is_multi_series:
         target_cols_repr = repr(profile.target)
-        lines.append(f"series = data[{target_cols_repr}]")
+        core_lines.append(f"series = data[{target_cols_repr}]")
     else:
-        lines.append(f"series = data[{repr(target)}]")
+        core_lines.append(f"series = data[{repr(target)}]")
     if use_exog:
         exog_cols_repr = repr(exog_columns)
-        lines.append(f"exog = data[{exog_cols_repr}]")
-    lines.append("")
+        core_lines.append(f"exog = data[{exog_cols_repr}]")
+    core_lines.append("")
 
     # --- Train/test split ---
-    lines.append("# Train/test split")
-    _emit_end_train(lines, profile)
-    lines.append("series_train = series.loc[:end_train]")
-    lines.append("series_test  = series.loc[series.index > end_train]")
+    core_lines.append("# Train/test split")
+    _emit_end_train(core_lines, profile)
+    core_lines.append("series_train = series.loc[:end_train]")
+    core_lines.append("series_test  = series.loc[series.index > end_train]")
     if use_exog:
-        lines.append("exog_train = exog.loc[:end_train]")
-        lines.append("exog_test  = exog.loc[exog.index > end_train]")
-    lines.append("")
+        core_lines.append("exog_train = exog.loc[:end_train]")
+        core_lines.append("exog_test  = exog.loc[exog.index > end_train]")
+    core_lines.append("")
 
     # --- Create foundation model ---
-    lines.append(f"# Create foundation model ({model_id.split('/')[-1]})")
-    model_kwargs: list[tuple[str, str]] = [
-        ("model_id", f"'{model_id}'"),
-        ("context_length", str(context_length)),
-        ("device_map", "'auto'"),
+    core_lines.append(f"# Create foundation model ({str(model_id).split('/')[-1]})")
+    model_kwargs_pairs: list[tuple[str, str]] = [
+        (k, repr(v)) for k, v in foundation_kwargs.items()
     ]
-    _emit_aligned_kwargs(lines, "model = FoundationModel(", model_kwargs)
-    lines.append("")
+    _emit_aligned_kwargs(core_lines, "model = FoundationModel(", model_kwargs_pairs)
+    core_lines.append("")
 
     # --- Create forecaster ---
-    lines.append("# Create forecaster")
-    lines.append("forecaster = ForecasterFoundation(estimator=model)")
-    lines.append("")
+    core_lines.append("# Create forecaster")
+    core_lines.append("forecaster = ForecasterFoundation(estimator=model)")
+    core_lines.append("")
 
     # --- Fit ---
-    lines.append("# Fit (stores context only — no training)")
+    core_lines.append("# Fit (stores context only — no training)")
     if use_exog:
-        lines.append("forecaster.fit(series=series_train, exog=exog_train)")
+        core_lines.append("forecaster.fit(series=series_train, exog=exog_train)")
     else:
-        lines.append("forecaster.fit(series=series_train)")
-    lines.append("")
+        core_lines.append("forecaster.fit(series=series_train)")
+    core_lines.append("")
 
     # --- Predict ---
     if plan.interval_method is not None:
@@ -1251,8 +1314,8 @@ def _template_foundation(
         else:
             quantiles = [0.1, 0.5, 0.9]
         quantiles_repr = repr(quantiles)
-        lines.append("# Predict quantiles (native)")
-        lines.append(f"steps = {plan.steps}")
+        core_lines.append("# Predict quantiles (native)")
+        core_lines.append(f"steps = {plan.steps}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if use_exog:
@@ -1261,41 +1324,75 @@ def _template_foundation(
             predict_kwargs.append(("levels", repr(profile.target)))
         predict_kwargs.append(("quantiles", quantiles_repr))
         _emit_aligned_kwargs(
-            lines, "predictions = forecaster.predict_quantiles(", predict_kwargs
+            core_lines, "predictions = forecaster.predict_quantiles(", predict_kwargs
         )
     else:
-        lines.append("# Predict")
-        lines.append(f"steps = {plan.steps}")
+        core_lines.append("# Predict")
+        core_lines.append(f"steps = {plan.steps}")
         predict_args = ["steps=steps"]
         if use_exog:
             predict_args.append("exog=exog_test")
         if is_multi_series:
             predict_args.append(f"levels={repr(profile.target)}")
-        lines.append(f"predictions = forecaster.predict({', '.join(predict_args)})")
-    lines.append("print(predictions)")
-    lines.append("")
+        core_lines.append(f"predictions = forecaster.predict({', '.join(predict_args)})")
+    core_lines.append("print(predictions)")
+    core_lines.append("")
     _emit_metrics_section_foundation(
-        lines,
+        core_lines,
         is_multi_series=is_multi_series,
         has_intervals=plan.interval_method is not None,
         test_var="series_test",
         train_var="series_train",
     )
-    lines.append("")
-    _emit_production_note(lines, use_exog=use_exog, is_foundation=True)
-    lines.append("")
+    core_lines.append("")
+    _emit_production_note(core_lines, use_exog=use_exog, is_foundation=True)
+    core_lines.append("")
 
-    return "\n".join(lines)
+    return GeneratedCode(
+        imports="\n".join(import_lines),
+        data_loading="\n".join(loading_lines),
+        core="\n".join(core_lines),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Dispatch table
 # ─────────────────────────────────────────────────────────────────────
 
-_TEMPLATE_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], str]] = {
+_TEMPLATE_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], GeneratedCode]] = {
     "single_series": _template_single_series,
     "multi_series": _template_multi_series,
     "multivariate": _template_multivariate,
     "statistical": _template_statistical,
     "foundation": _template_foundation,
 }
+
+
+def generate_template(
+    plan: ForecastPlan,
+    profile: DataProfile,
+) -> GeneratedCode:
+    """
+    Generate structured code from a plan and data profile.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Validated forecast plan.
+    profile : DataProfile
+        Profile of the input dataset.
+
+    Returns
+    -------
+    generated : GeneratedCode
+        Structured code split into imports, data_loading, and core
+        sections.
+    """
+    template_fn = _TEMPLATE_DISPATCH.get(plan.task_type)
+    if template_fn is None:
+        supported = list(_TEMPLATE_DISPATCH.keys())
+        raise ValueError(
+            f"Unsupported task_type '{plan.task_type}'. "
+            f"Supported types: {supported}"
+        )
+    return template_fn(plan, profile)

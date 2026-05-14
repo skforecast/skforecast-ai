@@ -13,14 +13,12 @@ from .._constants import (
     DIRECT_FORECASTERS,
     CATEGORICAL_FORECASTERS,
     DROPNA_FORECASTERS,
-    MULTI_SERIES_FORECASTERS,
     REQUIRES_DATETIME_FREQ,
     TREE_BASED_ESTIMATORS,
     NAN_TOLERANT_ESTIMATORS,
 )
 from ..profiling.frequency import estimate_seasonality
 from ..schemas import DataProfile, PreprocessingStep
-
 
 
 # TODO: ENhance with checks for date column presence, frequency inference, etc. to

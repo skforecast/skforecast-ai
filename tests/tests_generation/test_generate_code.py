@@ -15,14 +15,14 @@ from .fixtures_generation import (
     plan_multi_series_exog,
     plan_multivariate,
     plan_multivariate_exog,
+    plan_recursive_custom_kwargs,
     plan_recursive_differentiation,
     plan_recursive_full,
     plan_recursive_no_exog,
     plan_recursive_no_interval,
     plan_recursive_with_exog,
     plan_statistical,
-    plan_statistical_ets,
-    plan_statistical_sarimax_exog,
+    plan_statistical_arima_exog,
     plan_statistical_with_interval,
     plan_with_date_column,
     plan_with_preprocessing,
@@ -535,39 +535,26 @@ def test_generate_code_output_when_multi_series_exog_categorical():
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Statistical: exog, Sarimax, Ets
+# Statistical: Auto-ARIMA with exog
 # ─────────────────────────────────────────────────────────────────────
 
 
-def test_generate_code_output_when_statistical_sarimax_with_exog():
+def test_generate_code_output_when_statistical_arima_with_exog():
     """
-    Test generate_code produces valid code for Sarimax with exog.
+    Test generate_code produces valid code for Auto-ARIMA with exog.
     """
     code = generate_code(
-        plan=plan_statistical_sarimax_exog,
+        plan=plan_statistical_arima_exog,
         profile=profile_statistical_exog,
     )
 
     compile(code, "<test>", "exec")
-    assert "Sarimax" in code
+    assert "Arima" in code
+    assert "order=None" in code
+    assert "seasonal_order=None" in code
     assert "exog_features" in code
     assert "data_train[exog_features]" in code
     assert "m=12" in code
-
-
-def test_generate_code_output_when_statistical_ets():
-    """
-    Test generate_code produces valid code for ETS model.
-    """
-    code = generate_code(
-        plan=plan_statistical_ets,
-        profile=profile_statistical_exog,
-    )
-
-    compile(code, "<test>", "exec")
-    assert "Ets" in code
-    assert "m=12" in code
-    assert "model='ZZZ'" in code
 
 
 def test_generate_code_output_when_statistical_exog_in_predict():
@@ -575,7 +562,7 @@ def test_generate_code_output_when_statistical_exog_in_predict():
     Test generate_code passes exog to predict for statistical.
     """
     code = generate_code(
-        plan=plan_statistical_sarimax_exog,
+        plan=plan_statistical_arima_exog,
         profile=profile_statistical_exog,
     )
 
@@ -587,7 +574,7 @@ def test_generate_code_output_when_statistical_interval_with_exog():
     Test generate_code includes exog in predict_interval for statistical.
     """
     code = generate_code(
-        plan=plan_statistical_sarimax_exog,
+        plan=plan_statistical_arima_exog,
         profile=profile_statistical_exog,
     )
 
@@ -624,7 +611,7 @@ def test_generate_code_output_when_multivariate_with_exog():
 
 def test_generate_code_output_when_foundation_custom_model_id():
     """
-    Test generate_code uses custom model_id from forecaster_kwargs.
+    Test generate_code uses custom model_id from estimator_kwargs.
     """
     code = generate_code(
         plan=plan_foundation_custom,
@@ -750,3 +737,37 @@ def test_generate_code_output_when_multi_series_long_uses_sort_values():
     assert "data = data.sort_values('date')" in code
     assert "set_index" not in code
     assert "reshape_series_long_to_dict" in code
+
+
+def test_generate_code_output_when_custom_estimator_kwargs():
+    """
+    Test generate_code renders user-provided estimator_kwargs merged
+    with defaults in the estimator constructor call.
+    """
+    code = generate_code(
+        plan=plan_recursive_custom_kwargs,
+        profile=profile_recursive_no_exog,
+    )
+
+    compile(code, "<test>", "exec")
+    assert "n_estimators=200" in code
+    assert "learning_rate=0.05" in code
+    assert "random_state=123" in code
+    assert "verbose=-1" in code
+
+
+def test_generate_code_output_when_custom_estimator_kwargs_override_default():
+    """
+    Test user kwargs override built-in defaults (e.g. random_state).
+    """
+    plan = plan_recursive_custom_kwargs.model_copy(
+        update={"estimator_kwargs": {"random_state": 42}}
+    )
+    code = generate_code(
+        plan=plan,
+        profile=profile_recursive_no_exog,
+    )
+
+    compile(code, "<test>", "exec")
+    assert "random_state=42" in code
+    assert "random_state=123" not in code

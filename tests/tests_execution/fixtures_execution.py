@@ -27,6 +27,9 @@ df_single = pd.DataFrame(
     }
 )
 
+# Compute end_train at 80% for date-based split
+_end_train_single = str(_dates[int(_n_obs * 0.8) - 1].date())
+
 profile_single = DataProfile(
     n_series=1,
     n_observations=_n_obs,
@@ -38,16 +41,17 @@ profile_single = DataProfile(
     categorical_exog=[],
     missing_target={},
     missing_exog={},
+    end_train=_end_train_single,
     warnings=[],
 )
 
 plan_single = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
     estimator="Ridge",
     steps=10,
     frequency="D",
-    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
     interval_method=None,
     use_exog=True,
     data_requirements=[],
@@ -58,10 +62,10 @@ plan_single = ForecastPlan(
 plan_single_with_intervals = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
     estimator="Ridge",
     steps=10,
     frequency="D",
-    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
     interval_method="bootstrapping",
     use_exog=False,
     data_requirements=[],
@@ -83,7 +87,10 @@ df_multi = pd.DataFrame(
     }
 )
 
+_end_train_multi = str(_dates_multi[int(len(_dates_multi) * 0.8) - 1].date())
+
 profile_multi = DataProfile(
+    data_format="long",
     n_series=2,
     n_observations=_n_obs_multi,
     target="value",
@@ -95,16 +102,17 @@ profile_multi = DataProfile(
     categorical_exog=[],
     missing_target={},
     missing_exog={},
+    end_train=_end_train_multi,
     warnings=[],
 )
 
 plan_multi = ForecastPlan(
     task_type="multi_series",
     forecaster="ForecasterRecursiveMultiSeries",
+    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "encoding": "ordinal", "dropna_from_series": False},
     estimator="Ridge",
     steps=5,
     frequency="D",
-    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "encoding": "ordinal", "dropna_from_series": False},
     interval_method=None,
     use_exog=False,
     data_requirements=[],
@@ -124,6 +132,8 @@ df_short = pd.DataFrame(
     }
 )
 
+_end_train_short = str(_dates_short[int(_n_obs_short * 0.8) - 1].date())
+
 profile_short = DataProfile(
     n_series=1,
     n_observations=_n_obs_short,
@@ -135,19 +145,36 @@ profile_short = DataProfile(
     categorical_exog=[],
     missing_target={},
     missing_exog={},
+    end_train=_end_train_short,
     warnings=[],
 )
 
 plan_short = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
     estimator="Ridge",
     steps=5,
     frequency="D",
-    forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
     interval_method=None,
     use_exog=False,
     data_requirements=[],
     warnings=[],
     explanation="Short series with Ridge.",
+)
+
+# --- Single series with custom estimator_kwargs ---
+plan_single_custom_kwargs = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
+    estimator="Ridge",
+    estimator_kwargs={"alpha": 0.5},
+    steps=10,
+    frequency="D",
+    interval_method=None,
+    use_exog=False,
+    data_requirements=[],
+    warnings=[],
+    explanation="Single series with custom estimator kwargs.",
 )

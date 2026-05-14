@@ -1,4 +1,4 @@
-"""Execution subpackage: programmatic forecasting workflow execution."""
+"""Execution subpackage: exec-based forecasting workflow execution."""
 
 from .runner import run_forecast, validate_run_inputs
 

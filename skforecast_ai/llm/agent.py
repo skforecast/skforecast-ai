@@ -182,10 +182,10 @@ def create_forecasting_agent(
         return ForecastPlan(
             task_type           = task_type,
             forecaster          = fc,
+            forecaster_kwargs   = forecaster_kwargs,
             estimator           = est,
             steps               = steps,
             frequency           = data_profile.frequency,
-            forecaster_kwargs   = forecaster_kwargs,
             interval_method     = None,
             use_exog            = use_exog,
             preprocessing_steps = preprocessing_steps,

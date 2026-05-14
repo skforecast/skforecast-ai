@@ -15,13 +15,13 @@ profile_recursive_no_exog = DataProfile(
 plan_recursive_no_exog = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
-    estimator            = "LGBMRegressor",
-    steps              = 30,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
+    estimator            = "LGBMRegressor",
+    steps                = 30,
+    frequency            = "D",
     interval_method      = "bootstrapping",
     use_exog             = False,
-    explanation            = "Single daily series, ML forecaster.",
+    explanation          = "Single daily series, ML forecaster.",
 )
 
 # --- Single series, ForecasterRecursive, with exog ---
@@ -39,13 +39,13 @@ profile_recursive_with_exog = DataProfile(
 plan_recursive_with_exog = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
-    estimator            = "LGBMRegressor",
-    steps              = 24,
-    frequency            = "h",
     forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7, 24], "dropna_from_series": False},
+    estimator            = "LGBMRegressor",
+    steps                = 24,
+    frequency            = "h",
     interval_method      = "bootstrapping",
     use_exog             = True,
-    explanation            = "Hourly series with exogenous variables.",
+    explanation          = "Hourly series with exogenous variables.",
 )
 
 # --- Single series, ForecasterRecursive, with window_features and categorical ---
@@ -63,9 +63,6 @@ profile_recursive_full = DataProfile(
 plan_recursive_full = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
-    estimator            = "Ridge",
-    steps              = 24,
-    frequency            = "h",
     forecaster_kwargs    = {
         "lags": [1, 7, 24],
         "window_features": [
@@ -77,10 +74,13 @@ plan_recursive_full = ForecastPlan(
         "categorical_features": "auto",
         "dropna_from_series": True,
     },
+    estimator            = "Ridge",
+    steps                = 24,
+    frequency            = "h",
     interval             = [5, 95],
     interval_method      = "bootstrapping",
     use_exog             = True,
-    explanation            = "Full config: window features, transformers, categorical.",
+    explanation          = "Full config: window features, transformers, categorical.",
 )
 
 # --- Single series, ForecasterDirect ---
@@ -96,26 +96,26 @@ profile_direct = DataProfile(
 plan_direct = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterDirect",
-    estimator            = "Ridge",
-    steps              = 14,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "steps": 14, "dropna_from_series": False},
+    estimator            = "Ridge",
+    steps                = 14,
+    frequency            = "D",
     interval_method      = "bootstrapping",
     use_exog             = False,
-    explanation            = "Direct forecaster for steps-dependent patterns.",
+    explanation          = "Direct forecaster for steps-dependent patterns.",
 )
 
 # --- Single series, no interval method ---
 plan_recursive_no_interval = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
-    estimator            = "Ridge",
-    steps              = 10,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
+    estimator            = "Ridge",
+    steps                = 10,
+    frequency            = "D",
     interval_method      = None,
     use_exog             = False,
-    explanation            = "Short series, no intervals.",
+    explanation          = "Short series, no intervals.",
 )
 
 # --- Multi-series (long format) ---
@@ -135,13 +135,13 @@ profile_multi_series = DataProfile(
 plan_multi_series = ForecastPlan(
     task_type            = "multi_series",
     forecaster           = "ForecasterRecursiveMultiSeries",
-    estimator            = "LGBMRegressor",
-    steps              = 14,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "encoding": "ordinal", "dropna_from_series": False},
+    estimator            = "LGBMRegressor",
+    steps                = 14,
+    frequency            = "D",
     interval_method      = "conformal",
     use_exog             = False,
-    explanation            = "Multi-series with global model.",
+    explanation          = "Multi-series with global model.",
 )
 
 # --- Multi-series (wide format) ---
@@ -159,13 +159,13 @@ profile_multi_series_wide = DataProfile(
 plan_multi_series_wide = ForecastPlan(
     task_type            = "multi_series",
     forecaster           = "ForecasterRecursiveMultiSeries",
-    estimator            = "LGBMRegressor",
-    steps              = 14,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "encoding": "ordinal", "dropna_from_series": False},
+    estimator            = "LGBMRegressor",
+    steps                = 14,
+    frequency            = "D",
     interval_method      = None,
     use_exog             = False,
-    explanation            = "Wide-format multi-series.",
+    explanation          = "Wide-format multi-series.",
 )
 
 # --- Multi-series with exog ---
@@ -186,9 +186,6 @@ profile_multi_series_exog = DataProfile(
 plan_multi_series_exog = ForecastPlan(
     task_type            = "multi_series",
     forecaster           = "ForecasterRecursiveMultiSeries",
-    estimator            = "LGBMRegressor",
-    steps              = 7,
-    frequency            = "D",
     forecaster_kwargs    = {
         "lags": [1, 2, 3, 7],
         "encoding": "ordinal",
@@ -197,9 +194,12 @@ plan_multi_series_exog = ForecastPlan(
         "categorical_features": "auto",
         "dropna_from_series": False,
     },
+    estimator            = "LGBMRegressor",
+    steps                = 7,
+    frequency            = "D",
     interval_method      = None,
     use_exog             = True,
-    explanation            = "Multi-series with exog.",
+    explanation          = "Multi-series with exog.",
 )
 
 # --- Multivariate ---
@@ -217,13 +217,13 @@ profile_multivariate = DataProfile(
 plan_multivariate = ForecastPlan(
     task_type            = "multivariate",
     forecaster           = "ForecasterDirectMultiVariate",
-    estimator            = "Ridge",
-    steps              = 10,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3], "steps": 10, "dropna_from_series": False},
+    estimator            = "Ridge",
+    steps                = 10,
+    frequency            = "D",
     interval_method      = None,
     use_exog             = False,
-    explanation            = "Multivariate forecaster.",
+    explanation          = "Multivariate forecaster.",
 )
 
 # --- Statistical ---
@@ -240,25 +240,23 @@ plan_statistical = ForecastPlan(
     task_type            = "statistical",
     forecaster           = "ForecasterStats",
     estimator            = None,
-    steps              = 30,
+    steps                = 30,
     frequency            = "D",
-    forecaster_kwargs    = {},
     interval_method      = None,
     use_exog             = False,
-    explanation            = "Statistical model per user preference.",
+    explanation          = "Statistical model per user preference.",
 )
 
 plan_statistical_with_interval = ForecastPlan(
     task_type            = "statistical",
     forecaster           = "ForecasterStats",
     estimator            = None,
-    steps              = 30,
+    steps                = 30,
     frequency            = "D",
-    forecaster_kwargs    = {},
     interval             = [10, 90],
     interval_method      = "native",
     use_exog             = False,
-    explanation            = "Statistical model with intervals.",
+    explanation          = "Statistical model with intervals.",
 )
 
 # --- Foundation ---
@@ -275,25 +273,23 @@ plan_foundation = ForecastPlan(
     task_type            = "foundation",
     forecaster           = "ForecasterFoundation",
     estimator            = None,
-    steps              = 30,
+    steps                = 30,
     frequency            = "D",
-    forecaster_kwargs    = {},
     interval_method      = None,
     use_exog             = False,
-    explanation            = "Foundation model per user preference.",
+    explanation          = "Foundation model per user preference.",
 )
 
 plan_foundation_with_interval = ForecastPlan(
     task_type            = "foundation",
     forecaster           = "ForecasterFoundation",
     estimator            = None,
-    steps              = 30,
+    steps                = 30,
     frequency            = "D",
-    forecaster_kwargs    = {},
     interval             = [10, 90],
     interval_method      = "native",
     use_exog             = False,
-    explanation            = "Foundation model with quantiles.",
+    explanation          = "Foundation model with quantiles.",
 )
 
 # --- Preprocessing steps fixture ---
@@ -312,10 +308,10 @@ profile_needs_preprocessing = DataProfile(
 plan_with_preprocessing = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
-    estimator            = "LGBMRegressor",
-    steps              = 10,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
+    estimator            = "LGBMRegressor",
+    steps                = 10,
+    frequency            = "D",
     interval_method      = None,
     use_exog             = False,
     preprocessing_steps  = [
@@ -326,10 +322,10 @@ plan_with_preprocessing = ForecastPlan(
             blocking=True,
         ),
     ],
-    explanation            = "Plan with preprocessing steps.",
+    explanation          = "Plan with preprocessing steps.",
 )
 
-# --- Statistical with exog (Sarimax) ---
+# --- Statistical with exog (Auto-ARIMA) ---
 profile_statistical_exog = DataProfile(
     n_series               = 1,
     n_observations         = 365,
@@ -340,30 +336,16 @@ profile_statistical_exog = DataProfile(
     end_train              = "2024-10-01",
 )
 
-plan_statistical_sarimax_exog = ForecastPlan(
+plan_statistical_arima_exog = ForecastPlan(
     task_type            = "statistical",
     forecaster           = "ForecasterStats",
     estimator            = None,
-    steps              = 12,
+    steps                = 12,
     frequency            = "MS",
-    forecaster_kwargs    = {"stats_model": "Sarimax"},
     interval             = [10, 90],
     interval_method      = "native",
     use_exog             = True,
-    explanation            = "Sarimax model with exogenous variables.",
-)
-
-# --- Statistical ETS ---
-plan_statistical_ets = ForecastPlan(
-    task_type            = "statistical",
-    forecaster           = "ForecasterStats",
-    estimator            = None,
-    steps              = 12,
-    frequency            = "MS",
-    forecaster_kwargs    = {"stats_model": "Ets"},
-    interval_method      = None,
-    use_exog             = False,
-    explanation            = "ETS model.",
+    explanation          = "Auto-ARIMA model with exogenous variables.",
 )
 
 # --- Multivariate with exog ---
@@ -381,13 +363,13 @@ profile_multivariate_exog = DataProfile(
 plan_multivariate_exog = ForecastPlan(
     task_type            = "multivariate",
     forecaster           = "ForecasterDirectMultiVariate",
-    estimator            = "LGBMRegressor",
-    steps              = 10,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3], "steps": 10, "dropna_from_series": False},
+    estimator            = "LGBMRegressor",
+    steps                = 10,
+    frequency            = "D",
     interval_method      = "bootstrapping",
     use_exog             = True,
-    explanation            = "Multivariate with exog.",
+    explanation          = "Multivariate with exog.",
 )
 
 # --- Foundation with custom model_id and exog ---
@@ -405,13 +387,13 @@ plan_foundation_custom = ForecastPlan(
     task_type            = "foundation",
     forecaster           = "ForecasterFoundation",
     estimator            = None,
-    steps              = 24,
+    estimator_kwargs     = {"model_id": "autogluon/chronos-2-base", "context_length": 4096},
+    steps                = 24,
     frequency            = "h",
-    forecaster_kwargs    = {"model_id": "autogluon/chronos-2-base", "context_length": 4096},
     interval             = [20, 80],
     interval_method      = "native",
     use_exog             = True,
-    explanation            = "Foundation model with custom model_id and exog.",
+    explanation          = "Foundation model with custom model_id and exog.",
 )
 
 # --- Foundation multi-series ---
@@ -429,25 +411,25 @@ plan_foundation_multi = ForecastPlan(
     task_type            = "foundation",
     forecaster           = "ForecasterFoundation",
     estimator            = None,
-    steps              = 14,
+    estimator_kwargs     = {"model_id": "autogluon/chronos-2-small"},
+    steps                = 14,
     frequency            = "D",
-    forecaster_kwargs    = {"model_id": "autogluon/chronos-2-small"},
     interval_method      = None,
     use_exog             = False,
-    explanation            = "Foundation model, multi-series zero-shot.",
+    explanation          = "Foundation model, multi-series zero-shot.",
 )
 
 # --- Single series with differentiation ---
 plan_recursive_differentiation = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
-    estimator            = "LGBMRegressor",
-    steps              = 7,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3, 7], "differentiation": 1, "dropna_from_series": False},
+    estimator            = "LGBMRegressor",
+    steps                = 7,
+    frequency            = "D",
     interval_method      = None,
     use_exog             = False,
-    explanation            = "Single series with differentiation.",
+    explanation          = "Single series with differentiation.",
 )
 
 # --- Single series with date_column (date is not the index) ---
@@ -464,11 +446,25 @@ profile_with_date_column = DataProfile(
 plan_with_date_column = ForecastPlan(
     task_type            = "single_series",
     forecaster           = "ForecasterRecursive",
-    estimator            = "LGBMRegressor",
-    steps              = 10,
-    frequency            = "D",
     forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
+    estimator            = "LGBMRegressor",
+    steps                = 10,
+    frequency            = "D",
     interval_method      = None,
     use_exog             = False,
-    explanation            = "Single series where date is a regular column.",
+    explanation          = "Single series where date is a regular column.",
+)
+
+# --- Single series with custom estimator_kwargs ---
+plan_recursive_custom_kwargs = ForecastPlan(
+    task_type            = "single_series",
+    forecaster           = "ForecasterRecursive",
+    forecaster_kwargs    = {"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
+    estimator            = "LGBMRegressor",
+    estimator_kwargs     = {"n_estimators": 200, "learning_rate": 0.05},
+    steps                = 10,
+    frequency            = "D",
+    interval_method      = None,
+    use_exog             = False,
+    explanation          = "Single series with custom estimator kwargs.",
 )

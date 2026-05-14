@@ -192,27 +192,6 @@ def test_tier0_ask_LLMRequiredError_when_no_llm():
         assistant.ask("Forecast 30 days ahead")
 
 
-def test_tier0_explain_LLMRequiredError_when_no_llm():
-    """
-    Test that explain() raises LLMRequiredError when llm=None.
-    """
-    assistant = ForecastingAssistant()
-    plan = ForecastPlan(
-        task_type="single_series",
-        forecaster="ForecasterRecursive",
-        estimator="Ridge",
-        steps=10,
-        forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
-        explanation="Single series with daily frequency.",
-    )
-    err_msg = re.escape(
-        "`explain()` requires an LLM. "
-        "Pass `llm=...` when creating ForecastingAssistant."
-    )
-    with pytest.raises(LLMRequiredError, match=err_msg):
-        assistant.explain(plan=plan)
-
-
 # ---------------------------------------------------------------------------
 # Tests: Tier 1/2 — with mocked LLM
 # ---------------------------------------------------------------------------
@@ -307,29 +286,4 @@ def test_ask_fallback_when_llm_fails_no_data(monkeypatch):
     assert result.plan is None
 
 
-def test_explain_fallback_when_llm_fails(monkeypatch):
-    """
-    Test that explain() falls back to plan.explanation when LLM fails,
-    emitting a UserWarning instead of crashing.
-    """
-    assistant = ForecastingAssistant(llm="openai:fake-model")
 
-    def _mock_resolve_model(self_=None):
-        raise ConnectionError("Cannot reach LLM provider")
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    plan = ForecastPlan(
-        task_type="single_series",
-        forecaster="ForecasterRecursive",
-        estimator="Ridge",
-        steps=10,
-        forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
-        explanation="Single series with daily frequency.",
-    )
-
-    with pytest.warns(UserWarning, match="LLM call failed"):
-        result = assistant.explain(plan=plan)
-
-    assert "[LLM unavailable]" in result
-    assert "Single series with daily frequency." in result

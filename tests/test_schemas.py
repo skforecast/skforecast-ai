@@ -152,10 +152,10 @@ def test_forecast_plan_json_roundtrip():
     plan = ForecastPlan(
         task_type="multi_series",
         forecaster="ForecasterRecursiveMultiSeries",
+        forecaster_kwargs={"lags": [1, 2, 3, 12], "encoding": "ordinal", "dropna_from_series": False},
         estimator="LGBMRegressor",
         steps=12,
         frequency="ME",
-        forecaster_kwargs={"lags": [1, 2, 3, 12], "encoding": "ordinal", "dropna_from_series": False},
         interval_method="bootstrapping",
         use_exog=True,
         warnings=["High cardinality in series_id"],
