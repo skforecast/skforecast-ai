@@ -11,8 +11,7 @@ import pandas as pd
 from .exceptions import LLMRequiredError
 from .execution import run_forecast
 from .generation.code_templates import generate_template
-from .llm.agent import create_forecasting_agent
-from .llm.provider import create_model
+from .llm.provider import check_ollama_reachable, create_model
 from .profiling import create_forecaster_analysis, create_data_profile
 from .profiling.data_profile import _try_parse_first_date_column
 from .recommendation import (
@@ -340,6 +339,19 @@ class ForecastingAssistant:
 
         .. note:: Not implemented yet.
 
+        Intended flow (future):
+
+        1. User provides an existing ``plan`` and a natural-language
+           override request (e.g. "use RandomForest instead").
+        2. The LLM extracts structured overrides into a
+           ``PlanOverrides`` schema.
+        3. ``generate_plan()`` is called with those overrides merged
+           into the existing profile, producing a new deterministic
+           plan.
+
+        The LLM never makes forecasting decisions — it only maps
+        natural-language requests into concrete override parameters.
+
         Parameters
         ----------
         plan : ForecastPlan
@@ -354,23 +366,7 @@ class ForecastingAssistant:
         -------
         plan : ForecastPlan
             Updated plan with overrides applied.
-        
         """
-        # TODO: Implement interactive refinement of an existing plan.
-        #
-        # The idea is to let users (or the LLM agent via a
-        # `refine_plan_tool`) request changes on top of a previously
-        # generated plan — e.g. "use RandomForest instead", "predict 48
-        # steps", "add 90 % prediction intervals".
-        #
-        # The LLM's role is limited to mapping natural-language requests
-        # into concrete override parameters; every decision stays
-        # deterministic: `generate_plan()` is called again with the
-        # overrides merged into the existing profile/plan.
-        #
-        # A corresponding `refine_plan_tool` should be registered in
-        # `llm/agent.py` so the agent can invoke this method during a
-        # conversation.
         raise NotImplementedError("refine_plan is not yet implemented.")
 
     def generate_code_from_plan(
@@ -409,9 +405,9 @@ class ForecastingAssistant:
         self,
         data: pd.DataFrame | str | Path,
         target: str | list[str],
+        steps: int,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        steps: int = 10,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
@@ -429,12 +425,12 @@ class ForecastingAssistant:
             Input dataset or path to a CSV file.
         target : str, list
             Name of the column to forecast.
+        steps : int
+            Forecast horizon (number of steps ahead to predict).
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
             Name of the column identifying individual series.
-        steps : int, default 10
-            Forecast horizon.
         forecaster : str, default None
             Explicit forecaster class name. See `profile()`.
         estimator : str, default None
@@ -482,9 +478,9 @@ class ForecastingAssistant:
         self,
         data: pd.DataFrame | str | Path,
         target: str | list[str],
+        steps: int,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        steps: int = 10,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
@@ -503,12 +499,12 @@ class ForecastingAssistant:
             Input dataset or path to a CSV file.
         target : str, list
             Name of the column to forecast.
+        steps : int
+            Forecast horizon (number of steps ahead to predict).
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
             Name of the column identifying individual series.
-        steps : int, default 10
-            Forecast horizon.
         forecaster : str, default None
             Explicit forecaster class name. See `profile()`.
         estimator : str, default None
@@ -574,36 +570,65 @@ class ForecastingAssistant:
             intervals          = result["intervals"],
         )
 
+    # TODO: Why we don't do object programming? Storing plan, profile as attributes. 
     def ask(
         self,
-        question: str,
+        prompt: str,
         data: pd.DataFrame | str | Path | None = None,
+        target: str | list[str] | None = None,
+        date_column: str | None = None,
+        series_id_column: str | None = None,
+        forecaster_profile: ForecasterProfile | None = None,
+        plan: ForecastPlan | None = None,
+        steps: int | None = None,
         skills: list[str] | None = None,
         include_reference: bool = False,
     ) -> AskResult:
         """
-        Ask a free-form forecasting question using the LLM agent.
+        Ask a forecasting question or explain a pre-computed plan.
+
+        Operates in two modes:
+
+        - **Q&A mode** (no data, no profile): The LLM answers general
+          forecasting or skforecast questions using its skills.
+        - **Explain mode** (data or profile provided): Deterministic
+          profiling runs first, then the LLM explains the result.
 
         Parameters
         ----------
         question : str
             Natural-language question or instruction.
         data : pandas DataFrame, str, Path, default None
-            Optional dataset or path to a CSV file for context.
+            Optional dataset or path to a CSV file. When provided
+            (without a pre-computed profile), triggers deterministic
+            profiling + plan generation before the LLM call.
+        target : str, list, default None
+            Name of the target column(s). Required when `data` is
+            provided and `forecaster_profile` is None.
+        date_column : str, default None
+            Name of the column containing timestamps.
+        series_id_column : str, default None
+            Name of the column identifying individual series.
+        forecaster_profile : ForecasterProfile, default None
+            Pre-computed profile. If provided, profiling is skipped.
+        plan : ForecastPlan, default None
+            Pre-computed plan. If provided, plan generation is skipped.
+        steps : int, default None
+            Forecast horizon used when generating a plan from data.
+            Required when `data` or `forecaster_profile` is provided
+            without a pre-computed `plan`.
         skills : list, default None
             List of skill names to include in the agent system prompt.
-            If None, a compact default set is loaded. Pass `'all'` as
-            a single-element list to load every available skill.
+            If None, a compact default set is loaded.
         include_reference : bool, default False
             Whether to include the skforecast API reference in the
-            prompt. The reference is ~195 KB and may exceed the context
-            window of smaller models.
+            prompt.
 
         Returns
         -------
         result : AskResult
-            Agent's structured response with optional forecaster
-            profile, plan, code, and explanation.
+            Response with optional forecaster profile, plan, and
+            LLM-generated explanation.
 
         Notes
         -----
@@ -615,52 +640,74 @@ class ForecastingAssistant:
         if self.llm is None:
             raise LLMRequiredError("ask")
 
-        try:
-            model = self._resolve_model()
-
-            agent = create_forecasting_agent(
-                model             = model,
-                skills            = skills,
-                include_reference = include_reference,
-            )
-            _patch_event_loop()
-            result = agent.run_sync(
-                question, model_settings=self._build_model_settings()
-            )
-
-            plan = result.output if isinstance(result.output, ForecastPlan) else None
-            return AskResult(
-                plan        = plan,
-                explanation = str(result.output),
-            )
-        except LLMRequiredError:
-            raise
-        except Exception as exc:
-            warnings.warn(
-                f"LLM call failed ({exc}), falling back to deterministic mode.",
-                UserWarning,
-                stacklevel=2,
-            )
-            if data is not None:
+        # --- Deterministic stage: compute profile/plan if needed ---
+        if data is not None and forecaster_profile is None:
+            if target is None:
                 df = _coerce_to_dataframe(data)
                 numeric = df.select_dtypes(include="number").columns
                 target = numeric[0] if len(numeric) > 0 else df.columns[-1]
-                forecaster_profile = self.profile(
-                    data   = df,
-                    target = target,
-                )
-                plan = self.generate_plan(forecaster_profile, steps=10)
-                return AskResult(
-                    forecaster_profile = forecaster_profile,
-                    plan               = plan,
-                    explanation        = f"[LLM unavailable] {plan.explanation}",
-                )
-            return AskResult(
-                explanation=(
-                    f"[LLM unavailable] {exc}. "
-                    "Provide data to get a deterministic recommendation."
-                ),
+            forecaster_profile = self.profile(
+                data             = data,
+                target           = target,
+                date_column      = date_column,
+                series_id_column = series_id_column,
             )
+        if forecaster_profile is not None and plan is None:
+            if steps is None:
+                raise ValueError(
+                    "`steps` is required when `data` or "
+                    "`forecaster_profile` is provided without a "
+                    "pre-computed `plan`."
+                )
+            plan = self.generate_plan(forecaster_profile, steps=steps)
+
+        # --- Pre-flight check for Ollama ---
+        if self.llm is not None and self.llm.startswith("ollama:"):
+            check_ollama_reachable(self.base_url)
+
+        # --- Build user message with context ---
+        from .llm.prompts import build_context_message
+
+        context = build_context_message(forecaster_profile, plan)
+        user_message = (
+            f"{context}\n\n## Question\n\n{prompt}" if context else prompt
+        )
+
+        # --- LLM call ---
+        from .llm.agent import create_forecasting_agent
+
+        model = self._resolve_model()
+        agent = create_forecasting_agent(
+            model             = model,
+            skills            = skills,
+            include_reference = include_reference,
+        )
+
+        # Warn if estimated prompt may exceed model context
+        self._warn_if_prompt_too_large(agent, user_message)
+
+        _patch_event_loop()
+        try:
+            result = agent.run_sync(
+                user_message, model_settings=self._build_model_settings()
+            )
+            explanation = result.output
+        except Exception as exc:
+            warnings.warn(
+                f"LLM call failed ({exc}), returning deterministic result.",
+                UserWarning,
+                stacklevel=2,
+            )
+            if plan is not None:
+                explanation = f"[LLM unavailable] {plan.explanation}"
+            else:
+                explanation = f"[LLM unavailable] {exc}"
+
+        return AskResult(
+            forecaster_profile = forecaster_profile,
+            plan               = plan,
+            explanation        = explanation,
+        )
 
     # --------------------------------------------------------------- private
     def _resolve_model(self):
@@ -684,21 +731,83 @@ class ForecastingAssistant:
         """
         Build provider-specific model settings.
 
-        For Ollama models, sets `num_ctx` to ensure the context window
-        is large enough for the system prompt, tool schemas, and
-        conversation history.
+        For Ollama models, dynamically sets ``num_ctx`` based on the
+        estimated prompt size (system prompt + user message) plus a
+        generation buffer. Also sets ``keep_alive`` to keep the model
+        loaded between calls.
 
         Returns
         -------
         settings : dict, None
             Model settings dict or None for cloud providers.
-
         """
-
         if self.llm is not None and self.llm.startswith("ollama:"):
-            return {"extra_body": {"options": {"num_ctx": 32768}}}
-        
+            return {
+                "extra_body": {
+                    "keep_alive": "10m",
+                    "options": {"num_ctx": self._ollama_num_ctx},
+                }
+            }
         return None
+
+    def _estimate_ollama_num_ctx(self, system_prompt: str, user_message: str) -> int:
+        """
+        Estimate the required context window for an Ollama call.
+
+        Uses a rough 4 characters per token heuristic. Adds 2048
+        tokens as generation headroom. Clamps between 4096 and 32768.
+
+        Parameters
+        ----------
+        system_prompt : str
+            The full system prompt text.
+        user_message : str
+            The user message to send.
+
+        Returns
+        -------
+        num_ctx : int
+            Estimated context window size.
+        """
+        chars = len(system_prompt) + len(user_message)
+        estimated_tokens = chars // 4
+        num_ctx = estimated_tokens + 2048  # generation headroom
+        return max(4096, min(num_ctx, 32768))
+
+    _ollama_num_ctx: int = 32768  # default, overridden per-call
+
+    def _warn_if_prompt_too_large(
+        self, agent, user_message: str, threshold: float = 0.7
+    ) -> None:
+        """
+        Warn if the estimated prompt size exceeds a threshold of the
+        context window. Only applies to Ollama models.
+
+        Parameters
+        ----------
+        agent : Agent
+            The configured agent (to access its system prompt).
+        user_message : str
+            The user message being sent.
+        threshold : float, default 0.7
+            Fraction of context window that triggers a warning.
+        """
+        if self.llm is None or not self.llm.startswith("ollama:"):
+            return
+
+        system_prompt = agent._system_prompts[0] if agent._system_prompts else ""
+        num_ctx = self._estimate_ollama_num_ctx(system_prompt, user_message)
+        self._ollama_num_ctx = num_ctx
+
+        estimated_tokens = (len(system_prompt) + len(user_message)) // 4
+        if estimated_tokens > threshold * num_ctx:
+            warnings.warn(
+                f"Estimated prompt size (~{estimated_tokens} tokens) exceeds "
+                f"{int(threshold * 100)}% of the context window ({num_ctx}). "
+                f"Consider using `skills=[]` or fewer skills to reduce latency.",
+                UserWarning,
+                stacklevel=3,
+            )
 
 
 def _coerce_to_dataframe(

@@ -1,7 +1,7 @@
 """LLM provider abstraction for skforecast-ai."""
 
 from .prompts import (
-    build_explain_prompt,
+    build_context_message,
     build_system_prompt,
     load_llms_reference,
     load_skill,
@@ -9,7 +9,7 @@ from .prompts import (
 from .provider import check_ollama_reachable, create_model, parse_model_string
 
 __all__ = [
-    "build_explain_prompt",
+    "build_context_message",
     "build_system_prompt",
     "check_ollama_reachable",
     "create_model",

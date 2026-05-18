@@ -5,39 +5,10 @@ import re
 import pytest
 
 from skforecast_ai.llm.prompts import (
-    build_explain_prompt,
+    build_context_message,
     build_system_prompt,
     load_llms_reference,
     load_skill,
-)
-from skforecast_ai.schemas import DataProfile, ForecastPlan
-
-profile_single_daily = DataProfile(
-    n_series=1,
-    n_observations=365,
-    target="sales",
-    date_column="date",
-    index_type="datetime",
-    frequency="D",
-    exog_columns=["temperature", "promotion"],
-    categorical_exog=["promotion"],
-    missing_target={},
-    missing_exog={},
-    warnings=[],
-)
-
-plan_single_recursive = ForecastPlan(
-    task_type="single_series",
-    forecaster="ForecasterRecursive",
-    estimator="LGBMRegressor",
-    steps=10,
-    frequency="D",
-    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
-    interval_method="bootstrapping",
-    use_exog=True,
-    data_requirements=["impute_missing", "encode_categorical"],
-    warnings=[],
-    explanation="Single daily series with exogenous variables.",
 )
 
 
@@ -133,23 +104,56 @@ def test_build_system_prompt_includes_all_skills_when_explicit():
     assert "deep-learning-forecasting" in result
 
 
-def test_build_explain_prompt_uses_plan():
+def test_build_context_message_empty_when_no_args():
     """
-    Test that build_explain_prompt produces a prompt string containing
-    key fields from both the plan and profile.
+    Test that build_context_message returns empty string when both
+    arguments are None.
     """
-    result = build_explain_prompt(plan_single_recursive, profile_single_daily)
+    assert build_context_message() == ""
+
+
+def test_build_context_message_includes_profile_fields():
+    """
+    Test that build_context_message includes key profile fields when a
+    ForecasterProfile is provided.
+    """
+    from skforecast_ai.schemas import (
+        DataProfile,
+        ForecasterAnalysis,
+        ForecasterProfile,
+    )
+
+    dp = DataProfile(
+        n_series=1,
+        n_observations=200,
+        target="y",
+        index_type="datetime",
+        frequency="D",
+        exog_columns=["temp"],
+        warnings=[],
+    )
+    profile = ForecasterProfile(
+        data_profile=dp,
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        forecaster_candidates=["ForecasterRecursive"],
+        estimator="LGBMRegressor",
+        estimator_candidates=["LGBMRegressor"],
+        analysis_context=ForecasterAnalysis(effective_n_observations=200),
+        explanation="Test explanation.",
+    )
+
+    result = build_context_message(forecaster_profile=profile)
+    assert "200" in result
     assert "ForecasterRecursive" in result
-    assert "single_series" in result
-    assert "365" in result
     assert "LGBMRegressor" in result
-    assert "temperature" in result
+    assert "temp" in result
 
 
 def test_create_forecasting_agent_returns_agent():
     """
     Test that create_forecasting_agent returns a Pydantic AI Agent
-    instance configured with the correct output type.
+    instance configured with output_type=str and no tools.
     """
     pydantic_ai = pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
@@ -164,11 +168,29 @@ def test_create_forecasting_agent_returns_agent():
     assert isinstance(agent, pydantic_ai.Agent)
 
 
-def test_agent_tools_registered():
+def test_agent_returns_str():
     """
-    Test that the forecasting agent has the four expected tools
-    registered (profile_data, build_forecaster_profile_tool,
-    generate_plan_tool, generate_code_tool).
+    Test that the agent produces a plain string response (output_type=str)
+    when run with TestModel.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.test import TestModel
+
+    from skforecast_ai.llm.agent import create_forecasting_agent
+
+    agent = create_forecasting_agent(
+        model=TestModel(),
+        skills=["choosing-a-forecaster"],
+        include_reference=False,
+    )
+
+    result = agent.run_sync("What is skforecast?")
+    assert isinstance(result.output, str)
+
+
+def test_agent_has_no_tools():
+    """
+    Test that the forecasting agent has no tools registered.
     """
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
@@ -182,27 +204,4 @@ def test_agent_tools_registered():
     )
 
     tool_names = set(agent._function_toolset.tools.keys())
-    assert "profile_data" in tool_names
-    assert "build_forecaster_profile_tool" in tool_names
-    assert "generate_plan_tool" in tool_names
-    assert "generate_code_tool" in tool_names
-
-
-def test_agent_returns_forecast_plan():
-    """
-    Test that the agent produces a valid ForecastPlan when run with
-    TestModel providing structured output without calling tools.
-    """
-    pytest.importorskip("pydantic_ai")
-    from pydantic_ai.models.test import TestModel
-
-    from skforecast_ai.llm.agent import create_forecasting_agent
-
-    agent = create_forecasting_agent(
-        model=TestModel(call_tools=[]),
-        skills=["choosing-a-forecaster"],
-        include_reference=False,
-    )
-
-    result = agent.run_sync("Forecast daily sales for the next 10 days.")
-    assert isinstance(result.output, ForecastPlan)
+    assert len(tool_names) == 0

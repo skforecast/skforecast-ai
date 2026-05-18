@@ -215,24 +215,22 @@ def test_assistant_with_llm_generate_code_output(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Tests: LLM fallback to Tier 0
+# Tests: LLM fallback and ask modes
 # ---------------------------------------------------------------------------
-def test_ask_fallback_when_llm_fails(monkeypatch):
+def test_ask_fallback_when_llm_fails_with_data(monkeypatch):
     """
     Test that ask() falls back to deterministic mode and returns an AskResult
-    with a warning when the LLM call fails, instead of crashing.
+    with a warning when the LLM call fails, providing data context.
     """
     from skforecast_ai.schemas import AskResult
 
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
-    # Force _resolve_model to raise when the agent tries to run
     def _mock_resolve_model(self_=None):
         return "fake-model-string"
 
     monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
 
-    # Mock create_forecasting_agent to raise an error
     import skforecast_ai.llm.agent as agent_mod
 
     def _mock_create_agent(*args, **kwargs):
@@ -245,13 +243,17 @@ def test_ask_fallback_when_llm_fails(monkeypatch):
 
     with pytest.warns(UserWarning, match="LLM call failed"):
         result = assistant.ask(
-            question="What forecaster should I use?",
+            prompt="What forecaster should I use?",
             data=df_fixture,
+            target="sales",
+            date_column="date",
+            steps=10,
         )
 
     assert isinstance(result, AskResult)
     assert "LLM unavailable" in result.explanation
     assert result.plan is not None
+    assert result.forecaster_profile is not None
 
 
 def test_ask_fallback_when_llm_fails_no_data(monkeypatch):
@@ -279,11 +281,135 @@ def test_ask_fallback_when_llm_fails_no_data(monkeypatch):
     monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
 
     with pytest.warns(UserWarning, match="LLM call failed"):
-        result = assistant.ask(question="What forecaster should I use?")
+        result = assistant.ask(prompt="What forecaster should I use?")
 
     assert isinstance(result, AskResult)
     assert "LLM unavailable" in result.explanation
     assert result.plan is None
+    assert result.forecaster_profile is None
+
+
+def test_ask_qa_mode_no_data(monkeypatch):
+    """
+    Test that ask() in Q&A mode (no data, no profile) calls the LLM
+    with just the user question and returns a plain text explanation.
+    """
+    from skforecast_ai.schemas import AskResult
+
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    def _mock_resolve_model(self_=None):
+        return "fake-model-string"
+
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    import skforecast_ai.llm.agent as agent_mod
+
+    class _FakeResult:
+        output = "Skforecast is a Python library for time series."
+
+    def _mock_create_agent(*args, **kwargs):
+        class _FakeAgent:
+            def run_sync(self, msg, **kw):
+                assert "## Question" not in msg  # No context prefix
+                return _FakeResult()
+        return _FakeAgent()
+
+    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+
+    result = assistant.ask(prompt="What is skforecast?")
+
+    assert isinstance(result, AskResult)
+    assert result.explanation == "Skforecast is a Python library for time series."
+    assert result.forecaster_profile is None
+    assert result.plan is None
+
+
+def test_ask_explain_mode_with_data(monkeypatch):
+    """
+    Test that ask() in Explain mode (data provided) computes profile and
+    plan deterministically, then passes context to the LLM.
+    """
+    from skforecast_ai.schemas import AskResult
+
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    def _mock_resolve_model(self_=None):
+        return "fake-model-string"
+
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    import skforecast_ai.llm.agent as agent_mod
+
+    class _FakeResult:
+        output = "This plan uses ForecasterRecursive with LGBMRegressor."
+
+    def _mock_create_agent(*args, **kwargs):
+        class _FakeAgent:
+            def run_sync(self, msg, **kw):
+                assert "## Data & Profile Summary" in msg
+                assert "## Forecast Plan" in msg
+                assert "## Question" in msg
+                return _FakeResult()
+        return _FakeAgent()
+
+    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+
+    result = assistant.ask(
+        prompt="Explain this plan",
+        data=df_fixture,
+        target="sales",
+        date_column="date",
+        steps=10,
+    )
+
+    assert isinstance(result, AskResult)
+    assert result.forecaster_profile is not None
+    assert result.plan is not None
+    assert result.explanation == "This plan uses ForecasterRecursive with LGBMRegressor."
+
+
+def test_ask_with_precomputed_profile(monkeypatch):
+    """
+    Test that ask() skips profiling when a pre-computed
+    ForecasterProfile is provided directly.
+    """
+    from skforecast_ai.schemas import AskResult
+
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    # Pre-compute profile
+    profile = assistant.profile(data=df_fixture, target="sales", date_column="date")
+
+    def _mock_resolve_model(self_=None):
+        return "fake-model-string"
+
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    import skforecast_ai.llm.agent as agent_mod
+
+    class _FakeResult:
+        output = "Great plan for daily data."
+
+    def _mock_create_agent(*args, **kwargs):
+        class _FakeAgent:
+            def run_sync(self, msg, **kw):
+                return _FakeResult()
+        return _FakeAgent()
+
+    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+
+    result = assistant.ask(
+        prompt="Is this a good plan?",
+        forecaster_profile=profile,
+        steps=5,
+    )
+
+    assert isinstance(result, AskResult)
+    assert result.forecaster_profile is profile
+    assert result.plan is not None
+    assert result.plan.steps == 5
+    assert result.explanation == "Great plan for daily data."
 
 
 

@@ -1,8 +1,10 @@
 """System prompts, skill loader, and prompt builders for the LLM agent."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
-from ..schemas import DataProfile, ForecastPlan
+from ..schemas import ForecasterProfile, ForecastPlan
 
 _PACKAGE_DIR = Path(__file__).resolve().parent.parent
 _REPO_DIR = _PACKAGE_DIR.parent
@@ -32,40 +34,21 @@ DEFAULT_SKILLS = [
 ]
 
 _SYSTEM_PROMPT_TEMPLATE = """\
-You are a forecasting assistant built on skforecast. Your role is to help \
-users build accurate time series forecasting pipelines.
+You are a forecasting assistant built on skforecast. Your role is to \
+explain forecasting concepts, answer questions about skforecast, and \
+describe pre-computed forecasting plans in plain language.
 
 ## Core Rules
 
-1. You NEVER make forecasting decisions yourself. All recommendations come \
-from deterministic tools (profile_data, build_forecaster_profile_tool, \
-generate_plan_tool, generate_code_tool).
-2. You translate the user's natural-language intent into tool calls.
-3. You explain the deterministic outputs in plain language when asked.
-4. You NEVER see raw datasets. Only metadata (schema, summary stats) is \
-available to you via the profile_data tool.
-5. Every recommendation must be reproducible from deterministic Python code.
-6. If you cannot validate something, warn the user explicitly.
-
-## Available Tools
-
-- `profile_data`: Inspect a dataset and return a DataProfile with metadata, \
-detected features, and warnings.
-- `build_forecaster_profile_tool`: From a DataProfile, select the recommended \
-forecaster + estimator and the compatible candidates.
-- `generate_plan_tool`: From a ForecasterProfile, build a detailed \
-ForecastPlan (lags, metric, backtesting, intervals, NaN handling, \
-preprocessing).
-- `generate_code_tool`: Produce a complete Python script from a ForecastPlan \
-and DataProfile.
-
-## Workflow
-
-1. Use `profile_data` to understand the user's dataset.
-2. Use `build_forecaster_profile_tool` to pick the forecaster + estimator.
-3. Use `generate_plan_tool` to produce the detailed forecasting plan.
-4. Use `generate_code_tool` to produce executable code.
-5. Explain the plan and code to the user in plain language.
+1. You NEVER make forecasting decisions yourself. All recommendations \
+come from deterministic code outside your control.
+2. You explain pre-computed outputs (ForecasterProfile, ForecastPlan) \
+in plain language when context is provided in the user message.
+3. You answer general questions about time series forecasting and the \
+skforecast library using the skills and reference below.
+4. Every recommendation must be reproducible from deterministic Python code.
+5. If you cannot validate something, warn the user explicitly.
+6. Be concise and focus on practical guidance.
 
 ## Skills Reference
 
@@ -75,34 +58,6 @@ and DataProfile.
 
 {reference_content}
 """
-
-_EXPLAIN_PROMPT_TEMPLATE = """\
-Explain the following forecasting plan in plain language. Be concise and \
-focus on why each choice was made.
-
-## Data Profile
-
-- Observations: {n_observations}
-- Series: {n_series}
-- Frequency: {frequency}
-- Exogenous columns: {exog_columns}
-- Warnings: {profile_warnings}
-
-## Forecast Plan
-
-- Task type: {task_type}
-- Forecaster: {forecaster}
-- Estimator: {estimator}
-- steps: {steps}
-- Forecaster kwargs: {forecaster_kwargs}
-- Interval method: {interval_method}
-- Use exogenous: {use_exog}
-- Explanation: {explanation}
-
-Provide a clear, non-technical explanation of this plan suitable for a data \
-scientist who is new to skforecast.
-"""
-
 
 def load_skill(skill_name: str) -> str:
     """
@@ -211,38 +166,60 @@ def build_system_prompt(
     )
 
 
-def build_explain_prompt(plan: ForecastPlan, profile: DataProfile) -> str:
+def build_context_message(
+    forecaster_profile: ForecasterProfile | None = None,
+    plan: ForecastPlan | None = None,
+) -> str:
     """
-    Build a prompt to explain a forecasting plan in plain language.
+    Serialize a profile and/or plan into a context block for the LLM.
+
+    Produces a concise plain-text summary suitable for inclusion in the
+    user message so the LLM can explain or discuss the deterministic
+    outputs without needing tool access.
 
     Parameters
     ----------
-    plan : ForecastPlan
-        Validated forecast plan to explain.
-    profile : DataProfile
-        Data profile providing context about the dataset.
+    forecaster_profile : ForecasterProfile, default None
+        High-level profile of the forecasting problem.
+    plan : ForecastPlan, default None
+        Detailed forecasting plan.
 
     Returns
     -------
-    prompt : str
-        User-message prompt for the LLM to generate an explanation.
+    context : str
+        Plain-text context block. Empty string if both arguments are
+        None.
     """
-    return _EXPLAIN_PROMPT_TEMPLATE.format(
-        n_observations=profile.n_observations,
-        n_series=profile.n_series,
-        frequency=profile.frequency or "unknown",
-        exog_columns=(
-            ", ".join(profile.exog_columns) if profile.exog_columns else "none"
-        ),
-        profile_warnings=(
-            "; ".join(profile.warnings) if profile.warnings else "none"
-        ),
-        task_type=plan.task_type,
-        forecaster=plan.forecaster,
-        estimator=plan.estimator or "none",
-        steps=plan.steps,
-        forecaster_kwargs=plan.forecaster_kwargs,
-        interval_method=plan.interval_method or "none",
-        use_exog=plan.use_exog,
-        explanation=plan.explanation,
-    )
+    if forecaster_profile is None and plan is None:
+        return ""
+
+    parts: list[str] = []
+
+    if forecaster_profile is not None:
+        dp = forecaster_profile.data_profile
+        parts.append("## Data & Profile Summary")
+        parts.append(f"- Observations: {dp.n_observations}")
+        parts.append(f"- Series: {dp.n_series}")
+        parts.append(f"- Frequency: {dp.frequency or 'unknown'}")
+        parts.append(f"- Target: {dp.target}")
+        exog = ", ".join(dp.exog_columns) if dp.exog_columns else "none"
+        parts.append(f"- Exogenous columns: {exog}")
+        if dp.warnings:
+            parts.append(f"- Warnings: {'; '.join(dp.warnings)}")
+        parts.append(f"- Task type: {forecaster_profile.task_type}")
+        parts.append(f"- Forecaster: {forecaster_profile.forecaster}")
+        parts.append(f"- Estimator: {forecaster_profile.estimator or 'none'}")
+        parts.append(f"- Explanation: {forecaster_profile.explanation}")
+
+    if plan is not None:
+        parts.append("")
+        parts.append("## Forecast Plan")
+        parts.append(f"- Forecaster: {plan.forecaster}")
+        parts.append(f"- Estimator: {plan.estimator or 'none'}")
+        parts.append(f"- Steps: {plan.steps}")
+        parts.append(f"- Forecaster kwargs: {plan.forecaster_kwargs}")
+        parts.append(f"- Interval method: {plan.interval_method or 'none'}")
+        parts.append(f"- Use exog: {plan.use_exog}")
+        parts.append(f"- Explanation: {plan.explanation}")
+
+    return "\n".join(parts)

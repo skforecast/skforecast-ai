@@ -12,6 +12,7 @@ from .schemas import (
     ForecastPlan,
     GeneratedCode,
     GenerateResult,
+    PlanOverrides,
     PreprocessingStep,
     RunResult,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "GeneratedCode",
     "GenerateResult",
     "LLMRequiredError",
+    "PlanOverrides",
     "PreprocessingStep",
     "RunResult",
     "__version__",
