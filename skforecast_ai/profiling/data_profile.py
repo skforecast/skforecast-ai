@@ -931,6 +931,11 @@ def _compute_end_train(
     """
     Compute the end-of-training date at the 80 % mark of the index.
 
+    For sub-daily frequencies the full timestamp is returned to avoid
+    ambiguity between partial-string `.loc` slicing (which includes all
+    hours on a given date) and boolean comparison (which treats a date
+    string as midnight).
+
     Parameters
     ----------
     datetime_index : pandas DatetimeIndex, None
@@ -939,11 +944,17 @@ def _compute_end_train(
     Returns
     -------
     end_train : str, None
-        ISO-formatted date string (e.g. `'2005-03-01'`) at the 80 %
-        position. None if no datetime index is available.
+        ISO-formatted date or datetime string at the 80 % position.
+        Date-only (e.g. `'2005-03-01'`) for daily or coarser
+        frequencies; full timestamp (e.g. `'2012-08-07 23:00:00'`) for
+        sub-daily frequencies. None if no datetime index is available.
     """
     if datetime_index is None or len(datetime_index) == 0:
         return None
     idx = int(len(datetime_index) * 0.8) - 1
     idx = max(0, min(idx, len(datetime_index) - 1))
-    return str(datetime_index[idx].date())
+    ts = datetime_index[idx]
+    # Sub-daily: return full timestamp to avoid .loc vs > comparison mismatch
+    if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+        return str(ts)
+    return str(ts.date())

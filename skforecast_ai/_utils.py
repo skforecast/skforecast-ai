@@ -23,7 +23,7 @@ def _coerce_to_dataframe(
     data: pd.DataFrame | str | Path,
 ) -> pd.DataFrame:
     """
-    Load a CSV path into a DataFrame, or return the DataFrame unchanged.
+    Load a CSV path or URL into a DataFrame, or return the DataFrame unchanged.
 
     The CSV is loaded without `parse_dates` (deprecated in pandas
     2.2+). Date columns are detected and parsed by
@@ -33,7 +33,7 @@ def _coerce_to_dataframe(
     Parameters
     ----------
     data : pandas DataFrame, str, Path
-        Input dataset or path to a CSV file.
+        Input dataset, path to a CSV file, or URL to a remote CSV.
 
     Returns
     -------
@@ -42,7 +42,21 @@ def _coerce_to_dataframe(
     """
 
     if isinstance(data, (str, Path)):
-        df = pd.read_csv(data)
+        data_str = str(data)
+        if data_str.startswith(("http://", "https://")):
+            try:
+                df = pd.read_csv(data_str)
+            except Exception as e:
+                raise FileNotFoundError(
+                    f"Could not read CSV from URL: '{data_str}'. {e}"
+                ) from e
+            return _try_parse_first_date_column(df)
+        path = Path(data_str)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"CSV file not found: '{path}'. Please provide a valid file path."
+            )
+        df = pd.read_csv(path)
         return _try_parse_first_date_column(df)
 
     return data

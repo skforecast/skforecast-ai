@@ -104,6 +104,20 @@ def test_coerce_to_dataframe_output_when_csv_path(tmp_path, path_type):
     assert len(result) == 3
 
 
+@pytest.mark.parametrize(
+    "path_type",
+    [str, Path],
+    ids=["str_path", "Path_object"],
+)
+def test_coerce_to_dataframe_raises_when_csv_path_not_found(tmp_path, path_type):
+    """
+    Test that a clear FileNotFoundError is raised when the CSV path doesn't exist.
+    """
+    missing_path = tmp_path / "nonexistent.csv"
+    with pytest.raises(FileNotFoundError, match="CSV file not found"):
+        _coerce_to_dataframe(path_type(missing_path))
+
+
 def test_coerce_to_dataframe_parses_date_column(tmp_path):
     """
     Test that a date column in a CSV is detected and parsed as datetime.

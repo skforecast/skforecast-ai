@@ -91,6 +91,15 @@ def select_lags_and_window_features(
     primary_season = seasonalities[0] if seasonalities else None
     secondary_season = seasonalities[1] if len(seasonalities) > 1 else None
 
+    # Cap max_lag_allowed at a practical limit for long sub-daily series
+    # to prevent PACF from producing hundreds of spurious "significant" lags.
+    if primary_season is not None:
+        practical_cap = max(
+            3 * (secondary_season if secondary_season is not None else primary_season),
+            500,
+        )
+        max_lag_allowed = min(max_lag_allowed, practical_cap)
+
     # --- Very short series: minimal lags, no window features ---
     if n_observations < 30:
         n_lags = min(5, max_lag_allowed)
@@ -184,6 +193,32 @@ def _select_lags_from_pacf(
         if secondary_season not in lags:
             lags.append(secondary_season)
             lags = sorted(lags)
+
+    # Cap total lags to prevent impractical lag sets for long series
+    max_selected = 200
+    if len(lags) > max_selected:
+        # Prioritize: seasonal anchors + highest PACF magnitude
+        anchor_lags = set()
+        if primary_season is not None:
+            anchor_lags.add(primary_season)
+        if secondary_season is not None:
+            anchor_lags.add(secondary_season)
+        anchor_lags.add(1)  # Always keep lag 1
+
+        # Rank remaining by |PACF| (higher = more informative)
+        pacf_values = dict(
+            zip(
+                lag_table["lag"].astype(int),
+                lag_table["partial_autocorrelation_abs"],
+            )
+        )
+        non_anchor = [lag for lag in lags if lag not in anchor_lags]
+        non_anchor.sort(key=lambda lag: pacf_values.get(lag, 0), reverse=True)
+
+        # Keep anchors + top-N by PACF
+        budget = max_selected - len(anchor_lags & set(lags))
+        selected = sorted(anchor_lags & set(lags)) + non_anchor[:budget]
+        lags = sorted(set(selected))
 
     return lags
 
