@@ -5,31 +5,31 @@ __version__ = "0.1.0"
 from .assistant import ForecastingAssistant
 from .exceptions import ForecastExecutionError, LLMRequiredError
 from .schemas import (
-    ForecasterAnalysis,
+    ForecastingAnalysis,
     AskResult,
     DataProfile,
-    ForecasterProfile,
+    ForecastingProfile,
     ForecastPlan,
     GeneratedCode,
-    GenerateResult,
+    CodeGenerationResult,
     PlanOverrides,
     PreprocessingStep,
-    RunResult,
+    ForecastResult,
 )
 
 __all__ = [
-    "ForecasterAnalysis",
+    "ForecastingAnalysis",
     "AskResult",
     "DataProfile",
     "ForecastExecutionError",
-    "ForecasterProfile",
+    "ForecastingProfile",
     "ForecastingAssistant",
     "ForecastPlan",
     "GeneratedCode",
-    "GenerateResult",
+    "CodeGenerationResult",
     "LLMRequiredError",
     "PlanOverrides",
     "PreprocessingStep",
-    "RunResult",
+    "ForecastResult",
     "__version__",
 ]

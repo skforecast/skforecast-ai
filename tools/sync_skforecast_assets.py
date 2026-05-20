@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Download the pinned version of llms-full.txt from the skforecast core repo
-and save it to skforecast_ai/resources/llms-full.txt.
+Download the pinned version of llms-base.txt from the skforecast core repo
+and save it to skforecast_ai/resources/llms-base.txt.
 
 Usage
 -----
@@ -24,14 +24,14 @@ from urllib.request import Request, urlopen
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SKFORECAST_VERSION = "0.23.x"
+SKFORECAST_BRANCH = "master"
 SKFORECAST_RAW_URL = (
-    f"https://raw.githubusercontent.com/skforecast/skforecast/"
-    f"v{SKFORECAST_VERSION}/llms-full.txt"
+    "https://raw.githubusercontent.com/skforecast/skforecast/"
+    f"{SKFORECAST_BRANCH}/tools/ai/llms-base.txt"
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEST_PATH = REPO_ROOT / "skforecast_ai" / "resources" / "llms-full.txt"
+DEST_PATH = REPO_ROOT / "skforecast_ai" / "resources" / "llms-base.txt"
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ def _download(url: str) -> bytes:
     except HTTPError as exc:
         sys.exit(
             f"Error: HTTP {exc.code} when fetching {url}\n"
-            f"Hint: does tag v{SKFORECAST_VERSION} exist in the skforecast repo?"
+            f"Hint: does branch '{SKFORECAST_BRANCH}' exist in the skforecast repo?"
         )
     except URLError as exc:
         sys.exit(f"Error: could not reach {url} — {exc.reason}")
@@ -60,8 +60,8 @@ def _download(url: str) -> bytes:
 # Commands
 # ---------------------------------------------------------------------------
 def sync() -> None:
-    """Download llms-full.txt and write it to *DEST_PATH*."""
-    print(f"Downloading llms-full.txt (skforecast v{SKFORECAST_VERSION}) ...")
+    """Download llms-base.txt and write it to *DEST_PATH*."""
+    print(f"Downloading llms-base.txt (skforecast branch: {SKFORECAST_BRANCH}) ...")
     data = _download(SKFORECAST_RAW_URL)
 
     DEST_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -78,7 +78,7 @@ def check() -> None:
             f"Run `python tools/sync_skforecast_assets.py` first."
         )
 
-    print(f"Fetching remote llms-full.txt (skforecast v{SKFORECAST_VERSION}) ...")
+    print(f"Fetching remote llms-base.txt (skforecast branch: {SKFORECAST_BRANCH}) ...")
     remote_data = _download(SKFORECAST_RAW_URL)
     local_data = DEST_PATH.read_bytes()
 
@@ -87,7 +87,7 @@ def check() -> None:
 
     if remote_hash != local_hash:
         sys.exit(
-            f"Check failed: local and remote llms-full.txt differ.\n"
+            f"Check failed: local and remote llms-base.txt differ.\n"
             f"  local  sha256: {local_hash}\n"
             f"  remote sha256: {remote_hash}\n"
             f"Run `python tools/sync_skforecast_assets.py` to update."
@@ -101,7 +101,7 @@ def check() -> None:
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Sync llms-full.txt from the skforecast core repository."
+        description="Sync llms-base.txt from the skforecast core repository."
     )
     parser.add_argument(
         "--check",

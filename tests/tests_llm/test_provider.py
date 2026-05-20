@@ -56,14 +56,13 @@ def test_parse_model_string_ValueError_when_no_prefix():
         parse_model_string("gpt-4o-mini")
 
 
-def test_parse_model_string_ValueError_when_unsupported_provider():
+def test_parse_model_string_output_when_unknown_provider():
     """
-    Test that an unsupported provider prefix raises ValueError listing
-    the supported providers.
+    Test that an unknown provider string is parsed without error,
+    delegating validation to Pydantic AI at runtime.
     """
-    msg = re.escape("Unsupported provider 'foobar'.")
-    with pytest.raises(ValueError, match=msg):
-        parse_model_string("foobar:some-model")
+    result = parse_model_string("deepseek:deepseek-chat")
+    assert result == ("deepseek", "deepseek-chat")
 
 
 def test_create_model_output_when_none():
@@ -110,10 +109,10 @@ def test_create_model_output_when_ollama_custom_url():
     assert result.model_name == "qwen2.5:14b-instruct"
 
 
-def test_create_model_ValueError_when_unsupported_provider():
+def test_create_model_output_when_unknown_provider():
     """
-    Test that create_model with an unsupported provider raises ValueError.
+    Test that create_model with an unknown cloud provider returns the
+    raw string, delegating resolution to Pydantic AI.
     """
-    msg = re.escape("Unsupported provider 'unknown'.")
-    with pytest.raises(ValueError, match=msg):
-        create_model("unknown:some-model")
+    result = create_model("deepseek:deepseek-chat")
+    assert result == "deepseek:deepseek-chat"

@@ -4,12 +4,8 @@ import re
 
 import pytest
 
-from skforecast_ai.llm.prompts import (
-    build_context_message,
-    build_system_prompt,
-    load_llms_reference,
-    load_skill,
-)
+from skforecast_ai.llm.context import build_context_message
+from skforecast_ai.llm.skills import load_llms_reference, load_skill
 
 
 def test_load_skill_FileNotFoundError_when_skill_does_not_exist():
@@ -44,64 +40,13 @@ def test_load_skill_output_includes_references():
 
 def test_load_llms_reference_output():
     """
-    Test that load_llms_reference returns the content of llms-full.txt
+    Test that load_llms_reference returns the content of llms-base.txt
     containing skforecast API information.
     """
     result = load_llms_reference()
     assert isinstance(result, str)
     assert "Skforecast" in result or "skforecast" in result
     assert "0.22" in result
-
-
-def test_build_system_prompt_includes_skills():
-    """
-    Test that build_system_prompt includes skill content when specific
-    skills are requested.
-    """
-    result = build_system_prompt(
-        skills=["choosing-a-forecaster"],
-        include_reference=False,
-    )
-    assert "Choosing a Forecaster" in result
-    assert "forecasting assistant" in result
-    assert "(Reference not included)" in result
-
-
-def test_build_system_prompt_includes_reference():
-    """
-    Test that build_system_prompt includes the llms-full.txt API reference
-    when include_reference is True.
-    """
-    result = build_system_prompt(
-        skills=["choosing-a-forecaster"],
-        include_reference=True,
-    )
-    assert "Skforecast" in result or "skforecast" in result
-    assert "(Reference not included)" not in result
-
-
-def test_build_system_prompt_includes_default_skills_when_none():
-    """
-    Test that build_system_prompt loads DEFAULT_SKILLS when the skills
-    parameter is None.
-    """
-    result = build_system_prompt(skills=None, include_reference=False)
-    assert "choosing-a-forecaster" in result
-    assert "forecasting-single-series" in result
-    assert "forecasting-multiple-series" in result
-
-
-def test_build_system_prompt_includes_all_skills_when_explicit():
-    """
-    Test that build_system_prompt loads all skills when ALL_SKILLS is
-    passed explicitly.
-    """
-    from skforecast_ai.llm.prompts import ALL_SKILLS
-
-    result = build_system_prompt(skills=ALL_SKILLS, include_reference=False)
-    assert "choosing-a-forecaster" in result
-    assert "statistical-models" in result
-    assert "deep-learning-forecasting" in result
 
 
 def test_build_context_message_empty_when_no_args():
@@ -115,12 +60,12 @@ def test_build_context_message_empty_when_no_args():
 def test_build_context_message_includes_profile_fields():
     """
     Test that build_context_message includes key profile fields when a
-    ForecasterProfile is provided.
+    ForecastingProfile is provided.
     """
     from skforecast_ai.schemas import (
         DataProfile,
-        ForecasterAnalysis,
-        ForecasterProfile,
+        ForecastingAnalysis,
+        ForecastingProfile,
     )
 
     dp = DataProfile(
@@ -132,18 +77,18 @@ def test_build_context_message_includes_profile_fields():
         exog_columns=["temp"],
         warnings=[],
     )
-    profile = ForecasterProfile(
+    profile = ForecastingProfile(
         data_profile=dp,
         task_type="single_series",
         forecaster="ForecasterRecursive",
         forecaster_candidates=["ForecasterRecursive"],
         estimator="LGBMRegressor",
         estimator_candidates=["LGBMRegressor"],
-        analysis_context=ForecasterAnalysis(effective_n_observations=200),
-        explanation="Test explanation.",
+        analysis_context=ForecastingAnalysis(effective_n_observations=200),
+        explanation="A single-series ML forecaster (ForecasterRecursive) is recommended. Estimator: LGBMRegressor.",
     )
 
-    result = build_context_message(forecaster_profile=profile)
+    result = build_context_message(profile=profile)
     assert "200" in result
     assert "ForecasterRecursive" in result
     assert "LGBMRegressor" in result
@@ -160,11 +105,7 @@ def test_create_forecasting_agent_returns_agent():
 
     from skforecast_ai.llm.agent import create_forecasting_agent
 
-    agent = create_forecasting_agent(
-        model=TestModel(),
-        skills=["choosing-a-forecaster"],
-        include_reference=False,
-    )
+    agent = create_forecasting_agent(model=TestModel())
     assert isinstance(agent, pydantic_ai.Agent)
 
 
@@ -176,15 +117,18 @@ def test_agent_returns_str():
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
 
-    from skforecast_ai.llm.agent import create_forecasting_agent
+    from skforecast_ai.llm.agent import AskDeps, create_forecasting_agent
 
-    agent = create_forecasting_agent(
-        model=TestModel(),
-        skills=["choosing-a-forecaster"],
+    agent = create_forecasting_agent(model=TestModel())
+
+    deps = AskDeps(
+        profile=None,
+        plan=None,
+        question="What is skforecast?",
         include_reference=False,
+        skills_override=["choosing-a-forecaster"],
     )
-
-    result = agent.run_sync("What is skforecast?")
+    result = agent.run_sync("What is skforecast?", deps=deps)
     assert isinstance(result.output, str)
 
 
@@ -197,11 +141,7 @@ def test_agent_has_no_tools():
 
     from skforecast_ai.llm.agent import create_forecasting_agent
 
-    agent = create_forecasting_agent(
-        model=TestModel(),
-        skills=["choosing-a-forecaster"],
-        include_reference=False,
-    )
+    agent = create_forecasting_agent(model=TestModel())
 
     tool_names = set(agent._function_toolset.tools.keys())
     assert len(tool_names) == 0

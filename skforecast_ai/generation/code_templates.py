@@ -35,6 +35,7 @@ _ESTIMATOR_IMPORTS: dict[str, str] = {
     "XGBRegressor": "from xgboost import XGBRegressor",
     "CatBoostRegressor": "from catboost import CatBoostRegressor",
     "RandomForestRegressor": "from sklearn.ensemble import RandomForestRegressor",
+    "HistGradientBoostingRegressor": "from sklearn.ensemble import HistGradientBoostingRegressor",
 }
 
 # Default kwargs injected into estimator constructors (silencing + reproducibility)
@@ -43,6 +44,7 @@ _ESTIMATOR_DEFAULTS: dict[str, dict[str, object]] = {
     "XGBRegressor": {"random_state": 123, "verbosity": 0},
     "CatBoostRegressor": {"random_state": 123, "verbose": 0},
     "RandomForestRegressor": {"random_state": 123},
+    "HistGradientBoostingRegressor": {"random_state": 123},
     "Ridge": {},
 }
 
@@ -271,9 +273,9 @@ def _emit_end_train(
     lines: list[str],
     profile: DataProfile,
 ) -> None:
-    """Emit the ``end_train`` variable (date-based split point).
+    """Emit the `end_train` variable (date-based split point).
 
-    Raises ``ValueError`` if ``profile.end_train`` is not set because the
+    Raises `ValueError` if `profile.end_train` is not set because the
     generated code must contain a concrete date literal.
     """
     if profile.end_train is None:
@@ -1369,18 +1371,18 @@ _TEMPLATE_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], GeneratedCod
 
 
 def generate_template(
-    plan: ForecastPlan,
     profile: DataProfile,
+    plan: ForecastPlan,
 ) -> GeneratedCode:
     """
     Generate structured code from a plan and data profile.
 
     Parameters
     ----------
-    plan : ForecastPlan
-        Validated forecast plan.
     profile : DataProfile
         Profile of the input dataset.
+    plan : ForecastPlan
+        Validated forecast plan.
 
     Returns
     -------

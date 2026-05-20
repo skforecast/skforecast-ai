@@ -57,6 +57,9 @@ skforecast-ai = "skforecast_ai.cli:app"
 [tool.setuptools.packages.find]
 include = ["skforecast_ai*"]
 
+[tool.setuptools.package-data]
+skforecast_ai = ["skills/**/*.md", "resources/*.txt"]
+
 [tool.ruff]
 line-length = 88
 
@@ -74,3 +77,6 @@ docstring-code-format = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

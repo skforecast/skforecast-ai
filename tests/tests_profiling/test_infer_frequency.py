@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from skforecast_ai.profiling.frequency import estimate_seasonality, infer_frequency
+from skforecast_ai.profiling.data_profile import estimate_seasonality, infer_frequency
 
 
 @pytest.mark.parametrize(

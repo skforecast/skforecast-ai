@@ -51,7 +51,7 @@ def generate_code(plan, profile, data_path="data.csv"):
     """Test helper: call generate_code_from_plan with optional data_path override."""
     if data_path != profile.data_path:
         profile = profile.model_copy(update={"data_path": data_path})
-    return assistant.generate_code_from_plan(plan=plan, data_profile=profile)
+    return assistant.generate_code_from_plan(profile=profile, plan=plan)
 
 
 def test_generate_code_output_when_recursive_single_series_syntax():

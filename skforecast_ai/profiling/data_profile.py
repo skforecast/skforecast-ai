@@ -6,7 +6,83 @@ import numpy as np
 import pandas as pd
 
 from ..schemas import DataProfile
-from .frequency import infer_frequency
+
+
+def infer_frequency(index: pd.DatetimeIndex) -> str | None:
+    """
+    Infer the frequency of a DatetimeIndex.
+
+    Parameters
+    ----------
+    index : pandas DatetimeIndex
+        The datetime index to infer frequency from.
+
+    Returns
+    -------
+    frequency : str, None
+        Inferred pandas frequency string, or None if the frequency cannot
+        be determined (e.g. too few observations or irregular spacing).
+    """
+    if len(index) < 3:
+        return None
+
+    try:
+        freq = pd.infer_freq(index)
+    except (TypeError, ValueError):
+        return None
+
+    return freq
+
+
+def estimate_seasonality(frequency: str | None) -> list[int]:
+    """
+    Estimate seasonal periods from a known frequency string.
+
+    Parameters
+    ----------
+    frequency : str, None
+        Pandas frequency string (e.g. `'h'`, `'D'`, `'ME'`).
+
+    Returns
+    -------
+    seasonalities : list
+        List of integer seasonal periods inferred from the frequency.
+        Returns an empty list if the frequency is None or unrecognized.
+
+    Notes
+    -----
+    This is a heuristic mapping. It does not perform spectral analysis
+    or autocorrelation-based detection.
+    """
+    if frequency is None:
+        return []
+
+    freq_upper = frequency.upper()
+
+    seasonality_map: dict[str, list[int]] = {
+        "T":    [60, 1440],
+        "MIN":  [60, 1440],
+        "H":    [24, 168],
+        "D":    [7, 365],
+        "B":    [5, 252],
+        "W":    [52],
+        "MS":   [12],
+        "ME":   [12],
+        "M":    [12],
+        "QS":   [4],
+        "QE":   [4],
+        "Q":    [4],
+        "YS":   [1],
+        "YE":   [1],
+        "Y":    [1],
+        "A":    [1],
+    }
+
+    for key, seasons in seasonality_map.items():
+        if freq_upper == key or freq_upper.endswith(key):
+            return seasons
+
+    return []
 
 
 def create_data_profile(
@@ -147,11 +223,11 @@ def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
     """
     Try to convert the first object-dtype column to datetime.
 
-    When a CSV is exported via ``DataFrame.to_csv()`` the DatetimeIndex
-    becomes a regular column with object dtype (e.g. ``"Unnamed: 0"`` or
-    ``"date"``). ``pd.read_csv(parse_dates=True)`` often fails to
+    When a CSV is exported via `DataFrame.to_csv()` the DatetimeIndex
+    becomes a regular column with object dtype (e.g. `"Unnamed: 0"` or
+    `"date"`). `pd.read_csv(parse_dates=True)` often fails to
     auto-parse these. This helper converts the first parseable column
-    in-place so that downstream ``detect_date_column`` can identify it.
+    in-place so that downstream `detect_date_column` can identify it.
 
     Parameters
     ----------
@@ -509,8 +585,8 @@ def compute_target_stats(
     Returns
     -------
     target_stats : dict
-        Mapping of series/column name to a dict with keys ``'min'``,
-        ``'max'``, ``'mean'``, ``'std'``. Series with no valid
+        Mapping of series/column name to a dict with keys `'min'`,
+        `'max'`, `'mean'`, `'std'`. Series with no valid
         observations are omitted.
     """
     target_cols = target if isinstance(target, list) else [target]
@@ -724,8 +800,8 @@ def detect_gaps(
 
     Notes
     -----
-    This function requires a known ``frequency`` to compare actual vs
-    expected timestamps. When ``pd.infer_freq`` returns None (often
+    This function requires a known `frequency` to compare actual vs
+    expected timestamps. When `pd.infer_freq` returns None (often
     because the gaps themselves prevent inference), this function
     returns False — meaning "gaps not detected", not "no gaps exist".
     In such cases, a separate warning about uninferable frequency is
@@ -803,8 +879,8 @@ def _check_frequency_is_set(
     Check whether the index already has a frequency attribute set.
 
     When the datetime source is a regular column (not the index),
-    the constructed DatetimeIndex will never have ``.freq`` set —
-    this correctly indicates that ``asfreq()`` is still needed.
+    the constructed DatetimeIndex will never have `.freq` set —
+    this correctly indicates that `asfreq()` is still needed.
 
     Parameters
     ----------
@@ -816,7 +892,7 @@ def _check_frequency_is_set(
     Returns
     -------
     frequency_is_set : bool
-        True if ``index.freq`` is not None.
+        True if `index.freq` is not None.
     """
     if datetime_index is not None:
         return datetime_index.freq is not None
@@ -863,7 +939,7 @@ def _compute_end_train(
     Returns
     -------
     end_train : str, None
-        ISO-formatted date string (e.g. ``'2005-03-01'``) at the 80 %
+        ISO-formatted date string (e.g. `'2005-03-01'`) at the 80 %
         position. None if no datetime index is available.
     """
     if datetime_index is None or len(datetime_index) == 0:

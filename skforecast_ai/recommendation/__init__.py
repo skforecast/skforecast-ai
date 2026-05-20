@@ -1,16 +1,17 @@
 """Recommendation engine: deterministic rule-based forecaster selection."""
 
-from .rules import (
-    _build_profile_explanation,
-    build_plan_explanation,
+from .autoregressive import select_lags_and_window_features
+from .explanation import _build_profile_explanation, build_plan_explanation
+from .forecaster_selection import (
+    select_estimator_and_candidates,
+    select_forecaster_and_candidates,
+    select_task_type_from_forecaster,
+)
+from .preprocessing import (
     build_forecaster_kwargs,
     check_exog_usage,
     derive_preprocessing_steps,
     select_dropna_from_series,
-    select_estimator_and_candidates,
-    select_forecaster_and_candidates,
-    select_lags_and_window_features,
-    select_task_type_from_forecaster,
     select_transformer_exog,
     select_transformer_series,
 )

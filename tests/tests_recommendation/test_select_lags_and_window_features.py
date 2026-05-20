@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast_ai.recommendation.rules import select_lags_and_window_features
+from skforecast_ai.recommendation.autoregressive import select_lags_and_window_features
 
 
 def _make_series(n: int, seed: int = 123) -> pd.Series:

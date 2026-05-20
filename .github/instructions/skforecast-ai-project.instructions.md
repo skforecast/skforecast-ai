@@ -41,7 +41,7 @@ skforecast-ai/
 │   ├── execution/                  # Optional: run forecasts and validate
 │   ├── llm/                        # Pydantic AI integration
 │   ├── skills/                     # Migrated from skforecast core
-│   ├── resources/                  # Synced llms-full.txt, prompts, etc.
+│   ├── resources/                  # Synced llms-base.txt, prompts, etc.
 │   └── exceptions/                 # Custom warnings and errors
 ├── tests/
 │   ├── __init__.py
@@ -51,7 +51,7 @@ skforecast-ai/
 │   ├── tests_llm/                  # Mocked LLM tests
 │   └── fixtures_*.py               # Shared fixtures
 └── tools/
-    └── sync_skforecast_assets.py   # Pulls pinned llms-full.txt
+    └── sync_skforecast_assets.py   # Pulls pinned llms-base.txt
 ```
 
 - **PyPI name**: `skforecast-ai` (hyphen). **Importable**: `skforecast_ai` (underscore).

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast_ai.profiling.analysis import create_forecaster_analysis
+from skforecast_ai.profiling.forecasting_analysis import create_forecasting_analysis
 from skforecast_ai.recommendation import (
     _build_profile_explanation,
     build_plan_explanation,
@@ -23,7 +23,7 @@ from skforecast_ai.recommendation import (
 from skforecast_ai.recommendation import derive_preprocessing_steps
 from skforecast_ai.schemas import (
     DataProfile,
-    ForecasterProfile,
+    ForecastingProfile,
     ForecastPlan,
 )
 
@@ -47,7 +47,7 @@ SINGLE_SERIES_CANDIDATES = [
 
 ML_ESTIMATOR_CANDIDATES_SMALL = ["Ridge", "RandomForestRegressor", "LGBMRegressor"]
 ML_ESTIMATOR_CANDIDATES_LARGE = [
-    "LGBMRegressor", "XGBRegressor", "CatBoostRegressor", "Ridge",
+    "LGBMRegressor", "XGBRegressor", "Ridge",
 ]
 
 MULTI_SERIES_CANDIDATES = [
@@ -57,11 +57,11 @@ MULTI_SERIES_CANDIDATES = [
 
 
 def _build_profile(data_profile):
-    """Build a ForecasterProfile from a DataProfile using rule functions."""
+    """Build a ForecastingProfile from a DataProfile using rule functions."""
     fc, fc_candidates = select_forecaster_and_candidates(data_profile)
 
     task_type = select_task_type_from_forecaster(fc)
-    context = create_forecaster_analysis(None, data_profile, fc)
+    context = create_forecasting_analysis(None, data_profile, fc)
 
     # Inject synthetic target_series when real data is not available
     if context.target_series is None:
@@ -85,7 +85,7 @@ def _build_profile(data_profile):
         data_profile=data_profile,
     )
 
-    return ForecasterProfile(
+    return ForecastingProfile(
         data_profile          = data_profile,
         task_type             = task_type,
         forecaster            = fc,
@@ -122,11 +122,6 @@ def _plan(profile, steps, forecaster=None, estimator=None):
         est = fp.estimator
 
     if estimator is not None:
-        if estimator not in fp.estimator_candidates:
-            raise ValueError(
-                f"Estimator '{estimator}' is not compatible with this profile. "
-                f"Available candidates: {fp.estimator_candidates}."
-            )
         est = estimator
 
     data_profile = fp.data_profile
@@ -195,9 +190,9 @@ def _plan(profile, steps, forecaster=None, estimator=None):
 
 
 # ---------------------------------------------------------------------------
-# build_forecaster_profile
+# build_forecasting_profile
 # ---------------------------------------------------------------------------
-def test_build_forecaster_profile_output_when_single_series_defaults():
+def test_build_forecasting_profile_output_when_single_series_defaults():
     """
     Test _build_profile picks ForecasterRecursive + LGBMRegressor for a
     365-observation single series and exposes the candidate lists.
@@ -206,7 +201,7 @@ def test_build_forecaster_profile_output_when_single_series_defaults():
         data_profile=profile_single_daily,
     )
 
-    assert isinstance(fp, ForecasterProfile)
+    assert isinstance(fp, ForecastingProfile)
     assert fp.task_type == "single_series"
     assert fp.forecaster == "ForecasterRecursive"
     assert fp.forecaster_candidates == SINGLE_SERIES_CANDIDATES
@@ -216,9 +211,9 @@ def test_build_forecaster_profile_output_when_single_series_defaults():
     assert fp.explanation
 
 
-def test_build_forecaster_profile_output_when_multi_series():
+def test_build_forecasting_profile_output_when_multi_series():
     """
-    Test build_forecaster_profile selects ForecasterRecursiveMultiSeries when
+    Test build_forecasting_profile selects ForecasterRecursiveMultiSeries when
     the dataset contains multiple series.
     """
     fp = _build_profile(data_profile=profile_multi_long)
@@ -228,9 +223,9 @@ def test_build_forecaster_profile_output_when_multi_series():
     assert fp.forecaster_candidates == MULTI_SERIES_CANDIDATES
 
 
-def test_build_forecaster_profile_output_when_large_series_picks_lgbm():
+def test_build_forecasting_profile_output_when_large_series_picks_lgbm():
     """
-    Test build_forecaster_profile prefers LGBMRegressor for series with
+    Test build_forecasting_profile prefers LGBMRegressor for series with
     >= 500 observations.
     """
     fp = _build_profile(
@@ -241,7 +236,7 @@ def test_build_forecaster_profile_output_when_large_series_picks_lgbm():
     assert fp.estimator_candidates == ML_ESTIMATOR_CANDIDATES_LARGE
 
 
-def test_build_forecaster_profile_output_when_foundation_selected():
+def test_build_forecasting_profile_output_when_foundation_selected():
     """
     Test generate_plan honors an explicit foundation forecaster override
     and assigns the foundation estimator.
@@ -253,7 +248,7 @@ def test_build_forecaster_profile_output_when_foundation_selected():
     assert plan.estimator == "Chronos-2"
 
 
-def test_build_forecaster_profile_output_when_estimator_overridden():
+def test_build_forecasting_profile_output_when_estimator_overridden():
     """
     Test generate_plan accepts an explicit estimator from the candidate
     list as an override.
@@ -263,7 +258,7 @@ def test_build_forecaster_profile_output_when_estimator_overridden():
     assert plan.estimator == "LGBMRegressor"
 
 
-def test_build_forecaster_profile_ValueError_when_forecaster_not_candidate():
+def test_build_forecasting_profile_ValueError_when_forecaster_not_candidate():
     """
     Test generate_plan raises ValueError when the requested forecaster is
     not compatible with the profiled problem.
@@ -280,21 +275,17 @@ def test_build_forecaster_profile_ValueError_when_forecaster_not_candidate():
         )
 
 
-def test_build_forecaster_profile_ValueError_when_estimator_not_candidate():
+def test_build_forecasting_profile_output_when_estimator_not_in_candidates():
     """
-    Test generate_plan raises ValueError when the requested estimator is
-    not in the candidate list.
+    Test generate_plan accepts an estimator outside the candidate list
+    when the user explicitly overrides it.
     """
-    err_msg = re.escape(
-        f"Estimator 'SVR' is not compatible with this profile. "
-        f"Available candidates: {ML_ESTIMATOR_CANDIDATES_LARGE}."
+    _, plan = _plan(
+        profile_single_daily,
+        steps=10,
+        estimator="SVR",
     )
-    with pytest.raises(ValueError, match=err_msg):
-        _plan(
-            profile_single_daily,
-            steps=10,
-            estimator="SVR",
-        )
+    assert plan.estimator == "SVR"
 
 
 # ---------------------------------------------------------------------------

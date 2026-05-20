@@ -11,14 +11,14 @@ from .._constants import (
     SINGLE_ML_FORECASTERS,
     STATS_FORECASTERS,
 )
-from ..schemas import ForecasterAnalysis, DataProfile
+from ..schemas import ForecastingAnalysis, DataProfile
 
 
-def create_forecaster_analysis(
+def create_forecasting_analysis(
     data: pd.DataFrame | None,
     profile: DataProfile,
     forecaster: str,
-) -> ForecasterAnalysis:
+) -> ForecastingAnalysis:
     """
     Compute forecaster-specific analysis from the data and profile.
 
@@ -33,7 +33,7 @@ def create_forecaster_analysis(
 
     Returns
     -------
-    context : ForecasterAnalysis
+    context : ForecastingAnalysis
         Analysis results tailored to the selected forecaster type.
     """
     if forecaster in MULTI_SERIES_FORECASTERS:
@@ -47,13 +47,13 @@ def create_forecaster_analysis(
     if forecaster in STATS_FORECASTERS:
         return _analyze_stats(data, profile)
 
-    return ForecasterAnalysis(effective_n_observations=profile.n_observations)
+    return ForecastingAnalysis(effective_n_observations=profile.n_observations)
 
 
 def _analyze_multi_series(
     data: pd.DataFrame | None,
     profile: DataProfile,
-) -> ForecasterAnalysis:
+) -> ForecastingAnalysis:
     """
     Compute analysis context for multi-series forecasters.
 
@@ -66,7 +66,7 @@ def _analyze_multi_series(
 
     Returns
     -------
-    context : ForecasterAnalysis
+    context : ForecastingAnalysis
         Includes per-series length statistics.
     """
     # Use series_lengths from the profile (already computed in Stage 1)
@@ -104,7 +104,7 @@ def _analyze_multi_series(
                 if len(s) > 0:
                     target_series = s
 
-        return ForecasterAnalysis(
+        return ForecastingAnalysis(
             effective_n_observations=total_len,
             min_series_length=min_len,
             max_series_length=max_len,
@@ -114,7 +114,7 @@ def _analyze_multi_series(
         )
 
     # Fallback: no series_lengths available
-    return ForecasterAnalysis(
+    return ForecastingAnalysis(
         effective_n_observations=profile.n_observations,
         min_series_length=None,
         max_series_length=None,
@@ -125,7 +125,7 @@ def _analyze_multi_series(
 def _analyze_multivariate(
     data: pd.DataFrame | None,
     profile: DataProfile,
-) -> ForecasterAnalysis:
+) -> ForecastingAnalysis:
     """
     Compute analysis context for multivariate forecasters.
 
@@ -142,12 +142,12 @@ def _analyze_multivariate(
 
     Returns
     -------
-    context : ForecasterAnalysis
+    context : ForecastingAnalysis
         Context based on target series length.
     """
     # n_observations in DataProfile already reflects per-series length
     # for wide-format data (all columns share the same index).
-    return ForecasterAnalysis(
+    return ForecastingAnalysis(
         effective_n_observations=profile.n_observations,
     )
 
@@ -155,7 +155,7 @@ def _analyze_multivariate(
 def _analyze_single_ml(
     data: pd.DataFrame | None,
     profile: DataProfile,
-) -> ForecasterAnalysis:
+) -> ForecastingAnalysis:
     """
     Compute analysis context for single-series ML forecasters.
 
@@ -168,7 +168,7 @@ def _analyze_single_ml(
 
     Returns
     -------
-    context : ForecasterAnalysis
+    context : ForecastingAnalysis
         Includes trend and variance indicators.
     """
     target_has_trend = None
@@ -185,7 +185,7 @@ def _analyze_single_ml(
             if len(target_series) > 0:
                 target_variance = float(target_series.var())
 
-    return ForecasterAnalysis(
+    return ForecastingAnalysis(
         effective_n_observations=profile.n_observations,
         target_has_trend=target_has_trend,
         target_variance=target_variance,
@@ -196,7 +196,7 @@ def _analyze_single_ml(
 def _analyze_foundation(
     data: pd.DataFrame | None,
     profile: DataProfile,
-) -> ForecasterAnalysis:
+) -> ForecastingAnalysis:
     """
     Compute analysis context for foundation model forecasters.
 
@@ -209,14 +209,14 @@ def _analyze_foundation(
 
     Returns
     -------
-    context : ForecasterAnalysis
+    context : ForecastingAnalysis
         Includes viable context length.
     """
     # TODO: compute viable_context_length based on model defaults
     # (e.g. Chronos-2 max 8192, TimesFM 512, Moirai 2048)
     viable_context_length = min(profile.n_observations, 2048)
 
-    return ForecasterAnalysis(
+    return ForecastingAnalysis(
         effective_n_observations=profile.n_observations,
         viable_context_length=viable_context_length,
     )
@@ -225,7 +225,7 @@ def _analyze_foundation(
 def _analyze_stats(
     data: pd.DataFrame | None,
     profile: DataProfile,
-) -> ForecasterAnalysis:
+) -> ForecastingAnalysis:
     """
     Compute analysis context for statistical model forecasters.
 
@@ -238,11 +238,11 @@ def _analyze_stats(
 
     Returns
     -------
-    context : ForecasterAnalysis
+    context : ForecastingAnalysis
         Basic context for statistical models.
     """
     # TODO: seasonal order candidates, stationarity hints
-    return ForecasterAnalysis(
+    return ForecastingAnalysis(
         effective_n_observations=profile.n_observations,
     )
 
