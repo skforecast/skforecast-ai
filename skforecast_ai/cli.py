@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -16,8 +17,26 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
+from . import __version__
 from .assistant import ForecastingAssistant
+from .config import (
+    CONFIG_FILE,
+    get_config_value,
+    load_config,
+    set_config_value,
+)
 from .exceptions import ForecastExecutionError, LLMRequiredError
+from .schemas.plans import ForecastPlan
+from .schemas.profiles import ForecastingProfile
+from .schemas.results import CodeGenerationResult
+
+
+def _version_callback(value: bool) -> None:
+    """Print version and exit."""
+    if value:
+        print(f"skforecast-ai {__version__}")
+        raise typer.Exit()
+
 
 app = typer.Typer(
     name="skforecast-ai",
@@ -25,12 +44,100 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool | None,
+        typer.Option("--version", callback=_version_callback, is_eager=True, help="Show version."),
+    ] = None,
+) -> None:
+    """Deterministic forecasting assistant powered by skforecast."""
+
+
 console = Console()
+
+
+# ---------------------------------------------------------------------------
+# Config subcommand
+# ---------------------------------------------------------------------------
+
+config_app = typer.Typer(help="Manage persistent configuration.", no_args_is_help=True)
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Display current configuration."""
+    config = load_config()
+    if not config:
+        console.print("[dim]No config file found. Using defaults and environment variables.[/dim]")
+        console.print(f"[dim]Config path: {CONFIG_FILE}[/dim]")
+        return
+
+    table = Table(title="Configuration", show_lines=True)
+    table.add_column("Key", style="bold")
+    table.add_column("Value")
+    table.add_column("Source", style="dim")
+
+    for section, values in sorted(config.items()):
+        if not isinstance(values, dict):
+            continue
+        for key, val in sorted(values.items()):
+            full_key = f"{section}.{key}"
+            table.add_row(full_key, str(val), str(CONFIG_FILE))
+
+    console.print(table)
+
+
+@config_app.command("set")
+def config_set(
+    key: Annotated[str, typer.Argument(help="Config key (e.g. 'llm.provider').")],
+    value: Annotated[str, typer.Argument(help="Value to set.")],
+) -> None:
+    """Set a configuration value."""
+    try:
+        set_config_value(key, value)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Set[/green] {key} = {value}")
+
+
+@config_app.command("path")
+def config_path() -> None:
+    """Print the config file location."""
+    print(str(CONFIG_FILE))
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve(flag: str | None, env_var: str, config_key: str) -> str | None:
+    """Resolve a setting: CLI flag > env var > config file > None."""
+    if flag is not None:
+        return flag
+    env_val = os.environ.get(env_var)
+    if env_val is not None:
+        return env_val
+    return get_config_value(config_key)
+
+
+def _read_json_input(source: str) -> dict:
+    """Read JSON from a file path or stdin (when source is '-')."""
+    if source == "-":
+        raw = sys.stdin.read()
+    else:
+        path = Path(source)
+        if not path.is_file():
+            raise FileNotFoundError(f"File not found: '{source}'.")
+        raw = path.read_text()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON input: {e}") from e
 
 
 def _parse_target(target_str: str) -> str | list[str]:
@@ -191,46 +298,69 @@ def profile(
 
 @app.command()
 def plan(
-    data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
-    target: Annotated[str, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")],
-    steps: Annotated[int, typer.Option("--steps", help="Forecast horizon (number of steps).")],
+    data: Annotated[str | None, typer.Argument(help="Path or URL to CSV file.")] = None,
+    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
+    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
     date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
     series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
 ) -> None:
     """Generate a detailed forecasting plan from a dataset."""
     with _error_handler():
+        if steps is None:
+            console.print("[red]Error:[/red] --steps is required.")
+            raise typer.Exit(code=1)
+
         assistant = ForecastingAssistant()
-        parsed_target = _parse_target(target)
         parsed_interval = _parse_interval(interval)
 
+        if from_profile is not None:
+            profile_data = _read_json_input(from_profile)
+            prof = ForecastingProfile.model_validate(profile_data)
+        else:
+            if data is None or target is None:
+                console.print(
+                    "[red]Error:[/red] DATA and --target are required "
+                    "unless --from-profile is provided."
+                )
+                raise typer.Exit(code=1)
+            parsed_target = _parse_target(target)
+            if quiet:
+                prof = assistant.profile(
+                    data=data, target=parsed_target, date_column=date_column,
+                    series_id_column=series_id,
+                )
+            else:
+                with console.status("Profiling..."):
+                    prof = assistant.profile(
+                        data=data, target=parsed_target, date_column=date_column,
+                        series_id_column=series_id,
+                    )
+
         if quiet:
-            prof = assistant.profile(
-                data=data, target=parsed_target, date_column=date_column,
-                series_id_column=series_id,
-            )
             result = assistant.generate_plan(
                 profile=prof, steps=steps, forecaster=forecaster,
                 estimator=estimator, interval=parsed_interval,
             )
         else:
-            with console.status("Profiling and planning..."):
-                prof = assistant.profile(
-                    data=data, target=parsed_target, date_column=date_column,
-                    series_id_column=series_id,
-                )
+            with console.status("Planning..."):
                 result = assistant.generate_plan(
                     profile=prof, steps=steps, forecaster=forecaster,
                     estimator=estimator, interval=parsed_interval,
                 )
 
         if format == "json":
-            json_str = result.model_dump_json(indent=2)
+            bundle = {
+                "profile": prof.model_dump(mode="json"),
+                "plan": result.model_dump(mode="json"),
+            }
+            json_str = json.dumps(bundle, indent=2)
             _write_output(json_str, output)
         else:
             _render_plan_panel(result)
@@ -238,14 +368,15 @@ def plan(
 
 @app.command(name="generate-code")
 def generate_code(
-    data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
-    target: Annotated[str, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")],
-    steps: Annotated[int, typer.Option("--steps", help="Forecast horizon (number of steps).")],
+    data: Annotated[str | None, typer.Argument(help="Path or URL to CSV file.")] = None,
+    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
+    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
     date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
     series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
@@ -253,24 +384,40 @@ def generate_code(
     """Generate a complete Python forecasting script."""
     with _error_handler():
         assistant = ForecastingAssistant()
-        parsed_target = _parse_target(target)
-        parsed_interval = _parse_interval(interval)
 
-        if quiet:
-            result = assistant.generate_code(
-                data=data, target=parsed_target, steps=steps,
-                date_column=date_column, series_id_column=series_id,
-                forecaster=forecaster, estimator=estimator,
-                interval=parsed_interval,
+        if from_plan is not None:
+            bundle = _read_json_input(from_plan)
+            prof = ForecastingProfile.model_validate(bundle["profile"])
+            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            code = assistant.generate_code_from_plan(
+                profile=prof.data_profile, plan=plan_obj,
             )
+            result = CodeGenerationResult(profile=prof, plan=plan_obj, code=code)
         else:
-            with console.status("Generating code..."):
+            if data is None or target is None or steps is None:
+                console.print(
+                    "[red]Error:[/red] DATA, --target, and --steps are required "
+                    "unless --from-plan is provided."
+                )
+                raise typer.Exit(code=1)
+            parsed_target = _parse_target(target)
+            parsed_interval = _parse_interval(interval)
+
+            if quiet:
                 result = assistant.generate_code(
                     data=data, target=parsed_target, steps=steps,
                     date_column=date_column, series_id_column=series_id,
                     forecaster=forecaster, estimator=estimator,
                     interval=parsed_interval,
                 )
+            else:
+                with console.status("Generating code..."):
+                    result = assistant.generate_code(
+                        data=data, target=parsed_target, steps=steps,
+                        date_column=date_column, series_id_column=series_id,
+                        forecaster=forecaster, estimator=estimator,
+                        interval=parsed_interval,
+                    )
 
         if format == "json":
             json_str = result.model_dump_json(indent=2)
@@ -337,13 +484,14 @@ def _forecast_result_to_json(result) -> str:
 @app.command()
 def forecast(
     data: Annotated[str, typer.Argument(help="Path to CSV file.")],
-    target: Annotated[str, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")],
-    steps: Annotated[int, typer.Option("--steps", help="Forecast horizon (number of steps).")],
+    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
+    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
     date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
     series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     exog_future: Annotated[Path | None, typer.Option("--exog-future", help="CSV with future exogenous variables.")] = None,
     output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
@@ -353,7 +501,6 @@ def forecast(
     """Run end-to-end forecasting and report metrics + predictions."""
     with _error_handler():
         assistant = ForecastingAssistant()
-        parsed_target = _parse_target(target)
         parsed_interval = _parse_interval(interval)
 
         exog_future_df = None
@@ -364,21 +511,56 @@ def forecast(
                 )
             exog_future_df = pd.read_csv(exog_future)
 
-        if quiet:
-            result = assistant.forecast(
-                data=data, target=parsed_target, steps=steps,
-                date_column=date_column, series_id_column=series_id,
-                forecaster=forecaster, estimator=estimator,
-                interval=parsed_interval, exog_future=exog_future_df,
-            )
+        if from_plan is not None:
+            bundle = _read_json_input(from_plan)
+            prof = ForecastingProfile.model_validate(bundle["profile"])
+            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+
+            if quiet:
+                result = assistant.forecast(
+                    data=data, target=prof.data_profile.target,
+                    steps=plan_obj.steps,
+                    date_column=prof.data_profile.date_column,
+                    series_id_column=prof.data_profile.series_id_column,
+                    interval=parsed_interval or plan_obj.interval,
+                    exog_future=exog_future_df,
+                    profile=prof, plan=plan_obj,
+                )
+            else:
+                with console.status("Running forecast from plan..."):
+                    result = assistant.forecast(
+                        data=data, target=prof.data_profile.target,
+                        steps=plan_obj.steps,
+                        date_column=prof.data_profile.date_column,
+                        series_id_column=prof.data_profile.series_id_column,
+                        interval=parsed_interval or plan_obj.interval,
+                        exog_future=exog_future_df,
+                        profile=prof, plan=plan_obj,
+                    )
         else:
-            with console.status("Running forecast..."):
+            if target is None or steps is None:
+                console.print(
+                    "[red]Error:[/red] --target and --steps are required "
+                    "unless --from-plan is provided."
+                )
+                raise typer.Exit(code=1)
+            parsed_target = _parse_target(target)
+
+            if quiet:
                 result = assistant.forecast(
                     data=data, target=parsed_target, steps=steps,
                     date_column=date_column, series_id_column=series_id,
                     forecaster=forecaster, estimator=estimator,
                     interval=parsed_interval, exog_future=exog_future_df,
                 )
+            else:
+                with console.status("Running forecast..."):
+                    result = assistant.forecast(
+                        data=data, target=parsed_target, steps=steps,
+                        date_column=date_column, series_id_column=series_id,
+                        forecaster=forecaster, estimator=estimator,
+                        interval=parsed_interval, exog_future=exog_future_df,
+                    )
 
         if output_predictions is not None:
             preds = result.predictions
@@ -415,8 +597,8 @@ def ask(
 ) -> None:
     """Ask a forecasting question using an LLM."""
     with _error_handler():
-        llm_value = llm or os.environ.get("SKFORECAST_AI_LLM")
-        base_url_value = base_url or os.environ.get("SKFORECAST_AI_BASE_URL")
+        llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
+        base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
 
         assistant = ForecastingAssistant(
             llm=llm_value,

@@ -156,9 +156,10 @@ class TestPlan:
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert "forecaster" in data
-        assert "steps" in data
-        assert data["steps"] == 10
+        assert "profile" in data
+        assert "plan" in data
+        assert "forecaster" in data["plan"]
+        assert data["plan"]["steps"] == 10
 
     def test_plan_with_interval(self, tmp_path):
         """
@@ -172,8 +173,8 @@ class TestPlan:
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["interval"] == [10, 90]
-        assert data["interval_method"] is not None
+        assert data["plan"]["interval"] == [10, 90]
+        assert data["plan"]["interval_method"] is not None
 
     def test_plan_missing_steps(self, tmp_path):
         """
@@ -200,7 +201,7 @@ class TestPlan:
         assert result.exit_code == 0
         assert out_path.exists()
         data = json.loads(out_path.read_text())
-        assert data["steps"] == 10
+        assert data["plan"]["steps"] == 10
 
 
 # ---------------------------------------------------------------------------

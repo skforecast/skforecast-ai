@@ -489,6 +489,8 @@ class ForecastingAssistant:
         estimator_kwargs: dict | None = None,
         interval: list[int] | None = None,
         exog_future: pd.DataFrame | None = None,
+        profile: ForecastingProfile | None = None,
+        plan: ForecastPlan | None = None,
     ) -> ForecastResult:
         """
         Execute a full forecasting workflow end-to-end.
@@ -525,6 +527,13 @@ class ForecastingAssistant:
             exogenous variables are used. If None and exog is present,
             the last `steps` rows of the training data exog are used
             (backtesting mode).
+        profile : ForecastingProfile, default None
+            Pre-computed profile to skip profiling. If None, profiling
+            is performed from `data`.
+        plan : ForecastPlan, default None
+            Pre-computed plan to skip planning. If None, a plan is
+            generated from the profile. Requires `profile` to also be
+            provided.
 
         Returns
         -------
@@ -542,20 +551,22 @@ class ForecastingAssistant:
 
         data_df = _coerce_to_dataframe(data)
 
-        profile = self.profile(
-            data             = data_df,
-            target           = target,
-            date_column      = date_column,
-            series_id_column = series_id_column,
-        )
-        plan = self.generate_plan(
-            profile          = profile,
-            steps            = steps,
-            forecaster       = forecaster,
-            estimator        = estimator,
-            estimator_kwargs = estimator_kwargs,
-            interval         = interval,
-        )
+        if profile is None:
+            profile = self.profile(
+                data             = data_df,
+                target           = target,
+                date_column      = date_column,
+                series_id_column = series_id_column,
+            )
+        if plan is None:
+            plan = self.generate_plan(
+                profile          = profile,
+                steps            = steps,
+                forecaster       = forecaster,
+                estimator        = estimator,
+                estimator_kwargs = estimator_kwargs,
+                interval         = interval,
+            )
 
         result = run_forecast(
             data        = data_df,
