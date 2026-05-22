@@ -46,6 +46,7 @@ def save_config(config: dict) -> None:
                 lines.append(f"{key} = {val}")
         lines.append("")
     CONFIG_FILE.write_text("\n".join(lines))
+    CONFIG_FILE.chmod(0o600)
 
 
 def get_config_value(key: str) -> str | None:

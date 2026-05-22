@@ -17,6 +17,8 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
+from pydantic import ValidationError
+
 from . import __version__
 from .assistant import ForecastingAssistant
 from .config import (
@@ -125,6 +127,21 @@ def _resolve(flag: str | None, env_var: str, config_key: str) -> str | None:
     return get_config_value(config_key)
 
 
+def _resolve_bool(
+    flag: bool | None, env_var: str, config_key: str, default: bool = False
+) -> bool:
+    """Resolve a boolean setting: CLI flag > env var > config file > default."""
+    if flag is not None:
+        return flag
+    env_val = os.environ.get(env_var)
+    if env_val is not None:
+        return env_val.lower() in ("true", "1", "yes")
+    config_val = get_config_value(config_key)
+    if config_val is not None:
+        return config_val.lower() in ("true", "1", "yes")
+    return default
+
+
 def _read_json_input(source: str) -> dict:
     """Read JSON from a file path or stdin (when source is '-')."""
     if source == "-":
@@ -158,6 +175,24 @@ def _parse_interval(interval_str: str | None) -> list[int] | None:
     return parts
 
 
+def _parse_estimator_kwargs(value: str | None) -> dict | None:
+    """Parse JSON string into dict for estimator hyperparameters."""
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as e:
+        raise typer.BadParameter(
+            f"Invalid JSON in --estimator-kwargs: {e}"
+        ) from e
+    if not isinstance(parsed, dict):
+        raise typer.BadParameter(
+            "--estimator-kwargs must be a JSON object, "
+            "e.g. '{\"n_estimators\": 200}'."
+        )
+    return parsed
+
+
 def _write_output(content: str, output: Path | None) -> None:
     """Write content to file or stdout."""
     if output is not None:
@@ -185,6 +220,19 @@ def _error_handler():
         console.print(f"[red]Execution Error:[/red] {e}")
         console.print(
             "[dim]Tip: use --output-code to save the generated script for debugging.[/dim]"
+        )
+        raise typer.Exit(code=1)
+    except ValidationError as e:
+        n = e.error_count()
+        details = "; ".join(
+            f"{err['loc'][0]}: {err['msg']}" if err.get("loc") else err["msg"]
+            for err in e.errors()[:3]
+        )
+        console.print(
+            f"[red]Error:[/red] Invalid input data — {n} validation error(s): {details}"
+        )
+        console.print(
+            "[dim]Tip: use --format json with the source command to produce valid input.[/dim]"
         )
         raise typer.Exit(code=1)
     except (ValueError, KeyError, TypeError) as e:
@@ -305,6 +353,7 @@ def plan(
     series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
+    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
     from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
@@ -319,6 +368,7 @@ def plan(
 
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
+        parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
 
         if from_profile is not None:
             profile_data = _read_json_input(from_profile)
@@ -346,14 +396,67 @@ def plan(
         if quiet:
             result = assistant.generate_plan(
                 profile=prof, steps=steps, forecaster=forecaster,
-                estimator=estimator, interval=parsed_interval,
+                estimator=estimator, estimator_kwargs=parsed_estimator_kwargs,
+                interval=parsed_interval,
             )
         else:
             with console.status("Planning..."):
                 result = assistant.generate_plan(
                     profile=prof, steps=steps, forecaster=forecaster,
-                    estimator=estimator, interval=parsed_interval,
+                    estimator=estimator, estimator_kwargs=parsed_estimator_kwargs,
+                    interval=parsed_interval,
                 )
+
+        if format == "json":
+            bundle = {
+                "profile": prof.model_dump(mode="json"),
+                "plan": result.model_dump(mode="json"),
+            }
+            json_str = json.dumps(bundle, indent=2)
+            _write_output(json_str, output)
+        else:
+            _render_plan_panel(result)
+
+
+@app.command(name="refine-plan")
+def refine_plan(
+    from_plan: Annotated[str, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")],
+    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
+    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
+    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
+    steps: Annotated[int | None, typer.Option("--steps", help="Override forecast horizon.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '10,90'.")] = None,
+    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
+    output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+) -> None:
+    """Refine an existing forecasting plan by overriding specific fields."""
+    with _error_handler():
+        bundle_data = _read_json_input(from_plan)
+        prof = ForecastingProfile.model_validate(bundle_data.get("profile", {}))
+        plan_obj = ForecastPlan.model_validate(bundle_data.get("plan", {}))
+
+        parsed_interval = _parse_interval(interval)
+        parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+
+        overrides: dict = {}
+        if forecaster is not None:
+            overrides["forecaster"] = forecaster
+        if estimator is not None:
+            overrides["estimator"] = estimator
+        if parsed_estimator_kwargs is not None:
+            overrides["estimator_kwargs"] = parsed_estimator_kwargs
+        if steps is not None:
+            overrides["steps"] = steps
+        if parsed_interval is not None:
+            overrides["interval"] = parsed_interval
+
+        assistant = ForecastingAssistant()
+        if quiet:
+            result = assistant.refine_plan(profile=prof, plan=plan_obj, **overrides)
+        else:
+            with console.status("Refining plan..."):
+                result = assistant.refine_plan(profile=prof, plan=plan_obj, **overrides)
 
         if format == "json":
             bundle = {
@@ -375,6 +478,7 @@ def generate_code(
     series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
+    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
@@ -402,12 +506,14 @@ def generate_code(
                 raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
             parsed_interval = _parse_interval(interval)
+            parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
 
             if quiet:
                 result = assistant.generate_code(
                     data=data, target=parsed_target, steps=steps,
                     date_column=date_column, series_id_column=series_id,
                     forecaster=forecaster, estimator=estimator,
+                    estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
                 )
             else:
@@ -416,6 +522,7 @@ def generate_code(
                         data=data, target=parsed_target, steps=steps,
                         date_column=date_column, series_id_column=series_id,
                         forecaster=forecaster, estimator=estimator,
+                        estimator_kwargs=parsed_estimator_kwargs,
                         interval=parsed_interval,
                     )
 
@@ -490,6 +597,7 @@ def forecast(
     series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
+    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     exog_future: Annotated[Path | None, typer.Option("--exog-future", help="CSV with future exogenous variables.")] = None,
@@ -502,6 +610,7 @@ def forecast(
     with _error_handler():
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
+        parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
 
         exog_future_df = None
         if exog_future is not None:
@@ -551,6 +660,7 @@ def forecast(
                     data=data, target=parsed_target, steps=steps,
                     date_column=date_column, series_id_column=series_id,
                     forecaster=forecaster, estimator=estimator,
+                    estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval, exog_future=exog_future_df,
                 )
             else:
@@ -559,6 +669,7 @@ def forecast(
                         data=data, target=parsed_target, steps=steps,
                         date_column=date_column, series_id_column=series_id,
                         forecaster=forecaster, estimator=estimator,
+                        estimator_kwargs=parsed_estimator_kwargs,
                         interval=parsed_interval, exog_future=exog_future_df,
                     )
 
@@ -590,7 +701,7 @@ def ask(
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (required when --data is provided).")] = None,
     llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-4o-mini'.")] = None,
     base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
-    send_data_to_llm: Annotated[bool, typer.Option("--send-data-to-llm", help="Allow sending raw data to the LLM.")] = False,
+    send_data_to_llm: Annotated[bool | None, typer.Option("--send-data-to-llm/--no-send-data-to-llm", help="Allow sending raw data to the LLM.")] = None,
     skills: Annotated[str | None, typer.Option("--skills", help="Comma-separated skill names to include.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: text or json.")] = "text",
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
@@ -599,11 +710,18 @@ def ask(
     with _error_handler():
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
+        send_data_value = _resolve_bool(
+            send_data_to_llm, "SKFORECAST_AI_SEND_DATA_TO_LLM",
+            "llm.send_data_to_llm",
+        )
+
+        if llm_value is None:
+            raise LLMRequiredError(method_name="ask")
 
         assistant = ForecastingAssistant(
             llm=llm_value,
             base_url=base_url_value,
-            send_data_to_llm=send_data_to_llm,
+            send_data_to_llm=send_data_value,
         )
 
         parsed_target = _parse_target(target) if target else None

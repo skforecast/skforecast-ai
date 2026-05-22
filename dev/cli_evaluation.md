@@ -29,7 +29,7 @@
 - Missing env var for privacy-critical `send_data_to_llm` setting
 - No early LLM validation in `ask` command
 - Interval bounds not validated (reversed bounds accepted silently)
-- No `refine-plan` command (API gap)
+- ~~No `refine-plan` command (API gap)~~ (FIXED)
 
 ---
 
@@ -217,7 +217,7 @@ Tests use class-based grouping (`TestProfile`, `TestPlan`, etc.) which contradic
 |-----------------|-------------|--------|
 | `profile()` | `skforecast-ai profile` | ✅ Complete |
 | `generate_plan()` | `skforecast-ai plan` | ⚠️ Missing `estimator_kwargs` |
-| `refine_plan()` | — | ❌ No CLI equivalent |
+| `refine_plan()` | `skforecast-ai refine-plan` | ✅ Complete |
 | `generate_code_from_plan()` | `skforecast-ai generate-code --from-plan` | ✅ Complete |
 | `generate_code()` | `skforecast-ai generate-code` | ✅ Complete |
 | `forecast()` | `skforecast-ai forecast` | ⚠️ Missing `estimator_kwargs` |
@@ -237,7 +237,7 @@ Tests use class-based grouping (`TestProfile`, `TestPlan`, etc.) which contradic
 
 ### 🔴 Critical
 
-#### C1: No `--estimator-kwargs` flag
+#### C1: No `--estimator-kwargs` flag (FIXED)
 
 **Location:** `plan` and `forecast` commands  
 **Impact:** Advanced users cannot customize estimator hyperparameters via CLI. The assistant API accepts `estimator_kwargs: dict | None` but the CLI provides no way to pass this.  
@@ -248,14 +248,14 @@ estimator_kwargs: Annotated[str | None, typer.Option(...)] = None
 ```
 **Effort:** S
 
-#### C2: Missing env var for `send_data_to_llm`
+#### C2: Missing env var for `send_data_to_llm` (FIXED)
 
 **Location:** `ask` command (line ~327)  
 **Impact:** Other LLM settings (`SKFORECAST_AI_LLM`, `SKFORECAST_AI_BASE_URL`) are resolvable via environment variables. The privacy-critical `send_data_to_llm` setting has only a CLI flag, making it impossible to set organization-wide via env.  
 **Recommended fix:** Add `SKFORECAST_AI_SEND_DATA_TO_LLM` env var support using `_resolve()`.  
 **Effort:** S
 
-#### C3: No early LLM validation in `ask` command
+#### C3: No early LLM validation in `ask` command (FIXED)
 
 **Location:** `ask` command (lines 600-645)  
 **Impact:** Users see a "Thinking..." spinner and then get an error if the LLM is unreachable or not configured. Wastes time and confuses users.  
@@ -266,28 +266,28 @@ estimator_kwargs: Annotated[str | None, typer.Option(...)] = None
 
 ### 🟡 Medium
 
-#### M1: Interval bounds not validated
+#### M1: Interval bounds not validated (SKIPED)
 
 **Location:** `_parse_interval()` (line 148)  
 **Impact:** `--interval "90,10"` (reversed bounds) is accepted silently, producing confusing prediction intervals.  
 **Recommended fix:** Add `if parts[0] >= parts[1]: raise typer.BadParameter(...)`.  
 **Effort:** S
 
-#### M2: `--format` accepts any string without validation
+#### M2: `--format` accepts any string without validation (SKIPED)
 
 **Location:** All commands with `--format` option  
 **Impact:** `--format jsn` (typo) silently skips output rendering (falls through to default branch).  
 **Recommended fix:** Use `typer.Option(..., case_sensitive=False)` with an enum or add explicit validation.  
 **Effort:** S
 
-#### M3: Config file created with default umask
+#### M3: Config file created with default umask (FIXED)
 
 **Location:** `config.py` — `save_config()`  
 **Impact:** On multi-user systems, `~/.config/skforecast-ai/config.toml` may be world-readable, exposing LLM provider strings and potentially base URLs.  
 **Recommended fix:** Use `os.open(..., 0o600)` or `Path.chmod(0o600)` after creation.  
 **Effort:** S
 
-#### M4: No stdin size limit in `_read_json_input("-")`
+#### M4: No stdin size limit in `_read_json_input("-")` (SKIPED)
 
 **Location:** `_read_json_input()` (line ~118)  
 **Impact:** Potential OOM if piped unlimited input. Low real-world risk for a local CLI.  
@@ -305,7 +305,7 @@ estimator_kwargs: Annotated[str | None, typer.Option(...)] = None
 
 ### 🟢 Low
 
-#### L1: No `refine-plan` command
+#### L1: No `refine-plan` command (FIXED)
 
 **Location:** N/A (missing command)  
 **Impact:** Users must manually edit JSON plan files. The assistant supports `refine_plan()` for iterative plan adjustment.  

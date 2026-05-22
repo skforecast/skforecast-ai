@@ -13,15 +13,13 @@ pip install -e ".[cli,dev]"
 |---------|-------------|
 | `profile` | Inspect dataset and recommend forecaster/estimator |
 | `plan` | Generate a detailed forecasting plan |
+| `refine-plan` | Refine an existing plan by overriding specific fields |
 | `generate-code` | Generate a self-contained Python script |
 | `forecast` | Run end-to-end forecasting (profile → plan → code → execute) |
 | `ask` | Ask forecasting questions using an LLM |
 | `config show` | Display current configuration |
 | `config set` | Set a configuration value |
 | `config path` | Print config file location |
-| `--version` | Show version and exit |
-| `--from-profile` | Load a saved profile (skip profiling) |
-| `--from-plan` | Load a saved plan bundle (skip profiling + planning) |
 
 ## Full Examples by Dataset
 
@@ -171,7 +169,7 @@ skforecast-ai ask "Analyze this data" \
 | `--output-predictions` | | Save predictions CSV | `forecast` |
 | `--output-code` | | Save generated script | `forecast` |
 | `--from-profile` | | Load profile JSON (file or `-` for stdin) | `plan` |
-| `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `generate-code`, `forecast` |
+| `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `refine-plan`, `generate-code`, `forecast` |
 | `--version` | | Show version and exit | root |
 
 ## Configuration
@@ -228,6 +226,34 @@ Providers: `openai:model`, `anthropic:model`, `google:model`.
 | 0 | Success |
 | 1 | User error (missing file, bad column, no LLM, unreachable URL) |
 | 2 | Runtime error |
+## Refine Plan
+
+Iteratively adjust an existing plan without re-profiling the dataset:
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+# Save a plan, then refine it
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json > plan.json
+
+# Override forecast horizon
+skforecast-ai refine-plan --from-plan plan.json --steps 12 --format json > plan_12.json
+
+# Switch forecaster
+skforecast-ai refine-plan --from-plan plan.json --forecaster ForecasterDirect --format json
+
+# Override estimator hyperparameters
+skforecast-ai refine-plan --from-plan plan.json --estimator-kwargs '{"n_estimators": 500}' --format json
+
+# Add prediction intervals
+skforecast-ai refine-plan --from-plan plan.json --interval "10,90" --format json
+
+# Pipe: plan → refine → generate-code
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json -q | \
+  skforecast-ai refine-plan --from-plan - --steps 12 --forecaster ForecasterDirect --format json -q | \
+  skforecast-ai generate-code --from-plan - --output forecast.py -q
+```
+
 ## Plan Save/Load (Reproducibility)
 
 ```bash
@@ -262,6 +288,11 @@ skforecast-ai profile "$URL" --target y --date-column fecha --format json | \
   skforecast-ai plan --from-profile - --steps 24 --format json | \
   skforecast-ai generate-code --from-plan - --output script.py
 
+# Plan → Refine → Generate Code (iterative refinement)
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json | \
+  skforecast-ai refine-plan --from-plan - --steps 12 --format json | \
+  skforecast-ai generate-code --from-plan - --output script.py
+
 # Plan → Forecast (generate plan once, execute against data)
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format json | \
   skforecast-ai forecast "$URL" --from-plan -
@@ -271,6 +302,19 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 
 - `profile --format json` outputs a `ForecastingProfile` JSON object
 - `plan --format json` outputs a bundle: `{"profile": {...}, "plan": {...}}`
+- `refine-plan --format json` outputs the same bundle format (refined plan replaces original)
 - `--from-profile -` reads a profile from stdin (or a file path)
 - `--from-plan -` reads a plan bundle from stdin (or a file path)
+
+---
+
+## Shell Completion
+
+Typer provides built-in shell completion. To install it:
+
+```bash
+skforecast-ai --install-completion
+```
+
+This adds tab completion for commands, options, and arguments in your current shell (bash, zsh, fish, PowerShell). After installation, restart your shell or source the config file.
 - When `--from-plan` is used, `DATA` and `--target`/`--steps` are optional for `generate-code` (taken from the bundle), but `DATA` is still required for `forecast` (needs actual data for execution)

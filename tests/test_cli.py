@@ -6,6 +6,7 @@ import json
 from typer.testing import CliRunner
 
 from skforecast_ai.cli import app
+from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_assistant import df_single, df_multi_long, df_multi_wide
 
@@ -203,6 +204,47 @@ class TestPlan:
         data = json.loads(out_path.read_text())
         assert data["plan"]["steps"] == 10
 
+    def test_plan_with_estimator_kwargs(self, tmp_path):
+        """
+        Plan with --estimator-kwargs includes hyperparameters in plan output.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "10", "--estimator-kwargs", '{"n_estimators": 200}',
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["plan"]["estimator_kwargs"]["n_estimators"] == 200
+
+    def test_plan_estimator_kwargs_invalid_json(self, tmp_path):
+        """
+        Plan with invalid JSON in --estimator-kwargs shows error.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "10", "--estimator-kwargs", "not-json", "--quiet"],
+        )
+        assert result.exit_code != 0
+        assert "Invalid JSON" in result.output
+
+    def test_plan_estimator_kwargs_not_dict(self, tmp_path):
+        """
+        Plan with non-dict JSON in --estimator-kwargs shows error.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "10", "--estimator-kwargs", "[1, 2, 3]", "--quiet"],
+        )
+        assert result.exit_code != 0
+        assert "JSON object" in result.output
+
 
 # ---------------------------------------------------------------------------
 # generate-code command
@@ -295,6 +337,20 @@ class TestGenerateCode:
             ["generate-code", "nonexistent.csv", "--target", "y", "--steps", "10"],
         )
         assert result.exit_code == 1
+
+    def test_generate_code_with_estimator_kwargs(self, tmp_path):
+        """
+        Generate-code with --estimator-kwargs passes hyperparameters through.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["generate-code", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "10", "--estimator-kwargs", '{"n_estimators": 300}',
+             "--quiet"],
+        )
+        assert result.exit_code == 0
+        assert "n_estimators" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +460,22 @@ class TestForecast:
         )
         assert result.exit_code != 0
 
+    def test_forecast_with_estimator_kwargs(self, tmp_path):
+        """
+        Forecast with --estimator-kwargs passes hyperparameters through.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--estimator", "RandomForestRegressor",
+             "--estimator-kwargs", '{"n_estimators": 150, "random_state": 123}',
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["plan"]["estimator_kwargs"]["n_estimators"] == 150
+
 
 # ---------------------------------------------------------------------------
 # ask command
@@ -500,3 +572,53 @@ class TestAsk:
              "--data", csv_path, "--steps", "10", "--quiet"],
         )
         assert result.exit_code == 1
+
+    def test_ask_send_data_from_env_var(self, monkeypatch):
+        """
+        SKFORECAST_AI_SEND_DATA_TO_LLM env var enables send_data when flag
+        is not provided.
+        """
+        monkeypatch.delenv("SKFORECAST_AI_LLM", raising=False)
+        monkeypatch.setenv("SKFORECAST_AI_SEND_DATA_TO_LLM", "true")
+        _mock_ask_agent(monkeypatch, "Response with data.")
+
+        captured = {}
+        original_init = ForecastingAssistant.__init__
+
+        def _capture_init(self, **kwargs):
+            captured.update(kwargs)
+            original_init(self, **kwargs)
+
+        monkeypatch.setattr(ForecastingAssistant, "__init__", _capture_init)
+
+        result = runner.invoke(
+            app,
+            ["ask", "test", "--llm", "openai:fake-model", "--quiet"],
+        )
+        assert result.exit_code == 0
+        assert captured["send_data_to_llm"] is True
+
+    def test_ask_no_send_data_flag_overrides_env_var(self, monkeypatch):
+        """
+        --no-send-data-to-llm flag overrides env var set to true.
+        """
+        monkeypatch.delenv("SKFORECAST_AI_LLM", raising=False)
+        monkeypatch.setenv("SKFORECAST_AI_SEND_DATA_TO_LLM", "true")
+        _mock_ask_agent(monkeypatch, "Response.")
+
+        captured = {}
+        original_init = ForecastingAssistant.__init__
+
+        def _capture_init(self, **kwargs):
+            captured.update(kwargs)
+            original_init(self, **kwargs)
+
+        monkeypatch.setattr(ForecastingAssistant, "__init__", _capture_init)
+
+        result = runner.invoke(
+            app,
+            ["ask", "test", "--llm", "openai:fake-model",
+             "--no-send-data-to-llm", "--quiet"],
+        )
+        assert result.exit_code == 0
+        assert captured["send_data_to_llm"] is False

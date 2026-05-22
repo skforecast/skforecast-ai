@@ -153,6 +153,18 @@ class TestPlanFromProfile:
         assert result.exit_code == 1
         assert "required" in result.output.lower()
 
+    def test_plan_from_profile_invalid_schema(self):
+        """plan --from-profile with wrong schema shows friendly validation error."""
+        invalid_profile = json.dumps({"foo": "bar", "unrelated": 123})
+        result = runner.invoke(
+            app,
+            ["plan", "--from-profile", "-", "--steps", "10", "--quiet"],
+            input=invalid_profile,
+        )
+        assert result.exit_code == 1
+        assert "validation error" in result.output.lower()
+        assert "Tip:" in result.output
+
     def test_plan_json_output_is_bundle(self, tmp_path):
         """plan --format json outputs a bundle with profile and plan keys."""
         csv_file = tmp_path / "data.csv"
@@ -169,6 +181,101 @@ class TestPlanFromProfile:
         assert "plan" in output
         assert output["plan"]["steps"] == 10
         assert output["profile"]["forecaster"] is not None
+
+
+# ---------------------------------------------------------------------------
+# refine-plan tests
+# ---------------------------------------------------------------------------
+
+
+class TestRefinePlan:
+    """Tests for the refine-plan command."""
+
+    def test_refine_plan_from_file(self, tmp_path):
+        """refine-plan --from-plan loads bundle and refines plan."""
+        bundle_file = tmp_path / "bundle.json"
+        bundle_file.write_text(json.dumps(MOCK_BUNDLE))
+
+        result = runner.invoke(app, [
+            "refine-plan", "--from-plan", str(bundle_file),
+            "--steps", "5", "--format", "json", "--quiet",
+        ])
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.output)
+        assert "profile" in output
+        assert "plan" in output
+        assert output["plan"]["steps"] == 5
+
+    def test_refine_plan_from_stdin(self):
+        """refine-plan --from-plan - reads bundle from stdin."""
+        result = runner.invoke(
+            app,
+            ["refine-plan", "--from-plan", "-", "--steps", "5", "--format", "json", "--quiet"],
+            input=json.dumps(MOCK_BUNDLE),
+        )
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.output)
+        assert output["plan"]["steps"] == 5
+
+    def test_refine_plan_override_forecaster(self, tmp_path):
+        """refine-plan --forecaster overrides the forecaster field."""
+        bundle_file = tmp_path / "bundle.json"
+        bundle_file.write_text(json.dumps(MOCK_BUNDLE))
+
+        result = runner.invoke(app, [
+            "refine-plan", "--from-plan", str(bundle_file),
+            "--forecaster", "ForecasterDirect",
+            "--format", "json", "--quiet",
+        ])
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.output)
+        assert output["plan"]["forecaster"] == "ForecasterDirect"
+
+    def test_refine_plan_override_estimator_kwargs(self, tmp_path):
+        """refine-plan --estimator-kwargs passes JSON overrides."""
+        bundle_file = tmp_path / "bundle.json"
+        bundle_file.write_text(json.dumps(MOCK_BUNDLE))
+
+        result = runner.invoke(app, [
+            "refine-plan", "--from-plan", str(bundle_file),
+            "--estimator-kwargs", '{"n_estimators": 500}',
+            "--format", "json", "--quiet",
+        ])
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.output)
+        assert output["plan"]["estimator_kwargs"]["n_estimators"] == 500
+
+    def test_refine_plan_invalid_json_errors(self):
+        """refine-plan with invalid JSON exits with error."""
+        result = runner.invoke(
+            app,
+            ["refine-plan", "--from-plan", "-", "--format", "json", "--quiet"],
+            input="not json {{{",
+        )
+        assert result.exit_code == 1
+        assert "invalid json" in result.output.lower() or "error" in result.output.lower()
+
+    def test_refine_plan_invalid_schema_errors(self):
+        """refine-plan with wrong schema shows validation error."""
+        result = runner.invoke(
+            app,
+            ["refine-plan", "--from-plan", "-", "--format", "json", "--quiet"],
+            input=json.dumps({"profile": {}, "plan": {}}),
+        )
+        assert result.exit_code == 1
+        assert "validation error" in result.output.lower()
+
+    def test_refine_plan_invalid_forecaster_errors(self, tmp_path):
+        """refine-plan with invalid forecaster name exits with error."""
+        bundle_file = tmp_path / "bundle.json"
+        bundle_file.write_text(json.dumps(MOCK_BUNDLE))
+
+        result = runner.invoke(app, [
+            "refine-plan", "--from-plan", str(bundle_file),
+            "--forecaster", "NonexistentForecaster",
+            "--format", "json", "--quiet",
+        ])
+        assert result.exit_code == 1
 
 
 # ---------------------------------------------------------------------------
@@ -346,3 +453,26 @@ class TestPipeComposition:
         output = json.loads(code_result.output)
         assert "code" in output
         assert len(output["code"]) > 50
+
+    def test_plan_to_refine_plan_pipe(self, tmp_path):
+        """plan --format json output feeds into refine-plan --from-plan."""
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+
+        # Step 1: plan
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "10",
+            "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+
+        # Step 2: refine-plan from plan (pipe via stdin)
+        refine_result = runner.invoke(
+            app,
+            ["refine-plan", "--from-plan", "-", "--steps", "5", "--format", "json", "--quiet"],
+            input=plan_result.output,
+        )
+        assert refine_result.exit_code == 0, refine_result.output
+        output = json.loads(refine_result.output)
+        assert output["plan"]["steps"] == 5
