@@ -54,10 +54,14 @@ def build_plan_explanation(
         parts.append(f"Lags: {lags}.")
 
     if window_features is not None:
-        stats = [wf.get("stats", []) for wf in window_features] if isinstance(window_features, list) else []
-        flat_stats = [s for sublist in stats for s in sublist] if stats else []
-        if flat_stats:
-            parts.append(f"Window features: {flat_stats}.")
+        descriptions: list[str] = []
+        if isinstance(window_features, list):
+            for wf in window_features:
+                ws = wf.get("window_sizes")
+                for stat in wf.get("stats", []):
+                    descriptions.append(f"{stat}(window={ws})")
+        if descriptions:
+            parts.append(f"Window features: {descriptions}.")
 
     if interval_method is not None:
         parts.append(f"Prediction intervals via {interval_method}.")
