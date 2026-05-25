@@ -34,7 +34,18 @@ from .schemas.results import CodeGenerationResult
 
 
 def _version_callback(value: bool) -> None:
-    """Print version and exit."""
+    """
+    Print version and exit.
+
+    Parameters
+    ----------
+    value : bool
+        Whether the --version flag was passed.
+
+    Returns
+    -------
+    None
+    """
     if value:
         print(f"skforecast-ai {__version__}")
         raise typer.Exit()
@@ -54,7 +65,18 @@ def main(
         typer.Option("--version", callback=_version_callback, is_eager=True, help="Show version."),
     ] = None,
 ) -> None:
-    """Deterministic forecasting assistant powered by skforecast."""
+    """
+    Deterministic forecasting assistant powered by skforecast.
+
+    Parameters
+    ----------
+    version : bool, default None
+        Show version and exit.
+
+    Returns
+    -------
+    None
+    """
 
 
 console = Console()
@@ -70,7 +92,13 @@ app.add_typer(config_app, name="config")
 
 @config_app.command("show")
 def config_show() -> None:
-    """Display current configuration."""
+    """
+    Display current configuration.
+
+    Returns
+    -------
+    None
+    """
     config = load_config()
     if not config:
         console.print("[dim]No config file found. Using defaults and environment variables.[/dim]")
@@ -97,7 +125,20 @@ def config_set(
     key: Annotated[str, typer.Argument(help="Config key (e.g. 'llm.provider').")],
     value: Annotated[str, typer.Argument(help="Value to set.")],
 ) -> None:
-    """Set a configuration value."""
+    """
+    Set a configuration value.
+
+    Parameters
+    ----------
+    key : str
+        Config key in dotted notation (e.g. `'llm.provider'`).
+    value : str
+        Value to set.
+
+    Returns
+    -------
+    None
+    """
     try:
         set_config_value(key, value)
     except ValueError as e:
@@ -108,7 +149,13 @@ def config_set(
 
 @config_app.command("path")
 def config_path() -> None:
-    """Print the config file location."""
+    """
+    Print the config file location.
+
+    Returns
+    -------
+    None
+    """
     print(str(CONFIG_FILE))
 
 
@@ -118,7 +165,23 @@ def config_path() -> None:
 
 
 def _resolve(flag: str | None, env_var: str, config_key: str) -> str | None:
-    """Resolve a setting: CLI flag > env var > config file > None."""
+    """
+    Resolve a setting with precedence: CLI flag > env var > config file > None.
+
+    Parameters
+    ----------
+    flag : str, None
+        Value from the CLI flag.
+    env_var : str
+        Name of the environment variable to check.
+    config_key : str
+        Dotted key to look up in the config file.
+
+    Returns
+    -------
+    value : str, None
+        Resolved value or None if not found.
+    """
     if flag is not None:
         return flag
     env_val = os.environ.get(env_var)
@@ -130,7 +193,25 @@ def _resolve(flag: str | None, env_var: str, config_key: str) -> str | None:
 def _resolve_bool(
     flag: bool | None, env_var: str, config_key: str, default: bool = False
 ) -> bool:
-    """Resolve a boolean setting: CLI flag > env var > config file > default."""
+    """
+    Resolve a boolean setting: CLI flag > env var > config file > default.
+
+    Parameters
+    ----------
+    flag : bool, None
+        Value from the CLI flag.
+    env_var : str
+        Name of the environment variable to check.
+    config_key : str
+        Dotted key to look up in the config file.
+    default : bool, default False
+        Fallback value if not found anywhere.
+
+    Returns
+    -------
+    value : bool
+        Resolved boolean value.
+    """
     if flag is not None:
         return flag
     env_val = os.environ.get(env_var)
@@ -143,7 +224,19 @@ def _resolve_bool(
 
 
 def _read_json_input(source: str) -> dict:
-    """Read JSON from a file path or stdin (when source is '-')."""
+    """
+    Read JSON from a file path or stdin (when source is `'-'`).
+
+    Parameters
+    ----------
+    source : str
+        Path to a JSON file, or `'-'` to read from stdin.
+
+    Returns
+    -------
+    data : dict
+        Parsed JSON content.
+    """
     if source == "-":
         raw = sys.stdin.read()
     else:
@@ -158,13 +251,37 @@ def _read_json_input(source: str) -> dict:
 
 
 def _parse_target(target_str: str) -> str | list[str]:
-    """Split comma-separated target names; return str if single value."""
+    """
+    Split comma-separated target names; return str if single value.
+
+    Parameters
+    ----------
+    target_str : str
+        Comma-separated target column names.
+
+    Returns
+    -------
+    target : str, list
+        Single target name or list of target names.
+    """
     parts = [t.strip() for t in target_str.split(",")]
     return parts if len(parts) > 1 else parts[0]
 
 
 def _parse_interval(interval_str: str | None) -> list[int] | None:
-    """Parse 'lower,upper' interval string into [int, int] or None."""
+    """
+    Parse `'lower,upper'` interval string into a two-element list or None.
+
+    Parameters
+    ----------
+    interval_str : str, None
+        Comma-separated lower and upper percentiles (e.g. `'10,90'`).
+
+    Returns
+    -------
+    interval : list, None
+        Two-element list `[lower, upper]` or None if input is None.
+    """
     if interval_str is None:
         return None
     parts = [int(x.strip()) for x in interval_str.split(",")]
@@ -176,7 +293,19 @@ def _parse_interval(interval_str: str | None) -> list[int] | None:
 
 
 def _parse_estimator_kwargs(value: str | None) -> dict | None:
-    """Parse JSON string into dict for estimator hyperparameters."""
+    """
+    Parse JSON string into dict for estimator hyperparameters.
+
+    Parameters
+    ----------
+    value : str, None
+        JSON string representing estimator keyword arguments.
+
+    Returns
+    -------
+    kwargs : dict, None
+        Parsed dictionary or None if input is None.
+    """
     if value is None:
         return None
     try:
@@ -194,7 +323,20 @@ def _parse_estimator_kwargs(value: str | None) -> dict | None:
 
 
 def _write_output(content: str, output: Path | None) -> None:
-    """Write content to file or stdout."""
+    """
+    Write content to file or stdout.
+
+    Parameters
+    ----------
+    content : str
+        Text content to write.
+    output : Path, None
+        File path to write to. If None, prints to stdout.
+
+    Returns
+    -------
+    None
+    """
     if output is not None:
         output.write_text(content)
         console.print(f"[green]Output written to:[/green] {output}")
@@ -204,7 +346,9 @@ def _write_output(content: str, output: Path | None) -> None:
 
 @contextlib.contextmanager
 def _error_handler():
-    """Catch known exceptions and print user-friendly errors."""
+    """
+    Catch known exceptions and print user-friendly errors.
+    """
     try:
         yield
     except FileNotFoundError as e:
@@ -241,7 +385,18 @@ def _error_handler():
 
 
 def _render_profile_table(profile) -> None:
-    """Print a Rich table summarizing the ForecastingProfile."""
+    """
+    Print a Rich table summarizing the ForecastingProfile.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile
+        Profile object to render.
+
+    Returns
+    -------
+    None
+    """
     dp = profile.data_profile
 
     table = Table(title="Dataset Profile", show_lines=True)
@@ -275,7 +430,18 @@ def _render_profile_table(profile) -> None:
 
 
 def _render_plan_panel(plan) -> None:
-    """Print a Rich panel summarizing the ForecastPlan."""
+    """
+    Print a Rich panel summarizing the ForecastPlan.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan object to render.
+
+    Returns
+    -------
+    None
+    """
     table = Table(title="Forecast Plan", show_lines=True)
     table.add_column("Property", style="bold")
     table.add_column("Value")
@@ -539,7 +705,18 @@ def generate_code(
 
 
 def _render_forecast_results(result) -> None:
-    """Print a Rich table summarizing forecast metrics and predictions."""
+    """
+    Print a Rich table summarizing forecast metrics and predictions.
+
+    Parameters
+    ----------
+    result : ForecastResult
+        Forecast result containing metrics and predictions.
+
+    Returns
+    -------
+    None
+    """
     metrics = result.metrics
 
     table = Table(title="Forecast Metrics", show_lines=True)
@@ -573,7 +750,19 @@ def _render_forecast_results(result) -> None:
 
 
 def _forecast_result_to_json(result) -> str:
-    """Serialize ForecastResult to JSON with DataFrame fields as records."""
+    """
+    Serialize ForecastResult to JSON with DataFrame fields as records.
+
+    Parameters
+    ----------
+    result : ForecastResult
+        Forecast result to serialize.
+
+    Returns
+    -------
+    json_str : str
+        JSON string representation of the result.
+    """
     data = {
         "profile": result.profile.model_dump(mode="json"),
         "plan": result.plan.model_dump(mode="json"),

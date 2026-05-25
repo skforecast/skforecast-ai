@@ -21,7 +21,14 @@ VALID_KEYS: set[str] = {
 
 
 def load_config() -> dict:
-    """Read the config TOML file; return empty dict if missing."""
+    """
+    Read the config TOML file; return empty dict if missing.
+
+    Returns
+    -------
+    config : dict
+        Parsed configuration dictionary.
+    """
     if not CONFIG_FILE.is_file():
         return {}
     with open(CONFIG_FILE, "rb") as f:
@@ -29,7 +36,18 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> None:
-    """Write config dict to TOML file, creating directories as needed."""
+    """
+    Write config dict to TOML file, creating directories as needed.
+
+    Parameters
+    ----------
+    config : dict
+        Configuration dictionary with section keys mapping to value dicts.
+
+    Returns
+    -------
+    None
+    """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     lines = []
     for section, values in sorted(config.items()):
@@ -50,7 +68,19 @@ def save_config(config: dict) -> None:
 
 
 def get_config_value(key: str) -> str | None:
-    """Get a config value by dot-notation key (e.g. 'llm.provider')."""
+    """
+    Get a config value by dot-notation key (e.g. `'llm.provider'`).
+
+    Parameters
+    ----------
+    key : str
+        Dot-notation key (e.g. `'llm.provider'`).
+
+    Returns
+    -------
+    value : str, None
+        Config value as string, or None if not found.
+    """
     parts = key.split(".", 1)
     if len(parts) != 2:
         return None
@@ -63,7 +93,21 @@ def get_config_value(key: str) -> str | None:
 
 
 def set_config_value(key: str, value: str) -> None:
-    """Set a config value by dot-notation key and persist."""
+    """
+    Set a config value by dot-notation key and persist.
+
+    Parameters
+    ----------
+    key : str
+        Dot-notation key (e.g. `'llm.provider'`). Must be in `VALID_KEYS`.
+    value : str
+        Value to set. Boolean strings (`'true'`, `'false'`) are stored as
+        booleans.
+
+    Returns
+    -------
+    None
+    """
     if key not in VALID_KEYS:
         raise ValueError(
             f"Unknown config key: '{key}'. "
