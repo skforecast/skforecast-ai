@@ -289,26 +289,103 @@ def _emit_end_train(
     )
 
 
+_METRIC_REGISTRY: dict[str, dict[str, str | bool]] = {
+    "mean_absolute_error": {
+        "import": "from sklearn.metrics import mean_absolute_error",
+        "var": "mae",
+        "label": "MAE",
+        "call": "mean_absolute_error(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
+    "mean_squared_error": {
+        "import": "from sklearn.metrics import mean_squared_error",
+        "var": "mse",
+        "label": "MSE",
+        "call": "mean_squared_error(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
+    "mean_absolute_scaled_error": {
+        "import": "from skforecast.metrics import mean_absolute_scaled_error",
+        "var": "mase",
+        "label": "MASE",
+        "call": (
+            "mean_absolute_scaled_error(\n"
+            "    y_true  = actual,\n"
+            "    y_pred  = {pred_expr},\n"
+            "    y_train = {train_expr},\n"
+            ")"
+        ),
+        "requires_y_train": True,
+    },
+    "mean_absolute_percentage_error": {
+        "import": "from sklearn.metrics import mean_absolute_percentage_error",
+        "var": "mape",
+        "label": "MAPE",
+        "call": "mean_absolute_percentage_error(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
+}
+
+
+def _get_metric_imports(metrics_to_compute: list[str]) -> list[str]:
+    """
+    Build deduplicated import lines for the requested metrics.
+
+    Groups sklearn imports on a single line when possible.
+    """
+    sklearn_funcs: list[str] = []
+    skforecast_imports: list[str] = []
+
+    for m in metrics_to_compute:
+        info = _METRIC_REGISTRY.get(m)
+        if info is None:
+            continue
+        if info["import"].startswith("from sklearn"):
+            func_name = info["import"].split("import ")[-1]
+            if func_name not in sklearn_funcs:
+                sklearn_funcs.append(func_name)
+        else:
+            if info["import"] not in skforecast_imports:
+                skforecast_imports.append(info["import"])
+
+    lines: list[str] = []
+    if sklearn_funcs:
+        lines.append(f"from sklearn.metrics import {', '.join(sklearn_funcs)}")
+    lines.extend(skforecast_imports)
+    return lines
+
+
 def _emit_metrics_section(
     lines: list[str],
     actual_expr: str,
     pred_expr: str,
     train_expr: str,
+    metrics_to_compute: list[str] | None = None,
 ) -> None:
-    """Append test-set evaluation metrics (MAE, MSE, MASE)."""
+    """Append test-set evaluation metrics based on metrics_to_compute."""
+    if metrics_to_compute is None:
+        metrics_to_compute = [
+            "mean_absolute_error",
+            "mean_squared_error",
+            "mean_absolute_scaled_error",
+        ]
+
     lines.append("# Evaluate on test set")
     lines.append(f"actual = {actual_expr}")
-    lines.append(f"mae  = mean_absolute_error(actual, {pred_expr})")
-    lines.append(f"mse  = mean_squared_error(actual, {pred_expr})")
-    lines.append("mase = mean_absolute_scaled_error(")
-    lines.append("    y_true  = actual,")
-    lines.append(f"    y_pred  = {pred_expr},")
-    lines.append(f"    y_train = {train_expr},")
-    lines.append(")")
+
+    for m in metrics_to_compute:
+        info = _METRIC_REGISTRY.get(m)
+        if info is None:
+            continue
+        call = info["call"].format(pred_expr=pred_expr, train_expr=train_expr)
+        lines.append(f"{info['var']} = {call}")
+
     lines.append("")
-    lines.append('print(f"MAE  : {mae:.4f}")')
-    lines.append('print(f"MSE  : {mse:.4f}")')
-    lines.append('print(f"MASE : {mase:.4f}")')
+    for m in metrics_to_compute:
+        info = _METRIC_REGISTRY.get(m)
+        if info is None:
+            continue
+        lines.append(f'print(f"{info["label"]:<5}: {{{info["var"]}:.4f}}")')
 
 
 def _emit_metrics_section_multiseries(
@@ -316,8 +393,16 @@ def _emit_metrics_section_multiseries(
     test_dict_var: str,
     train_dict_var: str,
     pred_var: str,
+    metrics_to_compute: list[str] | None = None,
 ) -> None:
     """Append per-series evaluation metrics as a DataFrame."""
+    if metrics_to_compute is None:
+        metrics_to_compute = [
+            "mean_absolute_error",
+            "mean_squared_error",
+            "mean_absolute_scaled_error",
+        ]
+
     lines.append("# Evaluate on test set (per series)")
     lines.append("metrics_list = []")
     lines.append(f"for series_name in {test_dict_var}:")
@@ -332,17 +417,21 @@ def _emit_metrics_section_multiseries(
     )
     lines.append("    metrics_list.append({")
     lines.append('        "series": series_name,')
-    lines.append(
-        '        "MAE": mean_absolute_error(actual, pred),'
-    )
-    lines.append(
-        '        "MSE": mean_squared_error(actual, pred),'
-    )
-    lines.append("        \"MASE\": mean_absolute_scaled_error(")
-    lines.append(
-        f"            actual, pred, y_train={train_dict_var}[series_name]"
-    )
-    lines.append("        ),")
+    for m in metrics_to_compute:
+        info = _METRIC_REGISTRY.get(m)
+        if info is None:
+            continue
+        func_name = info["import"].split("import ")[-1]
+        if info["requires_y_train"]:
+            lines.append(f'        "{info["label"]}": {func_name}(')
+            lines.append(
+                f"            actual, pred, y_train={train_dict_var}[series_name]"
+            )
+            lines.append("        ),")
+        else:
+            lines.append(
+                f'        "{info["label"]}": {func_name}(actual, pred),'
+            )
     lines.append("    })")
     lines.append("metrics_df = pd.DataFrame(metrics_list)")
     lines.append("print(metrics_df.to_string(index=False))")
@@ -354,8 +443,16 @@ def _emit_metrics_section_foundation(
     has_intervals: bool,
     test_var: str,
     train_var: str,
+    metrics_to_compute: list[str] | None = None,
 ) -> None:
     """Append evaluation metrics for ForecasterFoundation output."""
+    if metrics_to_compute is None:
+        metrics_to_compute = [
+            "mean_absolute_error",
+            "mean_squared_error",
+            "mean_absolute_scaled_error",
+        ]
+
     pred_col = "'q_0.5'" if has_intervals else "'pred'"
     if is_multi_series:
         lines.append("# Evaluate on test set (per series)")
@@ -370,17 +467,21 @@ def _emit_metrics_section_foundation(
         )
         lines.append("    metrics_list.append({")
         lines.append('        "series": level,')
-        lines.append(
-            '        "MAE": mean_absolute_error(actual, pred),'
-        )
-        lines.append(
-            '        "MSE": mean_squared_error(actual, pred),'
-        )
-        lines.append("        \"MASE\": mean_absolute_scaled_error(")
-        lines.append(
-            f"            actual, pred, y_train={train_var}[level]"
-        )
-        lines.append("        ),")
+        for m in metrics_to_compute:
+            info = _METRIC_REGISTRY.get(m)
+            if info is None:
+                continue
+            func_name = info["import"].split("import ")[-1]
+            if info["requires_y_train"]:
+                lines.append(f'        "{info["label"]}": {func_name}(')
+                lines.append(
+                    f"            actual, pred, y_train={train_var}[level]"
+                )
+                lines.append("        ),")
+            else:
+                lines.append(
+                    f'        "{info["label"]}": {func_name}(actual, pred),'
+                )
         lines.append("    })")
         lines.append("metrics_df = pd.DataFrame(metrics_list)")
         lines.append("print(metrics_df.to_string(index=False))")
@@ -390,17 +491,18 @@ def _emit_metrics_section_foundation(
         lines.append(
             f"pred = predictions[{pred_col}].values"
         )
-        lines.append("mae  = mean_absolute_error(actual, pred)")
-        lines.append("mse  = mean_squared_error(actual, pred)")
-        lines.append("mase = mean_absolute_scaled_error(")
-        lines.append("    y_true  = actual,")
-        lines.append("    y_pred  = pred,")
-        lines.append(f"    y_train = {train_var},")
-        lines.append(")")
+        for m in metrics_to_compute:
+            info = _METRIC_REGISTRY.get(m)
+            if info is None:
+                continue
+            call = info["call"].format(pred_expr="pred", train_expr=train_var)
+            lines.append(f"{info['var']} = {call}")
         lines.append("")
-        lines.append('print(f"MAE  : {mae:.4f}")')
-        lines.append('print(f"MSE  : {mse:.4f}")')
-        lines.append('print(f"MASE : {mase:.4f}")')
+        for m in metrics_to_compute:
+            info = _METRIC_REGISTRY.get(m)
+            if info is None:
+                continue
+            lines.append(f'print(f"{info["label"]:<5}: {{{info["var"]}:.4f}}")')
 
 
 def _get_estimator_import(estimator: str | None) -> str:
@@ -497,11 +599,8 @@ def _template_single_series(
         import_lines.append("from sklearn.preprocessing import StandardScaler")
     if transformer_exog and _needs_column_transformer(profile):
         import_lines.append("from sklearn.compose import make_column_transformer")
-    import_lines.append(
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error"
-    )
+    import_lines.extend(_get_metric_imports(plan.metrics_to_compute))
     import_lines.append(estimator_import)
-    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
     if window_features:
         import_lines.append("from skforecast.preprocessing import RollingFeatures")
     import_lines.append(f"from skforecast.{forecaster_module} import {forecaster_class}")
@@ -627,6 +726,7 @@ def _template_single_series(
         actual_expr=f"data_test[{repr(target)}].iloc[:steps]",
         pred_expr=pred_expr,
         train_expr=f"data_train[{repr(target)}]",
+        metrics_to_compute=plan.metrics_to_compute,
     )
     core_lines.append("")
     _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
@@ -675,11 +775,8 @@ def _template_multi_series(
         import_lines.append("from sklearn.preprocessing import StandardScaler")
     if transformer_exog and _needs_column_transformer(profile):
         import_lines.append("from sklearn.compose import make_column_transformer")
-    import_lines.append(
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error"
-    )
+    import_lines.extend(_get_metric_imports(plan.metrics_to_compute))
     import_lines.append(estimator_import)
-    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
     preprocessing_imports: list[str] = []
     if window_features:
         preprocessing_imports.append("RollingFeatures")
@@ -871,6 +968,7 @@ def _template_multi_series(
         test_dict_var="series_dict_test",
         train_dict_var="series_dict_train",
         pred_var="predictions",
+        metrics_to_compute=plan.metrics_to_compute,
     )
     core_lines.append("")
     _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
@@ -919,11 +1017,8 @@ def _template_multivariate(
         import_lines.append("from sklearn.preprocessing import StandardScaler")
     if transformer_exog and _needs_column_transformer(profile):
         import_lines.append("from sklearn.compose import make_column_transformer")
-    import_lines.append(
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error"
-    )
+    import_lines.extend(_get_metric_imports(plan.metrics_to_compute))
     import_lines.append(estimator_import)
-    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
     if window_features:
         import_lines.append("from skforecast.preprocessing import RollingFeatures")
     import_lines.append("from skforecast.direct import ForecasterDirectMultiVariate")
@@ -1080,6 +1175,7 @@ def _template_multivariate(
         actual_expr=actual_expr,
         pred_expr="predictions['pred']",
         train_expr=train_expr,
+        metrics_to_compute=plan.metrics_to_compute,
     )
     core_lines.append("")
     _emit_production_note(core_lines, use_exog=use_exog)
@@ -1112,10 +1208,7 @@ def _template_statistical(
 
     # --- Imports ---
     import_lines.append("import pandas as pd")
-    import_lines.append(
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error"
-    )
-    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
+    import_lines.extend(_get_metric_imports(plan.metrics_to_compute))
     import_lines.append("from skforecast.stats import Arima")
     import_lines.append("from skforecast.recursive import ForecasterStats")
     import_lines.append("")
@@ -1204,6 +1297,7 @@ def _template_statistical(
         actual_expr=f"data_test[{repr(target)}].iloc[:steps]",
         pred_expr=pred_expr,
         train_expr=f"data_train[{repr(target)}]",
+        metrics_to_compute=plan.metrics_to_compute,
     )
     core_lines.append("")
     _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
@@ -1245,10 +1339,7 @@ def _template_foundation(
 
     # --- Imports ---
     import_lines.append("import pandas as pd")
-    import_lines.append(
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error"
-    )
-    import_lines.append("from skforecast.metrics import mean_absolute_scaled_error")
+    import_lines.extend(_get_metric_imports(plan.metrics_to_compute))
     import_lines.append(
         "from skforecast.foundation import FoundationModel, ForecasterFoundation"
     )
@@ -1345,6 +1436,7 @@ def _template_foundation(
         has_intervals=plan.interval_method is not None,
         test_var="series_test",
         train_var="series_train",
+        metrics_to_compute=plan.metrics_to_compute,
     )
     core_lines.append("")
     _emit_production_note(core_lines, use_exog=use_exog, is_foundation=True)

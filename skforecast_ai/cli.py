@@ -457,6 +457,7 @@ def _render_plan_panel(plan) -> None:
     table.add_row("Use exog", str(plan.use_exog))
     table.add_row("Interval", str(plan.interval) if plan.interval else "none")
     table.add_row("Interval method", plan.interval_method or "N/A")
+    table.add_row("Primary metric", plan.metric)
 
     if plan.preprocessing_steps:
         steps_str = "\n".join(
@@ -721,17 +722,18 @@ def _render_forecast_results(result) -> None:
 
     table = Table(title="Forecast Metrics", show_lines=True)
     table.add_column("Series", style="bold")
-    table.add_column("MAE", justify="right")
-    table.add_column("MSE", justify="right")
-    table.add_column("MASE", justify="right")
+
+    # Dynamically add metric columns (all columns except 'series')
+    metric_cols = [c for c in metrics.columns if c != "series"]
+    for col in metric_cols:
+        table.add_column(col, justify="right")
 
     for _, row in metrics.iterrows():
-        table.add_row(
-            str(row["series"]),
-            f"{row['MAE']:.4f}",
-            f"{row['MSE']:.4f}",
-            f"{row['MASE']:.4f}",
-        )
+        values = [str(row["series"])]
+        for col in metric_cols:
+            val = row[col]
+            values.append(f"{val:.4f}" if val is not None else "N/A")
+        table.add_row(*values)
 
     console.print(table)
     console.print()

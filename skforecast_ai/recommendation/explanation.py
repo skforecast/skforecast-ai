@@ -13,13 +13,14 @@ def build_plan_explanation(
     interval_method: str | None,
     dropna_from_series: bool | None,
     use_exog: bool,
+    metric_explanation: str | None = None,
 ) -> str:
     """
     Assemble a human-readable explanation of the plan-level decisions.
 
     Focuses on *what* the plan configures (lags, window features,
-    interval method, NaN handling) rather than *why* a forecaster was
-    chosen (which belongs in the profile explanation).
+    interval method, NaN handling, metric) rather than *why* a
+    forecaster was chosen (which belongs in the profile explanation).
 
     Parameters
     ----------
@@ -37,6 +38,8 @@ def build_plan_explanation(
         NaN handling strategy.
     use_exog : bool
         Whether exogenous variables are included.
+    metric_explanation : str, default None
+        Metric explanation sentence.
 
     Returns
     -------
@@ -73,6 +76,9 @@ def build_plan_explanation(
 
     if use_exog:
         parts.append("Exogenous variables included.")
+
+    if metric_explanation is not None:
+        parts.append(f"{metric_explanation}")
 
     return " ".join(parts)
 

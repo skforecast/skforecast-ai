@@ -171,6 +171,7 @@ def _plan(profile, steps, forecaster=None, estimator=None):
         interval_method    = None,
         dropna_from_series = dropna_from_series,
         use_exog           = use_exog,
+        metric_explanation = "MAE is interpretable, robust to outliers, and works at any scale.",
     )
 
     plan = ForecastPlan(

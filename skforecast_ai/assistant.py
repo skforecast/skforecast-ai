@@ -22,6 +22,7 @@ from .recommendation import (
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
     select_lags_and_window_features,
+    select_metric,
     select_task_type_from_forecaster,
     select_transformer_exog,
     select_transformer_series,
@@ -292,6 +293,10 @@ class ForecastingAssistant:
 
         preprocessing_steps = derive_preprocessing_steps(data_profile, fc)
 
+        metric, metric_explanation, metrics_to_compute = select_metric(
+            data_profile = data_profile,
+        )
+
         explanation = build_plan_explanation(
             forecaster         = fc,
             estimator          = est,
@@ -300,6 +305,7 @@ class ForecastingAssistant:
             interval_method    = interval_method,
             dropna_from_series = dropna_from_series,
             use_exog           = use_exog,
+            metric_explanation = metric_explanation,
         )
 
         return ForecastPlan(
@@ -312,6 +318,8 @@ class ForecastingAssistant:
             frequency           = data_profile.frequency,
             interval            = interval,
             interval_method     = interval_method,
+            metric              = metric,
+            metrics_to_compute  = metrics_to_compute,
             use_exog            = use_exog,
             preprocessing_steps = preprocessing_steps,
             explanation         = explanation,

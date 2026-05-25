@@ -69,6 +69,11 @@ class ForecastPlan(BaseModel):
     interval_method : str, default None
         Method for prediction intervals. One of `'bootstrapping'`,
         `'conformal'`, `'native'`.
+    metric : str, default 'mean_absolute_error'
+        Recommended primary evaluation metric (string name matching
+        sklearn/skforecast naming conventions).
+    metrics_to_compute : list, default ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error']
+        Full list of metrics to evaluate in generated code.
     use_exog : bool, default False
         Whether to include exogenous variables.
     preprocessing_steps : list
@@ -94,6 +99,10 @@ class ForecastPlan(BaseModel):
     frequency: str | None = None
     interval: list[int] | None = None
     interval_method: Literal["bootstrapping", "conformal", "native"] | None = None
+    metric: str = "mean_absolute_error"
+    metrics_to_compute: list[str] = Field(
+        default_factory=lambda: ["mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"]
+    )
     use_exog: bool = False
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

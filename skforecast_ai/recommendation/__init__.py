@@ -7,6 +7,7 @@ from .forecaster_selection import (
     select_forecaster_and_candidates,
     select_task_type_from_forecaster,
 )
+from .metric_selection import select_metric
 from .preprocessing import (
     build_forecaster_kwargs,
     check_exog_usage,
@@ -26,6 +27,7 @@ __all__ = [
     "select_estimator_and_candidates",
     "select_forecaster_and_candidates",
     "select_lags_and_window_features",
+    "select_metric",
     "select_task_type_from_forecaster",
     "select_transformer_exog",
     "select_transformer_series",

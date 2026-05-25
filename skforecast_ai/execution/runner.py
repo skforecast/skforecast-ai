@@ -15,7 +15,7 @@ from typing import Any
 import pandas as pd
 
 from ..exceptions import ForecastExecutionError
-from ..generation.code_templates import generate_template
+from ..generation.code_templates import generate_template, _METRIC_REGISTRY
 from ..schemas import DataProfile, ForecastPlan, GeneratedCode
 
 
@@ -64,22 +64,20 @@ def run_forecast(
     # Build unified metrics DataFrame
     metrics_df = namespace.get("metrics_df")
     if metrics_df is not None:
-        # Multi-series: metrics_df already has columns [series, MAE, MSE, MASE]
+        # Multi-series: metrics_df already has dynamic columns
         metrics = metrics_df
     else:
-        # Single series: scalar variables mae, mse, mase
-        mae = namespace.get("mae")
-        mse = namespace.get("mse")
-        mase = namespace.get("mase")
+        # Single series: extract scalar variables by metric var name
         target_name = profile.target
         if isinstance(target_name, list):
             target_name = target_name[0]
-        metrics = pd.DataFrame([{
-            "series": target_name,
-            "MAE": mae,
-            "MSE": mse,
-            "MASE": mase,
-        }])
+        row: dict[str, object] = {"series": target_name}
+        for m in plan.metrics_to_compute:
+            info = _METRIC_REGISTRY.get(m)
+            if info is None:
+                continue
+            row[info["label"]] = namespace.get(info["var"])
+        metrics = pd.DataFrame([row])
 
     # Handle interval predictions: if predict_interval or predict_quantiles
     # was used, predictions already contains interval columns
