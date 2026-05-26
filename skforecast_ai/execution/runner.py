@@ -79,28 +79,22 @@ def run_forecast(
             row[info["label"]] = namespace.get(info["var"])
         metrics = pd.DataFrame([row])
 
-    # Handle interval predictions: if predict_interval or predict_quantiles
-    # was used, predictions already contains interval columns
-    intervals = None
-    if plan.interval_method is not None and predictions is not None:
-        intervals = predictions.copy()
-        # Extract point predictions only
-        if "pred" in predictions.columns:
-            predictions = predictions[["pred"]].copy()
-
     # If exog_future is provided, re-predict using the trained forecaster
     if exog_future is not None and forecaster is not None:
         predictions = _repredict_with_exog_future(
             forecaster, plan, exog_future
         )
-        if plan.interval_method is not None:
-            intervals = predictions.copy() if isinstance(predictions, pd.DataFrame) else predictions
-            if isinstance(predictions, pd.DataFrame) and "pred" in predictions.columns:
-                predictions = predictions[["pred"]].copy()
 
     # Ensure predictions is a DataFrame
     if isinstance(predictions, pd.Series):
         predictions = predictions.to_frame()
+
+    # Separate interval columns from point predictions
+    intervals = None
+    if plan.interval_method is not None and predictions is not None:
+        intervals = predictions
+        if "pred" in predictions.columns:
+            predictions = predictions[["pred"]]
 
     return {
         "metrics": metrics,

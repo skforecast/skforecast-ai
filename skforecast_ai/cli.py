@@ -264,7 +264,9 @@ def _parse_target(target_str: str) -> str | list[str]:
     target : str, list
         Single target name or list of target names.
     """
-    parts = [t.strip() for t in target_str.split(",")]
+    parts = [t.strip() for t in target_str.split(",") if t.strip()]
+    if not parts:
+        raise typer.BadParameter("Target must not be empty.")
     return parts if len(parts) > 1 else parts[0]
 
 
@@ -342,6 +344,16 @@ def _write_output(content: str, output: Path | None) -> None:
         console.print(f"[green]Output written to:[/green] {output}")
     else:
         print(content)
+
+
+@contextlib.contextmanager
+def _spinner(message: str, quiet: bool):
+    """Wrap a block with a Rich spinner unless quiet mode is active."""
+    if quiet:
+        yield
+    else:
+        with console.status(message):
+            yield
 
 
 @contextlib.contextmanager
@@ -492,17 +504,11 @@ def profile(
         assistant = ForecastingAssistant()
         parsed_target = _parse_target(target)
 
-        if quiet:
+        with _spinner("Profiling dataset...", quiet):
             result = assistant.profile(
                 data=data, target=parsed_target, date_column=date_column,
                 series_id_column=series_id,
             )
-        else:
-            with console.status("Profiling dataset..."):
-                result = assistant.profile(
-                    data=data, target=parsed_target, date_column=date_column,
-                    series_id_column=series_id,
-                )
 
         if format == "json":
             json_str = result.model_dump_json(indent=2)
@@ -548,31 +554,18 @@ def plan(
                 )
                 raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
-            if quiet:
+            with _spinner("Profiling...", quiet):
                 prof = assistant.profile(
                     data=data, target=parsed_target, date_column=date_column,
                     series_id_column=series_id,
                 )
-            else:
-                with console.status("Profiling..."):
-                    prof = assistant.profile(
-                        data=data, target=parsed_target, date_column=date_column,
-                        series_id_column=series_id,
-                    )
 
-        if quiet:
+        with _spinner("Planning...", quiet):
             result = assistant.generate_plan(
                 profile=prof, steps=steps, forecaster=forecaster,
                 estimator=estimator, estimator_kwargs=parsed_estimator_kwargs,
                 interval=parsed_interval,
             )
-        else:
-            with console.status("Planning..."):
-                result = assistant.generate_plan(
-                    profile=prof, steps=steps, forecaster=forecaster,
-                    estimator=estimator, estimator_kwargs=parsed_estimator_kwargs,
-                    interval=parsed_interval,
-                )
 
         if format == "json":
             bundle = {
@@ -619,11 +612,8 @@ def refine_plan(
             overrides["interval"] = parsed_interval
 
         assistant = ForecastingAssistant()
-        if quiet:
+        with _spinner("Refining plan...", quiet):
             result = assistant.refine_plan(profile=prof, plan=plan_obj, **overrides)
-        else:
-            with console.status("Refining plan..."):
-                result = assistant.refine_plan(profile=prof, plan=plan_obj, **overrides)
 
         if format == "json":
             bundle = {
@@ -675,7 +665,7 @@ def generate_code(
             parsed_interval = _parse_interval(interval)
             parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
 
-            if quiet:
+            with _spinner("Generating code...", quiet):
                 result = assistant.generate_code(
                     data=data, target=parsed_target, steps=steps,
                     date_column=date_column, series_id_column=series_id,
@@ -683,15 +673,6 @@ def generate_code(
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
                 )
-            else:
-                with console.status("Generating code..."):
-                    result = assistant.generate_code(
-                        data=data, target=parsed_target, steps=steps,
-                        date_column=date_column, series_id_column=series_id,
-                        forecaster=forecaster, estimator=estimator,
-                        estimator_kwargs=parsed_estimator_kwargs,
-                        interval=parsed_interval,
-                    )
 
         if format == "json":
             json_str = result.model_dump_json(indent=2)
@@ -816,7 +797,7 @@ def forecast(
             prof = ForecastingProfile.model_validate(bundle["profile"])
             plan_obj = ForecastPlan.model_validate(bundle["plan"])
 
-            if quiet:
+            with _spinner("Running forecast from plan...", quiet):
                 result = assistant.forecast(
                     data=data, target=prof.data_profile.target,
                     steps=plan_obj.steps,
@@ -826,17 +807,6 @@ def forecast(
                     exog_future=exog_future_df,
                     profile=prof, plan=plan_obj,
                 )
-            else:
-                with console.status("Running forecast from plan..."):
-                    result = assistant.forecast(
-                        data=data, target=prof.data_profile.target,
-                        steps=plan_obj.steps,
-                        date_column=prof.data_profile.date_column,
-                        series_id_column=prof.data_profile.series_id_column,
-                        interval=parsed_interval or plan_obj.interval,
-                        exog_future=exog_future_df,
-                        profile=prof, plan=plan_obj,
-                    )
         else:
             if target is None or steps is None:
                 console.print(
@@ -846,7 +816,7 @@ def forecast(
                 raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
 
-            if quiet:
+            with _spinner("Running forecast...", quiet):
                 result = assistant.forecast(
                     data=data, target=parsed_target, steps=steps,
                     date_column=date_column, series_id_column=series_id,
@@ -854,15 +824,6 @@ def forecast(
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval, exog_future=exog_future_df,
                 )
-            else:
-                with console.status("Running forecast..."):
-                    result = assistant.forecast(
-                        data=data, target=parsed_target, steps=steps,
-                        date_column=date_column, series_id_column=series_id,
-                        forecaster=forecaster, estimator=estimator,
-                        estimator_kwargs=parsed_estimator_kwargs,
-                        interval=parsed_interval, exog_future=exog_future_df,
-                    )
 
         if output_predictions is not None:
             preds = result.predictions
@@ -920,7 +881,7 @@ def ask(
 
         data_path = str(data) if data is not None else None
 
-        if quiet:
+        with _spinner("Thinking...", quiet):
             result = assistant.ask(
                 prompt=prompt,
                 data=data_path,
@@ -930,17 +891,6 @@ def ask(
                 steps=steps,
                 skills=parsed_skills,
             )
-        else:
-            with console.status("Thinking..."):
-                result = assistant.ask(
-                    prompt=prompt,
-                    data=data_path,
-                    target=parsed_target,
-                    date_column=date_column,
-                    series_id_column=series_id,
-                    steps=steps,
-                    skills=parsed_skills,
-                )
 
         if format == "json":
             output_data = {"explanation": result.explanation}

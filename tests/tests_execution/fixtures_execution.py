@@ -54,7 +54,6 @@ plan_single = ForecastPlan(
     frequency="D",
     interval_method=None,
     use_exog=True,
-    data_requirements=[],
     warnings=[],
     explanation="Single series with exog, Ridge for moderate dataset size.",
 )
@@ -68,7 +67,6 @@ plan_single_with_intervals = ForecastPlan(
     frequency="D",
     interval_method="bootstrapping",
     use_exog=False,
-    data_requirements=[],
     warnings=[],
     explanation="Single series with bootstrapping intervals.",
 )
@@ -115,7 +113,6 @@ plan_multi = ForecastPlan(
     frequency="D",
     interval_method=None,
     use_exog=False,
-    data_requirements=[],
     warnings=[],
     explanation="Multi-series with Ridge, ordinal encoding.",
 )
@@ -158,7 +155,6 @@ plan_short = ForecastPlan(
     frequency="D",
     interval_method=None,
     use_exog=False,
-    data_requirements=[],
     warnings=[],
     explanation="Short series with Ridge.",
 )
@@ -174,7 +170,6 @@ plan_single_custom_kwargs = ForecastPlan(
     frequency="D",
     interval_method=None,
     use_exog=False,
-    data_requirements=[],
     warnings=[],
     explanation="Single series with custom estimator kwargs.",
 )

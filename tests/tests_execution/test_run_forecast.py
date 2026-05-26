@@ -105,7 +105,6 @@ def test_run_forecast_statistical_returns_predictions():
         frequency="D",
         interval_method="native",
         use_exog=False,
-        data_requirements=[],
         warnings=[],
         explanation="Statistical ARIMA model.",
     )

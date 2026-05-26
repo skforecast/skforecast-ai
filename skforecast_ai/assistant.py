@@ -9,8 +9,14 @@ import pandas as pd
 
 from .exceptions import LLMRequiredError
 from .execution import run_forecast
-from .generation.code_templates import generate_template
-from .llm.provider import ensure_ollama_reachable, create_model
+from .generation import generate_template
+from .llm import (
+    build_context_message,
+    create_model,
+    ensure_ollama_reachable,
+    estimate_prompt_tokens,
+    select_skills,
+)
 from .profiling import create_forecasting_analysis, create_data_profile
 from .recommendation import (
     _build_profile_explanation,
@@ -719,9 +725,6 @@ class ForecastingAssistant:
             ensure_ollama_reachable(self.base_url)
 
         # --- Build user message with context ---
-        from .llm.context import build_context_message
-        from .llm.skills import select_skills, estimate_prompt_tokens
-
         context = build_context_message(
             profile, plan,
             predictions=predictions,
@@ -747,7 +750,7 @@ class ForecastingAssistant:
             )
 
         # --- LLM call ---
-        from .llm.agent import AskDeps
+        from .llm import AskDeps
 
         agent = self._resolve_agent()
         deps = AskDeps(
@@ -825,10 +828,10 @@ class ForecastingAssistant:
             Cached agent instance.
         """
         if self._agent is None:
-            import skforecast_ai.llm.agent as agent_mod
+            from .llm.agent import create_forecasting_agent
 
             model = self._resolve_model()
-            self._agent = agent_mod.create_forecasting_agent(model)
+            self._agent = create_forecasting_agent(model)
 
         return self._agent
 
