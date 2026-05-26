@@ -666,7 +666,9 @@ class ForecastingAssistant:
             without a pre-computed `plan`.
         skills : list of str, default None
             List of skill names to include in the agent system prompt.
-            If None, a compact default set is loaded.
+            If None, skills are selected automatically based on the
+            task type and question content. See `skforecast_ai.ALL_SKILLS`
+            for valid names.
         include_reference : bool, default False
             Whether to include the skforecast API reference in the
             prompt.

@@ -722,35 +722,6 @@ def _validate_target_exists(data: pd.DataFrame, target: str | list[str]) -> None
         )
 
 
-def detect_data_format(
-    data: pd.DataFrame,
-    target: str | list[str],
-    series_id_column: str | None,
-) -> str:
-    """
-    Detect whether the dataset is single series, wide, or long format.
-
-    .. deprecated::
-        Use `_resolve_data_format` instead, which derives the format
-        directly from user arguments without heuristics.
-
-    Parameters
-    ----------
-    data : pandas DataFrame
-        Input dataset.
-    target : str, list
-        Name(s) of the target column(s).
-    series_id_column : str, default None
-        Resolved series identifier column.
-
-    Returns
-    -------
-    data_format : str
-        One of `'single'`, `'wide'`, `'long'`.
-    """
-    return _resolve_data_format(target, series_id_column)
-
-
 def detect_target_dtype(data: pd.DataFrame, target: str) -> str:
     """
     Determine the data type category of the target column.

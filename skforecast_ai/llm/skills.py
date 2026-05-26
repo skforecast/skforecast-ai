@@ -31,12 +31,6 @@ ALL_SKILLS = [
     "troubleshooting-common-errors",
 ]
 
-DEFAULT_SKILLS = [
-    "choosing-a-forecaster",
-    "forecasting-single-series",
-    "forecasting-multiple-series",
-]
-
 # ---------------------------------------------------------------------------
 # Skill selection: routing table + keyword augmentation
 # ---------------------------------------------------------------------------

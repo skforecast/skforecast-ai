@@ -4,6 +4,7 @@ __version__ = "0.1.0"
 
 from .assistant import ForecastingAssistant
 from .exceptions import ForecastExecutionError, LLMRequiredError
+from .llm.skills import ALL_SKILLS
 from .schemas import (
     ForecastingAnalysis,
     AskResult,
@@ -17,6 +18,7 @@ from .schemas import (
 )
 
 __all__ = [
+    "ALL_SKILLS",
     "ForecastingAnalysis",
     "AskResult",
     "DataProfile",

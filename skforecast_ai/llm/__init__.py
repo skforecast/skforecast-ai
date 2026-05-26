@@ -3,6 +3,7 @@
 from .context import build_context_message
 from .provider import create_model, ensure_ollama_reachable, parse_model_string
 from .skills import (
+    ALL_SKILLS,
     estimate_prompt_tokens,
     load_llms_reference,
     load_skill,
@@ -10,6 +11,7 @@ from .skills import (
 )
 
 __all__ = [
+    "ALL_SKILLS",
     "build_context_message",
     "create_model",
     "ensure_ollama_reachable",
