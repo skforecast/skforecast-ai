@@ -15,6 +15,7 @@ CONFIG_FILE: Path = CONFIG_DIR / "config.toml"
 VALID_KEYS: set[str] = {
     "llm.provider",
     "llm.base_url",
+    "llm.api_key",
     "llm.send_data_to_llm",
     "output.format",
 }

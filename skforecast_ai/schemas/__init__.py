@@ -1,6 +1,6 @@
 """Pydantic schemas for skforecast-ai data contracts."""
 
-from .plans import ForecastPlan, PlanOverrides, PreprocessingStep
+from .plans import ForecastPlan, PreprocessingStep
 from .profiles import DataProfile, ForecastingAnalysis, ForecastingProfile
 from .results import AskResult, CodeGenerationResult, ForecastResult, GeneratedCode
 
@@ -13,6 +13,5 @@ __all__ = [
     "ForecastPlan",
     "ForecastResult",
     "GeneratedCode",
-    "PlanOverrides",
     "PreprocessingStep",
 ]

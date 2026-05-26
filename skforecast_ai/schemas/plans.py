@@ -107,31 +107,3 @@ class ForecastPlan(BaseModel):
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     explanation: str
-
-
-class PlanOverrides(BaseModel):
-    """
-    Structured overrides extracted from natural language by the LLM.
-
-    Used by `refine_plan()` (future) to re-derive a forecast plan
-    with user-requested changes applied on top of the original profile.
-
-    Attributes
-    ----------
-    forecaster : str, default None
-        Override for the forecaster class name.
-    estimator : str, default None
-        Override for the estimator class name.
-    steps : int, default None
-        Override for the forecast horizon.
-    lags : list, default None
-        Override for the lag structure.
-    interval : list, default None
-        Override for prediction interval percentiles (e.g. [10, 90]).
-    """
-
-    forecaster: str | None = None
-    estimator: str | None = None
-    steps: int | None = None
-    lags: list[int] | None = None
-    interval: list[int] | None = None

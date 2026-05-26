@@ -115,7 +115,8 @@ def config_show() -> None:
             continue
         for key, val in sorted(values.items()):
             full_key = f"{section}.{key}"
-            table.add_row(full_key, str(val), str(CONFIG_FILE))
+            display_val = _mask_secret(full_key, str(val))
+            table.add_row(full_key, display_val, str(CONFIG_FILE))
 
     console.print(table)
 
@@ -144,7 +145,8 @@ def config_set(
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
-    console.print(f"[green]Set[/green] {key} = {value}")
+    display_val = _mask_secret(key, value)
+    console.print(f"[green]Set[/green] {key} = {display_val}")
 
 
 @config_app.command("path")
@@ -162,6 +164,15 @@ def config_path() -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_SECRET_KEYS = {"llm.api_key"}
+
+
+def _mask_secret(key: str, value: str) -> str:
+    """Mask sensitive config values for display, showing only last 4 chars."""
+    if key in _SECRET_KEYS and len(value) > 4:
+        return "***" + value[-4:]
+    return value
 
 
 def _resolve(flag: str | None, env_var: str, config_key: str) -> str | None:
@@ -853,6 +864,7 @@ def ask(
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (required when --data is provided).")] = None,
     llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-4o-mini'.")] = None,
     base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
+    api_key: Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")] = None,
     send_data_to_llm: Annotated[bool | None, typer.Option("--send-data-to-llm/--no-send-data-to-llm", help="Allow sending raw data to the LLM.")] = None,
     skills: Annotated[str | None, typer.Option("--skills", help="Comma-separated skill names to include.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: text or json.")] = "text",
@@ -862,6 +874,7 @@ def ask(
     with _error_handler():
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
+        api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
         send_data_value = _resolve_bool(
             send_data_to_llm, "SKFORECAST_AI_SEND_DATA_TO_LLM",
             "llm.send_data_to_llm",
@@ -873,6 +886,7 @@ def ask(
         assistant = ForecastingAssistant(
             llm=llm_value,
             base_url=base_url_value,
+            api_key=api_key_value,
             send_data_to_llm=send_data_value,
         )
 

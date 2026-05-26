@@ -130,6 +130,15 @@ def build_context_message(
         parts.append("")
         parts.append("## Forecast Plan")
         parts.append(f"- Steps: {plan.steps}")
+        if plan.estimator:
+            parts.append(f"- Estimator: {plan.estimator}")
+        if plan.forecaster_kwargs:
+            if "lags" in plan.forecaster_kwargs:
+                parts.append(f"- Lags: {plan.forecaster_kwargs['lags']}")
+            if "window_features" in plan.forecaster_kwargs:
+                parts.append(
+                    f"- Window features: {plan.forecaster_kwargs['window_features']}"
+                )
         if verbosity in ("standard", "full") and plan.preprocessing_steps:
             for step in plan.preprocessing_steps:
                 prefix = "[required]" if step.blocking else "[recommended]"

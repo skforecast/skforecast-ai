@@ -116,3 +116,84 @@ def test_create_model_output_when_unknown_provider():
     """
     result = create_model("deepseek:deepseek-chat")
     assert result == "deepseek:deepseek-chat"
+
+
+# =============================================================================
+# Tests: create_model with api_key
+# =============================================================================
+def test_create_model_output_when_openai_with_api_key():
+    """
+    Test that create_model with an OpenAI string and api_key returns an
+    OpenAIChatModel instance (not a raw string).
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    result = create_model("openai:gpt-4o-mini", api_key="sk-test-key")
+    assert isinstance(result, OpenAIChatModel)
+    assert result.model_name == "gpt-4o-mini"
+
+
+def test_create_model_output_when_google_with_api_key():
+    """
+    Test that create_model with a Google string and api_key returns a
+    GoogleModel instance.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.google import GoogleModel
+
+    result = create_model("google:gemini-2.5-flash", api_key="test-key")
+    assert isinstance(result, GoogleModel)
+
+
+def test_create_model_output_when_anthropic_with_api_key():
+    """
+    Test that create_model with an Anthropic string and api_key returns
+    an AnthropicModel instance.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.anthropic import AnthropicModel
+
+    result = create_model("anthropic:claude-sonnet-4-5", api_key="sk-ant-test")
+    assert isinstance(result, AnthropicModel)
+
+
+def test_create_model_output_when_groq_with_api_key():
+    """
+    Test that create_model with a Groq string and api_key returns an
+    OpenAIChatModel configured with GroqProvider.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    result = create_model("groq:llama-3.3-70b-versatile", api_key="gsk-test")
+    assert isinstance(result, OpenAIChatModel)
+    assert result.model_name == "llama-3.3-70b-versatile"
+
+
+def test_create_model_output_when_ollama_with_api_key_ignored():
+    """
+    Test that create_model with Ollama ignores the api_key parameter
+    and returns an OllamaModel with the dummy 'ollama' key.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.ollama import OllamaModel
+
+    result = create_model("ollama:qwen2.5:7b-instruct", api_key="ignored-key")
+    assert isinstance(result, OllamaModel)
+    assert result.model_name == "qwen2.5:7b-instruct"
+
+
+def test_create_model_output_when_unknown_provider_with_api_key():
+    """
+    Test that create_model with an unknown provider and api_key returns
+    an OpenAIChatModel (OpenAI-compatible fallback).
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    result = create_model(
+        "custom:my-model", api_key="key-123", base_url="http://my-api.com/v1"
+    )
+    assert isinstance(result, OpenAIChatModel)
+    assert result.model_name == "my-model"

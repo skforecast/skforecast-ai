@@ -69,6 +69,11 @@ class ForecastingAssistant:
     base_url : str, default None
         Custom base URL for the LLM provider (used for Ollama or
         OpenAI-compatible endpoints).
+    api_key : str, default None
+        Explicit API key for the LLM provider. When None, Pydantic AI
+        resolves credentials from environment variables (e.g.
+        `OPENAI_API_KEY`, `GOOGLE_API_KEY`). Use this for notebook
+        workflows or multi-tenant scenarios.
     send_data_to_llm : bool, default False
         Whether raw data may be sent to the LLM. When False, only
         metadata (schema, summary stats) is shared with the LLM.
@@ -79,6 +84,8 @@ class ForecastingAssistant:
         LLM provider string or None for deterministic-only mode.
     base_url : str, None
         Custom base URL for the LLM provider.
+    api_key : str, None
+        Explicit API key or None (resolve from environment).
     send_data_to_llm : bool
         Whether raw data may be sent to the LLM.
     """
@@ -87,11 +94,13 @@ class ForecastingAssistant:
         self,
         llm: str | None = None,
         base_url: str | None = None,
+        api_key: str | None = None,
         send_data_to_llm: bool = False,
     ) -> None:
         
         self.llm = llm
         self.base_url = base_url
+        self.api_key = api_key
         self.send_data_to_llm = send_data_to_llm
         self._model = None
         self._agent = None
@@ -665,8 +674,8 @@ class ForecastingAssistant:
         Returns
         -------
         result : AskResult
-            Response with optional forecaster profile, plan, and
-            LLM-generated explanation.
+            Response with optional forecaster profile, plan, generated code,
+            and LLM-generated explanation.
 
         Notes
         -----
@@ -725,12 +734,17 @@ class ForecastingAssistant:
             ensure_ollama_reachable(self.base_url)
 
         # --- Build user message with context ---
+        # In results mode, always send prediction data so the LLM can
+        # discuss specific values. Otherwise respect the user setting.
+        send_data = (
+            True if forecast_result is not None else self.send_data_to_llm
+        )
         context = build_context_message(
             profile, plan,
             predictions=predictions,
             metrics=metrics,
             intervals=intervals,
-            send_data=self.send_data_to_llm,
+            send_data=send_data,
         )
         user_message = (
             f"{context}\n\n## Question\n\n{prompt}" if context else prompt
@@ -810,7 +824,9 @@ class ForecastingAssistant:
         """
 
         if self._model is None:
-            self._model = create_model(llm=self.llm, base_url=self.base_url)
+            self._model = create_model(
+                llm=self.llm, base_url=self.base_url, api_key=self.api_key
+            )
         
         return self._model
 
