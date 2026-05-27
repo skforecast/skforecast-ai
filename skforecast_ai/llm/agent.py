@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 from pydantic_ai import Agent, RunContext
 
-from ..schemas import ForecastingProfile, ForecastPlan
-from .prompts import _STATIC_ROLE_PROMPT
+from ..schemas import CVParams, ForecastingProfile, ForecastPlan
+from .prompts import _CV_ROLE_PROMPT, _STATIC_ROLE_PROMPT
 from .skills import load_llms_reference, load_skill, select_skills
 
 logger = logging.getLogger(__name__)
@@ -135,5 +135,116 @@ def create_forecasting_agent(
         )
 
         return "\n\n".join(parts)
+
+    return agent
+
+
+# ---------------------------------------------------------------------------
+# CV configuration agent (structured output)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CVDeps:
+    """
+    Runtime dependencies for the CV configuration agent.
+
+    Attributes
+    ----------
+    n_observations : int
+        Total number of observations in the dataset.
+    frequency : str, None
+        Pandas frequency string (e.g. 'D', 'h').
+    steps : int
+        Forecast horizon (number of steps ahead).
+    task_type : str
+        Forecasting task type (e.g. 'single_series', 'multi_series').
+    lags : int, list, None
+        Lag structure from the plan. Used to communicate minimum
+        training size constraints.
+    """
+
+    n_observations: int
+    frequency: str | None
+    steps: int
+    task_type: str
+    lags: int | list | None = None
+
+
+def create_cv_agent(
+    model,
+) -> Agent[CVDeps, CVParams]:
+    """
+    Create a Pydantic AI agent for CV configuration with structured output.
+
+    The agent translates natural-language deployment scenarios into
+    `TimeSeriesFold` parameters. It returns a `CVParams` Pydantic model
+    (not free text).
+
+    Parameters
+    ----------
+    model : str, Model
+        Pydantic AI model instance or string identifier.
+
+    Returns
+    -------
+    agent : Agent[CVDeps, CVParams]
+        Configured agent that returns structured `CVParams`.
+    """
+    agent: Agent[CVDeps, CVParams] = Agent(
+        model,
+        output_type=CVParams,
+        deps_type=CVDeps,
+        instructions=_CV_ROLE_PROMPT,
+        retries=2,
+    )
+
+    @agent.instructions
+    def _data_context(ctx: RunContext[CVDeps]) -> str:
+        """Inject dataset context and skill into dynamic instructions."""
+        deps = ctx.deps
+
+        parts: list[str] = []
+
+        # Data context
+        parts.append("## Dataset Context")
+        parts.append(f"- Total observations: {deps.n_observations}")
+        parts.append(f"- Frequency: {deps.frequency or 'unknown'}")
+        parts.append(f"- Forecast horizon (steps): {deps.steps}")
+        parts.append(f"- Task type: {deps.task_type}")
+        if deps.lags is not None:
+            max_lag = (
+                deps.lags if isinstance(deps.lags, int) else max(deps.lags)
+            )
+            parts.append(f"- Lags: {deps.lags} (max_lag={max_lag})")
+            parts.append(
+                f"- Minimum viable initial_train_size: {2 * max_lag}"
+            )
+        else:
+            parts.append(
+                f"- Minimum viable initial_train_size: {2 * deps.steps}"
+            )
+        parts.append(
+            f"- Maximum initial_train_size for ≥2 folds: "
+            f"{deps.n_observations - 2 * deps.steps}"
+        )
+        parts.append("")
+
+        # Load backtesting configuration skill
+        try:
+            skill_content = load_skill("backtesting-configuration")
+            parts.append(f"## Reference\n\n{skill_content}")
+        except FileNotFoundError:
+            logger.warning(
+                "Skill 'backtesting-configuration' not found, skipping."
+            )
+
+        total_chars = sum(len(p) for p in parts)
+        logger.info(
+            "CV agent dynamic instructions: ~%d tokens",
+            total_chars // 4,
+        )
+
+        return "\n".join(parts)
 
     return agent

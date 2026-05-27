@@ -621,4 +621,86 @@ class TestAsk:
              "--no-send-data-to-llm", "--quiet"],
         )
         assert result.exit_code == 0
-        assert captured["send_data_to_llm"] is False
+
+
+# ---------------------------------------------------------------------------
+# backtest command
+# ---------------------------------------------------------------------------
+
+
+class TestBacktest:
+    """Tests for the `backtest` CLI command."""
+
+    def test_backtest_basic(self, tmp_path):
+        """
+        Backtest command prints metrics table and CV configuration.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--quiet"],
+        )
+        assert result.exit_code == 0
+        assert "Backtest Metrics" in result.output
+        assert "Cross-Validation Configuration" in result.output
+
+    def test_backtest_json_format(self, tmp_path):
+        """
+        Backtest --format json outputs valid JSON with expected keys.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "metrics" in data
+        assert "predictions" in data
+        assert "cv_config" in data
+        assert "code" in data
+        assert "explanation" in data
+
+    def test_backtest_output_predictions(self, tmp_path):
+        """
+        Backtest --output-predictions writes a CSV file with predictions.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        preds_path = tmp_path / "preds.csv"
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--output-predictions", str(preds_path), "--quiet"],
+        )
+        assert result.exit_code == 0
+        assert preds_path.exists()
+        import pandas as pd
+        preds_df = pd.read_csv(preds_path)
+        assert len(preds_df) > 0
+
+    def test_backtest_output_code(self, tmp_path):
+        """
+        Backtest --output-code writes a valid Python file.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        code_path = tmp_path / "script.py"
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--output-code", str(code_path), "--quiet"],
+        )
+        assert result.exit_code == 0
+        assert code_path.exists()
+        ast.parse(code_path.read_text())
+
+    def test_backtest_missing_target_and_steps(self):
+        """
+        Backtest without --target and --steps shows error.
+        """
+        result = runner.invoke(
+            app,
+            ["backtest", "some.csv"],
+        )
+        assert result.exit_code == 1

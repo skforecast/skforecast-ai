@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
+if TYPE_CHECKING:
+    from skforecast.model_selection import TimeSeriesFold
+
 from .exceptions import LLMRequiredError
-from .execution import run_forecast
+from .execution import run_backtest, run_forecast
 from .generation import generate_template
 from .llm import (
     build_context_message,
@@ -20,9 +24,11 @@ from .llm import (
 from .profiling import create_forecasting_analysis, create_data_profile
 from .recommendation import (
     _build_profile_explanation,
+    build_cv_explanation,
     build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
+    derive_cv_defaults,
     derive_preprocessing_steps,
     select_dropna_from_series,
     select_estimator_and_candidates,
@@ -35,6 +41,7 @@ from .recommendation import (
 )
 from .schemas import (
     AskResult,
+    BacktestResult,
     DataProfile,
     ForecastingProfile,
     ForecastPlan,
@@ -104,6 +111,7 @@ class ForecastingAssistant:
         self.send_data_to_llm = send_data_to_llm
         self._model = None
         self._agent = None
+        self._cv_agent = None
 
     def profile(
         self,
@@ -607,6 +615,284 @@ class ForecastingAssistant:
             intervals   = result["intervals"],
         )
 
+    def generate_cv(
+        self,
+        profile: ForecastingProfile,
+        plan: ForecastPlan,
+        *,
+        prompt: str | None = None,
+        initial_train_size: int | float | str | None = None,
+        refit: bool | int | None = None,
+        fixed_train_size: bool | None = None,
+        gap: int | None = None,
+        fold_stride: int | None = None,
+        skip_folds: int | list[int] | None = None,
+        allow_incomplete_fold: bool | None = None,
+    ) -> tuple[TimeSeriesFold, str]:
+        """
+        Generate a cross-validation strategy for backtesting.
+
+        Produces a `TimeSeriesFold` configured with smart defaults
+        derived from the profile and plan. Explicit keyword arguments
+        override defaults.
+
+        Parameters
+        ----------
+        profile : ForecastingProfile
+            Output of `profile()`.
+        plan : ForecastPlan
+            Output of `generate_plan()`.
+        prompt : str, default None
+            Natural language description of the evaluation scenario.
+            Requires an LLM to be configured. If None or no LLM is
+            available, deterministic defaults are used.
+        initial_train_size : int, float, str, default None
+            Number of observations for the initial training set. If
+            `int`, used directly. If `float`, must satisfy
+            `0 < value < 1` and is interpreted as a fraction of the
+            total observations. If `str`, passed as a date string to
+            `TimeSeriesFold`. If None, defaults to 70% of data.
+        refit : bool, int, default None
+            Whether to refit the forecaster each fold. If `int`, refit
+            every n folds.
+        fixed_train_size : bool, default None
+            If True, training size stays fixed; if False, expands.
+        gap : int, default None
+            Observations between end of training and start of test.
+        fold_stride : int, default None
+            Observations between consecutive test set starts.
+        skip_folds : int, list of int, default None
+            Folds to skip during backtesting.
+        allow_incomplete_fold : bool, default None
+            Whether to allow a final fold with fewer observations than
+            `steps`.
+
+        Returns
+        -------
+        cv : TimeSeriesFold
+            Configured cross-validation fold splitter.
+        explanation : str
+            Human-readable explanation of the chosen configuration.
+        """
+
+        from skforecast.model_selection import TimeSeriesFold
+
+        n_observations = profile.data_profile.n_observations
+
+        # -----------------------------------------------------------------
+        # LLM path: when prompt is provided, use LLM for CV configuration
+        # -----------------------------------------------------------------
+        if prompt is not None:
+            if self.llm is None:
+                raise LLMRequiredError("generate_cv")
+
+            defaults = self._generate_cv_with_llm(
+                profile=profile,
+                plan=plan,
+                prompt=prompt,
+                n_observations=n_observations,
+            )
+        else:
+            # Compute deterministic defaults
+            defaults = derive_cv_defaults(profile=profile, plan=plan)
+
+        # Apply explicit overrides
+        overrides = {
+            "initial_train_size": initial_train_size,
+            "refit": refit,
+            "fixed_train_size": fixed_train_size,
+            "gap": gap,
+            "fold_stride": fold_stride,
+            "skip_folds": skip_folds,
+            "allow_incomplete_fold": allow_incomplete_fold,
+        }
+        for key, value in overrides.items():
+            if value is not None:
+                defaults[key] = value
+
+        # Handle initial_train_size type conversion
+        its = defaults["initial_train_size"]
+        skip_validation = False
+        if isinstance(its, float):
+            if not (0 < its < 1):
+                raise ValueError(
+                    f"initial_train_size as float must satisfy "
+                    f"0 < value < 1, got {its}."
+                )
+            defaults["initial_train_size"] = int(its * n_observations)
+        elif isinstance(its, str):
+            skip_validation = True
+
+        # Instantiate TimeSeriesFold
+        cv = TimeSeriesFold(
+            steps                  = defaults["steps"],
+            initial_train_size     = defaults["initial_train_size"],
+            refit                  = defaults["refit"],
+            fixed_train_size       = defaults["fixed_train_size"],
+            gap                    = defaults["gap"],
+            fold_stride            = defaults["fold_stride"],
+            skip_folds             = defaults["skip_folds"],
+            allow_incomplete_fold  = defaults["allow_incomplete_fold"],
+            differentiation        = defaults.get("differentiation"),
+            verbose                = False,
+        )
+
+        # Validate fold count (unless initial_train_size is a date string)
+        if not skip_validation:
+            folds = cv.split(
+                X=pd.RangeIndex(n_observations), as_pandas=False
+            )
+            n_folds = len(folds)
+            if n_folds < 2:
+                raise ValueError(
+                    f"The resolved CV configuration produces only "
+                    f"{n_folds} fold(s). At least 2 are required. "
+                    f"Resolved parameters: {defaults}."
+                )
+        else:
+            n_folds = None
+
+        # Build explanation
+        reasoning = defaults.pop("_reasoning", None)
+        explanation = build_cv_explanation(
+            cv_params      = defaults,
+            n_observations = n_observations,
+            n_folds        = n_folds if n_folds is not None else 0,
+        )
+        if reasoning:
+            explanation = f"{reasoning} {explanation}"
+
+        return cv, explanation
+
+    def backtest(
+        self,
+        data: pd.DataFrame | str | Path,
+        target: str | list[str],
+        cv: TimeSeriesFold,
+        date_column: str | None = None,
+        series_id_column: str | None = None,
+        forecaster: str | None = None,
+        estimator: str | None = None,
+        estimator_kwargs: dict | None = None,
+        interval: list[int] | None = None,
+        profile: ForecastingProfile | None = None,
+        plan: ForecastPlan | None = None,
+        show_progress: bool = True,
+    ) -> BacktestResult:
+        """
+        Execute backtesting with a pre-configured cross-validation strategy.
+
+        Chains `profile()`, `generate_plan()`, and backtesting execution
+        using the provided `TimeSeriesFold`. The `steps` parameter is
+        inferred from `cv.steps`.
+
+        Parameters
+        ----------
+        data : pandas DataFrame, str, Path
+            Input dataset or path to a CSV file.
+        target : str, list of str
+            Name of the column(s) to forecast.
+        cv : TimeSeriesFold
+            Cross-validation fold splitter (output of `generate_cv()`
+            or user-constructed).
+        date_column : str, default None
+            Name of the column containing timestamps.
+        series_id_column : str, default None
+            Name of the column identifying individual series.
+        forecaster : str, default None
+            Explicit forecaster class name. See `profile()`.
+        estimator : str, default None
+            Explicit estimator class name. See `profile()`.
+        estimator_kwargs : dict, default None
+            Keyword arguments for the estimator constructor.
+        interval : list of int, default None
+            Prediction interval percentiles as `[lower, upper]`.
+        profile : ForecastingProfile, default None
+            Pre-computed profile to skip profiling.
+        plan : ForecastPlan, default None
+            Pre-computed plan to skip planning.
+        show_progress : bool, default True
+            Whether to display a progress bar during backtesting.
+
+        Returns
+        -------
+        result : BacktestResult
+            Backtesting profile, plan, metrics, predictions, code, and
+            explanation.
+
+        Notes
+        -----
+        The `data` DataFrame must include exogenous columns if the plan
+        uses them. Exogenous variables are extracted automatically from
+        `profile.data_profile.exog_columns`.
+        """
+
+        data_df = _coerce_to_dataframe(data)
+        steps = cv.steps
+
+        if profile is None:
+            profile = self.profile(
+                data             = data_df,
+                target           = target,
+                date_column      = date_column,
+                series_id_column = series_id_column,
+            )
+
+        if plan is None:
+            plan = self.generate_plan(
+                profile          = profile,
+                steps            = steps,
+                forecaster       = forecaster,
+                estimator        = estimator,
+                estimator_kwargs = estimator_kwargs,
+                interval         = interval,
+            )
+        else:
+            if cv.steps != plan.steps:
+                raise ValueError(
+                    f"cv.steps ({cv.steps}) does not match plan.steps "
+                    f"({plan.steps}). These must be equal — "
+                    f"ForecasterDirect and ForecasterDirectMultiVariate "
+                    f"model architectures depend on steps."
+                )
+
+        # Extract cv_config for traceability
+        cv_config = {
+            "steps": cv.steps,
+            "initial_train_size": cv.initial_train_size,
+            "refit": cv.refit,
+            "fixed_train_size": cv.fixed_train_size,
+            "gap": cv.gap,
+            "fold_stride": cv.fold_stride,
+            "differentiation": cv.differentiation,
+        }
+
+        # Build cv explanation (may not have one if user constructed cv manually)
+        cv_explanation = (
+            f"TimeSeriesFold with steps={cv.steps}, "
+            f"initial_train_size={cv.initial_train_size}, "
+            f"refit={cv.refit}."
+        )
+
+        result = run_backtest(
+            data           = data_df,
+            profile        = profile.data_profile,
+            plan           = plan,
+            cv             = cv,
+            cv_explanation = cv_explanation,
+            show_progress  = show_progress,
+        )
+
+        return BacktestResult(
+            profile     = profile,
+            plan        = plan,
+            cv_config   = cv_config,
+            metrics     = result["metrics"],
+            predictions = result["predictions"],
+            code        = result["code"],
+            explanation = result["explanation"],
+        )
+
     def ask(
         self,
         prompt: str,
@@ -617,6 +903,7 @@ class ForecastingAssistant:
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
         forecast_result: ForecastResult | None = None,
+        backtest_result: BacktestResult | None = None,
         steps: int | None = None,
         skills: list[str] | None = None,
         include_reference: bool = False,
@@ -624,16 +911,19 @@ class ForecastingAssistant:
         """
         Ask a forecasting question or explain a pre-computed plan.
 
-        Operates in three modes:
+        Operates in four modes:
 
-        - **Q&A mode** (no data, no profile, no forecast_result): The LLM
-        answers general forecasting or skforecast questions using its
-        skills.
+        - **Q&A mode** (no data, no profile, no forecast_result,
+          no backtest_result): The LLM answers general forecasting or
+          skforecast questions using its skills.
         - **Explain mode** (data or profile provided): Deterministic
-        profiling runs first, then the LLM explains the result.
+          profiling runs first, then the LLM explains the result.
         - **Results mode** (forecast_result provided): The LLM explains
-        forecast predictions, metrics, and intervals from a
-        completed `forecast()` run.
+          forecast predictions, metrics, and intervals from a
+          completed `forecast()` run.
+        - **Backtest mode** (backtest_result provided): The LLM explains
+          backtesting metrics, predictions, and CV configuration from a
+          completed `backtest()` run.
 
         Parameters
         ----------
@@ -660,6 +950,11 @@ class ForecastingAssistant:
             context so it can explain the forecast results. Extracts
             `profile` and `plan` from the result unless
             explicitly provided.
+        backtest_result : BacktestResult, default None
+            Result from a previous `backtest()` call. When provided,
+            the LLM receives backtesting metrics, predictions, and
+            CV configuration in context. Mutually exclusive with
+            `forecast_result`.
         steps : int, default None
             Forecast horizon used when generating a plan from data.
             Required when `data` or `profile` is provided
@@ -689,16 +984,29 @@ class ForecastingAssistant:
         if self.llm is None:
             raise LLMRequiredError("ask")
 
+        if forecast_result is not None and backtest_result is not None:
+            raise ValueError(
+                "`forecast_result` and `backtest_result` are mutually "
+                "exclusive — provide one or the other, not both."
+            )
+
         # --- Extract from forecast_result if provided ---
         predictions = None
         metrics = None
         intervals = None
+        cv_config = None
         if forecast_result is not None:
             profile = profile or forecast_result.profile
             plan = plan or forecast_result.plan
             predictions = forecast_result.predictions
             metrics = forecast_result.metrics
             intervals = forecast_result.intervals
+        elif backtest_result is not None:
+            profile = profile or backtest_result.profile
+            plan = plan or backtest_result.plan
+            predictions = backtest_result.predictions
+            metrics = backtest_result.metrics
+            cv_config = backtest_result.cv_config
 
         # --- Deterministic stage: compute profile/plan if needed ---
         if data is not None and profile is None:
@@ -724,6 +1032,8 @@ class ForecastingAssistant:
         # --- Generate deterministic code from plan ---
         if forecast_result is not None:
             generated_code = forecast_result.code
+        elif backtest_result is not None:
+            generated_code = backtest_result.code
         elif plan is not None and profile is not None:
             generated_code = self.generate_code_from_plan(
                 profile.data_profile, plan
@@ -739,13 +1049,16 @@ class ForecastingAssistant:
         # In results mode, always send prediction data so the LLM can
         # discuss specific values. Otherwise respect the user setting.
         send_data = (
-            True if forecast_result is not None else self.send_data_to_llm
+            True
+            if forecast_result is not None or backtest_result is not None
+            else self.send_data_to_llm
         )
         context = build_context_message(
             profile, plan,
             predictions=predictions,
             metrics=metrics,
             intervals=intervals,
+            cv_config=cv_config,
             send_data=send_data,
         )
         user_message = (
@@ -852,6 +1165,168 @@ class ForecastingAssistant:
             self._agent = create_forecasting_agent(model)
 
         return self._agent
+
+    def _resolve_cv_agent(self):
+        """
+        Lazily create and cache the CV configuration agent.
+
+        Returns
+        -------
+        agent : Agent[CVDeps, CVParams]
+            Cached CV configuration agent instance.
+        """
+        if self._cv_agent is None:
+            from .llm.agent import create_cv_agent
+
+            model = self._resolve_model()
+            self._cv_agent = create_cv_agent(model)
+
+        return self._cv_agent
+
+    def _generate_cv_with_llm(
+        self,
+        profile: ForecastingProfile,
+        plan: ForecastPlan,
+        prompt: str,
+        n_observations: int,
+    ) -> dict:
+        """
+        Use the LLM to derive CV parameters from a natural-language prompt.
+
+        Retries up to 2 times on validation failure, then falls back to
+        deterministic defaults with a warning.
+
+        Parameters
+        ----------
+        profile : ForecastingProfile
+            Profiled dataset.
+        plan : ForecastPlan
+            Forecast plan.
+        prompt : str
+            User's deployment scenario description.
+        n_observations : int
+            Total number of observations.
+
+        Returns
+        -------
+        defaults : dict
+            Resolved CV parameters dict (same format as
+            `derive_cv_defaults`).
+        """
+        from .llm.agent import CVDeps
+
+        _patch_event_loop()
+
+        agent = self._resolve_cv_agent()
+        lags = plan.forecaster_kwargs.get("lags")
+
+        deps = CVDeps(
+            n_observations=n_observations,
+            frequency=profile.data_profile.frequency,
+            steps=plan.steps,
+            task_type=plan.task_type,
+            lags=lags,
+        )
+
+        max_retries = 2
+        last_error = None
+
+        for attempt in range(1 + max_retries):
+            try:
+                if attempt == 0:
+                    user_message = prompt
+                else:
+                    user_message = (
+                        f"{prompt}\n\n"
+                        f"[RETRY {attempt}/{max_retries}] Your previous "
+                        f"configuration failed validation: {last_error}. "
+                        f"The dataset has {n_observations} observations "
+                        f"and steps={plan.steps}. Fix the parameters."
+                    )
+
+                result = agent.run_sync(user_message, deps=deps)
+                cv_params = result.output
+
+                # Convert CVParams to defaults dict
+                defaults = {
+                    "steps": plan.steps,
+                    "initial_train_size": cv_params.initial_train_size,
+                    "refit": cv_params.refit,
+                    "fixed_train_size": cv_params.fixed_train_size,
+                    "gap": cv_params.gap,
+                    "fold_stride": cv_params.fold_stride,
+                    "skip_folds": cv_params.skip_folds,
+                    "allow_incomplete_fold": cv_params.allow_incomplete_fold,
+                    "differentiation": plan.forecaster_kwargs.get(
+                        "differentiation"
+                    ),
+                    "_reasoning": cv_params.reasoning,
+                }
+
+                # Validate: check that we can produce ≥2 folds
+                self._validate_cv_defaults(defaults, n_observations)
+
+                return defaults
+
+            except Exception as exc:
+                last_error = str(exc)
+                if attempt < max_retries:
+                    continue
+                # All retries exhausted — fall back to deterministic
+                warnings.warn(
+                    f"LLM CV configuration failed after "
+                    f"{1 + max_retries} attempts "
+                    f"(last error: {last_error}). "
+                    f"Falling back to deterministic defaults.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                defaults = derive_cv_defaults(profile=profile, plan=plan)
+                return defaults
+
+        # Should never reach here, but satisfy type checker
+        return derive_cv_defaults(profile=profile, plan=plan)  # pragma: no cover
+
+    @staticmethod
+    def _validate_cv_defaults(defaults: dict, n_observations: int) -> None:
+        """
+        Validate that CV defaults can produce ≥2 folds.
+
+        Raises ValueError if validation fails.
+        """
+        from skforecast.model_selection import TimeSeriesFold
+
+        its = defaults["initial_train_size"]
+        if isinstance(its, str):
+            # Cannot validate date-based initial_train_size without data
+            return
+
+        if isinstance(its, float):
+            if not (0 < its < 1):
+                raise ValueError(
+                    f"initial_train_size as float must be in (0, 1), got {its}."
+                )
+            its = int(its * n_observations)
+            defaults["initial_train_size"] = its
+
+        cv = TimeSeriesFold(
+            steps=defaults["steps"],
+            initial_train_size=its,
+            refit=defaults["refit"],
+            fixed_train_size=defaults["fixed_train_size"],
+            gap=defaults["gap"],
+            fold_stride=defaults.get("fold_stride"),
+            skip_folds=defaults.get("skip_folds"),
+            allow_incomplete_fold=defaults.get("allow_incomplete_fold", True),
+            differentiation=defaults.get("differentiation"),
+            verbose=False,
+        )
+        folds = cv.split(X=pd.RangeIndex(n_observations), as_pandas=False)
+        if len(folds) < 2:
+            raise ValueError(
+                f"Configuration produces only {len(folds)} fold(s). "
+                f"At least 2 required. Parameters: {defaults}."
+            )
 
     def _build_ollama_settings(
         self, estimated_prompt_tokens: int, user_message: str

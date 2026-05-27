@@ -16,6 +16,7 @@ pip install -e ".[cli,dev]"
 | `refine-plan` | Refine an existing plan by overriding specific fields |
 | `generate-code` | Generate a self-contained Python script |
 | `forecast` | Run end-to-end forecasting (profile → plan → code → execute) |
+| `backtest` | Run backtesting evaluation (profile → plan → CV → backtest) |
 | `ask` | Ask forecasting questions using an LLM |
 | `config show` | Display current configuration |
 | `config set` | Set a configuration value |
@@ -117,6 +118,71 @@ skforecast-ai profile "$URL" --target Usuarios --date-column date
 skforecast-ai forecast "$URL" --target Usuarios --date-column date --steps 14
 ```
 
+## Backtest Command
+
+Run backtesting evaluation with cross-validation. Chains profile → plan → generate_cv → backtest.
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+# Basic backtest (uses smart deterministic CV defaults)
+skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12
+
+# Custom CV configuration
+skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12 \
+  --initial-train-size 100 --refit --expanding-train
+
+# Fixed training window, no refit
+skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12 \
+  --no-refit --fixed-train-size
+
+# With gap (deployment delay simulation)
+skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12 --gap 3
+
+# JSON output
+skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12 --format json
+
+# Save predictions and generated code
+skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12 \
+  --output-predictions backtest_preds.csv --output-code backtest_script.py
+
+# From a saved plan
+skforecast-ai backtest "$URL" --from-plan plan.json
+
+# Override forecaster/estimator
+skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12 \
+  --forecaster ForecasterDirect --estimator Ridge
+
+# LLM-assisted CV configuration (describe your deployment scenario)
+skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12 \
+  --llm openai:gpt-4o-mini \
+  --prompt "We retrain weekly with a 2-day data delay"
+```
+
+### Multi-series backtest
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/simulated_items_sales.csv"
+
+skforecast-ai backtest "$URL" --target "item_1,item_2,item_3" --date-column date --steps 14
+```
+
+### Long-format multi-series
+
+```bash
+skforecast-ai backtest sales.csv --target revenue --date-column date --series-id store_id --steps 30
+```
+
+### Pipe: plan → backtest
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+# Generate plan then backtest from it
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format json -q | \
+  skforecast-ai backtest "$URL" --from-plan -
+```
+
 ## Ask Command (requires LLM)
 
 ```bash
@@ -166,8 +232,14 @@ skforecast-ai ask "Analyze this data" \
 | `--send-data-to-llm` | | Allow raw data to LLM | `ask` |
 | `--skills` | | Skill names to include | `ask` |
 | `--exog-future` | | Future exog CSV | `forecast` |
-| `--output-predictions` | | Save predictions CSV | `forecast` |
-| `--output-code` | | Save generated script | `forecast` |
+| `--output-predictions` | | Save predictions CSV | `forecast`, `backtest` |
+| `--output-code` | | Save generated script | `forecast`, `backtest` |
+| `--initial-train-size` | | Initial training window size | `backtest` |
+| `--refit/--no-refit` | | Refit model each fold | `backtest` |
+| `--fixed-train-size/--expanding-train` | | Fixed or expanding window | `backtest` |
+| `--gap` | | Gap between train and test | `backtest` |
+| `--allow-incomplete-fold/--no-incomplete-fold` | | Allow last incomplete fold | `backtest` |
+| `--prompt` | | LLM prompt for CV config | `backtest` |
 | `--from-profile` | | Load profile JSON (file or `-` for stdin) | `plan` |
 | `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `refine-plan`, `generate-code`, `forecast` |
 | `--version` | | Show version and exit | root |

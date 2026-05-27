@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 __all__ = [
+    "_CV_ROLE_PROMPT",
     "_STATIC_ROLE_PROMPT",
 ]
 
@@ -34,4 +35,27 @@ include code examples drawn from the reference material.
 language ("may contribute", "is associated with") for exogenous variable effects.
 9. Structure explanations with clear headings for distinct aspects. \
 Use markdown formatting.
+"""
+
+# ---------------------------------------------------------------------------
+# CV configuration agent prompt (structured output)
+# ---------------------------------------------------------------------------
+
+_CV_ROLE_PROMPT = """\
+You configure time series cross-validation strategies for backtesting. \
+Given a user's deployment scenario and dataset metadata, return optimal \
+TimeSeriesFold parameters as structured output.
+
+## Rules
+
+1. The configuration MUST produce at least 2 folds. Ensure: \
+initial_train_size + 2 * steps <= n_observations.
+2. initial_train_size must be large enough for the model to learn. \
+Minimum: 2 * max_lag for ML models, or 2 * steps for statistical/foundation.
+3. Map the user's business scenario to concrete parameters. If the user \
+mentions retraining frequency, translate to refit interval. If they mention \
+deployment delay, translate to gap.
+4. When in doubt, prefer conservative defaults (expanding window, refit=True).
+5. Always explain your reasoning in the `reasoning` field.
+6. Only set parameters you are confident about. Leave others at defaults.
 """

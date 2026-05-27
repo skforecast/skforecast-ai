@@ -6,6 +6,7 @@ import contextlib
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
 from typing import Annotated
 
@@ -769,6 +770,236 @@ def _forecast_result_to_json(result) -> str:
     else:
         data["intervals"] = None
     return json.dumps(data, indent=2, default=str)
+
+
+def _render_backtest_results(result) -> None:
+    """
+    Print Rich tables summarizing backtest metrics and predictions.
+
+    Parameters
+    ----------
+    result : BacktestResult
+        Backtest result containing metrics, predictions, and CV config.
+
+    Returns
+    -------
+    None
+    """
+    # CV configuration summary
+    cv_config = result.cv_config
+    cv_table = Table(title="Cross-Validation Configuration", show_lines=True)
+    cv_table.add_column("Parameter", style="bold")
+    cv_table.add_column("Value", justify="right")
+    for key, value in cv_config.items():
+        cv_table.add_row(str(key), str(value))
+    console.print(cv_table)
+    console.print()
+
+    # Metrics
+    metrics = result.metrics
+    table = Table(title="Backtest Metrics", show_lines=True)
+
+    if "series" in metrics.columns:
+        table.add_column("Series", style="bold")
+        metric_cols = [c for c in metrics.columns if c != "series"]
+        for col in metric_cols:
+            table.add_column(col, justify="right")
+        for _, row in metrics.iterrows():
+            values = [str(row["series"])]
+            for col in metric_cols:
+                val = row[col]
+                values.append(f"{val:.4f}" if val is not None else "N/A")
+            table.add_row(*values)
+    else:
+        # skforecast backtesting returns metrics without a 'series' column
+        # (columns are metric names, index may be levels)
+        for col in metrics.columns:
+            table.add_column(col, justify="right")
+        for _, row in metrics.iterrows():
+            values = []
+            for col in metrics.columns:
+                val = row[col]
+                values.append(f"{val:.4f}" if val is not None else "N/A")
+            table.add_row(*values)
+
+    console.print(table)
+    console.print()
+
+    # Predictions
+    predictions = result.predictions
+    n_rows = len(predictions)
+    if n_rows <= 10:
+        console.print(Panel(predictions.to_string(), title="Backtest Predictions"))
+    else:
+        head = predictions.head(5).to_string()
+        tail = predictions.tail(5).to_string(header=False)
+        console.print(Panel(
+            f"{head}\n  ...\n{tail}",
+            title=f"Backtest Predictions ({n_rows} rows)",
+        ))
+
+
+def _backtest_result_to_json(result) -> str:
+    """
+    Serialize BacktestResult to JSON with DataFrame fields as records.
+
+    Parameters
+    ----------
+    result : BacktestResult
+        Backtest result to serialize.
+
+    Returns
+    -------
+    json_str : str
+        JSON string representation of the result.
+    """
+    data = {
+        "profile": result.profile.model_dump(mode="json"),
+        "plan": result.plan.model_dump(mode="json"),
+        "cv_config": result.cv_config,
+        "code": result.code,
+        "metrics": result.metrics.to_dict(orient="records"),
+        "predictions": result.predictions.reset_index().to_dict(orient="records"),
+        "explanation": result.explanation,
+    }
+    return json.dumps(data, indent=2, default=str)
+
+
+@app.command()
+def backtest(
+    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
+    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
+    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
+    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
+    series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
+    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
+    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
+    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string.")] = None,
+    initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
+    refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
+    fixed_train_size: Annotated[bool, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window.")] = True,
+    gap: Annotated[int, typer.Option("--gap", help="Gap between training and test sets.")] = 0,
+    allow_incomplete_fold: Annotated[bool, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations.")] = True,
+    prompt: Annotated[str | None, typer.Option("--prompt", help="Optional prompt for LLM-assisted CV configuration.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for CV configuration.")] = None,
+    base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
+    api_key: Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")] = None,
+    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
+    output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,
+    output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
+    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+) -> None:
+    """Run backtesting evaluation and report metrics + predictions."""
+    with _error_handler():
+        llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
+        base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
+        api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
+        parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+
+        assistant = ForecastingAssistant(
+            llm=llm_value,
+            base_url=base_url_value,
+            api_key=api_key_value,
+        )
+
+        if from_plan is not None:
+            bundle = _read_json_input(from_plan)
+            prof = ForecastingProfile.model_validate(bundle["profile"])
+            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            parsed_target = prof.data_profile.target
+            resolved_steps = plan_obj.steps
+            resolved_date_column = prof.data_profile.date_column
+            resolved_series_id = prof.data_profile.series_id_column
+        else:
+            if target is None or steps is None:
+                console.print(
+                    "[red]Error:[/red] --target and --steps are required "
+                    "unless --from-plan is provided."
+                )
+                raise typer.Exit(code=1)
+            parsed_target = _parse_target(target)
+            resolved_steps = steps
+            resolved_date_column = date_column
+            resolved_series_id = series_id
+            prof = None
+            plan_obj = None
+
+        # Suppress warnings when outputting JSON to avoid polluting stdout
+        warn_ctx = (
+            warnings.catch_warnings()
+            if format == "json"
+            else contextlib.nullcontext()
+        )
+
+        with warn_ctx, _spinner("Running backtest...", quiet):
+            if format == "json":
+                warnings.simplefilter("ignore")
+
+            # Profile (if needed)
+            if prof is None:
+                prof = assistant.profile(
+                    data=data,
+                    target=parsed_target,
+                    date_column=resolved_date_column,
+                    series_id_column=resolved_series_id,
+                )
+
+            # Plan (if needed)
+            if plan_obj is None:
+                plan_obj = assistant.generate_plan(
+                    profile=prof,
+                    steps=resolved_steps,
+                    forecaster=forecaster,
+                    estimator=estimator,
+                    estimator_kwargs=parsed_estimator_kwargs,
+                )
+
+            # Generate CV
+            cv_kwargs = {}
+            if initial_train_size is not None:
+                cv_kwargs["initial_train_size"] = initial_train_size
+            if refit:
+                cv_kwargs["refit"] = refit
+            if not fixed_train_size:
+                cv_kwargs["fixed_train_size"] = fixed_train_size
+            if gap != 0:
+                cv_kwargs["gap"] = gap
+            if not allow_incomplete_fold:
+                cv_kwargs["allow_incomplete_fold"] = allow_incomplete_fold
+
+            cv_fold, _ = assistant.generate_cv(
+                profile=prof,
+                plan=plan_obj,
+                prompt=prompt,
+                **cv_kwargs,
+            )
+
+            # Run backtest
+            result = assistant.backtest(
+                data=data,
+                target=parsed_target,
+                cv=cv_fold,
+                date_column=resolved_date_column,
+                series_id_column=resolved_series_id,
+                profile=prof,
+                plan=plan_obj,
+                show_progress=(not quiet and format != "json"),
+            )
+
+        if output_predictions is not None:
+            result.predictions.to_csv(output_predictions)
+            console.print(f"[green]Predictions written to:[/green] {output_predictions}")
+
+        if output_code is not None:
+            output_code.write_text(result.code)
+            console.print(f"[green]Code written to:[/green] {output_code}")
+
+        if format == "json":
+            json_str = _backtest_result_to_json(result)
+            print(json_str)
+        else:
+            _render_backtest_results(result)
 
 
 @app.command()

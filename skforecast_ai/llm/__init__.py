@@ -30,6 +30,13 @@ def _lazy_import_agent():
     return create_forecasting_agent, AskDeps
 
 
+def _lazy_import_cv_agent():
+    """Lazy import for CV configuration agent."""
+    from .agent import CVDeps, create_cv_agent
+
+    return create_cv_agent, CVDeps
+
+
 def __getattr__(name):
     if name in ("create_forecasting_agent", "AskDeps"):
         create_forecasting_agent, AskDeps = _lazy_import_agent()

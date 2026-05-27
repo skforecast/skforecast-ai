@@ -116,3 +116,37 @@ class ForecastResult(BaseModel):
     metrics: Any  # pd.DataFrame
     predictions: Any  # pd.DataFrame
     intervals: Any = None  # pd.DataFrame | None
+
+
+class BacktestResult(BaseModel):
+    """
+    Result of the `backtest` workflow.
+
+    Attributes
+    ----------
+    profile : ForecastingProfile
+        Profile of the input dataset and high-level modeling decisions.
+    plan : ForecastPlan
+        Detailed forecasting plan that was executed.
+    cv_config : dict
+        Resolved `TimeSeriesFold` parameters for traceability.
+    metrics : pandas DataFrame
+        Backtesting metric values returned by skforecast.
+    predictions : pandas DataFrame
+        Full backtest predictions across all folds.
+    code : str
+        Generated Python script reproducing the backtesting workflow.
+    explanation : str
+        Human-readable explanation of the backtesting configuration
+        and results summary.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    profile: ForecastingProfile
+    plan: ForecastPlan
+    cv_config: dict
+    metrics: Any  # pd.DataFrame
+    predictions: Any  # pd.DataFrame
+    code: str
+    explanation: str

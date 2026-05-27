@@ -234,3 +234,36 @@ def test_summarize_dataframe_includes_index_range():
     assert "Index range:" in result
     assert "2020-01-01" in result
     assert "2020-01-05" in result
+
+
+# ---------------------------------------------------------------------------
+# cv_config section
+# ---------------------------------------------------------------------------
+
+def test_build_context_message_cv_config_section():
+    """
+    Test that build_context_message renders a 'Backtesting Configuration'
+    section when cv_config is provided.
+    """
+    cv_config = {
+        "steps": 12,
+        "initial_train_size": 100,
+        "refit": False,
+        "fixed_train_size": True,
+    }
+    result = build_context_message(cv_config=cv_config)
+
+    assert "## Backtesting Configuration" in result
+    assert "- steps: 12" in result
+    assert "- initial_train_size: 100" in result
+    assert "- refit: False" in result
+    assert "- fixed_train_size: True" in result
+
+
+def test_build_context_message_no_cv_config_no_section():
+    """
+    Test that build_context_message does NOT render the backtesting section
+    when cv_config is None.
+    """
+    result = build_context_message()
+    assert "Backtesting Configuration" not in result

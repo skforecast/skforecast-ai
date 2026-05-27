@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
-from skforecast_ai.schemas import AskResult, ForecastResult
+from skforecast_ai.schemas import AskResult, ForecastResult, BacktestResult
 
 from tests.fixtures_assistant import df_single
 
@@ -488,3 +488,101 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
     )
 
     assert result.explanation == "The predictions show an upward trend."
+
+
+# =============================================================================
+# Tests: backtest mode (backtest_result provided)
+# =============================================================================
+def test_ask_ValueError_when_both_results_provided():
+    """
+    Test that ask() raises ValueError when both forecast_result and
+    backtest_result are provided (mutually exclusive).
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.generate_plan(profile, steps=5)
+
+    predictions = pd.DataFrame({"pred": [10.0, 11.0]})
+    metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.0]})
+
+    forecast_res = ForecastResult(
+        profile=profile, plan=plan, code="# fc",
+        metrics=metrics, predictions=predictions, intervals=None,
+    )
+    backtest_res = BacktestResult(
+        profile=profile, plan=plan, cv_config={"steps": 5},
+        metrics=metrics, predictions=predictions,
+        code="# bt", explanation="test",
+    )
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        assistant.ask(
+            prompt="Explain",
+            forecast_result=forecast_res,
+            backtest_result=backtest_res,
+        )
+
+
+def test_ask_output_when_backtest_result_provided(monkeypatch):
+    """
+    Test that ask() in Backtest mode passes metrics, predictions, and
+    CV config to the LLM context and extracts profile/plan/code from
+    the BacktestResult.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.generate_plan(profile, steps=5)
+
+    predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
+    metrics = pd.DataFrame(
+        {"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]}
+    )
+    cv_config = {
+        "steps": 5,
+        "initial_train_size": 80,
+        "refit": False,
+        "fixed_train_size": True,
+    }
+    mock_backtest_result = BacktestResult(
+        profile=profile,
+        plan=plan,
+        cv_config=cv_config,
+        code="# backtest code",
+        metrics=metrics,
+        predictions=predictions,
+        explanation="Backtest explanation",
+    )
+
+    def _mock_resolve_model(self_=None):
+        return "fake-model-string"
+
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    import skforecast_ai.llm.agent as agent_mod
+
+    class _FakeResult:
+        output = "The backtest shows consistent performance across folds."
+
+    def _mock_create_agent(*args, **kwargs):
+        class _FakeAgent:
+            def run_sync(self, msg, **kw):
+                assert "## Backtesting Configuration" in msg
+                assert "initial_train_size" in msg
+                assert "## Forecast Results" in msg
+                assert "MAE" in msg
+                return _FakeResult()
+        return _FakeAgent()
+
+    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+
+    result = assistant.ask(
+        prompt="Explain the backtest results",
+        backtest_result=mock_backtest_result,
+    )
+
+    assert result.profile is profile
+    assert result.plan is plan
+    assert result.code == "# backtest code"
+    assert result.explanation == "The backtest shows consistent performance across folds."

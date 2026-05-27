@@ -51,6 +51,7 @@ def build_context_message(
     predictions: Any = None,
     metrics: Any = None,
     intervals: Any = None,
+    cv_config: dict | None = None,
     verbosity: Literal["compact", "standard", "full"] = "standard",
     send_data: bool = False,
 ) -> str:
@@ -73,6 +74,9 @@ def build_context_message(
         Evaluation metrics from a completed forecast run.
     intervals : pandas DataFrame, default None
         Prediction intervals from a completed forecast run.
+    cv_config : dict, default None
+        Cross-validation configuration from a backtest run. When
+        provided, a "Backtesting Configuration" section is rendered.
     verbosity : {'compact', 'standard', 'full'}, default 'standard'
         Controls how much detail is included:
 
@@ -97,6 +101,7 @@ def build_context_message(
         or plan is not None
         or predictions is not None
         or metrics is not None
+        or cv_config is not None
     )
     if not has_content:
         return ""
@@ -149,6 +154,12 @@ def build_context_message(
             "Note: A validated Python script implementing this plan is "
             "generated separately. Do not generate code yourself."
         )
+
+    if cv_config is not None:
+        parts.append("")
+        parts.append("## Backtesting Configuration")
+        for key, value in cv_config.items():
+            parts.append(f"- {key}: {value}")
 
     if metrics is not None or predictions is not None:
         parts.append("")

@@ -7,6 +7,90 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+class CVParams(BaseModel):
+    """
+    LLM-produced cross-validation parameters for `TimeSeriesFold`.
+
+    Returned as structured output from the CV configuration agent.
+    All fields have defaults so the LLM only needs to specify the
+    parameters it wants to override from the deterministic baseline.
+
+    Attributes
+    ----------
+    initial_train_size : int, float, str
+        Number of observations (int), fraction of data (float in
+        (0, 1)), or date string for the initial training set.
+    refit : bool, int
+        Whether to refit every fold (True), never (False), or every
+        n folds (int).
+    fixed_train_size : bool
+        If True, training size stays fixed; if False, expands.
+    gap : int
+        Observations between end of training and start of test.
+    fold_stride : int, None
+        Observations between consecutive test set starts. None means
+        equal to steps.
+    skip_folds : int, list of int, None
+        Folds to skip. Int means keep every n-th fold; list specifies
+        indexes.
+    allow_incomplete_fold : bool
+        Whether to allow a final fold with fewer observations than
+        steps.
+    reasoning : str
+        Explanation of why these parameters were chosen. Shown to the
+        user for transparency.
+    """
+
+    initial_train_size: int | float | str = Field(
+        description=(
+            "Number of observations (int), fraction of total data "
+            "(float in (0,1)), or date string for the initial training set."
+        ),
+    )
+    refit: bool | int = Field(
+        default=True,
+        description=(
+            "Whether to refit the model every fold (True), never (False), "
+            "or every n folds (int)."
+        ),
+    )
+    fixed_train_size: bool = Field(
+        default=False,
+        description=(
+            "If True, training window stays fixed (rolling). "
+            "If False, training window expands each fold."
+        ),
+    )
+    gap: int = Field(
+        default=0,
+        description="Number of observations between training end and test start.",
+    )
+    fold_stride: int | None = Field(
+        default=None,
+        description=(
+            "Number of observations between consecutive test set starts. "
+            "None defaults to steps (non-overlapping test sets)."
+        ),
+    )
+    skip_folds: int | list[int] | None = Field(
+        default=None,
+        description=(
+            "Folds to skip. Int keeps every n-th fold; list specifies "
+            "fold indexes to skip."
+        ),
+    )
+    allow_incomplete_fold: bool = Field(
+        default=True,
+        description="Whether to allow a final fold with fewer observations than steps.",
+    )
+    reasoning: str = Field(
+        description=(
+            "Explanation of why these parameters were chosen, referencing "
+            "the user's deployment scenario."
+        ),
+    )
+
+
 class PreprocessingStep(BaseModel):
     """
     A preprocessing action required before forecasting.

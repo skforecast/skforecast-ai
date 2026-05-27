@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from skforecast_ai.exceptions import ForecastExecutionError
-from skforecast_ai.execution.runner import run_forecast
+from skforecast_ai.execution.forecast_runner import run_forecast
 from skforecast_ai.schemas import ForecastPlan
 
 from .fixtures_execution import (
