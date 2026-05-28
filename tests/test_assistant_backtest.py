@@ -24,7 +24,7 @@ def test_backtest_ValueError_when_cv_steps_differs_from_plan_steps():
     and plan is explicitly provided.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
 
@@ -50,8 +50,8 @@ def test_backtest_output_when_single_series():
     results, and accurate cv_config for a single-series dataset.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=5)
-    cv, _ = assistant.generate_cv(profile, plan)
+    plan = assistant.plan(profile, steps=5)
+    cv, _ = assistant.create_cv(profile, plan)
 
     result = assistant.backtest(
         data=df_single,

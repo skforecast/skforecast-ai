@@ -20,7 +20,7 @@ def test_refine_plan_ValueError_when_invalid_override_key():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     err_msg = re.escape(
         "Invalid override keys: ['lags']. "
@@ -38,7 +38,7 @@ def test_refine_plan_ValueError_when_forecaster_not_in_candidates():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     err_msg = re.escape(
         "Forecaster 'ForecasterRnn' is not compatible with this profile."
@@ -57,7 +57,7 @@ def test_refine_plan_output_when_no_overrides():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     refined = assistant.refine_plan(profile, plan)
 
@@ -75,7 +75,7 @@ def test_refine_plan_output_when_steps_overridden():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     refined = assistant.refine_plan(profile, plan, steps=24)
 
@@ -95,7 +95,7 @@ def test_refine_plan_output_when_forecaster_overridden():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     refined = assistant.refine_plan(profile, plan, forecaster="ForecasterDirect")
 
@@ -110,7 +110,7 @@ def test_refine_plan_output_when_estimator_overridden():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     refined = assistant.refine_plan(profile, plan, estimator="RandomForestRegressor")
 
@@ -125,7 +125,7 @@ def test_refine_plan_output_when_estimator_kwargs_overridden():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     custom_kwargs = {"n_estimators": 200, "learning_rate": 0.05}
     refined = assistant.refine_plan(profile, plan, estimator_kwargs=custom_kwargs)
@@ -140,7 +140,7 @@ def test_refine_plan_output_when_interval_added():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     assert plan.interval is None
 
@@ -157,7 +157,7 @@ def test_refine_plan_output_when_interval_removed():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10, interval=[10, 90])
+    plan = assistant.plan(profile, steps=10, interval=[10, 90])
 
     assert plan.interval == [10, 90]
 
@@ -176,7 +176,7 @@ def test_refine_plan_output_when_multiple_overrides():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=10)
+    plan = assistant.plan(profile, steps=10)
 
     refined = assistant.refine_plan(
         profile, plan,
@@ -198,7 +198,7 @@ def test_refine_plan_preserves_custom_forecaster_when_other_fields_refined():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(
+    plan = assistant.plan(
         profile, steps=10, forecaster="ForecasterDirect"
     )
 

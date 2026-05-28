@@ -286,7 +286,7 @@ class TestRefinePlan:
 class TestGenerateCodeFromPlan:
     """Tests for the generate-code command with --from-plan."""
 
-    def test_generate_code_from_plan_file(self, tmp_path):
+    def test_render_code_file(self, tmp_path):
         """generate-code --from-plan generates code from saved bundle."""
         plan_file = tmp_path / "plan.json"
         plan_file.write_text(json.dumps(MOCK_BUNDLE))
@@ -298,7 +298,7 @@ class TestGenerateCodeFromPlan:
         # Output should contain Python code (imports, forecaster setup)
         assert "import" in result.output or "ForecasterRecursive" in result.output
 
-    def test_generate_code_from_plan_stdin(self):
+    def test_render_code_stdin(self):
         """generate-code --from-plan - reads from stdin."""
         result = runner.invoke(
             app,
@@ -307,7 +307,7 @@ class TestGenerateCodeFromPlan:
         )
         assert result.exit_code == 0, result.output
 
-    def test_generate_code_from_plan_json_format(self, tmp_path):
+    def test_render_code_json_format(self, tmp_path):
         """generate-code --from-plan --format json outputs CodeGenerationResult."""
         plan_file = tmp_path / "plan.json"
         plan_file.write_text(json.dumps(MOCK_BUNDLE))

@@ -1,4 +1,4 @@
-# Integration tests: full profile → plan → generate_cv → backtest workflow
+# Integration tests: full profile → plan → create_cv → backtest workflow
 # Tests each supported forecaster type end-to-end.
 
 import ast
@@ -19,15 +19,15 @@ assistant = ForecastingAssistant()
 # =============================================================================
 def test_forecaster_recursive_full_workflow_with_exog():
     """
-    Full workflow: profile → plan → generate_cv → backtest with
+    Full workflow: profile → plan → create_cv → backtest with
     ForecasterRecursive and exogenous variables. Validates all output
     fields, metric finiteness, and code syntax.
     """
     profile = assistant.profile(
         data=df_single, target="sales", date_column="date"
     )
-    plan = assistant.generate_plan(profile, steps=5)
-    cv, _ = assistant.generate_cv(profile, plan)
+    plan = assistant.plan(profile, steps=5)
+    cv, _ = assistant.create_cv(profile, plan)
 
     result = assistant.backtest(
         data=df_single,
@@ -60,8 +60,8 @@ def test_forecaster_recursive_full_workflow_without_exog():
     profile = assistant.profile(
         data=df_no_exog, target="sales", date_column="date"
     )
-    plan = assistant.generate_plan(profile, steps=5)
-    cv, _ = assistant.generate_cv(profile, plan)
+    plan = assistant.plan(profile, steps=5)
+    cv, _ = assistant.create_cv(profile, plan)
 
     result = assistant.backtest(
         data=df_no_exog,
@@ -98,10 +98,10 @@ def test_forecaster_direct_full_workflow(steps):
         target="sales",
         date_column="date",
     )
-    plan = assistant.generate_plan(
+    plan = assistant.plan(
         profile, steps=steps, forecaster="ForecasterDirect"
     )
-    cv, _ = assistant.generate_cv(profile, plan)
+    cv, _ = assistant.create_cv(profile, plan)
 
     assert cv.steps == plan.steps == steps
 
@@ -138,8 +138,8 @@ def test_forecaster_recursive_multiseries_full_workflow():
         date_column="date",
         series_id_column="series_id",
     )
-    plan = assistant.generate_plan(profile, steps=5)
-    cv, _ = assistant.generate_cv(profile, plan)
+    plan = assistant.plan(profile, steps=5)
+    cv, _ = assistant.create_cv(profile, plan)
 
     result = assistant.backtest(
         data=df_multi_long,
@@ -202,8 +202,8 @@ def test_backtest_NotImplementedError_when_unsupported_forecaster(
         profile_kwargs["series_id_column"] = series_id_column
 
     profile = assistant.profile(**profile_kwargs)
-    plan = assistant.generate_plan(profile, steps=5, forecaster=forecaster)
-    cv, _ = assistant.generate_cv(profile, plan)
+    plan = assistant.plan(profile, steps=5, forecaster=forecaster)
+    cv, _ = assistant.create_cv(profile, plan)
 
     backtest_kwargs = {
         "data": data,
@@ -235,13 +235,13 @@ def test_backtest_NotImplementedError_when_unsupported_forecaster(
 )
 def test_cv_kwarg_propagates_to_result(cv_kwargs, expected_key, expected_value):
     """
-    Explicit CV kwargs flow through generate_cv → backtest → cv_config.
+    Explicit CV kwargs flow through create_cv → backtest → cv_config.
     """
     profile = assistant.profile(
         data=df_single, target="sales", date_column="date"
     )
-    plan = assistant.generate_plan(profile, steps=5)
-    cv, _ = assistant.generate_cv(profile, plan, **cv_kwargs)
+    plan = assistant.plan(profile, steps=5)
+    cv, _ = assistant.create_cv(profile, plan, **cv_kwargs)
 
     result = assistant.backtest(
         data=df_single,

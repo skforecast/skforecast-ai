@@ -573,7 +573,7 @@ def plan(
                 )
 
         with _spinner("Planning...", quiet):
-            result = assistant.generate_plan(
+            result = assistant.plan(
                 profile=prof, steps=steps, forecaster=forecaster,
                 estimator=estimator, estimator_kwargs=parsed_estimator_kwargs,
                 interval=parsed_interval,
@@ -662,7 +662,7 @@ def generate_code(
             bundle = _read_json_input(from_plan)
             prof = ForecastingProfile.model_validate(bundle["profile"])
             plan_obj = ForecastPlan.model_validate(bundle["plan"])
-            code = assistant.generate_code_from_plan(
+            code = assistant.render_code(
                 profile=prof.data_profile, plan=plan_obj,
             )
             result = CodeGenerationResult(profile=prof, plan=plan_obj, code=code)
@@ -947,7 +947,7 @@ def backtest(
 
             # Plan (if needed)
             if plan_obj is None:
-                plan_obj = assistant.generate_plan(
+                plan_obj = assistant.plan(
                     profile=prof,
                     steps=resolved_steps,
                     forecaster=forecaster,
@@ -968,7 +968,7 @@ def backtest(
             if not allow_incomplete_fold:
                 cv_kwargs["allow_incomplete_fold"] = allow_incomplete_fold
 
-            cv_fold, _ = assistant.generate_cv(
+            cv_fold, _ = assistant.create_cv(
                 profile=prof,
                 plan=plan_obj,
                 prompt=prompt,

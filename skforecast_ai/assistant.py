@@ -53,20 +53,12 @@ from ._utils import _coerce_to_dataframe, _patch_event_loop, _strip_code_blocks
 
 class ForecastingAssistant:
     """
-    Unified forecasting assistant.
+    Profile time series data, recommend forecasting strategies, generate
+    executable code, run forecasts, and evaluate models via backtesting.
 
-    Exposes a two-step deterministic workflow:
-
-    1. `profile()` — inspects the dataset and returns a
-       `ForecastingProfile` with the recommended forecaster + estimator
-       and their compatible candidates.
-    2. `generate_plan()` — takes the `ForecastingProfile` and produces a
-       detailed `ForecastPlan` (lags, metric, backtesting, intervals,
-       NaN handling, preprocessing).
-
-    `generate_code()` and `forecast()` are convenience wrappers that
-    chain the two stages plus code generation / execution. `ask()`
-    provides an LLM-powered interface.
+    All recommendations are deterministic and reproducible. An optional
+    LLM adds natural-language explanations and interactive Q&A without
+    affecting the underlying forecasting logic.
 
     Parameters
     ----------
@@ -95,6 +87,40 @@ class ForecastingAssistant:
         Explicit API key or None (resolve from environment).
     send_data_to_llm : bool
         Whether raw data may be sent to the LLM.
+
+    Notes
+    -----
+    Three workflows are available:
+
+    Fast path — call a single method that handles everything internally:
+
+    - `generate_code()` profiles the data, builds a plan, and returns a
+    ready-to-run Python script.
+    - `forecast()` does the same and also executes the forecast,
+    returning predictions and metrics.
+
+    Step-by-step path — for full control over each stage:
+
+    - `profile()` inspects the dataset and selects the recommended
+    forecaster and estimator (with alternative candidates).
+    - `plan()` takes the profile and derives the detailed configuration
+    (lags, metric, preprocessing, intervals, NaN handling).
+    - `refine_plan()` adjusts an existing plan with user overrides (if desired).
+    - `render_code()` generates a Python script from a profile and plan.
+    - `forecast()` executes the workflow from a pre-computed profile and
+    plan, returning predictions and metrics.
+
+    Backtesting path — evaluate model performance with time series
+    cross-validation:
+
+    - `create_cv()` produces a `TimeSeriesFold` with smart defaults
+    (optionally guided by an LLM prompt). Requires a profile and plan.
+    - `backtest()` runs backtesting using the CV strategy and returns
+    metrics, predictions, and reproducible code.
+
+    `ask()` is an LLM-powered method available in any workflow to
+    explain results, answer forecasting questions, or interpret metrics.
+
     """
 
     def __init__(
@@ -121,12 +147,12 @@ class ForecastingAssistant:
         series_id_column: str | None = None,
     ) -> ForecastingProfile:
         """
-        Profile a dataset and select the recommended forecaster + estimator.
+        Profile a dataset and select the recommended forecaster and estimator.
 
-        Wraps `create_data_profile` and `build_forecasting_profile` into a
-        single call. The returned `ForecastingProfile` carries the
-        `DataProfile` plus the coarse modeling decisions and their
-        alternative candidates.
+        Assembles the data profile and selects the recommended forecaster,
+        estimator, and their compatible candidates. The returned
+        `ForecastingProfile` carries the `DataProfile` plus the coarse
+        modeling decisions.
 
         Parameters
         ----------
@@ -186,7 +212,7 @@ class ForecastingAssistant:
             explanation           = explanation,
         )
 
-    def generate_plan(
+    def plan(
         self,
         profile: ForecastingProfile,
         steps: int,
@@ -358,7 +384,7 @@ class ForecastingAssistant:
         Re-derive a forecast plan applying user overrides.
 
         Takes an existing plan and a set of overrides, then calls
-        `generate_plan()` with the merged parameters. Only the
+        `plan()` with the merged parameters. Only the
         overridden fields change; everything else is re-derived
         deterministically from the original profile.
 
@@ -396,7 +422,7 @@ class ForecastingAssistant:
         estimator_kwargs = overrides.get("estimator_kwargs", plan.estimator_kwargs or None)
         interval = overrides.get("interval", plan.interval)
 
-        return self.generate_plan(
+        return self.plan(
             profile          = profile,
             steps            = steps,
             forecaster       = forecaster,
@@ -405,7 +431,7 @@ class ForecastingAssistant:
             interval         = interval,
         )
 
-    def generate_code_from_plan(
+    def render_code(
         self,
         profile: DataProfile,
         plan: ForecastPlan,
@@ -423,7 +449,7 @@ class ForecastingAssistant:
             Profile of the input dataset (available via
             `profile.data_profile`).
         plan : ForecastPlan
-            Validated forecast plan (output of `generate_plan()`).
+            Validated forecast plan (output of `plan()`).
 
         Returns
         -------
@@ -451,7 +477,7 @@ class ForecastingAssistant:
         """
         Profile, plan, and generate a complete forecasting script.
 
-        Convenience wrapper that chains `profile()`, `generate_plan()`,
+        Convenience wrapper that chains `profile()`, `plan()`,
         and code generation in a single call.
 
         Parameters
@@ -472,7 +498,7 @@ class ForecastingAssistant:
             Explicit estimator class name. See `profile()`.
         estimator_kwargs : dict, default None
             Keyword arguments for the estimator constructor (e.g.
-            `{'n_estimators': 200}`). See `generate_plan()`.
+            `{'n_estimators': 200}`). See `plan()`.
         interval : list of int, default None
             Prediction interval percentiles as a two-element list
             `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
@@ -491,7 +517,7 @@ class ForecastingAssistant:
             series_id_column = series_id_column,
         )
 
-        plan = self.generate_plan(
+        plan = self.plan(
             profile          = profile,
             steps            = steps,
             forecaster       = forecaster,
@@ -500,7 +526,7 @@ class ForecastingAssistant:
             interval         = interval,
         )
 
-        code = self.generate_code_from_plan(profile=profile.data_profile, plan=plan)
+        code = self.render_code(profile=profile.data_profile, plan=plan)
 
         return CodeGenerationResult(
             profile = profile,
@@ -526,7 +552,7 @@ class ForecastingAssistant:
         """
         Execute a full forecasting workflow end-to-end.
 
-        Convenience wrapper that chains `profile()`, `generate_plan()`,
+        Convenience wrapper that chains `profile()`, `plan()`,
         validation and programmatic execution.
 
         Parameters
@@ -547,7 +573,7 @@ class ForecastingAssistant:
             Explicit estimator class name. See `profile()`.
         estimator_kwargs : dict, default None
             Keyword arguments for the estimator constructor (e.g.
-            `{'n_estimators': 200}`). See `generate_plan()`.
+            `{'n_estimators': 200}`). See `plan()`.
         interval : list of int, default None
             Prediction interval percentiles as a two-element list
             `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
@@ -577,7 +603,6 @@ class ForecastingAssistant:
         This method executes the same code that `generate_code()`
         produces, ensuring perfect fidelity between the inspectable
         script (`ForecastResult.code`) and the actual execution.
-
         """
 
         data_df = _coerce_to_dataframe(data)
@@ -590,7 +615,7 @@ class ForecastingAssistant:
                 series_id_column = series_id_column,
             )
         if plan is None:
-            plan = self.generate_plan(
+            plan = self.plan(
                 profile          = profile,
                 steps            = steps,
                 forecaster       = forecaster,
@@ -615,11 +640,10 @@ class ForecastingAssistant:
             intervals   = result["intervals"],
         )
 
-    def generate_cv(
+    def create_cv(
         self,
         profile: ForecastingProfile,
         plan: ForecastPlan,
-        *,
         prompt: str | None = None,
         initial_train_size: int | float | str | None = None,
         refit: bool | int | None = None,
@@ -641,17 +665,19 @@ class ForecastingAssistant:
         profile : ForecastingProfile
             Output of `profile()`.
         plan : ForecastPlan
-            Output of `generate_plan()`.
+            Output of `plan()`.
         prompt : str, default None
             Natural language description of the evaluation scenario.
             Requires an LLM to be configured. If None or no LLM is
             available, deterministic defaults are used.
         initial_train_size : int, float, str, default None
-            Number of observations for the initial training set. If
-            `int`, used directly. If `float`, must satisfy
-            `0 < value < 1` and is interpreted as a fraction of the
-            total observations. If `str`, passed as a date string to
-            `TimeSeriesFold`. If None, defaults to 70% of data.
+            Number of observations for the initial training set.
+
+            - If `int`, used directly as the number of observations.
+            - If `float`, must satisfy `0 < value < 1` and is interpreted
+            as a fraction of the total observations.
+            - If `str`, passed as a date string to `TimeSeriesFold`.
+            - If None, defaults to 70% of data.
         refit : bool, int, default None
             Whether to refit the forecaster each fold. If `int`, refit
             every n folds.
@@ -684,9 +710,9 @@ class ForecastingAssistant:
         # -----------------------------------------------------------------
         if prompt is not None:
             if self.llm is None:
-                raise LLMRequiredError("generate_cv")
+                raise LLMRequiredError("create_cv")
 
-            defaults = self._generate_cv_with_llm(
+            defaults = self._configure_cv_with_llm(
                 profile=profile,
                 plan=plan,
                 prompt=prompt,
@@ -782,7 +808,7 @@ class ForecastingAssistant:
         """
         Execute backtesting with a pre-configured cross-validation strategy.
 
-        Chains `profile()`, `generate_plan()`, and backtesting execution
+        Chains `profile()`, `plan()`, and backtesting execution
         using the provided `TimeSeriesFold`. The `steps` parameter is
         inferred from `cv.steps`.
 
@@ -793,7 +819,7 @@ class ForecastingAssistant:
         target : str, list of str
             Name of the column(s) to forecast.
         cv : TimeSeriesFold
-            Cross-validation fold splitter (output of `generate_cv()`
+            Cross-validation fold splitter (output of `create_cv()`
             or user-constructed).
         date_column : str, default None
             Name of the column containing timestamps.
@@ -839,7 +865,7 @@ class ForecastingAssistant:
             )
 
         if plan is None:
-            plan = self.generate_plan(
+            plan = self.plan(
                 profile          = profile,
                 steps            = steps,
                 forecaster       = forecaster,
@@ -913,15 +939,15 @@ class ForecastingAssistant:
 
         Operates in four modes:
 
-        - **Q&A mode** (no data, no profile, no forecast_result,
-          no backtest_result): The LLM answers general forecasting or
+        - Q&A mode (no data, no profile, no forecast_result, no
+          backtest_result): the LLM answers general forecasting or
           skforecast questions using its skills.
-        - **Explain mode** (data or profile provided): Deterministic
+        - Explain mode (data or profile provided): deterministic
           profiling runs first, then the LLM explains the result.
-        - **Results mode** (forecast_result provided): The LLM explains
+        - Results mode (forecast_result provided): the LLM explains
           forecast predictions, metrics, and intervals from a
           completed `forecast()` run.
-        - **Backtest mode** (backtest_result provided): The LLM explains
+        - Backtest mode (backtest_result provided): the LLM explains
           backtesting metrics, predictions, and CV configuration from a
           completed `backtest()` run.
 
@@ -976,9 +1002,8 @@ class ForecastingAssistant:
 
         Notes
         -----
-        Requires an LLM. If `llm=None` was passed at init,
-        `LLMRequiredError` is raised.
-
+        An LLM must be configured at init time. When `llm` is None,
+        this method cannot operate and raises `LLMRequiredError`.
         """
 
         if self.llm is None:
@@ -1027,7 +1052,7 @@ class ForecastingAssistant:
                     "`profile` is provided without a "
                     "pre-computed `plan`."
                 )
-            plan = self.generate_plan(profile, steps=steps)
+            plan = self.plan(profile, steps=steps)
 
         # --- Generate deterministic code from plan ---
         if forecast_result is not None:
@@ -1035,7 +1060,7 @@ class ForecastingAssistant:
         elif backtest_result is not None:
             generated_code = backtest_result.code
         elif plan is not None and profile is not None:
-            generated_code = self.generate_code_from_plan(
+            generated_code = self.render_code(
                 profile.data_profile, plan
             )
         else:
@@ -1130,7 +1155,10 @@ class ForecastingAssistant:
     # --------------------------------------------------------------- private
     def _resolve_model(self):
         """
-        Lazily resolve the LLM model from the provider string.
+        Resolve the LLM model from the provider string.
+
+        The model is created on the first call and cached for
+        subsequent invocations.
 
         Returns
         -------
@@ -1147,7 +1175,7 @@ class ForecastingAssistant:
 
     def _resolve_agent(self):
         """
-        Lazily create and cache the pydantic-ai Agent instance.
+        Create and cache the pydantic-ai Agent instance.
 
         The agent is created once per assistant and reused across calls.
         Dynamic behavior (skill selection, reference inclusion) is
@@ -1168,7 +1196,7 @@ class ForecastingAssistant:
 
     def _resolve_cv_agent(self):
         """
-        Lazily create and cache the CV configuration agent.
+        Create and cache the CV configuration agent.
 
         Returns
         -------
@@ -1183,7 +1211,7 @@ class ForecastingAssistant:
 
         return self._cv_agent
 
-    def _generate_cv_with_llm(
+    def _configure_cv_with_llm(
         self,
         profile: ForecastingProfile,
         plan: ForecastPlan,
@@ -1290,9 +1318,24 @@ class ForecastingAssistant:
     @staticmethod
     def _validate_cv_defaults(defaults: dict, n_observations: int) -> None:
         """
-        Validate that CV defaults can produce ≥2 folds.
+        Validate that CV defaults can produce at least 2 folds.
 
-        Raises ValueError if validation fails.
+        A `ValueError` is raised when the configuration cannot produce
+        at least 2 folds.
+
+        Parameters
+        ----------
+        defaults : dict
+            Resolved CV parameters dict with keys `'steps'`,
+            `'initial_train_size'`, `'refit'`, `'fixed_train_size'`,
+            `'gap'`, `'fold_stride'`, `'skip_folds'`,
+            `'allow_incomplete_fold'`, and `'differentiation'`.
+        n_observations : int
+            Total number of observations in the dataset.
+
+        Returns
+        -------
+        None
         """
         from skforecast.model_selection import TimeSeriesFold
 

@@ -4,7 +4,7 @@
 
 Two new public methods on `ForecastingAssistant`:
 
-1. **`generate_cv(profile, plan, *, prompt=None, **kwargs)`** — Produces a `TimeSeriesFold` object. Two modes:
+1. **`create_cv(profile, plan, *, prompt=None, **kwargs)`** — Produces a `TimeSeriesFold` object. Two modes:
    - **LLM mode** (prompt provided, LLM configured): The user describes their deployment/evaluation scenario in natural language. The LLM deduces the `TimeSeriesFold` parameters. Explicit kwargs override LLM-deduced values.
    - **Deterministic mode** (no prompt or no LLM): Smart defaults derived from the profile and plan (initial_train_size=70% of data, refit=True, fixed_train_size=False, steps from plan).
 
@@ -14,10 +14,10 @@ Two new public methods on `ForecastingAssistant`:
 
 - `cv` is mandatory in `backtest()` — no hidden defaults during execution, the user must have an intentional evaluation strategy.
 - `steps` is NOT a parameter of `backtest()` — it is always inferred from `cv.steps`. When `plan` is also provided, `cv.steps == plan.steps` is validated.
-- `generate_cv()` absorbs all the complexity (LLM or deterministic). Output is always an inspectable `TimeSeriesFold` object.
+- `create_cv()` absorbs all the complexity (LLM or deterministic). Output is always an inspectable `TimeSeriesFold` object.
 - Priority: explicit kwarg > LLM-deduced > deterministic default.
-- Return type of `generate_cv()` is `tuple[TimeSeriesFold, str]` — the cv object (zero lock-in, usable with skforecast directly) plus a human-readable explanation.
-- `generate_cv` only sets: `steps`, `initial_train_size`, `refit`, `fixed_train_size`, `gap`, `fold_stride`, `skip_folds`, `allow_incomplete_fold`. The remaining TimeSeriesFold params (`window_size`) is left as `None` — skforecast's backtesting functions auto-resolve them from the forecaster at runtime. The `differentiation` must be set from `plan.forecaster_kwargs.get('differentiation')` if present, to enable accurate fold visualization via `cv.split()` before running backtesting.
+- Return type of `create_cv()` is `tuple[TimeSeriesFold, str]` — the cv object (zero lock-in, usable with skforecast directly) plus a human-readable explanation.
+- `create_cv` only sets: `steps`, `initial_train_size`, `refit`, `fixed_train_size`, `gap`, `fold_stride`, `skip_folds`, `allow_incomplete_fold`. The remaining TimeSeriesFold params (`window_size`) is left as `None` — skforecast's backtesting functions auto-resolve them from the forecaster at runtime. The `differentiation` must be set from `plan.forecaster_kwargs.get('differentiation')` if present, to enable accurate fold visualization via `cv.split()` before running backtesting.
 - Validation: call `cv.split(X=pd.RangeIndex(n_observations), as_pandas=False)` and count folds. Must produce ≥2 folds. When `initial_train_size` is a date string, skip this validation (requires actual DatetimeIndex, which will be validated at `backtest()` time).
 - `n_observations` is always sourced from `profile.data_profile.n_observations`.
 - `metric` for backtesting is sourced from `plan.metrics_to_compute`.
@@ -37,15 +37,15 @@ pytest tests/ -vv
 
 ---
 
-## Phase 1: `generate_cv` — Deterministic Path
+## Phase 1: `create_cv` — Deterministic Path
 
-Implement the deterministic (no-LLM) `generate_cv` method with smart defaults.
+Implement the deterministic (no-LLM) `create_cv` method with smart defaults.
 
 ### Tasks
 
-- [ ] Add `generate_cv` method to `ForecastingAssistant` with signature:
+- [ ] Add `create_cv` method to `ForecastingAssistant` with signature:
   ```python
-  def generate_cv(
+  def create_cv(
       self,
       profile: ForecastingProfile,
       plan: ForecastPlan,
@@ -84,8 +84,8 @@ Implement the deterministic (no-LLM) `generate_cv` method with smart defaults.
   - `float` → fraction of `profile.data_profile.n_observations`. Must satisfy `0 < value < 1`; raise `ValueError` otherwise.
   - `str` → date string (passed directly to TimeSeriesFold)
   - `None` → 70% default
-- [ ] `generate_cv` returns a tuple `(TimeSeriesFold, str)` where the string is a human-readable explanation of the chosen configuration (e.g. "Using 70% of data (140 observations) for initial training, expanding window, refit every fold, 10-step horizon, 7 folds"). For both, LLM and deterministic paths, the explanation should clearly state the resolved parameters and the rationale.
-- [ ] Unit tests for `generate_cv` deterministic path.
+- [ ] `create_cv` returns a tuple `(TimeSeriesFold, str)` where the string is a human-readable explanation of the chosen configuration (e.g. "Using 70% of data (140 observations) for initial training, expanding window, refit every fold, 10-step horizon, 7 folds"). For both, LLM and deterministic paths, the explanation should clearly state the resolved parameters and the rationale.
+- [ ] Unit tests for `create_cv` deterministic path.
 
 ---
 
@@ -112,7 +112,7 @@ Implement the `backtest()` method that runs backtesting with the provided cv.
       plan: ForecastPlan | None = None,
   ) -> BacktestResult:
   ```
-  - `steps` is inferred from `cv.steps`. When `plan=None`, the internal `generate_plan()` call receives `steps=cv.steps`.
+  - `steps` is inferred from `cv.steps`. When `plan=None`, the internal `plan()` call receives `steps=cv.steps`.
   - When both `cv` and `plan` are provided, validate `cv.steps == plan.steps`. Raise `ValueError` if they differ (critical for `ForecasterDirect`/`ForecasterDirectMultiVariate` where model architecture depends on steps).
   - **Exog handling**: exogenous variables are extracted from `data` using `profile.data_profile.exog_columns` (same pattern as `forecast()`). Worth noting in the docstring that `data` must include exog columns if the plan uses them.
 - [ ] Define `BacktestResult` schema in `schemas/results.py`:
@@ -144,19 +144,19 @@ Implement the `backtest()` method that runs backtesting with the provided cv.
   - Return metrics + predictions.
   - **Phase 2 scope**: implement `single_series` and `multi_series` first. Add `statistical`, `foundation`, and `multivariate` incrementally (they have more signature differences).
 - [ ] Code generation: add backtesting template to `generation/code_templates.py` so `BacktestResult.code` contains a runnable script. The generated code follows the same pattern as `generate_code()`: imports, data loading, preprocessing, forecaster initialization (without fit), TimeSeriesFold creation, and the `backtesting_forecaster(...)` call.
-- [ ] `BacktestResult.explanation`: concatenation of the CV explanation (from `generate_cv`) + a post-execution summary (e.g. "Backtesting completed: 7 folds evaluated. Mean MAE: 0.42, Mean MSE: 0.31.").
+- [ ] `BacktestResult.explanation`: concatenation of the CV explanation (from `create_cv`) + a post-execution summary (e.g. "Backtesting completed: 7 folds evaluated. Mean MAE: 0.42, Mean MSE: 0.31.").
 - [ ] Unit tests for `backtest` method.
 
 ---
 
-## Phase 3: `generate_cv` — LLM Path
+## Phase 3: `create_cv` — LLM Path
 
 Add LLM-powered fold configuration from natural language prompts.
 
 ### Tasks
 
 - [ ] Define structured output schema for LLM response (the cv parameters as a Pydantic model).
-- [ ] Implement LLM call within `generate_cv` when `prompt` is provided and `self.llm` is configured:
+- [ ] Implement LLM call within `create_cv` when `prompt` is provided and `self.llm` is configured:
   - Build system prompt with TimeSeriesFold documentation + data context (frequency, n_observations, steps).
   - Send user prompt describing their deployment scenario.
   - Parse structured output into TimeSeriesFold kwargs.
@@ -179,7 +179,7 @@ Add LLM-powered fold configuration from natural language prompts.
 
 ## Phase 4: Integration & Polish
 
-- [ ] Integration tests: full workflow `profile → generate_plan → generate_cv → backtest`.
+- [ ] Integration tests: full workflow `profile → plan → create_cv → backtest`.
 - [ ] CLI integration: add `backtest` subcommand if applicable.
 - [ ] Documentation: update docstrings, add usage examples in `dev/`.
 - [ ] Ensure `ask()` can explain backtest results (pass `BacktestResult` to ask similarly to `ForecastResult`).

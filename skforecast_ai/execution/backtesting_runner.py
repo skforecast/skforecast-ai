@@ -64,7 +64,7 @@ def run_backtest(
     cv : TimeSeriesFold
         Cross-validation fold splitter.
     cv_explanation : str
-        Human-readable CV explanation (from `generate_cv`).
+        Human-readable CV explanation (from `create_cv`).
     show_progress : bool, default True
         Whether to display a progress bar during backtesting.
 
@@ -552,7 +552,7 @@ def _build_backtest_explanation(
     Parameters
     ----------
     cv_explanation : str
-        Explanation from `generate_cv`.
+        Explanation from `create_cv`.
     metrics : pandas DataFrame
         Backtesting metrics result.
 

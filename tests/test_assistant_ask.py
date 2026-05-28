@@ -271,7 +271,7 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=5)
+    plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
     metrics = pd.DataFrame(
@@ -327,7 +327,7 @@ def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=5, interval=[10, 90])
+    plan = assistant.plan(profile, steps=5, interval=[10, 90])
 
     predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
     metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]})
@@ -450,7 +450,7 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
     assistant = ForecastingAssistant(llm="openai:fake-model", send_data_to_llm=True)
 
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=5)
+    plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": np.arange(50, dtype=float)})
     metrics = pd.DataFrame({"series": ["sales"], "MAE": [2.0], "MSE": [4.0], "MASE": [1.0]})
@@ -501,7 +501,7 @@ def test_ask_ValueError_when_both_results_provided():
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=5)
+    plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": [10.0, 11.0]})
     metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.0]})
@@ -533,7 +533,7 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.generate_plan(profile, steps=5)
+    plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
     metrics = pd.DataFrame(

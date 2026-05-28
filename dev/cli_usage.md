@@ -120,7 +120,7 @@ skforecast-ai forecast "$URL" --target Usuarios --date-column date --steps 14
 
 ## Backtest Command
 
-Run backtesting evaluation with cross-validation. Chains profile → plan → generate_cv → backtest.
+Run backtesting evaluation with cross-validation. Chains profile → plan → create_cv → backtest.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"

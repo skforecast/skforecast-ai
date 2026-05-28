@@ -101,7 +101,7 @@ def _plan(profile, steps, forecaster=None, estimator=None):
     """Chain profile + plan generation (with optional overrides) for tests."""
     fp = _build_profile(profile)
 
-    # Apply overrides (mirrors generate_plan logic)
+    # Apply overrides (mirrors plan logic)
     fc = fp.forecaster
     if forecaster is not None:
         if forecaster not in fp.forecaster_candidates:
@@ -239,7 +239,7 @@ def test_build_forecasting_profile_output_when_large_series_picks_lgbm():
 
 def test_build_forecasting_profile_output_when_foundation_selected():
     """
-    Test generate_plan honors an explicit foundation forecaster override
+    Test plan honors an explicit foundation forecaster override
     and assigns the foundation estimator.
     """
     _, plan = _plan(profile_single_daily, steps=30, forecaster="ForecasterFoundation")
@@ -251,7 +251,7 @@ def test_build_forecasting_profile_output_when_foundation_selected():
 
 def test_build_forecasting_profile_output_when_estimator_overridden():
     """
-    Test generate_plan accepts an explicit estimator from the candidate
+    Test plan accepts an explicit estimator from the candidate
     list as an override.
     """
     _, plan = _plan(profile_single_daily, steps=30, estimator="LGBMRegressor")
@@ -261,7 +261,7 @@ def test_build_forecasting_profile_output_when_estimator_overridden():
 
 def test_build_forecasting_profile_ValueError_when_forecaster_not_candidate():
     """
-    Test generate_plan raises ValueError when the requested forecaster is
+    Test plan raises ValueError when the requested forecaster is
     not compatible with the profiled problem.
     """
     err_msg = re.escape(
@@ -278,7 +278,7 @@ def test_build_forecasting_profile_ValueError_when_forecaster_not_candidate():
 
 def test_build_forecasting_profile_output_when_estimator_not_in_candidates():
     """
-    Test generate_plan accepts an estimator outside the candidate list
+    Test plan accepts an estimator outside the candidate list
     when the user explicitly overrides it.
     """
     _, plan = _plan(
@@ -290,11 +290,11 @@ def test_build_forecasting_profile_output_when_estimator_not_in_candidates():
 
 
 # ---------------------------------------------------------------------------
-# generate_plan
+# plan
 # ---------------------------------------------------------------------------
-def test_generate_plan_output_when_single_series_defaults():
+def test_plan_output_when_single_series_defaults():
     """
-    Test generate_plan returns a ForecastPlan with the expected defaults
+    Test plan returns a ForecastPlan with the expected defaults
     for a single daily series.
     """
     _, plan = _plan(profile_single_daily, steps=30)
@@ -310,9 +310,9 @@ def test_generate_plan_output_when_single_series_defaults():
     assert plan.use_exog is False
 
 
-def test_generate_plan_output_when_single_series_with_exog():
+def test_plan_output_when_single_series_with_exog():
     """
-    Test generate_plan detects exogenous variables and recommends
+    Test plan detects exogenous variables and recommends
     LGBMRegressor for an hourly series with >500 observations.
     """
     _, plan = _plan(profile_single_hourly_exog, steps=24)
@@ -323,9 +323,9 @@ def test_generate_plan_output_when_single_series_with_exog():
     assert plan.estimator == "LGBMRegressor"
 
 
-def test_generate_plan_output_when_multi_series():
+def test_plan_output_when_multi_series():
     """
-    Test generate_plan keeps the multi-series choice and interval_method
+    Test plan keeps the multi-series choice and interval_method
     is None when no interval is requested.
     """
     _, plan = _plan(profile_multi_long, steps=10)
@@ -335,9 +335,9 @@ def test_generate_plan_output_when_multi_series():
     assert plan.interval_method is None
 
 
-def test_generate_plan_output_when_short_series():
+def test_plan_output_when_short_series():
     """
-    Test generate_plan produces a valid plan for a short series.
+    Test plan produces a valid plan for a short series.
     """
     _, plan = _plan(profile_short, steps=10)
 
@@ -346,9 +346,9 @@ def test_generate_plan_output_when_short_series():
     assert max(plan.forecaster_kwargs["lags"]) <= profile_short.n_observations // 3
 
 
-def test_generate_plan_output_when_foundation_forecaster_selected():
+def test_plan_output_when_foundation_forecaster_selected():
     """
-    Test generate_plan uses the foundation estimator and no lags for
+    Test plan uses the foundation estimator and no lags for
     foundation models.
     """
     _, plan = _plan(profile_single_daily, steps=30, forecaster="ForecasterFoundation")
@@ -359,9 +359,9 @@ def test_generate_plan_output_when_foundation_forecaster_selected():
     assert plan.forecaster_kwargs == {}
 
 
-def test_generate_plan_output_when_direct_forecaster_selected():
+def test_plan_output_when_direct_forecaster_selected():
     """
-    Test generate_plan builds a coherent single-series ML plan for
+    Test plan builds a coherent single-series ML plan for
     ForecasterDirect.
     """
     _, plan = _plan(profile_single_daily, steps=14, forecaster="ForecasterDirect")
@@ -373,9 +373,9 @@ def test_generate_plan_output_when_direct_forecaster_selected():
     assert plan.interval_method is None
 
 
-def test_generate_plan_output_when_steps_larger_than_data():
+def test_plan_output_when_steps_larger_than_data():
     """
-    Test generate_plan does not include runtime warnings (horizon check
+    Test plan does not include runtime warnings (horizon check
     has been moved to validate_run_inputs).
     """
     _, plan = _plan(profile_single_daily, steps=500)
@@ -383,9 +383,9 @@ def test_generate_plan_output_when_steps_larger_than_data():
     assert plan.warnings == []
 
 
-def test_generate_plan_output_when_categorical_exog_noted():
+def test_plan_output_when_categorical_exog_noted():
     """
-    Test generate_plan includes a preprocessing step about categorical
+    Test plan includes a preprocessing step about categorical
     encoding when categorical exogenous variables are present.
     """
     _, plan = _plan(profile_categorical_exog, steps=10)
@@ -396,9 +396,9 @@ def test_generate_plan_output_when_categorical_exog_noted():
     )
 
 
-def test_generate_plan_explanation_not_empty():
+def test_plan_explanation_not_empty():
     """
-    Test generate_plan always produces a non-empty explanation string.
+    Test plan always produces a non-empty explanation string.
     """
     _, plan = _plan(profile_single_daily, steps=10)
 
@@ -406,7 +406,7 @@ def test_generate_plan_explanation_not_empty():
     assert len(plan.explanation) > 0
 
 
-def test_generate_plan_deterministic():
+def test_plan_deterministic():
     """
     Test the recommendation pipeline is deterministic.
     """
@@ -416,9 +416,9 @@ def test_generate_plan_deterministic():
     assert plan_1 == plan_2
 
 
-def test_generate_plan_output_when_statistical_forecaster_selected():
+def test_plan_output_when_statistical_forecaster_selected():
     """
-    Test generate_plan uses the statistical estimator and no lags for
+    Test plan uses the statistical estimator and no lags for
     ForecasterStats.
     """
     _, plan = _plan(profile_single_daily, steps=30, forecaster="ForecasterStats")
@@ -430,9 +430,9 @@ def test_generate_plan_output_when_statistical_forecaster_selected():
     assert plan.forecaster_kwargs == {}
 
 
-def test_generate_plan_output_when_missing_values_detected():
+def test_plan_output_when_missing_values_detected():
     """
-    Test generate_plan includes a preprocessing step about imputing missing
+    Test plan includes a preprocessing step about imputing missing
     values when the profile reports them.
     """
     _, plan = _plan(profile_with_missing, steps=10)
@@ -443,9 +443,9 @@ def test_generate_plan_output_when_missing_values_detected():
     )
 
 
-def test_generate_plan_output_when_no_datetime_index():
+def test_plan_output_when_no_datetime_index():
     """
-    Test generate_plan includes a preprocessing step about providing a
+    Test plan includes a preprocessing step about providing a
     DatetimeIndex when the profile has a range index.
     """
     _, plan = _plan(profile_no_datetime, steps=10)
@@ -456,9 +456,9 @@ def test_generate_plan_output_when_no_datetime_index():
     )
 
 
-def test_generate_plan_dropna_true_when_missing_values_and_ridge():
+def test_plan_dropna_true_when_missing_values_and_ridge():
     """
-    Test generate_plan sets dropna_from_series=True when there are missing
+    Test plan sets dropna_from_series=True when there are missing
     values and the estimator (Ridge) does not tolerate NaN natively.
     """
     profile = DataProfile(
@@ -475,9 +475,9 @@ def test_generate_plan_dropna_true_when_missing_values_and_ridge():
     assert plan.forecaster_kwargs.get("dropna_from_series") is True
 
 
-def test_generate_plan_dropna_false_when_missing_values_and_lgbm():
+def test_plan_dropna_false_when_missing_values_and_lgbm():
     """
-    Test generate_plan sets dropna_from_series=False when there are missing
+    Test plan sets dropna_from_series=False when there are missing
     values but the estimator (LGBMRegressor) handles NaN natively.
     """
     profile_large_missing = DataProfile(
@@ -494,9 +494,9 @@ def test_generate_plan_dropna_false_when_missing_values_and_lgbm():
     assert plan.forecaster_kwargs.get("dropna_from_series") is False
 
 
-def test_generate_plan_dropna_false_when_no_missing_values():
+def test_plan_dropna_false_when_no_missing_values():
     """
-    Test generate_plan sets dropna_from_series=False when no missing values
+    Test plan sets dropna_from_series=False when no missing values
     exist, regardless of estimator.
     """
     _, plan = _plan(profile_single_daily, steps=10)
@@ -504,9 +504,9 @@ def test_generate_plan_dropna_false_when_no_missing_values():
     assert plan.forecaster_kwargs.get("dropna_from_series") is False
 
 
-def test_generate_plan_dropna_none_when_statistical():
+def test_plan_dropna_none_when_statistical():
     """
-    Test generate_plan sets forecaster_kwargs to empty dict for statistical
+    Test plan sets forecaster_kwargs to empty dict for statistical
     models (the dropna_from_series parameter does not apply).
     """
     _, plan = _plan(profile_single_daily, steps=10, forecaster="ForecasterStats")
