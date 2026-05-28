@@ -678,7 +678,7 @@ def generate_code(
             parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
 
             with _spinner("Generating code...", quiet):
-                result = assistant.generate_code(
+                result = assistant.forecast_code(
                     data=data, target=parsed_target, steps=steps,
                     date_column=date_column, series_id_column=series_id,
                     forecaster=forecaster, estimator=estimator,

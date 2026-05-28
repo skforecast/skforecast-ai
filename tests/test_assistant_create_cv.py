@@ -214,8 +214,8 @@ def test_create_cv_output_when_gap_override():
 # =============================================================================
 def test_create_cv_output_when_floor_by_lags_int():
     """
-    Test that initial_train_size is floored to 2 * lags when lags is int
-    and that value is larger than 70%.
+    Test that initial_train_size is floored to (lags + steps) when lags
+    is int and that value exceeds the forecaster's window_size.
     """
     assistant = ForecastingAssistant()
     # Use short data where 70% = 17, but lags force a higher floor
@@ -224,29 +224,30 @@ def test_create_cv_output_when_floor_by_lags_int():
     plan = assistant.plan(profile, steps=1)
 
     # Override lags in the plan to force a specific floor
-    plan.forecaster_kwargs["lags"] = 10  # floor = 2*10 = 20
+    plan.forecaster_kwargs["lags"] = 20  # floor = 20 + 1 = 21
 
     cv, _ = assistant.create_cv(profile, plan)
 
-    # With 25 obs, 70% = 17. Floor = 20. Ceiling = 25 - 2*1 = 23.
-    # So initial_train_size should be 20.
-    assert cv.initial_train_size >= 20
+    # With 25 obs, 70% = 17. Floor = 21 (> 17). Ceiling = 25 - 2*1 = 23.
+    # So initial_train_size should be clamped to the floor = 21.
+    assert cv.initial_train_size == 21
 
 
 def test_create_cv_output_when_floor_by_lags_list():
     """
-    Test that initial_train_size floor uses max(lags) when lags is a list.
+    Test that initial_train_size floor uses max(lags) + steps when lags
+    is a list, and that the result exceeds the forecaster's window_size.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_short, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=1)
 
-    plan.forecaster_kwargs["lags"] = [1, 5, 12]  # floor = 2*12 = 24
+    plan.forecaster_kwargs["lags"] = [1, 5, 22]  # floor = 22 + 1 = 23
 
     cv, _ = assistant.create_cv(profile, plan)
 
-    # With 25 obs, ceiling = 25 - 2*1 = 23. Floor = 24 > ceiling.
-    # The ceiling logic caps at 23, so initial_train_size = 23.
+    # With 25 obs, 70% = 17. Floor = 23 (> 17). Ceiling = 25 - 2*1 = 23.
+    # Both constraints give 23, so initial_train_size = 23.
     assert cv.initial_train_size == 23
 
 
@@ -280,6 +281,30 @@ def test_create_cv_output_when_differentiation_set():
     cv, _ = assistant.create_cv(profile, plan)
 
     assert cv.differentiation == 1
+
+
+def test_create_cv_output_when_floor_by_window_features():
+    """
+    Test that initial_train_size accounts for window_features when the
+    max window_size exceeds max(lags), preventing skforecast ValueError.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    # Lags = 10 (window_size from lags alone = 10)
+    # Window features with window_size = 60 → effective window = 60
+    plan.forecaster_kwargs["lags"] = 10
+    plan.forecaster_kwargs["window_features"] = [
+        {"stats": ["mean"], "window_sizes": 60}
+    ]
+
+    cv, _ = assistant.create_cv(profile, plan)
+
+    # Floor = effective_window + steps = 60 + 5 = 65.
+    # 70% of 100 = 70. max(70, 65) = 70. Ceiling = 100 - 10 = 90.
+    # initial_train_size = 70, which is > window_size (60). ✓
+    assert cv.initial_train_size > 60
 
 
 # =============================================================================

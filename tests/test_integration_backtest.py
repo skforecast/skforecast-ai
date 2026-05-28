@@ -41,11 +41,14 @@ def test_forecaster_recursive_full_workflow_with_exog():
     assert isinstance(result, BacktestResult)
     assert result.plan.forecaster == "ForecasterRecursive"
     assert result.plan.task_type == "single_series"
+    assert result.plan.use_exog is True
     assert result.cv_config["steps"] == 5
     assert not result.metrics.empty
     assert len(result.predictions) > 0
     assert "backtesting_forecaster" in result.code
-    assert "Backtesting completed" in result.explanation
+    assert "exog_features = ['promo']" in result.code
+    assert "data[exog_features]" in result.code
+    assert "Results" in result.explanation
     ast.parse(result.code)
 
     numeric_metrics = result.metrics.select_dtypes(include="number")

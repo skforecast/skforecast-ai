@@ -1,4 +1,4 @@
-"""Result schemas: workflow outputs from generate_code, ask, and forecast."""
+"""Result schemas: workflow outputs from forecast_code, ask, and forecast."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ class GeneratedCode(BaseModel):
     Structured representation of generated forecasting code.
 
     Splits the generated script into logical sections so that
-    `forecast()` can exec the core logic while `generate_code()`
+    `forecast()` can exec the core logic while `forecast_code()`
     returns the full standalone script.
 
     Attributes
@@ -46,7 +46,7 @@ class GeneratedCode(BaseModel):
 
 class CodeGenerationResult(BaseModel):
     """
-    Result of the `generate_code` workflow.
+    Result of the `forecast_code` workflow.
 
     Attributes
     ----------

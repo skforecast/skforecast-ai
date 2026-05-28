@@ -254,7 +254,7 @@ class TestPlan:
 class TestGenerateCode:
     """Tests for the `generate-code` CLI command."""
 
-    def test_generate_code_basic(self, tmp_path):
+    def test_forecast_code_basic(self, tmp_path):
         """
         Generate-code command prints Python code to stdout.
         """
@@ -268,7 +268,7 @@ class TestGenerateCode:
         assert "import" in result.output
         assert "skforecast" in result.output
 
-    def test_generate_code_json_format(self, tmp_path):
+    def test_forecast_code_json_format(self, tmp_path):
         """
         Generate-code --format json outputs valid JSON with code key.
         """
@@ -284,7 +284,7 @@ class TestGenerateCode:
         assert "profile" in data
         assert "plan" in data
 
-    def test_generate_code_output_to_file(self, tmp_path):
+    def test_forecast_code_output_to_file(self, tmp_path):
         """
         Generate-code --output writes a valid Python file.
         """
@@ -300,7 +300,7 @@ class TestGenerateCode:
         code = out_path.read_text()
         ast.parse(code)
 
-    def test_generate_code_syntax_valid(self, tmp_path):
+    def test_forecast_code_syntax_valid(self, tmp_path):
         """
         Generated code is syntactically valid Python.
         """
@@ -314,7 +314,7 @@ class TestGenerateCode:
         data = json.loads(result.output)
         ast.parse(data["code"])
 
-    def test_generate_code_with_interval(self, tmp_path):
+    def test_forecast_code_with_interval(self, tmp_path):
         """
         Generate-code with --interval produces code with prediction intervals.
         """
@@ -328,7 +328,7 @@ class TestGenerateCode:
         data = json.loads(result.output)
         assert "predict_interval" in data["code"] or "interval" in data["code"]
 
-    def test_generate_code_missing_file(self):
+    def test_forecast_code_missing_file(self):
         """
         Generate-code with non-existent file shows helpful error.
         """
@@ -338,7 +338,7 @@ class TestGenerateCode:
         )
         assert result.exit_code == 1
 
-    def test_generate_code_with_estimator_kwargs(self, tmp_path):
+    def test_forecast_code_with_estimator_kwargs(self, tmp_path):
         """
         Generate-code with --estimator-kwargs passes hyperparameters through.
         """

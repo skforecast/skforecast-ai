@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pandas as pd
 
-if TYPE_CHECKING:
-    from skforecast.model_selection import TimeSeriesFold
+from skforecast.model_selection import TimeSeriesFold
 
 from .exceptions import LLMRequiredError
 from .execution import run_backtest, run_forecast
@@ -94,7 +92,7 @@ class ForecastingAssistant:
 
     Fast path — call a single method that handles everything internally:
 
-    - `generate_code()` profiles the data, builds a plan, and returns a
+    - `forecast_code()` profiles the data, builds a plan, and returns a
     ready-to-run Python script.
     - `forecast()` does the same and also executes the forecast,
     returning predictions and metrics.
@@ -439,7 +437,7 @@ class ForecastingAssistant:
         """
         Generate a complete Python script from a plan and data profile.
 
-        Unlike the convenience `generate_code()` method, this allows
+        Unlike the convenience `forecast_code()` method, this allows
         advanced users to modify the `ForecastPlan` or `DataProfile`
         before generating code.
 
@@ -462,7 +460,7 @@ class ForecastingAssistant:
 
         return generated.full_script
 
-    def generate_code(
+    def forecast_code(
         self,
         data: pd.DataFrame | str | Path,
         target: str | list[str],
@@ -600,7 +598,7 @@ class ForecastingAssistant:
 
         Notes
         -----
-        This method executes the same code that `generate_code()`
+        This method executes the same code that `forecast_code()`
         produces, ensuring perfect fidelity between the inspectable
         script (`ForecastResult.code`) and the actual execution.
         """
@@ -701,8 +699,6 @@ class ForecastingAssistant:
             Human-readable explanation of the chosen configuration.
         """
 
-        from skforecast.model_selection import TimeSeriesFold
-
         n_observations = profile.data_profile.n_observations
 
         # -----------------------------------------------------------------
@@ -790,6 +786,7 @@ class ForecastingAssistant:
 
         return cv, explanation
 
+    # TODO: Create method backtest_code
     def backtest(
         self,
         data: pd.DataFrame | str | Path,
@@ -893,11 +890,15 @@ class ForecastingAssistant:
             "differentiation": cv.differentiation,
         }
 
-        # Build cv explanation (may not have one if user constructed cv manually)
-        cv_explanation = (
-            f"TimeSeriesFold with steps={cv.steps}, "
-            f"initial_train_size={cv.initial_train_size}, "
-            f"refit={cv.refit}."
+        # Build human-readable CV explanation
+        n_observations = profile.data_profile.n_observations
+        folds = cv.split(
+            X=pd.RangeIndex(n_observations), as_pandas=False
+        )
+        cv_explanation = build_cv_explanation(
+            cv_params=cv_config,
+            n_observations=n_observations,
+            n_folds=len(folds),
         )
 
         result = run_backtest(
@@ -1337,7 +1338,6 @@ class ForecastingAssistant:
         -------
         None
         """
-        from skforecast.model_selection import TimeSeriesFold
 
         its = defaults["initial_train_size"]
         if isinstance(its, str):

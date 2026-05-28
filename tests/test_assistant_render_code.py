@@ -1,4 +1,4 @@
-# Unit test generate_code ForecastingAssistant
+# Unit test forecast_code ForecastingAssistant
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import CodeGenerationResult
@@ -77,15 +77,15 @@ def test_render_code_contains_frequency():
 
 
 # =============================================================================
-# Tests: generate_code — basic output
+# Tests: forecast_code — basic output
 # =============================================================================
-def test_generate_code_output_when_single_series():
+def test_forecast_code_output_when_single_series():
     """
-    Test that generate_code() returns a CodeGenerationResult with all
+    Test that forecast_code() returns a CodeGenerationResult with all
     fields populated for a single-series dataset.
     """
     assistant = ForecastingAssistant()
-    result = assistant.generate_code(
+    result = assistant.forecast_code(
         data=df_single, target="sales", date_column="date", steps=10
     )
 
@@ -96,13 +96,13 @@ def test_generate_code_output_when_single_series():
     assert "import" in result.code
 
 
-def test_generate_code_output_when_forecaster_selected():
+def test_forecast_code_output_when_forecaster_selected():
     """
-    Test that generate_code() generates code for an explicitly selected
+    Test that forecast_code() generates code for an explicitly selected
     forecaster.
     """
     assistant = ForecastingAssistant()
-    result = assistant.generate_code(
+    result = assistant.forecast_code(
         data=df_single,
         target="sales",
         date_column="date",
@@ -114,13 +114,13 @@ def test_generate_code_output_when_forecaster_selected():
     assert "ForecasterDirect" in result.code
 
 
-def test_generate_code_output_when_no_exog():
+def test_forecast_code_output_when_no_exog():
     """
-    Test that generate_code() works correctly for data without exogenous
+    Test that forecast_code() works correctly for data without exogenous
     variables.
     """
     assistant = ForecastingAssistant()
-    result = assistant.generate_code(
+    result = assistant.forecast_code(
         data=df_no_exog, target="sales", date_column="date", steps=10
     )
 
@@ -128,13 +128,13 @@ def test_generate_code_output_when_no_exog():
     assert result.plan.use_exog is False
 
 
-def test_generate_code_output_when_interval_requested():
+def test_forecast_code_output_when_interval_requested():
     """
-    Test that generate_code() includes interval logic when interval is
+    Test that forecast_code() includes interval logic when interval is
     specified.
     """
     assistant = ForecastingAssistant()
-    result = assistant.generate_code(
+    result = assistant.forecast_code(
         data=df_single,
         target="sales",
         date_column="date",

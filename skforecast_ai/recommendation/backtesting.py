@@ -124,6 +124,11 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
     """
     Compute the minimum initial training size based on task type.
 
+    The effective window size of a forecaster is
+    ``max(max_lag, max_window_from_window_features)``.
+    ``initial_train_size`` must exceed this value for skforecast to
+    accept the CV configuration.
+
     Parameters
     ----------
     plan : ForecastPlan
@@ -145,9 +150,25 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
         elif isinstance(lags, list):
             max_lag = max(lags)
         else:
-            # lags is None — fall through to steps-based floor
+            max_lag = 0
+
+        # Account for window_features which also contribute to window_size
+        max_window = 0
+        wf = plan.forecaster_kwargs.get("window_features")
+        if isinstance(wf, list):
+            for entry in wf:
+                ws = entry.get("window_sizes")
+                if isinstance(ws, int):
+                    max_window = max(max_window, ws)
+                elif isinstance(ws, list):
+                    max_window = max(max_window, max(ws))
+
+        effective_window = max(max_lag, max_window)
+        if effective_window == 0:
             return 2 * steps
-        return 2 * max_lag
+
+        # Need initial_train_size > window_size, so floor at window + steps
+        return effective_window + steps
 
     # statistical, foundation
     return 2 * steps

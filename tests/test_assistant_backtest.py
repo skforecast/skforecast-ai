@@ -85,9 +85,11 @@ def test_backtest_output_when_single_series():
     assert "backtesting_forecaster" in result.code
     assert "TimeSeriesFold" in result.code
     assert "skforecast" in result.code
+    assert "exog_features = ['promo']" in result.code
+    assert "data[exog_features]" in result.code
 
     # Explanation includes results summary
-    assert "Backtesting completed" in result.explanation
+    assert "Results" in result.explanation
 
     # cv_config matches cv object
     assert result.cv_config["steps"] == 5

@@ -499,6 +499,10 @@ def _generate_backtesting_code(
     lines.append("# Run backtesting")
     metrics_repr = repr(plan.metrics_to_compute)
 
+    if plan.use_exog and profile.exog_columns:
+        lines.append(f"exog_features = {repr(profile.exog_columns)}")
+        lines.append("")
+
     bt_params_raw: list[tuple[str, str]] = []
     if is_multi:
         if isinstance(profile.target, list):
@@ -513,7 +517,7 @@ def _generate_backtesting_code(
         bt_params_raw.append(("y", f"data[{repr(target)}]"))
 
     if plan.use_exog and profile.exog_columns:
-        bt_params_raw.append(("exog", f"data[{repr(profile.exog_columns)}]"))
+        bt_params_raw.append(("exog", "data[exog_features]"))
     bt_params_raw.append(("cv", "cv"))
     bt_params_raw.append(("metric", metrics_repr))
     if plan.interval is not None:
@@ -574,8 +578,6 @@ def _build_backtest_explanation(
 
     if summary_parts:
         metrics_str = ", ".join(summary_parts)
-        results_summary = f"Backtesting completed. {metrics_str}."
-    else:
-        results_summary = "Backtesting completed."
+        return f"{cv_explanation} Results — {metrics_str}."
 
-    return f"{cv_explanation} {results_summary}"
+    return cv_explanation

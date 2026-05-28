@@ -1,4 +1,4 @@
-# Unit test generate_code generation
+# Unit test forecast_code generation
 
 import pytest
 
@@ -47,19 +47,19 @@ from .fixtures_generation import (
 assistant = ForecastingAssistant()
 
 
-def generate_code(plan, profile, data_path="data.csv"):
+def forecast_code(plan, profile, data_path="data.csv"):
     """Test helper: call render_code with optional data_path override."""
     if data_path != profile.data_path:
         profile = profile.model_copy(update={"data_path": data_path})
     return assistant.render_code(profile=profile, plan=plan)
 
 
-def test_generate_code_output_when_recursive_single_series_syntax():
+def test_forecast_code_output_when_recursive_single_series_syntax():
     """
-    Test generate_code produces syntactically valid Python for a basic
+    Test forecast_code produces syntactically valid Python for a basic
     ForecasterRecursive plan without exogenous variables.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_no_exog,
         profile=profile_recursive_no_exog,
         data_path="data.csv",
@@ -68,12 +68,12 @@ def test_generate_code_output_when_recursive_single_series_syntax():
     compile(code, "<test>", "exec")
 
 
-def test_generate_code_output_when_recursive_with_exog():
+def test_forecast_code_output_when_recursive_with_exog():
     """
-    Test generate_code includes exogenous variable handling when
+    Test forecast_code includes exogenous variable handling when
     use_exog=True in the plan.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_with_exog,
         profile=profile_recursive_with_exog,
     )
@@ -82,11 +82,11 @@ def test_generate_code_output_when_recursive_with_exog():
     assert "temperature" in code or "exog_features" in code
 
 
-def test_generate_code_output_when_direct_includes_steps():
+def test_forecast_code_output_when_direct_includes_steps():
     """
-    Test generate_code passes steps= to ForecasterDirect constructor.
+    Test forecast_code passes steps= to ForecasterDirect constructor.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_direct,
         profile=profile_direct,
     )
@@ -96,11 +96,11 @@ def test_generate_code_output_when_direct_includes_steps():
     assert "= steps," in code
 
 
-def test_generate_code_output_when_correct_lags():
+def test_forecast_code_output_when_correct_lags():
     """
-    Test generate_code embeds the plan's lags in the forecaster constructor.
+    Test forecast_code embeds the plan's lags in the forecaster constructor.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_no_exog,
         profile=profile_recursive_no_exog,
     )
@@ -108,11 +108,11 @@ def test_generate_code_output_when_correct_lags():
     assert repr(plan_recursive_no_exog.forecaster_kwargs["lags"]) in code
 
 
-def test_generate_code_output_when_interval_method_present():
+def test_forecast_code_output_when_interval_method_present():
     """
-    Test generate_code includes predict_interval when interval_method is set.
+    Test forecast_code includes predict_interval when interval_method is set.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_no_exog,
         profile=profile_recursive_no_exog,
     )
@@ -121,12 +121,12 @@ def test_generate_code_output_when_interval_method_present():
     assert "bootstrapping" in code
 
 
-def test_generate_code_output_when_no_interval_method():
+def test_forecast_code_output_when_no_interval_method():
     """
-    Test generate_code does NOT include predict_interval when
+    Test forecast_code does NOT include predict_interval when
     interval_method is None.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_no_interval,
         profile=profile_recursive_no_exog,
     )
@@ -134,12 +134,12 @@ def test_generate_code_output_when_no_interval_method():
     assert "predict_interval" not in code
 
 
-def test_generate_code_output_when_multi_series_syntax():
+def test_forecast_code_output_when_multi_series_syntax():
     """
-    Test generate_code produces syntactically valid Python for a
+    Test forecast_code produces syntactically valid Python for a
     multi-series plan.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_multi_series,
         profile=profile_multi_series,
     )
@@ -148,12 +148,12 @@ def test_generate_code_output_when_multi_series_syntax():
     assert "ForecasterRecursiveMultiSeries" in code
 
 
-def test_generate_code_output_when_statistical_syntax():
+def test_forecast_code_output_when_statistical_syntax():
     """
-    Test generate_code produces syntactically valid Python for a
+    Test forecast_code produces syntactically valid Python for a
     statistical model plan.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_statistical,
         profile=profile_statistical,
     )
@@ -163,12 +163,12 @@ def test_generate_code_output_when_statistical_syntax():
     assert "Arima" in code
 
 
-def test_generate_code_output_when_foundation_syntax():
+def test_forecast_code_output_when_foundation_syntax():
     """
-    Test generate_code produces syntactically valid Python for a
+    Test forecast_code produces syntactically valid Python for a
     foundation model plan.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_foundation,
         profile=profile_foundation,
     )
@@ -178,12 +178,12 @@ def test_generate_code_output_when_foundation_syntax():
     assert "FoundationModel" in code
 
 
-def test_generate_code_output_when_multivariate_syntax():
+def test_forecast_code_output_when_multivariate_syntax():
     """
-    Test generate_code produces syntactically valid Python for a
+    Test forecast_code produces syntactically valid Python for a
     multivariate plan (ForecasterDirectMultiVariate).
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_multivariate,
         profile=profile_multivariate,
     )
@@ -194,9 +194,9 @@ def test_generate_code_output_when_multivariate_syntax():
     assert "level" in code
 
 
-def test_generate_code_ValueError_when_unsupported_task_type():
+def test_forecast_code_ValueError_when_unsupported_task_type():
     """
-    Test generate_code raises ValueError for task types without a
+    Test forecast_code raises ValueError for task types without a
     template implementation.
     """
     from skforecast_ai.schemas import DataProfile, ForecastPlan
@@ -223,12 +223,12 @@ def test_generate_code_ValueError_when_unsupported_task_type():
     plan.task_type = "unsupported_type"
 
     with pytest.raises(ValueError, match="Unsupported task_type"):
-        generate_code(plan=plan, profile=profile)
+        forecast_code(plan=plan, profile=profile)
 
 
-def test_generate_code_output_when_unknown_estimator_syntax():
+def test_forecast_code_output_when_unknown_estimator_syntax():
     """
-    Test generate_code produces syntactically valid Python even when the
+    Test forecast_code produces syntactically valid Python even when the
     estimator is not in the known imports mapping.
     """
     from skforecast_ai.schemas import DataProfile, ForecastPlan
@@ -253,16 +253,16 @@ def test_generate_code_output_when_unknown_estimator_syntax():
         explanation            = "Unknown estimator test.",
     )
 
-    code = generate_code(plan=plan, profile=profile)
+    code = forecast_code(plan=plan, profile=profile)
 
     compile(code, "<test>", "exec")
     assert "GradientBoostingRegressor" in code
     assert "TODO" in code
 
 
-def test_generate_code_output_when_dropna_from_series_true():
+def test_forecast_code_output_when_dropna_from_series_true():
     """
-    Test generate_code includes dropna_from_series=True in the forecaster
+    Test forecast_code includes dropna_from_series=True in the forecaster
     constructor when the plan specifies it.
     """
     from skforecast_ai.schemas import DataProfile, ForecastPlan
@@ -288,18 +288,18 @@ def test_generate_code_output_when_dropna_from_series_true():
         explanation            = "Ridge with missing values.",
     )
 
-    code = generate_code(plan=plan, profile=profile)
+    code = forecast_code(plan=plan, profile=profile)
 
     compile(code, "<test>", "exec")
     assert "dropna_from_series = True" in code
 
 
-def test_generate_code_output_when_dropna_from_series_none():
+def test_forecast_code_output_when_dropna_from_series_none():
     """
-    Test generate_code does NOT include dropna_from_series in the forecaster
+    Test forecast_code does NOT include dropna_from_series in the forecaster
     constructor when the plan has dropna_from_series=None (statistical).
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_statistical,
         profile=profile_statistical,
         data_path="data.csv",
@@ -313,12 +313,12 @@ def test_generate_code_output_when_dropna_from_series_none():
 # New tests: window_features, categorical, transformers, preprocessing
 # ─────────────────────────────────────────────────────────────────────
 
-def test_generate_code_output_when_window_features_present():
+def test_forecast_code_output_when_window_features_present():
     """
-    Test generate_code includes RollingFeatures import and instantiation
+    Test forecast_code includes RollingFeatures import and instantiation
     when window_features are in the plan.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_full,
         profile=profile_recursive_full,
     )
@@ -329,12 +329,12 @@ def test_generate_code_output_when_window_features_present():
     assert "window_features" in code
 
 
-def test_generate_code_output_when_categorical_features_present():
+def test_forecast_code_output_when_categorical_features_present():
     """
-    Test generate_code includes categorical_features='auto' in the
+    Test forecast_code includes categorical_features='auto' in the
     forecaster constructor when specified in kwargs.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_full,
         profile=profile_recursive_full,
     )
@@ -343,12 +343,12 @@ def test_generate_code_output_when_categorical_features_present():
     assert "categorical_features = 'auto'" in code
 
 
-def test_generate_code_output_when_transformer_exog_with_categoricals():
+def test_forecast_code_output_when_transformer_exog_with_categoricals():
     """
-    Test generate_code generates a ColumnTransformer (not bare
+    Test forecast_code generates a ColumnTransformer (not bare
     StandardScaler) when both numeric and categorical exog exist.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_full,
         profile=profile_recursive_full,
     )
@@ -359,12 +359,12 @@ def test_generate_code_output_when_transformer_exog_with_categoricals():
     assert "StandardScaler()" in code
 
 
-def test_generate_code_output_when_transformer_y_present():
+def test_forecast_code_output_when_transformer_y_present():
     """
-    Test generate_code includes transformer_y = StandardScaler() when
+    Test forecast_code includes transformer_y = StandardScaler() when
     the plan specifies a target transformer.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_full,
         profile=profile_recursive_full,
     )
@@ -373,12 +373,12 @@ def test_generate_code_output_when_transformer_y_present():
     assert "= StandardScaler()," in code
 
 
-def test_generate_code_output_when_custom_interval_used():
+def test_forecast_code_output_when_custom_interval_used():
     """
-    Test generate_code uses the plan's interval values instead of
+    Test forecast_code uses the plan's interval values instead of
     hardcoded [10, 90].
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_full,
         profile=profile_recursive_full,
     )
@@ -387,12 +387,12 @@ def test_generate_code_output_when_custom_interval_used():
     assert "[10, 90]" not in code
 
 
-def test_generate_code_output_when_multi_series_wide_format():
+def test_forecast_code_output_when_multi_series_wide_format():
     """
-    Test generate_code handles wide-format multi-series data without
+    Test forecast_code handles wide-format multi-series data without
     pivot_table.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_multi_series_wide,
         profile=profile_multi_series_wide,
     )
@@ -403,12 +403,12 @@ def test_generate_code_output_when_multi_series_wide_format():
     assert ".to_dict('series')" in code
 
 
-def test_generate_code_output_when_multi_series_long_format():
+def test_forecast_code_output_when_multi_series_long_format():
     """
-    Test generate_code uses reshape_series_long_to_dict for long-format
+    Test forecast_code uses reshape_series_long_to_dict for long-format
     multi-series data.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_multi_series,
         profile=profile_multi_series,
     )
@@ -418,11 +418,11 @@ def test_generate_code_output_when_multi_series_long_format():
     assert "series_dict" in code
 
 
-def test_generate_code_output_when_multi_series_with_exog():
+def test_forecast_code_output_when_multi_series_with_exog():
     """
-    Test generate_code includes exog handling in multi-series template.
+    Test forecast_code includes exog handling in multi-series template.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_multi_series_exog,
         profile=profile_multi_series_exog,
     )
@@ -433,11 +433,11 @@ def test_generate_code_output_when_multi_series_with_exog():
     assert "forecaster.fit(series=series_dict_train, exog=exog_dict_train)" in code
 
 
-def test_generate_code_output_when_statistical_correct_imports():
+def test_forecast_code_output_when_statistical_correct_imports():
     """
-    Test generate_code uses correct import paths for ForecasterStats.
+    Test forecast_code uses correct import paths for ForecasterStats.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_statistical,
         profile=profile_statistical,
     )
@@ -446,12 +446,12 @@ def test_generate_code_output_when_statistical_correct_imports():
     assert "from skforecast.stats import Arima" in code
 
 
-def test_generate_code_output_when_statistical_no_intervals_by_default():
+def test_forecast_code_output_when_statistical_no_intervals_by_default():
     """
-    Test generate_code does NOT include predict_interval for statistical
+    Test forecast_code does NOT include predict_interval for statistical
     template when interval_method is None.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_statistical,
         profile=profile_statistical,
     )
@@ -459,12 +459,12 @@ def test_generate_code_output_when_statistical_no_intervals_by_default():
     assert "predict_interval" not in code
 
 
-def test_generate_code_output_when_statistical_with_intervals():
+def test_forecast_code_output_when_statistical_with_intervals():
     """
-    Test generate_code includes predict_interval for statistical
+    Test forecast_code includes predict_interval for statistical
     template when interval_method is set.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_statistical_with_interval,
         profile=profile_statistical,
     )
@@ -474,12 +474,12 @@ def test_generate_code_output_when_statistical_with_intervals():
     assert "[10, 90]" in code
 
 
-def test_generate_code_output_when_foundation_no_quantiles_by_default():
+def test_forecast_code_output_when_foundation_no_quantiles_by_default():
     """
-    Test generate_code does NOT include predict_quantiles for foundation
+    Test forecast_code does NOT include predict_quantiles for foundation
     template when interval_method is None.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_foundation,
         profile=profile_foundation,
     )
@@ -487,12 +487,12 @@ def test_generate_code_output_when_foundation_no_quantiles_by_default():
     assert "predict_quantiles" not in code
 
 
-def test_generate_code_output_when_foundation_with_quantiles():
+def test_forecast_code_output_when_foundation_with_quantiles():
     """
-    Test generate_code includes predict_quantiles for foundation
+    Test forecast_code includes predict_quantiles for foundation
     template when interval_method is set.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_foundation_with_interval,
         profile=profile_foundation,
     )
@@ -501,12 +501,12 @@ def test_generate_code_output_when_foundation_with_quantiles():
     assert "predict_quantiles" in code
 
 
-def test_generate_code_output_when_preprocessing_steps_emitted():
+def test_forecast_code_output_when_preprocessing_steps_emitted():
     """
-    Test generate_code includes preprocessing code from
+    Test forecast_code includes preprocessing code from
     plan.preprocessing_steps and deterministic loading block.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_with_preprocessing,
         profile=profile_needs_preprocessing,
     )
@@ -519,12 +519,12 @@ def test_generate_code_output_when_preprocessing_steps_emitted():
     assert "data = data[~data.index.duplicated(keep='first')]" in code
 
 
-def test_generate_code_output_when_multi_series_exog_categorical():
+def test_forecast_code_output_when_multi_series_exog_categorical():
     """
-    Test generate_code handles categorical features and ColumnTransformer
+    Test forecast_code handles categorical features and ColumnTransformer
     in multi-series template.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_multi_series_exog,
         profile=profile_multi_series_exog,
     )
@@ -539,11 +539,11 @@ def test_generate_code_output_when_multi_series_exog_categorical():
 # ─────────────────────────────────────────────────────────────────────
 
 
-def test_generate_code_output_when_statistical_arima_with_exog():
+def test_forecast_code_output_when_statistical_arima_with_exog():
     """
-    Test generate_code produces valid code for Auto-ARIMA with exog.
+    Test forecast_code produces valid code for Auto-ARIMA with exog.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_statistical_arima_exog,
         profile=profile_statistical_exog,
     )
@@ -557,11 +557,11 @@ def test_generate_code_output_when_statistical_arima_with_exog():
     assert "m=12" in code
 
 
-def test_generate_code_output_when_statistical_exog_in_predict():
+def test_forecast_code_output_when_statistical_exog_in_predict():
     """
-    Test generate_code passes exog to predict for statistical.
+    Test forecast_code passes exog to predict for statistical.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_statistical_arima_exog,
         profile=profile_statistical_exog,
     )
@@ -569,11 +569,11 @@ def test_generate_code_output_when_statistical_exog_in_predict():
     assert "data_test[exog_features]" in code
 
 
-def test_generate_code_output_when_statistical_interval_with_exog():
+def test_forecast_code_output_when_statistical_interval_with_exog():
     """
-    Test generate_code includes exog in predict_interval for statistical.
+    Test forecast_code includes exog in predict_interval for statistical.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_statistical_arima_exog,
         profile=profile_statistical_exog,
     )
@@ -587,11 +587,11 @@ def test_generate_code_output_when_statistical_interval_with_exog():
 # ─────────────────────────────────────────────────────────────────────
 
 
-def test_generate_code_output_when_multivariate_with_exog():
+def test_forecast_code_output_when_multivariate_with_exog():
     """
-    Test generate_code handles exog in multivariate template.
+    Test forecast_code handles exog in multivariate template.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_multivariate_exog,
         profile=profile_multivariate_exog,
     )
@@ -609,11 +609,11 @@ def test_generate_code_output_when_multivariate_with_exog():
 # ─────────────────────────────────────────────────────────────────────
 
 
-def test_generate_code_output_when_foundation_custom_model_id():
+def test_forecast_code_output_when_foundation_custom_model_id():
     """
-    Test generate_code uses custom model_id from estimator_kwargs.
+    Test forecast_code uses custom model_id from estimator_kwargs.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_foundation_custom,
         profile=profile_foundation_exog,
     )
@@ -623,11 +623,11 @@ def test_generate_code_output_when_foundation_custom_model_id():
     assert "context_length = 4096" in code
 
 
-def test_generate_code_output_when_foundation_with_exog():
+def test_forecast_code_output_when_foundation_with_exog():
     """
-    Test generate_code includes exog in foundation template fit/predict.
+    Test forecast_code includes exog in foundation template fit/predict.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_foundation_custom,
         profile=profile_foundation_exog,
     )
@@ -636,11 +636,11 @@ def test_generate_code_output_when_foundation_with_exog():
     assert "temperature" in code
 
 
-def test_generate_code_output_when_foundation_multi_series():
+def test_forecast_code_output_when_foundation_multi_series():
     """
-    Test generate_code handles multi-series in foundation template.
+    Test forecast_code handles multi-series in foundation template.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_foundation_multi,
         profile=profile_foundation_multi,
     )
@@ -650,11 +650,11 @@ def test_generate_code_output_when_foundation_multi_series():
     assert "levels=" in code
 
 
-def test_generate_code_output_when_foundation_quantiles_from_interval():
+def test_forecast_code_output_when_foundation_quantiles_from_interval():
     """
-    Test generate_code derives quantiles from plan.interval for foundation.
+    Test forecast_code derives quantiles from plan.interval for foundation.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_foundation_custom,
         profile=profile_foundation_exog,
     )
@@ -669,11 +669,11 @@ def test_generate_code_output_when_foundation_quantiles_from_interval():
 # ─────────────────────────────────────────────────────────────────────
 
 
-def test_generate_code_output_when_recursive_with_differentiation():
+def test_forecast_code_output_when_recursive_with_differentiation():
     """
-    Test generate_code includes differentiation param in forecaster constructor.
+    Test forecast_code includes differentiation param in forecaster constructor.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_differentiation,
         profile=profile_recursive_no_exog,
     )
@@ -688,11 +688,11 @@ def test_generate_code_output_when_recursive_with_differentiation():
 # ─────────────────────────────────────────────────────────────────────
 
 
-def test_generate_code_output_when_date_column_present():
+def test_forecast_code_output_when_date_column_present():
     """
-    Test generate_code emits to_datetime + set_index when date_column is set.
+    Test forecast_code emits to_datetime + set_index when date_column is set.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_with_date_column,
         profile=profile_with_date_column,
     )
@@ -706,11 +706,11 @@ def test_generate_code_output_when_date_column_present():
     assert "index_col=0" not in code
 
 
-def test_generate_code_output_when_no_date_column():
+def test_forecast_code_output_when_no_date_column():
     """
-    Test generate_code emits index_col=0, parse_dates=True when no date_column.
+    Test forecast_code emits index_col=0, parse_dates=True when no date_column.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_no_exog,
         profile=profile_recursive_no_exog,
     )
@@ -722,12 +722,12 @@ def test_generate_code_output_when_no_date_column():
     assert "pd.to_datetime" not in code
 
 
-def test_generate_code_output_when_multi_series_long_uses_sort_values():
+def test_forecast_code_output_when_multi_series_long_uses_sort_values():
     """
-    Test generate_code uses sort_values for long-format multi-series
+    Test forecast_code uses sort_values for long-format multi-series
     (no set_index since reshape functions expect date as column).
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_multi_series,
         profile=profile_multi_series,
     )
@@ -739,12 +739,12 @@ def test_generate_code_output_when_multi_series_long_uses_sort_values():
     assert "reshape_series_long_to_dict" in code
 
 
-def test_generate_code_output_when_custom_estimator_kwargs():
+def test_forecast_code_output_when_custom_estimator_kwargs():
     """
-    Test generate_code renders user-provided estimator_kwargs merged
+    Test forecast_code renders user-provided estimator_kwargs merged
     with defaults in the estimator constructor call.
     """
-    code = generate_code(
+    code = forecast_code(
         plan=plan_recursive_custom_kwargs,
         profile=profile_recursive_no_exog,
     )
@@ -756,14 +756,14 @@ def test_generate_code_output_when_custom_estimator_kwargs():
     assert "verbose=-1" in code
 
 
-def test_generate_code_output_when_custom_estimator_kwargs_override_default():
+def test_forecast_code_output_when_custom_estimator_kwargs_override_default():
     """
     Test user kwargs override built-in defaults (e.g. random_state).
     """
     plan = plan_recursive_custom_kwargs.model_copy(
         update={"estimator_kwargs": {"random_state": 42}}
     )
-    code = generate_code(
+    code = forecast_code(
         plan=plan,
         profile=profile_recursive_no_exog,
     )

@@ -129,7 +129,7 @@ Implement the `backtest()` method that runs backtesting with the provided cv.
       explanation: str        # human-readable explanation of the backtesting configuration and results
   ```
 - [ ] Implement execution logic in a new `execution/backtesting_runner.py`:
-  - Build forecaster programmatically from plan (import class, instantiate with kwargs — same logic as `generate_code` but executed in-memory).
+  - Build forecaster programmatically from plan (import class, instantiate with kwargs — same logic as `forecast_code` but executed in-memory).
   - Dispatch to the appropriate backtesting function based on `plan.task_type`:
 
     | `task_type` | Function | `y`/`series` arg | Interval arg |
@@ -143,7 +143,7 @@ Implement the `backtest()` method that runs backtesting with the provided cv.
   - Pass `metric=plan.metrics_to_compute` to the backtesting function.
   - Return metrics + predictions.
   - **Phase 2 scope**: implement `single_series` and `multi_series` first. Add `statistical`, `foundation`, and `multivariate` incrementally (they have more signature differences).
-- [ ] Code generation: add backtesting template to `generation/code_templates.py` so `BacktestResult.code` contains a runnable script. The generated code follows the same pattern as `generate_code()`: imports, data loading, preprocessing, forecaster initialization (without fit), TimeSeriesFold creation, and the `backtesting_forecaster(...)` call.
+- [ ] Code generation: add backtesting template to `generation/code_templates.py` so `BacktestResult.code` contains a runnable script. The generated code follows the same pattern as `forecast_code()`: imports, data loading, preprocessing, forecaster initialization (without fit), TimeSeriesFold creation, and the `backtesting_forecaster(...)` call.
 - [ ] `BacktestResult.explanation`: concatenation of the CV explanation (from `create_cv`) + a post-execution summary (e.g. "Backtesting completed: 7 folds evaluated. Mean MAE: 0.42, Mean MSE: 0.31.").
 - [ ] Unit tests for `backtest` method.
 

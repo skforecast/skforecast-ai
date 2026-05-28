@@ -1,6 +1,6 @@
 """Programmatic execution of forecasting workflows using skforecast APIs.
 
-This module executes the same code that `generate_code()` produces,
+This module executes the same code that `forecast_code()` produces,
 guaranteeing perfect fidelity between the inspectable script and the
 actual execution.
 """
@@ -28,7 +28,7 @@ def run_forecast(
     """
     Execute a forecasting workflow by running the generated code.
 
-    The code executed is identical to what `generate_code()` produces
+    The code executed is identical to what `forecast_code()` produces
     (minus the CSV loading preamble). This guarantees that the
     `ForecastResult.code` field always reflects exactly what was run.
 
