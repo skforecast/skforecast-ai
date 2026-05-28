@@ -85,7 +85,7 @@ def run_backtest(
         )
 
     # Build forecaster object
-    forecaster = _build_forecaster(plan)
+    forecaster = _build_forecaster(plan, profile)
 
     # Prepare data and exog
     y_or_series, exog = _prepare_data(data, profile, plan)
@@ -118,14 +118,22 @@ def run_backtest(
     }
 
 
-def _build_forecaster(plan: ForecastPlan) -> Any:
+def _build_forecaster(plan: ForecastPlan, profile: DataProfile) -> Any:
     """
     Instantiate a forecaster object from the plan.
+
+    Mirrors the forecaster construction logic used by the forecast
+    runner (via code generation + exec). Handles transformer_y,
+    transformer_series, transformer_exog (with ColumnTransformer when
+    categorical exog exist), window_features, categorical_features,
+    and encoding.
 
     Parameters
     ----------
     plan : ForecastPlan
         Forecast plan with forecaster and estimator configuration.
+    profile : DataProfile
+        Profiled dataset metadata (needed for transformer_exog setup).
 
     Returns
     -------
@@ -171,36 +179,88 @@ def _build_forecaster(plan: ForecastPlan) -> Any:
     if estimator is not None:
         fc_kwargs["estimator"] = estimator
 
-    # Pass through known forecaster kwargs
-    for key in (
-        "lags", "steps", "encoding", "transformer_y", "transformer_exog",
-        "window_features", "categorical_features", "differentiation",
-        "dropna_from_series",
-    ):
-        value = plan_fc_kwargs.get(key)
-        if value is not None:
-            # Handle transformer_y/transformer_exog as class names
-            if key in ("transformer_y",) and isinstance(value, str):
-                from sklearn.preprocessing import StandardScaler
-                fc_kwargs[key] = StandardScaler()
-            elif key == "transformer_exog" and isinstance(value, str):
-                # For backtesting, skip transformer_exog (complex setup)
-                pass
-            elif key == "window_features" and isinstance(value, list):
-                # Convert dict representations to RollingFeatures objects
-                from skforecast.preprocessing import RollingFeatures
-                wf_objects = []
-                for wf_dict in value:
-                    if isinstance(wf_dict, dict):
-                        wf_objects.append(RollingFeatures(
-                            stats=wf_dict.get("stats", ["mean"]),
-                            window_sizes=wf_dict.get("window_sizes", 7),
-                        ))
-                    else:
-                        wf_objects.append(wf_dict)
-                fc_kwargs[key] = wf_objects if len(wf_objects) > 1 else wf_objects[0]
+    # lags
+    lags = plan_fc_kwargs.get("lags")
+    if lags is not None:
+        fc_kwargs["lags"] = lags
+
+    # steps (ForecasterDirect, ForecasterDirectMultiVariate)
+    steps = plan_fc_kwargs.get("steps")
+    if steps is not None:
+        fc_kwargs["steps"] = steps
+
+    # encoding (multi-series)
+    encoding = plan_fc_kwargs.get("encoding")
+    if encoding is not None:
+        fc_kwargs["encoding"] = encoding
+
+    # window_features
+    window_features = plan_fc_kwargs.get("window_features")
+    if window_features is not None and isinstance(window_features, list):
+        from skforecast.preprocessing import RollingFeatures
+        wf_objects = []
+        for wf_dict in window_features:
+            if isinstance(wf_dict, dict):
+                wf_objects.append(RollingFeatures(
+                    stats=wf_dict.get("stats", ["mean"]),
+                    window_sizes=wf_dict.get("window_sizes", 7),
+                ))
             else:
-                fc_kwargs[key] = value
+                wf_objects.append(wf_dict)
+        fc_kwargs["window_features"] = (
+            wf_objects if len(wf_objects) > 1 else wf_objects[0]
+        )
+
+    # transformer_y (single series)
+    transformer_y = plan_fc_kwargs.get("transformer_y")
+    if transformer_y is not None and isinstance(transformer_y, str):
+        from sklearn.preprocessing import StandardScaler
+        fc_kwargs["transformer_y"] = StandardScaler()
+
+    # transformer_series (multi-series)
+    transformer_series = plan_fc_kwargs.get("transformer_series")
+    if transformer_series is not None and isinstance(transformer_series, str):
+        from sklearn.preprocessing import StandardScaler
+        fc_kwargs["transformer_series"] = StandardScaler()
+
+    # transformer_exog
+    transformer_exog = plan_fc_kwargs.get("transformer_exog")
+    if (
+        transformer_exog is not None
+        and isinstance(transformer_exog, str)
+        and plan.use_exog
+        and profile.exog_columns
+    ):
+        from sklearn.preprocessing import StandardScaler
+
+        numeric_exog = [
+            c for c in profile.exog_columns
+            if c not in profile.categorical_exog
+        ]
+        if profile.categorical_exog and numeric_exog:
+            from sklearn.compose import make_column_transformer
+            fc_kwargs["transformer_exog"] = make_column_transformer(
+                (StandardScaler(), numeric_exog),
+                remainder="passthrough",
+                verbose_feature_names_out=False,
+            ).set_output(transform="pandas")
+        elif numeric_exog:
+            fc_kwargs["transformer_exog"] = StandardScaler()
+
+    # categorical_features
+    categorical_features = plan_fc_kwargs.get("categorical_features")
+    if categorical_features is not None:
+        fc_kwargs["categorical_features"] = categorical_features
+
+    # differentiation
+    differentiation = plan_fc_kwargs.get("differentiation")
+    if differentiation is not None:
+        fc_kwargs["differentiation"] = differentiation
+
+    # dropna_from_series
+    dropna = plan_fc_kwargs.get("dropna_from_series")
+    if dropna is not None:
+        fc_kwargs["dropna_from_series"] = dropna
 
     return forecaster_cls(**fc_kwargs)
 
