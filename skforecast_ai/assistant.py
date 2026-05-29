@@ -632,7 +632,7 @@ class ForecastingAssistant:
         return ForecastResult(
             profile     = profile,
             plan        = plan,
-            code        = result["generated_code"].full_script,
+            code        = result["rendered_code"].full_script,
             metrics     = result["metrics"],
             predictions = result["predictions"],
             intervals   = result["intervals"],
@@ -916,7 +916,7 @@ class ForecastingAssistant:
             cv_config   = cv_config,
             metrics     = result["metrics"],
             predictions = result["predictions"],
-            code        = result["code"],
+            code        = result["rendered_code"].full_script,
             explanation = result["explanation"],
         )
 

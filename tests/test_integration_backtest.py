@@ -9,7 +9,7 @@ import pytest
 
 from skforecast_ai import BacktestResult, ForecastingAssistant
 
-from tests.fixtures_assistant import df_single, df_no_exog, df_multi_long
+from tests.fixtures_assistant import df_single, df_no_exog, df_multi_long, df_multi_wide
 
 assistant = ForecastingAssistant()
 
@@ -165,62 +165,75 @@ def test_forecaster_recursive_multiseries_full_workflow():
 
 
 # =============================================================================
-# Tests: unsupported forecaster types raise NotImplementedError
+# Tests: ForecasterDirectMultiVariate (multivariate)
 # =============================================================================
-@pytest.mark.parametrize(
-    "forecaster, data, target, date_column, series_id_column, match_str",
-    [
-        (
-            "ForecasterDirectMultiVariate",
-            df_multi_long,
-            "value",
-            "date",
-            "series_id",
-            "multivariate",
-        ),
-        (
-            "ForecasterStats",
-            df_single,
-            "sales",
-            "date",
-            None,
-            "statistical",
-        ),
-    ],
-    ids=["ForecasterDirectMultiVariate", "ForecasterStats"],
-)
-def test_backtest_NotImplementedError_when_unsupported_forecaster(
-    forecaster, data, target, date_column, series_id_column, match_str
-):
+@pytest.mark.slow
+def test_forecaster_direct_multivariate_full_workflow():
     """
-    Test that backtest raises NotImplementedError for forecaster types
-    not yet supported in the backtesting dispatch.
+    Full workflow with ForecasterDirectMultiVariate from wide-format
+    multi-series data. Validates predictions and code syntax.
     """
-    profile_kwargs = {
-        "data": data,
-        "target": target,
-        "date_column": date_column,
-    }
-    if series_id_column:
-        profile_kwargs["series_id_column"] = series_id_column
-
-    profile = assistant.profile(**profile_kwargs)
-    plan = assistant.plan(profile, steps=5, forecaster=forecaster)
+    profile = assistant.profile(
+        data=df_multi_wide,
+        target=["series_a", "series_b"],
+        date_column="date",
+    )
+    plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterDirectMultiVariate"
+    )
     cv, _ = assistant.create_cv(profile, plan)
 
-    backtest_kwargs = {
-        "data": data,
-        "target": target,
-        "date_column": date_column,
-        "cv": cv,
-        "profile": profile,
-        "plan": plan,
-    }
-    if series_id_column:
-        backtest_kwargs["series_id_column"] = series_id_column
+    result = assistant.backtest(
+        data=df_multi_wide,
+        target=["series_a", "series_b"],
+        date_column="date",
+        cv=cv,
+        profile=profile,
+        plan=plan,
+    )
 
-    with pytest.raises(NotImplementedError, match=match_str):
-        assistant.backtest(**backtest_kwargs)
+    assert isinstance(result, BacktestResult)
+    assert result.plan.forecaster == "ForecasterDirectMultiVariate"
+    assert result.plan.task_type == "multivariate"
+    assert not result.metrics.empty
+    assert len(result.predictions) > 0
+    assert "backtesting_forecaster_multiseries" in result.code
+    ast.parse(result.code)
+
+
+# =============================================================================
+# Tests: ForecasterStats (statistical)
+# =============================================================================
+@pytest.mark.slow
+def test_forecaster_stats_full_workflow():
+    """
+    Full workflow with ForecasterStats (Auto-ARIMA). Validates
+    predictions and code syntax.
+    """
+    profile = assistant.profile(
+        data=df_no_exog, target="sales", date_column="date"
+    )
+    plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterStats"
+    )
+    cv, _ = assistant.create_cv(profile, plan)
+
+    result = assistant.backtest(
+        data=df_no_exog,
+        target="sales",
+        date_column="date",
+        cv=cv,
+        profile=profile,
+        plan=plan,
+    )
+
+    assert isinstance(result, BacktestResult)
+    assert result.plan.forecaster == "ForecasterStats"
+    assert result.plan.task_type == "statistical"
+    assert not result.metrics.empty
+    assert len(result.predictions) > 0
+    assert "backtesting_stats" in result.code
+    ast.parse(result.code)
 
 
 # =============================================================================

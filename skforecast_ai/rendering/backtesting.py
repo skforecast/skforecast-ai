@@ -414,7 +414,6 @@ def render_backtesting_multivariate(
             f" values={repr(target)}"
         )
         core_lines.append(")")
-        core_lines.append("series.columns = series.columns.droplevel(0)")
         core_lines.append("series.index.name = None")
         core_lines.append("series.columns.name = None")
         if profile.frequency:

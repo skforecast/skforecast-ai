@@ -143,7 +143,7 @@ def run_forecast(
         "metrics": metrics,
         "predictions": predictions,
         "intervals": intervals,
-        "generated_code": rendered,
+        "rendered_code": rendered,
     }
 
 

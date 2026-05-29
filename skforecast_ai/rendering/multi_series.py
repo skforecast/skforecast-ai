@@ -50,8 +50,8 @@ def _emit_forecaster_creation_multi(
     forecaster_kwargs: list[tuple[str, str]] = []
     forecaster_kwargs.append(("estimator", estimator_str))
     if forecaster_class == "ForecasterDirectMultiVariate":
-        target = _get_target_str(profile)
-        forecaster_kwargs.append(("level", repr(target)))
+        level = _get_target_str(profile)
+        forecaster_kwargs.append(("level", repr(level)))
         forecaster_kwargs.append(("steps", str(plan.steps)))
     forecaster_kwargs.append(("lags", str(lags)))
     if forecaster_class == "ForecasterRecursiveMultiSeries":
@@ -363,7 +363,6 @@ def render_forecast_multivariate(
             f" values={repr(target)}"
         )
         core_lines.append(")")
-        core_lines.append("series.columns = series.columns.droplevel(0)")
         core_lines.append("series.index.name = None")
         core_lines.append("series.columns.name = None")
         if profile.frequency:

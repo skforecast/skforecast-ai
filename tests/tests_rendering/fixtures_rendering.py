@@ -1,0 +1,339 @@
+# Fixtures for rendering module tests
+
+from types import SimpleNamespace
+
+from skforecast_ai.schemas import DataProfile, ForecastPlan
+
+
+# =============================================================================
+# DataProfile fixtures
+# =============================================================================
+
+profile_single = DataProfile(
+    data_format="single",
+    n_series=1,
+    n_observations=100,
+    target="sales",
+    target_dtype="numeric",
+    target_stats={"sales": {"min": 10.0, "max": 200.0, "mean": 105.0, "std": 40.0}},
+    date_column="date",
+    index_type="datetime",
+    frequency="D",
+    frequency_is_set=False,
+    exog_columns=["promo"],
+    categorical_exog=[],
+    end_train="2023-03-12",
+    data_path="data.csv",
+)
+
+profile_single_no_exog = DataProfile(
+    data_format="single",
+    n_series=1,
+    n_observations=100,
+    target="sales",
+    target_dtype="numeric",
+    target_stats={"sales": {"min": 10.0, "max": 200.0, "mean": 105.0, "std": 40.0}},
+    date_column="date",
+    index_type="datetime",
+    frequency="D",
+    frequency_is_set=False,
+    exog_columns=[],
+    categorical_exog=[],
+    end_train="2023-03-12",
+    data_path="data.csv",
+)
+
+profile_single_mixed_exog = DataProfile(
+    data_format="single",
+    n_series=1,
+    n_observations=100,
+    target="sales",
+    target_dtype="numeric",
+    target_stats={"sales": {"min": 10.0, "max": 200.0, "mean": 105.0, "std": 40.0}},
+    date_column="date",
+    index_type="datetime",
+    frequency="D",
+    frequency_is_set=False,
+    exog_columns=["temp", "holiday"],
+    categorical_exog=["holiday"],
+    end_train="2023-03-12",
+    data_path="data.csv",
+)
+
+profile_multi_wide = DataProfile(
+    data_format="wide",
+    n_series=2,
+    n_observations=100,
+    series_lengths={"series_a": 100, "series_b": 100},
+    target=["series_a", "series_b"],
+    target_dtype="numeric",
+    target_stats={
+        "series_a": {"min": 5.0, "max": 150.0, "mean": 75.0, "std": 30.0},
+        "series_b": {"min": 8.0, "max": 180.0, "mean": 90.0, "std": 35.0},
+    },
+    date_column="date",
+    index_type="datetime",
+    frequency="D",
+    frequency_is_set=False,
+    exog_columns=[],
+    categorical_exog=[],
+    end_train="2023-03-12",
+    data_path="data.csv",
+)
+
+profile_multi_long = DataProfile(
+    data_format="long",
+    n_series=2,
+    n_observations=100,
+    series_lengths={"store_a": 100, "store_b": 100},
+    target="value",
+    target_dtype="numeric",
+    target_stats={
+        "store_a": {"min": 5.0, "max": 150.0, "mean": 75.0, "std": 30.0},
+        "store_b": {"min": 8.0, "max": 180.0, "mean": 90.0, "std": 35.0},
+    },
+    date_column="date",
+    series_id_column="series_id",
+    index_type="datetime",
+    frequency="D",
+    frequency_is_set=False,
+    exog_columns=[],
+    categorical_exog=[],
+    end_train="2023-03-12",
+    data_path="data.csv",
+)
+
+profile_multi_wide_exog = DataProfile(
+    data_format="wide",
+    n_series=2,
+    n_observations=100,
+    series_lengths={"series_a": 100, "series_b": 100},
+    target=["series_a", "series_b"],
+    target_dtype="numeric",
+    target_stats={
+        "series_a": {"min": 5.0, "max": 150.0, "mean": 75.0, "std": 30.0},
+        "series_b": {"min": 8.0, "max": 180.0, "mean": 90.0, "std": 35.0},
+    },
+    date_column="date",
+    index_type="datetime",
+    frequency="D",
+    frequency_is_set=False,
+    exog_columns=["promo", "holiday"],
+    categorical_exog=["holiday"],
+    end_train="2023-03-12",
+    data_path="data.csv",
+)
+
+profile_multi_long_exog = DataProfile(
+    data_format="long",
+    n_series=2,
+    n_observations=100,
+    series_lengths={"store_a": 100, "store_b": 100},
+    target="value",
+    target_dtype="numeric",
+    target_stats={
+        "store_a": {"min": 5.0, "max": 150.0, "mean": 75.0, "std": 30.0},
+        "store_b": {"min": 8.0, "max": 180.0, "mean": 90.0, "std": 35.0},
+    },
+    date_column="date",
+    series_id_column="series_id",
+    index_type="datetime",
+    frequency="D",
+    frequency_is_set=False,
+    exog_columns=["promo"],
+    categorical_exog=[],
+    end_train="2023-03-12",
+    data_path="data.csv",
+)
+
+profile_single_no_end_train = DataProfile(
+    data_format="single",
+    n_series=1,
+    n_observations=100,
+    target="sales",
+    target_dtype="numeric",
+    target_stats={"sales": {"min": 10.0, "max": 200.0, "mean": 105.0, "std": 40.0}},
+    date_column="date",
+    index_type="datetime",
+    frequency="D",
+    frequency_is_set=False,
+    exog_columns=[],
+    categorical_exog=[],
+    end_train=None,
+    data_path="data.csv",
+)
+
+
+# =============================================================================
+# ForecastPlan fixtures
+# =============================================================================
+
+plan_single_recursive = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": 7},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=True,
+    explanation="Single series recursive forecasting with LightGBM.",
+)
+
+plan_single_recursive_no_exog = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": 7},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    explanation="Single series recursive forecasting without exogenous.",
+)
+
+plan_single_direct = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterDirect",
+    forecaster_kwargs={"lags": 7},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=5,
+    frequency="D",
+    use_exog=False,
+    explanation="Single series direct forecasting.",
+)
+
+plan_single_with_intervals = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": 7},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    interval=[10, 90],
+    interval_method="bootstrapping",
+    use_exog=False,
+    explanation="Single series with prediction intervals.",
+)
+
+plan_single_with_window_features = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={
+        "lags": 7,
+        "window_features": [{"stats": ["mean", "std"], "window_sizes": 7}],
+    },
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    explanation="Single series with rolling window features.",
+)
+
+plan_multi_series = ForecastPlan(
+    task_type="multi_series",
+    forecaster="ForecasterRecursiveMultiSeries",
+    forecaster_kwargs={"lags": 7, "encoding": "ordinal"},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    explanation="Multi-series forecasting with global model.",
+)
+
+plan_multi_series_exog = ForecastPlan(
+    task_type="multi_series",
+    forecaster="ForecasterRecursiveMultiSeries",
+    forecaster_kwargs={"lags": 7, "encoding": "ordinal"},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=True,
+    explanation="Multi-series forecasting with exogenous variables.",
+)
+
+plan_multivariate = ForecastPlan(
+    task_type="multivariate",
+    forecaster="ForecasterDirectMultiVariate",
+    forecaster_kwargs={"lags": 7},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=5,
+    frequency="D",
+    use_exog=False,
+    explanation="Multivariate forecasting.",
+)
+
+plan_statistical = ForecastPlan(
+    task_type="statistical",
+    forecaster="ForecasterStats",
+    forecaster_kwargs={},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    explanation="Auto-ARIMA statistical forecasting.",
+)
+
+plan_statistical_with_intervals = ForecastPlan(
+    task_type="statistical",
+    forecaster="ForecasterStats",
+    forecaster_kwargs={},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    interval=[10, 90],
+    interval_method="native",
+    use_exog=False,
+    explanation="Auto-ARIMA with prediction intervals.",
+)
+
+plan_foundation = ForecastPlan(
+    task_type="foundation",
+    forecaster="ForecasterFoundation",
+    forecaster_kwargs={},
+    estimator=None,
+    estimator_kwargs={"model_id": "autogluon/chronos-2-small", "context_length": 512},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    explanation="Foundation model forecasting with Chronos-2.",
+)
+
+plan_foundation_with_intervals = ForecastPlan(
+    task_type="foundation",
+    forecaster="ForecasterFoundation",
+    forecaster_kwargs={},
+    estimator=None,
+    estimator_kwargs={"model_id": "autogluon/chronos-2-small", "context_length": 512},
+    steps=10,
+    frequency="D",
+    interval=[10, 90],
+    interval_method="native",
+    use_exog=False,
+    explanation="Foundation model with quantile predictions.",
+)
+
+
+# =============================================================================
+# CV mock for backtesting tests
+# =============================================================================
+
+cv_basic = SimpleNamespace(
+    steps=10,
+    initial_train_size=80,
+    refit=False,
+    fixed_train_size=False,
+    gap=0,
+    fold_stride=None,
+    skip_folds=None,
+    allow_incomplete_fold=True,
+    differentiation=None,
+)

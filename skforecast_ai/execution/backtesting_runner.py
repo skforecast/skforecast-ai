@@ -1,22 +1,23 @@
 """Programmatic execution of backtesting workflows using skforecast APIs.
 
-Unlike `runner.py` which uses exec() on generated code, this module
-calls skforecast backtesting functions directly via importlib. The
-generated code in `BacktestResult.code` is for reproducibility only.
+This module follows the same approach as `forecast_runner.py`: render
+the backtesting code as a string, then execute that exact code via
+exec(). This guarantees perfect fidelity between the inspectable
+script in `BacktestResult.code` and the actual execution.
 """
 
 from __future__ import annotations
 
-import importlib
-from typing import Any
+import io
+import re
+import traceback
+from contextlib import redirect_stdout
+from typing import Any, Callable
 
 import pandas as pd
+from skforecast.model_selection import TimeSeriesFold
 
-from ..rendering._helpers import (
-    _ESTIMATOR_DEFAULTS,
-    _ESTIMATOR_IMPORTS,
-    _get_target_str,
-)
+from ..exceptions import ForecastExecutionError
 from ..rendering.backtesting import (
     render_backtesting_foundation,
     render_backtesting_multi_series,
@@ -24,20 +25,16 @@ from ..rendering.backtesting import (
     render_backtesting_single_series,
     render_backtesting_statistical,
 )
-from ..schemas import DataProfile, ForecastPlan
+from ..schemas import DataProfile, ForecastPlan, RenderedScript
 
-# Mapping: forecaster class name → (module_path, class_name)
-_FORECASTER_MODULES: dict[str, tuple[str, str]] = {
-    "ForecasterRecursive": ("skforecast.recursive", "ForecasterRecursive"),
-    "ForecasterDirect": ("skforecast.direct", "ForecasterDirect"),
-    "ForecasterRecursiveMultiSeries": (
-        "skforecast.recursive",
-        "ForecasterRecursiveMultiSeries",
-    ),
-    "ForecasterDirectMultiVariate": (
-        "skforecast.direct",
-        "ForecasterDirectMultiVariate",
-    ),
+_RENDER_DISPATCH: dict[
+    str, Callable[[ForecastPlan, DataProfile, Any], RenderedScript]
+] = {
+    "single_series": render_backtesting_single_series,
+    "multi_series": render_backtesting_multi_series,
+    "multivariate": render_backtesting_multivariate,
+    "statistical": render_backtesting_statistical,
+    "foundation": render_backtesting_foundation,
 }
 
 
@@ -50,7 +47,11 @@ def run_backtest(
     show_progress: bool = True,
 ) -> dict[str, Any]:
     """
-    Execute a backtesting workflow by calling skforecast APIs directly.
+    Execute a backtesting workflow by running the generated code.
+
+    The code executed is identical to what `render_backtesting_script`
+    produces (minus the CSV loading preamble). This guarantees that the
+    `BacktestResult.code` field always reflects exactly what was run.
 
     Parameters
     ----------
@@ -74,34 +75,15 @@ def run_backtest(
         and `'explanation'`.
     """
 
-    task_type = plan.task_type
+    # Render backtesting code
+    rendered = render_backtesting_script(profile, plan, cv)
 
-    if task_type not in ("single_series", "multi_series"):
-        raise NotImplementedError(
-            f"Backtesting for task_type '{task_type}' is not yet "
-            f"supported. Currently supported: 'single_series', "
-            f"'multi_series'."
-        )
+    # Execute the rendered code with `data` pre-loaded in the namespace
+    namespace = _exec_rendered_code(rendered, data, show_progress)
 
-    # Build forecaster object
-    forecaster = _build_forecaster(plan, profile)
-
-    # Prepare data and exog
-    y_or_series, exog = _prepare_data(data, profile, plan)
-
-    # Run backtesting
-    metrics, predictions = _dispatch_backtesting(
-        task_type=task_type,
-        forecaster=forecaster,
-        y_or_series=y_or_series,
-        cv=cv,
-        plan=plan,
-        exog=exog,
-        show_progress=show_progress,
-    )
-
-    # Generate reproducible code
-    code = _generate_backtesting_code(profile, plan, cv)
+    # Extract results from namespace
+    metrics = namespace.get("metrics")
+    predictions = namespace.get("predictions")
 
     # Build explanation
     explanation = _build_backtest_explanation(
@@ -112,328 +94,95 @@ def run_backtest(
     return {
         "metrics": metrics,
         "predictions": predictions,
-        "code": code,
+        "rendered_code": rendered,
         "explanation": explanation,
     }
 
 
-def _build_forecaster(plan: ForecastPlan, profile: DataProfile) -> Any:
-    """
-    Instantiate a forecaster object from the plan.
-
-    Mirrors the forecaster construction logic used by the forecast
-    runner (via code generation + exec). Handles transformer_y,
-    transformer_series, transformer_exog (with ColumnTransformer when
-    categorical exog exist), window_features, categorical_features,
-    and encoding.
-
-    Parameters
-    ----------
-    plan : ForecastPlan
-        Forecast plan with forecaster and estimator configuration.
-    profile : DataProfile
-        Profiled dataset metadata (needed for transformer_exog setup).
-
-    Returns
-    -------
-    forecaster : object
-        Instantiated (unfitted) forecaster.
-    """
-
-    # Import and instantiate estimator
-    estimator = None
-    if plan.estimator is not None:
-        import_str = _ESTIMATOR_IMPORTS.get(plan.estimator)
-        if import_str is None:
-            raise ValueError(
-                f"Unknown estimator '{plan.estimator}'. "
-                f"Supported: {list(_ESTIMATOR_IMPORTS.keys())}."
-            )
-        # Parse "from <module> import <class>" to get module path and class
-        parts = import_str.split()
-        module_path, class_name = parts[1], parts[3]
-        mod = importlib.import_module(module_path)
-        estimator_cls = getattr(mod, class_name)
-
-        # Merge defaults with user kwargs
-        defaults = _ESTIMATOR_DEFAULTS.get(plan.estimator, {})
-        merged_kwargs = {**defaults, **(plan.estimator_kwargs or {})}
-        estimator = estimator_cls(**merged_kwargs)
-
-    # Import forecaster class
-    fc_info = _FORECASTER_MODULES.get(plan.forecaster)
-    if fc_info is None:
-        raise ValueError(
-            f"Unknown forecaster '{plan.forecaster}'. "
-            f"Supported: {list(_FORECASTER_MODULES.keys())}."
-        )
-    fc_module_path, fc_class_name = fc_info
-    fc_mod = importlib.import_module(fc_module_path)
-    forecaster_cls = getattr(fc_mod, fc_class_name)
-
-    # Build forecaster kwargs
-    fc_kwargs: dict[str, Any] = {}
-    plan_fc_kwargs = plan.forecaster_kwargs or {}
-
-    if estimator is not None:
-        fc_kwargs["estimator"] = estimator
-
-    # lags
-    lags = plan_fc_kwargs.get("lags")
-    if lags is not None:
-        fc_kwargs["lags"] = lags
-
-    # steps (ForecasterDirect, ForecasterDirectMultiVariate)
-    steps = plan_fc_kwargs.get("steps")
-    if steps is not None:
-        fc_kwargs["steps"] = steps
-
-    # encoding (multi-series)
-    encoding = plan_fc_kwargs.get("encoding")
-    if encoding is not None:
-        fc_kwargs["encoding"] = encoding
-
-    # window_features
-    window_features = plan_fc_kwargs.get("window_features")
-    if window_features is not None and isinstance(window_features, list):
-        from skforecast.preprocessing import RollingFeatures
-        wf_objects = []
-        for wf_dict in window_features:
-            if isinstance(wf_dict, dict):
-                wf_objects.append(RollingFeatures(
-                    stats=wf_dict.get("stats", ["mean"]),
-                    window_sizes=wf_dict.get("window_sizes", 7),
-                ))
-            else:
-                wf_objects.append(wf_dict)
-        fc_kwargs["window_features"] = (
-            wf_objects if len(wf_objects) > 1 else wf_objects[0]
-        )
-
-    # transformer_y (single series)
-    transformer_y = plan_fc_kwargs.get("transformer_y")
-    if transformer_y is not None and isinstance(transformer_y, str):
-        from sklearn.preprocessing import StandardScaler
-        fc_kwargs["transformer_y"] = StandardScaler()
-
-    # transformer_series (multi-series)
-    transformer_series = plan_fc_kwargs.get("transformer_series")
-    if transformer_series is not None and isinstance(transformer_series, str):
-        from sklearn.preprocessing import StandardScaler
-        fc_kwargs["transformer_series"] = StandardScaler()
-
-    # transformer_exog
-    transformer_exog = plan_fc_kwargs.get("transformer_exog")
-    if (
-        transformer_exog is not None
-        and isinstance(transformer_exog, str)
-        and plan.use_exog
-        and profile.exog_columns
-    ):
-        from sklearn.preprocessing import StandardScaler
-
-        numeric_exog = [
-            c for c in profile.exog_columns
-            if c not in profile.categorical_exog
-        ]
-        if profile.categorical_exog and numeric_exog:
-            from sklearn.compose import make_column_transformer
-            fc_kwargs["transformer_exog"] = make_column_transformer(
-                (StandardScaler(), numeric_exog),
-                remainder="passthrough",
-                verbose_feature_names_out=False,
-            ).set_output(transform="pandas")
-        elif numeric_exog:
-            fc_kwargs["transformer_exog"] = StandardScaler()
-
-    # categorical_features
-    categorical_features = plan_fc_kwargs.get("categorical_features")
-    if categorical_features is not None:
-        fc_kwargs["categorical_features"] = categorical_features
-
-    # differentiation
-    differentiation = plan_fc_kwargs.get("differentiation")
-    if differentiation is not None:
-        fc_kwargs["differentiation"] = differentiation
-
-    # dropna_from_series
-    dropna = plan_fc_kwargs.get("dropna_from_series")
-    if dropna is not None:
-        fc_kwargs["dropna_from_series"] = dropna
-
-    return forecaster_cls(**fc_kwargs)
-
-
-def _prepare_data(
-    data: pd.DataFrame,
+def render_backtesting_script(
     profile: DataProfile,
     plan: ForecastPlan,
-) -> tuple[Any, pd.DataFrame | None]:
+    cv: TimeSeriesFold,
+) -> RenderedScript:
     """
-    Prepare target series/DataFrame and exogenous variables.
-
-    Sets up DatetimeIndex and frequency on the data before extracting
-    target and exogenous columns.
-
-    Returns
-    -------
-    y_or_series : pandas Series or pandas DataFrame
-        Target data in the format expected by the backtesting function.
-    exog : pandas DataFrame, None
-        Exogenous variables if used, otherwise None.
-    """
-
-    df = data.copy()
-
-    # Pivot long-format multi-series to wide before setting index
-    if (
-        plan.task_type == "multi_series"
-        and getattr(profile, "data_format", None) == "long"
-        and profile.series_id_column
-    ):
-        target_col = _get_target_str(profile)
-        df = df.pivot(
-            index=profile.date_column,
-            columns=profile.series_id_column,
-            values=target_col,
-        )
-        df.index = pd.to_datetime(df.index)
-        df.columns.name = None
-        if profile.frequency and df.index.freq is None:
-            df = df.asfreq(profile.frequency)
-        df = df.sort_index()
-
-        exog = None
-        # Exog not supported for pivoted long format currently
-        return df, exog
-
-    # Set up DatetimeIndex if needed
-    if profile.date_column and profile.date_column in df.columns:
-        df[profile.date_column] = pd.to_datetime(df[profile.date_column])
-        df = df.set_index(profile.date_column)
-    if profile.frequency and df.index.freq is None:
-        df = df.asfreq(profile.frequency)
-    df = df.sort_index()
-
-    exog = None
-    if plan.use_exog and profile.exog_columns:
-        exog = df[profile.exog_columns]
-
-    if plan.task_type == "single_series":
-        target = _get_target_str(profile)
-        y = df[target]
-        return y, exog
-
-    elif plan.task_type == "multi_series":
-        # Wide-format multi-series: target is already a list of columns
-        if isinstance(profile.target, list):
-            series = df[profile.target]
-        else:
-            series = df[[profile.target]]
-        return series, exog
-
-
-def _dispatch_backtesting(
-    task_type: str,
-    forecaster: Any,
-    y_or_series: Any,
-    cv: Any,
-    plan: ForecastPlan,
-    exog: pd.DataFrame | None,
-    show_progress: bool = True,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Dispatch to the appropriate skforecast backtesting function.
-
-    Returns
-    -------
-    metrics : pandas DataFrame
-        Metric values from backtesting.
-    predictions : pandas DataFrame
-        Predictions across all folds.
-    """
-
-    metric = plan.metrics_to_compute
-
-    common_kwargs: dict[str, Any] = {
-        "cv": cv,
-        "metric": metric,
-        "n_jobs": "auto",
-        "verbose": False,
-        "show_progress": show_progress,
-        "suppress_warnings": True,
-    }
-
-    if plan.interval is not None:
-        common_kwargs["interval"] = plan.interval
-
-    if task_type == "single_series":
-        from skforecast.model_selection import backtesting_forecaster
-
-        metrics, predictions = backtesting_forecaster(
-            forecaster=forecaster,
-            y=y_or_series,
-            exog=exog,
-            **common_kwargs,
-        )
-
-    elif task_type == "multi_series":
-        from skforecast.model_selection import (
-            backtesting_forecaster_multiseries,
-        )
-
-        metrics, predictions = backtesting_forecaster_multiseries(
-            forecaster=forecaster,
-            series=y_or_series,
-            exog=exog,
-            **common_kwargs,
-        )
-
-    else:
-        # TODO: Implement stats, foundation, multivariate
-        raise NotImplementedError(
-            f"Backtesting dispatch for '{task_type}' not implemented."
-        )
-
-    return metrics, predictions
-
-
-def _generate_backtesting_code(
-    profile: DataProfile,
-    plan: ForecastPlan,
-    cv: Any,
-) -> str:
-    """
-    Generate a reproducible backtesting script.
+    Render structured backtesting code from a plan, profile, and CV.
 
     Parameters
     ----------
     profile : DataProfile
-        Data profile.
+        Profile of the input dataset.
     plan : ForecastPlan
-        Forecast plan.
+        Validated forecast plan.
     cv : TimeSeriesFold
-        Cross-validation configuration.
+        Cross-validation fold splitter.
 
     Returns
     -------
-    code : str
-        Complete runnable Python script.
+    rendered : RenderedScript
+        Structured code split into imports, data_loading, and core
+        sections.
     """
+    render_fn = _RENDER_DISPATCH.get(plan.task_type)
+    if render_fn is None:
+        supported = list(_RENDER_DISPATCH.keys())
+        raise ValueError(
+            f"Unsupported task_type '{plan.task_type}'. "
+            f"Supported types: {supported}"
+        )
+    return render_fn(plan, profile, cv)
 
-    if plan.task_type == "multi_series":
-        return render_backtesting_multi_series(plan, profile, cv).full_script
 
-    if plan.task_type == "multivariate":
-        return render_backtesting_multivariate(plan, profile, cv).full_script
+def _exec_rendered_code(
+    rendered: RenderedScript,
+    data: pd.DataFrame,
+    show_progress: bool = True,
+) -> dict[str, Any]:
+    """
+    Execute the rendered backtesting code with data injected into the
+    namespace.
 
-    if plan.task_type == "foundation":
-        return render_backtesting_foundation(plan, profile, cv).full_script
+    Parameters
+    ----------
+    rendered : RenderedScript
+        Structured rendered code.
+    data : pandas DataFrame
+        Input dataset to inject as the `data` variable.
+    show_progress : bool, default True
+        Whether to display a progress bar during backtesting.
 
-    if plan.task_type == "statistical":
-        return render_backtesting_statistical(plan, profile, cv).full_script
+    Returns
+    -------
+    namespace : dict
+        Executed namespace containing all variables produced by the
+        code.
+    """
+    code_to_exec = rendered.executable
+    namespace: dict[str, Any] = {"data": data.copy()}
 
-    return render_backtesting_single_series(plan, profile, cv).full_script
+    # Patch show_progress value in the rendered code
+    if not show_progress:
+        code_to_exec = re.sub(
+            r"show_progress\s*=\s*True",
+            "show_progress = False",
+            code_to_exec,
+        )
+
+    compiled = compile(code_to_exec, "<backtesting>", "exec")
+
+    # Capture stdout (print statements in the generated code)
+    stdout_capture = io.StringIO()
+    try:
+        with redirect_stdout(stdout_capture):
+            exec(compiled, namespace)  # noqa: S102
+    except Exception as e:
+        tb = traceback.format_exc()
+        raise ForecastExecutionError(
+            original_error=e,
+            generated_code=code_to_exec,
+            execution_traceback=tb,
+        ) from e
+
+    return namespace
 
 
 def _build_backtest_explanation(
