@@ -505,6 +505,197 @@ def _emit_metrics_section_foundation(
             lines.append(f'print(f"{info["label"]:<5}: {{{info["var"]}:.4f}}")')
 
 
+def _emit_imports_single_series(
+    lines: list[str],
+    plan: ForecastPlan,
+    profile: DataProfile,
+    include_metrics: bool = False,
+    include_backtesting: bool = False,
+) -> None:
+    """Append import lines for single-series forecasting scripts.
+
+    Parameters
+    ----------
+    lines : list of str
+        Output list to append import lines to.
+    plan : ForecastPlan
+        Forecast plan containing estimator, forecaster, and forecaster kwargs.
+    profile : DataProfile
+        Data profile for column transformer detection.
+    include_metrics : bool, default False
+        If True, include metric import lines based on `plan.metrics_to_compute`.
+    include_backtesting : bool, default False
+        If True, append `backtesting_forecaster, TimeSeriesFold` from
+        `skforecast.model_selection` as the last import.
+
+    """
+
+    forecaster_class = plan.forecaster
+    forecaster_module = "direct" if forecaster_class == "ForecasterDirect" else "recursive"
+
+    kwargs = plan.forecaster_kwargs
+    transformer_y = kwargs.get("transformer_y")
+    transformer_exog = kwargs.get("transformer_exog")
+    window_features = kwargs.get("window_features")
+    estimator_import = _get_estimator_import(plan.estimator)
+
+    lines.append("import pandas as pd")
+    if transformer_y or transformer_exog:
+        lines.append("from sklearn.preprocessing import StandardScaler")
+    if transformer_exog and _needs_column_transformer(profile):
+        lines.append("from sklearn.compose import make_column_transformer")
+    if include_metrics:
+        lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    lines.append(estimator_import)
+    if window_features:
+        lines.append("from skforecast.preprocessing import RollingFeatures")
+    lines.append(f"from skforecast.{forecaster_module} import {forecaster_class}")
+    if include_backtesting:
+        lines.append(
+            "from skforecast.model_selection import "
+            "backtesting_forecaster, TimeSeriesFold"
+        )
+    lines.append("")
+
+
+def _emit_imports_multi_series(
+    lines: list[str],
+    plan: ForecastPlan,
+    profile: DataProfile,
+    include_metrics: bool = False,
+    include_backtesting: bool = False,
+) -> None:
+    """Append import lines for multi-series and multivariate forecasting scripts.
+
+    Parameters
+    ----------
+    lines : list of str
+        Output list to append import lines to.
+    plan : ForecastPlan
+        Forecast plan containing estimator, forecaster, and forecaster kwargs.
+    profile : DataProfile
+        Data profile for column transformer and format detection.
+    include_metrics : bool, default False
+        If True, include metric import lines based on `plan.metrics_to_compute`.
+    include_backtesting : bool, default False
+        If True, append `backtesting_forecaster_multiseries, TimeSeriesFold`
+        from `skforecast.model_selection` as the last import.
+
+    """
+
+    forecaster_class = plan.forecaster
+    is_multi_series = forecaster_class == "ForecasterRecursiveMultiSeries"
+    forecaster_module = "recursive" if is_multi_series else "direct"
+    is_wide = profile.data_format == "wide"
+
+    kwargs = plan.forecaster_kwargs
+    transformer_series = kwargs.get("transformer_series")
+    transformer_exog = kwargs.get("transformer_exog")
+    window_features = kwargs.get("window_features")
+    estimator_import = _get_estimator_import(plan.estimator)
+
+    lines.append("import pandas as pd")
+    if transformer_series or transformer_exog:
+        lines.append("from sklearn.preprocessing import StandardScaler")
+    if transformer_exog and _needs_column_transformer(profile):
+        lines.append("from sklearn.compose import make_column_transformer")
+    if include_metrics:
+        lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    lines.append(estimator_import)
+
+    preprocessing_imports: list[str] = []
+    if window_features:
+        preprocessing_imports.append("RollingFeatures")
+    if is_multi_series and not is_wide:
+        preprocessing_imports.append("reshape_series_long_to_dict")
+        if plan.use_exog and profile.exog_columns:
+            preprocessing_imports.append("reshape_exog_long_to_dict")
+    if preprocessing_imports:
+        lines.append(
+            "from skforecast.preprocessing import "
+            + ", ".join(preprocessing_imports)
+        )
+
+    lines.append(f"from skforecast.{forecaster_module} import {forecaster_class}")
+    if include_backtesting:
+        lines.append(
+            "from skforecast.model_selection import "
+            "backtesting_forecaster_multiseries, TimeSeriesFold"
+        )
+    lines.append("")
+
+
+def _emit_imports_foundation(
+    lines: list[str],
+    plan: ForecastPlan,
+    include_metrics: bool = False,
+    include_backtesting: bool = False,
+) -> None:
+    """Append import lines for foundation model forecasting scripts.
+
+    Parameters
+    ----------
+    lines : list of str
+        Output list to append import lines to.
+    plan : ForecastPlan
+        Forecast plan containing metrics_to_compute.
+    include_metrics : bool, default False
+        If True, include metric import lines based on `plan.metrics_to_compute`.
+    include_backtesting : bool, default False
+        If True, append `backtesting_foundation, TimeSeriesFold` from
+        `skforecast.model_selection` as the last import.
+
+    """
+
+    lines.append("import pandas as pd")
+    if include_metrics:
+        lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    lines.append(
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation"
+    )
+    if include_backtesting:
+        lines.append(
+            "from skforecast.model_selection import "
+            "backtesting_foundation, TimeSeriesFold"
+        )
+    lines.append("")
+
+
+def _emit_imports_statistical(
+    lines: list[str],
+    plan: ForecastPlan,
+    include_metrics: bool = False,
+    include_backtesting: bool = False,
+) -> None:
+    """Append import lines for statistical forecasting scripts.
+
+    Parameters
+    ----------
+    lines : list of str
+        Output list to append import lines to.
+    plan : ForecastPlan
+        Forecast plan containing metrics_to_compute.
+    include_metrics : bool, default False
+        If True, include metric import lines based on `plan.metrics_to_compute`.
+    include_backtesting : bool, default False
+        If True, append `backtesting_stats, TimeSeriesFold` from
+        `skforecast.model_selection` as the last import.
+
+    """
+
+    lines.append("import pandas as pd")
+    if include_metrics:
+        lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    lines.append("from skforecast.stats import Arima")
+    lines.append("from skforecast.recursive import ForecasterStats")
+    if include_backtesting:
+        lines.append(
+            "from skforecast.model_selection import "
+            "backtesting_stats, TimeSeriesFold"
+        )
+    lines.append("")
+
+
 def _get_estimator_import(estimator: str | None) -> str:
     """Resolve the estimator import line."""
     return _ESTIMATOR_IMPORTS.get(

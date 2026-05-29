@@ -72,7 +72,8 @@ def test_create_cv_output_when_single_series_defaults():
 
 def test_create_cv_output_when_default_initial_train_size():
     """
-    Test that the default initial_train_size is approximately 70% of data.
+    Test that the default initial_train_size is a date string corresponding
+    to approximately 70% of data when a datetime index is available.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -80,12 +81,9 @@ def test_create_cv_output_when_default_initial_train_size():
 
     cv, _ = assistant.create_cv(profile, plan)
 
-    # 70% of 100 observations = 70, but may be adjusted by floor/ceiling
-    n_obs = profile.data_profile.n_observations
-    expected_default = int(0.7 * n_obs)
-    # initial_train_size should be at least the 70% default or the min floor
-    assert cv.initial_train_size >= min(expected_default, n_obs - 2 * plan.steps)
-    assert cv.initial_train_size <= n_obs - 2 * plan.steps
+    # 70% of 100 daily observations starting 2023-01-01 → position 70 → date at
+    # index 69 = 2023-01-01 + 69 days = 2023-03-11
+    assert cv.initial_train_size == "2023-03-11"
 
 
 def test_create_cv_output_when_steps_from_plan():
@@ -229,8 +227,8 @@ def test_create_cv_output_when_floor_by_lags_int():
     cv, _ = assistant.create_cv(profile, plan)
 
     # With 25 obs, 70% = 17. Floor = 21 (> 17). Ceiling = 25 - 2*1 = 23.
-    # So initial_train_size should be clamped to the floor = 21.
-    assert cv.initial_train_size == 21
+    # So initial_train_size = 21. Date at index 20 = 2023-01-21.
+    assert cv.initial_train_size == "2023-01-21"
 
 
 def test_create_cv_output_when_floor_by_lags_list():
@@ -247,8 +245,8 @@ def test_create_cv_output_when_floor_by_lags_list():
     cv, _ = assistant.create_cv(profile, plan)
 
     # With 25 obs, 70% = 17. Floor = 23 (> 17). Ceiling = 25 - 2*1 = 23.
-    # Both constraints give 23, so initial_train_size = 23.
-    assert cv.initial_train_size == 23
+    # Both constraints give 23. Date at index 22 = 2023-01-23.
+    assert cv.initial_train_size == "2023-01-23"
 
 
 def test_create_cv_output_when_statistical_floor():
@@ -265,7 +263,8 @@ def test_create_cv_output_when_statistical_floor():
 
     # floor = 2*10 = 20, 70% of 100 = 70. 70 > 20, so 70 is used.
     # ceiling = 100 - 2*10 = 80. So initial_train_size = 70.
-    assert cv.initial_train_size == 70
+    # Date at index 69 = 2023-01-01 + 69 days = 2023-03-11.
+    assert cv.initial_train_size == "2023-03-11"
 
 
 def test_create_cv_output_when_differentiation_set():
@@ -303,8 +302,8 @@ def test_create_cv_output_when_floor_by_window_features():
 
     # Floor = effective_window + steps = 60 + 5 = 65.
     # 70% of 100 = 70. max(70, 65) = 70. Ceiling = 100 - 10 = 90.
-    # initial_train_size = 70, which is > window_size (60). ✓
-    assert cv.initial_train_size > 60
+    # initial_train_size = 70. Date at index 69 = 2023-03-11.
+    assert cv.initial_train_size == "2023-03-11"
 
 
 # =============================================================================
@@ -321,8 +320,7 @@ def test_create_cv_explanation_contains_key_params():
     _, explanation = assistant.create_cv(profile, plan)
 
     assert "10-step horizon" in explanation
-    assert "folds" in explanation
-    assert "initial training" in explanation
+    assert "Initial training up to" in explanation
 
 
 # =============================================================================
@@ -537,10 +535,8 @@ def test_create_cv_llm_all_retries_fail_deterministic_fallback(monkeypatch):
     # Should have fallen back to deterministic defaults
     assert isinstance(cv, TimeSeriesFold)
     assert cv.steps == 5
-    # Deterministic default: 70% of data
-    expected_its = int(0.7 * n_obs)
-    # May be capped, but should be reasonable
-    assert cv.initial_train_size <= n_obs - 2 * 5
+    # Deterministic default: 70% of 100 daily obs = date string '2023-03-11'
+    assert cv.initial_train_size == "2023-03-11"
 
     # Should have emitted a warning
     llm_warnings = [x for x in w if "LLM CV configuration failed" in str(x.message)]
@@ -603,4 +599,4 @@ def test_create_cv_deterministic_when_no_prompt_and_llm_configured():
 
     assert isinstance(cv, TimeSeriesFold)
     assert cv.steps == 5
-    assert "initial training" in explanation
+    assert "Initial training up to" in explanation

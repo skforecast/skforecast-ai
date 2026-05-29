@@ -5,11 +5,11 @@ from ._helpers import (
     _emit_aligned_kwargs,
     _emit_data_loading,
     _emit_end_train,
+    _emit_imports_foundation,
     _emit_index_setup,
     _emit_metrics_section_foundation,
     _emit_preprocessing_steps,
     _emit_production_note,
-    _get_metric_imports,
     _get_target_str,
 )
 
@@ -57,12 +57,7 @@ def render_forecast_foundation(
     core_lines: list[str] = []
 
     # --- Imports ---
-    import_lines.append("import pandas as pd")
-    import_lines.extend(_get_metric_imports(plan.metrics_to_compute))
-    import_lines.append(
-        "from skforecast.foundation import FoundationModel, ForecasterFoundation"
-    )
-    import_lines.append("")
+    _emit_imports_foundation(import_lines, plan, include_metrics=True)
 
     # --- Load data ---
     _emit_data_loading(loading_lines, profile)

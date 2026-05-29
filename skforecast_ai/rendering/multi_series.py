@@ -5,6 +5,7 @@ from ._helpers import (
     _emit_aligned_kwargs,
     _emit_data_loading,
     _emit_end_train,
+    _emit_imports_multi_series,
     _emit_index_setup,
     _emit_metrics_section,
     _emit_metrics_section_multiseries,
@@ -13,11 +14,8 @@ from ._helpers import (
     _emit_transformer_exog,
     _emit_window_features,
     _get_estimator_constructor,
-    _get_estimator_import,
     _get_interval_repr,
-    _get_metric_imports,
     _get_target_str,
-    _needs_column_transformer,
 )
 
 
@@ -92,10 +90,7 @@ def render_forecast_multi_series(
 ) -> RenderedScript:
     """Render code for ForecasterRecursiveMultiSeries."""
 
-    estimator_import = _get_estimator_import(plan.estimator)
-
     kwargs = plan.forecaster_kwargs
-    transformer_series = kwargs.get("transformer_series")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
 
@@ -108,27 +103,12 @@ def render_forecast_multi_series(
     core_lines: list[str] = []
 
     # --- Imports ---
-    import_lines.append("import pandas as pd")
-    if transformer_series or transformer_exog:
-        import_lines.append("from sklearn.preprocessing import StandardScaler")
-    if transformer_exog and _needs_column_transformer(profile):
-        import_lines.append("from sklearn.compose import make_column_transformer")
-    import_lines.extend(_get_metric_imports(plan.metrics_to_compute))
-    import_lines.append(estimator_import)
-    preprocessing_imports: list[str] = []
-    if window_features:
-        preprocessing_imports.append("RollingFeatures")
-    if not is_wide:
-        preprocessing_imports.append("reshape_series_long_to_dict")
-        if plan.use_exog and profile.exog_columns:
-            preprocessing_imports.append("reshape_exog_long_to_dict")
-    if preprocessing_imports:
-        import_lines.append(
-            "from skforecast.preprocessing import "
-            + ", ".join(preprocessing_imports)
-        )
-    import_lines.append("from skforecast.recursive import ForecasterRecursiveMultiSeries")
-    import_lines.append("")
+    _emit_imports_multi_series(
+        import_lines,
+        plan,
+        profile,
+        include_metrics=True,
+    )
 
     # --- Load data ---
     if is_wide:
@@ -310,10 +290,7 @@ def render_forecast_multivariate(
 ) -> RenderedScript:
     """Render code for ForecasterDirectMultiVariate."""
 
-    estimator_import = _get_estimator_import(plan.estimator)
-
     kwargs = plan.forecaster_kwargs
-    transformer_series = kwargs.get("transformer_series")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
 
@@ -327,17 +304,12 @@ def render_forecast_multivariate(
     core_lines: list[str] = []
 
     # --- Imports ---
-    import_lines.append("import pandas as pd")
-    if transformer_series or transformer_exog:
-        import_lines.append("from sklearn.preprocessing import StandardScaler")
-    if transformer_exog and _needs_column_transformer(profile):
-        import_lines.append("from sklearn.compose import make_column_transformer")
-    import_lines.extend(_get_metric_imports(plan.metrics_to_compute))
-    import_lines.append(estimator_import)
-    if window_features:
-        import_lines.append("from skforecast.preprocessing import RollingFeatures")
-    import_lines.append("from skforecast.direct import ForecasterDirectMultiVariate")
-    import_lines.append("")
+    _emit_imports_multi_series(
+        import_lines,
+        plan,
+        profile,
+        include_metrics=True,
+    )
 
     # --- Load data ---
     if is_wide:

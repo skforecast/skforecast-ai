@@ -268,9 +268,9 @@ def test_render_backtesting_multi_series_output_when_long_format():
     expected = (
         "import pandas as pd\n"
         "from lightgbm import LGBMRegressor\n"
+        "from skforecast.preprocessing import reshape_series_long_to_dict\n"
         "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
         "from skforecast.model_selection import backtesting_forecaster_multiseries, TimeSeriesFold\n"
-        "from skforecast.preprocessing import reshape_series_long_to_dict\n"
         "\n"
         "# Load data\n"
         "data = pd.read_csv('data.csv')\n"

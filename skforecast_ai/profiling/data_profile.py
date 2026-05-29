@@ -186,6 +186,25 @@ def create_data_profile(
     # Compute end_train: the datetime at the 80% mark of the index
     end_train = _compute_end_train(datetime_index)
 
+    # Compute start_date: the reference start for position-to-date
+    # conversion.  For long format with multiple series that may have
+    # different start dates, use the latest (max) start date so that
+    # n_observations positions from start_date gives a date that
+    # guarantees enough training data for the most constrained series.
+    start_date: str | None = None
+    if datetime_index is not None and len(datetime_index) > 0:
+        ts = _resolve_start_date(
+            data=data,
+            datetime_index=datetime_index,
+            data_format=data_format,
+            series_id_column=series_id_column,
+            date_col=date_col,
+        )
+        if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+            start_date = str(ts)
+        else:
+            start_date = str(ts.date())
+
     return DataProfile(
         # Structure / Format
         data_format=data_format,
@@ -213,6 +232,7 @@ def create_data_profile(
         # Source
         data_path=data_path,
         # Train/test split
+        start_date=start_date,
         end_train=end_train,
         # Diagnostics
         warnings=warnings,
@@ -428,6 +448,60 @@ def _extract_datetime_index(
         return pd.DatetimeIndex(data[date_col])
 
     return None
+
+
+def _resolve_start_date(
+    data: pd.DataFrame,
+    datetime_index: pd.DatetimeIndex,
+    data_format: str,
+    series_id_column: str | None,
+    date_col: str | None,
+) -> pd.Timestamp:
+    """
+    Determine the reference start date for position-to-date conversion.
+
+    For single and wide formats, returns the first element of the
+    datetime index. For long format with multiple series that may have
+    different start dates, returns the **latest** first date across all
+    series so that position calculations align with the most
+    constrained (latest-starting) series.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    datetime_index : pandas DatetimeIndex
+        Representative datetime index (from the first series for long
+        format).
+    data_format : str
+        One of `'single'`, `'wide'`, `'long'`.
+    series_id_column : str, None
+        Series identifier column (only relevant for long format).
+    date_col : str, None
+        Resolved date column name.
+
+    Returns
+    -------
+    start : pandas Timestamp
+        The reference start date.
+    """
+    if data_format != "long" or series_id_column is None:
+        return datetime_index[0]
+
+    if series_id_column not in data.columns:
+        return datetime_index[0]
+
+    # Find the latest (max) first date across all series
+    if date_col is not None and date_col in data.columns:
+        first_dates = data.groupby(series_id_column)[date_col].min()
+    elif isinstance(data.index, pd.DatetimeIndex):
+        first_dates = data.groupby(series_id_column).apply(
+            lambda g: g.index.min()
+        )
+    else:
+        return datetime_index[0]
+
+    return first_dates.max()
 
 
 def detect_exog_columns(

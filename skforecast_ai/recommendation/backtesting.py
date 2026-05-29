@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pandas as pd
+
 from ..schemas import ForecastingProfile, ForecastPlan
 
 
@@ -29,7 +31,7 @@ def derive_cv_defaults(
     n_observations = profile.data_profile.n_observations
     steps = plan.steps
 
-    # Compute initial_train_size (70% of data, floored by task minimum)
+    # Compute initial_train_size as an integer first (with floor/ceiling)
     initial_train_size = int(0.7 * n_observations)
     min_train_size = _compute_min_train_size(plan)
     initial_train_size = max(initial_train_size, min_train_size)
@@ -38,6 +40,13 @@ def derive_cv_defaults(
     max_train_size = n_observations - 2 * steps
     if max_train_size > 0:
         initial_train_size = min(initial_train_size, max_train_size)
+
+    # Convert to a date string when datetime info is available
+    initial_train_size = _position_to_date(
+        position=initial_train_size,
+        start_date=profile.data_profile.start_date,
+        frequency=profile.data_profile.frequency,
+    )
 
     return {
         "steps": steps,
@@ -82,7 +91,7 @@ def build_cv_explanation(
     gap = cv_params["gap"]
 
     if isinstance(initial_train_size, str):
-        train_desc = f"training starting from {initial_train_size}"
+        train_desc = f"Initial training up to {initial_train_size}"
     else:
         pct = round(100 * initial_train_size / n_observations)
         train_desc = (
@@ -172,3 +181,43 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
 
     # statistical, foundation
     return 2 * steps
+
+
+def _position_to_date(
+    position: int,
+    start_date: str | None,
+    frequency: str | None,
+) -> int | str:
+    """
+    Convert an integer position to a date string.
+
+    Uses the start date and frequency to reconstruct the date at the
+    given position (1-based count, so the date returned is at index
+    ``position - 1``).
+
+    Parameters
+    ----------
+    position : int
+        Number of observations (1-based count).
+    start_date : str, None
+        Start date of the datetime index.
+    frequency : str, None
+        Pandas frequency string.
+
+    Returns
+    -------
+    result : int or str
+        Date string if conversion is possible, otherwise the original
+        integer.
+    """
+    if start_date is None or frequency is None:
+        return position
+
+    try:
+        idx = pd.date_range(start=start_date, periods=position, freq=frequency)
+        ts = idx[-1]
+        if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+            return str(ts)
+        return str(ts.date())
+    except Exception:
+        return position

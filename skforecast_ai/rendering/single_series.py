@@ -5,6 +5,7 @@ from ._helpers import (
     _emit_aligned_kwargs,
     _emit_data_loading,
     _emit_end_train,
+    _emit_imports_single_series,
     _emit_index_setup,
     _emit_metrics_section,
     _emit_preprocessing_steps,
@@ -12,11 +13,8 @@ from ._helpers import (
     _emit_transformer_exog,
     _emit_window_features,
     _get_estimator_constructor,
-    _get_estimator_import,
     _get_interval_repr,
-    _get_metric_imports,
     _get_target_str,
-    _needs_column_transformer,
 )
 
 
@@ -77,14 +75,9 @@ def render_forecast_single_series(
 ) -> RenderedScript:
     """Render code for ForecasterRecursive or ForecasterDirect."""
 
-    is_direct = plan.forecaster == "ForecasterDirect"
-    forecaster_module = "direct" if is_direct else "recursive"
-    forecaster_class = plan.forecaster
-    estimator_import = _get_estimator_import(plan.estimator)
     target = _get_target_str(profile)
 
     kwargs = plan.forecaster_kwargs
-    transformer_y = kwargs.get("transformer_y")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
 
@@ -93,17 +86,12 @@ def render_forecast_single_series(
     core_lines: list[str] = []
 
     # --- Imports ---
-    import_lines.append("import pandas as pd")
-    if transformer_y or transformer_exog:
-        import_lines.append("from sklearn.preprocessing import StandardScaler")
-    if transformer_exog and _needs_column_transformer(profile):
-        import_lines.append("from sklearn.compose import make_column_transformer")
-    import_lines.extend(_get_metric_imports(plan.metrics_to_compute))
-    import_lines.append(estimator_import)
-    if window_features:
-        import_lines.append("from skforecast.preprocessing import RollingFeatures")
-    import_lines.append(f"from skforecast.{forecaster_module} import {forecaster_class}")
-    import_lines.append("")
+    _emit_imports_single_series(
+        import_lines,
+        plan,
+        profile,
+        include_metrics=True,
+    )
 
     # --- Load data ---
     _emit_data_loading(loading_lines, profile)

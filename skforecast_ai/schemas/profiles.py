@@ -107,6 +107,7 @@ class DataProfile(BaseModel):
     data_path: str = "data.csv"
 
     # -- Train/test split --
+    start_date: str | None = None
     end_train: str | None = None
 
     # -- Diagnostics --

@@ -879,7 +879,26 @@ class ForecastingAssistant:
                     f"model architectures depend on steps."
                 )
 
-        # Extract cv_config for traceability
+        # Build human-readable CV explanation
+        n_observations = profile.data_profile.n_observations
+        original_its = cv.initial_train_size
+        if isinstance(cv.initial_train_size, str):
+            # Date-based initial_train_size requires a DatetimeIndex
+            index = pd.date_range(
+                start=profile.data_profile.start_date,
+                periods=n_observations,
+                freq=profile.data_profile.frequency,
+            )
+            folds = cv.split(X=index, as_pandas=False)
+            # split() mutates initial_train_size to int; restore the
+            # date string so rendering emits a date literal.
+            cv.initial_train_size = original_its
+        else:
+            folds = cv.split(
+                X=pd.RangeIndex(n_observations), as_pandas=False
+            )
+
+        # Extract cv_config after split
         cv_config = {
             "steps": cv.steps,
             "initial_train_size": cv.initial_train_size,
@@ -889,12 +908,6 @@ class ForecastingAssistant:
             "fold_stride": cv.fold_stride,
             "differentiation": cv.differentiation,
         }
-
-        # Build human-readable CV explanation
-        n_observations = profile.data_profile.n_observations
-        folds = cv.split(
-            X=pd.RangeIndex(n_observations), as_pandas=False
-        )
         cv_explanation = build_cv_explanation(
             cv_params=cv_config,
             n_observations=n_observations,

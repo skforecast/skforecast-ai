@@ -6,13 +6,15 @@ from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
     _emit_data_loading,
+    _emit_imports_foundation,
+    _emit_imports_multi_series,
+    _emit_imports_single_series,
+    _emit_imports_statistical,
     _emit_index_setup,
     _emit_preprocessing_steps,
     _emit_transformer_exog,
     _emit_window_features,
-    _get_estimator_import,
     _get_target_str,
-    _needs_column_transformer,
 )
 from .foundation import _emit_forecaster_creation_foundation
 from .multi_series import _emit_forecaster_creation_multi
@@ -29,7 +31,9 @@ def _emit_cv_configuration(
     lines.append("# Cross-validation configuration")
     cv_kwargs: list[tuple[str, str]] = []
     cv_kwargs.append(("steps", str(cv.steps)))
-    cv_kwargs.append(("initial_train_size", str(cv.initial_train_size)))
+    its = cv.initial_train_size
+    its_repr = repr(its) if isinstance(its, str) else str(its)
+    cv_kwargs.append(("initial_train_size", its_repr))
     if cv.fold_stride is not None and cv.fold_stride != cv.steps:
         cv_kwargs.append(("fold_stride", str(cv.fold_stride)))
     cv_kwargs.append(("refit", str(cv.refit)))
@@ -131,12 +135,7 @@ def render_backtesting_single_series(
 ) -> RenderedScript:
     """Render backtesting code for ForecasterRecursive or ForecasterDirect."""
 
-    forecaster_module = "direct" if plan.forecaster == "ForecasterDirect" else "recursive"
-    forecaster_class = plan.forecaster
-    estimator_import = _get_estimator_import(plan.estimator)
-
     kwargs = plan.forecaster_kwargs
-    transformer_y = kwargs.get("transformer_y")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
 
@@ -145,23 +144,12 @@ def render_backtesting_single_series(
     core_lines: list[str] = []
 
     # --- Imports ---
-    import_lines.append("import pandas as pd")
-    if plan.estimator:
-        import_lines.append(estimator_import)
-    import_lines.append(
-        f"from skforecast.{forecaster_module} import {forecaster_class}"
+    _emit_imports_single_series(
+        import_lines,
+        plan,
+        profile,
+        include_backtesting=True,
     )
-    import_lines.append(
-        "from skforecast.model_selection import "
-        "backtesting_forecaster, TimeSeriesFold"
-    )
-    if window_features:
-        import_lines.append("from skforecast.preprocessing import RollingFeatures")
-    if transformer_y or transformer_exog:
-        import_lines.append("from sklearn.preprocessing import StandardScaler")
-    if transformer_exog and _needs_column_transformer(profile):
-        import_lines.append("from sklearn.compose import make_column_transformer")
-    import_lines.append("")
 
     # --- Load data ---
     _emit_data_loading(loading_lines, profile)
@@ -209,10 +197,7 @@ def render_backtesting_multi_series(
 ) -> RenderedScript:
     """Render backtesting code for ForecasterRecursiveMultiSeries."""
 
-    estimator_import = _get_estimator_import(plan.estimator)
-
     kwargs = plan.forecaster_kwargs
-    transformer_series = kwargs.get("transformer_series")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
 
@@ -225,33 +210,12 @@ def render_backtesting_multi_series(
     core_lines: list[str] = []
 
     # --- Imports ---
-    import_lines.append("import pandas as pd")
-    if plan.estimator:
-        import_lines.append(estimator_import)
-    import_lines.append(
-        "from skforecast.recursive import ForecasterRecursiveMultiSeries"
+    _emit_imports_multi_series(
+        import_lines,
+        plan,
+        profile,
+        include_backtesting=True,
     )
-    import_lines.append(
-        "from skforecast.model_selection import "
-        "backtesting_forecaster_multiseries, TimeSeriesFold"
-    )
-    preprocessing_imports: list[str] = []
-    if window_features:
-        preprocessing_imports.append("RollingFeatures")
-    if not is_wide:
-        preprocessing_imports.append("reshape_series_long_to_dict")
-        if use_exog:
-            preprocessing_imports.append("reshape_exog_long_to_dict")
-    if preprocessing_imports:
-        import_lines.append(
-            "from skforecast.preprocessing import "
-            + ", ".join(preprocessing_imports)
-        )
-    if transformer_series or transformer_exog:
-        import_lines.append("from sklearn.preprocessing import StandardScaler")
-    if transformer_exog and _needs_column_transformer(profile):
-        import_lines.append("from sklearn.compose import make_column_transformer")
-    import_lines.append("")
 
     # --- Load data ---
     if is_wide:
@@ -355,10 +319,7 @@ def render_backtesting_multivariate(
 ) -> RenderedScript:
     """Render backtesting code for ForecasterDirectMultiVariate."""
 
-    estimator_import = _get_estimator_import(plan.estimator)
-
     kwargs = plan.forecaster_kwargs
-    transformer_series = kwargs.get("transformer_series")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
 
@@ -371,23 +332,12 @@ def render_backtesting_multivariate(
     core_lines: list[str] = []
 
     # --- Imports ---
-    import_lines.append("import pandas as pd")
-    if plan.estimator:
-        import_lines.append(estimator_import)
-    import_lines.append(
-        "from skforecast.direct import ForecasterDirectMultiVariate"
+    _emit_imports_multi_series(
+        import_lines,
+        plan,
+        profile,
+        include_backtesting=True,
     )
-    import_lines.append(
-        "from skforecast.model_selection import "
-        "backtesting_forecaster_multiseries, TimeSeriesFold"
-    )
-    if window_features:
-        import_lines.append("from skforecast.preprocessing import RollingFeatures")
-    if transformer_series or transformer_exog:
-        import_lines.append("from sklearn.preprocessing import StandardScaler")
-    if transformer_exog and _needs_column_transformer(profile):
-        import_lines.append("from sklearn.compose import make_column_transformer")
-    import_lines.append("")
 
     # --- Load data ---
     if is_wide:
@@ -542,15 +492,7 @@ def render_backtesting_foundation(
     core_lines: list[str] = []
 
     # --- Imports ---
-    import_lines.append("import pandas as pd")
-    import_lines.append(
-        "from skforecast.foundation import FoundationModel, ForecasterFoundation"
-    )
-    import_lines.append(
-        "from skforecast.model_selection import "
-        "backtesting_foundation, TimeSeriesFold"
-    )
-    import_lines.append("")
+    _emit_imports_foundation(import_lines, plan, include_backtesting=True)
 
     # --- Load data ---
     _emit_data_loading(loading_lines, profile)
@@ -657,14 +599,7 @@ def render_backtesting_statistical(
     core_lines: list[str] = []
 
     # --- Imports ---
-    import_lines.append("import pandas as pd")
-    import_lines.append("from skforecast.stats import Arima")
-    import_lines.append("from skforecast.recursive import ForecasterStats")
-    import_lines.append(
-        "from skforecast.model_selection import "
-        "backtesting_stats, TimeSeriesFold"
-    )
-    import_lines.append("")
+    _emit_imports_statistical(import_lines, plan, include_backtesting=True)
 
     # --- Load data ---
     _emit_data_loading(loading_lines, profile)

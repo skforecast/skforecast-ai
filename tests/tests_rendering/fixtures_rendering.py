@@ -233,6 +233,30 @@ plan_single_with_window_features = ForecastPlan(
     explanation="Single series with rolling window features.",
 )
 
+plan_single_with_transformer_y = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": 7, "transformer_y": "StandardScaler"},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    explanation="Single series with transformer_y.",
+)
+
+plan_single_with_transformer_exog = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": 7, "transformer_exog": "StandardScaler"},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=True,
+    explanation="Single series with transformer_exog.",
+)
+
 plan_multi_series = ForecastPlan(
     task_type="multi_series",
     forecaster="ForecasterRecursiveMultiSeries",
@@ -255,6 +279,38 @@ plan_multi_series_exog = ForecastPlan(
     frequency="D",
     use_exog=True,
     explanation="Multi-series forecasting with exogenous variables.",
+)
+
+plan_multi_series_with_transformer_series = ForecastPlan(
+    task_type="multi_series",
+    forecaster="ForecasterRecursiveMultiSeries",
+    forecaster_kwargs={
+        "lags": 7,
+        "encoding": "ordinal",
+        "transformer_series": "StandardScaler",
+    },
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    explanation="Multi-series with transformer_series.",
+)
+
+plan_multi_series_with_window_features = ForecastPlan(
+    task_type="multi_series",
+    forecaster="ForecasterRecursiveMultiSeries",
+    forecaster_kwargs={
+        "lags": 7,
+        "encoding": "ordinal",
+        "window_features": [{"stats": ["mean"], "window_sizes": 7}],
+    },
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    explanation="Multi-series with window features.",
 )
 
 plan_multivariate = ForecastPlan(
