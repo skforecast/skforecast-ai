@@ -11,7 +11,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from .exceptions import LLMRequiredError
 from .execution import run_backtest, run_forecast
-from .execution.forecast_runner import generate_template
+from .execution.forecast_runner import render_script
 from .llm import (
     build_context_message,
     create_model,
@@ -456,7 +456,7 @@ class ForecastingAssistant:
             forecasting workflow.
         """
 
-        generated = generate_template(profile=profile, plan=plan)
+        generated = render_script(profile=profile, plan=plan)
 
         return generated.full_script
 

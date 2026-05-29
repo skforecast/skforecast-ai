@@ -1,9 +1,9 @@
-"""Code generation templates for backtesting workflows."""
+"""Script rendering for backtesting workflows."""
 
 from typing import Any
 
-from ..schemas import DataProfile, ForecastPlan, GeneratedCode
-from ._utils import (
+from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ._helpers import (
     _emit_aligned_kwargs,
     _emit_data_loading,
     _emit_index_setup,
@@ -124,12 +124,12 @@ def _emit_backtesting_call_multiseries(
 # ─────────────────────────────────────────────────────────────────────
 
 
-def _template_backtesting_single_series(
+def render_backtesting_single_series(
     plan: ForecastPlan,
     profile: DataProfile,
     cv: Any,
-) -> GeneratedCode:
-    """Generate backtesting code for ForecasterRecursive or ForecasterDirect."""
+) -> RenderedScript:
+    """Render backtesting code for ForecasterRecursive or ForecasterDirect."""
 
     forecaster_module = "direct" if plan.forecaster == "ForecasterDirect" else "recursive"
     forecaster_class = plan.forecaster
@@ -190,7 +190,7 @@ def _template_backtesting_single_series(
     # --- Backtesting call ---
     _emit_backtesting_call(core_lines, plan, profile)
 
-    return GeneratedCode(
+    return RenderedScript(
         imports="\n".join(import_lines),
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),
@@ -202,12 +202,12 @@ def _template_backtesting_single_series(
 # ─────────────────────────────────────────────────────────────────────
 
 
-def _template_backtesting_multi_series(
+def render_backtesting_multi_series(
     plan: ForecastPlan,
     profile: DataProfile,
     cv: Any,
-) -> GeneratedCode:
-    """Generate backtesting code for ForecasterRecursiveMultiSeries."""
+) -> RenderedScript:
+    """Render backtesting code for ForecasterRecursiveMultiSeries."""
 
     estimator_import = _get_estimator_import(plan.estimator)
 
@@ -336,7 +336,7 @@ def _template_backtesting_multi_series(
         core_lines, plan, series_expr=series_expr, exog_expr=exog_expr
     )
 
-    return GeneratedCode(
+    return RenderedScript(
         imports="\n".join(import_lines),
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),
@@ -348,12 +348,12 @@ def _template_backtesting_multi_series(
 # ─────────────────────────────────────────────────────────────────────
 
 
-def _template_backtesting_multivariate(
+def render_backtesting_multivariate(
     plan: ForecastPlan,
     profile: DataProfile,
     cv: Any,
-) -> GeneratedCode:
-    """Generate backtesting code for ForecasterDirectMultiVariate."""
+) -> RenderedScript:
+    """Render backtesting code for ForecasterDirectMultiVariate."""
 
     estimator_import = _get_estimator_import(plan.estimator)
 
@@ -463,7 +463,7 @@ def _template_backtesting_multivariate(
         core_lines, plan, series_expr=series_expr, exog_expr=exog_expr
     )
 
-    return GeneratedCode(
+    return RenderedScript(
         imports="\n".join(import_lines),
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),
@@ -526,12 +526,12 @@ def _emit_backtesting_call_foundation(
     lines.append("print(predictions.head())")
 
 
-def _template_backtesting_foundation(
+def render_backtesting_foundation(
     plan: ForecastPlan,
     profile: DataProfile,
     cv: Any,
-) -> GeneratedCode:
-    """Generate backtesting code for ForecasterFoundation."""
+) -> RenderedScript:
+    """Render backtesting code for ForecasterFoundation."""
 
     exog_columns = profile.exog_columns
     use_exog = plan.use_exog and bool(exog_columns)
@@ -596,7 +596,7 @@ def _template_backtesting_foundation(
         levels_expr=levels_expr,
     )
 
-    return GeneratedCode(
+    return RenderedScript(
         imports="\n".join(import_lines),
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),
@@ -646,12 +646,12 @@ def _emit_backtesting_call_statistical(
     lines.append("print(predictions.head())")
 
 
-def _template_backtesting_statistical(
+def render_backtesting_statistical(
     plan: ForecastPlan,
     profile: DataProfile,
     cv: Any,
-) -> GeneratedCode:
-    """Generate backtesting code for ForecasterStats (Auto-ARIMA)."""
+) -> RenderedScript:
+    """Render backtesting code for ForecasterStats (Auto-ARIMA)."""
 
     import_lines: list[str] = []
     loading_lines: list[str] = []
@@ -685,7 +685,7 @@ def _template_backtesting_statistical(
     # --- Backtesting call ---
     _emit_backtesting_call_statistical(core_lines, plan, profile)
 
-    return GeneratedCode(
+    return RenderedScript(
         imports="\n".join(import_lines),
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),

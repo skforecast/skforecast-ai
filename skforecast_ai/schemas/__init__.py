@@ -7,7 +7,7 @@ from .results import (
     BacktestResult,
     CodeGenerationResult,
     ForecastResult,
-    GeneratedCode,
+    RenderedScript,
 )
 
 __all__ = [
@@ -20,6 +20,6 @@ __all__ = [
     "ForecastingProfile",
     "ForecastPlan",
     "ForecastResult",
-    "GeneratedCode",
     "PreprocessingStep",
+    "RenderedScript",
 ]

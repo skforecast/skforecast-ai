@@ -1,7 +1,7 @@
-"""Code generation template for statistical forecasting (Auto-ARIMA)."""
+"""Script rendering for statistical forecasting (Auto-ARIMA)."""
 
-from ..schemas import DataProfile, ForecastPlan, GeneratedCode
-from ._utils import (
+from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ._helpers import (
     _emit_aligned_kwargs,
     _emit_data_loading,
     _emit_end_train,
@@ -38,11 +38,11 @@ def _emit_forecaster_creation_statistical(
     lines.append("")
 
 
-def _template_statistical(
+def render_forecast_statistical(
     plan: ForecastPlan,
     profile: DataProfile,
-) -> GeneratedCode:
-    """Generate code for ForecasterStats (Auto-ARIMA)."""
+) -> RenderedScript:
+    """Render code for ForecasterStats (Auto-ARIMA)."""
 
     target = _get_target_str(profile)
     exog_columns = profile.exog_columns
@@ -141,7 +141,7 @@ def _template_statistical(
     _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
     core_lines.append("")
 
-    return GeneratedCode(
+    return RenderedScript(
         imports="\n".join(import_lines),
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),

@@ -10,11 +10,11 @@ from .plans import ForecastPlan
 from .profiles import ForecastingProfile
 
 
-class GeneratedCode(BaseModel):
+class RenderedScript(BaseModel):
     """
-    Structured representation of generated forecasting code.
+    Structured representation of a rendered forecasting script.
 
-    Splits the generated script into logical sections so that
+    Splits the rendered script into logical sections so that
     `forecast()` can exec the core logic while `forecast_code()`
     returns the full standalone script.
 

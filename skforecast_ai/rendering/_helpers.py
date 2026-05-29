@@ -1,4 +1,4 @@
-"""Code generation templates for skforecast workflows."""
+"""Shared helpers for script rendering."""
 
 
 from ..schemas import DataProfile, ForecastPlan

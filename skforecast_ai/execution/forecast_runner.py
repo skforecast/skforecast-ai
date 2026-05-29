@@ -15,29 +15,29 @@ from contextlib import redirect_stdout
 import pandas as pd
 
 from ..exceptions import ForecastExecutionError
-from ..generation._utils import _METRIC_REGISTRY
-from ..schemas import DataProfile, ForecastPlan, GeneratedCode
+from ..rendering._helpers import _METRIC_REGISTRY
+from ..schemas import DataProfile, ForecastPlan, RenderedScript
 
-from ..generation.single_series import _template_single_series
-from ..generation.multi_series import _template_multi_series, _template_multivariate
-from ..generation.statistical import _template_statistical
-from ..generation.foundation import _template_foundation
+from ..rendering.single_series import render_forecast_single_series
+from ..rendering.multi_series import render_forecast_multi_series, render_forecast_multivariate
+from ..rendering.statistical import render_forecast_statistical
+from ..rendering.foundation import render_forecast_foundation
 
-_TEMPLATE_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], GeneratedCode]] = {
-    "single_series": _template_single_series,
-    "multi_series": _template_multi_series,
-    "multivariate": _template_multivariate,
-    "statistical": _template_statistical,
-    "foundation": _template_foundation,
+_RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript]] = {
+    "single_series": render_forecast_single_series,
+    "multi_series": render_forecast_multi_series,
+    "multivariate": render_forecast_multivariate,
+    "statistical": render_forecast_statistical,
+    "foundation": render_forecast_foundation,
 }
 
 
-def generate_template(
+def render_script(
     profile: DataProfile,
     plan: ForecastPlan,
-) -> GeneratedCode:
+) -> RenderedScript:
     """
-    Generate structured code from a plan and data profile.
+    Render structured code from a plan and data profile.
 
     Parameters
     ----------
@@ -48,18 +48,18 @@ def generate_template(
 
     Returns
     -------
-    generated : GeneratedCode
+    rendered : RenderedScript
         Structured code split into imports, data_loading, and core
         sections.
     """
-    template_fn = _TEMPLATE_DISPATCH.get(plan.task_type)
-    if template_fn is None:
-        supported = list(_TEMPLATE_DISPATCH.keys())
+    render_fn = _RENDER_DISPATCH.get(plan.task_type)
+    if render_fn is None:
+        supported = list(_RENDER_DISPATCH.keys())
         raise ValueError(
             f"Unsupported task_type '{plan.task_type}'. "
             f"Supported types: {supported}"
         )
-    return template_fn(plan, profile)
+    return render_fn(plan, profile)
 
 
 def run_forecast(
@@ -95,10 +95,10 @@ def run_forecast(
         Dictionary with keys `'metrics'`, `'predictions'`,
         `'intervals'`, and `'generated_code'`.
     """
-    generated = generate_template(profile, plan)
+    rendered = render_script(profile, plan)
 
-    # Execute the generated code with `data` pre-loaded in the namespace
-    namespace = _exec_generated_code(generated, data)
+    # Execute the rendered code with `data` pre-loaded in the namespace
+    namespace = _exec_rendered_code(rendered, data)
 
     # Extract standard results from the executed namespace
     predictions = namespace.get("predictions")
@@ -143,21 +143,21 @@ def run_forecast(
         "metrics": metrics,
         "predictions": predictions,
         "intervals": intervals,
-        "generated_code": generated,
+        "generated_code": rendered,
     }
 
 
-def _exec_generated_code(
-    generated: GeneratedCode,
+def _exec_rendered_code(
+    rendered: RenderedScript,
     data: pd.DataFrame,
 ) -> dict[str, Any]:
     """
-    Execute the generated code with data injected into the namespace.
+    Execute the rendered code with data injected into the namespace.
 
     Parameters
     ----------
-    generated : GeneratedCode
-        Structured generated code.
+    rendered : RenderedScript
+        Structured rendered code.
     data : pandas DataFrame
         Input dataset to inject as the `data` variable.
 
@@ -166,7 +166,7 @@ def _exec_generated_code(
     namespace : dict
         Executed namespace containing all variables produced by the code.
     """
-    code_to_exec = generated.executable
+    code_to_exec = rendered.executable
     namespace: dict[str, Any] = {"data": data.copy()}
 
     compiled = compile(code_to_exec, "<forecast>", "exec")

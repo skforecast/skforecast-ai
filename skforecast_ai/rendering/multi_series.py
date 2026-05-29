@@ -1,7 +1,7 @@
-"""Code generation templates for multi-series and multivariate forecasting."""
+"""Script rendering for multi-series and multivariate forecasting."""
 
-from ..schemas import DataProfile, ForecastPlan, GeneratedCode
-from ._utils import (
+from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ._helpers import (
     _emit_aligned_kwargs,
     _emit_data_loading,
     _emit_end_train,
@@ -86,11 +86,11 @@ def _emit_forecaster_creation_multi(
 # Template: multi_series
 # ─────────────────────────────────────────────────────────────────────
 
-def _template_multi_series(
+def render_forecast_multi_series(
     plan: ForecastPlan,
     profile: DataProfile,
-) -> GeneratedCode:
-    """Generate code for ForecasterRecursiveMultiSeries."""
+) -> RenderedScript:
+    """Render code for ForecasterRecursiveMultiSeries."""
 
     estimator_import = _get_estimator_import(plan.estimator)
 
@@ -293,7 +293,7 @@ def _template_multi_series(
     _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
     core_lines.append("")
 
-    return GeneratedCode(
+    return RenderedScript(
         imports="\n".join(import_lines),
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),
@@ -304,11 +304,11 @@ def _template_multi_series(
 # Template: multivariate
 # ─────────────────────────────────────────────────────────────────────
 
-def _template_multivariate(
+def render_forecast_multivariate(
     plan: ForecastPlan,
     profile: DataProfile,
-) -> GeneratedCode:
-    """Generate code for ForecasterDirectMultiVariate."""
+) -> RenderedScript:
+    """Render code for ForecasterDirectMultiVariate."""
 
     estimator_import = _get_estimator_import(plan.estimator)
 
@@ -476,7 +476,7 @@ def _template_multivariate(
     _emit_production_note(core_lines, use_exog=use_exog)
     core_lines.append("")
 
-    return GeneratedCode(
+    return RenderedScript(
         imports="\n".join(import_lines),
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),

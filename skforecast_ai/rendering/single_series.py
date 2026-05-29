@@ -1,7 +1,7 @@
-"""Code generation template for single-series forecasting."""
+"""Script rendering for single-series forecasting."""
 
-from ..schemas import DataProfile, ForecastPlan, GeneratedCode
-from ._utils import (
+from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ._helpers import (
     _emit_aligned_kwargs,
     _emit_data_loading,
     _emit_end_train,
@@ -71,11 +71,11 @@ def _emit_forecaster_creation_single(
     lines.append("")
 
 
-def _template_single_series(
+def render_forecast_single_series(
     plan: ForecastPlan,
     profile: DataProfile,
-) -> GeneratedCode:
-    """Generate code for ForecasterRecursive or ForecasterDirect."""
+) -> RenderedScript:
+    """Render code for ForecasterRecursive or ForecasterDirect."""
 
     is_direct = plan.forecaster == "ForecasterDirect"
     forecaster_module = "direct" if is_direct else "recursive"
@@ -209,7 +209,7 @@ def _template_single_series(
     _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
     core_lines.append("")
 
-    return GeneratedCode(
+    return RenderedScript(
         imports      = "\n".join(import_lines),
         data_loading = "\n".join(loading_lines),
         core         = "\n".join(core_lines),

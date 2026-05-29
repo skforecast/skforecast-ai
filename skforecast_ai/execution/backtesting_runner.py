@@ -12,17 +12,17 @@ from typing import Any
 
 import pandas as pd
 
-from ..generation._utils import (
+from ..rendering._helpers import (
     _ESTIMATOR_DEFAULTS,
     _ESTIMATOR_IMPORTS,
     _get_target_str,
 )
-from ..generation.backtesting import (
-    _template_backtesting_foundation,
-    _template_backtesting_multi_series,
-    _template_backtesting_multivariate,
-    _template_backtesting_single_series,
-    _template_backtesting_statistical,
+from ..rendering.backtesting import (
+    render_backtesting_foundation,
+    render_backtesting_multi_series,
+    render_backtesting_multivariate,
+    render_backtesting_single_series,
+    render_backtesting_statistical,
 )
 from ..schemas import DataProfile, ForecastPlan
 
@@ -422,18 +422,18 @@ def _generate_backtesting_code(
     """
 
     if plan.task_type == "multi_series":
-        return _template_backtesting_multi_series(plan, profile, cv).full_script
+        return render_backtesting_multi_series(plan, profile, cv).full_script
 
     if plan.task_type == "multivariate":
-        return _template_backtesting_multivariate(plan, profile, cv).full_script
+        return render_backtesting_multivariate(plan, profile, cv).full_script
 
     if plan.task_type == "foundation":
-        return _template_backtesting_foundation(plan, profile, cv).full_script
+        return render_backtesting_foundation(plan, profile, cv).full_script
 
     if plan.task_type == "statistical":
-        return _template_backtesting_statistical(plan, profile, cv).full_script
+        return render_backtesting_statistical(plan, profile, cv).full_script
 
-    return _template_backtesting_single_series(plan, profile, cv).full_script
+    return render_backtesting_single_series(plan, profile, cv).full_script
 
 
 def _build_backtest_explanation(
