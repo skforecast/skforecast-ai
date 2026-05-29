@@ -6,17 +6,60 @@ actual execution.
 """
 
 from __future__ import annotations
+from typing import Any, Callable
 
 import io
 import traceback
 from contextlib import redirect_stdout
-from typing import Any
 
 import pandas as pd
 
 from ..exceptions import ForecastExecutionError
-from ..generation.code_templates import generate_template, _METRIC_REGISTRY
+from ..generation._utils import _METRIC_REGISTRY
 from ..schemas import DataProfile, ForecastPlan, GeneratedCode
+
+from ..generation.single_series import _template_single_series
+from ..generation.multi_series import _template_multi_series, _template_multivariate
+from ..generation.statistical import _template_statistical
+from ..generation.foundation import _template_foundation
+
+_TEMPLATE_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], GeneratedCode]] = {
+    "single_series": _template_single_series,
+    "multi_series": _template_multi_series,
+    "multivariate": _template_multivariate,
+    "statistical": _template_statistical,
+    "foundation": _template_foundation,
+}
+
+
+def generate_template(
+    profile: DataProfile,
+    plan: ForecastPlan,
+) -> GeneratedCode:
+    """
+    Generate structured code from a plan and data profile.
+
+    Parameters
+    ----------
+    profile : DataProfile
+        Profile of the input dataset.
+    plan : ForecastPlan
+        Validated forecast plan.
+
+    Returns
+    -------
+    generated : GeneratedCode
+        Structured code split into imports, data_loading, and core
+        sections.
+    """
+    template_fn = _TEMPLATE_DISPATCH.get(plan.task_type)
+    if template_fn is None:
+        supported = list(_TEMPLATE_DISPATCH.keys())
+        raise ValueError(
+            f"Unsupported task_type '{plan.task_type}'. "
+            f"Supported types: {supported}"
+        )
+    return template_fn(plan, profile)
 
 
 def run_forecast(

@@ -771,3 +771,240 @@ def test_forecast_code_output_when_custom_estimator_kwargs_override_default():
     compile(code, "<test>", "exec")
     assert "random_state=42" in code
     assert "random_state=123" not in code
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Backtesting code generation: multi-series and multivariate
+# ─────────────────────────────────────────────────────────────────────
+
+
+class _MockCV:
+    """Minimal mock of TimeSeriesFold for code generation tests."""
+
+    def __init__(
+        self,
+        steps=14,
+        initial_train_size=200,
+        refit=False,
+        fixed_train_size=True,
+        gap=0,
+        fold_stride=None,
+        skip_folds=None,
+        allow_incomplete_fold=True,
+        differentiation=None,
+    ):
+        self.steps = steps
+        self.initial_train_size = initial_train_size
+        self.refit = refit
+        self.fixed_train_size = fixed_train_size
+        self.gap = gap
+        self.fold_stride = fold_stride
+        self.skip_folds = skip_folds
+        self.allow_incomplete_fold = allow_incomplete_fold
+        self.differentiation = differentiation
+
+
+def test_backtesting_code_output_when_multi_series_long_syntax():
+    """
+    Test backtesting code generation produces syntactically valid Python
+    for ForecasterRecursiveMultiSeries with long-format data.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_multi_series,
+    )
+
+    cv = _MockCV(steps=14, initial_train_size=200)
+    result = _template_backtesting_multi_series(
+        plan=plan_multi_series, profile=profile_multi_series, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "ForecasterRecursiveMultiSeries" in result.core
+    assert "backtesting_forecaster_multiseries" in result.imports
+    assert "TimeSeriesFold" in result.imports
+    assert "reshape_series_long_to_dict" in result.core
+    assert "series_dict" in result.core
+
+
+def test_backtesting_code_output_when_multi_series_wide_syntax():
+    """
+    Test backtesting code generation produces syntactically valid Python
+    for ForecasterRecursiveMultiSeries with wide-format data.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_multi_series,
+    )
+
+    cv = _MockCV(steps=14, initial_train_size=200)
+    result = _template_backtesting_multi_series(
+        plan=plan_multi_series_wide, profile=profile_multi_series_wide, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "ForecasterRecursiveMultiSeries" in result.core
+    assert "reshape_series_long_to_dict" not in result.core
+    assert "series_a" in result.core
+
+
+def test_backtesting_code_output_when_multi_series_exog_syntax():
+    """
+    Test backtesting code generation produces syntactically valid Python
+    for ForecasterRecursiveMultiSeries with exog and categoricals.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_multi_series,
+    )
+
+    cv = _MockCV(steps=7, initial_train_size=250)
+    result = _template_backtesting_multi_series(
+        plan=plan_multi_series_exog, profile=profile_multi_series_exog, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "reshape_exog_long_to_dict" in result.core
+    assert "exog_dict" in result.core
+    assert "categorical_features = 'auto'" in result.core
+    assert "make_column_transformer" in result.core
+
+
+def test_backtesting_code_output_when_multivariate_syntax():
+    """
+    Test backtesting code generation produces syntactically valid Python
+    for ForecasterDirectMultiVariate.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_multivariate,
+    )
+
+    cv = _MockCV(steps=10, initial_train_size=300)
+    result = _template_backtesting_multivariate(
+        plan=plan_multivariate, profile=profile_multivariate, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "ForecasterDirectMultiVariate" in result.core
+    assert "backtesting_forecaster_multiseries" in result.imports
+    assert "level" in result.core
+
+
+def test_backtesting_code_output_when_foundation_syntax():
+    """
+    Test backtesting code generation produces syntactically valid Python
+    for ForecasterFoundation without quantiles.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_foundation,
+    )
+
+    cv = _MockCV(steps=30, initial_train_size=300)
+    result = _template_backtesting_foundation(
+        plan=plan_foundation, profile=profile_foundation, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "ForecasterFoundation" in result.core
+    assert "FoundationModel" in result.core
+    assert "backtesting_foundation" in result.imports
+    assert "quantiles" not in result.core
+
+
+def test_backtesting_code_output_when_foundation_with_quantiles_syntax():
+    """
+    Test backtesting code generation includes quantiles when
+    interval_method is set for foundation models.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_foundation,
+    )
+
+    cv = _MockCV(steps=30, initial_train_size=300)
+    result = _template_backtesting_foundation(
+        plan=plan_foundation_with_interval, profile=profile_foundation, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "quantiles" in result.core
+    assert "0.1" in result.core
+    assert "0.5" in result.core
+    assert "0.9" in result.core
+
+
+def test_backtesting_code_output_when_foundation_multi_series_syntax():
+    """
+    Test backtesting code generation includes levels for multi-series
+    foundation models.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_foundation,
+    )
+
+    cv = _MockCV(steps=14, initial_train_size=300)
+    result = _template_backtesting_foundation(
+        plan=plan_foundation_multi, profile=profile_foundation_multi, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "levels" in result.core
+    assert "series_a" in result.core
+
+
+def test_backtesting_code_output_when_statistical_syntax():
+    """
+    Test backtesting code generation produces syntactically valid Python
+    for ForecasterStats without exog or intervals.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_statistical,
+    )
+
+    cv = _MockCV(steps=30, initial_train_size=300)
+    result = _template_backtesting_statistical(
+        plan=plan_statistical, profile=profile_statistical, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "ForecasterStats" in result.core
+    assert "Arima" in result.core
+    assert "backtesting_stats" in result.imports
+    assert "freeze_params" in result.core
+    assert "interval" not in result.core
+
+
+def test_backtesting_code_output_when_statistical_with_interval_syntax():
+    """
+    Test backtesting code generation includes interval parameter when
+    interval_method is set for statistical models.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_statistical,
+    )
+
+    cv = _MockCV(steps=30, initial_train_size=300)
+    result = _template_backtesting_statistical(
+        plan=plan_statistical_with_interval, profile=profile_statistical, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "interval" in result.core
+    assert "[10, 90]" in result.core
+    assert "freeze_params" in result.core
+
+
+def test_backtesting_code_output_when_statistical_with_exog_syntax():
+    """
+    Test backtesting code generation includes exog for statistical models
+    when use_exog is True.
+    """
+    from skforecast_ai.generation.backtesting import (
+        _template_backtesting_statistical,
+    )
+
+    cv = _MockCV(steps=12, initial_train_size=300)
+    result = _template_backtesting_statistical(
+        plan=plan_statistical_arima_exog, profile=profile_statistical_exog, cv=cv
+    )
+
+    compile(result.full_script, "<test>", "exec")
+    assert "exog" in result.core
+    assert "temperature" in result.core
+    assert "interval" in result.core

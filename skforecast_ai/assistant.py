@@ -11,7 +11,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from .exceptions import LLMRequiredError
 from .execution import run_backtest, run_forecast
-from .generation import generate_template
+from .execution.forecast_runner import generate_template
 from .llm import (
     build_context_message,
     create_model,

@@ -12,18 +12,17 @@ from typing import Any
 
 import pandas as pd
 
-from ..generation.code_templates import (
+from ..generation._utils import (
     _ESTIMATOR_DEFAULTS,
     _ESTIMATOR_IMPORTS,
-    _emit_data_loading,
-    _emit_index_setup,
-    _emit_preprocessing_steps,
-    _emit_transformer_exog,
-    _emit_window_features,
-    _get_estimator_constructor,
-    _get_estimator_import,
     _get_target_str,
-    _needs_column_transformer,
+)
+from ..generation.backtesting import (
+    _template_backtesting_foundation,
+    _template_backtesting_multi_series,
+    _template_backtesting_multivariate,
+    _template_backtesting_single_series,
+    _template_backtesting_statistical,
 )
 from ..schemas import DataProfile, ForecastPlan
 
@@ -422,186 +421,19 @@ def _generate_backtesting_code(
         Complete runnable Python script.
     """
 
-    lines: list[str] = []
-    target = _get_target_str(profile)
-    is_multi = plan.task_type == "multi_series"
+    if plan.task_type == "multi_series":
+        return _template_backtesting_multi_series(plan, profile, cv).full_script
 
-    # --- Imports ---
-    lines.append("import pandas as pd")
-    if plan.estimator:
-        lines.append(_get_estimator_import(plan.estimator))
+    if plan.task_type == "multivariate":
+        return _template_backtesting_multivariate(plan, profile, cv).full_script
 
-    # Derive module from _FORECASTER_MODULES
-    fc_info = _FORECASTER_MODULES.get(plan.forecaster)
-    fc_module = fc_info[0].split(".")[-1] if fc_info else "recursive"
-    lines.append(
-        f"from skforecast.{fc_module} import {plan.forecaster}"
-    )
-    if is_multi:
-        lines.append(
-            "from skforecast.model_selection import "
-            "backtesting_forecaster_multiseries, TimeSeriesFold"
-        )
-    else:
-        lines.append(
-            "from skforecast.model_selection import "
-            "backtesting_forecaster, TimeSeriesFold"
-        )
+    if plan.task_type == "foundation":
+        return _template_backtesting_foundation(plan, profile, cv).full_script
 
-    fc_kwargs = plan.forecaster_kwargs or {}
-    window_features = fc_kwargs.get("window_features")
-    categorical_features = fc_kwargs.get("categorical_features")
-    transformer_y = fc_kwargs.get("transformer_y")
-    transformer_series = fc_kwargs.get("transformer_series")
-    transformer_exog = fc_kwargs.get("transformer_exog")
+    if plan.task_type == "statistical":
+        return _template_backtesting_statistical(plan, profile, cv).full_script
 
-    if window_features:
-        lines.append("from skforecast.preprocessing import RollingFeatures")
-    if transformer_y or transformer_series or transformer_exog:
-        lines.append("from sklearn.preprocessing import StandardScaler")
-    if transformer_exog and _needs_column_transformer(profile):
-        lines.append("from sklearn.compose import make_column_transformer")
-
-    lines.append("")
-
-    # --- Data loading ---
-    _emit_data_loading(lines, profile)
-    _emit_index_setup(lines, profile)
-
-    # --- Preprocessing steps ---
-    _emit_preprocessing_steps(lines, plan, profile)
-
-    # --- Window features ---
-    if window_features and isinstance(window_features, list):
-        _emit_window_features(lines, window_features)
-        lines.append("")
-
-    # --- Transformer exog ---
-    if transformer_exog and plan.use_exog and profile.exog_columns:
-        _emit_transformer_exog(lines, transformer_exog, profile)
-
-    # --- Forecaster instantiation ---
-    lines.append("# Create forecaster")
-    estimator_str = _get_estimator_constructor(
-        plan.estimator, plan.estimator_kwargs
-    )
-
-    lags = fc_kwargs.get("lags")
-    differentiation = fc_kwargs.get("differentiation")
-    dropna = fc_kwargs.get("dropna_from_series")
-
-    fc_params_raw: list[tuple[str, str]] = []
-    if plan.estimator:
-        fc_params_raw.append(("estimator", estimator_str))
-    if plan.forecaster in (
-        "ForecasterDirect", "ForecasterDirectMultiVariate"
-    ):
-        fc_params_raw.append(("steps", str(plan.steps)))
-    fc_params_raw.append(("lags", str(lags)))
-    if is_multi:
-        encoding = fc_kwargs.get("encoding", "'ordinal'")
-        if isinstance(encoding, str) and not encoding.startswith("'"):
-            encoding = f"'{encoding}'"
-        fc_params_raw.append(("encoding", encoding))
-    if window_features:
-        fc_params_raw.append(("window_features", "window_features"))
-    if is_multi and transformer_series:
-        fc_params_raw.append((
-            "transformer_series", f"{transformer_series}()"
-        ))
-    elif not is_multi and transformer_y:
-        fc_params_raw.append(("transformer_y", f"{transformer_y}()"))
-    if transformer_exog and plan.use_exog and profile.exog_columns:
-        fc_params_raw.append(("transformer_exog", "transformer_exog"))
-    if categorical_features is not None:
-        fc_params_raw.append((
-            "categorical_features", f"'{categorical_features}'"
-        ))
-    if differentiation is not None:
-        fc_params_raw.append(("differentiation", str(differentiation)))
-    if dropna is not None:
-        fc_params_raw.append(("dropna_from_series", str(dropna)))
-
-    max_name_len = max(len(name) for name, _ in fc_params_raw)
-    fc_params = [
-        f"    {name:<{max_name_len}} = {value},"
-        for name, value in fc_params_raw
-    ]
-
-    lines.append(f"forecaster = {plan.forecaster}(")
-    lines.extend(fc_params)
-    lines.append(")")
-    lines.append("")
-
-    # --- TimeSeriesFold ---
-    lines.append("# Cross-validation configuration")
-
-    cv_params_raw: list[tuple[str, str]] = []
-    cv_params_raw.append(("steps", str(cv.steps)))
-    cv_params_raw.append(("initial_train_size", str(cv.initial_train_size)))
-    cv_params_raw.append(("refit", str(cv.refit)))
-    cv_params_raw.append(("fixed_train_size", str(cv.fixed_train_size)))
-    if cv.gap != 0:
-        cv_params_raw.append(("gap", str(cv.gap)))
-    if cv.fold_stride is not None and cv.fold_stride != cv.steps:
-        cv_params_raw.append(("fold_stride", str(cv.fold_stride)))
-    if cv.differentiation is not None:
-        cv_params_raw.append(("differentiation", str(cv.differentiation)))
-
-    max_cv_len = max(len(name) for name, _ in cv_params_raw)
-    lines.append("cv = TimeSeriesFold(")
-    for name, value in cv_params_raw:
-        lines.append(f"    {name:<{max_cv_len}} = {value},")
-    lines.append(")")
-    lines.append("")
-
-    # --- Backtesting call ---
-    lines.append("# Run backtesting")
-    metrics_repr = repr(plan.metrics_to_compute)
-
-    if plan.use_exog and profile.exog_columns:
-        lines.append(f"exog_features = {repr(profile.exog_columns)}")
-        lines.append("")
-
-    bt_params_raw: list[tuple[str, str]] = []
-    if is_multi:
-        if isinstance(profile.target, list):
-            series_expr = f"data[{repr(profile.target)}]"
-        else:
-            series_expr = f"data[[{repr(profile.target)}]]"
-
-        bt_params_raw.append(("forecaster", "forecaster"))
-        bt_params_raw.append(("series", series_expr))
-    else:
-        bt_params_raw.append(("forecaster", "forecaster"))
-        bt_params_raw.append(("y", f"data[{repr(target)}]"))
-
-    if plan.use_exog and profile.exog_columns:
-        bt_params_raw.append(("exog", "data[exog_features]"))
-    bt_params_raw.append(("cv", "cv"))
-    bt_params_raw.append(("metric", metrics_repr))
-    if plan.interval is not None:
-        bt_params_raw.append(("interval", repr(plan.interval)))
-    bt_params_raw.append(("n_jobs", "'auto'"))
-    bt_params_raw.append(("verbose", "False"))
-    bt_params_raw.append(("show_progress", "True"))
-    bt_params_raw.append(("suppress_warnings", "True"))
-
-    max_bt_len = max(len(name) for name, _ in bt_params_raw)
-    if is_multi:
-        lines.append(
-            "metrics, predictions = backtesting_forecaster_multiseries("
-        )
-    else:
-        lines.append("metrics, predictions = backtesting_forecaster(")
-    for name, value in bt_params_raw:
-        lines.append(f"    {name:<{max_bt_len}} = {value},")
-    lines.append(")")
-    lines.append("")
-    lines.append("print(metrics)")
-    lines.append("print(predictions.head())")
-
-    return "\n".join(lines)
+    return _template_backtesting_single_series(plan, profile, cv).full_script
 
 
 def _build_backtest_explanation(
