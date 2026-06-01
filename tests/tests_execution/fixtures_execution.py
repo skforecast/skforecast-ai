@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai.schemas import DataProfile, ForecastPlan
 
@@ -172,4 +173,60 @@ plan_single_custom_kwargs = ForecastPlan(
     use_exog=False,
     warnings=[],
     explanation="Single series with custom estimator kwargs.",
+)
+
+# --- Backtesting fixtures ---
+
+cv_single = TimeSeriesFold(
+    steps=10,
+    initial_train_size=160,
+    refit=False,
+    fixed_train_size=False,
+)
+
+cv_multi = TimeSeriesFold(
+    steps=5,
+    initial_train_size=80,
+    refit=False,
+    fixed_train_size=False,
+)
+
+cv_short = TimeSeriesFold(
+    steps=5,
+    initial_train_size=20,
+    refit=False,
+    fixed_train_size=False,
+)
+
+cv_explanation_single = (
+    "TimeSeriesFold with 10 steps, initial_train_size=160, "
+    "refit=False, fixed_train_size=False."
+)
+
+profile_single_no_exog = DataProfile(
+    n_series=1,
+    n_observations=_n_obs,
+    target="sales",
+    date_column="date",
+    index_type="datetime",
+    frequency="D",
+    exog_columns=[],
+    categorical_exog=[],
+    missing_target={},
+    missing_exog={},
+    end_train=_end_train_single,
+    warnings=[],
+)
+
+plan_statistical = ForecastPlan(
+    task_type="statistical",
+    forecaster="ForecasterStats",
+    forecaster_kwargs={},
+    estimator=None,
+    steps=5,
+    frequency="D",
+    interval_method=None,
+    use_exog=False,
+    warnings=[],
+    explanation="Statistical ARIMA model for backtesting.",
 )

@@ -11,7 +11,8 @@ from skforecast.model_selection import TimeSeriesFold
 
 from .exceptions import LLMRequiredError
 from .execution import run_backtest, run_forecast
-from .execution.forecast_runner import render_script
+from .execution.backtesting_runner import render_backtesting_script
+from .execution.forecast_runner import render_forecast_script
 from .llm import (
     build_context_message,
     create_model,
@@ -40,7 +41,6 @@ from .recommendation import (
 from .schemas import (
     AskResult,
     BacktestResult,
-    DataProfile,
     ForecastingProfile,
     ForecastPlan,
     CodeGenerationResult,
@@ -104,7 +104,8 @@ class ForecastingAssistant:
     - `plan()` takes the profile and derives the detailed configuration
     (lags, metric, preprocessing, intervals, NaN handling).
     - `refine_plan()` adjusts an existing plan with user overrides (if desired).
-    - `render_code()` generates a Python script from a profile and plan.
+    - `forecast_code()` generates a Python script (accepts pre-computed
+    `profile` and `plan` for full control).
     - `forecast()` executes the workflow from a pre-computed profile and
     plan, returning predictions and metrics.
 
@@ -113,6 +114,8 @@ class ForecastingAssistant:
 
     - `create_cv()` produces a `TimeSeriesFold` with smart defaults
     (optionally guided by an LLM prompt). Requires a profile and plan.
+    - `backtest_code()` generates a backtesting script without executing
+    it (accepts pre-computed `profile` and `plan`).
     - `backtest()` runs backtesting using the CV strategy and returns
     metrics, predictions, and reproducible code.
 
@@ -271,6 +274,17 @@ class ForecastingAssistant:
         task_type = select_task_type_from_forecaster(fc)
 
         if task_type != profile.task_type:
+            # Recompute the analysis context for the overridden forecaster.
+            # plan() doesn't have `data`, so pass None — the analyzers
+            # fall back to profile.n_observations which is the per-series
+            # length (correct for multivariate / single-series cases).
+            context = create_forecasting_analysis(None, data_profile, fc)
+            # Preserve target_series from the original profile when the
+            # new context lacks it (the series is still valid for PACF).
+            if context.target_series is None:
+                context = context.model_copy(
+                    update={"target_series": profile.analysis_context.target_series}
+                )
             est, _ = select_estimator_and_candidates(
                 task_type      = task_type,
                 n_observations = context.effective_n_observations,
@@ -429,63 +443,39 @@ class ForecastingAssistant:
             interval         = interval,
         )
 
-    def render_code(
-        self,
-        profile: DataProfile,
-        plan: ForecastPlan,
-    ) -> str:
-        """
-        Generate a complete Python script from a plan and data profile.
-
-        Unlike the convenience `forecast_code()` method, this allows
-        advanced users to modify the `ForecastPlan` or `DataProfile`
-        before generating code.
-
-        Parameters
-        ----------
-        profile : DataProfile
-            Profile of the input dataset (available via
-            `profile.data_profile`).
-        plan : ForecastPlan
-            Validated forecast plan (output of `plan()`).
-
-        Returns
-        -------
-        code : str
-            Syntactically valid Python script implementing the
-            forecasting workflow.
-        """
-
-        generated = render_script(profile=profile, plan=plan)
-
-        return generated.full_script
-
     def forecast_code(
         self,
-        data: pd.DataFrame | str | Path,
-        target: str | list[str],
-        steps: int,
+        data: pd.DataFrame | str | Path | None = None,
+        target: str | list[str] | None = None,
+        steps: int | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
         interval: list[int] | None = None,
+        profile: ForecastingProfile | None = None,
+        plan: ForecastPlan | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete forecasting script.
 
         Convenience wrapper that chains `profile()`, `plan()`,
-        and code generation in a single call.
+        and code generation in a single call. Pre-computed `profile`
+        and/or `plan` can be passed to skip those stages (e.g. after
+        modifying the plan with `refine_plan()`).
 
         Parameters
         ----------
-        data : pandas DataFrame, str, Path
-            Input dataset or path to a CSV file.
-        target : str, list of str
-            Name of the column to forecast.
-        steps : int
+        data : pandas DataFrame, str, Path, default None
+            Input dataset or path to a CSV file. Required when
+            `profile` is not provided.
+        target : str, list of str, default None
+            Name of the column to forecast. Required when `profile`
+            is not provided.
+        steps : int, default None
             Forecast horizon (number of steps ahead to predict).
+            Required when `plan` is not provided.
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
@@ -501,6 +491,13 @@ class ForecastingAssistant:
             Prediction interval percentiles as a two-element list
             `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
             None, no prediction intervals are computed.
+        profile : ForecastingProfile, default None
+            Pre-computed profile to skip profiling. If None, profiling
+            is performed from `data`.
+        plan : ForecastPlan, default None
+            Pre-computed plan to skip planning. If None, a plan is
+            generated from the profile. Requires `profile` to also be
+            provided.
 
         Returns
         -------
@@ -508,23 +505,27 @@ class ForecastingAssistant:
             Forecasting profile, plan, and generated code.
         """
 
-        profile = self.profile(
-            data             = data,
-            target           = target,
-            date_column      = date_column,
-            series_id_column = series_id_column,
-        )
+        if profile is None:
+            profile = self.profile(
+                data             = data,
+                target           = target,
+                date_column      = date_column,
+                series_id_column = series_id_column,
+            )
 
-        plan = self.plan(
-            profile          = profile,
-            steps            = steps,
-            forecaster       = forecaster,
-            estimator        = estimator,
-            estimator_kwargs = estimator_kwargs,
-            interval         = interval,
-        )
+        if plan is None:
+            plan = self.plan(
+                profile          = profile,
+                steps            = steps,
+                forecaster       = forecaster,
+                estimator        = estimator,
+                estimator_kwargs = estimator_kwargs,
+                interval         = interval,
+            )
 
-        code = self.render_code(profile=profile.data_profile, plan=plan)
+        code = render_forecast_script(
+            profile=profile.data_profile, plan=plan
+        ).full_script
 
         return CodeGenerationResult(
             profile = profile,
@@ -643,20 +644,22 @@ class ForecastingAssistant:
         profile: ForecastingProfile,
         plan: ForecastPlan,
         prompt: str | None = None,
-        initial_train_size: int | float | str | None = None,
+        initial_train_size: int | str | pd.Timestamp | None = None,
+        fold_stride: int | None = None,
         refit: bool | int | None = None,
         fixed_train_size: bool | None = None,
         gap: int | None = None,
-        fold_stride: int | None = None,
         skip_folds: int | list[int] | None = None,
         allow_incomplete_fold: bool | None = None,
     ) -> tuple[TimeSeriesFold, str]:
         """
-        Generate a cross-validation strategy for backtesting.
+        Generate a time series cross-validation strategy for backtesting.
 
-        Produces a `TimeSeriesFold` configured with smart defaults
-        derived from the profile and plan. Explicit keyword arguments
-        override defaults.
+        Produces a `TimeSeriesFold` [1]_ configured with smart defaults
+        derived from the profile and plan. 
+        
+        Explicit keyword arguments override defaults. If None, they are 
+        automatically determined based on the profile and plan characteristics.
 
         Parameters
         ----------
@@ -668,28 +671,50 @@ class ForecastingAssistant:
             Natural language description of the evaluation scenario.
             Requires an LLM to be configured. If None or no LLM is
             available, deterministic defaults are used.
-        initial_train_size : int, float, str, default None
-            Number of observations for the initial training set.
-
-            - If `int`, used directly as the number of observations.
-            - If `float`, must satisfy `0 < value < 1` and is interpreted
-            as a fraction of the total observations.
-            - If `str`, passed as a date string to `TimeSeriesFold`.
-            - If None, defaults to 70% of data.
-        refit : bool, int, default None
-            Whether to refit the forecaster each fold. If `int`, refit
-            every n folds.
-        fixed_train_size : bool, default None
-            If True, training size stays fixed; if False, expands.
-        gap : int, default None
-            Observations between end of training and start of test.
+        initial_train_size : int, str, pandas Timestamp, default None
+            Number of observations used for initial training. 
+            
+            - If `None`, initial training size is automatically determined based 
+            on the profile and plan.
+            - If an integer, the number of observations used for initial training.
+            - If a date string or pandas Timestamp, it is the last date included in 
+            the initial training set.
         fold_stride : int, default None
-            Observations between consecutive test set starts.
-        skip_folds : int, list of int, default None
-            Folds to skip during backtesting.
+            Number of observations that the start of the test set advances between
+            consecutive folds.
+
+            - If `None`, it defaults to the same value as `steps`, meaning that folds
+            are placed back-to-back without overlap.
+            - If `fold_stride < steps`, test sets overlap and multiple forecasts will
+            be generated for the same observations.
+            - If `fold_stride > steps`, gaps are left between consecutive test sets.
+            **New in version 0.18.0**
+        refit : bool, int, default None
+            Whether to refit the forecaster in each fold.
+
+            - If `None`, refit behavior is automatically determined based on the 
+            profile and plan.
+            - If `True`, the forecaster is refitted in each fold.
+            - If `False`, the forecaster is trained only in the first fold.
+            - If an integer, the forecaster is trained in the first fold and then refitted
+            every `refit` folds.
+        fixed_train_size : bool, default None
+            Whether the training size is fixed or increases in each fold.
+        gap : int, default None
+            Number of observations between the end of the training set and the start of the
+            test set.
+        skip_folds : int, list, default None
+            Number of folds to skip.
+
+            - If an integer, every 'skip_folds'-th is returned.
+            - If a list, the indexes of the folds to skip.
+
+            For example, if `skip_folds=3` and there are 10 folds, the returned folds are
+            0, 3, 6, and 9. If `skip_folds=[1, 2, 3]`, the returned folds are 0, 4, 5, 6, 7,
+            8, and 9.
         allow_incomplete_fold : bool, default None
-            Whether to allow a final fold with fewer observations than
-            `steps`.
+            Whether to allow the last fold to include fewer observations than `steps`.
+            If `False`, the last fold is excluded if it is incomplete.
 
         Returns
         -------
@@ -697,6 +722,12 @@ class ForecastingAssistant:
             Configured cross-validation fold splitter.
         explanation : str
             Human-readable explanation of the chosen configuration.
+
+        References
+        ----------
+        [1] Skforecast `TimeSeriesFold` API Reference:
+            https://skforecast.org/latest/api/model_selection#skforecast.model_selection._split.TimeSeriesFold
+        
         """
 
         n_observations = profile.data_profile.n_observations
@@ -786,7 +817,89 @@ class ForecastingAssistant:
 
         return cv, explanation
 
-    # TODO: Create method backtest_code
+    def backtest_code(
+        self,
+        data: pd.DataFrame | str | Path,
+        target: str | list[str],
+        cv: TimeSeriesFold,
+        date_column: str | None = None,
+        series_id_column: str | None = None,
+        forecaster: str | None = None,
+        estimator: str | None = None,
+        estimator_kwargs: dict | None = None,
+        interval: list[int] | None = None,
+        profile: ForecastingProfile | None = None,
+        plan: ForecastPlan | None = None,
+    ) -> CodeGenerationResult:
+        """
+        Profile, plan, and generate a complete backtesting script.
+
+        Convenience wrapper that chains `profile()`, `plan()`, and
+        backtesting code generation in a single call. Pre-computed
+        `profile` and/or `plan` can be passed to skip those stages.
+
+        Parameters
+        ----------
+        data : pandas DataFrame, str, Path
+            Input dataset or path to a CSV file.
+        target : str, list of str
+            Name of the column(s) to forecast.
+        cv : TimeSeriesFold
+            Time series cross-validation fold splitter (output of
+            `create_cv()` or user-constructed) [1]_.
+        date_column : str, default None
+            Name of the column containing timestamps.
+        series_id_column : str, default None
+            Name of the column identifying individual series.
+        forecaster : str, default None
+            Explicit forecaster class name. See `profile()`.
+        estimator : str, default None
+            Explicit estimator class name. See `profile()`.
+        estimator_kwargs : dict, default None
+            Keyword arguments for the estimator constructor.
+        interval : list of int, default None
+            Prediction interval percentiles as `[lower, upper]`.
+        profile : ForecastingProfile, default None
+            Pre-computed profile to skip profiling.
+        plan : ForecastPlan, default None
+            Pre-computed plan to skip planning.
+
+        Returns
+        -------
+        result : CodeGenerationResult
+            Forecasting profile, plan, and generated backtesting code.
+
+        References
+        ----------
+        [1] Skforecast `TimeSeriesFold` API Reference:
+            https://skforecast.org/latest/api/model_selection#skforecast.model_selection._split.TimeSeriesFold
+
+        """
+
+        profile, plan = self._prepare_backtest(
+            data             = data,
+            target           = target,
+            cv               = cv,
+            date_column      = date_column,
+            series_id_column = series_id_column,
+            forecaster       = forecaster,
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            interval         = interval,
+            profile          = profile,
+            plan             = plan,
+        )
+
+        code = render_backtesting_script(
+            profile=profile.data_profile, plan=plan, cv=cv
+        ).full_script
+
+        return CodeGenerationResult(
+            profile = profile,
+            plan    = plan,
+            code    = code,
+        )
+
     def backtest(
         self,
         data: pd.DataFrame | str | Path,
@@ -803,7 +916,8 @@ class ForecastingAssistant:
         show_progress: bool = True,
     ) -> BacktestResult:
         """
-        Execute backtesting with a pre-configured cross-validation strategy.
+        Execute backtesting with a pre-configured time series cross-validation 
+        strategy (`TimeSeriesFold` [1]_).
 
         Chains `profile()`, `plan()`, and backtesting execution
         using the provided `TimeSeriesFold`. The `steps` parameter is
@@ -816,8 +930,8 @@ class ForecastingAssistant:
         target : str, list of str
             Name of the column(s) to forecast.
         cv : TimeSeriesFold
-            Cross-validation fold splitter (output of `create_cv()`
-            or user-constructed).
+            Time series cross-validation fold splitter (output of `create_cv()`
+            or user-constructed) [1]_.
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
@@ -848,36 +962,29 @@ class ForecastingAssistant:
         The `data` DataFrame must include exogenous columns if the plan
         uses them. Exogenous variables are extracted automatically from
         `profile.data_profile.exog_columns`.
+
+        References
+        ----------
+        [1] Skforecast `TimeSeriesFold` API Reference:
+            https://skforecast.org/latest/api/model_selection#skforecast.model_selection._split.TimeSeriesFold
+        
         """
 
         data_df = _coerce_to_dataframe(data)
-        steps = cv.steps
 
-        if profile is None:
-            profile = self.profile(
-                data             = data_df,
-                target           = target,
-                date_column      = date_column,
-                series_id_column = series_id_column,
-            )
-
-        if plan is None:
-            plan = self.plan(
-                profile          = profile,
-                steps            = steps,
-                forecaster       = forecaster,
-                estimator        = estimator,
-                estimator_kwargs = estimator_kwargs,
-                interval         = interval,
-            )
-        else:
-            if cv.steps != plan.steps:
-                raise ValueError(
-                    f"cv.steps ({cv.steps}) does not match plan.steps "
-                    f"({plan.steps}). These must be equal — "
-                    f"ForecasterDirect and ForecasterDirectMultiVariate "
-                    f"model architectures depend on steps."
-                )
+        profile, plan = self._prepare_backtest(
+            data             = data_df,
+            target           = target,
+            cv               = cv,
+            date_column      = date_column,
+            series_id_column = series_id_column,
+            forecaster       = forecaster,
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            interval         = interval,
+            profile          = profile,
+            plan             = plan,
+        )
 
         # Build human-readable CV explanation
         n_observations = profile.data_profile.n_observations
@@ -1074,9 +1181,9 @@ class ForecastingAssistant:
         elif backtest_result is not None:
             generated_code = backtest_result.code
         elif plan is not None and profile is not None:
-            generated_code = self.render_code(
-                profile.data_profile, plan
-            )
+            generated_code = render_forecast_script(
+                profile=profile.data_profile, plan=plan
+            ).full_script
         else:
             generated_code = None
 
@@ -1167,6 +1274,92 @@ class ForecastingAssistant:
         )
 
     # --------------------------------------------------------------- private
+    def _prepare_backtest(
+        self,
+        data: pd.DataFrame | str | Path,
+        target: str | list[str],
+        cv: TimeSeriesFold,
+        date_column: str | None,
+        series_id_column: str | None,
+        forecaster: str | None,
+        estimator: str | None,
+        estimator_kwargs: dict | None,
+        interval: list[int] | None,
+        profile: ForecastingProfile | None,
+        plan: ForecastPlan | None,
+    ) -> tuple[ForecastingProfile, ForecastPlan]:
+        """
+        Resolve profile and plan for backtesting workflows.
+
+        Shared preparation logic used by both `backtest_code()` and
+        `backtest()`. Coerces data, auto-generates profile/plan when
+        not provided, and validates that `cv.steps` matches `plan.steps`
+        when a plan is explicitly passed.
+
+        Parameters
+        ----------
+        data : pandas DataFrame, str, Path
+            Input dataset or path to a CSV file.
+        target : str, list of str
+            Name of the column(s) to forecast.
+        cv : TimeSeriesFold
+            Cross-validation fold splitter.
+        date_column : str, None
+            Name of the column containing timestamps.
+        series_id_column : str, None
+            Name of the column identifying individual series.
+        forecaster : str, None
+            Explicit forecaster class name override.
+        estimator : str, None
+            Explicit estimator class name override.
+        estimator_kwargs : dict, None
+            Keyword arguments for the estimator constructor.
+        interval : list of int, None
+            Prediction interval percentiles.
+        profile : ForecastingProfile, None
+            Pre-computed profile.
+        plan : ForecastPlan, None
+            Pre-computed plan.
+
+        Returns
+        -------
+        profile : ForecastingProfile
+            Resolved profile.
+        plan : ForecastPlan
+            Resolved plan.
+        """
+
+        data_df = _coerce_to_dataframe(data)
+        steps = cv.steps
+
+        if profile is None:
+            profile = self.profile(
+                data             = data_df,
+                target           = target,
+                date_column      = date_column,
+                series_id_column = series_id_column,
+            )
+
+        if plan is None:
+            plan = self.plan(
+                profile          = profile,
+                steps            = steps,
+                forecaster       = forecaster,
+                estimator        = estimator,
+                estimator_kwargs = estimator_kwargs,
+                interval         = interval,
+            )
+        else:
+            if cv.steps != plan.steps:
+                raise ValueError(
+                    f"cv.steps ({cv.steps}) does not match plan.steps "
+                    f"({plan.steps}). These must be equal — "
+                    f"ForecasterDirect and ForecasterDirectMultiVariate "
+                    f"model architectures depend on steps."
+                )
+
+        return profile, plan
+
     def _resolve_model(self):
         """
         Resolve the LLM model from the provider string.

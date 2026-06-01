@@ -525,7 +525,7 @@ def _emit_imports_single_series(
     include_metrics : bool, default False
         If True, include metric import lines based on `plan.metrics_to_compute`.
     include_backtesting : bool, default False
-        If True, append `backtesting_forecaster, TimeSeriesFold` from
+        If True, append `TimeSeriesFold, backtesting_forecaster` from
         `skforecast.model_selection` as the last import.
 
     """
@@ -553,7 +553,7 @@ def _emit_imports_single_series(
     if include_backtesting:
         lines.append(
             "from skforecast.model_selection import "
-            "backtesting_forecaster, TimeSeriesFold"
+            "TimeSeriesFold, backtesting_forecaster"
         )
     lines.append("")
 
@@ -578,7 +578,7 @@ def _emit_imports_multi_series(
     include_metrics : bool, default False
         If True, include metric import lines based on `plan.metrics_to_compute`.
     include_backtesting : bool, default False
-        If True, append `backtesting_forecaster_multiseries, TimeSeriesFold`
+        If True, append `TimeSeriesFold, backtesting_forecaster_multiseries`
         from `skforecast.model_selection` as the last import.
 
     """
@@ -620,7 +620,7 @@ def _emit_imports_multi_series(
     if include_backtesting:
         lines.append(
             "from skforecast.model_selection import "
-            "backtesting_forecaster_multiseries, TimeSeriesFold"
+            "TimeSeriesFold, backtesting_forecaster_multiseries"
         )
     lines.append("")
 
@@ -642,7 +642,7 @@ def _emit_imports_foundation(
     include_metrics : bool, default False
         If True, include metric import lines based on `plan.metrics_to_compute`.
     include_backtesting : bool, default False
-        If True, append `backtesting_foundation, TimeSeriesFold` from
+        If True, append `TimeSeriesFold, backtesting_foundation` from
         `skforecast.model_selection` as the last import.
 
     """
@@ -656,7 +656,7 @@ def _emit_imports_foundation(
     if include_backtesting:
         lines.append(
             "from skforecast.model_selection import "
-            "backtesting_foundation, TimeSeriesFold"
+            "TimeSeriesFold, backtesting_foundation"
         )
     lines.append("")
 
@@ -678,7 +678,7 @@ def _emit_imports_statistical(
     include_metrics : bool, default False
         If True, include metric import lines based on `plan.metrics_to_compute`.
     include_backtesting : bool, default False
-        If True, append `backtesting_stats, TimeSeriesFold` from
+        If True, append `TimeSeriesFold, backtesting_stats` from
         `skforecast.model_selection` as the last import.
 
     """
@@ -691,7 +691,7 @@ def _emit_imports_statistical(
     if include_backtesting:
         lines.append(
             "from skforecast.model_selection import "
-            "backtesting_stats, TimeSeriesFold"
+            "TimeSeriesFold, backtesting_stats"
         )
     lines.append("")
 

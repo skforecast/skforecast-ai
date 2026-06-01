@@ -1,4 +1,4 @@
-"""Typer CLI for skforecast-ai: inspect, recommend, and generate-code."""
+"""Typer CLI for skforecast-ai"""
 
 from __future__ import annotations
 
@@ -31,7 +31,6 @@ from .config import (
 from .exceptions import ForecastExecutionError, LLMRequiredError
 from .schemas.plans import ForecastPlan
 from .schemas.profiles import ForecastingProfile
-from .schemas.results import CodeGenerationResult
 
 
 def _version_callback(value: bool) -> None:
@@ -506,7 +505,7 @@ def profile(
     data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
     target: Annotated[str, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")],
     date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
+    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
@@ -519,7 +518,7 @@ def profile(
         with _spinner("Profiling dataset...", quiet):
             result = assistant.profile(
                 data=data, target=parsed_target, date_column=date_column,
-                series_id_column=series_id,
+                series_id_column=series_id_column,
             )
 
         if format == "json":
@@ -535,7 +534,7 @@ def plan(
     target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
     date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
+    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
@@ -569,7 +568,7 @@ def plan(
             with _spinner("Profiling...", quiet):
                 prof = assistant.profile(
                     data=data, target=parsed_target, date_column=date_column,
-                    series_id_column=series_id,
+                    series_id_column=series_id_column,
                 )
 
         with _spinner("Planning...", quiet):
@@ -638,13 +637,13 @@ def refine_plan(
             _render_plan_panel(result)
 
 
-@app.command(name="generate-code")
-def generate_code(
+@app.command(name="forecast-code")
+def forecast_code(
     data: Annotated[str | None, typer.Argument(help="Path or URL to CSV file.")] = None,
     target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
     date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
+    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
@@ -662,10 +661,10 @@ def generate_code(
             bundle = _read_json_input(from_plan)
             prof = ForecastingProfile.model_validate(bundle["profile"])
             plan_obj = ForecastPlan.model_validate(bundle["plan"])
-            code = assistant.render_code(
-                profile=prof.data_profile, plan=plan_obj,
+            result = assistant.forecast_code(
+                data=None, target=None, steps=plan_obj.steps,
+                profile=prof, plan=plan_obj,
             )
-            result = CodeGenerationResult(profile=prof, plan=plan_obj, code=code)
         else:
             if data is None or target is None or steps is None:
                 console.print(
@@ -680,11 +679,127 @@ def generate_code(
             with _spinner("Generating code...", quiet):
                 result = assistant.forecast_code(
                     data=data, target=parsed_target, steps=steps,
-                    date_column=date_column, series_id_column=series_id,
+                    date_column=date_column, series_id_column=series_id_column,
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
                 )
+
+        if format == "json":
+            json_str = result.model_dump_json(indent=2)
+            _write_output(json_str, output)
+        else:
+            if output is not None:
+                output.write_text(result.code)
+                console.print(f"[green]Code written to:[/green] {output}")
+            else:
+                syntax = Syntax(result.code, "python", theme="monokai")
+                console.print(syntax)
+
+
+@app.command(name="backtest-code")
+def backtest_code(
+    data: Annotated[str | None, typer.Argument(help="Path or URL to CSV file.")] = None,
+    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
+    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
+    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
+    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
+    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
+    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
+    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
+    fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
+    refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
+    fixed_train_size: Annotated[bool, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window.")] = True,
+    gap: Annotated[int, typer.Option("--gap", help="Gap between training and test sets.")] = 0,
+    allow_incomplete_fold: Annotated[bool, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations.")] = True,
+    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
+    format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
+    output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+) -> None:
+    """Generate a complete Python backtesting script without executing it."""
+    with _error_handler():
+        assistant = ForecastingAssistant()
+
+        if from_plan is not None:
+            bundle = _read_json_input(from_plan)
+            prof = ForecastingProfile.model_validate(bundle["profile"])
+            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            resolved_steps = plan_obj.steps
+            resolved_target = prof.data_profile.target
+            resolved_date_column = prof.data_profile.date_column
+            resolved_series_id = prof.data_profile.series_id_column
+        else:
+            if data is None or target is None or steps is None:
+                console.print(
+                    "[red]Error:[/red] DATA, --target, and --steps are required "
+                    "unless --from-plan is provided."
+                )
+                raise typer.Exit(code=1)
+            resolved_target = _parse_target(target)
+            resolved_steps = steps
+            resolved_date_column = date_column
+            resolved_series_id = series_id_column
+            prof = None
+            plan_obj = None
+
+        parsed_interval = _parse_interval(interval)
+        parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+
+        with _spinner("Generating backtesting code...", quiet):
+            # Profile (if needed)
+            if prof is None:
+                prof = assistant.profile(
+                    data=data,
+                    target=resolved_target,
+                    date_column=resolved_date_column,
+                    series_id_column=resolved_series_id,
+                )
+
+            # Plan (if needed)
+            if plan_obj is None:
+                plan_obj = assistant.plan(
+                    profile=prof,
+                    steps=resolved_steps,
+                    forecaster=forecaster,
+                    estimator=estimator,
+                    estimator_kwargs=parsed_estimator_kwargs,
+                    interval=parsed_interval,
+                )
+
+            # Generate CV
+            cv_kwargs = {}
+            if initial_train_size is not None:
+                cv_kwargs["initial_train_size"] = initial_train_size
+            if fold_stride is not None:
+                cv_kwargs["fold_stride"] = fold_stride
+            if refit:
+                cv_kwargs["refit"] = refit
+            if not fixed_train_size:
+                cv_kwargs["fixed_train_size"] = fixed_train_size
+            if gap != 0:
+                cv_kwargs["gap"] = gap
+            if not allow_incomplete_fold:
+                cv_kwargs["allow_incomplete_fold"] = allow_incomplete_fold
+
+            cv, _ = assistant.create_cv(
+                profile=prof,
+                plan=plan_obj,
+                **cv_kwargs,
+            )
+
+            # Generate code
+            result = assistant.backtest_code(
+                data=data or "data.csv",
+                target=resolved_target,
+                cv=cv,
+                date_column=resolved_date_column,
+                series_id_column=resolved_series_id,
+                profile=prof,
+                plan=plan_obj,
+            )
 
         if format == "json":
             json_str = result.model_dump_json(indent=2)
@@ -770,6 +885,89 @@ def _forecast_result_to_json(result) -> str:
     else:
         data["intervals"] = None
     return json.dumps(data, indent=2, default=str)
+
+
+@app.command()
+def forecast(
+    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
+    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
+    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
+    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
+    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
+    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
+    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
+    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    exog_future: Annotated[Path | None, typer.Option("--exog-future", help="CSV with future exogenous variables.")] = None,
+    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
+    output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,
+    output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
+    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+) -> None:
+    """Run end-to-end forecasting and report metrics + predictions."""
+    with _error_handler():
+        assistant = ForecastingAssistant()
+        parsed_interval = _parse_interval(interval)
+        parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+
+        exog_future_df = None
+        if exog_future is not None:
+            if not exog_future.is_file():
+                raise FileNotFoundError(
+                    f"Exog future CSV not found: '{exog_future}'."
+                )
+            exog_future_df = pd.read_csv(exog_future)
+
+        if from_plan is not None:
+            bundle = _read_json_input(from_plan)
+            prof = ForecastingProfile.model_validate(bundle["profile"])
+            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+
+            with _spinner("Running forecast from plan...", quiet):
+                result = assistant.forecast(
+                    data=data, target=prof.data_profile.target,
+                    steps=plan_obj.steps,
+                    date_column=prof.data_profile.date_column,
+                    series_id_column=prof.data_profile.series_id_column,
+                    interval=parsed_interval or plan_obj.interval,
+                    exog_future=exog_future_df,
+                    profile=prof, plan=plan_obj,
+                )
+        else:
+            if target is None or steps is None:
+                console.print(
+                    "[red]Error:[/red] --target and --steps are required "
+                    "unless --from-plan is provided."
+                )
+                raise typer.Exit(code=1)
+            parsed_target = _parse_target(target)
+
+            with _spinner("Running forecast...", quiet):
+                result = assistant.forecast(
+                    data=data, target=parsed_target, steps=steps,
+                    date_column=date_column, series_id_column=series_id_column,
+                    forecaster=forecaster, estimator=estimator,
+                    estimator_kwargs=parsed_estimator_kwargs,
+                    interval=parsed_interval, exog_future=exog_future_df,
+                )
+
+        if output_predictions is not None:
+            preds = result.predictions
+            if result.intervals is not None:
+                preds = result.intervals
+            preds.to_csv(output_predictions)
+            console.print(f"[green]Predictions written to:[/green] {output_predictions}")
+
+        if output_code is not None:
+            output_code.write_text(result.code)
+            console.print(f"[green]Code written to:[/green] {output_code}")
+
+        if format == "json":
+            json_str = _forecast_result_to_json(result)
+            print(json_str)
+        else:
+            _render_forecast_results(result)
 
 
 def _render_backtest_results(result) -> None:
@@ -871,11 +1069,12 @@ def backtest(
     target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
     date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
+    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string.")] = None,
     initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
+    fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
     refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
     fixed_train_size: Annotated[bool, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window.")] = True,
     gap: Annotated[int, typer.Option("--gap", help="Gap between training and test sets.")] = 0,
@@ -921,7 +1120,7 @@ def backtest(
             parsed_target = _parse_target(target)
             resolved_steps = steps
             resolved_date_column = date_column
-            resolved_series_id = series_id
+            resolved_series_id = series_id_column
             prof = None
             plan_obj = None
 
@@ -959,6 +1158,8 @@ def backtest(
             cv_kwargs = {}
             if initial_train_size is not None:
                 cv_kwargs["initial_train_size"] = initial_train_size
+            if fold_stride is not None and fold_stride != steps:
+                cv_kwargs["fold_stride"] = fold_stride
             if refit:
                 cv_kwargs["refit"] = refit
             if not fixed_train_size:
@@ -968,7 +1169,7 @@ def backtest(
             if not allow_incomplete_fold:
                 cv_kwargs["allow_incomplete_fold"] = allow_incomplete_fold
 
-            cv_fold, _ = assistant.create_cv(
+            cv, _ = assistant.create_cv(
                 profile=prof,
                 plan=plan_obj,
                 prompt=prompt,
@@ -979,7 +1180,7 @@ def backtest(
             result = assistant.backtest(
                 data=data,
                 target=parsed_target,
-                cv=cv_fold,
+                cv=cv,
                 date_column=resolved_date_column,
                 series_id_column=resolved_series_id,
                 profile=prof,
@@ -1003,95 +1204,12 @@ def backtest(
 
 
 @app.command()
-def forecast(
-    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
-    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
-    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
-    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
-    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
-    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
-    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
-    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
-    exog_future: Annotated[Path | None, typer.Option("--exog-future", help="CSV with future exogenous variables.")] = None,
-    output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,
-    output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
-) -> None:
-    """Run end-to-end forecasting and report metrics + predictions."""
-    with _error_handler():
-        assistant = ForecastingAssistant()
-        parsed_interval = _parse_interval(interval)
-        parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
-
-        exog_future_df = None
-        if exog_future is not None:
-            if not exog_future.is_file():
-                raise FileNotFoundError(
-                    f"Exog future CSV not found: '{exog_future}'."
-                )
-            exog_future_df = pd.read_csv(exog_future)
-
-        if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
-
-            with _spinner("Running forecast from plan...", quiet):
-                result = assistant.forecast(
-                    data=data, target=prof.data_profile.target,
-                    steps=plan_obj.steps,
-                    date_column=prof.data_profile.date_column,
-                    series_id_column=prof.data_profile.series_id_column,
-                    interval=parsed_interval or plan_obj.interval,
-                    exog_future=exog_future_df,
-                    profile=prof, plan=plan_obj,
-                )
-        else:
-            if target is None or steps is None:
-                console.print(
-                    "[red]Error:[/red] --target and --steps are required "
-                    "unless --from-plan is provided."
-                )
-                raise typer.Exit(code=1)
-            parsed_target = _parse_target(target)
-
-            with _spinner("Running forecast...", quiet):
-                result = assistant.forecast(
-                    data=data, target=parsed_target, steps=steps,
-                    date_column=date_column, series_id_column=series_id,
-                    forecaster=forecaster, estimator=estimator,
-                    estimator_kwargs=parsed_estimator_kwargs,
-                    interval=parsed_interval, exog_future=exog_future_df,
-                )
-
-        if output_predictions is not None:
-            preds = result.predictions
-            if result.intervals is not None:
-                preds = result.intervals
-            preds.to_csv(output_predictions)
-            console.print(f"[green]Predictions written to:[/green] {output_predictions}")
-
-        if output_code is not None:
-            output_code.write_text(result.code)
-            console.print(f"[green]Code written to:[/green] {output_code}")
-
-        if format == "json":
-            json_str = _forecast_result_to_json(result)
-            print(json_str)
-        else:
-            _render_forecast_results(result)
-
-
-@app.command()
 def ask(
     prompt: Annotated[str, typer.Argument(help="Natural-language question about forecasting.")],
     data: Annotated[Path | None, typer.Option("--data", help="Path to CSV file for context.")] = None,
     target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
     date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id: Annotated[str | None, typer.Option("--series-id", "-s", help="Series identifier column.")] = None,
+    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (required when --data is provided).")] = None,
     llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-4o-mini'.")] = None,
     base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
@@ -1132,7 +1250,7 @@ def ask(
                 data=data_path,
                 target=parsed_target,
                 date_column=date_column,
-                series_id_column=series_id,
+                series_id_column=series_id_column,
                 steps=steps,
                 skills=parsed_skills,
             )

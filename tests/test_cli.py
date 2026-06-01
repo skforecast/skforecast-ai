@@ -100,7 +100,7 @@ class TestProfile:
         result = runner.invoke(
             app,
             ["profile", csv_path, "--target", "value",
-             "--date-column", "date", "--series-id", "series_id",
+             "--date-column", "date", "--series-id-column", "series_id",
              "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
@@ -247,21 +247,21 @@ class TestPlan:
 
 
 # ---------------------------------------------------------------------------
-# generate-code command
+# forecast-code command
 # ---------------------------------------------------------------------------
 
 
 class TestGenerateCode:
-    """Tests for the `generate-code` CLI command."""
+    """Tests for the `forecast-code` CLI command."""
 
     def test_forecast_code_basic(self, tmp_path):
         """
-        Generate-code command prints Python code to stdout.
+        forecast-code command prints Python code to stdout.
         """
         csv_path = _write_csv(tmp_path, df_single)
         result = runner.invoke(
             app,
-            ["generate-code", csv_path, "--target", "sales", "--date-column", "date",
+            ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
              "--steps", "10", "--quiet"],
         )
         assert result.exit_code == 0
@@ -270,12 +270,12 @@ class TestGenerateCode:
 
     def test_forecast_code_json_format(self, tmp_path):
         """
-        Generate-code --format json outputs valid JSON with code key.
+        forecast-code --format json outputs valid JSON with code key.
         """
         csv_path = _write_csv(tmp_path, df_single)
         result = runner.invoke(
             app,
-            ["generate-code", csv_path, "--target", "sales", "--date-column", "date",
+            ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
              "--steps", "10", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
@@ -286,13 +286,13 @@ class TestGenerateCode:
 
     def test_forecast_code_output_to_file(self, tmp_path):
         """
-        Generate-code --output writes a valid Python file.
+        forecast-code --output writes a valid Python file.
         """
         csv_path = _write_csv(tmp_path, df_single)
         out_path = tmp_path / "script.py"
         result = runner.invoke(
             app,
-            ["generate-code", csv_path, "--target", "sales", "--date-column", "date",
+            ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
              "--steps", "10", "--output", str(out_path), "--quiet"],
         )
         assert result.exit_code == 0
@@ -307,7 +307,7 @@ class TestGenerateCode:
         csv_path = _write_csv(tmp_path, df_single)
         result = runner.invoke(
             app,
-            ["generate-code", csv_path, "--target", "sales", "--date-column", "date",
+            ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
              "--steps", "10", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
@@ -316,12 +316,12 @@ class TestGenerateCode:
 
     def test_forecast_code_with_interval(self, tmp_path):
         """
-        Generate-code with --interval produces code with prediction intervals.
+        forecast-code with --interval produces code with prediction intervals.
         """
         csv_path = _write_csv(tmp_path, df_single)
         result = runner.invoke(
             app,
-            ["generate-code", csv_path, "--target", "sales", "--date-column", "date",
+            ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
              "--steps", "10", "--interval", "10,90", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
@@ -330,22 +330,22 @@ class TestGenerateCode:
 
     def test_forecast_code_missing_file(self):
         """
-        Generate-code with non-existent file shows helpful error.
+        forecast-code with non-existent file shows helpful error.
         """
         result = runner.invoke(
             app,
-            ["generate-code", "nonexistent.csv", "--target", "y", "--steps", "10"],
+            ["forecast-code", "nonexistent.csv", "--target", "y", "--steps", "10"],
         )
         assert result.exit_code == 1
 
     def test_forecast_code_with_estimator_kwargs(self, tmp_path):
         """
-        Generate-code with --estimator-kwargs passes hyperparameters through.
+        forecast-code with --estimator-kwargs passes hyperparameters through.
         """
         csv_path = _write_csv(tmp_path, df_single)
         result = runner.invoke(
             app,
-            ["generate-code", csv_path, "--target", "sales", "--date-column", "date",
+            ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
              "--steps", "10", "--estimator-kwargs", '{"n_estimators": 300}',
              "--quiet"],
         )

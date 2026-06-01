@@ -35,12 +35,12 @@ def _emit_forecaster_creation_multi(
 
     kwargs = plan.forecaster_kwargs
     lags = kwargs.get("lags")
-    dropna = kwargs.get("dropna_from_series")
-    differentiation = kwargs.get("differentiation")
+    window_features = kwargs.get("window_features")
     transformer_series = kwargs.get("transformer_series")
     transformer_exog = kwargs.get("transformer_exog")
-    window_features = kwargs.get("window_features")
     categorical_features = kwargs.get("categorical_features")
+    dropna = kwargs.get("dropna_from_series")
+    differentiation = kwargs.get("differentiation")
 
     lines.append("# Create forecaster")
     estimator_str = _get_estimator_constructor(plan.estimator, plan.estimator_kwargs)
@@ -51,13 +51,15 @@ def _emit_forecaster_creation_multi(
         level = _get_target_str(profile)
         forecaster_kwargs.append(("level", repr(level)))
         forecaster_kwargs.append(("steps", str(plan.steps)))
+
     forecaster_kwargs.append(("lags", str(lags)))
+    if window_features:
+        forecaster_kwargs.append(("window_features", "window_features"))
+
     if forecaster_class == "ForecasterRecursiveMultiSeries":
         encoding = kwargs.get("encoding", "ordinal")
         forecaster_kwargs.append(("encoding", f"'{encoding}'"))
     
-    if window_features:
-        forecaster_kwargs.append(("window_features", "window_features"))
     if transformer_series is not None:
         forecaster_kwargs.append(("transformer_series", f"{transformer_series}()"))
     if transformer_exog is not None and use_exog:

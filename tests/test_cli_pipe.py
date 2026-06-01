@@ -279,41 +279,41 @@ class TestRefinePlan:
 
 
 # ---------------------------------------------------------------------------
-# generate-code --from-plan tests
+# forecast-code --from-plan tests
 # ---------------------------------------------------------------------------
 
 
 class TestGenerateCodeFromPlan:
-    """Tests for the generate-code command with --from-plan."""
+    """Tests for the forecast-code command with --from-plan."""
 
-    def test_render_code_file(self, tmp_path):
-        """generate-code --from-plan generates code from saved bundle."""
+    def test_render_forecast_code_file(self, tmp_path):
+        """forecast-code --from-plan generates code from saved bundle."""
         plan_file = tmp_path / "plan.json"
         plan_file.write_text(json.dumps(MOCK_BUNDLE))
 
         result = runner.invoke(app, [
-            "generate-code", "--from-plan", str(plan_file), "--quiet",
+            "forecast-code", "--from-plan", str(plan_file), "--quiet",
         ])
         assert result.exit_code == 0, result.output
         # Output should contain Python code (imports, forecaster setup)
         assert "import" in result.output or "ForecasterRecursive" in result.output
 
-    def test_render_code_stdin(self):
-        """generate-code --from-plan - reads from stdin."""
+    def test_render_forecast_code_stdin(self):
+        """forecast-code --from-plan - reads from stdin."""
         result = runner.invoke(
             app,
-            ["generate-code", "--from-plan", "-", "--quiet"],
+            ["forecast-code", "--from-plan", "-", "--quiet"],
             input=json.dumps(MOCK_BUNDLE),
         )
         assert result.exit_code == 0, result.output
 
-    def test_render_code_json_format(self, tmp_path):
-        """generate-code --from-plan --format json outputs CodeGenerationResult."""
+    def test_render_forecast_code_json_format(self, tmp_path):
+        """forecast-code --from-plan --format json outputs CodeGenerationResult."""
         plan_file = tmp_path / "plan.json"
         plan_file.write_text(json.dumps(MOCK_BUNDLE))
 
         result = runner.invoke(app, [
-            "generate-code", "--from-plan", str(plan_file),
+            "forecast-code", "--from-plan", str(plan_file),
             "--format", "json", "--quiet",
         ])
         assert result.exit_code == 0, result.output
@@ -322,10 +322,10 @@ class TestGenerateCodeFromPlan:
         assert "plan" in output
         assert "profile" in output
 
-    def test_generate_code_without_data_or_from_plan_errors(self):
-        """generate-code without DATA or --from-plan exits with error."""
+    def test_forecast_code_without_data_or_from_plan_errors(self):
+        """forecast-code without DATA or --from-plan exits with error."""
         result = runner.invoke(app, [
-            "generate-code", "--target", "sales", "--steps", "10", "--quiet",
+            "forecast-code", "--target", "sales", "--steps", "10", "--quiet",
         ])
         assert result.exit_code == 1
         assert "required" in result.output.lower()
@@ -400,8 +400,8 @@ class TestPipeComposition:
         assert "profile" in plan_output
         assert "plan" in plan_output
 
-    def test_plan_to_generate_code_pipe(self, tmp_path):
-        """plan --format json output feeds into generate-code --from-plan."""
+    def test_plan_to_forecast_code_pipe(self, tmp_path):
+        """plan --format json output feeds into forecast-code --from-plan."""
         csv_file = tmp_path / "data.csv"
         df_single.to_csv(csv_file, index=False)
 
@@ -413,10 +413,10 @@ class TestPipeComposition:
         ])
         assert plan_result.exit_code == 0, plan_result.output
 
-        # Step 2: generate-code from plan (pipe via stdin)
+        # Step 2: forecast-code from plan (pipe via stdin)
         code_result = runner.invoke(
             app,
-            ["generate-code", "--from-plan", "-", "--quiet"],
+            ["forecast-code", "--from-plan", "-", "--quiet"],
             input=plan_result.output,
         )
         assert code_result.exit_code == 0, code_result.output
@@ -424,7 +424,7 @@ class TestPipeComposition:
         assert "import" in code_result.output or "Forecaster" in code_result.output
 
     def test_full_chain_profile_plan_code(self, tmp_path):
-        """Full pipe chain: profile → plan → generate-code."""
+        """Full pipe chain: profile → plan → forecast-code."""
         csv_file = tmp_path / "data.csv"
         df_single.to_csv(csv_file, index=False)
 
@@ -443,10 +443,10 @@ class TestPipeComposition:
         )
         assert plan_result.exit_code == 0
 
-        # generate-code from plan
+        # forecast-code from plan
         code_result = runner.invoke(
             app,
-            ["generate-code", "--from-plan", "-", "--format", "json", "--quiet"],
+            ["forecast-code", "--from-plan", "-", "--format", "json", "--quiet"],
             input=plan_result.output,
         )
         assert code_result.exit_code == 0

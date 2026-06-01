@@ -283,7 +283,7 @@ For full testing rules see the skforecast core file `.github/instructions/testin
 
 ## 9. Code Generation
 
-Generated code (the output of `generate-code` and `recommend(..., return_code=True)`) must be:
+Generated code (the output of `forecast-code` and `recommend(..., return_code=True)`) must be:
 
 - **Self-contained**: every import explicit, no reliance on REPL state.
 - **Reproducible**: every random source seeded with `random_state=123` (matching skforecast convention).
@@ -296,7 +296,7 @@ Templates live in `skforecast_ai/generation/templates/` as Jinja2 files. Do not 
 ## 10. CLI Conventions
 
 - Use **Typer** (not argparse, not click directly).
-- Subcommands: `inspect`, `recommend`, `generate-code`, `run` (later), `explain-error` (later).
+- Subcommands: `inspect`, `recommend`, `forecast-code`, `run` (later), `explain-error` (later).
 - Output format: human-readable by default (Rich tables/panels), JSON via `--json` flag.
 - Exit codes: `0` success, `1` user error (bad inputs), `2` runtime error, `3` LLM unavailable (with fallback message).
 - Never print a stack trace to the user. Catch known errors and translate to actionable messages.

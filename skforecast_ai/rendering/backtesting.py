@@ -28,7 +28,7 @@ def _emit_cv_configuration(
 ) -> None:
     """Append TimeSeriesFold construction code."""
 
-    lines.append("# Cross-validation configuration")
+    lines.append("# Time series cross-validation configuration")
     cv_kwargs: list[tuple[str, str]] = []
     cv_kwargs.append(("steps", str(cv.steps)))
     its = cv.initial_train_size

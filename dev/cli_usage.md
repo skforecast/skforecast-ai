@@ -14,7 +14,8 @@ pip install -e ".[cli,dev]"
 | `profile` | Inspect dataset and recommend forecaster/estimator |
 | `plan` | Generate a detailed forecasting plan |
 | `refine-plan` | Refine an existing plan by overriding specific fields |
-| `generate-code` | Generate a self-contained Python script |
+| `forecast-code` | Generate a self-contained Python forecasting script |
+| `backtest-code` | Generate a self-contained Python backtesting script |
 | `forecast` | Run end-to-end forecasting (profile → plan → code → execute) |
 | `backtest` | Run backtesting evaluation (profile → plan → CV → backtest) |
 | `ask` | Ask forecasting questions using an LLM |
@@ -39,10 +40,10 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 24
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --interval "10,90"
 
 # Generate code
-skforecast-ai generate-code "$URL" --target y --date-column fecha --steps 24 --output forecast.py
+skforecast-ai forecast-code "$URL" --target y --date-column fecha --steps 24 --output forecast.py
 
 # Generate code with intervals
-skforecast-ai generate-code "$URL" --target y --date-column fecha --steps 24 --interval "10,90" --output forecast.py
+skforecast-ai forecast-code "$URL" --target y --date-column fecha --steps 24 --interval "10,90" --output forecast.py
 
 # Forecast (end-to-end)
 skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12
@@ -69,7 +70,7 @@ skforecast-ai profile "$URL" --target users --date-column date_time
 skforecast-ai plan "$URL" --target users --date-column date_time --steps 24
 
 # Generate code
-skforecast-ai generate-code "$URL" --target users --date-column date_time --steps 24 --output bike_forecast.py
+skforecast-ai forecast-code "$URL" --target users --date-column date_time --steps 24 --output bike_forecast.py
 
 # Forecast
 skforecast-ai forecast "$URL" --target users --date-column date_time --steps 24
@@ -90,7 +91,7 @@ skforecast-ai profile "$URL" --target "item_1,item_2,item_3" --date-column date
 skforecast-ai plan "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30
 
 # Generate code
-skforecast-ai generate-code "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30 --output multi_forecast.py
+skforecast-ai forecast-code "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30 --output multi_forecast.py
 
 # Forecast
 skforecast-ai forecast "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30
@@ -116,6 +117,46 @@ skforecast-ai profile "$URL" --target Usuarios --date-column date
 
 # Forecast
 skforecast-ai forecast "$URL" --target Usuarios --date-column date --steps 14
+```
+
+## Backtest Code Command
+
+Generate a backtesting script without executing it. Useful for inspection, version control, or manual execution.
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+# Basic backtest code generation
+skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12
+
+# Save to file
+skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 --output backtest_script.py
+
+# Custom CV configuration
+skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 \
+  --initial-train-size 100 --refit --expanding-train
+
+# Fixed training window, no refit, with gap
+skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 \
+  --no-refit --fixed-train-size --gap 3
+
+# From a saved plan
+skforecast-ai backtest-code "$URL" --from-plan plan.json --output backtest_script.py
+
+# JSON output (profile + plan + code)
+skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 --format json
+
+# Pipe: plan → backtest-code
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format json -q | \
+  skforecast-ai backtest-code "$URL" --from-plan - --output backtest_script.py
+
+# Multi-series
+URL_MULTI="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/simulated_items_sales.csv"
+skforecast-ai backtest-code "$URL_MULTI" --target "item_1,item_2,item_3" --date-column date --steps 14
+
+# Override forecaster/estimator
+skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 \
+  --forecaster ForecasterDirect --estimator Ridge
 ```
 
 ## Backtest Command
@@ -220,12 +261,12 @@ skforecast-ai ask "Analyze this data" \
 | `--target` | `-t` | Target column(s), comma-separated | all |
 | `--date-column` | `-d` | Date/timestamp column | all |
 | `--series-id` | `-s` | Series identifier (long-format) | all |
-| `--steps` | | Forecast horizon | `plan`, `generate-code`, `forecast`, `ask` |
-| `--forecaster` | | Override forecaster class | `plan`, `generate-code`, `forecast` |
-| `--estimator` | | Override estimator class | `plan`, `generate-code`, `forecast` |
-| `--interval` | | Interval percentiles, e.g. `"10,90"` | `plan`, `generate-code`, `forecast` |
+| `--steps` | | Forecast horizon | `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
+| `--forecaster` | | Override forecaster class | `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
+| `--estimator` | | Override estimator class | `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
+| `--interval` | | Interval percentiles, e.g. `"10,90"` | `plan`, `forecast-code`, `backtest-code`, `forecast` |
 | `--format` | | Output format | all |
-| `--output` | `-o` | Write to file | `profile`, `plan`, `generate-code` |
+| `--output` | `-o` | Write to file | `profile`, `plan`, `forecast-code`, `backtest-code` |
 | `--quiet` | `-q` | Suppress spinners | all |
 | `--llm` | | LLM provider | `ask` |
 | `--base-url` | | Custom LLM endpoint | `ask` |
@@ -234,14 +275,14 @@ skforecast-ai ask "Analyze this data" \
 | `--exog-future` | | Future exog CSV | `forecast` |
 | `--output-predictions` | | Save predictions CSV | `forecast`, `backtest` |
 | `--output-code` | | Save generated script | `forecast`, `backtest` |
-| `--initial-train-size` | | Initial training window size | `backtest` |
-| `--refit/--no-refit` | | Refit model each fold | `backtest` |
-| `--fixed-train-size/--expanding-train` | | Fixed or expanding window | `backtest` |
-| `--gap` | | Gap between train and test | `backtest` |
-| `--allow-incomplete-fold/--no-incomplete-fold` | | Allow last incomplete fold | `backtest` |
+| `--initial-train-size` | | Initial training window size | `backtest`, `backtest-code` |
+| `--refit/--no-refit` | | Refit model each fold | `backtest`, `backtest-code` |
+| `--fixed-train-size/--expanding-train` | | Fixed or expanding window | `backtest`, `backtest-code` |
+| `--gap` | | Gap between train and test | `backtest`, `backtest-code` |
+| `--allow-incomplete-fold/--no-incomplete-fold` | | Allow last incomplete fold | `backtest`, `backtest-code` |
 | `--prompt` | | LLM prompt for CV config | `backtest` |
 | `--from-profile` | | Load profile JSON (file or `-` for stdin) | `plan` |
-| `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `refine-plan`, `generate-code`, `forecast` |
+| `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `refine-plan`, `forecast-code`, `backtest-code`, `forecast` |
 | `--version` | | Show version and exit | root |
 
 ## Configuration
@@ -320,10 +361,10 @@ skforecast-ai refine-plan --from-plan plan.json --estimator-kwargs '{"n_estimato
 # Add prediction intervals
 skforecast-ai refine-plan --from-plan plan.json --interval "10,90" --format json
 
-# Pipe: plan → refine → generate-code
+# Pipe: plan → refine → forecast-code
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json -q | \
   skforecast-ai refine-plan --from-plan - --steps 12 --forecaster ForecasterDirect --format json -q | \
-  skforecast-ai generate-code --from-plan - --output forecast.py -q
+  skforecast-ai forecast-code --from-plan - --output forecast.py -q
 ```
 
 ## Plan Save/Load (Reproducibility)
@@ -335,7 +376,7 @@ URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json > plan.json
 
 # Generate code from a saved plan (no re-profiling needed)
-skforecast-ai generate-code --from-plan plan.json --output forecast.py
+skforecast-ai forecast-code --from-plan plan.json --output forecast.py
 
 # Execute a saved plan against data
 skforecast-ai forecast "$URL" --from-plan plan.json
@@ -358,12 +399,12 @@ skforecast-ai profile "$URL" --target y --date-column fecha --format json | \
 # Profile → Plan → Generate Code (full chain)
 skforecast-ai profile "$URL" --target y --date-column fecha --format json | \
   skforecast-ai plan --from-profile - --steps 24 --format json | \
-  skforecast-ai generate-code --from-plan - --output script.py
+  skforecast-ai forecast-code --from-plan - --output script.py
 
 # Plan → Refine → Generate Code (iterative refinement)
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json | \
   skforecast-ai refine-plan --from-plan - --steps 12 --format json | \
-  skforecast-ai generate-code --from-plan - --output script.py
+  skforecast-ai forecast-code --from-plan - --output script.py
 
 # Plan → Forecast (generate plan once, execute against data)
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format json | \
@@ -389,4 +430,4 @@ skforecast-ai --install-completion
 ```
 
 This adds tab completion for commands, options, and arguments in your current shell (bash, zsh, fish, PowerShell). After installation, restart your shell or source the config file.
-- When `--from-plan` is used, `DATA` and `--target`/`--steps` are optional for `generate-code` (taken from the bundle), but `DATA` is still required for `forecast` (needs actual data for execution)
+- When `--from-plan` is used, `DATA` and `--target`/`--steps` are optional for `forecast-code` (taken from the bundle), but `DATA` is still required for `forecast` (needs actual data for execution)

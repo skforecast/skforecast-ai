@@ -32,7 +32,7 @@ _RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript
 }
 
 
-def render_script(
+def render_forecast_script(
     profile: DataProfile,
     plan: ForecastPlan,
 ) -> RenderedScript:
@@ -95,7 +95,7 @@ def run_forecast(
         Dictionary with keys `'metrics'`, `'predictions'`,
         `'intervals'`, and `'generated_code'`.
     """
-    rendered = render_script(profile, plan)
+    rendered = render_forecast_script(profile, plan)
 
     # Execute the rendered code with `data` pre-loaded in the namespace
     namespace = _exec_rendered_code(rendered, data)

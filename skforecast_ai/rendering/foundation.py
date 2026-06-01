@@ -31,11 +31,11 @@ def _emit_forecaster_creation_foundation(
     model_kwargs_pairs: list[tuple[str, str]] = [
         (k, repr(v)) for k, v in foundation_kwargs.items()
     ]
-    _emit_aligned_kwargs(lines, "model = FoundationModel(", model_kwargs_pairs)
+    _emit_aligned_kwargs(lines, "estimator = FoundationModel(", model_kwargs_pairs)
     lines.append("")
 
     lines.append("# Create forecaster")
-    lines.append("forecaster = ForecasterFoundation(estimator=model)")
+    lines.append("forecaster = ForecasterFoundation(estimator=estimator)")
     lines.append("")
 
 
