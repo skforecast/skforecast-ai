@@ -43,7 +43,7 @@ requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0",
     "pandas>=2.1",
-    "skforecast==0.22",
+    "skforecast>=0.23,<0.24",
 ]
 
 [project.optional-dependencies]
@@ -58,7 +58,7 @@ skforecast-ai = "skforecast_ai.cli:app"
 include = ["skforecast_ai*"]
 
 [tool.setuptools.package-data]
-skforecast_ai = ["skills/**/*.md", "resources/*.txt"]
+skforecast_ai = ["skills/**/*", "resources/*.txt"]
 
 [tool.ruff]
 line-length = 88

@@ -23,5 +23,5 @@ jobs:
       - name: Check token estimates are up-to-date
         run: python3 tools/measure_skill_tokens.py --check
 
-      - name: Check llms-base.txt is up-to-date
-        run: python3 tools/sync_skforecast_assets.py --check
+      - name: Check AI assets (llms-base.txt + skills) are up-to-date
+        run: python3 tools/sync_skforecast_assets.py --check --branch auto
