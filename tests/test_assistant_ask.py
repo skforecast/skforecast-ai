@@ -83,7 +83,7 @@ def test_ask_qa_mode_output_when_no_data(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 return _FakeResult()
         return _FakeAgent()
 
@@ -120,7 +120,7 @@ def test_ask_qa_mode_preserves_code_blocks(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 return _FakeResult()
         return _FakeAgent()
 
@@ -155,7 +155,7 @@ def test_ask_explain_mode_output_when_data_provided(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 assert "## Dataset" in msg
                 assert "## Forecast Plan" in msg
                 assert "## Question" in msg
@@ -202,7 +202,7 @@ def test_ask_explain_mode_strips_code_blocks(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 return _FakeResult()
         return _FakeAgent()
 
@@ -242,7 +242,7 @@ def test_ask_output_when_precomputed_profile(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 return _FakeResult()
         return _FakeAgent()
 
@@ -298,7 +298,7 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 assert "## Forecast Results" in msg
                 assert "Predictions" in msg
                 assert "Evaluation Metrics" in msg
@@ -356,7 +356,7 @@ def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 assert "Prediction Intervals" in msg
                 return _FakeResult()
         return _FakeAgent()
@@ -390,7 +390,7 @@ def test_ask_fallback_when_llm_fails_with_data(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, *a, **kw):
+            async def run(self, *a, **kw):
                 raise RuntimeError("Connection refused")
         return _FakeAgent()
 
@@ -427,7 +427,7 @@ def test_ask_fallback_when_llm_fails_no_data(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, *a, **kw):
+            async def run(self, *a, **kw):
                 raise RuntimeError("Connection refused")
         return _FakeAgent()
 
@@ -475,7 +475,7 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 assert "rows omitted" in msg
                 return _FakeResult()
         return _FakeAgent()
@@ -567,7 +567,7 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 assert "## Backtesting Configuration" in msg
                 assert "initial_train_size" in msg
                 assert "## Forecast Results" in msg

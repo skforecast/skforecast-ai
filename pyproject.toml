@@ -8,13 +8,13 @@ version = "0.1.0"
 description = "AI-powered forecasting assistant built on top of skforecast."
 readme = "README.md"
 authors = [
-    {name = "Joaquin Amat Rodrigo", email = "j.amatrodrigo@gmail.com"},
     {name = "Javier Escobar Ortiz", email = "javier.escobar.ortiz@gmail.com"},
+    {name = "Joaquin Amat Rodrigo", email = "j.amatrodrigo@gmail.com"},
 ]
 
 maintainers = [
-    {name = "Joaquin Amat Rodrigo", email = "j.amatrodrigo@gmail.com"},
     {name = "Javier Escobar Ortiz", email = "javier.escobar.ortiz@gmail.com"},
+    {name = "Joaquin Amat Rodrigo", email = "j.amatrodrigo@gmail.com"},
 ]
 
 classifiers = [
@@ -41,15 +41,24 @@ license-files = ["LICENSE", "CITATION.cff"]
 
 requires-python = ">=3.10"
 dependencies = [
-    "pydantic>=2.0",
+    "pydantic>=2.13",
     "pandas>=2.1",
     "skforecast>=0.23,<0.24",
+    "typer>=0.22",
+    "rich>=13.9",
 ]
 
 [project.optional-dependencies]
-llm = ["pydantic-ai", "nest-asyncio"]
-cli = ["typer[all]"]
-dev = ["pytest", "ruff"]
+llm = [
+    "pydantic-ai>=1.100,<2"
+]
+
+test = [
+    "pytest>=7.3",
+    "pytest-cov>=4.1",
+    "pytest-xdist>=3.3",
+    "lightgbm>=4.0,<5.0",
+]
 
 [project.scripts]
 skforecast-ai = "skforecast_ai.cli:app"

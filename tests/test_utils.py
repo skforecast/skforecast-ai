@@ -1,7 +1,5 @@
 # Unit test _utils
 
-import re
-import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -12,7 +10,7 @@ import pandas as pd
 from skforecast_ai._utils import (
     _strip_code_blocks,
     _coerce_to_dataframe,
-    _patch_event_loop,
+    _run_agent_sync,
 )
 
 
@@ -134,69 +132,66 @@ def test_coerce_to_dataframe_parses_date_column(tmp_path):
 
 
 # =============================================================================
-# _patch_event_loop
+# _run_agent_sync
 # =============================================================================
-def test_patch_event_loop_output_when_no_running_loop():
+def test_run_agent_sync_output_and_forwards_args():
     """
-    Test that _patch_event_loop returns without error when no event loop
-    is running.
+    Test that _run_agent_sync awaits agent.run, forwards args/kwargs, and
+    returns the awaited value.
     """
-    result = _patch_event_loop()
-    assert result is None
+    received = {}
+
+    class _FakeAgent:
+        async def run(self, *args, **kwargs):
+            received["args"] = args
+            received["kwargs"] = kwargs
+            return "result"
+
+    result = _run_agent_sync(_FakeAgent(), "a", "b", deps="d", model_settings="s")
+
+    assert result == "result"
+    assert received["args"] == ("a", "b")
+    assert received["kwargs"] == {"deps": "d", "model_settings": "s"}
 
 
-def test_patch_event_loop_ImportError_when_nest_asyncio_missing():
+def test_run_agent_sync_runs_on_shared_background_loop():
     """
-    Test that ImportError is raised with a helpful message when
-    nest_asyncio is not installed and an event loop is running.
+    Test that agent.run executes on the shared background loop (a daemon
+    thread), not the caller's thread, and that the same loop is reused
+    across calls.
     """
-    mock_loop = MagicMock()
-    mock_loop._nest_patched = False
+    import threading
 
-    with patch(
-        "skforecast_ai._utils.asyncio.get_running_loop",
-        return_value=mock_loop,
-    ):
-        with patch.dict(sys.modules, {"nest_asyncio": None}):
-            with patch("builtins.__import__", side_effect=ImportError):
-                err_msg = re.escape(
-                    "nest_asyncio is required to use `ask()` inside Jupyter"
-                )
-                with pytest.raises(ImportError, match=err_msg):
-                    _patch_event_loop()
+    seen = {}
+
+    class _FakeAgent:
+        async def run(self, *args, **kwargs):
+            loop = __import__("asyncio").get_running_loop()
+            seen.setdefault("loops", []).append(id(loop))
+            seen.setdefault("threads", []).append(
+                threading.current_thread().ident
+            )
+            return "ok"
+
+    agent = _FakeAgent()
+    _run_agent_sync(agent, "first")
+    _run_agent_sync(agent, "second")
+
+    # Executed off the caller (main) thread
+    assert seen["threads"][0] != threading.current_thread().ident
+    # Same background loop reused across calls
+    assert seen["loops"][0] == seen["loops"][1]
 
 
-def test_patch_event_loop_applies_patch_when_loop_running():
+def test_run_agent_sync_propagates_exceptions():
     """
-    Test that nest_asyncio.apply() is called when an event loop is running
-    and not yet patched.
+    Test that an exception raised inside agent.run propagates to the
+    synchronous caller.
     """
-    mock_loop = MagicMock()
-    mock_loop._nest_patched = False
-    mock_nest_asyncio = MagicMock()
 
-    with patch(
-        "skforecast_ai._utils.asyncio.get_running_loop",
-        return_value=mock_loop,
-    ):
-        with patch.dict(sys.modules, {"nest_asyncio": mock_nest_asyncio}):
-            with patch("builtins.__import__", return_value=mock_nest_asyncio):
-                _patch_event_loop()
+    class _FakeAgent:
+        async def run(self, *args, **kwargs):
+            raise ValueError("boom")
 
-    mock_nest_asyncio.apply.assert_called_once()
-
-
-def test_patch_event_loop_skips_when_already_patched():
-    """
-    Test that nest_asyncio.apply() is NOT called when the loop is already
-    patched.
-    """
-    mock_loop = MagicMock()
-    mock_loop._nest_patched = True
-
-    with patch(
-        "skforecast_ai._utils.asyncio.get_running_loop",
-        return_value=mock_loop,
-    ):
-        # Should return early without importing nest_asyncio
-        _patch_event_loop()
+    with pytest.raises(ValueError, match="boom"):
+        _run_agent_sync(_FakeAgent(), "msg")

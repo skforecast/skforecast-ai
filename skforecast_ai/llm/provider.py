@@ -92,7 +92,12 @@ def create_model(
         )
 
     if api_key is None:
-        # Cloud providers: return string for Pydantic AI native resolution
+        # Cloud providers: return string for Pydantic AI native resolution.
+        # Pin the OpenAI prefix to 'openai-chat:' so the Chat Completions API
+        # is used. From pydantic-ai v2.0 the bare 'openai:' prefix resolves to
+        # the Responses API, which would silently change behavior.
+        if provider == "openai":
+            return f"openai-chat:{model_name}"
         return llm
 
     return _create_model_with_api_key(provider, model_name, api_key, base_url)

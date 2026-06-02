@@ -491,7 +491,7 @@ def _mock_ask_agent(monkeypatch, response_text="This is a test response."):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 return _FakeResult()
         return _FakeAgent()
 

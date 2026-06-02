@@ -46,7 +46,7 @@ from .schemas import (
     ForecastPlan,
     ForecastResult,
 )
-from ._utils import _coerce_to_dataframe, _patch_event_loop, _strip_code_blocks
+from ._utils import _coerce_to_dataframe, _run_agent_sync, _strip_code_blocks
 
 
 class ForecastingAssistant:
@@ -1243,9 +1243,9 @@ class ForecastingAssistant:
             estimated_tokens, user_message
         )
 
-        _patch_event_loop()
         try:
-            result = agent.run_sync(
+            result = _run_agent_sync(
+                agent,
                 user_message,
                 deps=deps,
                 model_settings=model_settings,
@@ -1450,8 +1450,6 @@ class ForecastingAssistant:
         """
         from .llm.agent import CVDeps
 
-        _patch_event_loop()
-
         agent = self._resolve_cv_agent()
         lags = plan.forecaster_kwargs.get("lags")
 
@@ -1479,7 +1477,7 @@ class ForecastingAssistant:
                         f"and steps={plan.steps}. Fix the parameters."
                     )
 
-                result = agent.run_sync(user_message, deps=deps)
+                result = _run_agent_sync(agent, user_message, deps=deps)
                 cv_params = result.output
 
                 # Convert CVParams to defaults dict

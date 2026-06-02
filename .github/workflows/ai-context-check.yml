@@ -2,7 +2,7 @@ name: AI Context Check
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
     paths:
       - "skforecast_ai/skills/**"
       - "skforecast_ai/resources/**"
@@ -15,10 +15,14 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
+          cache: "pip"
 
       - name: Check token estimates are up-to-date
         run: python3 tools/measure_skill_tokens.py --check

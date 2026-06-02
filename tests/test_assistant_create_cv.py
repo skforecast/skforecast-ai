@@ -368,7 +368,7 @@ def test_create_cv_llm_success(monkeypatch):
         output = cv_params
 
     class _FakeAgent:
-        def run_sync(self, msg, **kw):
+        async def run(self, msg, **kw):
             return _FakeResult()
 
     monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
@@ -413,7 +413,7 @@ def test_create_cv_llm_kwargs_override_llm(monkeypatch):
         output = cv_params
 
     class _FakeAgent:
-        def run_sync(self, msg, **kw):
+        async def run(self, msg, **kw):
             return _FakeResult()
 
     monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
@@ -473,7 +473,7 @@ def test_create_cv_llm_retry_then_success(monkeypatch):
             self.output = params
 
     class _FakeAgent:
-        def run_sync(self, msg, **kw):
+        async def run(self, msg, **kw):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 return _FakeResult(bad_params)
@@ -518,7 +518,7 @@ def test_create_cv_llm_all_retries_fail_deterministic_fallback(monkeypatch):
         output = bad_params
 
     class _FakeAgent:
-        def run_sync(self, msg, **kw):
+        async def run(self, msg, **kw):
             return _FakeResult()
 
     monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
@@ -566,7 +566,7 @@ def test_create_cv_llm_explanation_includes_reasoning(monkeypatch):
         output = cv_params
 
     class _FakeAgent:
-        def run_sync(self, msg, **kw):
+        async def run(self, msg, **kw):
             return _FakeResult()
 
     monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
