@@ -41,9 +41,9 @@ from .recommendation import (
 from .schemas import (
     AskResult,
     BacktestResult,
+    CodeGenerationResult,
     ForecastingProfile,
     ForecastPlan,
-    CodeGenerationResult,
     ForecastResult,
 )
 from ._utils import _coerce_to_dataframe, _patch_event_loop, _strip_code_blocks

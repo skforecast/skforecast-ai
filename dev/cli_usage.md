@@ -52,7 +52,7 @@ skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12
 skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --interval "10,90" --output-predictions preds.csv
 
 # Forecast with JSON output
-skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --format json
+skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --format json > preds.json
 
 # Override forecaster/estimator
 skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --forecaster ForecasterDirect --estimator Ridge
@@ -94,7 +94,7 @@ skforecast-ai plan "$URL" --target "item_1,item_2,item_3" --date-column date --s
 skforecast-ai forecast-code "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30 --output multi_forecast.py
 
 # Forecast
-skforecast-ai forecast "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30
+skforecast-ai forecast "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30 --output-predictions preds_multi.csv
 ```
 
 ### Multi-series long format (local file)
@@ -104,7 +104,7 @@ skforecast-ai forecast "$URL" --target "item_1,item_2,item_3" --date-column date
 skforecast-ai profile sales.csv --target revenue --date-column date --series-id store_id
 
 # Forecast
-skforecast-ai forecast sales.csv --target revenue --date-column date --series-id store_id --steps 30
+skforecast-ai forecast sales.csv --target revenue --date-column date --series-id store_id --steps 30 --output-predictions preds_sales.csv
 ```
 
 ### website_visits — Daily single series, no exogenous

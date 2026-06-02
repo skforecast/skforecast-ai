@@ -1,0 +1,177 @@
+{
+  "profile": {
+    "data_profile": {
+      "data_format": "single",
+      "n_series": 1,
+      "n_observations": 195,
+      "series_lengths": null,
+      "target": "y",
+      "target_dtype": "numeric",
+      "target_stats": {
+        "y": {
+          "min": 0.361801,
+          "max": 1.257238,
+          "mean": 0.7820261298461538,
+          "std": 0.21944724713281627
+        }
+      },
+      "missing_target": {},
+      "date_column": "fecha",
+      "series_id_column": null,
+      "index_type": "datetime",
+      "frequency": "MS",
+      "frequency_is_set": false,
+      "index_is_monotonic": true,
+      "has_gaps": false,
+      "has_duplicate_timestamps": false,
+      "exog_columns": [
+        "exog_1",
+        "exog_2"
+      ],
+      "categorical_exog": [],
+      "missing_exog": {},
+      "data_path": "data.csv",
+      "start_date": "1992-04-01",
+      "end_train": "2005-03-01",
+      "warnings": []
+    },
+    "task_type": "single_series",
+    "forecaster": "ForecasterRecursive",
+    "forecaster_candidates": [
+      "ForecasterRecursive",
+      "ForecasterDirect",
+      "ForecasterFoundation",
+      "ForecasterStats"
+    ],
+    "estimator": "Ridge",
+    "estimator_candidates": [
+      "Ridge",
+      "RandomForestRegressor",
+      "LGBMRegressor"
+    ],
+    "analysis_context": {
+      "effective_n_observations": 195,
+      "min_series_length": null,
+      "max_series_length": null,
+      "series_length_ratio": null,
+      "short_series": null,
+      "target_has_trend": null,
+      "target_variance": 0.04815709427417134,
+      "viable_context_length": null
+    },
+    "explanation": "A single-series ML forecaster (ForecasterRecursive) is recommended. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation', 'ForecasterStats']. Estimator: Ridge. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor']."
+  },
+  "plan": {
+    "task_type": "single_series",
+    "forecaster": "ForecasterRecursive",
+    "forecaster_kwargs": {
+      "lags": [
+        1,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "window_features": [
+        {
+          "stats": [
+            "mean",
+            "std"
+          ],
+          "window_sizes": 12
+        },
+        {
+          "stats": [
+            "mean"
+          ],
+          "window_sizes": 24
+        }
+      ],
+      "transformer_y": "StandardScaler",
+      "transformer_exog": "StandardScaler",
+      "categorical_features": "auto",
+      "dropna_from_series": false
+    },
+    "estimator": "Ridge",
+    "estimator_kwargs": {},
+    "steps": 12,
+    "frequency": "MS",
+    "interval": null,
+    "interval_method": null,
+    "metric": "mean_absolute_error",
+    "metrics_to_compute": [
+      "mean_absolute_error",
+      "mean_squared_error",
+      "mean_absolute_scaled_error",
+      "mean_absolute_percentage_error"
+    ],
+    "use_exog": true,
+    "preprocessing_steps": [],
+    "warnings": [],
+    "explanation": "Plan: ForecasterRecursive + Ridge. Lags: [1, 8, 9, 10, 11, 12, 13, 14]. Window features: ['mean(window=12)', 'std(window=12)', 'mean(window=24)']. NaN rows kept (NaN-tolerant estimator). Exogenous variables included. MAE is interpretable, robust to outliers, and works at any scale."
+  },
+  "code": "import pandas as pd\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error\nfrom skforecast.metrics import mean_absolute_scaled_error\nfrom sklearn.linear_model import Ridge\nfrom skforecast.preprocessing import RollingFeatures\nfrom skforecast.recursive import ForecasterRecursive\n\n# Load data\ndata = pd.read_csv('data.csv')\n\ndata['fecha'] = pd.to_datetime(data['fecha'])\ndata = data.set_index('fecha')\ndata = data.asfreq('MS')\ndata = data.sort_index()\n\n# Train/test split\nend_train = '2005-03-01'  # 80% of data, adjust to change the split point\ndata_train = data.loc[:end_train]\ndata_test  = data.loc[data.index > end_train]\nexog_features = ['exog_1', 'exog_2']\n\nprint(\n    f\"Train dates : {data_train.index.min()} --- {data_train.index.max()}  (n={len(data_train)})\"\n)\nprint(\n    f\"Test dates  : {data_test.index.min()} --- {data_test.index.max()}  (n={len(data_test)})\"\n)\n\nwindow_features = RollingFeatures(\n    stats        = ['mean', 'std', 'mean'],\n    window_sizes = [12, 12, 24],\n)\n\ntransformer_exog = StandardScaler()\n\n# Create forecaster\nforecaster = ForecasterRecursive(\n    estimator            = Ridge(),\n    lags                 = [1, 8, 9, 10, 11, 12, 13, 14],\n    window_features      = window_features,\n    transformer_y        = StandardScaler(),\n    transformer_exog     = transformer_exog,\n    categorical_features = 'auto',\n    dropna_from_series   = False,\n)\n\n# Fit\nforecaster.fit(y=data_train['y'], exog=data_train[exog_features])\n\n# Predict\nsteps = 12\npredictions = forecaster.predict(steps=steps, exog=data_test[exog_features])\nprint(predictions)\n\n# Evaluate on test set\nactual = data_test['y'].iloc[:steps]\nmae = mean_absolute_error(actual, predictions)\nmse = mean_squared_error(actual, predictions)\nmase = mean_absolute_scaled_error(\n    y_true  = actual,\n    y_pred  = predictions,\n    y_train = data_train['y'],\n)\nmape = mean_absolute_percentage_error(actual, predictions)\n\nprint(f\"MAE  : {mae:.4f}\")\nprint(f\"MSE  : {mse:.4f}\")\nprint(f\"MASE : {mase:.4f}\")\nprint(f\"MAPE : {mape:.4f}\")\n\n# NOTE: This script uses a train/test split for demonstration purposes.\n# For production forecasting, retrain with all available data\n# and provide future exogenous values covering the forecast horizon.\n",
+  "metrics": [
+    {
+      "series": "y",
+      "MAE": 0.05902741402365422,
+      "MSE": 0.005195652102163891,
+      "MASE": 0.6318326821734265,
+      "MAPE": 0.06564344912066426
+    }
+  ],
+  "predictions": [
+    {
+      "index": "2005-04-01 00:00:00",
+      "pred": 0.7571271178019666
+    },
+    {
+      "index": "2005-05-01 00:00:00",
+      "pred": 0.7724161298881398
+    },
+    {
+      "index": "2005-06-01 00:00:00",
+      "pred": 0.8120213491557655
+    },
+    {
+      "index": "2005-07-01 00:00:00",
+      "pred": 0.9495773361066981
+    },
+    {
+      "index": "2005-08-01 00:00:00",
+      "pred": 0.9862892156127542
+    },
+    {
+      "index": "2005-09-01 00:00:00",
+      "pred": 1.122944021244969
+    },
+    {
+      "index": "2005-10-01 00:00:00",
+      "pred": 1.1582798854337686
+    },
+    {
+      "index": "2005-11-01 00:00:00",
+      "pred": 1.1750343681144662
+    },
+    {
+      "index": "2005-12-01 00:00:00",
+      "pred": 1.19747824184585
+    },
+    {
+      "index": "2006-01-01 00:00:00",
+      "pred": 1.0966233621717278
+    },
+    {
+      "index": "2006-02-01 00:00:00",
+      "pred": 0.5874938512189778
+    },
+    {
+      "index": "2006-03-01 00:00:00",
+      "pred": 0.6445510564307382
+    }
+  ],
+  "intervals": null
+}
