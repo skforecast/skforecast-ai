@@ -1,12 +1,47 @@
-"""Data profiling: inspect a DataFrame and produce a DataProfile."""
+################################################################################
+#                               data_profile                                   #
+#                                                                              #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
-
 from ..schemas import DataProfile
 
+# TODO: Performance & Data Integrity - Lookahead Sampling
+# Refactor `_try_parse_first_date_column` to test a small sample (e.g., 50 rows)
+# before parsing the whole column. `pd.to_datetime` with `format="mixed"` is
+# computationally expensive and can accidentally parse categorical text IDs as dates.
+
+# TODO: Long Format Robustness - Fallback Series ID
+# In `_extract_datetime_index`, if frequency inference fails on the first series ID,
+# iterate through a few alternative series IDs before defaulting to None.
+
+# TODO: Memory Optimization - Mask Filtering
+# Optimize `_extract_datetime_index` to avoid creating heavy boolean masks 
+# (e.g., `data[data[series_id] == id]`) on the entire DataFrame. Consider using
+# lazy evaluation or `groupby().get_group()` to isolate the sample.
+
+# TODO: Seasonality Logic - Handle Multipliers
+# Update `estimate_seasonality` to handle numeric frequency multipliers 
+# (e.g., "2H" or "15T"). Extract the multiplier and scale the base seasonal periods.
+
+# TODO: Magic Numbers - Parameterize Train Split
+# `_compute_end_train` hardcodes an 80% split (`idx = int(len(idx) * 0.8) - 1`). 
+# Parameterize this by adding a `train_fraction` argument with a default of 0.8 
+# so users can customize the split boundary.
+
+# TODO: Multi-Target Logic - Check All Target Dtypes
+# In `create_data_profile`, `target_dtype` only checks the first target column. 
+# For wide-format multi-series, it should verify if dtypes are mixed across targets 
+# or return a dictionary mapping each target to its dtype.
+
+# TODO: Bug Fix - Prevent Data Leakage in Sub-daily Splits
+# `_compute_end_train` checks only the split timestamp for a time component. 
+# If a sub-daily index happens to split exactly at midnight, it returns a 
+# date string, causing pandas `.loc` to include the rest of the day 
+# (up to 23:59:59), leaking test data into the train set. 
 
 def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     """
@@ -241,10 +276,10 @@ def create_data_profile(
 
 def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
     """
-    Try to convert the first object-dtype column to datetime.
+    Try to convert the first object or string dtype column to datetime.
 
     When a CSV is exported via `DataFrame.to_csv()` the DatetimeIndex
-    becomes a regular column with object dtype (e.g. `"Unnamed: 0"` or
+    becomes a regular column with object or string dtype (e.g. `"Unnamed: 0"` or
     `"date"`). `pd.read_csv(parse_dates=True)` often fails to
     auto-parse these. This helper converts the first parseable column
     in-place so that downstream `detect_date_column` can identify it.
@@ -260,7 +295,7 @@ def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
         DataFrame with the first date-like column converted (if found).
     """
     for col in data.columns:
-        if data[col].dtype == object:
+        if pd.api.types.is_object_dtype(data[col]) or pd.api.types.is_string_dtype(data[col]):
             try:
                 parsed = pd.to_datetime(data[col], format="mixed")
                 if parsed.notna().all():
@@ -611,11 +646,10 @@ def count_missing_values(
         # Count NaN in target per series_id
         target_col = target_cols[0]
         missing_per_series = (
-            data.groupby(series_id_column)[target_col]
-            .apply(lambda s: int(s.isna().sum()))
+            data[target_col].isna().groupby(data[series_id_column]).sum()
         )
         missing_target = {
-            str(name): count
+            str(name): int(count)
             for name, count in missing_per_series.items()
             if count > 0
         }

@@ -138,6 +138,41 @@ def test_create_data_profile_output_when_csv_path_input(tmp_path):
     assert profile.index_type == "datetime"
 
 
+def test_create_data_profile_output_when_csv_path_input_string_dtype(tmp_path):
+    """
+    Test create_data_profile works with a CSV file path as input when the
+    resulting loaded DataFrame has a modern string dtype for the date column.
+    """
+    csv_file = tmp_path / "data.csv"
+    
+    # Export without index
+    df = df_single_daily.reset_index()
+    df.rename(columns={"index": "date"}, inplace=True)
+    df.to_csv(csv_file, index=False)
+
+    # We mock pd.read_csv to return a DataFrame where the date column is explicitly 'string' dtype.
+    # This simulates pandas>=2.0 read_csv with dtype_backend="pyarrow" or similar string inference.
+    original_read_csv = pd.read_csv
+    
+    def mocked_read_csv(*args, **kwargs):
+        df_loaded = original_read_csv(*args, **kwargs)
+        df_loaded["date"] = df_loaded["date"].astype("string")
+        return df_loaded
+        
+    import skforecast_ai.profiling.data_profile as dp
+    dp.pd.read_csv = mocked_read_csv
+    try:
+        profile = create_data_profile(data=csv_file, target="y")
+    finally:
+        dp.pd.read_csv = original_read_csv
+
+    assert isinstance(profile, DataProfile)
+    assert profile.n_observations == 365
+    assert profile.target == "y"
+    assert profile.index_type == "datetime"
+    assert profile.date_column == "date"
+
+
 # ---------------------------------------------------------------------------
 # Data format detection
 # ---------------------------------------------------------------------------
