@@ -15,6 +15,7 @@ _RESOURCES_DIR = _PACKAGE_DIR / "resources"
 
 ALL_SKILLS = [
     "autocorrelation-and-lag-selection",
+    "backtesting-configuration",
     "choosing-a-forecaster",
     "complete-api-reference",
     "deep-learning-forecasting",
@@ -45,17 +46,18 @@ _TASK_TYPE_SKILLS: dict[str | None, list[str]] = {
 }
 
 _KEYWORD_SKILLS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"interval|confidence|quantile|conformal|bootstrap", re.I), "prediction-intervals"),
-    (re.compile(r"hyperparameter|search|bayesian|optuna|grid|tuning", re.I), "hyperparameter-optimization"),
-    (re.compile(r"\blags?\b|autocorrelation|\bacf\b|\bpacf\b", re.I), "autocorrelation-and-lag-selection"),
-    (re.compile(r"feature.*(engineer|roll|window)|rolling|window.feature", re.I), "feature-engineering"),
-    (re.compile(r"feature.selection|rfecv|select.feature", re.I), "feature-selection"),
-    (re.compile(r"metric|mae|mse|mape|rmse|smape|mase|pinball|crps|coverage", re.I), "metric-selection"),
-    (re.compile(r"rnn|lstm|deep.learn|keras|neural", re.I), "deep-learning-forecasting"),
-    (re.compile(r"chronos|timesfm|moirai|foundation|zero.shot|tabicl", re.I), "foundation-forecasting"),
-    (re.compile(r"arima|sarimax|\bets\b|arar|\bstatistical\b", re.I), "statistical-models"),
-    (re.compile(r"drift|monitor|deploy", re.I), "drift-detection"),
-    (re.compile(r"traceback|debug|troubleshoot|exception|TypeError|ValueError", re.I), "troubleshooting-common-errors"),
+    (re.compile(r"interval|confidence|quantile|conformal|bootstrap|uncertainty|predict_interval|predict_quantiles|prediction.band", re.I), "prediction-intervals"),
+    (re.compile(r"backtest|cross.valid|TimeSeriesFold|initial_train_size|\bfold\b|refit|walk.forward|out.of.sample|\bgap\b|evaluat", re.I), "backtesting-configuration"),
+    (re.compile(r"hyperparameter|search.space|bayesian|optuna|grid.search|random.search|\btuning\b|\btune\b|n_trials|optimiz", re.I), "hyperparameter-optimization"),
+    (re.compile(r"\blags?\b|autocorrelation|partial.autocorr|\bacf\b|\bpacf\b|correlogram|lag.selection", re.I), "autocorrelation-and-lag-selection"),
+    (re.compile(r"feature.*(engineer|roll|window)|rolling.feature|RollingFeatures|window.feature|datetime.feature|calendar.feature|holiday|differentiat", re.I), "feature-engineering"),
+    (re.compile(r"feature.selection|rfecv|select.feature|select_features|selectfrommodel|feature.importance", re.I), "feature-selection"),
+    (re.compile(r"metric|\bmae\b|\bmse\b|\bmape\b|\brmse\b|smape|\bmase\b|rmsse|pinball|\bcrps\b|coverage|scoring|loss.function", re.I), "metric-selection"),
+    (re.compile(r"\brnn\b|lstm|\bgru\b|deep.learn|keras|tensorflow|neural|ForecasterRnn", re.I), "deep-learning-forecasting"),
+    (re.compile(r"chronos|timesfm|moirai|foundation|zero.shot|tabicl|pre.?trained|ForecasterFoundation", re.I), "foundation-forecasting"),
+    (re.compile(r"arima|sarimax|\bets\b|\barar\b|\bstatistical\b|exponential.smoothing|seasonal.order|ForecasterStats", re.I), "statistical-models"),
+    (re.compile(r"drift|monitor|deploy|production|distribution.shift|out.of.range|RangeDrift|PopulationDrift", re.I), "drift-detection"),
+    (re.compile(r"traceback|\bdebug\b|troubleshoot|exception|\berror\b|\bfails?\b|not.working|TypeError|ValueError|KeyError|IndexError", re.I), "troubleshooting-common-errors"),
 ]
 
 # When a skill in the key set is selected, the skills in the value set are
@@ -88,24 +90,25 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
 
 # Measured token estimates (chars / 4) for each skill (SKILL.md + references/).
 _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
-    "choosing-a-forecaster": 2810,
-    "forecasting-single-series": 1224,
-    "forecasting-multiple-series": 1482,
-    "statistical-models": 3755,
-    "foundation-forecasting": 3211,
-    "hyperparameter-optimization": 3378,
-    "prediction-intervals": 3225,
-    "autocorrelation-and-lag-selection": 2044,
-    "feature-engineering": 8126,
-    "feature-selection": 1407,
-    "metric-selection": 5072,
-    "deep-learning-forecasting": 3883,
-    "drift-detection": 1249,
-    "troubleshooting-common-errors": 2108,
-    "complete-api-reference": 11409,
+    "autocorrelation-and-lag-selection": 2038,
+    "backtesting-configuration": 1076,
+    "choosing-a-forecaster": 2702,
+    "complete-api-reference": 11360,
+    "deep-learning-forecasting": 3873,
+    "drift-detection": 1246,
+    "feature-engineering": 8086,
+    "feature-selection": 1406,
+    "forecasting-multiple-series": 1480,
+    "forecasting-single-series": 1223,
+    "foundation-forecasting": 3201,
+    "hyperparameter-optimization": 3330,
+    "metric-selection": 4986,
+    "prediction-intervals": 3203,
+    "statistical-models": 3741,
+    "troubleshooting-common-errors": 2099,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 7600  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 7647  # llms-base.txt measured size
 _STATIC_PROMPT_TOKEN_ESTIMATE = 200
 
 
