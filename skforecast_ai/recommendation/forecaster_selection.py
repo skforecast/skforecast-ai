@@ -1,9 +1,11 @@
-"""Forecaster and estimator selection rules."""
+################################################################################
+#                          forecaster_selection                                #
+#                                                                              #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 from typing import Literal
-
 from ..schemas import DataProfile
 
 
@@ -23,8 +25,7 @@ def select_forecaster_and_candidates(
     preferred : str
         Name of the recommended forecaster class.
     candidates : list of str
-        Ordered list of compatible skforecast forecaster class names.
-        The first item matches `preferred`.
+        Ordered list of compatible forecaster class names. First item matches `preferred`.
 
     Notes
     -----

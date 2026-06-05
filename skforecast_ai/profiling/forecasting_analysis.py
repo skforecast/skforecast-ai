@@ -1,9 +1,11 @@
-"""Stage 3: Forecaster-specific analysis context."""
+################################################################################
+#                       forecasting_analysis                                   #
+#                                                                              #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 import pandas as pd
-
 from .._constants import (
     FOUNDATION_FORECASTERS,
     MULTI_SERIES_FORECASTERS,

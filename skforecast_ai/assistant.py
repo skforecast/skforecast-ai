@@ -1,14 +1,14 @@
-"""ForecastingAssistant: unified public API for skforecast-ai."""
+################################################################################
+#                          ForecastingAssistant                                #
+#                                                                              #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 import warnings
 from pathlib import Path
-
 import pandas as pd
-
 from skforecast.model_selection import TimeSeriesFold
-
 from .exceptions import LLMRequiredError
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
@@ -51,12 +51,15 @@ from ._utils import _coerce_to_dataframe, _run_agent_sync, _strip_code_blocks
 
 class ForecastingAssistant:
     """
-    Profile time series data, recommend forecasting strategies, generate
-    executable code, run forecasts, and evaluate models via backtesting.
+    AI-powered forecasting assistant built on skforecast.
 
-    All recommendations are deterministic and reproducible. An optional
-    LLM adds natural-language explanations and interactive Q&A without
-    affecting the underlying forecasting logic.
+    Analyses a time series dataset, selects a forecaster and estimator,
+    produces a ready-to-run Python script, and optionally executes it —
+    returning predictions, metrics, and the exact code that generated them.
+
+    All modeling decisions are deterministic and reproducible. An optional
+    LLM adds natural-language explanations and Q&A without influencing
+    any recommendation.
 
     Parameters
     ----------
@@ -132,13 +135,13 @@ class ForecastingAssistant:
         send_data_to_llm: bool = False,
     ) -> None:
         
-        self.llm = llm
-        self.base_url = base_url
-        self.api_key = api_key
+        self.llm              = llm
+        self.base_url         = base_url
+        self.api_key          = api_key
         self.send_data_to_llm = send_data_to_llm
-        self._model = None
-        self._agent = None
-        self._cv_agent = None
+        self._model           = None
+        self._agent           = None
+        self._cv_agent        = None
 
     def profile(
         self,

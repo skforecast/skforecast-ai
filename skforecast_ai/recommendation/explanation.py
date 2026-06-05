@@ -16,11 +16,11 @@ def build_plan_explanation(
     metric_explanation: str | None = None,
 ) -> str:
     """
-    Assemble a human-readable explanation of the plan-level decisions.
+    Compose a sentence-by-sentence summary of the plan configuration.
 
-    Focuses on *what* the plan configures (lags, window features,
-    interval method, NaN handling, metric) rather than *why* a
-    forecaster was chosen (which belongs in the profile explanation).
+    Covers lags, window features, interval method, NaN handling, exogenous
+    variables, and metric. Does not explain forecaster/estimator selection —
+    that belongs in the profile explanation.
 
     Parameters
     ----------
@@ -92,7 +92,8 @@ def _build_profile_explanation(
     data_profile: DataProfile,
 ) -> str:
     """
-    Build a short explanation of the coarse modeling decisions.
+    Compose a human-readable sentence explaining why a specific forecaster and
+    estimator were selected, listing the available alternatives.
 
     Parameters
     ----------
