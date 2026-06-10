@@ -2,13 +2,13 @@
 """
 Measure token estimates for each skill and the llms-base.txt reference.
 
-Prints a Python dict literal ready to paste into prompts.py, and optionally
+Prints a Python dict literal ready to paste into skills.py, and optionally
 updates the constants in-place with --update.
 
 Usage
 -----
     python tools/measure_skill_tokens.py           # Print estimates
-    python tools/measure_skill_tokens.py --update  # Update prompts.py in-place
+    python tools/measure_skill_tokens.py --update  # Update skills.py in-place
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ import sys
 from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parent.parent / "skforecast_ai"
-SKILLS_DIR = PACKAGE_DIR / "skills"
 RESOURCES_DIR = PACKAGE_DIR / "resources"
-PROMPTS_FILE = PACKAGE_DIR / "llm" / "prompts.py"
+SKILLS_DIR = PACKAGE_DIR / "skills"
+SKILLS_MODULE = PACKAGE_DIR / "llm" / "skills.py"
 
 CHARS_PER_TOKEN = 4
 
@@ -65,7 +65,7 @@ def collect_estimates() -> tuple[dict[str, int], int]:
 
 
 def format_dict(skills: dict[str, int]) -> str:
-    """Format the skills dict as a Python literal for prompts.py."""
+    """Format the skills dict as a Python literal for skills.py."""
     lines = ["_SKILL_TOKEN_ESTIMATES: dict[str, int] = {"]
     for name, tokens in skills.items():
         lines.append(f'    "{name}": {tokens},')
@@ -73,9 +73,9 @@ def format_dict(skills: dict[str, int]) -> str:
     return "\n".join(lines)
 
 
-def update_prompts_file(skills: dict[str, int], reference: int) -> bool:
-    """Update _SKILL_TOKEN_ESTIMATES and _REFERENCE_TOKEN_ESTIMATE in prompts.py."""
-    content = PROMPTS_FILE.read_text(encoding="utf-8")
+def update_skills_file(skills: dict[str, int], reference: int) -> bool:
+    """Update _SKILL_TOKEN_ESTIMATES and _REFERENCE_TOKEN_ESTIMATE in skills.py."""
+    content = SKILLS_MODULE.read_text(encoding="utf-8")
 
     # Replace _SKILL_TOKEN_ESTIMATES block
     pattern_skills = re.compile(
@@ -88,23 +88,23 @@ def update_prompts_file(skills: dict[str, int], reference: int) -> bool:
     replacement_skills = f"\\1\n{new_dict_body}\n\\2"
     new_content, n = pattern_skills.subn(replacement_skills, content)
     if n == 0:
-        print("ERROR: Could not find _SKILL_TOKEN_ESTIMATES in prompts.py", file=sys.stderr)
+        print("ERROR: Could not find _SKILL_TOKEN_ESTIMATES in skills.py", file=sys.stderr)
         return False
 
     # Replace _REFERENCE_TOKEN_ESTIMATE value
     pattern_ref = re.compile(r"^(_REFERENCE_TOKEN_ESTIMATE = )\d+", re.MULTILINE)
     new_content, n = pattern_ref.subn(f"\\g<1>{reference}", new_content)
     if n == 0:
-        print("ERROR: Could not find _REFERENCE_TOKEN_ESTIMATE in prompts.py", file=sys.stderr)
+        print("ERROR: Could not find _REFERENCE_TOKEN_ESTIMATE in skills.py", file=sys.stderr)
         return False
 
-    PROMPTS_FILE.write_text(new_content, encoding="utf-8")
+    SKILLS_MODULE.write_text(new_content, encoding="utf-8")
     return True
 
 
-def check_prompts_file(skills: dict[str, int], reference: int) -> bool:
-    """Check whether prompts.py constants match the measured values."""
-    content = PROMPTS_FILE.read_text(encoding="utf-8")
+def check_skills_file(skills: dict[str, int], reference: int) -> bool:
+    """Check whether skills.py constants match the measured values."""
+    content = SKILLS_MODULE.read_text(encoding="utf-8")
 
     stale: list[str] = []
 
@@ -135,7 +135,7 @@ def check_prompts_file(skills: dict[str, int], reference: int) -> bool:
         )
 
     if stale:
-        print("ERROR: Token estimates in prompts.py are stale:", file=sys.stderr)
+        print("ERROR: Token estimates in skills.py are stale:", file=sys.stderr)
         for line in stale:
             print(line, file=sys.stderr)
         print(
@@ -153,25 +153,25 @@ def main() -> None:
     group.add_argument(
         "--update",
         action="store_true",
-        help="Update prompts.py constants in-place.",
+        help="Update skills.py constants in-place.",
     )
     group.add_argument(
         "--check",
         action="store_true",
-        help="Check that prompts.py constants are up-to-date (CI mode).",
+        help="Check that skills.py constants are up-to-date (CI mode).",
     )
     args = parser.parse_args()
 
     skills, reference = collect_estimates()
 
     if args.check:
-        if check_prompts_file(skills, reference):
+        if check_skills_file(skills, reference):
             print("✓ Token estimates are up-to-date.")
         else:
             sys.exit(1)
     elif args.update:
-        if update_prompts_file(skills, reference):
-            print(f"✓ Updated {PROMPTS_FILE}")
+        if update_skills_file(skills, reference):
+            print(f"✓ Updated {SKILLS_MODULE}")
         else:
             sys.exit(1)
     else:
