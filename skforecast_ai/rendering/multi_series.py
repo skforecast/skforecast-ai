@@ -98,7 +98,7 @@ def render_forecast_multi_series(
 
     is_wide = profile.data_format == "wide"
     series_id = profile.series_id_column or "series_id"
-    date_col = profile.date_column or "date"
+    date_col = profile.date_column or "datetime"
 
     import_lines: list[str] = []
     loading_lines: list[str] = []
@@ -298,7 +298,7 @@ def render_forecast_multivariate(
 
     is_wide = profile.data_format == "wide"
     series_id = profile.series_id_column or "series_id"
-    date_col = profile.date_column or "date"
+    date_col = profile.date_column or "datetime"
     target = _get_target_str(profile)
 
     import_lines: list[str] = []

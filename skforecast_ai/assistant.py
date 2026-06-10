@@ -1,14 +1,14 @@
-"""ForecastingAssistant: unified public API for skforecast-ai."""
+################################################################################
+#                          ForecastingAssistant                                #
+#                                                                              #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 import warnings
 from pathlib import Path
-
 import pandas as pd
-
 from skforecast.model_selection import TimeSeriesFold
-
 from .exceptions import LLMRequiredError
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
@@ -20,23 +20,25 @@ from .llm import (
     estimate_prompt_tokens,
     select_skills,
 )
-from .profiling import create_forecasting_analysis, create_data_profile
+from .profiling import create_data_profile
 from .recommendation import (
     _build_profile_explanation,
     build_cv_explanation,
     build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
+    compute_series_pacf,
     derive_cv_defaults,
     derive_preprocessing_steps,
+    finalize_lags,
     select_dropna_from_series,
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
-    select_lags_and_window_features,
     select_metric,
     select_task_type_from_forecaster,
     select_transformer_exog,
     select_transformer_series,
+    select_window_features,
 )
 from .schemas import (
     AskResult,
@@ -46,17 +48,25 @@ from .schemas import (
     ForecastPlan,
     ForecastResult,
 )
-from ._utils import _coerce_to_dataframe, _run_agent_sync, _strip_code_blocks
+from ._utils import (
+    _coerce_to_dataframe,
+    _run_agent_sync,
+    _strip_code_blocks,
+    _validate_task_input,
+)
 
 
 class ForecastingAssistant:
     """
-    Profile time series data, recommend forecasting strategies, generate
-    executable code, run forecasts, and evaluate models via backtesting.
+    AI-powered forecasting assistant built on skforecast.
 
-    All recommendations are deterministic and reproducible. An optional
-    LLM adds natural-language explanations and interactive Q&A without
-    affecting the underlying forecasting logic.
+    Analyses a time series dataset, selects a forecaster and estimator,
+    produces a ready-to-run Python script, and optionally executes it —
+    returning predictions, metrics, and the exact code that generated them.
+
+    All modeling decisions are deterministic and reproducible. An optional
+    LLM adds natural-language explanations and Q&A without influencing
+    any recommendation.
 
     Parameters
     ----------
@@ -132,13 +142,13 @@ class ForecastingAssistant:
         send_data_to_llm: bool = False,
     ) -> None:
         
-        self.llm = llm
-        self.base_url = base_url
-        self.api_key = api_key
+        self.llm              = llm
+        self.base_url         = base_url
+        self.api_key          = api_key
         self.send_data_to_llm = send_data_to_llm
-        self._model = None
-        self._agent = None
-        self._cv_agent = None
+        self._model           = None
+        self._agent           = None
+        self._cv_agent        = None
 
     def profile(
         self,
@@ -187,10 +197,17 @@ class ForecastingAssistant:
 
         forecaster, forecaster_candidates = select_forecaster_and_candidates(data_profile)
         task_type = select_task_type_from_forecaster(forecaster)
-        analysis_context = create_forecasting_analysis(data, data_profile, forecaster)
+
+        series_pacf = compute_series_pacf(data=data, profile=data_profile)
+        window_features = select_window_features(
+                              task_type      = task_type,
+                              n_observations = data_profile.span_index_length,
+                              frequency      = data_profile.frequency,
+                              series_pacf    = series_pacf,
+                          )
 
         estimator, estimator_candidates = select_estimator_and_candidates(
-            task_type=task_type, n_observations=analysis_context.effective_n_observations
+            task_type=task_type, n_observations=data_profile.n_total_observations
         )
 
         explanation = _build_profile_explanation(
@@ -209,7 +226,8 @@ class ForecastingAssistant:
             forecaster_candidates = forecaster_candidates,
             estimator             = estimator,
             estimator_candidates  = estimator_candidates,
-            analysis_context      = analysis_context,
+            series_pacf           = series_pacf,
+            window_features       = window_features,
             explanation           = explanation,
         )
 
@@ -259,7 +277,6 @@ class ForecastingAssistant:
         """
 
         data_profile = profile.data_profile
-        context      = profile.analysis_context
 
         fc = profile.forecaster
         if forecaster is not None:
@@ -273,21 +290,18 @@ class ForecastingAssistant:
 
         task_type = select_task_type_from_forecaster(fc)
 
+        # Reject inputs incompatible with the resolved task type
+        # (single-series tasks with multi-series input; multivariate with
+        # series of different lengths).
+        _validate_task_input(data_profile, task_type)
+
+        n_obs_total = data_profile.n_total_observations
+
+        # Recompute the estimator only when the task type changed.
         if task_type != profile.task_type:
-            # Recompute the analysis context for the overridden forecaster.
-            # plan() doesn't have `data`, so pass None — the analyzers
-            # fall back to profile.n_observations which is the per-series
-            # length (correct for multivariate / single-series cases).
-            context = create_forecasting_analysis(None, data_profile, fc)
-            # Preserve target_series from the original profile when the
-            # new context lacks it (the series is still valid for PACF).
-            if context.target_series is None:
-                context = context.model_copy(
-                    update={"target_series": profile.analysis_context.target_series}
-                )
             est, _ = select_estimator_and_candidates(
                 task_type      = task_type,
-                n_observations = context.effective_n_observations,
+                n_observations = n_obs_total,
             )
         else:
             est = profile.estimator
@@ -295,7 +309,6 @@ class ForecastingAssistant:
         if estimator is not None:
             est = estimator
 
-        # TODO: Enhance autoreg selection with skill when ready
         if task_type in ("statistical", "foundation"):
             lags = None
             window_features = None
@@ -303,18 +316,13 @@ class ForecastingAssistant:
             transformer_exog = None
             dropna_from_series = None
         else:
-            if context.target_series is None or len(context.target_series) == 0:
-                # Fallback: PACF-based selection requires a non-empty series.
-                # Use a safe default lag range when the target is unavailable.
-                n_lags = min(5, max(context.effective_n_observations // 3, 1))
-                lags = list(range(1, n_lags + 1))
-                window_features = None
-            else:
-                lags, window_features = select_lags_and_window_features(
-                    n_observations = context.effective_n_observations,
-                    frequency      = data_profile.frequency,
-                    target_series  = context.target_series,
-                )
+            lags = finalize_lags(
+                series_pacf     = profile.series_pacf,
+                task_type       = task_type,
+                n_observations  = data_profile.span_index_length,
+                frequency       = data_profile.frequency,
+            )
+            window_features = profile.window_features
 
             transformer_series = select_transformer_series(est, task_type)
 
@@ -730,7 +738,7 @@ class ForecastingAssistant:
         
         """
 
-        n_observations = profile.data_profile.n_observations
+        span_index_length = profile.data_profile.span_index_length
 
         # -----------------------------------------------------------------
         # LLM path: when prompt is provided, use LLM for CV configuration
@@ -740,11 +748,11 @@ class ForecastingAssistant:
                 raise LLMRequiredError("create_cv")
 
             defaults = self._configure_cv_with_llm(
-                profile=profile,
-                plan=plan,
-                prompt=prompt,
-                n_observations=n_observations,
-            )
+                           profile        = profile,
+                           plan           = plan,
+                           prompt         = prompt,
+                           n_observations = span_index_length,
+                       )
         else:
             # Compute deterministic defaults
             defaults = derive_cv_defaults(profile=profile, plan=plan)
@@ -772,28 +780,28 @@ class ForecastingAssistant:
                     f"initial_train_size as float must satisfy "
                     f"0 < value < 1, got {its}."
                 )
-            defaults["initial_train_size"] = int(its * n_observations)
+            defaults["initial_train_size"] = int(its * span_index_length)
         elif isinstance(its, str):
             skip_validation = True
 
         # Instantiate TimeSeriesFold
         cv = TimeSeriesFold(
-            steps                  = defaults["steps"],
-            initial_train_size     = defaults["initial_train_size"],
-            refit                  = defaults["refit"],
-            fixed_train_size       = defaults["fixed_train_size"],
-            gap                    = defaults["gap"],
-            fold_stride            = defaults["fold_stride"],
-            skip_folds             = defaults["skip_folds"],
-            allow_incomplete_fold  = defaults["allow_incomplete_fold"],
-            differentiation        = defaults.get("differentiation"),
-            verbose                = False,
+            steps                 = defaults["steps"],
+            initial_train_size    = defaults["initial_train_size"],
+            refit                 = defaults["refit"],
+            fixed_train_size      = defaults["fixed_train_size"],
+            gap                   = defaults["gap"],
+            fold_stride           = defaults["fold_stride"],
+            skip_folds            = defaults["skip_folds"],
+            allow_incomplete_fold = defaults["allow_incomplete_fold"],
+            differentiation       = defaults.get("differentiation"),
+            verbose               = False,
         )
 
         # Validate fold count (unless initial_train_size is a date string)
         if not skip_validation:
             folds = cv.split(
-                X=pd.RangeIndex(n_observations), as_pandas=False
+                X=pd.RangeIndex(span_index_length), as_pandas=False
             )
             n_folds = len(folds)
             if n_folds < 2:
@@ -808,10 +816,10 @@ class ForecastingAssistant:
         # Build explanation
         reasoning = defaults.pop("_reasoning", None)
         explanation = build_cv_explanation(
-            cv_params      = defaults,
-            n_observations = n_observations,
-            n_folds        = n_folds if n_folds is not None else 0,
-        )
+                          cv_params      = defaults,
+                          n_observations = span_index_length,
+                          n_folds        = n_folds if n_folds is not None else 0,
+                      )
         if reasoning:
             explanation = f"{reasoning} {explanation}"
 
@@ -987,22 +995,18 @@ class ForecastingAssistant:
         )
 
         # Build human-readable CV explanation
-        n_observations = profile.data_profile.n_observations
-        original_its = cv.initial_train_size
+        span_index_length = profile.data_profile.span_index_length
         if isinstance(cv.initial_train_size, str):
-            # Date-based initial_train_size requires a DatetimeIndex
+            # Date-based initial_train_size requires a DatetimeIndex.
             index = pd.date_range(
-                start=profile.data_profile.start_date,
-                periods=n_observations,
-                freq=profile.data_profile.frequency,
-            )
+                        start   = profile.data_profile.start_date,
+                        periods = span_index_length,
+                        freq    = profile.data_profile.frequency,
+                    )
             folds = cv.split(X=index, as_pandas=False)
-            # split() mutates initial_train_size to int; restore the
-            # date string so rendering emits a date literal.
-            cv.initial_train_size = original_its
         else:
             folds = cv.split(
-                X=pd.RangeIndex(n_observations), as_pandas=False
+                X=pd.RangeIndex(span_index_length), as_pandas=False
             )
 
         # Extract cv_config after split
@@ -1016,10 +1020,10 @@ class ForecastingAssistant:
             "differentiation": cv.differentiation,
         }
         cv_explanation = build_cv_explanation(
-            cv_params=cv_config,
-            n_observations=n_observations,
-            n_folds=len(folds),
-        )
+                             cv_params      = cv_config,
+                             n_observations = span_index_length,
+                             n_folds        = len(folds),
+                         )
 
         result = run_backtest(
             data           = data_df,
@@ -1454,12 +1458,12 @@ class ForecastingAssistant:
         lags = plan.forecaster_kwargs.get("lags")
 
         deps = CVDeps(
-            n_observations=n_observations,
-            frequency=profile.data_profile.frequency,
-            steps=plan.steps,
-            task_type=plan.task_type,
-            lags=lags,
-        )
+                   n_observations = n_observations,
+                   frequency      = profile.data_profile.frequency,
+                   steps          = plan.steps,
+                   task_type      = plan.task_type,
+                   lags           = lags,
+               )
 
         max_retries = 2
         last_error = None

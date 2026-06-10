@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from .._utils import _display_n_observations
 from ..schemas import ForecastingProfile, ForecastPlan
 
 _MAX_ROWS_FULL = 30
@@ -111,7 +112,7 @@ def build_context_message(
     if profile is not None:
         dp = profile.data_profile
         parts.append("## Dataset")
-        parts.append(f"- Observations: {dp.n_observations}")
+        parts.append(f"- Observations: {_display_n_observations(dp)}")
         parts.append(f"- Series: {dp.n_series}")
         parts.append(f"- Frequency: {dp.frequency or 'unknown'}")
         parts.append(f"- Target: {dp.target}")

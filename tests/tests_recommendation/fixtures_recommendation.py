@@ -5,7 +5,7 @@ from skforecast_ai.schemas import DataProfile
 # --- Single series, daily, 365 observations, no exog ---
 profile_single_daily = DataProfile(
     n_series               = 1,
-    n_observations         = 365,
+    series_lengths         = {"y": 365},
     target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
@@ -14,7 +14,7 @@ profile_single_daily = DataProfile(
 # --- Single series, hourly, 720 observations with exog ---
 profile_single_hourly_exog = DataProfile(
     n_series               = 1,
-    n_observations         = 720,
+    series_lengths         = {"sales": 720},
     target                 = "sales",
     index_type             = "datetime",
     frequency              = "h",
@@ -25,7 +25,7 @@ profile_single_hourly_exog = DataProfile(
 # --- Multi-series, long format, 3 series ---
 profile_multi_long = DataProfile(
     n_series               = 3,
-    n_observations         = 300,
+    series_lengths         = {"value": 300},
     target                 = "value",
     date_column            = "date",
     series_id_column       = "series_id",
@@ -37,7 +37,7 @@ profile_multi_long = DataProfile(
 # --- Short series, 50 observations ---
 profile_short = DataProfile(
     n_series               = 1,
-    n_observations         = 50,
+    series_lengths         = {"y": 50},
     target                 = "y",
     index_type             = "datetime",
     frequency              = "D",
@@ -47,7 +47,7 @@ profile_short = DataProfile(
 # --- Range index, no datetime ---
 profile_no_datetime = DataProfile(
     n_series               = 1,
-    n_observations         = 200,
+    series_lengths         = {"value": 200},
     target                 = "value",
     index_type             = "range",
 )
@@ -55,7 +55,7 @@ profile_no_datetime = DataProfile(
 # --- Series with missing values ---
 profile_with_missing = DataProfile(
     n_series               = 1,
-    n_observations         = 365,
+    series_lengths         = {"target": 365},
     target                 = "target",
     missing_target         = {"target": 3},
     index_type             = "datetime",
@@ -67,7 +67,7 @@ profile_with_missing = DataProfile(
 # --- Series with categorical exog ---
 profile_categorical_exog = DataProfile(
     n_series               = 1,
-    n_observations         = 500,
+    series_lengths         = {"sales": 500},
     target                 = "sales",
     index_type             = "datetime",
     frequency              = "D",

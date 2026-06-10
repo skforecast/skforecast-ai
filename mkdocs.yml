@@ -1,0 +1,175 @@
+site_name: skforecast-ai Docs
+repo_url: https://github.com/JoaquinAmatRodrigo/skforecast-ai
+site_url: https://github.com/JoaquinAmatRodrigo/skforecast-ai
+site_description: AI-powered forecasting assistant built on top of skforecast. It uses deterministic rules for robust forecasting and an optional LLM overlay to explain decisions and answer questions.
+site_author: Joaquin Amat Rodrigo and Javier Escobar Ortiz
+use_directory_urls: false
+copyright: Copyright &copy; 2024 - 2030 Joaquín Amat Rodrigo, Javier Escobar Ortiz
+
+nav:
+  - Home: 
+    - Welcome to skforecast-ai: README.md
+  
+  - Quick start:
+    - Quick start: quick-start/quick-start.ipynb
+    - Using the CLI: quick-start/cli-usage.md
+    - How to install: quick-start/how-to-install.md
+
+  - User Guides:
+    - Table of contents: user_guides/table-of-contents.md
+    - Architecture & Logic: user_guides/architecture-and-logic.md
+    - Data Profiling: user_guides/data-profiling.md
+    - Recommendation Engine: user_guides/recommendation-engine.ipynb
+    - Code Generation: user_guides/code-generation.ipynb
+    - LLM Assistant: user_guides/llm-assistant.ipynb
+    - Configuring LLM Providers: user_guides/configuring-providers.md
+
+  - Examples and tutorials:
+    - Interactive Q&A: examples/demo_ask.ipynb
+    - End-to-end Forecasting: examples/demo_forecast.ipynb
+    - LLM-guided Backtesting: examples/demo_backtest_llm.ipynb
+
+  - API Reference:
+    - Assistant: api/assistant.md
+    - CLI: api/cli.md
+    - Schemas: api/schemas.md
+
+  - More: 
+    - About skforecast-ai: more/about-skforecast-ai.md
+    - Contributing: CONTRIBUTING.md
+    - Code of Conduct: CODE_OF_CONDUCT.md
+    - Consulting & Professional services: more/consulting.md
+
+extra_css:
+  - stylesheets/extra.css
+extra_javascript:
+  - javascripts/version-switcher.js
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            docstring_section_style: table
+            filters: ["!__"] # exclude all members starting with __
+            members_order: source
+            merge_init_into_class: true
+            separate_signature: true
+            show_source: true
+            show_if_no_docstring: true
+            show_root_full_path: true
+            show_root_heading: true
+            show_signature_annotations: false
+            show_symbol_type_heading: false
+            summary: true
+            group_by_category: true
+            show_category_heading: true
+  - mkdocs-jupyter:
+      allow_errors: False
+      execute: False
+      ignore_h1_titles: True
+      include_requirejs: True
+      include_source: True
+  - mike:
+      alias_type: copy
+      canonical_version: latest
+      css_dir: css
+      deploy_prefix: ''
+      javascript_dir: js
+      redirect_template: null
+      version_selector: true
+  - search:
+      lang: en
+      separator: '[\s\-\._]+'
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  favicon: img/favicon.png
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.progress
+    - toc.integrate
+    - navigation.breadcrumbs
+    - content.code.copy
+    - content.code.annotate
+    - content.code.select
+    - content.tooltips
+    - search.suggest
+    - search.highlight
+    - search.share
+  font:
+    text: Open Sans
+    code: Ubuntu Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: light
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      use_pygments: true
+      linenums: false
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  
+extra:
+  version:
+    provider: mike
+  analytics:
+    provider: google
+    property: G-GR8X9Z9LKL
+  consent:
+    title: Cookie consent
+    description: >- 
+      We use cookies to recognize your repeated visits and preferences, as well
+      as to measure the effectiveness of our documentation and whether users
+      find what they're searching for. With your consent, you're helping us to
+      make our documentation better.
+  social:
+    - icon: fontawesome/brands/linkedin
+      link: https://www.linkedin.com/company/skforecast/
+    - icon: fontawesome/brands/github
+      link: https://github.com/JoaquinAmatRodrigo/skforecast-ai

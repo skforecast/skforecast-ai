@@ -6,7 +6,6 @@ from .assistant import ForecastingAssistant
 from .exceptions import ForecastExecutionError, LLMRequiredError
 from .llm.skills import ALL_SKILLS
 from .schemas import (
-    ForecastingAnalysis,
     AskResult,
     BacktestResult,
     DataProfile,
@@ -16,11 +15,11 @@ from .schemas import (
     CodeGenerationResult,
     PreprocessingStep,
     ForecastResult,
+    SeriesPacf,
 )
 
 __all__ = [
     "ALL_SKILLS",
-    "ForecastingAnalysis",
     "AskResult",
     "BacktestResult",
     "DataProfile",
@@ -33,5 +32,6 @@ __all__ = [
     "LLMRequiredError",
     "PreprocessingStep",
     "ForecastResult",
+    "SeriesPacf",
     "__version__",
 ]

@@ -21,8 +21,7 @@ MOCK_PROFILE = {
     "data_profile": {
         "data_format": "single",
         "n_series": 1,
-        "n_observations": 100,
-        "series_lengths": None,
+        "series_lengths": {"sales": {"start": None, "end": None, "length": 100}},
         "target": "sales",
         "target_dtype": "numeric",
         "target_stats": {"sales": {"min": 0.0, "max": 99.0, "mean": 49.5, "std": 29.0}},
@@ -47,16 +46,8 @@ MOCK_PROFILE = {
     "forecaster_candidates": ["ForecasterRecursive", "ForecasterDirect"],
     "estimator": "LGBMRegressor",
     "estimator_candidates": ["LGBMRegressor", "Ridge"],
-    "analysis_context": {
-        "effective_n_observations": 100,
-        "min_series_length": None,
-        "max_series_length": None,
-        "series_length_ratio": None,
-        "short_series": None,
-        "target_has_trend": True,
-        "target_variance": 841.67,
-        "viable_context_length": None,
-    },
+    "series_pacf": [],
+    "window_features": None,
     "explanation": "Single series with daily frequency.",
 }
 

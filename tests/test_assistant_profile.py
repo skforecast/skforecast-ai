@@ -61,7 +61,7 @@ def test_profile_output_when_single_series():
     assert isinstance(profile, ForecastingProfile)
     assert isinstance(profile.data_profile, DataProfile)
     assert profile.data_profile.target == "sales"
-    assert profile.data_profile.n_observations == 100
+    assert profile.data_profile.series_lengths["sales"].length == 100
     assert profile.data_profile.n_series == 1
     assert profile.data_profile.index_type == "datetime"
     assert "promo" in profile.data_profile.exog_columns
@@ -146,7 +146,7 @@ def test_profile_output_when_short_series():
     )
 
     assert isinstance(profile, ForecastingProfile)
-    assert profile.data_profile.n_observations == 25
+    assert profile.data_profile.series_lengths["sales"].length == 25
 
 
 # =============================================================================
@@ -171,4 +171,4 @@ def test_profile_output_when_csv_path(tmp_path, path_type):
 
     assert isinstance(profile, ForecastingProfile)
     assert profile.data_profile.target == "sales"
-    assert profile.data_profile.n_observations == 100
+    assert profile.data_profile.series_lengths["sales"].length == 100

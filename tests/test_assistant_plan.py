@@ -125,6 +125,36 @@ def test_plan_output_when_statistical_has_no_lags():
     assert "lags" not in plan.forecaster_kwargs or plan.forecaster_kwargs.get("lags") is None
 
 
+def test_plan_output_when_foundation_forecaster():
+    """
+    Test that plan() assigns the foundation estimator and empty
+    forecaster_kwargs for a foundation forecaster override.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, forecaster="ForecasterFoundation"
+    )
+
+    assert plan.task_type == "foundation"
+    assert plan.estimator == "Chronos-2"
+    assert plan.forecaster_kwargs == {}
+
+
+def test_plan_deterministic():
+    """
+    Test that plan() is deterministic: two identical calls produce
+    equal plans.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan_1 = assistant.plan(profile, steps=10)
+    plan_2 = assistant.plan(profile, steps=10)
+
+    assert plan_1 == plan_2
+
+
+
 def test_plan_output_when_estimator_kwargs_provided():
     """
     Test that plan() passes estimator_kwargs through to the plan.

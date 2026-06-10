@@ -6,7 +6,7 @@ from skforecast_ai.schemas import DataProfile, PreprocessingStep
 
 def test_derive_steps_returns_empty_when_no_issues():
     profile = DataProfile(
-        n_observations=365,
+        series_lengths={"y": 365},
         n_series=1,
         index_type="datetime",
         frequency="D",
@@ -25,7 +25,7 @@ def test_derive_steps_returns_empty_when_no_issues():
 def test_derive_steps_no_sort_index_step():
     """sort_index is now handled by the template, not preprocessing steps."""
     profile = DataProfile(
-        n_observations=100,
+        series_lengths={"y": 100},
         n_series=1,
         index_type="datetime",
         frequency="D",
@@ -40,7 +40,7 @@ def test_derive_steps_no_sort_index_step():
 
 def test_derive_steps_includes_drop_duplicates_when_duplicates():
     profile = DataProfile(
-        n_observations=100,
+        series_lengths={"y": 100},
         n_series=1,
         index_type="datetime",
         frequency="D",
@@ -56,7 +56,7 @@ def test_derive_steps_includes_drop_duplicates_when_duplicates():
 def test_derive_steps_no_asfreq_step():
     """asfreq is now handled by the template, not preprocessing steps."""
     profile = DataProfile(
-        n_observations=100,
+        series_lengths={"y": 100},
         n_series=1,
         index_type="datetime",
         frequency="D",
@@ -71,7 +71,7 @@ def test_derive_steps_no_asfreq_step():
 def test_derive_steps_no_set_datetime_index_step():
     """set_datetime_index is now handled by the template."""
     profile = DataProfile(
-        n_observations=100,
+        series_lengths={"y": 100},
         n_series=1,
         index_type="other",
         target="y",
@@ -85,7 +85,7 @@ def test_derive_steps_no_set_datetime_index_step():
 def test_derive_steps_provides_datetime_index_when_no_date_column():
     """provide_datetime_index is kept for unresolvable case."""
     profile = DataProfile(
-        n_observations=100,
+        series_lengths={"y": 100},
         n_series=1,
         index_type="other",
         target="y",
@@ -99,7 +99,7 @@ def test_derive_steps_provides_datetime_index_when_no_date_column():
 def test_derive_steps_no_reshape_for_multi_series_long():
     """reshape_long_to_dict is now handled by the template."""
     profile = DataProfile(
-        n_observations=300,
+        series_lengths={"value": 300},
         n_series=3,
         index_type="datetime",
         frequency="D",
@@ -118,7 +118,7 @@ def test_derive_steps_no_reshape_for_multi_series_long():
 
 def test_derive_steps_no_reshape_for_multi_series_wide():
     profile = DataProfile(
-        n_observations=300,
+        series_lengths={"value": 300},
         n_series=3,
         index_type="datetime",
         frequency="D",
@@ -135,7 +135,7 @@ def test_derive_steps_no_reshape_for_multi_series_wide():
 
 def test_derive_steps_includes_encode_target_when_non_numeric():
     profile = DataProfile(
-        n_observations=100,
+        series_lengths={"y": 100},
         n_series=1,
         index_type="datetime",
         frequency="D",
@@ -148,9 +148,42 @@ def test_derive_steps_includes_encode_target_when_non_numeric():
     assert "encode_target" in actions
 
 
+def test_derive_steps_includes_handle_missing_values_when_missing_target():
+    """handle_missing_values step is added when the target has NaNs."""
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        missing_target={"y": 3},
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
+    actions = [s.action for s in steps]
+    assert "handle_missing_values" in actions
+
+
+def test_derive_steps_includes_handle_categorical_exog_when_categorical():
+    """handle_categorical_exog step is added when categorical exog present."""
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["holiday"],
+        categorical_exog=["holiday"],
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
+    actions = [s.action for s in steps]
+    assert "handle_categorical_exog" in actions
+
+
 def test_derive_steps_handle_gaps_is_non_blocking():
     profile = DataProfile(
-        n_observations=100,
+        series_lengths={"y": 100},
         n_series=1,
         index_type="datetime",
         frequency="D",
@@ -166,7 +199,7 @@ def test_derive_steps_handle_gaps_is_non_blocking():
 
 def test_derive_steps_all_steps_are_preprocessing_step_instances():
     profile = DataProfile(
-        n_observations=100,
+        series_lengths={"value": 100},
         n_series=3,
         index_type="datetime",
         frequency="D",

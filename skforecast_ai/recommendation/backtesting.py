@@ -28,16 +28,16 @@ def derive_cv_defaults(
         recommended defaults.
     """
 
-    n_observations = profile.data_profile.n_observations
+    span_index_length = profile.data_profile.span_index_length
     steps = plan.steps
 
     # Compute initial_train_size as an integer first (with floor/ceiling)
-    initial_train_size = int(0.7 * n_observations)
+    initial_train_size = int(0.7 * span_index_length)
     min_train_size = _compute_min_train_size(plan)
     initial_train_size = max(initial_train_size, min_train_size)
 
     # Ensure initial_train_size leaves room for at least 2 folds
-    max_train_size = n_observations - 2 * steps
+    max_train_size = span_index_length - 2 * steps
     if max_train_size > 0:
         initial_train_size = min(initial_train_size, max_train_size)
 

@@ -27,7 +27,7 @@ def test_create_data_profile_output_when_single_series_daily():
     profile = create_data_profile(data=df_single_daily, target="y")
 
     assert isinstance(profile, DataProfile)
-    assert profile.n_observations == 365
+    assert profile.series_lengths["y"].length == 365
     assert profile.n_series == 1
     assert profile.index_type == "datetime"
     assert profile.frequency == "D"
@@ -44,7 +44,7 @@ def test_create_data_profile_output_when_single_series_hourly_with_exog():
     """
     profile = create_data_profile(data=df_single_hourly_exog, target="sales")
 
-    assert profile.n_observations == 720
+    assert profile.series_lengths["sales"].length == 720
     assert profile.frequency == "h"
     assert profile.index_type == "datetime"
     assert set(profile.exog_columns) == {"temperature", "promo_budget", "holiday"}
@@ -64,8 +64,9 @@ def test_create_data_profile_output_when_multi_series_long_format():
     )
 
     assert profile.n_series == 3
-    assert profile.n_observations == 100  # min series length (all equal here)
-    assert profile.series_lengths == {"A": 100, "B": 100, "C": 100}
+    assert {k: v.length for k, v in profile.series_lengths.items()} == {
+        "A": 100, "B": 100, "C": 100
+    }
     assert profile.data_format == "long"
     assert profile.series_id_column == "series_id"
     assert profile.date_column == "date"
@@ -106,7 +107,7 @@ def test_create_data_profile_output_when_short_series():
     """
     profile = create_data_profile(data=df_short, target="y")
 
-    assert profile.n_observations == 20
+    assert profile.series_lengths["y"].length == 20
     assert any("Short series" in w for w in profile.warnings)
 
 
@@ -133,9 +134,44 @@ def test_create_data_profile_output_when_csv_path_input(tmp_path):
     profile = create_data_profile(data=csv_file, target="y")
 
     assert isinstance(profile, DataProfile)
-    assert profile.n_observations == 365
+    assert profile.series_lengths["y"].length == 365
     assert profile.target == "y"
     assert profile.index_type == "datetime"
+
+
+def test_create_data_profile_output_when_csv_path_input_string_dtype(tmp_path):
+    """
+    Test create_data_profile works with a CSV file path as input when the
+    resulting loaded DataFrame has a modern string dtype for the date column.
+    """
+    csv_file = tmp_path / "data.csv"
+    
+    # Export without index
+    df = df_single_daily.reset_index()
+    df.rename(columns={"index": "date"}, inplace=True)
+    df.to_csv(csv_file, index=False)
+
+    # We mock pd.read_csv to return a DataFrame where the date column is explicitly 'string' dtype.
+    # This simulates pandas>=2.0 read_csv with dtype_backend="pyarrow" or similar string inference.
+    original_read_csv = pd.read_csv
+    
+    def mocked_read_csv(*args, **kwargs):
+        df_loaded = original_read_csv(*args, **kwargs)
+        df_loaded["date"] = df_loaded["date"].astype("string")
+        return df_loaded
+        
+    import skforecast_ai.profiling.data_profile as dp
+    dp.pd.read_csv = mocked_read_csv
+    try:
+        profile = create_data_profile(data=csv_file, target="y")
+    finally:
+        dp.pd.read_csv = original_read_csv
+
+    assert isinstance(profile, DataProfile)
+    assert profile.series_lengths["y"].length == 365
+    assert profile.target == "y"
+    assert profile.index_type == "datetime"
+    assert profile.date_column == "date"
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +219,7 @@ def test_create_data_profile_output_when_data_format_wide():
     )
     assert profile.data_format == "wide"
     assert profile.n_series == 3
-    assert profile.n_observations == 100
-    assert profile.series_lengths == {
+    assert {k: v.length for k, v in profile.series_lengths.items()} == {
         "series_a": 100, "series_b": 100, "series_c": 100
     }
 
@@ -329,3 +364,73 @@ def test_create_data_profile_missing_values_excludes_date_and_series_id():
     )
     assert "date" not in profile.missing_exog
     assert "series_id" not in profile.missing_exog
+
+
+# ---------------------------------------------------------------------------
+# series_lengths: per-series ranges, MultiIndex, and unequal lengths
+# ---------------------------------------------------------------------------
+def test_create_data_profile_series_lengths_ranges_when_single_series():
+    """
+    Test series_lengths records the start, end, and length of a single
+    series keyed by the target name.
+    """
+    df = pd.DataFrame(
+        {"y": np.arange(365, dtype=float)},
+        index=pd.date_range("2023-01-01", periods=365, freq="D"),
+    )
+    profile = create_data_profile(df, target="y")
+
+    info = profile.series_lengths["y"]
+    assert info.length == 365
+    assert info.start == "2023-01-01"
+    assert info.end == "2023-12-31"
+
+
+def test_create_data_profile_output_when_multiindex_multi_series():
+    """
+    Test create_data_profile flattens a (series_id, datetime) MultiIndex
+    into long format and reports per-series ranges.
+    """
+    dates_a = pd.date_range("2023-01-01", periods=100, freq="D")
+    dates_b = pd.date_range("2023-01-01", periods=60, freq="D")
+    index = pd.MultiIndex.from_tuples(
+        [("A", d) for d in dates_a] + [("B", d) for d in dates_b],
+        names=["series_id", "date"],
+    )
+    df = pd.DataFrame({"value": np.arange(160, dtype=float)}, index=index)
+
+    profile = create_data_profile(df, target="value")
+
+    assert profile.data_format == "long"
+    assert profile.n_series == 2
+    assert profile.series_id_column == "series_id"
+    assert profile.date_column == "date"
+    assert profile.series_lengths["A"].length == 100
+    assert profile.series_lengths["B"].length == 60
+    assert profile.series_lengths["A"].end == "2023-04-10"
+    assert profile.series_lengths["B"].end == "2023-03-01"
+
+
+def test_create_data_profile_output_when_long_series_different_lengths():
+    """
+    Test create_data_profile records different per-series lengths and
+    ranges for a long-format dataset with unequal series.
+    """
+    dates_a = pd.date_range("2023-01-01", periods=120, freq="D")
+    dates_b = pd.date_range("2023-02-01", periods=80, freq="D")
+    df = pd.DataFrame({
+        "date": list(dates_a) + list(dates_b),
+        "series_id": ["A"] * 120 + ["B"] * 80,
+        "value": np.arange(200, dtype=float),
+    })
+
+    profile = create_data_profile(
+        df, target="value", date_column="date", series_id_column="series_id"
+    )
+
+    assert profile.n_series == 2
+    assert profile.series_lengths["A"].length == 120
+    assert profile.series_lengths["B"].length == 80
+    assert profile.series_lengths["A"].start == "2023-01-01"
+    assert profile.series_lengths["B"].start == "2023-02-01"
+

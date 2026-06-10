@@ -36,16 +36,17 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-license = "BSD-3-Clause"
+license = "Apache-2.0"
 license-files = ["LICENSE", "CITATION.cff"]
 
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.13",
     "pandas>=2.1",
-    "skforecast>=0.22,<0.24",
+    "skforecast>=0.22,<0.23",
     "typer>=0.22",
     "rich>=13.9",
+    "statsmodels>=0.14.0",
 ]
 
 [project.optional-dependencies]

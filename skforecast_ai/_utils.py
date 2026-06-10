@@ -10,9 +10,115 @@ from pathlib import Path
 import pandas as pd
 
 from .profiling.data_profile import _try_parse_first_date_column
+from .schemas import DataProfile
 
 _CODE_BLOCK_RE = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
 _CODE_BLOCK_REPLACEMENT = "(See `result.code` for the validated implementation.)"
+
+
+def _series_span_length(data_profile: DataProfile) -> int:
+    """
+    Length of the union datetime index spanning all series.
+
+    Computes the number of periods between the earliest start and the
+    latest end across every series at the profiled frequency. Falls back
+    to the longest individual series when datetime bounds or frequency
+    are unavailable.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Universal data profile from Stage 1.
+
+    Returns
+    -------
+    span : int
+        Number of observations in the union index.
+    """
+    infos = list(data_profile.series_lengths.values())
+    starts = [info.start for info in infos if info.start is not None]
+    ends = [info.end for info in infos if info.end is not None]
+    if not starts or not ends or data_profile.frequency is None:
+        return max(info.length for info in infos)
+
+    start = min(pd.Timestamp(s) for s in starts)
+    end = max(pd.Timestamp(e) for e in ends)
+    try:
+        return len(pd.date_range(start=start, end=end, freq=data_profile.frequency))
+    except (ValueError, TypeError):
+        return max(info.length for info in infos)
+
+
+def _display_n_observations(data_profile: DataProfile) -> int:
+    """
+    Task-agnostic observation count for display and summaries.
+
+    Returns the single series length for single-series data and the
+    union span for multi-series data.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Universal data profile from Stage 1.
+
+    Returns
+    -------
+    n_observations : int
+        Representative observation count for display.
+    """
+    infos = list(data_profile.series_lengths.values())
+    if len(infos) == 1:
+        return infos[0].length
+    return _series_span_length(data_profile)
+
+
+def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
+    """
+    Validate that the input shape is compatible with the task type.
+
+    Single-series tasks (`single_series`, `statistical`, `foundation`)
+    accept exactly one series. The `multivariate` task requires all
+    series to share the same length.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Universal data profile from Stage 1.
+    task_type : str
+        Forecasting task type implied by the selected forecaster.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        When the input shape is incompatible with the task type.
+    """
+    series_lengths = data_profile.series_lengths
+    n_series = len(series_lengths)
+
+    if task_type in ("single_series", "statistical", "foundation") and n_series > 1:
+        raise ValueError(
+            f"Task type '{task_type}' supports a single series only, but the "
+            f"input contains {n_series} series ({list(series_lengths)}). "
+            f"Use a multi-series forecaster (e.g. "
+            f"'ForecasterRecursiveMultiSeries') or provide a single series."
+        )
+
+    if task_type == "multivariate":
+        lengths = {info.length for info in series_lengths.values()}
+        if len(lengths) > 1:
+            detail = {
+                name: info.length for name, info in series_lengths.items()
+            }
+            raise ValueError(
+                f"Task type 'multivariate' (ForecasterDirectMultiVariate) "
+                f"requires all series to have the same length, but got "
+                f"{detail}. Align the series to a common index or use "
+                f"'ForecasterRecursiveMultiSeries'."
+            )
 
 
 def _strip_code_blocks(text: str) -> str:

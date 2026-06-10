@@ -46,7 +46,9 @@ def test_load_llms_reference_output():
     result = load_llms_reference()
     assert isinstance(result, str)
     assert "Skforecast" in result or "skforecast" in result
-    assert "0.22" in result
+    # Reference ships a skforecast version string (e.g. "0.23.0"); assert the
+    # series prefix without pinning an exact patch that changes on every bump.
+    assert "0.2" in result
 
 
 def test_build_context_message_empty_when_no_args():
@@ -64,13 +66,12 @@ def test_build_context_message_includes_profile_fields():
     """
     from skforecast_ai.schemas import (
         DataProfile,
-        ForecastingAnalysis,
         ForecastingProfile,
     )
 
     dp = DataProfile(
         n_series=1,
-        n_observations=200,
+        series_lengths={"y": 200},
         target="y",
         index_type="datetime",
         frequency="D",
@@ -84,7 +85,8 @@ def test_build_context_message_includes_profile_fields():
         forecaster_candidates=["ForecasterRecursive"],
         estimator="LGBMRegressor",
         estimator_candidates=["LGBMRegressor"],
-        analysis_context=ForecastingAnalysis(effective_n_observations=200),
+        series_pacf=[],
+        window_features=None,
         explanation="A single-series ML forecaster (ForecasterRecursive) is recommended. Estimator: LGBMRegressor.",
     )
 
