@@ -396,7 +396,7 @@ def _normalize_multiindex(
 
     names = list(data.index.names)
     id_name = names[0] if names[0] is not None else "series_id"
-    date_name = names[1] if names[1] is not None else "date"
+    date_name = names[1] if names[1] is not None else "datetime"
 
     data = data.copy()
     data.index = data.index.set_names([id_name, date_name])

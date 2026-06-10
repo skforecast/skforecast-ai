@@ -240,7 +240,7 @@ def render_backtesting_multi_series(
             series_expr = f"data[[{repr(profile.target)}]]"
     else:
         series_id = profile.series_id_column or "series_id"
-        date_col = profile.date_column or "date"
+        date_col = profile.date_column or "datetime"
         target = _get_target_str(profile)
         core_lines.append(
             "# Reshape to dict format"
@@ -355,7 +355,7 @@ def render_backtesting_multivariate(
     _emit_preprocessing_steps(core_lines, plan, profile)
     if not is_wide:
         series_id = profile.series_id_column or "series_id"
-        date_col = profile.date_column or "date"
+        date_col = profile.date_column or "datetime"
         target = _get_target_str(profile)
         core_lines.append("# Pivot to wide format (columns = series)")
         core_lines.append("series = data.pivot_table(")
