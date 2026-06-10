@@ -21,6 +21,7 @@ from rich.table import Table
 from pydantic import ValidationError
 
 from . import __version__
+from ._utils import _display_n_observations
 from .assistant import ForecastingAssistant
 from .config import (
     CONFIG_FILE,
@@ -428,7 +429,7 @@ def _render_profile_table(profile) -> None:
 
     table.add_row("Format", dp.data_format)
     table.add_row("Series", str(dp.n_series))
-    table.add_row("Observations", str(dp.n_observations))
+    table.add_row("Observations", str(_display_n_observations(dp)))
     table.add_row("Frequency", dp.frequency or "not detected")
     table.add_row("Target", str(dp.target))
     table.add_row("Exog columns", ", ".join(dp.exog_columns) if dp.exog_columns else "none")

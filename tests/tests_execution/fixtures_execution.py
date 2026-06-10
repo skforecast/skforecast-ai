@@ -33,7 +33,7 @@ _end_train_single = str(_dates[int(_n_obs * 0.8) - 1].date())
 
 profile_single = DataProfile(
     n_series=1,
-    n_observations=_n_obs,
+    series_lengths={"sales": _n_obs},
     target="sales",
     date_column="date",
     index_type="datetime",
@@ -91,7 +91,7 @@ _end_train_multi = str(_dates_multi[int(len(_dates_multi) * 0.8) - 1].date())
 profile_multi = DataProfile(
     data_format="long",
     n_series=2,
-    n_observations=_n_obs_multi,
+    series_lengths={"value": _n_obs_multi},
     target="value",
     date_column="date",
     series_id_column="series_id",
@@ -134,7 +134,7 @@ _end_train_short = str(_dates_short[int(_n_obs_short * 0.8) - 1].date())
 
 profile_short = DataProfile(
     n_series=1,
-    n_observations=_n_obs_short,
+    series_lengths={"sales": _n_obs_short},
     target="sales",
     date_column="date",
     index_type="datetime",
@@ -205,7 +205,7 @@ cv_explanation_single = (
 
 profile_single_no_exog = DataProfile(
     n_series=1,
-    n_observations=_n_obs,
+    series_lengths={"sales": _n_obs},
     target="sales",
     date_column="date",
     index_type="datetime",

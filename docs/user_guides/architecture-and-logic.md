@@ -113,7 +113,7 @@ flowchart TD
         C1 --> C2(select_forecaster_and_candidates):::func
         C2 --> C3(select_estimator_and_candidates):::func
         C3 --> C4(derive_preprocessing_steps):::func
-        C4 --> C5(select_lags_and_window_features):::func
+        C4 --> C5(finalize_lags):::func
     end
     
     C5 --> D{ForecastPlan Schema}:::schema

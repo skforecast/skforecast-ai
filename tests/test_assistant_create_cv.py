@@ -442,7 +442,7 @@ def test_create_cv_llm_retry_then_success(monkeypatch):
     assistant = ForecastingAssistant(llm="openai:fake-model")
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
-    n_obs = profile.data_profile.n_observations
+    n_obs = profile.data_profile.series_lengths["sales"].length
 
     # First call: initial_train_size too large (only 1 fold)
     bad_params = CVParams(
@@ -500,7 +500,7 @@ def test_create_cv_llm_all_retries_fail_deterministic_fallback(monkeypatch):
     assistant = ForecastingAssistant(llm="openai:fake-model")
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
-    n_obs = profile.data_profile.n_observations
+    n_obs = profile.data_profile.series_lengths["sales"].length
 
     # Always return params that are too large
     bad_params = CVParams(

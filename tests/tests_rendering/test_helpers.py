@@ -173,7 +173,7 @@ def test_emit_end_train_ValueError_when_end_train_is_none():
     """
     profile = DataProfile(
         n_series=1,
-        n_observations=100,
+        series_lengths={"sales": 100},
         target="sales",
         index_type="datetime",
         end_train=None,
@@ -227,7 +227,7 @@ def test_get_metric_imports_output_when_multiple_metrics():
     [
         (
             DataProfile(
-                n_series=1, n_observations=100, target="sales",
+                n_series=1, series_lengths={"sales": 100}, target="sales",
                 index_type="datetime", exog_columns=["temp", "holiday"],
                 categorical_exog=["holiday"],
             ),
@@ -235,7 +235,7 @@ def test_get_metric_imports_output_when_multiple_metrics():
         ),
         (
             DataProfile(
-                n_series=1, n_observations=100, target="sales",
+                n_series=1, series_lengths={"sales": 100}, target="sales",
                 index_type="datetime", exog_columns=["promo"],
                 categorical_exog=[],
             ),
@@ -243,7 +243,7 @@ def test_get_metric_imports_output_when_multiple_metrics():
         ),
         (
             DataProfile(
-                n_series=1, n_observations=100, target="sales",
+                n_series=1, series_lengths={"sales": 100}, target="sales",
                 index_type="datetime", exog_columns=[],
                 categorical_exog=[],
             ),

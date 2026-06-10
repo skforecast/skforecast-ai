@@ -92,7 +92,10 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
     if frequency is None:
         return []
 
-    freq_upper = frequency.upper()
+    # Drop anchor suffixes from offset aliases (e.g. 'W-SUN', 'QS-OCT',
+    # 'A-DEC') so anchored frequencies returned by `pd.infer_freq` match
+    # the base keys below.
+    freq_upper = frequency.upper().split("-")[0]
 
     seasonality_map: dict[str, list[int]] = {
         "T":    [60, 1440],
@@ -161,6 +164,12 @@ def create_data_profile(
         # index becomes a regular column.
         data = _try_parse_first_date_column(data)
 
+    # Normalize a MultiIndex (level 0 = series_id, level 1 = datetime) into
+    # flat long format so every downstream helper sees named columns.
+    data, date_column, series_id_column = _normalize_multiindex(
+        data, date_column, series_id_column
+    )
+
     # Determine data format from user input
     data_format = _resolve_data_format(target, series_id_column)
 
@@ -185,10 +194,14 @@ def create_data_profile(
         deduped_index = datetime_index[~datetime_index.duplicated(keep="first")]
         frequency = infer_frequency(deduped_index)
 
-    # Compute n_series, n_observations, and series_lengths
-    n_series, n_observations, series_lengths = _compute_series_metrics(
-        data, target, series_id_column, data_format
+    # Compute n_series and per-series ranges (start, end, length)
+    n_series, series_lengths = _compute_series_metrics(
+        data, target, series_id_column, date_col, data_format, index_type
     )
+
+    # Representative per-series length (shortest series) for data-quality
+    # warnings such as the short-series check.
+    representative_n = min(info["length"] for info in series_lengths.values())
 
     # Target dtype (use first target column for multi)
     first_target = target[0] if isinstance(target, list) else target
@@ -215,7 +228,7 @@ def create_data_profile(
     target_stats = compute_target_stats(data, target, data_format, series_id_column)
 
     warnings = generate_warnings(
-        n_observations, frequency, missing_target, missing_exog, index_type
+        representative_n, frequency, missing_target, missing_exog, index_type
     )
 
     # Compute end_train: the datetime at the 80% mark of the index
@@ -244,7 +257,6 @@ def create_data_profile(
         # Structure / Format
         data_format=data_format,
         n_series=n_series,
-        n_observations=n_observations,
         series_lengths=series_lengths,
         # Target
         target=target,
@@ -346,6 +358,58 @@ def detect_date_column(
     return None, "other"
 
 
+def _normalize_multiindex(
+    data: pd.DataFrame,
+    date_column: str | None,
+    series_id_column: str | None,
+) -> tuple[pd.DataFrame, str | None, str | None]:
+    """
+    Flatten a MultiIndex DataFrame into long format.
+
+    A two-level MultiIndex is interpreted as `(series_id, datetime)`:
+    level 0 identifies the series and level 1 is the datetime index.
+    The levels are reset into regular columns so that all downstream
+    profiling helpers operate on a flat long-format DataFrame.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset. Returned unchanged if its index is not a
+        MultiIndex with at least two levels.
+    date_column : str, None
+        User-specified date column name. Filled from level 1 when None.
+    series_id_column : str, None
+        User-specified series identifier column. Filled from level 0
+        when None.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        Flattened DataFrame (or the original if no MultiIndex).
+    date_column : str, None
+        Resolved date column name.
+    series_id_column : str, None
+        Resolved series identifier column name.
+    """
+    if not isinstance(data.index, pd.MultiIndex) or data.index.nlevels < 2:
+        return data, date_column, series_id_column
+
+    names = list(data.index.names)
+    id_name = names[0] if names[0] is not None else "series_id"
+    date_name = names[1] if names[1] is not None else "date"
+
+    data = data.copy()
+    data.index = data.index.set_names([id_name, date_name])
+    data = data.reset_index()
+
+    if series_id_column is None:
+        series_id_column = id_name
+    if date_column is None:
+        date_column = date_name
+
+    return data, date_column, series_id_column
+
+
 def _resolve_data_format(
     target: str | list[str],
     series_id_column: str | None,
@@ -372,14 +436,71 @@ def _resolve_data_format(
     return "single"
 
 
+def _fmt_timestamp(ts: pd.Timestamp) -> str:
+    """
+    Format a timestamp as a date string, keeping the time part if present.
+
+    Parameters
+    ----------
+    ts : pandas Timestamp
+        Timestamp to format.
+
+    Returns
+    -------
+    formatted : str
+        `'YYYY-MM-DD'` when the time component is midnight, otherwise the
+        full timestamp string.
+    """
+    ts = pd.Timestamp(ts)
+    if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+        return str(ts)
+    return str(ts.date())
+
+
+def _frame_index_bounds(
+    frame: pd.DataFrame,
+    date_col: str | None,
+    datetime_available: bool,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    """
+    Return the first and last timestamps of a frame's datetime source.
+
+    Parameters
+    ----------
+    frame : pandas DataFrame
+        Frame (or per-series group) to inspect.
+    date_col : str, None
+        Resolved date column name. When None, the frame index is used.
+    datetime_available : bool
+        Whether a datetime source exists at all.
+
+    Returns
+    -------
+    start : pandas Timestamp, None
+        Minimum timestamp, or None when no datetime source exists.
+    end : pandas Timestamp, None
+        Maximum timestamp, or None when no datetime source exists.
+    """
+    if not datetime_available:
+        return None, None
+    if date_col is not None and date_col in frame.columns:
+        col = pd.to_datetime(frame[date_col])
+        return col.min(), col.max()
+    if isinstance(frame.index, pd.DatetimeIndex):
+        return frame.index.min(), frame.index.max()
+    return None, None
+
+
 def _compute_series_metrics(
     data: pd.DataFrame,
     target: str | list[str],
     series_id_column: str | None,
+    date_col: str | None,
     data_format: str,
-) -> tuple[int, int, dict[str, int] | None]:
+    index_type: str,
+) -> tuple[int, dict[str, dict]]:
     """
-    Compute n_series, n_observations (per series), and series_lengths.
+    Compute the number of series and per-series index ranges.
 
     Parameters
     ----------
@@ -389,41 +510,54 @@ def _compute_series_metrics(
         Target column name(s).
     series_id_column : str, None
         Series identifier column for long format.
+    date_col : str, None
+        Resolved date column name.
     data_format : str
         One of `'single'`, `'wide'`, `'long'`.
+    index_type : str
+        One of `'datetime'`, `'range'`, `'other'`.
 
     Returns
     -------
     n_series : int
         Number of individual time series.
-    n_observations : int
-        Observations per series (min for long format).
-    series_lengths : dict, None
-        Per-series observation counts. None for single series.
+    series_lengths : dict
+        Mapping of series name to a dict with keys `'start'`, `'end'`,
+        and `'length'`. Always populated, including single series.
+    
     """
+
+    datetime_available = index_type == "datetime"
+
+    def _range(frame: pd.DataFrame, length: int) -> dict:
+        start, end = _frame_index_bounds(frame, date_col, datetime_available)
+        return {
+            "start": _fmt_timestamp(start) if start is not None else None,
+            "end": _fmt_timestamp(end) if end is not None else None,
+            "length": int(length),
+        }
+
     if data_format == "wide":
         target_cols = target if isinstance(target, list) else [target]
-        n_series = len(target_cols)
-        # All series share the same index, so physical length = len(data)
-        series_lengths = {col: len(data) for col in target_cols}
-        n_observations = len(data)
-        return n_series, n_observations, series_lengths
+        # All series share the same index, so each spans the full frame.
+        series_lengths = {col: _range(data, len(data)) for col in target_cols}
+        return len(target_cols), series_lengths
 
-    if data_format == "long":
-        if series_id_column is not None and series_id_column in data.columns:
-            group_sizes = data.groupby(series_id_column).size()
-            series_lengths = {
-                str(name): int(length)
-                for name, length in group_sizes.items()
-            }
-            n_series = len(series_lengths)
-            n_observations = min(series_lengths.values())
-            return n_series, n_observations, series_lengths
-        # Fallback: series_id_column not in data
-        return 1, len(data), None
+    if (
+        data_format == "long"
+        and series_id_column is not None
+        and series_id_column in data.columns
+    ):
+        series_lengths = {
+            str(name): _range(group, len(group))
+            for name, group in data.groupby(series_id_column)
+        }
+        return len(series_lengths), series_lengths
 
-    # Single series
-    return 1, len(data), None
+    # Single series (or long fallback when series_id_column is absent)
+    target_name = target[0] if isinstance(target, list) else target
+    series_lengths = {str(target_name): _range(data, len(data))}
+    return 1, series_lengths
 
 
 def _extract_datetime_index(

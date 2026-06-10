@@ -11,7 +11,11 @@ from skforecast_ai._utils import (
     _strip_code_blocks,
     _coerce_to_dataframe,
     _run_agent_sync,
+    _series_span_length,
+    _display_n_observations,
+    _validate_task_input,
 )
+from skforecast_ai.schemas import DataProfile
 
 
 # =============================================================================
@@ -195,3 +199,101 @@ def test_run_agent_sync_propagates_exceptions():
 
     with pytest.raises(ValueError, match="boom"):
         _run_agent_sync(_FakeAgent(), "msg")
+
+
+# =============================================================================
+# Task-aware observation-count helpers
+# =============================================================================
+def _make_profile(series_lengths, frequency="D", n_series=None):
+    """Build a minimal DataProfile for observation-count helper tests."""
+    return DataProfile(
+        n_series=n_series if n_series is not None else len(series_lengths),
+        series_lengths=series_lengths,
+        target="value",
+        index_type="datetime",
+        frequency=frequency,
+    )
+
+
+def test_series_span_length_output_when_dates_available():
+    """
+    Test _series_span_length spans from the earliest start to the latest
+    end across all series at the profiled frequency.
+    """
+    profile = _make_profile({
+        "A": {"start": "2023-01-01", "end": "2023-04-10", "length": 100},
+        "B": {"start": "2023-02-01", "end": "2023-03-01", "length": 29},
+    })
+    # 2023-01-01 .. 2023-04-10 inclusive at daily frequency
+    assert _series_span_length(profile) == 100
+
+
+def test_series_span_length_output_when_no_frequency_falls_back_to_max():
+    """
+    Test _series_span_length falls back to the longest series length when
+    no frequency is available.
+    """
+    profile = _make_profile(
+        {"A": {"length": 100}, "B": {"length": 60}}, frequency=None
+    )
+    assert _series_span_length(profile) == 100
+
+
+def test_display_n_observations_output_when_single_series_uses_length():
+    """
+    Test _display_n_observations returns the single series length.
+    """
+    profile = _make_profile(
+        {"value": {"start": "2023-01-01", "end": "2023-04-10", "length": 100}}
+    )
+    assert _display_n_observations(profile) == 100
+
+
+def test_display_n_observations_output_when_multi_series_uses_span():
+    """
+    Test _display_n_observations returns the union span for multi-series.
+    """
+    profile = _make_profile({
+        "A": {"start": "2023-01-01", "end": "2023-04-10", "length": 100},
+        "B": {"start": "2023-02-01", "end": "2023-03-01", "length": 29},
+    })
+    assert _display_n_observations(profile) == 100
+
+
+@pytest.mark.parametrize(
+    "task_type",
+    ["single_series", "statistical", "foundation"],
+)
+def test_validate_task_input_raises_when_single_task_with_multiple_series(
+    task_type,
+):
+    """
+    Test _validate_task_input raises ValueError when a single-series task
+    receives more than one series.
+    """
+    profile = _make_profile({"A": {"length": 100}, "B": {"length": 100}})
+    with pytest.raises(ValueError, match="supports a single series only"):
+        _validate_task_input(profile, task_type)
+
+
+def test_validate_task_input_raises_when_multivariate_unequal_lengths():
+    """
+    Test _validate_task_input raises ValueError when a multivariate task
+    receives series of different lengths.
+    """
+    profile = _make_profile({"A": {"length": 100}, "B": {"length": 80}})
+    with pytest.raises(ValueError, match="same length"):
+        _validate_task_input(profile, "multivariate")
+
+
+def test_validate_task_input_passes_when_valid():
+    """
+    Test _validate_task_input accepts compatible inputs (single-series
+    task with one series; multivariate with equal lengths).
+    """
+    single = _make_profile({"value": {"length": 100}}, n_series=1)
+    multivariate = _make_profile({"A": {"length": 100}, "B": {"length": 100}})
+
+    assert _validate_task_input(single, "single_series") is None
+    assert _validate_task_input(multivariate, "multivariate") is None
+

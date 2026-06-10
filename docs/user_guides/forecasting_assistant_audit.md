@@ -50,11 +50,11 @@ flowchart TD
     B -- No --> C[profile: create_data_profile]
     C --> D[select_forecaster_and_candidates]
     D --> E[select_estimator_and_candidates]
-    E --> F[create_forecasting_analysis]
+    E --> F[compute_series_pacf + select_window_features]
     F --> G[ForecastingProfile]
     B -- Yes --> G
     G --> H{plan provided?}
-    H -- No --> I[select_lags_and_window_features]
+    H -- No --> I[finalize_lags]
     I --> J[select_transformer_series / exog]
     J --> K[select_metric]
     K --> L[build_forecaster_kwargs]
@@ -78,7 +78,7 @@ flowchart TD
     C -- Yes --> E
     E --> F{plan provided?}
     F -- No --> G[plan]
-    G --> H[ForecastPlan]
+    G --> H[Plan]
     F -- Yes --> I{cv.steps == plan.steps?}
     I -- No --> ERR([ValueError])
     I -- Yes --> H
@@ -182,7 +182,8 @@ Each is created on first use and reused for subsequent calls, avoiding redundant
 | `forecaster_candidates` | `list[str]` | All compatible forecasters |
 | `estimator` | `str` | Recommended estimator class name |
 | `estimator_candidates` | `list[str]` | All compatible estimators |
-| `analysis_context` | `ForecastingAnalysis` | PACF target series, effective observation count |
+| `series_pacf` | `list[SeriesPacf]` | Per-series PACF-significant lags (lag primitive) |
+| `window_features` | `list[dict] \| None` | Rolling-feature configs (forecaster-invariant) |
 | `explanation` | `str` | Human-readable decision summary |
 
 **Internal call chain:**
@@ -191,7 +192,7 @@ Each is created on first use and reused for subsequent calls, avoiding redundant
 _coerce_to_dataframe → create_data_profile
 → select_forecaster_and_candidates
 → select_task_type_from_forecaster
-→ create_forecasting_analysis
+→ compute_series_pacf + select_window_features
 → select_estimator_and_candidates
 → _build_profile_explanation
 → ForecastingProfile
@@ -239,9 +240,9 @@ _coerce_to_dataframe → create_data_profile
 - `ValueError` — when `forecaster` override is not in `profile.forecaster_candidates`.
 
 **Edge cases:**
-- When `forecaster` override changes the `task_type` (e.g., switching from ML to statistical), `plan()` re-derives `analysis_context` and `estimator`. `target_series` is preserved from the original context if the new context produces `None`.
+- When `forecaster` override changes the `task_type` (e.g., switching from ML to statistical), `plan()` re-derives the `estimator`. Lags are re-aggregated from the stored `series_pacf` primitive for the new task type, and `window_features` are reused from the profile (both are forecaster-invariant).
 - For `task_type in ('statistical', 'foundation')`: lags, window features, transformers, and `dropna_from_series` are set to `None` — these fields are not applicable.
-- The fallback lag strategy (`n_lags = min(5, max(n_observations // 3, 1))`) activates when `target_series` is empty, guarding against PACF failures on very short or degenerate series.
+- The fallback lag strategy (`n_lags = min(5, max(n_observations // 3, 1))`) activates when `series_pacf` yields no candidate lags, guarding against PACF failures on very short or degenerate series.
 
 ---
 
@@ -506,7 +507,7 @@ Constructs `extra_body` settings for Ollama inference with dynamic `num_ctx` siz
 
 | Module | Role |
 |---|---|
-| `skforecast_ai.profiling` | `create_data_profile`, `create_forecasting_analysis` |
+| `skforecast_ai.profiling` | `create_data_profile` |
 | `skforecast_ai.recommendation` | All selection functions (forecaster, estimator, lags, metric, preprocessing, CV defaults, explanations) |
 | `skforecast_ai.execution` | `run_forecast`, `run_backtest`, `render_forecast_script`, `render_backtesting_script` |
 | `skforecast_ai.llm` | `build_context_message`, `create_model`, `ensure_ollama_reachable`, `estimate_prompt_tokens`, `select_skills`, `AskDeps` |

@@ -1,6 +1,11 @@
 """Recommendation engine: deterministic rule-based forecaster selection."""
 
-from .autoregressive import select_lags_and_window_features
+from .autoregressive import (
+    compute_series_pacf,
+    finalize_lags,
+    select_lags,
+    select_window_features,
+)
 from .backtesting import build_cv_explanation, derive_cv_defaults
 from .explanation import _build_profile_explanation, build_plan_explanation
 from .forecaster_selection import (
@@ -24,14 +29,17 @@ __all__ = [
     "build_plan_explanation",
     "build_forecaster_kwargs",
     "check_exog_usage",
+    "compute_series_pacf",
     "derive_cv_defaults",
     "derive_preprocessing_steps",
+    "finalize_lags",
     "select_dropna_from_series",
     "select_estimator_and_candidates",
     "select_forecaster_and_candidates",
-    "select_lags_and_window_features",
+    "select_lags",
     "select_metric",
     "select_task_type_from_forecaster",
     "select_transformer_exog",
     "select_transformer_series",
+    "select_window_features",
 ]
