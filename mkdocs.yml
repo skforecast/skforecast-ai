@@ -43,33 +43,33 @@ nav:
     - Config: api/config.md
     - Exceptions: api/exceptions.md
     - Execution:
-      - backtesting_runner: api/execution/backtesting_runner.md
-      - forecast_runner: api/execution/forecast_runner.md
+      - Backtesting Runner: api/execution/backtesting_runner.md
+      - Forecast Runner: api/execution/forecast_runner.md
     - LLM:
-      - agent: api/llm/agent.md
-      - context: api/llm/context.md
-      - prompts: api/llm/prompts.md
-      - provider: api/llm/provider.md
-      - skills: api/llm/skills.md
+      - Agent: api/llm/agent.md
+      - Context: api/llm/context.md
+      - Prompts: api/llm/prompts.md
+      - Provider: api/llm/provider.md
+      - Skills: api/llm/skills.md
     - Profiling:
-      - data_profile: api/profiling/data_profile.md
+      - Data Profile: api/profiling/data_profile.md
     - Recommendation:
-      - autoregressive: api/recommendation/autoregressive.md
-      - backtesting: api/recommendation/backtesting.md
-      - explanation: api/recommendation/explanation.md
-      - forecaster_selection: api/recommendation/forecaster_selection.md
-      - metric_selection: api/recommendation/metric_selection.md
-      - preprocessing: api/recommendation/preprocessing.md
+      - Autoregressive: api/recommendation/autoregressive.md
+      - Backtesting: api/recommendation/backtesting.md
+      - Explanation: api/recommendation/explanation.md
+      - Forecaster Selection: api/recommendation/forecaster_selection.md
+      - Metric Selection: api/recommendation/metric_selection.md
+      - Preprocessing: api/recommendation/preprocessing.md
     - Rendering:
-      - backtesting: api/rendering/backtesting.md
-      - foundation: api/rendering/foundation.md
-      - multi_series: api/rendering/multi_series.md
-      - single_series: api/rendering/single_series.md
-      - statistical: api/rendering/statistical.md
+      - Backtesting: api/rendering/backtesting.md
+      - Foundation: api/rendering/foundation.md
+      - Multi Series: api/rendering/multi_series.md
+      - Single Series: api/rendering/single_series.md
+      - Statistical: api/rendering/statistical.md
     - Schemas:
-      - plans: api/schemas/plans.md
-      - profiles: api/schemas/profiles.md
-      - results: api/schemas/results.md
+      - Plans: api/schemas/plans.md
+      - Profiles: api/schemas/profiles.md
+      - Results: api/schemas/results.md
 
   - More: 
     - About skforecast-ai: more/about-skforecast-ai.md
