@@ -113,7 +113,7 @@ Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md
 | [Backtesting & validation](docs/user_guides/backtesting.md) | Rigorous walk-forward evaluation |
 | [Using the AI assistant](docs/user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
 
-Browse every guide in [`docs/user_guides/`](docs/user_guides/). The full **API reference** is generated from the docstrings in [`skforecast_ai/`](skforecast_ai/).
+Browse every guide in [`docs/user_guides/`](user_guides/). The full **API reference** is generated from the docstrings in [`skforecast_ai/`](skforecast_ai/).
 
 ---
 

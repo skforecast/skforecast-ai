@@ -71,6 +71,10 @@ test = [
     "lightgbm>=4.0,<5.0",
 ]
 
+dev = [
+    "skforecast-ai[llm,docs,test]"
+]
+
 [project.scripts]
 skforecast-ai = "skforecast_ai.cli:app"
 

@@ -152,7 +152,7 @@ flowchart TD
 - **Preprocessing:** transformers and NaN handling are chosen (`select_transformer_series`, `select_transformer_exog`, `select_dropna_from_series`) and assembled by `derive_preprocessing_steps`; `select_metric` picks the evaluation metric.
 - **Output:** A `ForecastPlan` object (`schemas/plans.py`) — a comprehensive, declarative blueprint detailing exactly *how* the forecast will be executed, independent of any actual Python code.
 
-**Task type → forecaster → estimator.** The identifiers below are those used by `select_task_type_from_forecaster` and emitted by the rendering layer — the authoritative mapping lives in [`recommendation/forecaster_selection.py`](../../skforecast_ai/recommendation/forecaster_selection.py); treat the code, not this table, as ground truth if they ever diverge.
+**Task type → forecaster → estimator.** The identifiers below are those used by `select_task_type_from_forecaster` and emitted by the rendering layer — the authoritative mapping lives in [`recommendation/forecaster_selection.py`](../api/recommendation/forecaster_selection.md); treat the code, not this table, as ground truth if they ever diverge.
 
 | Task type | Forecaster class (as imported by the generated script) | Default estimator |
 | --- | --- | --- |

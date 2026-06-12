@@ -1,14 +1,14 @@
 window.MathJax = {
   tex: {
-    // 1. Agregamos soporte para '$' y '$$' que usan los notebooks
+    // 1. Add support for '$' and '$$' used by notebooks
     inlineMath: [["$", "$"], ["\\(", "\\)"]],
     displayMath: [["$$", "$$"], ["\\[", "\\]"]],
     processEscapes: true,
     processEnvironments: true
   },
   options: {
-    // 2. Eliminamos o comentamos estas líneas para que MathJax
-    // busque fórmulas en TODA la página, no solo en clases específicas.
+    // 2. We remove or comment out these lines so MathJax
+    // searches for formulas across the ENTIRE page, not just in specific classes.
     // ignoreHtmlClass: ".*|",
     // processHtmlClass: "arithmatex"
   }
