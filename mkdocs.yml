@@ -40,7 +40,36 @@ nav:
   - API Reference:
     - Assistant: api/assistant.md
     - CLI: api/cli.md
-    - Schemas: api/schemas.md
+    - Config: api/config.md
+    - Exceptions: api/exceptions.md
+    - Execution:
+      - backtesting_runner: api/execution/backtesting_runner.md
+      - forecast_runner: api/execution/forecast_runner.md
+    - LLM:
+      - agent: api/llm/agent.md
+      - context: api/llm/context.md
+      - prompts: api/llm/prompts.md
+      - provider: api/llm/provider.md
+      - skills: api/llm/skills.md
+    - Profiling:
+      - data_profile: api/profiling/data_profile.md
+    - Recommendation:
+      - autoregressive: api/recommendation/autoregressive.md
+      - backtesting: api/recommendation/backtesting.md
+      - explanation: api/recommendation/explanation.md
+      - forecaster_selection: api/recommendation/forecaster_selection.md
+      - metric_selection: api/recommendation/metric_selection.md
+      - preprocessing: api/recommendation/preprocessing.md
+    - Rendering:
+      - backtesting: api/rendering/backtesting.md
+      - foundation: api/rendering/foundation.md
+      - multi_series: api/rendering/multi_series.md
+      - single_series: api/rendering/single_series.md
+      - statistical: api/rendering/statistical.md
+    - Schemas:
+      - plans: api/schemas/plans.md
+      - profiles: api/schemas/profiles.md
+      - results: api/schemas/results.md
 
   - More: 
     - About skforecast-ai: more/about-skforecast-ai.md

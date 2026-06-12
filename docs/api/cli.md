@@ -1,0 +1,1 @@
+::: skforecast_ai.cli
