@@ -6,101 +6,123 @@
   <a href="https://github.com/JoaquinAmatRodrigo/skforecast"><img src="https://img.shields.io/badge/built%20on-skforecast-orange" alt="Built on skforecast"></a>
 </p>
 
-AI-powered forecasting assistant built on top of [skforecast](https://github.com/JoaquinAmatRodrigo/skforecast). 
+**An AI forecasting assistant you can actually trust.** Give it a time series and `skforecast-ai` profiles your data, picks a sensible model, evaluates it, and returns the forecast — along with the *exact, runnable* [`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast) script that produced it.
 
-**skforecast-ai** is a deterministic, rule-based forecasting engine with an optional LLM overlay to explain decisions, guaranteeing 100% reproducible results without AI hallucinations.
-
-## Table of Contents
-- [About The Project](#about-the-project)
-- [Architecture & Logic](#architecture--logic)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Contributing](#contributing)
-- [License](#license)
+The recommendation engine is **100% deterministic and rule-based**: the same data always yields the same result. An optional LLM can *explain* the decisions in plain language, but it never changes the math. No black boxes, no hallucinated numbers.
 
 ---
 
-## About The Project
+## ✨ Why skforecast-ai?
 
-**skforecast-ai** automates and explains time series forecasting workflows. It acts as an expert pair-programmer that profiles your data, recommends the optimal forecasting strategy (including models, hyperparameters, and preprocessing), and generates complete, executable `skforecast` Python scripts.
-
-### Core Philosophy
-The true differentiator of `skforecast-ai` is its separation of execution and reasoning:
-1. **Deterministic Core:** All forecasting logic, recommendations, and code generation are handled by rigid, testable Python rules. Results are 100% reproducible.
-2. **LLM Overlay:** An optional LLM agent (`pydantic-ai`) acts as a conversational explainer. It reads the deterministic application state to answer questions, suggest improvements, or explain complex metrics in natural language, without altering the underlying math.
-
----
-
-## Architecture & Logic
-
-### 1. Component Pipeline
-
-The internal architecture follows a strict, functional pipeline where data flows through distinct transformation stages:
-
-- **`profiling/`**: Inspects the incoming dataset (identifying index types, frequency, NaN presence, and target distributions).
-- **`recommendation/`**: The deterministic "brain". It applies business rules to select the best forecaster, estimator, and preprocessing steps based on the profile.
-- **`rendering/`**: Assembles the logical Python script line-by-line depending on the chosen plan (`single_series`, `multi_series`, `foundation`, etc.).
-- **`execution/`**: Dynamically compiles and executes the rendered scripts using `exec()`, guaranteeing that the code shown to the user is exactly the code that generates the `pandas` predictions.
-- **`llm/` & `skills/`**: Orchestrates dynamic prompts. The *Knowledge as Code* pattern is heavily utilized here: heuristic rules are extracted into isolated Markdown files (`SKILL.md`), serving as a single source of truth for both human developers and the LLM's RAG context.
-
-### 2. Public API: `ForecastingAssistant`
-
-The primary entry point for users is the `ForecastingAssistant` class, which offers a clean, step-by-step API:
-
-*   **`profile()`**: Ingests raw data and outputs a `ForecastingProfile`.
-*   **`plan()`**: Refines the profile into an actionable `ForecastPlan`.
-*   **`forecast_code()` / `backtest_code()`**: Generates the inspectable, production-ready Python scripts.
-*   **`forecast()` / `backtest()`**: Internalizes the entire process, directly returning predictions and metrics.
-*   **`ask()`**: Converses with the LLM based on the current context of the pipeline.
+- 🎯 **Deterministic by design** — a transparent, rule-based engine. Same input → same output, every time. Reproducible results with no AI hallucinations.
+- 🔍 **Code you can trust** — the script you see is *exactly* the code that ran (`result.code`). Inspect it, version it, or run it standalone with plain `skforecast`.
+- ⚡ **Data to forecast in one call** — automatic data profiling, model and estimator selection, lag/feature engineering, and backtest evaluation.
+- 🔌 **Runs locally, no API key** — the full pipeline works offline in its default deterministic mode.
+- 💬 **Optional LLM overlay** — ask plain-language questions about your forecast. The model explains; it doesn't decide.
+- 🏗️ **Built on skforecast** — backed by a mature ecosystem: recursive & direct forecasters, multi-series, statistical, and foundation models.
 
 ---
 
-## Installation
+## 📦 Installation
 
 ```bash
-# Clone the repository and install in editable mode with development dependencies
+pip install skforecast-ai
+```
+
+To enable the optional LLM assistant:
+
+```bash
+pip install "skforecast-ai[llm]"
+```
+
+<details>
+<summary>Install from source (for development)</summary>
+
+```bash
 git clone https://github.com/JoaquinAmatRodrigo/skforecast-ai.git
 cd skforecast-ai
 pip install -e ".[dev]"
 ```
+</details>
 
-*Note: For the LLM capabilities to function, you must configure a provider (e.g., via the CLI `skforecast-ai config set` or environment variables).*
-
-## Quick Start
-
-Here is a quick example of how to use the fast-path API to go from data to a fully executed forecast in a few lines of code.
-
-```python
-import pandas as pd
-from skforecast_ai.assistant import ForecastingAssistant
-
-# 1. Load your data
-url = 'https://raw.githubusercontent.com/JoaquinAmatRodrigo/skforecast/master/data/h2o.csv'
-data = pd.read_csv(url, sep=',', header=0, names=['y', 'date'])
-
-# 2. Initialize the Assistant (Deterministic Mode)
-assistant = ForecastingAssistant()
-
-# 3. Generate the script and execute the forecast in one step
-results = assistant.forecast(
-    data=data,
-    target='y',
-    date_column='date'
-)
-
-# View the generated Python script
-print(results["rendered_code"].core)
-
-# View the predictions DataFrame
-print(results["predictions"].head())
-```
+Requires Python ≥ 3.10.
 
 ---
 
-## Contributing
+## 🚀 Quickstart
 
-Contributions are welcome! Please check out our [Contributing Guide](CONTRIBUTING.md) for more details.
+From raw data to a validated forecast — and the code behind it — in under ten lines:
 
-## License
+```python
+import pandas as pd
+from skforecast_ai import ForecastingAssistant
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+# Any DataFrame (or CSV path) with a value column and a date column
+url = "https://raw.githubusercontent.com/JoaquinAmatRodrigo/skforecast/master/data/h2o.csv"
+data = pd.read_csv(url, header=0, names=["y", "date"])
+
+assistant = ForecastingAssistant()          # deterministic mode — no API key required
+result = assistant.forecast(data, target="y", steps=12, date_column="date")
+
+print(result.predictions)   # forecast for the next 12 steps
+print(result.metrics)       # evaluation metrics: MAE / MSE / MASE
+print(result.code)          # the exact skforecast script that produced this result
+```
+
+That single `forecast()` call profiled the data, chose a forecaster and estimator, generated a `skforecast` script, and executed it — and `result.code` is the literal script that ran.
+
+👉 New here? Walk through it step by step in **[Your first forecast](docs/user_guides/first-forecast.md)**.
+
+---
+
+## 🧠 How it works
+
+Every forecast flows through four transparent, inspectable stages:
+
+```
+Your data  →  profile()  →  plan()  →  generate code  →  execute
+              (inspect)     (decide)    (audit)           (run)
+```
+
+1. **Profile** — inspect the data: frequency, gaps, missing values, exogenous columns.
+2. **Plan** — choose the forecaster, estimator, lags, and metrics using transparent rules.
+3. **Generate** — render a standalone, human-readable `skforecast` script.
+4. **Execute** — run that exact script and return predictions, metrics, and the code.
+
+The optional LLM layer reads this state to *explain* it — it never alters the result:
+
+```python
+assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
+answer = assistant.ask("Why was this model chosen?", forecast_result=result)
+print(answer.explanation)
+```
+
+Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md)**.
+
+---
+
+## 📚 Documentation
+
+| Guide | What it covers |
+| --- | --- |
+| [Your first forecast](docs/user_guides/first-forecast.md) | Data → forecast in a few lines (start here) |
+| [The forecasting workflow](docs/user_guides/the-forecasting-workflow.md) | `profile → plan → refine_plan → forecast`, step by step |
+| [How it works & trust](docs/user_guides/how-it-works-and-trust.md) | Determinism, the `exec()` fidelity guarantee, and privacy |
+| [Understanding your data](docs/user_guides/understanding-your-data.md) | What profiling detects and how to read it |
+| [Customizing the model](docs/user_guides/customizing-the-model.md) | Override the forecaster, estimator, horizon, or intervals |
+| [Backtesting & validation](docs/user_guides/backtesting.md) | Rigorous walk-forward evaluation |
+| [Using the AI assistant](docs/user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
+
+Browse every guide in [`docs/user_guides/`](docs/user_guides/). The full **API reference** is generated from the docstrings in [`skforecast_ai/`](skforecast_ai/).
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome — whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md) to get started.
+
+## 📄 License
+
+Licensed under the Apache License 2.0 — see [LICENSE](LICENSE) for details.
+
+Built with ❤️ on top of [skforecast](https://github.com/JoaquinAmatRodrigo/skforecast).

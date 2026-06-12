@@ -16,13 +16,20 @@ nav:
     - How to install: quick-start/how-to-install.md
 
   - User Guides:
-    - Table of contents: user_guides/table-of-contents.md
-    - Architecture & Logic: user_guides/architecture-and-logic.md
-    - Data Profiling: user_guides/data-profiling.md
-    - Recommendation Engine: user_guides/recommendation-engine.ipynb
-    - Code Generation: user_guides/code-generation.ipynb
-    - LLM Assistant: user_guides/llm-assistant.ipynb
-    - Configuring LLM Providers: user_guides/configuring-providers.md
+    - Get started:
+      - Your first forecast: user_guides/first-forecast.md
+      - Quick start install: user_guides/quick-start.md
+    - Core concepts:
+      - The forecasting workflow: user_guides/the-forecasting-workflow.md
+      - How it works & trust: user_guides/how-it-works-and-trust.md
+    - Working with your forecast:
+      - Understanding your data: user_guides/understanding-your-data.md
+      - Customizing the model: user_guides/customizing-the-model.md
+      - Reproducible code: user_guides/reproducible-code.md
+      - Backtesting & validation: user_guides/backtesting.md
+      - Troubleshooting: user_guides/troubleshooting.md
+    - AI assistant:
+      - Using the AI assistant: user_guides/using-the-ai-assistant.md
 
   - Examples and tutorials:
     - Interactive Q&A: examples/demo_ask.ipynb
@@ -148,7 +155,11 @@ markdown_extensions:
   - pymdownx.mark
   - pymdownx.smartsymbols
   - pymdownx.snippets
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.tasklist:
