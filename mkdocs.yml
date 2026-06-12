@@ -18,10 +18,11 @@ nav:
   - User Guides:
     - Get started:
       - Your first forecast: user_guides/first-forecast.md
-      - Quick start install: user_guides/quick-start.md
+      - Installation: user_guides/quick-start.md
     - Core concepts:
       - The forecasting workflow: user_guides/the-forecasting-workflow.md
       - How it works & trust: user_guides/how-it-works-and-trust.md
+      - Architecture & internals: user_guides/architecture-and-logic_detailed.md
     - Working with your forecast:
       - Understanding your data: user_guides/understanding-your-data.md
       - Customizing the model: user_guides/customizing-the-model.md

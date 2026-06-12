@@ -92,7 +92,7 @@ result = assistant.forecast(
 print(result.intervals.head())
 ```
 
-The assistant selects an appropriate interval method automatically based on the forecaster — bootstrapping for the standard regression forecasters, native intervals for statistical and foundation models. You don't set the method yourself through this API.
+The assistant selects an appropriate interval method automatically based on the forecaster — bootstrapping or conformal for the regression-based forecasters, and native intervals for statistical and foundation models. You don't set the method yourself through this API.
 
 ## Tuning hyperparameters
 

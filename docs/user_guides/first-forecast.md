@@ -65,7 +65,7 @@ print(result.code)
 | Attribute | What it holds |
 | --- | --- |
 | `result.predictions` | Forecasted values for the requested `steps` (a DataFrame). |
-| `result.metrics` | Backtest metrics with columns `series, MAE, MSE, MASE`. One row for a single series; one row per series otherwise. |
+| `result.metrics` | Evaluation metrics with columns `series, MAE, MSE, MASE`. One row for a single series; one row per series otherwise. |
 | `result.code` | The complete standalone `skforecast` script — the same code that was just executed. |
 | `result.intervals` | Prediction intervals, if you requested them (see below). `None` otherwise. |
 | `result.profile` | What the assistant learned about your data. |

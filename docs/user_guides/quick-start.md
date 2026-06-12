@@ -1,12 +1,6 @@
----
-title: Quick start / install
-status: draft
----
+# Quick start: install
 
-# Quick start / install
-
-!!! note "Draft"
-    This page covers installation and a minimal smoke test. For the guided walkthrough, see [Your first forecast](first-forecast.md).
+This page covers installation and a one-minute smoke test to confirm everything works. For the guided walkthrough of your first real forecast, continue to [Your first forecast](first-forecast.md).
 
 ## Install
 
@@ -30,11 +24,12 @@ cd skforecast-ai
 pip install -e ".[dev]"
 ```
 
-Requires Python ≥ 3.10.
+!!! note "Requirements"
+    skforecast-ai requires **Python ≥ 3.10**. The deterministic pipeline runs entirely offline; only the optional LLM overlay needs network access and a provider key.
 
 ## Smoke test
 
-If this prints a predictions table and a metrics row, your install works:
+If this prints a predictions table and a metrics row, your installation works:
 
 ```python
 import pandas as pd
@@ -50,13 +45,8 @@ print(result.predictions.head())
 print(result.metrics)
 ```
 
-Continue with **[Your first forecast](first-forecast.md)**.
+## Next steps
 
----
-
-<!-- To expand later:
-  - Supported Python versions and optional extras ([llm], [dev], [test]).
-  - Verifying the install / version (skforecast_ai.__version__).
-  - Pointer to LLM provider setup → using-the-ai-assistant.md.
-  Seed: root README install section.
-  API to cover: ForecastingAssistant(); forecast(). -->
+- **[Your first forecast](first-forecast.md)** — the same call, explained step by step.
+- **[The forecasting workflow](the-forecasting-workflow.md)** — inspect and override each stage of the pipeline.
+- **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)* — turn on a language model to ask questions about your forecast.

@@ -1,18 +1,12 @@
----
-title: Using the AI assistant
-status: draft
----
-
 # Using the AI assistant (optional)
 
-!!! note "Draft — outline"
-    This guide will cover turning on a language model and asking it questions about your forecast. Everything else in skforecast-ai works without it. Outline below.
+Everything in skforecast-ai works **without** a language model. The LLM is an *explainer*, not a decision-maker: it reads the deterministic pipeline's state and answers questions in plain language. It never changes which forecaster runs, which lags are used, or what predictions come out. The principle behind that separation is described in [How it works & trust](how-it-works-and-trust.md).
 
-The LLM is an **explainer**, not a decision-maker: it reads the deterministic pipeline's state and answers questions in plain language. It never changes the forecast. See [How it works & trust](how-it-works-and-trust.md).
+This guide covers turning a model on and asking it questions.
 
 ## Configure a provider
 
-- Enable it at construction with `llm="provider:model"`:
+Enable the LLM at construction time with an `llm="provider:model"` string:
 
 ```python
 from skforecast_ai import ForecastingAssistant
@@ -20,16 +14,46 @@ from skforecast_ai import ForecastingAssistant
 assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
 ```
 
-- Built-in providers: `openai`, `google`, `anthropic`, `groq`, `ollama`. Any other prefix is treated as an OpenAI-compatible endpoint (set `base_url`).
-- Credentials: pass `api_key=` / `base_url=` to the constructor, or rely on the provider's environment variables.
-- The model string is `provider:model_name`; model names may themselves contain colons (e.g. `ollama:qwen2.5:7b-instruct`).
-- Persistent settings can be stored via the CLI (`skforecast-ai config set ...`).
+The string is always `provider:model_name`. Because only the first colon is used to split, model names may themselves contain colons (e.g. `ollama:qwen2.5:7b-instruct`).
+
+### Supported providers
+
+| Provider prefix | Notes |
+| --- | --- |
+| `openai` | Uses the OpenAI Chat Completions API. |
+| `google` | Google Gemini models. |
+| `anthropic` | Anthropic Claude models. |
+| `groq` | Groq-hosted open models. |
+| `ollama` | Local models — see below. |
+| *anything else* | Treated as an OpenAI-compatible endpoint; set `base_url`. |
+
+### Credentials
+
+For cloud providers, supply the API key in either way:
+
+- **Environment variable** (recommended) — the provider's standard variable, e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`. Set it once and the assistant picks it up automatically.
+- **Constructor argument** — pass `api_key=` (and `base_url=` for custom or self-hosted endpoints) directly:
+
+```python
+assistant = ForecastingAssistant(
+    llm="anthropic:claude-3-5-haiku-latest",
+    api_key="sk-...",
+)
+```
+
+### Local models with Ollama
+
+`ollama` runs entirely on your machine — no key, no cloud. Make sure the daemon is running (`ollama serve`); the assistant checks reachability before each call and points you here if it can't connect. The default endpoint is `http://localhost:11434/v1`; override it with `base_url=` if Ollama runs elsewhere.
+
+```python
+assistant = ForecastingAssistant(llm="ollama:qwen2.5:7b-instruct")
+```
 
 ## Ask questions
 
-- `ask(prompt, ...)` returns an `AskResult` with `.explanation` (the answer) and, when relevant, `.profile`, `.plan`, and `.code`.
-- Answers are grounded in the assistant's rule-based **skills**, so explanations match engine behavior.
-- Without a configured model, `ask()` raises `LLMRequiredError`.
+`ask(prompt, ...)` returns an `AskResult` with the answer in `.explanation`, plus `.profile`, `.plan`, and `.code` when the question involved a dataset or a forecast. Without a configured model it raises `LLMRequiredError`.
+
+The most common pattern is to explain a forecast you've already run — pass the result straight through:
 
 ```python
 result = assistant.forecast(data, target="y", steps=12, date_column="date")
@@ -37,13 +61,69 @@ answer = assistant.ask("Why was this estimator chosen?", forecast_result=result)
 print(answer.explanation)
 ```
 
+`ask()` operates in four modes, depending on what you give it:
+
+| Mode | Trigger | What the model explains |
+| --- | --- | --- |
+| **Q&A** | prompt only | General forecasting or `skforecast` questions. |
+| **Explain** | `data=` or `profile=` (+ `steps=`) | The profiling and planning decisions for your data. |
+| **Results** | `forecast_result=` | Predictions, metrics, and intervals from a completed `forecast()`. |
+| **Backtest** | `backtest_result=` | Metrics, predictions, and CV configuration from a completed `backtest()`. |
+
+```python
+# Explain mode — profile and plan are computed first, then explained
+answer = assistant.ask(
+    "Is my data suitable for forecasting?",
+    data=data, target="y", date_column="date", steps=12,
+)
+```
+
+!!! note "`forecast_result` and `backtest_result` are mutually exclusive"
+    Pass one or the other, not both. In either case the assistant reuses the `profile` and `plan` from the result, so you don't recompute them.
+
+## What grounds the answers
+
+Answers are grounded in the assistant's rule-based **skills** — Markdown documents that mirror the engine's actual heuristics — so explanations stay consistent with what the deterministic engine did. Skill selection is automatic and rule-based (by task type and the keywords in your question); there's no fuzzy vector search. The mechanism is detailed in [How it works & trust](how-it-works-and-trust.md).
+
+Two optional arguments give you manual control:
+
+- `skills=[...]` — pin an explicit list of skills instead of letting the assistant choose. Valid names are in `skforecast_ai.ALL_SKILLS`.
+- `include_reference=True` — also inject the `skforecast` API reference, useful for detailed code questions.
+
+```python
+answer = assistant.ask(
+    "How do I add prediction intervals?",
+    forecast_result=result,
+    skills=["prediction-intervals"],
+    include_reference=True,
+)
+```
+
 ## Privacy
 
-- By default the model receives the structural profile and decisions, **not** your raw data.
-- Opt in with `ForecastingAssistant(llm=..., send_data_to_llm=True)`.
+By default the model receives only the **structural profile and the modeling decisions** — never your raw data. Opt in explicitly if you want it to see the underlying values:
 
----
+```python
+assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", send_data_to_llm=True)
+```
 
-<!-- To expand later: per-provider env vars, Ollama local setup, include_reference, selecting skills explicitly, create_cv(prompt=...).
-  Seed: dev/demo_ask.ipynb; skforecast_ai/llm/{provider,agent,skills}.py; config.py.
-  API to cover: ForecastingAssistant(llm/base_url/api_key/send_data_to_llm), ask(), AskResult. -->
+!!! note "Results and backtest modes are the exception"
+    When you pass a `forecast_result` or `backtest_result`, the assistant sends the predictions, metrics, and intervals regardless of `send_data_to_llm` — the model needs them to discuss specific values. Your original training data is still governed by the setting.
+
+## Persisting configuration
+
+To avoid repeating the provider and credentials, store them once with the CLI:
+
+```bash
+skforecast-ai config set llm.provider "openai:gpt-4o-mini"
+skforecast-ai config set llm.api_key "sk-..."
+skforecast-ai config show
+```
+
+Settings are written to a TOML file (with restrictive permissions, since it may hold a key). Recognized keys include `llm.provider`, `llm.base_url`, `llm.api_key`, `llm.send_data_to_llm`, and `output.format`.
+
+## Next steps
+
+- **[How it works & trust](how-it-works-and-trust.md)** — why enabling the LLM never changes your numbers.
+- **[Backtesting & validation](backtesting.md)** — let the model translate a deployment scenario into fold parameters with `create_cv(prompt=...)`.
+- **[Troubleshooting](troubleshooting.md)** — fixes for `LLMRequiredError` and provider connection issues.

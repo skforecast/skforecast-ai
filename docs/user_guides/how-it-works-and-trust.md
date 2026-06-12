@@ -81,8 +81,8 @@ By default the assistant does **not** send your raw data to the LLM — only the
 assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", send_data_to_llm=True)
 ```
 
-## Where to go next
+## Next steps
 
-- See the steps and objects in detail: [The forecasting workflow](the-forecasting-workflow.md).
-- Get the auditable script without executing it: [Reproducible code](reproducible-code.md).
-- Turn on and configure the optional model: [Using the AI assistant](using-the-ai-assistant.md).
+- **[The forecasting workflow](the-forecasting-workflow.md)** — see the steps and the objects passed between them in detail.
+- **[Reproducible code](reproducible-code.md)** — get the auditable script without executing it.
+- **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)* — turn on and configure the explanatory model.
