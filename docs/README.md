@@ -14,7 +14,7 @@ The recommendation engine is **100% deterministic and rule-based**: the same dat
 
 ## ✨ Why skforecast-ai?
 
-- 🎯 **Deterministic by design**: a transparent, rule-based engine. Same input → same output, every time. Reproducible results with no AI hallucinations.
+- 🎯 **Guardrailed Agentic System**: pairs autonomous reasoning (LLM) with guaranteed execution (deterministic Python engine). Same input → same output, every time. Reproducible results with no AI hallucinations.
 - 🔍 **Code you can trust**: the script you see is *exactly* the code that ran (`result.code`). Inspect it, version it, or run it standalone with plain `skforecast`.
 - ⚡ **Data to forecast in one call**: automatic data profiling, model and estimator selection, lag/feature engineering, and backtest evaluation.
 - 🔌 **Runs locally, no API key**: the full pipeline works offline in its default deterministic mode.
@@ -120,6 +120,12 @@ Browse every guide in [`user_guides/`](user_guides/). The full **API reference**
 ## 🤝 Contributing
 
 Contributions are welcome, whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/CONTRIBUTING.md) and our [Code of Conduct](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/CODE_OF_CONDUCT.md) to get started.
+
+## 📄 License
+
+Licensed under the Apache License 2.0 (see [LICENSE](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/LICENSE) for details).
+
+Built with ❤️ on top of [skforecast](https://github.com/JoaquinAmatRodrigo/skforecast).d) and our [Code of Conduct](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/CODE_OF_CONDUCT.md) to get started.
 
 ## 📄 License
 

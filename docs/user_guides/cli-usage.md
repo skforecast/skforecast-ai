@@ -107,7 +107,7 @@ skforecast-ai profile sales.csv --target revenue --date-column date --series-id 
 skforecast-ai forecast sales.csv --target revenue --date-column date --series-id store_id --steps 30 --output-predictions preds_sales.csv
 ```
 
-### website_visits — Daily single series, no exogenous
+### website_visits: Daily single series, no exogenous
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/visitas_por_dia_web_cienciadedatos.csv"

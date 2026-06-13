@@ -6,9 +6,9 @@
   <a href="https://github.com/JoaquinAmatRodrigo/skforecast"><img src="https://img.shields.io/badge/built%20on-skforecast-orange" alt="Built on skforecast"></a>
 </p>
 
-**An AI forecasting assistant you can actually trust.** Give it a time series and `skforecast-ai` profiles your data, picks a sensible model, evaluates it, and returns the forecast, along with the *exact, runnable* [`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast) script that produced it.
+**Your Expert Forecasting Co-pilot.** `skforecast-ai` boosts your forecasting experience by combining the robust, production-ready execution engine of `skforecast` with the reasoning and exploratory potential of Large Language Models. It acts as a **Guardrailed Agentic System**, automating the cognitive load of data profiling, model selection, and pipeline construction. Give it a time series and it formulates a strategy based on established best practices, evaluates it, and returns the forecast, along with the *exact, runnable* [`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast) script that produced it.
 
-The recommendation engine is **100% deterministic and rule-based**: the same data always yields the same result. An optional LLM can *explain* the decisions in plain language, but it never changes the math. No black boxes, no hallucinated numbers.
+The execution engine is **100% deterministic and rule-based**: the same data always yields the same result. The optional LLM acts as your **Reasoning Engine**, guiding you through decisions, interpreting backtesting metrics, and suggesting improvements in an interactive agentic loop, but it never alters the underlying math. No black boxes, no hallucinated numbers.
 
 ---
 

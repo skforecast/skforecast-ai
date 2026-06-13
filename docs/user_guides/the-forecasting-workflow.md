@@ -8,8 +8,9 @@ The whole workflow is a chain of four steps. Each step takes the output of the p
 flowchart LR
     A[(Your data)] -->|"profile()"| B[ForecastingProfile]
     B -->|"plan()"| C[ForecastPlan]
-    C -.->|"refine_plan(): optional override"| C
+    C -.->|"refine_plan() — user guided"| C
     C -->|"forecast()"| D[ForecastResult]
+    D -.->|"ask() — evaluate & refine"| C
     D --> E[predictions • metrics • code]
 ```
 

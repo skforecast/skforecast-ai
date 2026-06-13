@@ -1,6 +1,6 @@
 # Using the AI assistant (optional)
 
-Everything in skforecast-ai works **without** a language model. The LLM is an *explainer*, not a decision-maker: it reads the deterministic pipeline's state and answers questions in plain language. It never changes which forecaster runs, which lags are used, or what predictions come out. The principle behind that separation is described in [How it works & trust](how-it-works-and-trust.md).
+Everything in skforecast-ai works **without** a language model. The LLM acts as your **Reasoning Engine**. It functions like a Senior Data Scientist looking over your shoulder: evaluating backtesting metrics, diagnosing execution errors, and suggesting concrete modeling improvements. It reads the pipeline's state and advises you in an interactive agentic loop, while leaving the execution to the deterministic core. The principle behind this powerful synergy is described in [How it works & trust](how-it-works-and-trust.md).
 
 This guide covers turning a model on and asking it questions.
 
@@ -111,6 +111,22 @@ assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", send_data_to_llm=True
     When you pass a `forecast_result` or `backtest_result`, the assistant sends the predictions, metrics, and intervals regardless of `send_data_to_llm` (the model needs them to discuss specific values. Your original training data is still governed by the setting.
 
 ## Persisting configuration
+
+To avoid repeating the provider and credentials, store them once with the CLI:
+
+```bash
+skforecast-ai config set llm.provider "openai:gpt-4o-mini"
+skforecast-ai config set llm.api_key "sk-..."
+skforecast-ai config show
+```
+
+Settings are written to a TOML file (with restrictive permissions, since it may hold a key). Recognized keys include `llm.provider`, `llm.base_url`, `llm.api_key`, `llm.send_data_to_llm`, and `output.format`.
+
+## Next steps
+
+- **[How it works & trust](how-it-works-and-trust.md)**: why enabling the LLM never changes your numbers.
+- **[Backtesting & validation](backtesting.md)**: let the model translate a deployment scenario into fold parameters with `create_cv(prompt=...)`.
+- **[Troubleshooting](troubleshooting.md)**: fixes for `LLMRequiredError` and provider connection issues.
 
 To avoid repeating the provider and credentials, store them once with the CLI:
 

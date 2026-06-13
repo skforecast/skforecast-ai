@@ -1,6 +1,6 @@
 # Architecture & Logic
 
-**skforecast-ai** is built on a unique architectural philosophy that completely separates *execution* from *reasoning*. This design ensures that all forecasting results are 100% deterministic, testable, and reproducible, while simultaneously leveraging the conversational and explanatory power of Large Language Models (LLMs) to guide the user.
+**skforecast-ai** is built on a unique architectural philosophy that separates *execution* from *reasoning*. This design ensures that all forecasting results are 100% deterministic, testable, and reproducible, while simultaneously leveraging the analytical and diagnostic power of Large Language Models (LLMs) to guide the user as a reasoning engine.
 
 This guide exhaustively details the internal structure, the state transformations within the forecasting pipeline, and the "Knowledge as Code" pattern that grounds the LLM.
 
@@ -346,5 +346,8 @@ Persistent settings live in a TOML file at `~/.config/skforecast-ai/config.toml`
 - **`ForecastExecutionError`**: raised when the generated code fails inside `exec()`; exposes `original_error`, `generated_code`, and `execution_traceback` for debugging.
 
 > The `skforecast_ai/generation/` directory currently contains no active Python modules and is not part of the runtime pipeline.
+ipeline.
+
+time pipeline.
 ipeline.
 

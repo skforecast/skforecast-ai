@@ -6,7 +6,7 @@ Most "AI" forecasting tools ask you to trust a black box. **skforecast-ai** is b
 flowchart TD
     A[(Your data)] --> B(ForecastingAssistant)
 
-    subgraph Core["Deterministic core: always runs"]
+    subgraph Execution["Execution Engine (Deterministic Core)"]
         direction TB
         B --> C[1.Profile]
         C --> D[2.Plan]
@@ -14,15 +14,17 @@ flowchart TD
         E --> F[4.Execute]
     end
 
-    subgraph LLM["LLM overlay: optional, off by default"]
+    subgraph Reasoning["Reasoning Engine (LLM)"]
         direction TB
         AG[Language model]
-        EXP[Explanations in plain language]
+        EXP[Diagnose, Evaluate & Refine]
         AG --> EXP
     end
 
-    C -. reads state .-> AG
-    D -. reads state .-> AG
+    C -. analyzes profile .-> AG
+    D -. interprets strategy .-> AG
+    F -. evaluates metrics .-> AG
+    EXP -. "User guides new Plan" .-> D
 
     F ==> G[(Predictions & metrics)]
     F ==> H[(Generated Python script)]
@@ -85,4 +87,6 @@ assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", send_data_to_llm=True
 
 - **[The forecasting workflow](the-forecasting-workflow.md)**: see the steps and the objects passed between them in detail.
 - **[Reproducible code](reproducible-code.md)**: get the auditable script without executing it.
+- **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)*: turn on and configure the explanatory model.
+xecuting it.
 - **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)*: turn on and configure the explanatory model.
