@@ -35,9 +35,10 @@ nav:
       - Human-in-the-loop: user_guides/human-in-the-loop.md
 
   - Examples and tutorials:
-    - Interactive Q&A: examples/demo_ask.ipynb
-    - End-to-end Forecasting: examples/demo_forecast.ipynb
-    - LLM-guided Backtesting: examples/demo_backtest_llm.ipynb
+    - Interactive Q&A: examples/talking-to-the-agent.ipynb
+    - End-to-end Forecasting: examples/end-to-end-forecasting.ipynb
+    - LLM-guided Backtesting: examples/agentic-backtesting.ipynb
+    - "Advanced: Reasoning Engine internals": examples/advanced-reasoning-engine.ipynb
 
   - API Reference:
     - Assistant: api/assistant.md
