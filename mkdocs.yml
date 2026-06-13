@@ -13,6 +13,7 @@ nav:
   - Quick start:
     - Installation: user_guides/quick-start.md
     - Your first forecast: user_guides/first-forecast.md
+    - Using the CLI: user_guides/cli-usage.md
 
   - User Guides:
     - Core concepts:
