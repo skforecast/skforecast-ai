@@ -13,7 +13,6 @@ nav:
   - Quick start:
     - Installation: user_guides/quick-start.md
     - Your first forecast: user_guides/first-forecast.md
-    - Why skforecast-ai?: user_guides/why-skforecast-ai.md
     - Using the CLI: user_guides/cli-usage.md
 
   - User Guides:
@@ -26,7 +25,7 @@ nav:
       - Customizing the model: user_guides/customizing-the-model.md
       - Forecasting multiple series: user_guides/forecasting-multiple-series.md
       - Foundation models (zero-shot): user_guides/foundation-forecasting.md
-      - Going further: features & tuning: user_guides/going-further.md
+      - "Going further: features & tuning": user_guides/going-further.md
       - Reproducible code: user_guides/reproducible-code.md
       - Backtesting & validation: user_guides/backtesting.md
       - Monitoring & drift detection: user_guides/drift-detection.md

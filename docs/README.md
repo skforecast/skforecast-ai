@@ -21,18 +21,6 @@ The recommendation engine is **100% deterministic and rule-based**: the same dat
 - 💬 **Optional LLM overlay**: ask plain-language questions about your forecast. The model explains; it doesn't decide.
 - 🏗️ **Built on skforecast**, backed by a mature ecosystem: recursive & direct forecasters, multi-series, statistical, and foundation models (zero-shot Chronos-2).
 
----
-
-## 🧭 Where it fits in the AI-era forecasting stack
-
-The forecasting landscape is crowded with "AI" tools that hand you a number and ask you to trust it. skforecast-ai takes the opposite bet: it brings the topics that actually matter in production into one transparent workflow.
-
-- **Explainability**: every decision is a rule you can read, and the optional LLM puts it in plain language.
-- **Reproducible automated reasoning**: model selection is automated, but rule-based and deterministic, not a black-box AutoML search.
-- **Human-in-the-loop**: inspect the plan, ask for suggestions, override, and re-run. You stay in control of every decision.
-- **Foundation models**: drop in zero-shot models like Chronos-2 for cold-start series, no training required.
-
-See [Why skforecast-ai?](user_guides/why-skforecast-ai.md) for how it compares to Nixtla/TimeGPT, Darts, sktime, AutoGluon-TS, and Prophet.
 
 ---
 
