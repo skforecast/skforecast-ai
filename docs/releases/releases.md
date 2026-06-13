@@ -12,21 +12,20 @@ All significant changes to this project are documented in this release file.
 
 ## 0.1.0 <small>In development</small> { id="0.1.0" }
 
-The main changes in this release are:
-
-+ ......
+First public release. `skforecast-ai` wraps the [`skforecast`][assistant] engine in a deterministic, rule-based assistant that profiles data, selects a model, evaluates it, and returns the forecast together with the exact, runnable script that produced it. An optional LLM layer explains the decisions without ever changing them.
 
 **Added**
 
-+ ......
++ [`ForecastingAssistant`][assistant]: the main entry point, with the full workflow: `profile()`, `plan()`, `refine_plan()`, `forecast()` / `forecast_code()`, `create_cv()`, `backtest()` / `backtest_code()`, and `ask()`.
++ Deterministic recommendation engine ([forecaster selection][forecaster_selection], [estimator/metric selection][metric_selection], [autoregressive lag derivation][autoregressive], [preprocessing][preprocessing]) covering single-series, multi-series, multivariate, statistical, and foundation (zero-shot Chronos-2) tasks.
++ [Data profiling][data_profile]: frequency detection, gaps, missing values, duplicate timestamps, exogenous columns, and per-series metrics.
++ Code [rendering][single_series] for [single-series][single_series], [multi-series][multi_series], [statistical][statistical], and [foundation][foundation] pipelines, plus a [backtesting renderer][rendering_backtesting], with the `exec()` fidelity guarantee (the code shown is the code that ran).
++ Optional LLM layer: provider abstraction ([OpenAI, Google, Anthropic, Groq, Ollama, and OpenAI-compatible endpoints][provider]), a Q&A [agent][agent], rule-based [skill][skills] grounding ("Knowledge as Code"), and a [CV-configuration agent][recommendation_backtesting]. Enabled with `pip install "skforecast-ai[llm]"`.
++ [Typer-based CLI][cli] mirroring the programmatic API, with persistent [configuration][config].
++ [Exceptions][exceptions]: `ForecastExecutionError` (carries the generated code and traceback) and `LLMRequiredError`.
 
-**Changed**
-
-+ ......
-
-**Fixed**
-
-+ ......
+!!! note "Maturity"
+    The forecasting *engine* underneath ([`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast)) is mature and production-grade. The `skforecast-ai` assistant layer is at `0.1.0`: the public API may still change before `1.0`.
 
 
 <!-- Links to API Reference -->

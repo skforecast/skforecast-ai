@@ -1,6 +1,6 @@
 # Using the AI assistant (optional)
 
-Everything in skforecast-ai works **without** a language model. The LLM acts as your **Reasoning Engine**. It functions like a Senior Data Scientist looking over your shoulder: evaluating backtesting metrics, diagnosing execution errors, and suggesting concrete modeling improvements. It reads the pipeline's state and advises you in an interactive agentic loop, while leaving the execution to the deterministic core. The principle behind this powerful synergy is described in [How it works & trust](how-it-works-and-trust.md).
+Everything in skforecast-ai works **without** a language model. The optional LLM is a **reasoning layer**: it functions like a Senior Data Scientist looking over your shoulder, evaluating backtesting metrics, diagnosing execution errors, and suggesting concrete modeling improvements. It reads the pipeline's state and advises you, while leaving every decision and all execution to the deterministic core. The principle behind this separation is described in [How it works & trust](how-it-works-and-trust.md).
 
 This guide covers turning a model on and asking it questions.
 
@@ -122,24 +122,32 @@ skforecast-ai config show
 
 Settings are written to a TOML file (with restrictive permissions, since it may hold a key). Recognized keys include `llm.provider`, `llm.base_url`, `llm.api_key`, `llm.send_data_to_llm`, and `output.format`.
 
+## Cost, tokens, and when to skip the LLM
+
+The LLM is a paid, network-bound layer; the deterministic engine is neither. A few practical guidelines keep usage cheap and predictable:
+
+- **The forecast itself never needs the LLM.** Predictions, metrics, and code come from the deterministic engine. Only `ask()` and `create_cv(prompt=...)` call the model. If you don't need an explanation, don't configure one, and you pay nothing.
+- **Prompts are small by design.** Only the structural profile and modeling decisions are sent, not your raw data (see [Privacy](#privacy)). Skill grounding is selected by rule, not bulk-injected, so a typical `ask()` is on the order of a few thousand tokens.
+- **Estimate before you send.** Use the skills layer to size a prompt without making a call:
+
+  ```python
+  from skforecast_ai.llm.skills import estimate_prompt_tokens, select_skills
+
+  skills = select_skills(task_type="single_series", question="why this estimator?")
+  print(estimate_prompt_tokens(skills))                       # grounding only
+  print(estimate_prompt_tokens(skills, include_reference=True))  # + skforecast API reference
+  ```
+
+  `include_reference=True` (and `ask(..., include_reference=True)`) adds the full `skforecast` API reference, useful for detailed code questions, but it is the single largest contributor to prompt size. Leave it off for conceptual questions.
+- **Pick a model that matches the question.** A small, fast model (e.g. `gpt-4o-mini`, `claude-3-5-haiku`, a local `ollama` model) is enough for most explanations. Reserve larger models for open-ended modeling advice.
+- **Local and free.** `ollama` runs on your machine with no per-call cost; a good default when iterating.
+
+!!! note "Retries"
+    Each `ask()` call retries automatically (twice) on transient provider/parse errors before surfacing the failure. Persistent failures raise with the provider's error so you can see the cause.
+
 ## Next steps
 
 - **[How it works & trust](how-it-works-and-trust.md)**: why enabling the LLM never changes your numbers.
-- **[Backtesting & validation](backtesting.md)**: let the model translate a deployment scenario into fold parameters with `create_cv(prompt=...)`.
-- **[Troubleshooting](troubleshooting.md)**: fixes for `LLMRequiredError` and provider connection issues.
-
-To avoid repeating the provider and credentials, store them once with the CLI:
-
-```bash
-skforecast-ai config set llm.provider "openai:gpt-4o-mini"
-skforecast-ai config set llm.api_key "sk-..."
-skforecast-ai config show
-```
-
-Settings are written to a TOML file (with restrictive permissions, since it may hold a key). Recognized keys include `llm.provider`, `llm.base_url`, `llm.api_key`, `llm.send_data_to_llm`, and `output.format`.
-
-## Next steps
-
-- **[How it works & trust](how-it-works-and-trust.md)**: why enabling the LLM never changes your numbers.
+- **[Human-in-the-loop](human-in-the-loop.md)**: use `ask()` suggestions to drive `refine_plan()` and re-run.
 - **[Backtesting & validation](backtesting.md)**: let the model translate a deployment scenario into fold parameters with `create_cv(prompt=...)`.
 - **[Troubleshooting](troubleshooting.md)**: fixes for `LLMRequiredError` and provider connection issues.

@@ -25,7 +25,7 @@ pip install -e ".[cli,dev]"
 
 ## Full Examples by Dataset
 
-### h2o_exog — Monthly single series with exogenous variables
+### h2o_exog: Monthly single series with exogenous variables
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -58,7 +58,7 @@ skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --format
 skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --forecaster ForecasterDirect --estimator Ridge
 ```
 
-### bike_sharing — Hourly single series with 10 exogenous features
+### bike_sharing: Hourly single series with 10 exogenous features
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/bike_sharing_dataset_clean.csv"
@@ -79,7 +79,7 @@ skforecast-ai forecast "$URL" --target users --date-column date_time --steps 24
 skforecast-ai forecast "$URL" --target users --date-column date_time --steps 24 --interval "10,90"
 ```
 
-### items_sales — Daily multi-series (wide format, 3 series)
+### items_sales: Daily multi-series (wide format, 3 series)
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/simulated_items_sales.csv"
@@ -230,10 +230,10 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 # Set LLM (or use --llm flag on each call)
 export SKFORECAST_AI_LLM="openai:gpt-4o-mini"
 
-# Q&A mode — general question
+# Q&A mode: general question
 skforecast-ai ask "How do I choose between recursive and direct strategies?"
 
-# Explain mode — with data context
+# Explain mode: with data context
 skforecast-ai ask "What patterns do you see?" \
   --data h2o_exog.csv --target y --date-column fecha --steps 24
 

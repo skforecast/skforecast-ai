@@ -6,9 +6,9 @@
   <a href="https://github.com/JoaquinAmatRodrigo/skforecast"><img src="https://img.shields.io/badge/built%20on-skforecast-orange" alt="Built on skforecast"></a>
 </p>
 
-**Your Expert Forecasting Co-pilot.** `skforecast-ai` boosts your forecasting experience by combining the robust, production-ready execution engine of `skforecast` with the reasoning and exploratory potential of Large Language Models. It acts as a **Guardrailed Agentic System**, automating the cognitive load of data profiling, model selection, and pipeline construction. Give it a time series and it formulates a strategy based on established best practices, evaluates it, and returns the forecast, along with the *exact, runnable* [`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast) script that produced it.
+**An AI forecasting assistant you can actually trust.** `skforecast-ai` pairs a **deterministic, rule-based forecasting engine** (built on [`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast)) with an **optional LLM reasoning layer**. Give it a time series and it profiles the data, selects a model using established best practices, evaluates it, and returns the forecast, along with the *exact, runnable* `skforecast` script that produced it.
 
-The execution engine is **100% deterministic and rule-based**: the same data always yields the same result. The optional LLM acts as your **Reasoning Engine**, guiding you through decisions, interpreting backtesting metrics, and suggesting improvements in an interactive agentic loop, but it never alters the underlying math. No black boxes, no hallucinated numbers.
+The engine is **100% deterministic and rule-based**: the same data always yields the same result. The optional LLM is a **reasoning layer that explains decisions but never makes them**: it interprets backtesting metrics, diagnoses errors, and suggests improvements you can choose to apply, but it never alters the underlying math. No black boxes, no hallucinated numbers.
 
 ---
 
@@ -19,7 +19,20 @@ The execution engine is **100% deterministic and rule-based**: the same data alw
 - ⚡ **Data to forecast in one call**: automatic data profiling, model and estimator selection, lag/feature engineering, and backtest evaluation.
 - 🔌 **Runs locally, no API key**: the full pipeline works offline in its default deterministic mode.
 - 💬 **Optional LLM overlay**: ask plain-language questions about your forecast. The model explains; it doesn't decide.
-- 🏗️ **Built on skforecast**, backed by a mature ecosystem: recursive & direct forecasters, multi-series, statistical, and foundation models.
+- 🏗️ **Built on skforecast**, backed by a mature ecosystem: recursive & direct forecasters, multi-series, statistical, and foundation models (zero-shot Chronos-2).
+
+---
+
+## 🧭 Where it fits in the AI-era forecasting stack
+
+The forecasting landscape is crowded with "AI" tools that hand you a number and ask you to trust it. skforecast-ai takes the opposite bet: it brings the topics that actually matter in production into one transparent workflow.
+
+- **Explainability**: every decision is a rule you can read, and the optional LLM puts it in plain language.
+- **Reproducible automated reasoning**: model selection is automated, but rule-based and deterministic, not a black-box AutoML search.
+- **Human-in-the-loop**: inspect the plan, ask for suggestions, override, and re-run. You stay in control of every decision.
+- **Foundation models**: drop in zero-shot models like Chronos-2 for cold-start series, no training required.
+
+See [Why skforecast-ai?](docs/user_guides/why-skforecast-ai.md) for how it compares to Nixtla/TimeGPT, Darts, sktime, AutoGluon-TS, and Prophet.
 
 ---
 
@@ -112,6 +125,9 @@ Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md
 | [Customizing the model](docs/user_guides/customizing-the-model.md) | Override the forecaster, estimator, horizon, or intervals |
 | [Backtesting & validation](docs/user_guides/backtesting.md) | Rigorous walk-forward evaluation |
 | [Using the AI assistant](docs/user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
+| [Why skforecast-ai?](docs/user_guides/why-skforecast-ai.md) | How it compares to TimeGPT, Darts, sktime, AutoGluon-TS, Prophet |
+| [Foundation models](docs/user_guides/foundation-forecasting.md) | Zero-shot forecasting with Chronos-2 and friends |
+| [Human-in-the-loop](docs/user_guides/human-in-the-loop.md) | Forecast → ask → refine → re-run, end to end |
 
 Browse every guide in [`docs/user_guides/`](user_guides/). The full **API reference** is generated from the docstrings in [`skforecast_ai/`](skforecast_ai/).
 

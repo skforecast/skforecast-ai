@@ -82,6 +82,25 @@ with open("forecast_pipeline.py", "w", encoding="utf-8") as f:
 !!! tip "Version the script, not just the model"
     Because the script is the literal source of a forecast, checking it into version control gives you a precise, human-readable record of how each forecast was produced: far more transparent than a pickled model object.
 
+## Taking it to production
+
+Because the script depends only on `skforecast` (not on skforecast-ai), it slots into a production stack like any other Python file. A typical path:
+
+1. **Commit the generated script** alongside the data schema it expects. It is your reproducible source of truth.
+2. **Persist the fitted forecaster** so serving doesn't refit on every call. `skforecast` integrates with `joblib`/`skforecast.utils.save_forecaster`; add the persistence call to the script's core section.
+3. **Schedule retraining** on a cadence that matches how fast your data evolves (daily, weekly, …). Re-run skforecast-ai on fresh data to regenerate the script, or re-`fit` the existing pipeline.
+4. **Monitor for drift** between scheduled retrains so you retrain *when the data changes*, not just on a fixed clock. See [Monitoring & drift detection](drift-detection.md).
+5. **Track error over time** with rolling [backtests](backtesting.md) to catch silent degradation.
+
+```python
+# Inside (or appended to) the exported script: persist the fitted model
+from skforecast.utils import save_forecaster
+save_forecaster(forecaster, file_name="forecaster.joblib", verbose=False)
+```
+
+!!! note "Retraining closes the loop"
+    When drift fires or error climbs, re-profile and refine on fresh data ([Human-in-the-loop](human-in-the-loop.md)), regenerate the script, and redeploy. The new script is just as auditable and reproducible as the first.
+
 ## Next steps
 
 - **[How it works & trust](how-it-works-and-trust.md)**: why the code shown is guaranteed to be the code that ran.

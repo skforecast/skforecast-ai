@@ -104,6 +104,42 @@ The assistant emits correct, current `skforecast` code. If you adapt the script 
 !!! note "The full reference"
     These rules (plus categorical-exog handling, the ETS model API, and loading forecasters pickled by older versions) live in the `troubleshooting-common-errors` skill (`skforecast_ai/skills/`). The same skill grounds the LLM's answers, so [the assistant](using-the-ai-assistant.md) can walk you through any of them in plain language.
 
+## Handling errors gracefully in code
+
+In a script or service you'll often want to recover from these errors rather than crash. Two patterns cover most cases.
+
+**Fall back to deterministic mode when no LLM is available.** `ask()` is the only thing that needs a model, so guard it:
+
+```python
+from skforecast_ai import ForecastingAssistant, LLMRequiredError
+
+assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
+result = assistant.forecast(data, target="y", steps=12, date_column="date")
+
+try:
+    answer = assistant.ask("Why this model?", forecast_result=result)
+    explanation = answer.explanation
+except LLMRequiredError:
+    explanation = result.plan.explanation   # deterministic, always available
+```
+
+**Capture a failed run for debugging instead of crashing the pipeline:**
+
+```python
+from skforecast_ai import ForecastExecutionError
+
+try:
+    result = assistant.forecast(data, target="y", steps=12, date_column="date")
+except ForecastExecutionError as err:
+    # Log everything needed to reproduce the failure, then re-raise or degrade
+    log.error("Forecast failed: %s", err.original_error)
+    log.debug("Generated code:\n%s", err.generated_code)
+    log.debug("Traceback:\n%s", err.execution_traceback)
+    raise
+```
+
+Because the error carries the exact generated code and traceback, the failure is fully reproducible from the log alone, no need to re-run to find out what happened.
+
 ## Next steps
 
 - **[Understanding your data](understanding-your-data.md)**: diagnose frequency, gap, and NaN issues at the source.

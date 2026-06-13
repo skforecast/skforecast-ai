@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from skforecast.utils import save_forecaster; print\\('ok'\\)\")",
+      "Bash(python -c \"import mkdocs; print\\('mkdocs', mkdocs.__version__\\)\")",
+      "Bash(python -)",
+      "Bash(python -c \"import skforecast,os; print\\(os.path.dirname\\(skforecast.__file__\\)\\)\")",
+      "Bash(python c:/tmp/fix_docs.py)"
+    ]
+  }
+}
