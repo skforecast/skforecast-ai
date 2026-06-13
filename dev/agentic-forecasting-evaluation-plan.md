@@ -1,48 +1,31 @@
-# Plan: Evaluating and Enhancing the Agentic Forecasting Presentation
+# Plan: Deepening the Agentic Experience in skforecast-ai Docs
 
-## Objective
-Evaluate and update the `skforecast-ai` documentation to emphasize the "agentic" nature of the tool. The goal is to shift the perception from a simple "code generator with an LLM wrapper" to a **powerful Agentic Forecasting Assistant**. 
+## 1. Expert Reasoning & Evaluation (The Disconnect)
 
-The core message must be: `skforecast-ai` boosts the forecasting experience and accelerates workflows by combining the robust, production-ready, and deterministic execution engine of `skforecast` with the reasoning, exploratory, and explanatory potential of Large Language Models.
+The recent updates to the high-level documentation (`README.md` and `how-it-works-and-trust.md`) successfully establish the core pitch: `skforecast-ai` is a **Guardrailed Agentic System** that pairs a deterministic Execution Engine with an LLM Reasoning Engine. This is an excellent architecture for enterprise data science because it solves the LLM hallucination problem.
 
-## Core Messaging Strategy
-Currently, the documentation heavily emphasizes what the LLM *cannot* do (e.g., "it never changes the math"). While this is crucial for trust, it undersells the agentic experience. We need to reframe this:
-*   **Current Frame:** "Deterministic pipeline with an optional LLM overlay."
-*   **New Frame:** "An Agentic Assistant that pairs reasoning (LLM) with guaranteed execution (Deterministic Engine)."
+However, moving deeper into the actual user guides, **the documentation falls short of delivering an "agentic" feel.**
 
-The assistant acts as a Senior Data Scientist: it inspects the data, formulates a strategy based on established best practices (Skills), executes the strategy flawlessly, and then explains its findings to you.
+Here are the three primary disconnects:
+1.  **The Quickstart Paradox:** In `first-forecast.md`, the user builds their very first model and prints the results... but they never interact with the AI! To a new user, this looks like standard Auto-ML (e.g., AutoGluon), not an agentic co-pilot. The user's "Aha!" moment should be seeing the agent analyze the forecast it just made.
+2.  **The Siloed AI:** Currently, the LLM is isolated almost entirely within `using-the-ai-assistant.md`. If `skforecast-ai` is truly an agentic co-pilot, the agent should be helping the user at *every* step of the workflow. Treating the LLM as an isolated feature rather than an integrated companion diminishes the agentic identity.
+3.  **Human-in-the-Loop Loop:** Users currently read the workflow as a straight line (`profile -> plan -> execute`). The interactive "Agentic Loop" (Execute -> Agent Evaluates -> Agent Suggests Refinements -> Human Approves) needs to be explicitly shown in practice, not just in diagrams.
 
-## Areas for Evaluation and Update
+## 2. Implementation Plan
 
-### 1. Root `README.md` and `docs/README.md` (The Hook)
-*   **Current:** Focuses heavily on "Deterministic by design" and "Runs locally, no API key".
-*   **Agentic Update:** Introduce the concept of the **"Agentic Workflow"**. 
-    *   Highlight that the assistant *automates the cognitive load* of data profiling, model selection, and pipeline construction.
-    *   Use terminology like "Pair-programming for Time Series" or "Your Expert Forecasting Co-pilot".
-    *   Ensure the tagline clearly states the synergy: *Leveraging the reasoning potential of LLMs alongside the robust forecasting engine of skforecast.*
+To fully realize the "Agentic Forecasting" identity, we must de-silo the LLM and weave it throughout the user's journey.
 
-### 2. User Guide: `how-it-works-and-trust.md`
-*   **Current:** Explains the strict separation of concerns to build trust.
-*   **Agentic Update:** Rebrand the two modes to highlight their synergy.
-    *   Explain the architecture as a **"Guardrailed Agentic System"**.
-    *   The LLM is the "Reasoning Engine" (reads profiles, evaluates metrics, suggests improvements via `ask()`).
-    *   The Python core is the "Execution Engine" (guarantees reproducibility, avoids hallucinations).
-    *   This is the ideal agent architecture for enterprise data science: autonomous reasoning combined with strict, auditable execution.
+### Step 1: Fix the "Quickstart Paradox" (`first-forecast.md`)
+*   **Action:** Add a "Step 5: Ask the Agent to Explain" section.
+*   **Content:** After printing the metrics, add a small code snippet showing the user passing the `result` to the `assistant.ask()` method. 
+*   **Why:** This guarantees the user's first impression includes the LLM Reasoning Engine analyzing the deterministic output.
 
-### 3. User Guide: `the-forecasting-workflow.md`
-*   **Current:** A linear pipeline of `profile -> plan -> execute`.
-*   **Agentic Update:** Present the workflow as an interactive, agentic loop.
-    *   Show how a user interacts with the assistant: The assistant proposes a plan, the user refines it, the assistant executes it, and the user asks the assistant to interpret the results.
-    *   Emphasize that the assistant is applying "Knowledge as Code" (Skills) autonomously during the profiling and planning phases.
+### Step 2: De-silo the AI across the User Guides
+Instead of isolating the LLM in one file, we will add "Agentic Pro-Tips" across the other guides:
+*   **`understanding-your-data.md`:** Add a snippet showing how to pass the `profile` to `ask()` if the user is confused by detected anomalies (e.g., missing frequencies).
+*   **`customizing-the-model.md`:** Show how the user can ask the LLM for hyperparameter tuning recommendations for a specific forecaster *before* calling `refine_plan()`.
+*   **`troubleshooting.md`:** Explicitly show how to pass a `ForecastExecutionError` back to the assistant so it can cross-reference its Troubleshooting Skills and suggest a fix.
 
-### 4. User Guide: `using-the-ai-assistant.md`
-*   **Current:** Treats the LLM as an optional Q&A add-on.
-*   **Agentic Update:** Elevate this section. Show advanced agentic use cases.
-    *   Highlight how the assistant can diagnose execution errors (Troubleshooting).
-    *   Demonstrate how it evaluates Backtesting metrics and suggests concrete modeling improvements (like changing lags or adding calendar features).
-    *   Showcase the assistant as an active participant in improving forecast accuracy, not just a documentation reader.
-
-## Action Items
-1.  **Drafting:** Rewrite the introductory paragraphs of the README files to incorporate the "Agentic Assistant" framing.
-2.  **Reviewing `ask()` capabilities:** Ensure the documentation heavily features the `ask()` method's ability to act as an agent (e.g., passing `backtest_result` to get strategic recommendations).
-3.  **Visuals:** Consider updating the Mermaid diagrams in the architecture docs to show a "Feedback Loop" where the user uses the LLM to refine the deterministic plan, visually representing the agentic workflow.
+### Step 3: Formalize the Human-in-the-loop workflow (`the-forecasting-workflow.md`)
+*   **Action:** Explicitly write out the "Agentic Loop" in the text, accompanying the newly updated Mermaid diagram.
+*   **Content:** Describe the workflow as iterative: The Execution Engine runs -> The Reasoning Engine evaluates the `BacktestResult` -> The Reasoning Engine suggests changes -> The User applies them via `refine_plan`.

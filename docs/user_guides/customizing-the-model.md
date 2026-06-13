@@ -35,6 +35,26 @@ print(profile.explanation)            # why these were picked
 
 Switching to a candidate is the safest kind of override: it's a model the assistant already deemed compatible with your data.
 
+!!! tip "Ask the assistant to reason through a tradeoff (optional LLM)"
+    `profile.explanation` is deterministic text. If you want a deeper discussion
+    of whether a candidate would actually improve accuracy on your specific data,
+    pass the profile to `ask()`:
+
+    ```python
+    assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
+    profile = assistant.profile(data, target="y", date_column="date")
+
+    answer = assistant.ask(
+        "Should I switch to LGBMRegressor given my dataset size and frequency?",
+        profile=profile,
+        steps=12,
+    )
+    print(answer.explanation)
+    ```
+
+    The decision and the override are still yours; apply them with `refine_plan()`
+    as shown below.
+
 ## Two ways to override
 
 ### Option A: inline, on `forecast()`
@@ -75,6 +95,9 @@ result = assistant.forecast(data, target="y", steps=24, date_column="date",
 ```
 
 `refine_plan(profile, plan, **overrides)` returns a new `ForecastPlan` with your changes applied and everything else (lags, metric, preprocessing) intact.
+
+For an end-to-end example of using `ask()` suggestions to drive `refine_plan()` and
+validating the change with a backtest, see [Human-in-the-loop forecasting](human-in-the-loop.md).
 
 ## Adding prediction intervals
 
@@ -118,3 +141,4 @@ The assistant's default estimator depends on how much data you have: smaller dat
 - **[Backtesting & validation](backtesting.md)**: measure whether your override actually improved the forecast.
 - **[Reproducible code](reproducible-code.md)**: export the customized model as a standalone script.
 - **[Troubleshooting](troubleshooting.md)**: if an override produces an error at execution time.
+- **[Human-in-the-loop forecasting](human-in-the-loop.md)** *(optional)*: let `ask()` suggest the override, then apply and measure it.

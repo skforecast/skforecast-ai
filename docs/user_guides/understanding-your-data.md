@@ -105,8 +105,30 @@ for w in dp.warnings:
     print("⚠", w)
 ```
 
+!!! tip "Ask the assistant to interpret the profile (optional LLM)"
+    If a warning isn't clear, or you want an opinion on how the detected
+    frequency or missing values should affect your modeling, `ask()` profiles
+    the data first (deterministically) and then the LLM explains the findings:
+
+    ```python
+    assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
+
+    answer = assistant.ask(
+        "My series has gaps and missing target values. What should I fix before forecasting?",
+        data=data,
+        target="y",
+        date_column="date",
+        steps=12,
+    )
+    print(answer.explanation)
+    ```
+
+    The assistant will not change the profile or make decisions for you —
+    it advises on what to address and how.
+
 ## Next steps
 
 - **[Customizing the model](customizing-the-model.md)**: how these data facts drive the model choice, and how to override it.
 - **[Backtesting & validation](backtesting.md)**: evaluate the chosen model properly.
 - **[Troubleshooting](troubleshooting.md)**: fixes for frequency, NaN, and exogenous-variable errors.
+- **[Human-in-the-loop forecasting](human-in-the-loop.md)** *(optional)*: use `ask()` to get advice on a forecast that ran but produced poor results.

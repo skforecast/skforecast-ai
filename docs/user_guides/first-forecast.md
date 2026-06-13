@@ -74,6 +74,27 @@ print(result.code)
 !!! tip "The script is the source of truth"
     `result.code` isn't a reconstruction or an approximation; it is *exactly* what ran to produce `result.predictions`. You can copy it into a `.py` file and run it yourself with no dependency on skforecast-ai. Why that guarantee holds is explained in [How it works & trust](how-it-works-and-trust.md).
 
+!!! tip "Want to ask why? (optional LLM)"
+    If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`),
+    pass the result to `ask()` for a plain-language explanation of what the
+    assistant decided and why:
+
+    ```python
+    assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
+    result = assistant.forecast(data, target="y", steps=12, date_column="date")
+
+    answer = assistant.ask(
+        "Why was this estimator chosen, and what could improve accuracy?",
+        forecast_result=result,
+    )
+    print(answer.explanation)
+    ```
+
+    The LLM reads `result.profile` and `result.plan` and advises you.
+    It does not change the forecast; the numbers are identical whether or not
+    a model is configured. To act on a suggestion, see
+    [Human-in-the-loop forecasting](human-in-the-loop.md).
+
 ## Want uncertainty bounds?
 
 Add `interval=[lower, upper]` (percentiles) to get prediction intervals alongside the point forecast:
@@ -103,4 +124,5 @@ The assistant didn't guess. It ran a transparent, rule-based pipeline: **profile
 - **[Customizing the model](customizing-the-model.md)**: override the forecaster, estimator, hyperparameters, or horizon.
 - **[Backtesting & validation](backtesting.md)**: evaluate the model rigorously with walk-forward cross-validation.
 - **[Reproducible code](reproducible-code.md)**: get the standalone script without executing it, for auditing and deployment.
-- **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)*: turn on an LLM to ask questions about your forecast in plain language.
+- **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)*: configure a provider and ask questions about your forecast.
+- **[Human-in-the-loop forecasting](human-in-the-loop.md)** *(optional)*: use `ask()` suggestions to drive `refine_plan()` and iterate toward a better model.

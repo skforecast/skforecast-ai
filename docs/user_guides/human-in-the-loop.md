@@ -9,6 +9,12 @@ forecast()  →  ask("how could this be better?")  →  refine_plan(...)  →  f
 
 The LLM **advises**; it never changes the model or the numbers. Every override is yours, and every result still ships with the exact code that produced it.
 
+!!! note "LLM requirement"
+    Step 2 (`ask()`) requires a configured LLM and the extras package:
+    `pip install "skforecast-ai[llm]"`. Steps 1, 3, and 4 (`forecast()`,
+    `refine_plan()`, re-running) are fully deterministic; if you already know
+    what to change, skip step 2 and go straight to `refine_plan()`.
+
 ## 1. Get a baseline
 
 ```python

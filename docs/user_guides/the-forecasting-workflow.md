@@ -91,3 +91,41 @@ For walk-forward evaluation there is a parallel trio (`create_cv()`, `backtest_c
 ## Why a pipeline of plain objects?
 
 Every step produces an inspectable object you can print, store, or hand to the next call. Nothing is hidden in a model's internal state, and the final `result.code` is the literal script that ran. The design principle behind that guarantee (and the optional LLM layer that can *explain* these objects without ever changing them) is described in [How it works & trust](how-it-works-and-trust.md).
+
+## The refinement loop (optional)
+
+The diagram above shows a dashed arrow from `ForecastResult` back to `ForecastPlan`
+labelled `ask(): evaluate & refine`. That arrow is the iterative pattern, and
+only one step in it requires an LLM:
+
+```
+forecast()  →  ask("what could improve this?")  →  refine_plan(...)  →  forecast()
+   baseline        advisory explanation (LLM)         your override        re-run
+```
+
+`ask()` receives the result and returns a plain-language explanation with concrete
+suggestions. You read them, decide which to apply, and call `refine_plan()` with
+the override you want. `refine_plan()` and `forecast()` are deterministic; the LLM
+touches nothing except the text you read.
+
+```python
+assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
+result = assistant.forecast(data, target="y", steps=12, date_column="date")
+
+answer = assistant.ask(
+    "What concrete changes would most improve these metrics?",
+    forecast_result=result,
+)
+print(answer.explanation)   # read the suggestions
+
+# You decide what to apply:
+plan = assistant.refine_plan(result.profile, result.plan, estimator="LGBMRegressor")
+improved = assistant.forecast(
+    data, target="y", steps=12, date_column="date",
+    profile=result.profile, plan=plan,
+)
+print(improved.metrics)
+```
+
+The full worked example, including validating the change with a backtest, is in
+[Human-in-the-loop forecasting](human-in-the-loop.md).
