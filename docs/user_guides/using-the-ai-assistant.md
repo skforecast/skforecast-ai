@@ -24,15 +24,15 @@ The string is always `provider:model_name`. Because only the first colon is used
 | `google` | Google Gemini models. |
 | `anthropic` | Anthropic Claude models. |
 | `groq` | Groq-hosted open models. |
-| `ollama` | Local models — see below. |
+| `ollama` | Local models: see below. |
 | *anything else* | Treated as an OpenAI-compatible endpoint; set `base_url`. |
 
 ### Credentials
 
 For cloud providers, supply the API key in either way:
 
-- **Environment variable** (recommended) — the provider's standard variable, e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`. Set it once and the assistant picks it up automatically.
-- **Constructor argument** — pass `api_key=` (and `base_url=` for custom or self-hosted endpoints) directly:
+- **Environment variable** (recommended): the provider's standard variable, e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`. Set it once and the assistant picks it up automatically.
+- **Constructor argument**: pass `api_key=` (and `base_url=` for custom or self-hosted endpoints) directly:
 
 ```python
 assistant = ForecastingAssistant(
@@ -43,7 +43,7 @@ assistant = ForecastingAssistant(
 
 ### Local models with Ollama
 
-`ollama` runs entirely on your machine — no key, no cloud. Make sure the daemon is running (`ollama serve`); the assistant checks reachability before each call and points you here if it can't connect. The default endpoint is `http://localhost:11434/v1`; override it with `base_url=` if Ollama runs elsewhere.
+`ollama` runs entirely on your machine: no key, no cloud. Make sure the daemon is running (`ollama serve`); the assistant checks reachability before each call and points you here if it can't connect. The default endpoint is `http://localhost:11434/v1`; override it with `base_url=` if Ollama runs elsewhere.
 
 ```python
 assistant = ForecastingAssistant(llm="ollama:qwen2.5:7b-instruct")
@@ -53,7 +53,7 @@ assistant = ForecastingAssistant(llm="ollama:qwen2.5:7b-instruct")
 
 `ask(prompt, ...)` returns an `AskResult` with the answer in `.explanation`, plus `.profile`, `.plan`, and `.code` when the question involved a dataset or a forecast. Without a configured model it raises `LLMRequiredError`.
 
-The most common pattern is to explain a forecast you've already run — pass the result straight through:
+The most common pattern is to explain a forecast you've already run: pass the result straight through:
 
 ```python
 result = assistant.forecast(data, target="y", steps=12, date_column="date")
@@ -71,7 +71,7 @@ print(answer.explanation)
 | **Backtest** | `backtest_result=` | Metrics, predictions, and CV configuration from a completed `backtest()`. |
 
 ```python
-# Explain mode — profile and plan are computed first, then explained
+# Explain mode: profile and plan are computed first, then explained
 answer = assistant.ask(
     "Is my data suitable for forecasting?",
     data=data, target="y", date_column="date", steps=12,
@@ -83,12 +83,12 @@ answer = assistant.ask(
 
 ## What grounds the answers
 
-Answers are grounded in the assistant's rule-based **skills** — Markdown documents that mirror the engine's actual heuristics — so explanations stay consistent with what the deterministic engine did. Skill selection is automatic and rule-based (by task type and the keywords in your question); there's no fuzzy vector search. The mechanism is detailed in [How it works & trust](how-it-works-and-trust.md).
+Answers are grounded in the assistant's rule-based **skills** (Markdown documents that mirror the engine's actual heuristics) so explanations stay consistent with what the deterministic engine did. Skill selection is automatic and rule-based (by task type and the keywords in your question); there's no fuzzy vector search. The mechanism is detailed in [How it works & trust](how-it-works-and-trust.md).
 
 Two optional arguments give you manual control:
 
-- `skills=[...]` — pin an explicit list of skills instead of letting the assistant choose. Valid names are in `skforecast_ai.ALL_SKILLS`.
-- `include_reference=True` — also inject the `skforecast` API reference, useful for detailed code questions.
+- `skills=[...]`: pin an explicit list of skills instead of letting the assistant choose. Valid names are in `skforecast_ai.ALL_SKILLS`.
+- `include_reference=True`: also inject the `skforecast` API reference, useful for detailed code questions.
 
 ```python
 answer = assistant.ask(
@@ -101,14 +101,14 @@ answer = assistant.ask(
 
 ## Privacy
 
-By default the model receives only the **structural profile and the modeling decisions** — never your raw data. Opt in explicitly if you want it to see the underlying values:
+By default the model receives only the **structural profile and the modeling decisions**, never your raw data. Opt in explicitly if you want it to see the underlying values:
 
 ```python
 assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", send_data_to_llm=True)
 ```
 
 !!! note "Results and backtest modes are the exception"
-    When you pass a `forecast_result` or `backtest_result`, the assistant sends the predictions, metrics, and intervals regardless of `send_data_to_llm` — the model needs them to discuss specific values. Your original training data is still governed by the setting.
+    When you pass a `forecast_result` or `backtest_result`, the assistant sends the predictions, metrics, and intervals regardless of `send_data_to_llm` (the model needs them to discuss specific values. Your original training data is still governed by the setting.
 
 ## Persisting configuration
 
@@ -124,6 +124,6 @@ Settings are written to a TOML file (with restrictive permissions, since it may 
 
 ## Next steps
 
-- **[How it works & trust](how-it-works-and-trust.md)** — why enabling the LLM never changes your numbers.
-- **[Backtesting & validation](backtesting.md)** — let the model translate a deployment scenario into fold parameters with `create_cv(prompt=...)`.
-- **[Troubleshooting](troubleshooting.md)** — fixes for `LLMRequiredError` and provider connection issues.
+- **[How it works & trust](how-it-works-and-trust.md)**: why enabling the LLM never changes your numbers.
+- **[Backtesting & validation](backtesting.md)**: let the model translate a deployment scenario into fold parameters with `create_cv(prompt=...)`.
+- **[Troubleshooting](troubleshooting.md)**: fixes for `LLMRequiredError` and provider connection issues.

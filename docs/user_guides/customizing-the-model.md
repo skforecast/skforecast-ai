@@ -2,7 +2,7 @@
 
 The assistant's defaults are good starting points, not mandates. When you want a different forecaster, a different estimator, tuned hyperparameters, a longer horizon, or prediction intervals, you override the relevant decision and run again.
 
-This guide is about **how to override**. For *why* the assistant chose what it did — the rules behind forecaster and estimator selection — see [How it works & trust](how-it-works-and-trust.md) and [The forecasting workflow](the-forecasting-workflow.md).
+This guide is about **how to override**. For *why* the assistant chose what it did (the rules behind forecaster and estimator selection: see [How it works & trust](how-it-works-and-trust.md) and [The forecasting workflow](the-forecasting-workflow.md).
 
 ## What you can override
 
@@ -33,11 +33,11 @@ print(profile.estimator_candidates)   # ordered alternatives
 print(profile.explanation)            # why these were picked
 ```
 
-Switching to a candidate is the safest kind of override — it's a model the assistant already deemed compatible with your data.
+Switching to a candidate is the safest kind of override: it's a model the assistant already deemed compatible with your data.
 
 ## Two ways to override
 
-### Option A — inline, on `forecast()`
+### Option A: inline, on `forecast()`
 
 The quickest path: pass the overrides straight to `forecast()`. Anything you don't specify keeps its recommended default.
 
@@ -52,7 +52,7 @@ result = assistant.forecast(
 )
 ```
 
-### Option B — explicit, with `refine_plan()`
+### Option B: explicit, with `refine_plan()`
 
 When you want to inspect or reuse the modified plan, refine it as a separate step. This mirrors the [step-by-step workflow](the-forecasting-workflow.md):
 
@@ -92,7 +92,7 @@ result = assistant.forecast(
 print(result.intervals.head())
 ```
 
-The assistant selects an appropriate interval method automatically based on the forecaster — bootstrapping or conformal for the regression-based forecasters, and native intervals for statistical and foundation models. You don't set the method yourself through this API.
+The assistant selects an appropriate interval method automatically based on the forecaster: bootstrapping or conformal for the regression-based forecasters, and native intervals for statistical and foundation models. You don't set the method yourself through this API.
 
 ## Tuning hyperparameters
 
@@ -111,10 +111,10 @@ result = assistant.forecast(
 
 ## A note on which estimator fits
 
-The assistant's default estimator depends on how much data you have — smaller datasets favor a simpler, regularized model (`Ridge`) to avoid overfitting, while larger ones use gradient boosting (`LGBMRegressor`). If you override `estimator`, choose one suited to your dataset size; you can always compare options with [backtesting](backtesting.md). The full rule is described in [How it works & trust](how-it-works-and-trust.md).
+The assistant's default estimator depends on how much data you have: smaller datasets favor a simpler, regularized model (`Ridge`) to avoid overfitting, while larger ones use gradient boosting (`LGBMRegressor`). If you override `estimator`, choose one suited to your dataset size; you can always compare options with [backtesting](backtesting.md). The full rule is described in [How it works & trust](how-it-works-and-trust.md).
 
 ## Next steps
 
-- **[Backtesting & validation](backtesting.md)** — measure whether your override actually improved the forecast.
-- **[Reproducible code](reproducible-code.md)** — export the customized model as a standalone script.
-- **[Troubleshooting](troubleshooting.md)** — if an override produces an error at execution time.
+- **[Backtesting & validation](backtesting.md)**: measure whether your override actually improved the forecast.
+- **[Reproducible code](reproducible-code.md)**: export the customized model as a standalone script.
+- **[Troubleshooting](troubleshooting.md)**: if an override produces an error at execution time.

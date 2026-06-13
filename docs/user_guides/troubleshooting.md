@@ -2,7 +2,7 @@
 
 Most problems fall into one of three buckets: the generated code failed at runtime, your data isn't in a shape `skforecast` can use, or an LLM-only feature was called without a model configured. This guide walks through each, with the fix.
 
-When a forecast simply looks *wrong* rather than erroring, start one level up — a quick read of the profile usually reveals the cause. See [Understanding your data](understanding-your-data.md).
+When a forecast simply looks *wrong* rather than erroring, start one level up: a quick read of the profile usually reveals the cause. See [Understanding your data](understanding-your-data.md).
 
 ## When the generated code fails: `ForecastExecutionError`
 
@@ -26,11 +26,11 @@ except ForecastExecutionError as err:
 | `err.execution_traceback` | The full formatted traceback. |
 
 !!! tip "Read the traceback against the code"
-    The traceback line numbers refer to `err.generated_code`. Print both side by side to land directly on the failing line — then either fix the underlying data issue below, or adjust the plan (see [Customizing the model](customizing-the-model.md)).
+    The traceback line numbers refer to `err.generated_code`. Print both side by side to land directly on the failing line, then either fix the underlying data issue below, or adjust the plan (see [Customizing the model](customizing-the-model.md)).
 
 ## Common data issues
 
-These are the failures you'll hit most often. The root cause is almost always visible in the profile first — check it before changing anything else.
+These are the failures you'll hit most often. The root cause is almost always visible in the profile first: check it before changing anything else.
 
 ### `index must be a DatetimeIndex with frequency`
 
@@ -47,7 +47,7 @@ If the frequency is `None`, set it explicitly before forecasting:
 data = data.asfreq("MS")   # month start; use 'D', 'h', 'QS', … to match your data
 ```
 
-Irregular or duplicated timestamps need cleaning first — deduplicate, then reindex onto a regular grid. See [Understanding your data](understanding-your-data.md).
+Irregular or duplicated timestamps need cleaning first: deduplicate, then reindex onto a regular grid. See [Understanding your data](understanding-your-data.md).
 
 ### `y contains NaN values`
 
@@ -55,7 +55,7 @@ Missing values in the target. You have three options:
 
 - **Keep them** and use a NaN-tolerant estimator (e.g. `LGBMRegressor` handles `NaN` natively).
 - **Drop** the affected rows before fitting.
-- **Impute** them — `data.ffill()` or `data.interpolate(method="linear")`.
+- **Impute** them: `data.ffill()` or `data.interpolate(method="linear")`.
 
 ### `exog does not cover the forecast horizon`
 
@@ -73,14 +73,14 @@ Backtesting needs enough history for the initial training window **plus** at lea
 
 Raised when an LLM-only feature is used without a model configured. Two methods require one:
 
-- `ask(...)` — the natural-language Q&A interface.
-- `create_cv(prompt=...)` — describing a backtesting scenario in words.
+- `ask(...)`: the natural-language Q&A interface.
+- `create_cv(prompt=...)`: describing a backtesting scenario in words.
 
-The fix is either to configure a provider — see [Using the AI assistant](using-the-ai-assistant.md) — or to use the deterministic path (the explicit `create_cv()` keyword arguments cover everything `prompt` does).
+The fix is either to configure a provider (see [Using the AI assistant](using-the-ai-assistant.md)) or to use the deterministic path (the explicit `create_cv()` keyword arguments cover everything `prompt` does).
 
 ## If you've edited the generated script
 
-The assistant emits correct, current `skforecast` code. If you adapt the script by hand and hit an error, these are the most common pitfalls — they reflect API changes that older examples and pre-trained models often get wrong.
+The assistant emits correct, current `skforecast` code. If you adapt the script by hand and hit an error, these are the most common pitfalls: they reflect API changes that older examples and pre-trained models often get wrong.
 
 **Deprecated imports and renamed classes** (skforecast `0.14.0`+):
 
@@ -102,10 +102,10 @@ The assistant emits correct, current `skforecast` code. If you adapt the script 
 **Prediction-interval methods are forecaster-specific.** The regression-based forecasters support `'bootstrapping'` and `'conformal'`; statistical and foundation models produce intervals natively. If you call `predict_interval(method="bootstrapping")`, the forecaster must have been fitted with `store_in_sample_residuals=True`.
 
 !!! note "The full reference"
-    These rules — plus categorical-exog handling, the ETS model API, and loading forecasters pickled by older versions — live in the `troubleshooting-common-errors` skill (`skforecast_ai/skills/`). The same skill grounds the LLM's answers, so [the assistant](using-the-ai-assistant.md) can walk you through any of them in plain language.
+    These rules (plus categorical-exog handling, the ETS model API, and loading forecasters pickled by older versions) live in the `troubleshooting-common-errors` skill (`skforecast_ai/skills/`). The same skill grounds the LLM's answers, so [the assistant](using-the-ai-assistant.md) can walk you through any of them in plain language.
 
 ## Next steps
 
-- **[Understanding your data](understanding-your-data.md)** — diagnose frequency, gap, and NaN issues at the source.
-- **[Customizing the model](customizing-the-model.md)** — change the forecaster or estimator when a default doesn't fit.
-- **[How it works & trust](how-it-works-and-trust.md)** — why a failure always comes with the exact code that produced it.
+- **[Understanding your data](understanding-your-data.md)**: diagnose frequency, gap, and NaN issues at the source.
+- **[Customizing the model](customizing-the-model.md)**: change the forecaster or estimator when a default doesn't fit.
+- **[How it works & trust](how-it-works-and-trust.md)**: why a failure always comes with the exact code that produced it.

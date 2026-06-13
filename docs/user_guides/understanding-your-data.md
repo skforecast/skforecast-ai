@@ -1,12 +1,12 @@
 # Understanding your data
 
-Before the assistant picks a model, it inspects your dataset. That inspection — **profiling** — is the foundation everything else is built on: the frequency it detects, the gaps it finds, and the columns it recognizes all drive which forecaster and preprocessing get chosen.
+Before the assistant picks a model, it inspects your dataset. That inspection (**profiling**) is the foundation everything else is built on: the frequency it detects, the gaps it finds, and the columns it recognizes all drive which forecaster and preprocessing get chosen.
 
 It's also the **first place to look when a forecast looks wrong.** If predictions seem off, a quick read of the profile usually reveals the cause (an undetected frequency, missing values, an exogenous column mistaken for the target).
 
 ## Getting a profile
 
-`profile()` runs only the inspection stage — no models are fitted — and returns a `ForecastingProfile`:
+`profile()` runs only the inspection stage: no models are fitted: and returns a `ForecastingProfile`:
 
 ```python
 from skforecast_ai import ForecastingAssistant
@@ -17,8 +17,8 @@ profile = assistant.profile(data, target="y", date_column="date")
 
 A `ForecastingProfile` has two layers:
 
-- **`profile.data_profile`** — the structural facts about your dataset (this guide).
-- The coarse modeling decisions (`task_type`, `forecaster`, `estimator`, candidates) — covered in [Customizing the model](customizing-the-model.md).
+- **`profile.data_profile`**: the structural facts about your dataset (this guide).
+- The coarse modeling decisions (`task_type`, `forecaster`, `estimator`, candidates), covered in [Customizing the model](customizing-the-model.md).
 
 ```python
 dp = profile.data_profile
@@ -87,7 +87,7 @@ for w in dp.warnings:
     print(w)
 ```
 
-`dp.warnings` collects human-readable notes raised during profiling — short series, unset frequency, duplicates, and similar issues. Read these first when something looks off.
+`dp.warnings` collects human-readable notes raised during profiling: short series, unset frequency, duplicates, and similar issues. Read these first when something looks off.
 
 ## A quick health check
 
@@ -107,6 +107,6 @@ for w in dp.warnings:
 
 ## Next steps
 
-- **[Customizing the model](customizing-the-model.md)** — how these data facts drive the model choice, and how to override it.
-- **[Backtesting & validation](backtesting.md)** — evaluate the chosen model properly.
-- **[Troubleshooting](troubleshooting.md)** — fixes for frequency, NaN, and exogenous-variable errors.
+- **[Customizing the model](customizing-the-model.md)**: how these data facts drive the model choice, and how to override it.
+- **[Backtesting & validation](backtesting.md)**: evaluate the chosen model properly.
+- **[Troubleshooting](troubleshooting.md)**: fixes for frequency, NaN, and exogenous-variable errors.

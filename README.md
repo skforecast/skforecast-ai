@@ -6,7 +6,7 @@
   <a href="https://github.com/JoaquinAmatRodrigo/skforecast"><img src="https://img.shields.io/badge/built%20on-skforecast-orange" alt="Built on skforecast"></a>
 </p>
 
-**An AI forecasting assistant you can actually trust.** Give it a time series and `skforecast-ai` profiles your data, picks a sensible model, evaluates it, and returns the forecast — along with the *exact, runnable* [`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast) script that produced it.
+**An AI forecasting assistant you can actually trust.** Give it a time series and `skforecast-ai` profiles your data, picks a sensible model, evaluates it, and returns the forecast, along with the *exact, runnable* [`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast) script that produced it.
 
 The recommendation engine is **100% deterministic and rule-based**: the same data always yields the same result. An optional LLM can *explain* the decisions in plain language, but it never changes the math. No black boxes, no hallucinated numbers.
 
@@ -14,12 +14,12 @@ The recommendation engine is **100% deterministic and rule-based**: the same dat
 
 ## ✨ Why skforecast-ai?
 
-- 🎯 **Deterministic by design** — a transparent, rule-based engine. Same input → same output, every time. Reproducible results with no AI hallucinations.
-- 🔍 **Code you can trust** — the script you see is *exactly* the code that ran (`result.code`). Inspect it, version it, or run it standalone with plain `skforecast`.
-- ⚡ **Data to forecast in one call** — automatic data profiling, model and estimator selection, lag/feature engineering, and backtest evaluation.
-- 🔌 **Runs locally, no API key** — the full pipeline works offline in its default deterministic mode.
-- 💬 **Optional LLM overlay** — ask plain-language questions about your forecast. The model explains; it doesn't decide.
-- 🏗️ **Built on skforecast** — backed by a mature ecosystem: recursive & direct forecasters, multi-series, statistical, and foundation models.
+- 🎯 **Deterministic by design**: a transparent, rule-based engine. Same input → same output, every time. Reproducible results with no AI hallucinations.
+- 🔍 **Code you can trust**: the script you see is *exactly* the code that ran (`result.code`). Inspect it, version it, or run it standalone with plain `skforecast`.
+- ⚡ **Data to forecast in one call**: automatic data profiling, model and estimator selection, lag/feature engineering, and backtest evaluation.
+- 🔌 **Runs locally, no API key**: the full pipeline works offline in its default deterministic mode.
+- 💬 **Optional LLM overlay**: ask plain-language questions about your forecast. The model explains; it doesn't decide.
+- 🏗️ **Built on skforecast**, backed by a mature ecosystem: recursive & direct forecasters, multi-series, statistical, and foundation models.
 
 ---
 
@@ -51,7 +51,7 @@ Requires Python ≥ 3.10.
 
 ## 🚀 Quickstart
 
-From raw data to a validated forecast — and the code behind it — in under ten lines:
+From raw data to a validated forecast, and the code behind it, in under ten lines:
 
 ```python
 import pandas as pd
@@ -61,7 +61,7 @@ from skforecast_ai import ForecastingAssistant
 url = "https://raw.githubusercontent.com/JoaquinAmatRodrigo/skforecast/master/data/h2o.csv"
 data = pd.read_csv(url, header=0, names=["y", "date"])
 
-assistant = ForecastingAssistant()          # deterministic mode — no API key required
+assistant = ForecastingAssistant()          # deterministic mode: no API key required
 result = assistant.forecast(data, target="y", steps=12, date_column="date")
 
 print(result.predictions)   # forecast for the next 12 steps
@@ -69,7 +69,7 @@ print(result.metrics)       # evaluation metrics: MAE / MSE / MASE
 print(result.code)          # the exact skforecast script that produced this result
 ```
 
-That single `forecast()` call profiled the data, chose a forecaster and estimator, generated a `skforecast` script, and executed it — and `result.code` is the literal script that ran.
+That single `forecast()` call profiled the data, chose a forecaster and estimator, generated a `skforecast` script, and executed it, and `result.code` is the literal script that ran.
 
 👉 New here? Walk through it step by step in **[Your first forecast](docs/user_guides/first-forecast.md)**.
 
@@ -84,12 +84,12 @@ Your data  →  profile()  →  plan()  →  generate code  →  execute
               (inspect)     (decide)    (audit)           (run)
 ```
 
-1. **Profile** — inspect the data: frequency, gaps, missing values, exogenous columns.
-2. **Plan** — choose the forecaster, estimator, lags, and metrics using transparent rules.
-3. **Generate** — render a standalone, human-readable `skforecast` script.
-4. **Execute** — run that exact script and return predictions, metrics, and the code.
+1. **Profile**: inspect the data (frequency, gaps, missing values, exogenous columns).
+2. **Plan**: choose the forecaster, estimator, lags, and metrics using transparent rules.
+3. **Generate**: render a standalone, human-readable `skforecast` script.
+4. **Execute**: run that exact script and return predictions, metrics, and the code.
 
-The optional LLM layer reads this state to *explain* it — it never alters the result:
+The optional LLM layer reads this state to *explain* it; it never alters the result:
 
 ```python
 assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
@@ -119,10 +119,10 @@ Browse every guide in [`docs/user_guides/`](user_guides/). The full **API refere
 
 ## 🤝 Contributing
 
-Contributions are welcome — whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md) to get started.
+Contributions are welcome, whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md) to get started.
 
 ## 📄 License
 
-Licensed under the Apache License 2.0 — see [LICENSE](LICENSE) for details.
+Licensed under the Apache License 2.0 (see [LICENSE](LICENSE) for details).
 
 Built with ❤️ on top of [skforecast](https://github.com/JoaquinAmatRodrigo/skforecast).

@@ -47,7 +47,7 @@ flowchart TD
     F ==> H[(Rendered Python Script)]:::output
 ```
 
-> **Note:** The LLM Overlay is entirely optional. When no LLM is configured the boxes on the right are inert — profiling, recommendation, rendering, and execution all run without them.
+> **Note:** The LLM Overlay is entirely optional. When no LLM is configured the boxes on the right are inert: profiling, recommendation, rendering, and execution all run without them.
 
 ### Modes of Operation
 *   **Deterministic Mode (Default, called "Tier 0" internally):** Runs the pipeline from profiling to execution. It generates deterministic `skforecast` code and predictions without requiring an internet connection or an API key. All methods except `ask()` work in this mode.
@@ -111,7 +111,7 @@ flowchart TD
 - **Series & target metrics:** `_compute_series_metrics` measures per-series lengths; `compute_target_stats` and `detect_target_dtype` summarize the target; `detect_exog_columns` / `detect_categorical_exog` identify covariates.
 - **Output:** A strongly typed `DataProfile` object (`schemas/profiles.py`). This schema is the structural ground truth about the dataset for the rest of the pipeline.
 
-> **Important distinction:** `ForecastingAssistant.profile()` returns a **`ForecastingProfile`**, not a bare `DataProfile`. `ForecastingProfile` wraps the `DataProfile` (as `.data_profile`) and adds the *coarse* modeling decisions made at profile time — `task_type`, the selected `forecaster` and `estimator`, their ordered candidate lists, per-series PACF lags (`series_pacf`), and window features. See §6.
+> **Important distinction:** `ForecastingAssistant.profile()` returns a **`ForecastingProfile`**, not a bare `DataProfile`. `ForecastingProfile` wraps the `DataProfile` (as `.data_profile`) and adds the *coarse* modeling decisions made at profile time: `task_type`, the selected `forecaster` and `estimator`, their ordered candidate lists, per-series PACF lags (`series_pacf`), and window features. See §6.
 
 ### Stage 2: Recommendation (`skforecast_ai.recommendation`)
 
@@ -150,9 +150,9 @@ flowchart TD
 - **Estimator selection** (`select_estimator_and_candidates`): For `statistical` tasks the estimator is `Arima`; for `foundation` tasks it is `Chronos-2`. For the regression-based tasks the rule is observation-count driven: **fewer than 250 observations → `Ridge`** (to prevent overfitting), **≥ 250 → `LGBMRegressor`**, each with an ordered candidate list (small data: `Ridge, RandomForestRegressor, LGBMRegressor`; larger: `LGBMRegressor, XGBRegressor, Ridge`).
 - **Lag & feature derivation:** PACF-significant lags are computed per series at profile time (`compute_series_pacf`) and aggregated into a final lag set during planning (`finalize_lags`).
 - **Preprocessing:** transformers and NaN handling are chosen (`select_transformer_series`, `select_transformer_exog`, `select_dropna_from_series`) and assembled by `derive_preprocessing_steps`; `select_metric` picks the evaluation metric.
-- **Output:** A `ForecastPlan` object (`schemas/plans.py`) — a comprehensive, declarative blueprint detailing exactly *how* the forecast will be executed, independent of any actual Python code.
+- **Output:** A `ForecastPlan` object (`schemas/plans.py`), which is a comprehensive, declarative blueprint detailing exactly *how* the forecast will be executed, independent of any actual Python code.
 
-**Task type → forecaster → estimator.** The identifiers below are those used by `select_task_type_from_forecaster` and emitted by the rendering layer — the authoritative mapping lives in [`recommendation/forecaster_selection.py`](../api/recommendation/forecaster_selection.md); treat the code, not this table, as ground truth if they ever diverge.
+**Task type → forecaster → estimator.** The identifiers below are those used by `select_task_type_from_forecaster` and emitted by the rendering layer. The authoritative mapping lives in [`recommendation/forecaster_selection.py`](../api/recommendation/forecaster_selection.md); treat the code, not this table, as ground truth if they ever diverge.
 
 | Task type | Forecaster class (as imported by the generated script) | Default estimator |
 | --- | --- | --- |
@@ -162,7 +162,7 @@ flowchart TD
 | `statistical` | `ForecasterStats` (imported from `skforecast.recursive`) | `Arima` (from `skforecast.stats`; no external estimator) |
 | `foundation` | `ForecasterFoundation` (from `skforecast.foundation`) | `Chronos-2` (no external estimator) |
 
-> The first four forecasters are standard `skforecast` classes. `ForecasterStats` and `ForecasterFoundation` are version-dependent — the generated `statistical`/`foundation` scripts will only run if the installed `skforecast` exposes them at the import paths shown above.
+> The first four forecasters are standard `skforecast` classes. `ForecasterStats` and `ForecasterFoundation` are version-dependent: the generated `statistical`/`foundation` scripts will only run if the installed `skforecast` exposes them at the import paths shown above.
 
 ### Stage 3: Rendering (`skforecast_ai.rendering`)
 
@@ -170,7 +170,7 @@ The rendering layer is a dynamic code generator. It translates the abstract `For
 
 `render_forecast_single_series`, `render_forecast_multi_series`, `render_forecast_multivariate`, `render_forecast_statistical`, `render_forecast_foundation`.
 
-Dispatch by task type does **not** live in the rendering package — it lives in the **execution** layer, in a `_RENDER_DISPATCH` dict (`execution/forecast_runner.py`) that maps each `task_type` to the appropriate render function. (Backtesting has its own parallel dispatch; see §3.)
+Dispatch by task type does **not** live in the rendering package; it lives in the **execution** layer, in a `_RENDER_DISPATCH` dict (`execution/forecast_runner.py`) that maps each `task_type` to the appropriate render function. (Backtesting has its own parallel dispatch; see §3.)
 
 ```mermaid
 flowchart TD
@@ -194,13 +194,13 @@ flowchart TD
 ```
 
 **Key Operations:**
-- **Code Assembly:** Each `render_forecast_*` builds the script line-by-line via specialized emit helpers. Shared helpers live in `rendering/_helpers.py` (e.g. `_emit_data_loading`, `_emit_index_setup`, `_emit_preprocessing_steps`, `_emit_window_features`, `_emit_transformer_exog`, `_emit_metrics_section*`). Import and forecaster-creation helpers are **per task type** — `_emit_imports_single_series` / `_multi_series` / `_foundation` / `_statistical`, and `_emit_forecaster_creation_single` / `_multi` / `_foundation` / `_statistical`. There is no single `_emit_imports`/`_emit_forecaster_creation`, and no `_emit_fit_and_predict` — the fit/predict logic is emitted inline inside each `render_forecast_*` function.
+- **Code Assembly:** Each `render_forecast_*` builds the script line-by-line via specialized emit helpers. Shared helpers live in `rendering/_helpers.py` (e.g. `_emit_data_loading`, `_emit_index_setup`, `_emit_preprocessing_steps`, `_emit_window_features`, `_emit_transformer_exog`, `_emit_metrics_section*`). Import and forecaster-creation helpers are **per task type**: `_emit_imports_single_series` / `_multi_series` / `_foundation` / `_statistical`, and `_emit_forecaster_creation_single` / `_multi` / `_foundation` / `_statistical`. There is no single `_emit_imports`/`_emit_forecaster_creation`, and no `_emit_fit_and_predict` (the fit/predict logic is emitted inline inside each `render_forecast_*` function.
 - **Formatting:** `_emit_aligned_kwargs` applies alignment rules so the generated script is not just executable, but idiomatic and visually structured.
-- **Output:** A `RenderedScript` object (`schemas/results.py`) with three string fields — `imports`, `data_loading`, and `core` — plus two convenience properties: `full_script` (`imports + data_loading + core`, the standalone script returned by `forecast_code()`) and `executable` (`imports + core`, no CSV loading — this is what `exec()` runs).
+- **Output:** A `RenderedScript` object (`schemas/results.py`) with three string fields (`imports`, `data_loading`, and `core`) plus two convenience properties: `full_script` (`imports + data_loading + core`, the standalone script returned by `forecast_code()`) and `executable` (`imports + core`, no CSV loading: this is what `exec()` runs).
 
 ### Stage 4: Execution (`skforecast_ai.execution`)
 
-To guarantee absolute fidelity — the code shown to the user is *exactly* the code generating the results — `skforecast-ai` compiles and executes the `RenderedScript.executable` string using Python's native `exec()` within an isolated namespace (`execution/forecast_runner.py`, helper `_exec_rendered_code`).
+To guarantee absolute fidelity (the code shown to the user is *exactly* the code generating the results), `skforecast-ai` compiles and executes the `RenderedScript.executable` string using Python's native `exec()` within an isolated namespace (`execution/forecast_runner.py`, helper `_exec_rendered_code`).
 
 ```mermaid
 flowchart TD
@@ -227,7 +227,7 @@ flowchart TD
 - **Environment Setup:** Loads a copy of the user's `pandas.DataFrame` directly into the namespace under the key `"data"` (`namespace = {"data": data.copy()}`). This avoids disk I/O (writing temporary CSVs) during execution. `stdout` from the generated code is captured.
 - **Error handling:** If the generated code raises, it is wrapped in `ForecastExecutionError`, which carries both the `generated_code` and the full `execution_traceback` for debugging.
 - **State Extraction:** After execution, the runner pulls predictions, optional intervals, and metric values out of the namespace and assembles a metrics DataFrame (columns like `series, MAE, MSE, MASE`).
-- **Output:** `run_forecast` returns a plain **`dict`** with keys `metrics`, `predictions`, `intervals`, and `rendered_code` (the `RenderedScript` object — not a string). `ForecastingAssistant.forecast()` then wraps this dict into the typed `ForecastResult` schema, exposing `.code` via `rendered_code.full_script`.
+- **Output:** `run_forecast` returns a plain **`dict`** with keys `metrics`, `predictions`, `intervals`, and `rendered_code` (the `RenderedScript` object, not a string). `ForecastingAssistant.forecast()` then wraps this dict into the typed `ForecastResult` schema, exposing `.code` via `rendered_code.full_script`.
 
 ---
 
@@ -281,7 +281,7 @@ Skill selection is **rule-based**, not embedding/vector retrieval (`skforecast_a
 4. **Injection:** the selected files are read by `load_skill()` and injected into the agent's **dynamic instructions** at call time (`skforecast_ai/llm/agent.py`). The skforecast API reference (`resources/llms-base.txt`) is optionally added via `include_reference=True`.
 
 ### Relationship to the recommendation engine
-The deterministic recommendation engine does **not** read `SKILL.md` files at runtime. The heuristics are hardcoded in Python (`skforecast_ai/recommendation/`), and the skill documents *mirror* that logic by convention — the recommendation modules cite their corresponding skill in docstrings (e.g. *"Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md`"*). The two are kept in sync manually; editing a `SKILL.md` updates the documentation and the LLM's explanations, but does **not** change engine behavior.
+The deterministic recommendation engine does **not** read `SKILL.md` files at runtime. The heuristics are hardcoded in Python (`skforecast_ai/recommendation/`), and the skill documents *mirror* that logic by convention. The recommendation modules cite their corresponding skill in docstrings (e.g. *"Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md`"*). The two are kept in sync manually; editing a `SKILL.md` updates the documentation and the LLM's explanations, but does **not** change engine behavior.
 
 **Architectural Benefits:**
 1. **Two synchronized sources of truth:** the Python heuristics and the skill docs describe the same rules. The convention is to update both together when a best practice changes.
@@ -302,7 +302,7 @@ The optional LLM layer is isolated in its own package so the deterministic core 
 | `prompts.py` | Static prompt/role text. |
 | `context.py` | Builds the context (profile/plan/results) passed to the agent. |
 
-When `llm=None`, none of this is exercised — the assistant stays in Tier 0 (deterministic) mode.
+When `llm=None`, none of this is exercised, and the assistant stays in Tier 0 (deterministic) mode.
 
 ---
 
@@ -312,11 +312,11 @@ When `llm=None`, none of this is exercised — the assistant stays in Tier 0 (de
 
 | Method | Returns | Purpose |
 | --- | --- | --- |
-| `__init__(llm=None, base_url=None, api_key=None, send_data_to_llm=False)` | — | Configure the assistant; `llm=None` ⇒ deterministic mode. |
+| `__init__(llm=None, base_url=None, api_key=None, send_data_to_llm=False)` | N/A | Configure the assistant; `llm=None` ⇒ deterministic mode. |
 | `profile(...)` | `ForecastingProfile` | Stage 1 + coarse decisions (forecaster, estimator, candidates, task type, PACF lags). |
 | `plan(...)` | `ForecastPlan` | Stage 2 detailed configuration (lags, metric, transformers, intervals, preprocessing). |
 | `refine_plan(...)` | `ForecastPlan` | Apply user overrides to an existing plan. |
-| `forecast_code(...)` | `CodeGenerationResult` | Stage 3 — generate the standalone Python script. |
+| `forecast_code(...)` | `CodeGenerationResult` | Stage 3: generate the standalone Python script. |
 | `forecast(...)` | `ForecastResult` | Full pipeline: profile → plan → render → exec. |
 | `create_cv(...)` | `(TimeSeriesFold, str)` | Build a CV fold splitter (+ explanation). |
 | `backtest_code(...)` | `CodeGenerationResult` | Generate the backtesting script. |
@@ -325,11 +325,11 @@ When `llm=None`, none of this is exercised — the assistant stays in Tier 0 (de
 
 ### Schemas (`skforecast_ai/schemas/`)
 All are `pydantic.BaseModel`s (not frozen):
-- **`DataProfile`** (`profiles.py`) — structural facts about the dataset.
-- **`ForecastingProfile`** (`profiles.py`) — wraps a `DataProfile` plus coarse modeling decisions; returned by `profile()`.
-- **`ForecastPlan`** (`plans.py`) — the full declarative execution blueprint.
-- **`RenderedScript`** (`results.py`) — `imports` / `data_loading` / `core` sections + `full_script` / `executable` properties.
-- **`CodeGenerationResult`**, **`AskResult`**, **`ForecastResult`**, **`BacktestResult`** (`results.py`) — the typed outputs of the corresponding workflows.
+- **`DataProfile`** (`profiles.py`): structural facts about the dataset.
+- **`ForecastingProfile`** (`profiles.py`): wraps a `DataProfile` plus coarse modeling decisions; returned by `profile()`.
+- **`ForecastPlan`** (`plans.py`): the full declarative execution blueprint.
+- **`RenderedScript`** (`results.py`): `imports` / `data_loading` / `core` sections + `full_script` / `executable` properties.
+- **`CodeGenerationResult`**, **`AskResult`**, **`ForecastResult`**, **`BacktestResult`** (`results.py`): the typed outputs of the corresponding workflows.
 
 ---
 
@@ -342,7 +342,9 @@ A Typer-based command-line interface mirrors the programmatic API. Commands: `pr
 Persistent settings live in a TOML file at `~/.config/skforecast-ai/config.toml` (honoring `XDG_CONFIG_HOME`). Recognized keys (`VALID_KEYS`): `llm.provider`, `llm.base_url`, `llm.api_key`, `llm.send_data_to_llm`, `output.format`. The file is written with `0o600` permissions since it may hold an API key.
 
 ### Exceptions (`skforecast_ai/exceptions.py`)
-- **`LLMRequiredError`** — raised when an LLM-only method (e.g. `ask()`) is called without a configured LLM.
-- **`ForecastExecutionError`** — raised when the generated code fails inside `exec()`; exposes `original_error`, `generated_code`, and `execution_traceback` for debugging.
+- **`LLMRequiredError`**: raised when an LLM-only method (e.g. `ask()`) is called without a configured LLM.
+- **`ForecastExecutionError`**: raised when the generated code fails inside `exec()`; exposes `original_error`, `generated_code`, and `execution_traceback` for debugging.
 
 > The `skforecast_ai/generation/` directory currently contains no active Python modules and is not part of the runtime pipeline.
+ipeline.
+

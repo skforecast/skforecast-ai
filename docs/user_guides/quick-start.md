@@ -4,7 +4,7 @@ This page covers installation and a one-minute smoke test to confirm everything 
 
 ## Install
 
-Core library (deterministic mode — no API key needed):
+Core library (deterministic mode: no API key needed):
 
 ```bash
 pip install skforecast-ai
@@ -47,6 +47,6 @@ print(result.metrics)
 
 ## Next steps
 
-- **[Your first forecast](first-forecast.md)** — the same call, explained step by step.
-- **[The forecasting workflow](the-forecasting-workflow.md)** — inspect and override each stage of the pipeline.
-- **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)* — turn on a language model to ask questions about your forecast.
+- **[Your first forecast](first-forecast.md)**: the same call, explained step by step.
+- **[The forecasting workflow](the-forecasting-workflow.md)**: inspect and override each stage of the pipeline.
+- **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)*: turn on a language model to ask questions about your forecast.
