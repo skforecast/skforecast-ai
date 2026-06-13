@@ -11,14 +11,10 @@ nav:
     - Welcome to skforecast-ai: README.md
   
   - Quick start:
-    - Quick start: quick-start/quick-start.ipynb
-    - Using the CLI: quick-start/cli-usage.md
-    - How to install: quick-start/how-to-install.md
+    - Installation: user_guides/quick-start.md
+    - Your first forecast: user_guides/first-forecast.md
 
   - User Guides:
-    - Get started:
-      - Your first forecast: user_guides/first-forecast.md
-      - Installation: user_guides/quick-start.md
     - Core concepts:
       - The forecasting workflow: user_guides/the-forecasting-workflow.md
       - How it works & trust: user_guides/how-it-works-and-trust.md
@@ -73,8 +69,6 @@ nav:
 
   - More: 
     - About skforecast-ai: more/about-skforecast-ai.md
-    - Contributing: CONTRIBUTING.md
-    - Code of Conduct: CODE_OF_CONDUCT.md
     - Consulting & Professional services: more/consulting.md
 
 extra_css:

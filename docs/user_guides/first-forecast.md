@@ -95,7 +95,7 @@ print(result.intervals.head())
 The assistant didn't guess. It ran a transparent, rule-based pipeline: **profile your data → plan a model → render code → execute it.** You can inspect every decision it made along the way.
 
 - To understand the steps and the objects passed between them, read [The forecasting workflow](the-forecasting-workflow.md).
-- To see *why* a particular forecaster, estimator, or set of lags was chosen: and how to change them: read [Customizing the model](customizing-the-model.md).
+- To see *why* a particular forecaster, estimator, or set of lags was chosen (and how to change them), read [Customizing the model](customizing-the-model.md).
 - To check what the assistant detected in your data (frequency, gaps, missing values), read [Understanding your data](understanding-your-data.md).
 
 ## Next steps

@@ -71,7 +71,7 @@ print(result.code)          # the exact skforecast script that produced this res
 
 That single `forecast()` call profiled the data, chose a forecaster and estimator, generated a `skforecast` script, and executed it, and `result.code` is the literal script that ran.
 
-👉 New here? Walk through it step by step in **[Your first forecast](docs/user_guides/first-forecast.md)**.
+👉 New here? Walk through it step by step in **[Your first forecast](user_guides/first-forecast.md)**.
 
 ---
 
@@ -97,7 +97,7 @@ answer = assistant.ask("Why was this model chosen?", forecast_result=result)
 print(answer.explanation)
 ```
 
-Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md)**.
+Read more in **[How it works & trust](user_guides/how-it-works-and-trust.md)**.
 
 ---
 
@@ -105,24 +105,24 @@ Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md
 
 | Guide | What it covers |
 | --- | --- |
-| [Your first forecast](docs/user_guides/first-forecast.md) | Data → forecast in a few lines (start here) |
-| [The forecasting workflow](docs/user_guides/the-forecasting-workflow.md) | `profile → plan → refine_plan → forecast`, step by step |
-| [How it works & trust](docs/user_guides/how-it-works-and-trust.md) | Determinism, the `exec()` fidelity guarantee, and privacy |
-| [Understanding your data](docs/user_guides/understanding-your-data.md) | What profiling detects and how to read it |
-| [Customizing the model](docs/user_guides/customizing-the-model.md) | Override the forecaster, estimator, horizon, or intervals |
-| [Backtesting & validation](docs/user_guides/backtesting.md) | Rigorous walk-forward evaluation |
-| [Using the AI assistant](docs/user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
+| [Your first forecast](user_guides/first-forecast.md) | Data → forecast in a few lines (start here) |
+| [The forecasting workflow](user_guides/the-forecasting-workflow.md) | `profile → plan → refine_plan → forecast`, step by step |
+| [How it works & trust](user_guides/how-it-works-and-trust.md) | Determinism, the `exec()` fidelity guarantee, and privacy |
+| [Understanding your data](user_guides/understanding-your-data.md) | What profiling detects and how to read it |
+| [Customizing the model](user_guides/customizing-the-model.md) | Override the forecaster, estimator, horizon, or intervals |
+| [Backtesting & validation](user_guides/backtesting.md) | Rigorous walk-forward evaluation |
+| [Using the AI assistant](user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
 
-Browse every guide in [`docs/user_guides/`](docs/user_guides/). The full **API reference** is generated from the docstrings in [`skforecast_ai/`](skforecast_ai/).
+Browse every guide in [`user_guides/`](user_guides/). The full **API reference** is generated from the docstrings in [`skforecast_ai/`](https://github.com/JoaquinAmatRodrigo/skforecast-ai/tree/master/skforecast_ai/).
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome, whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md) to get started.
+Contributions are welcome, whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/CONTRIBUTING.md) and our [Code of Conduct](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/CODE_OF_CONDUCT.md) to get started.
 
 ## 📄 License
 
-Licensed under the Apache License 2.0 (see [LICENSE](LICENSE) for details).
+Licensed under the Apache License 2.0 (see [LICENSE](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/LICENSE) for details).
 
 Built with ❤️ on top of [skforecast](https://github.com/JoaquinAmatRodrigo/skforecast).
