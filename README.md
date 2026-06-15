@@ -32,8 +32,6 @@ The forecasting landscape is crowded with "AI" tools that hand you a number and 
 - **Human-in-the-loop**: inspect the plan, ask for suggestions, override, and re-run. You stay in control of every decision.
 - **Foundation models**: drop in zero-shot models like Chronos-2 for cold-start series, no training required.
 
-See [Why skforecast-ai?](docs/user_guides/why-skforecast-ai.md) for how it compares to Nixtla/TimeGPT, Darts, sktime, AutoGluon-TS, and Prophet.
-
 ---
 
 ## 📦 Installation
