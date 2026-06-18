@@ -6,33 +6,23 @@
   <a href="https://github.com/JoaquinAmatRodrigo/skforecast"><img src="https://img.shields.io/badge/built%20on-skforecast-orange" alt="Built on skforecast"></a>
 </p>
 
-**An AI forecasting assistant you can actually trust.** `skforecast-ai` pairs a **deterministic, rule-based forecasting engine** (built on [`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast)) with an **optional LLM reasoning layer**. Give it a time series and it profiles the data, selects a model using established best practices, evaluates it, and returns the forecast, along with the *exact, runnable* `skforecast` script that produced it.
+**An AI forecasting assistant you can trust.** `skforecast-ai` pairs a **deterministic forecasting engine** (built on [`skforecast`](https://skforecast.org)) with an **LLM reasoning layer**. Give it a time series and it profiles the data, selects a model using established best practices, evaluates it, and returns the forecast, along with the *exact, runnable* `skforecast` script that produced it.
 
-The engine is **100% deterministic and rule-based**: the same data always yields the same result. The optional LLM is a **reasoning layer that explains decisions but never makes them**: it interprets backtesting metrics, diagnoses errors, and suggests improvements you can choose to apply, but it never alters the underlying math. No black boxes, no hallucinated numbers.
+The engine is **100% deterministic**: the same data always yields the same result. The LLM is a **reasoning layer that explains decisions but never makes them**: it interprets backtesting metrics, diagnoses errors, and suggests improvements you can choose to apply, but it never alters the underlying math. No black boxes, no hallucinated numbers.
 
 ---
 
 ## ✨ Why skforecast-ai?
 
-- 🎯 **Deterministic by design**: a transparent, rule-based engine. Same input → same output, every time. Reproducible results with no AI hallucinations.
+- 🎯 **Deterministic by design**: a transparent, rule-based engine. Same input → same output, every time. No hallucinated numbers.
 - 🔍 **Code you can trust**: the script you see is *exactly* the code that ran (`result.code`). Inspect it, version it, or run it standalone with plain `skforecast`.
-- ⚡ **Data to forecast in one call**: automatic data profiling, model and estimator selection, lag/feature engineering, and backtest evaluation.
-- 🔌 **Runs locally, no API key**: the full pipeline works offline in its default deterministic mode.
-- 💬 **Optional LLM overlay**: ask plain-language questions about your forecast. The model explains; it doesn't decide.
-- 🏗️ **Built on skforecast**, backed by a mature ecosystem: recursive & direct forecasters, multi-series, statistical, and foundation models (zero-shot Chronos-2).
+- ⚡ **From data to forecast in one call**: automatic data profiling, model and estimator selection, lag/feature engineering, and backtest evaluation.
+- 💬 **LLM reasoning layer**: explains the decisions the engine made, in plain language. It never touches the math.
+- 🔌 **Runs locally, no API key**: the full forecasting pipeline works offline. The LLM reasoning layer is optional.
+- 🏗️ **Built on skforecast**: recursive & direct forecasters, multi-series, statistical, and foundation models (Chronos-2, TimesFM, Moirai, and more), backed by a mature ecosystem.
 
 ---
 
-## 🧭 Where it fits in the AI-era forecasting stack
-
-The forecasting landscape is crowded with "AI" tools that hand you a number and ask you to trust it. skforecast-ai takes the opposite bet: it brings the topics that actually matter in production into one transparent workflow.
-
-- **Explainability**: every decision is a rule you can read, and the optional LLM puts it in plain language.
-- **Reproducible automated reasoning**: model selection is automated, but rule-based and deterministic, not a black-box AutoML search.
-- **Human-in-the-loop**: inspect the plan, ask for suggestions, override, and re-run. You stay in control of every decision.
-- **Foundation models**: drop in zero-shot models like Chronos-2 for cold-start series, no training required.
-
----
 
 ## 📦 Installation
 
@@ -76,7 +66,7 @@ assistant = ForecastingAssistant()          # deterministic mode: no API key req
 result = assistant.forecast(data, target="y", steps=12, date_column="date")
 
 print(result.predictions)   # forecast for the next 12 steps
-print(result.metrics)       # evaluation metrics: MAE / MSE / MASE
+print(result.metrics)       # evaluation metrics: MAE, MSE, MASE (and MAPE when applicable)
 print(result.code)          # the exact skforecast script that produced this result
 ```
 
@@ -90,17 +80,36 @@ That single `forecast()` call profiled the data, chose a forecaster and estimato
 
 Every forecast flows through four transparent, inspectable stages:
 
-```
-Your data  →  profile()  →  plan()  →  generate code  →  execute
-              (inspect)     (decide)    (audit)           (run)
+```mermaid
+flowchart LR
+    %% Input
+    A[("Your data")]:::data -->|Raw Data| B
+
+    %% Core Pipeline Grouping
+    subgraph Engine ["Core Processing Engine"]
+        direction LR
+        B(["`**profile()**<br/>*inspect*`"]):::stage -->|Metadata| C(["`**plan()**<br/>*decide*`"]):::stage
+        C -->|Strategy| D(["`**generate_code()**<br/>*audit*`"]):::stage
+    end
+
+    %% Output
+    D -->|Generated Script| E[/"`**execute()**<br/>*run*`"/]:::output
+
+    %% Styling
+    classDef data    fill:#1e293b,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0
+    classDef stage   fill:#0f172a,stroke:#6366f1,stroke-width:2px,color:#e2e8f0
+    classDef output  fill:#14532d,stroke:#4ade80,stroke-width:2px,color:#e2e8f0
+    
+    %% Subgraph Styling
+    style Engine fill:transparent,stroke:#475569,stroke-width:2px,stroke-dasharray: 5 5,color:#cbd5e1
 ```
 
 1. **Profile**: inspect the data (frequency, gaps, missing values, exogenous columns).
-2. **Plan**: choose the forecaster, estimator, lags, and metrics using transparent rules.
+2. **Plan**: choose the forecaster, estimator, lags, and metrics using transparent rules. Use `refine_plan()` to override any decision before generating code.
 3. **Generate**: render a standalone, human-readable `skforecast` script.
 4. **Execute**: run that exact script and return predictions, metrics, and the code.
 
-The optional LLM layer reads this state to *explain* it; it never alters the result:
+The LLM reasoning layer can read each stage to *explain* decisions and *suggest improvements*.
 
 ```python
 assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
@@ -123,11 +132,8 @@ Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md
 | [Customizing the model](docs/user_guides/customizing-the-model.md) | Override the forecaster, estimator, horizon, or intervals |
 | [Backtesting & validation](docs/user_guides/backtesting.md) | Rigorous walk-forward evaluation |
 | [Using the AI assistant](docs/user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
-| [Why skforecast-ai?](docs/user_guides/why-skforecast-ai.md) | How it compares to TimeGPT, Darts, sktime, AutoGluon-TS, Prophet |
 | [Foundation models](docs/user_guides/foundation-forecasting.md) | Zero-shot forecasting with Chronos-2 and friends |
 | [Human-in-the-loop](docs/user_guides/human-in-the-loop.md) | Forecast → ask → refine → re-run, end to end |
-
-Browse every guide in [`docs/user_guides/`](user_guides/). The full **API reference** is generated from the docstrings in [`skforecast_ai/`](skforecast_ai/).
 
 ---
 
@@ -139,4 +145,4 @@ Contributions are welcome, whether it's a bug report, a feature idea, or a pull 
 
 Licensed under the Apache License 2.0 (see [LICENSE](LICENSE) for details).
 
-Built with ❤️ on top of [skforecast](https://github.com/JoaquinAmatRodrigo/skforecast).
+Built with ❤️ on top of [skforecast](https://skforecast.org).
