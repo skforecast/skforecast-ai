@@ -57,16 +57,14 @@ From raw data to a validated forecast, and the code behind it, in under ten line
 ```python
 import pandas as pd
 from skforecast_ai import ForecastingAssistant
+from skforecast.datasets import load_demo_dataset
 
-# Any DataFrame (or CSV path) with a value column and a date column
-url = "https://raw.githubusercontent.com/JoaquinAmatRodrigo/skforecast/master/data/h2o.csv"
-data = pd.read_csv(url, header=0, names=["y", "date"])
-
-assistant = ForecastingAssistant()          # deterministic mode: no API key required
-result = assistant.forecast(data, target="y", steps=12, date_column="date")
+data = load_demo_dataset(verbose=False).to_frame().reset_index()
+assistant = ForecastingAssistant()
+result = assistant.forecast(data=data, target="y", steps=12, date_column="datetime")
 
 print(result.predictions)   # forecast for the next 12 steps
-print(result.metrics)       # evaluation metrics: MAE, MSE, MASE (and MAPE when applicable)
+print(result.metrics)       # evaluation metrics: MAE, MSE, MASE, MAP...
 print(result.code)          # the exact skforecast script that produced this result
 ```
 
@@ -88,20 +86,20 @@ flowchart LR
     %% Core Pipeline Grouping
     subgraph Engine ["Core Processing Engine"]
         direction LR
-        B(["`**profile()**<br/>*inspect*`"]):::stage -->|Metadata| C(["`**plan()**<br/>*decide*`"]):::stage
-        C -->|Strategy| D(["`**generate_code()**<br/>*audit*`"]):::stage
+        B("`**profile()**<br/>*inspect*`"):::stage -->|Metadata| C("`**plan()**<br/>*decide*`"):::stage
+        C -->|Strategy| D("`**generate_code()**<br/>*audit*`"):::stage
     end
 
     %% Output
     D -->|Generated Script| E[/"`**execute()**<br/>*run*`"/]:::output
 
-    %% Styling
-    classDef data    fill:#1e293b,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0
-    classDef stage   fill:#0f172a,stroke:#6366f1,stroke-width:2px,color:#e2e8f0
-    classDef output  fill:#14532d,stroke:#4ade80,stroke-width:2px,color:#e2e8f0
+    %% Styling (Based on uploaded skforecast architecture image)
+    classDef data    fill:#ffffff,stroke:#333333,stroke-width:2px,color:#333333
+    classDef stage   fill:#fff8f0,stroke:#f59e0b,stroke-width:2px,color:#333333
+    classDef output  fill:#f8f9fa,stroke:#a1a1aa,stroke-width:2px,color:#333333
     
     %% Subgraph Styling
-    style Engine fill:transparent,stroke:#475569,stroke-width:2px,stroke-dasharray: 5 5,color:#cbd5e1
+    style Engine fill:transparent,stroke:#333333,stroke-width:2px,color:#333333
 ```
 
 1. **Profile**: inspect the data (frequency, gaps, missing values, exogenous columns).

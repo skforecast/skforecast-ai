@@ -1,15 +1,17 @@
 # Your first forecast
 
-This is the fastest way to see **skforecast-ai** work end to end: you hand it a time series, and it hands back predictions, evaluation metrics, and the exact Python script that produced them, in about five lines of code.
+Get **skforecast-ai** running end to end in minutes: pass in a time series and receive predictions, evaluation metrics, and the standalone Python script that produced them.
 
-No API key, no internet connection, and no configuration are required. By default the assistant runs in **deterministic mode**: it inspects your data, picks a sensible model with transparent rules, and runs a real `skforecast` pipeline locally.
+No API key, no internet connection, and no configuration required. By default, the assistant runs in **deterministic mode**: it inspects your data, picks a sensible model using transparent rules, and runs a real `skforecast` pipeline locally. When you add an LLM, it acts like a senior data scientist reviewing your results: it reads every decision the pipeline made and tells you what it would change and why.
 
 !!! note "Before you start"
-    Make sure the package is installed (`pip install skforecast-ai`). See [Quick start / install](quick-start.md) for the one-line setup and a minimal smoke test.
+    Install the package first: `pip install skforecast-ai`. See [Quick start](quick-start.md) for the one-line setup and a smoke test.
 
-## Step 1: Load some data
+---
 
-We'll use a classic monthly time series (water demand). Any `pandas.DataFrame` with a value column and a date column works; you can also pass a path to a CSV file directly.
+## Step 1: Load your data
+
+This example uses a classic monthly water-demand series. Any `pandas.DataFrame` with a value column and a date column works; you can also pass a path to a CSV file directly.
 
 ```python
 import pandas as pd
@@ -20,7 +22,7 @@ data = pd.read_csv(url, sep=",", header=0, names=["y", "date"])
 data.head()
 ```
 
-The frame has two columns: `y` (the value we want to forecast) and `date` (the timestamp).
+The frame has two columns: `y` (the target to forecast) and `date` (the timestamp).
 
 ## Step 2: Create the assistant
 
@@ -30,11 +32,11 @@ from skforecast_ai import ForecastingAssistant
 assistant = ForecastingAssistant()
 ```
 
-With no arguments, the assistant is in deterministic mode: everything in this guide runs without an LLM.
+With no arguments, the assistant runs the full forecasting pipeline. To add an AI reasoning layer on top, see [Using the AI assistant](using-the-ai-assistant.md).
 
-## Step 3: Forecast
+## Step 3: Run the forecast
 
-Call `forecast()` with your data, the name of the target column, the date column, and how many steps ahead you want (`steps`). Here we predict the next 12 months.
+Call `forecast()` with the data, the name of the target column, the date column, and how many steps ahead you want. Here we predict the next 12 months.
 
 ```python
 result = assistant.forecast(
@@ -45,39 +47,39 @@ result = assistant.forecast(
 )
 ```
 
-That single call profiles the data, chooses a forecaster and estimator, generates a `skforecast` script, and executes it.
+This single call profiles the data, selects a forecaster and estimator, generates a `skforecast` script, and executes it.
 
 ## Step 4: Read the results
 
-`forecast()` returns a `ForecastResult`. You read everything off it with attribute (dot) access:
+`forecast()` returns a `ForecastResult`. Access everything via attribute access:
 
 ```python
-# The forecasted values for the next 12 steps
+# Forecasted values for the next 12 steps
 print(result.predictions.head())
 
-# Evaluation metrics: a DataFrame with columns: series, MAE, MSE, MASE
+# Evaluation metrics: MAE, MSE, MASE per series
 print(result.metrics)
 
-# The exact, standalone Python script that produced the result
+# The complete, standalone Python script that was executed
 print(result.code)
 ```
 
 | Attribute | What it holds |
 | --- | --- |
-| `result.predictions` | Forecasted values for the requested `steps` (a DataFrame). |
-| `result.metrics` | Evaluation metrics with columns `series, MAE, MSE, MASE`. One row for a single series; one row per series otherwise. |
-| `result.code` | The complete standalone `skforecast` script: the same code that was just executed. |
-| `result.intervals` | Prediction intervals, if you requested them (see below). `None` otherwise. |
-| `result.profile` | What the assistant learned about your data. |
-| `result.plan` | The concrete modeling decisions it made. |
+| `result.predictions` | Forecasted values for the requested `steps` (a `DataFrame`). |
+| `result.metrics` | Evaluation metrics (`MAE`, `MSE`, `MASE`). One row per series. |
+| `result.code` | The complete `skforecast` script that was executed. |
+| `result.intervals` | Prediction intervals (if requested). `None` otherwise. |
+| `result.profile` | What the assistant detected about your data. |
+| `result.plan` | The modeling decisions it made. |
 
 !!! tip "The script is the source of truth"
-    `result.code` isn't a reconstruction or an approximation; it is *exactly* what ran to produce `result.predictions`. You can copy it into a `.py` file and run it yourself with no dependency on skforecast-ai. Why that guarantee holds is explained in [How it works & trust](how-it-works-and-trust.md).
+    `result.code` is not a reconstruction. It is *exactly* what ran to produce `result.predictions`. Copy it into a `.py` file and run it with no dependency on skforecast-ai. See [How it works & trust](how-it-works-and-trust.md) for details on this guarantee.
 
-!!! tip "Want to ask why? (optional LLM)"
-    If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`),
-    pass the result to `ask()` for a plain-language explanation of what the
-    assistant decided and why:
+!!! info "Unlock the AI reasoning layer (optional)"
+    If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`), the assistant gains an AI reasoning layer: it reads `result.profile` and `result.plan` and advises you like a senior data scientist reviewing your pipeline, explaining what it would change and why.
+
+    Use `ask()` to query it:
 
     ```python
     assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
@@ -90,14 +92,13 @@ print(result.code)
     print(answer.explanation)
     ```
 
-    The LLM reads `result.profile` and `result.plan` and advises you.
-    It does not change the forecast; the numbers are identical whether or not
-    a model is configured. To act on a suggestion, see
-    [Human-in-the-loop forecasting](human-in-the-loop.md).
+    The LLM does not alter the forecast; the numbers are identical whether or not a model is configured. To act on a suggestion, see [Human-in-the-loop forecasting](human-in-the-loop.md).
 
-## Want uncertainty bounds?
+---
 
-Add `interval=[lower, upper]` (percentiles) to get prediction intervals alongside the point forecast:
+## Prediction intervals (optional)
+
+Pass `interval=[lower, upper]` (percentiles) to receive confidence bounds alongside the point forecast:
 
 ```python
 result = assistant.forecast(
@@ -105,24 +106,28 @@ result = assistant.forecast(
     target="y",
     steps=12,
     date_column="date",
-    interval=[10, 90],   # an 80% prediction interval
+    interval=[10, 90],  # 80% prediction interval
 )
 
 print(result.intervals.head())
 ```
 
-## What just happened?
+---
 
-The assistant didn't guess. It ran a transparent, rule-based pipeline: **profile your data → plan a model → render code → execute it.** You can inspect every decision it made along the way.
+## Under the hood
 
-- To understand the steps and the objects passed between them, read [The forecasting workflow](the-forecasting-workflow.md).
-- To see *why* a particular forecaster, estimator, or set of lags was chosen (and how to change them), read [Customizing the model](customizing-the-model.md).
-- To check what the assistant detected in your data (frequency, gaps, missing values), read [Understanding your data](understanding-your-data.md).
+The assistant follows a transparent, rule-based pipeline: **profile your data → plan a model → render code → execute it.** Every decision is inspectable.
+
+- To understand each step and the objects passed between them, see [The forecasting workflow](the-forecasting-workflow.md).
+- To see why a particular forecaster, estimator, or set of lags was chosen, see [Customizing the model](customizing-the-model.md).
+- To check what the assistant detected in your data (frequency, gaps, missing values), see [Understanding your data](understanding-your-data.md).
+
+---
 
 ## Next steps
 
-- **[Customizing the model](customizing-the-model.md)**: override the forecaster, estimator, hyperparameters, or horizon.
-- **[Backtesting & validation](backtesting.md)**: evaluate the model rigorously with walk-forward cross-validation.
-- **[Reproducible code](reproducible-code.md)**: get the standalone script without executing it, for auditing and deployment.
-- **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)*: configure a provider and ask questions about your forecast.
-- **[Human-in-the-loop forecasting](human-in-the-loop.md)** *(optional)*: use `ask()` suggestions to drive `refine_plan()` and iterate toward a better model.
+- [**Customizing the model**](customizing-the-model.md): Override the forecaster, estimator, hyperparameters, or horizon.
+- [**Backtesting & validation**](backtesting.md): Evaluate the model with walk-forward cross-validation.
+- [**Reproducible code**](reproducible-code.md): Get the standalone script without executing it, for auditing and deployment.
+- [**Using the AI assistant**](using-the-ai-assistant.md) *(optional)*: Configure a provider and ask questions about your forecast.
+- [**Human-in-the-loop forecasting**](human-in-the-loop.md) *(optional)*: Use `ask()` suggestions to drive `refine_plan()` and iterate toward a better model.
