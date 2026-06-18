@@ -7,6 +7,7 @@ from .autoregressive import (
     select_window_features,
 )
 from .backtesting import build_cv_explanation, derive_cv_defaults
+from .calendar import select_calendar_features, select_calendar_encoding
 from .explanation import _build_profile_explanation, build_plan_explanation
 from .forecaster_selection import (
     select_estimator_and_candidates,
@@ -33,6 +34,8 @@ __all__ = [
     "derive_cv_defaults",
     "derive_preprocessing_steps",
     "finalize_lags",
+    "select_calendar_encoding",
+    "select_calendar_features",
     "select_dropna_from_series",
     "select_estimator_and_candidates",
     "select_forecaster_and_candidates",

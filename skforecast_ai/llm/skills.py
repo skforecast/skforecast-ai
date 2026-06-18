@@ -57,7 +57,7 @@ _KEYWORD_SKILLS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"chronos|timesfm|moirai|foundation|zero.shot|tabicl|pre.?trained|ForecasterFoundation", re.I), "foundation-forecasting"),
     (re.compile(r"arima|sarimax|\bets\b|\barar\b|\bstatistical\b|exponential.smoothing|seasonal.order|ForecasterStats", re.I), "statistical-models"),
     (re.compile(r"drift|monitor|deploy|production|distribution.shift|out.of.range|RangeDrift|PopulationDrift", re.I), "drift-detection"),
-    (re.compile(r"traceback|\bdebug\b|troubleshoot|exception|\berror\b|\bfails?\b|not.working|TypeError|ValueError|KeyError|IndexError", re.I), "troubleshooting-common-errors"),
+    (re.compile(r"traceback|\bdebug\b|troubleshoot|exception|\bfails?\b|not.working|TypeError|ValueError|KeyError|IndexError", re.I), "troubleshooting-common-errors"),
 ]
 
 # When a skill in the key set is selected, the skills in the value set are
@@ -96,7 +96,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "complete-api-reference": 11360,
     "deep-learning-forecasting": 3873,
     "drift-detection": 1246,
-    "feature-engineering": 8086,
+    "feature-engineering": 10569,
     "feature-selection": 1406,
     "forecasting-multiple-series": 1480,
     "forecasting-single-series": 1223,
