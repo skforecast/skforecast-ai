@@ -89,6 +89,7 @@ def select_calendar_features(
     and weekly patterns. When the series spans at least `MIN_YEARS_FOR_ANNUAL`
     full years (estimated from `OBS_PER_YEAR`), `month` is appended so annual
     seasonality can also be modeled.
+    
     """
 
     if task_type in ("statistical", "foundation"):
