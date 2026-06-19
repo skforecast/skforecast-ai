@@ -3,6 +3,7 @@
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
+    _emit_calendar_features,
     _emit_data_loading,
     _emit_end_train,
     _emit_imports_single_series,
@@ -36,6 +37,7 @@ def _emit_forecaster_creation_single(
     transformer_y = kwargs.get("transformer_y")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
+    calendar_features = kwargs.get("calendar_features")
     categorical_features = kwargs.get("categorical_features")
 
     exog_columns = profile.exog_columns
@@ -50,6 +52,8 @@ def _emit_forecaster_creation_single(
 
     if window_features:
         forecaster_kwargs.append(("window_features", "window_features"))
+    if calendar_features:
+        forecaster_kwargs.append(("calendar_features", "calendar_features"))
     if transformer_y is not None:
         forecaster_kwargs.append(("transformer_y", f"{transformer_y}()"))
     if transformer_exog is not None and plan.use_exog and exog_columns:
@@ -129,6 +133,11 @@ def render_forecast_single_series(
     # --- Window features ---
     if window_features:
         _emit_window_features(core_lines, window_features)
+        core_lines.append("")
+
+    # --- Calendar features ---
+    if kwargs.get("calendar_features"):
+        _emit_calendar_features(core_lines, kwargs["calendar_features"])
         core_lines.append("")
 
     # --- Transformer exog ---

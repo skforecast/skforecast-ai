@@ -31,6 +31,8 @@ from .recommendation import (
     derive_cv_defaults,
     derive_preprocessing_steps,
     finalize_lags,
+    select_calendar_encoding,
+    select_calendar_features,
     select_dropna_from_series,
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
@@ -206,6 +208,12 @@ class ForecastingAssistant:
                               series_pacf    = series_pacf,
                           )
 
+        calendar_features = select_calendar_features(
+                                task_type      = task_type,
+                                frequency      = data_profile.frequency,
+                                n_observations = data_profile.span_index_length,
+                            )
+
         estimator, estimator_candidates = select_estimator_and_candidates(
             task_type=task_type, n_observations=data_profile.n_total_observations
         )
@@ -228,6 +236,7 @@ class ForecastingAssistant:
             estimator_candidates  = estimator_candidates,
             series_pacf           = series_pacf,
             window_features       = window_features,
+            calendar_features     = calendar_features,
             explanation           = explanation,
         )
 
@@ -315,6 +324,7 @@ class ForecastingAssistant:
             transformer_series = None
             transformer_exog = None
             dropna_from_series = None
+            calendar_features = None
         else:
             lags = finalize_lags(
                 series_pacf     = profile.series_pacf,
@@ -323,6 +333,14 @@ class ForecastingAssistant:
                 frequency       = data_profile.frequency,
             )
             window_features = profile.window_features
+
+            if profile.calendar_features:
+                calendar_features = {
+                    "features": profile.calendar_features,
+                    "encoding": select_calendar_encoding(est, task_type),
+                }
+            else:
+                calendar_features = None
 
             transformer_series = select_transformer_series(est, task_type)
 
@@ -346,9 +364,10 @@ class ForecastingAssistant:
             steps              = steps,
             lags               = lags,
             window_features    = window_features,
+            calendar_features  = calendar_features,
             transformer_series = transformer_series,
             transformer_exog   = transformer_exog,
-            dropna_from_series = dropna_from_series,
+            dropna_from_series = dropna_from_series
         )
 
         interval_method = None
@@ -375,6 +394,7 @@ class ForecastingAssistant:
             dropna_from_series = dropna_from_series,
             use_exog           = use_exog,
             metric_explanation = metric_explanation,
+            calendar_features  = calendar_features,
         )
 
         return ForecastPlan(

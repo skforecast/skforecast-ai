@@ -14,6 +14,7 @@ def build_plan_explanation(
     dropna_from_series: bool | None,
     use_exog: bool,
     metric_explanation: str | None = None,
+    calendar_features: dict | None = None,
 ) -> str:
     """
     Compose a sentence-by-sentence summary of the plan configuration.
@@ -40,6 +41,9 @@ def build_plan_explanation(
         Whether exogenous variables are included.
     metric_explanation : str, default None
         Metric explanation sentence.
+    calendar_features : dict, default None
+        Calendar feature configuration with keys `'features'` and
+        `'encoding'`. None when no calendar features are used.
 
     Returns
     -------
@@ -65,6 +69,15 @@ def build_plan_explanation(
                     descriptions.append(f"{stat}(window={ws})")
         if descriptions:
             parts.append(f"Window features: {descriptions}.")
+
+    if calendar_features is not None:
+        feature_names = calendar_features.get("features")
+        if feature_names:
+            encoding = calendar_features.get("encoding")
+            encoding_str = encoding if encoding is not None else "raw ordinal"
+            parts.append(
+                f"Calendar features: {feature_names} ({encoding_str} encoding)."
+            )
 
     if interval_method is not None:
         parts.append(f"Prediction intervals via {interval_method}.")

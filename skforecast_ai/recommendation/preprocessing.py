@@ -176,6 +176,7 @@ def build_forecaster_kwargs(
     steps: int,
     lags: list[int] | None,
     window_features: list | None = None,
+    calendar_features: dict | None = None,
     transformer_series: str | None = None,
     transformer_exog: str | None = None,
     dropna_from_series: bool | None = None,
@@ -200,6 +201,11 @@ def build_forecaster_kwargs(
     window_features : list, default None
         Window feature objects (e.g. `RollingFeatures` instances). None
         when not applicable.
+    calendar_features : dict, default None
+        Calendar feature configuration with keys `'features'` (list of
+        feature names) and `'encoding'` (encoding name or None). None
+        when no calendar features are recommended or the forecaster does
+        not support the `calendar_features` parameter.
     transformer_series : str, default None
         Name of the scaler class for the target series (e.g.
         `'StandardScaler'`). None when no scaling is needed. Stored as
@@ -228,6 +234,7 @@ def build_forecaster_kwargs(
     if forecaster in AUTOREG_FORECASTERS:
         kwargs["lags"] = lags
         kwargs["window_features"] = window_features
+        kwargs["calendar_features"] = calendar_features
 
     if forecaster in DIRECT_FORECASTERS:
         kwargs["steps"] = steps

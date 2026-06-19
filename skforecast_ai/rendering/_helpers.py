@@ -250,6 +250,29 @@ def _emit_window_features(lines: list[str], window_features: list[dict]) -> None
     lines.append(")")
 
 
+def _emit_calendar_features(lines: list[str], calendar_features: dict) -> None:
+    """Append CalendarFeatures construction code.
+
+    `keep_original_columns` is intentionally omitted: when `X` is a
+    `DatetimeIndex` there are no original columns to keep, so the argument
+    has no effect.
+    """
+    if not calendar_features:
+        return
+
+    features = calendar_features.get("features")
+    if not features:
+        return
+
+    encoding = calendar_features.get("encoding")
+    encoding_repr = repr(encoding) if encoding is not None else "None"
+
+    lines.append("calendar_features = CalendarFeatures(")
+    lines.append(f"    features = {features},")
+    lines.append(f"    encoding = {encoding_repr},")
+    lines.append(")")
+
+
 def _get_numeric_exog(profile: DataProfile) -> list[str]:
     """Return exog columns that are not categorical."""
     return [c for c in profile.exog_columns if c not in profile.categorical_exog]
@@ -537,6 +560,7 @@ def _emit_imports_single_series(
     transformer_y = kwargs.get("transformer_y")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
+    calendar_features = kwargs.get("calendar_features")
     estimator_import = _get_estimator_import(plan.estimator)
 
     lines.append("import pandas as pd")
@@ -547,8 +571,16 @@ def _emit_imports_single_series(
     if include_metrics:
         lines.extend(_get_metric_imports(plan.metrics_to_compute))
     lines.append(estimator_import)
+    preprocessing_imports: list[str] = []
     if window_features:
-        lines.append("from skforecast.preprocessing import RollingFeatures")
+        preprocessing_imports.append("RollingFeatures")
+    if calendar_features:
+        preprocessing_imports.append("CalendarFeatures")
+    if preprocessing_imports:
+        lines.append(
+            "from skforecast.preprocessing import "
+            + ", ".join(preprocessing_imports)
+        )
     lines.append(f"from skforecast.{forecaster_module} import {forecaster_class}")
     if include_backtesting:
         lines.append(
@@ -592,6 +624,7 @@ def _emit_imports_multi_series(
     transformer_series = kwargs.get("transformer_series")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
+    calendar_features = kwargs.get("calendar_features")
     estimator_import = _get_estimator_import(plan.estimator)
 
     lines.append("import pandas as pd")
@@ -606,6 +639,8 @@ def _emit_imports_multi_series(
     preprocessing_imports: list[str] = []
     if window_features:
         preprocessing_imports.append("RollingFeatures")
+    if calendar_features:
+        preprocessing_imports.append("CalendarFeatures")
     if is_multi_series and not is_wide:
         preprocessing_imports.append("reshape_series_long_to_dict")
         if plan.use_exog and profile.exog_columns:
