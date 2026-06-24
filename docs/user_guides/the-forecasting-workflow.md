@@ -1,6 +1,6 @@
 # The forecasting workflow
 
-In [Your first forecast](first-forecast.md) you called a single method, `forecast()`, and got predictions back. That convenience method hides a small, predictable pipeline. Understanding it lets you inspect what the assistant decided, override any step, and get the generated code without running it.
+In [Your first forecast](first-forecast.md) you called a single method, `forecast()`, and got predictions back. That call runs a four-step pipeline: all of it deterministic, all of it inspectable. Understanding each step lets you override any decision, inspect what the assistant chose and why, and get the generated code without running it. For the design principle behind this — why the pipeline is deterministic and where the optional LLM fits in — see [How it works & trust](how-it-works-and-trust.md).
 
 The whole workflow is a chain of four steps. Each step takes the output of the previous one and produces a new, well-defined object:
 
@@ -8,13 +8,24 @@ The whole workflow is a chain of four steps. Each step takes the output of the p
 flowchart LR
     A[(Your data)] -->|"profile()"| B[ForecastingProfile]
     B -->|"plan()"| C[ForecastPlan]
-    C -.->|"refine_plan(): user guided"| C
+    C -.->|"refine_plan() · override"| C
     C -->|"forecast()"| D[ForecastResult]
-    D -.->|"ask(): evaluate & refine"| C
-    D --> E[predictions • metrics • code]
+    D ==> E["predictions · metrics · code"]
+
+    subgraph llm["Optional — requires configured LLM"]
+        F["ask()"]
+        G(["you decide\n+ refine_plan()"])
+        F -.->|suggestions| G
+    end
+
+    D -. evaluate .-> F
+    G -. apply .-> C
 ```
 
 You can run the whole chain at once with `forecast()`, or call each step yourself when you want to see: or change: what happens in between.
+
+!!! note "Deterministic by default — the LLM is optional"
+    Steps 1–4 (`profile`, `plan`, `refine_plan`, `forecast`) are fully deterministic: no LLM, no internet connection, no API key required. The LLM appears only via `ask()` (the dashed arrows in the diagram above). Calling `ask()` without a configured model raises `LLMRequiredError`; the rest of the pipeline works without one.
 
 ## The steps
 
@@ -32,7 +43,20 @@ profile = assistant.profile(data, target="y", date_column="date")
 - *What is this data?* Frequency, gaps, missing values, number of series, exogenous columns. These structural facts live on `profile.data_profile`.
 - *What should we model with?* The coarse decisions: which `forecaster` family and `estimator` to use, the ordered `forecaster_candidates` / `estimator_candidates` you could switch to, and the `task_type` (`single_series`, `multi_series`, `multivariate`, `statistical`, or `foundation`).
 
-`profile.explanation` is a plain-language summary of why those choices were made. See [Understanding your data](understanding-your-data.md) for the structural side, and [Customizing the model](customizing-the-model.md) for the modeling decisions.
+`profile.explanation` is deterministic text: a plain-language summary of the decisions the rule-based engine made and the reasoning behind them. Print it to see exactly what the assistant detected and why it chose what it did:
+
+```python
+print(profile.explanation)
+# Monthly frequency with 204 observations and no missing values.
+# Chosen forecaster: ForecasterRecursive (single univariate series,
+# no exogenous variables detected).
+# A linear model is preferred because the dataset is small
+# (204 observations < 250); gradient boosting is available as an
+# alternative once more data is available.
+# Alternative estimators: RandomForestRegressor, LGBMRegressor.
+```
+
+If you have an LLM configured, pass the profile to `ask()` to get deeper reasoning about the tradeoffs or to explore whether a candidate model would suit your data better. See [Understanding your data](understanding-your-data.md) for the structural side, and [Customizing the model](customizing-the-model.md) for the modeling decisions.
 
 ### 2. `plan()`: decide exactly how to forecast
 
@@ -92,11 +116,13 @@ For walk-forward evaluation there is a parallel trio (`create_cv()`, `backtest_c
 
 Every step produces an inspectable object you can print, store, or hand to the next call. Nothing is hidden in a model's internal state, and the final `result.code` is the literal script that ran. The design principle behind that guarantee (and the optional LLM layer that can *explain* these objects without ever changing them) is described in [How it works & trust](how-it-works-and-trust.md).
 
-## The refinement loop (optional)
+## The refinement loop
 
-The diagram above shows a dashed arrow from `ForecastResult` back to `ForecastPlan`
-labelled `ask(): evaluate & refine`. That arrow is the iterative pattern, and
-only one step in it requires an LLM:
+The diagram above shows an optional LLM loop below the main pipeline: `ForecastResult`
+feeds into `ask()`, which returns suggestions you act on via `refine_plan()`, sending
+an updated plan back into `forecast()`. That loop is the core agentic pattern: it
+combines the deterministic pipeline with LLM reasoning to let you iteratively improve
+a forecast. Only one step in it requires an LLM:
 
 ```
 forecast()  →  ask("what could improve this?")  →  refine_plan(...)  →  forecast()
