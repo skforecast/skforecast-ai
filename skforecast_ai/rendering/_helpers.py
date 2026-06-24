@@ -102,7 +102,7 @@ def _get_interval_repr(plan: ForecastPlan) -> str:
     """Return the interval list as a code literal."""
     if plan.interval is not None:
         return repr(plan.interval)
-    return "[10, 90]  # default 80% prediction interval"
+    return "[0.1, 0.9]  # default 80% prediction interval"
 
 
 def _emit_preprocessing_steps(

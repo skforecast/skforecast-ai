@@ -1,14 +1,14 @@
 # Architecture & Logic
 
-**skforecast-ai** is built on a unique architectural philosophy that separates *execution* from *reasoning*. This design ensures that all forecasting results are 100% deterministic, testable, and reproducible, while simultaneously leveraging the analytical and diagnostic power of Large Language Models (LLMs) to guide the user as a reasoning engine.
+**skforecast-ai** separates *execution* from *reasoning*. This design keeps all forecasting results deterministic, testable, and reproducible, while leveraging the analytical and diagnostic power of Large Language Models (LLMs) to guide the user as a reasoning engine.
 
-This guide exhaustively details the internal structure, the state transformations within the forecasting pipeline, and the "Knowledge as Code" pattern that grounds the LLM.
+This guide details the internal structure, the state transformations within the forecasting pipeline, and the "Knowledge as Code" pattern that grounds the LLM.
 
 ---
 
 ## 1. High-Level Architecture
 
-At its core, `skforecast-ai` operates as a rigid, rule-based inference engine. The LLM does not write code blindly; instead, it acts strictly as an *observer* and *explainer* of the deterministic pipeline.
+At its core, `skforecast-ai` operates as a rule-based inference engine. The LLM does not generate code on its own; instead, it acts strictly as an *observer* and *explainer* of the deterministic pipeline.
 
 ```mermaid
 flowchart TD
@@ -28,7 +28,7 @@ flowchart TD
         E --> F[4. Execution]:::core
     end
 
-    subgraph LLM_Overlay[LLM Overlay - optional]
+    subgraph LLM_Overlay[LLM reasoning layer - optional]
         direction TB
         SK([skills/*/SKILL.md]):::llm
         SEL[select_skills]:::llm
@@ -47,7 +47,7 @@ flowchart TD
     F ==> H[(Rendered Python Script)]:::output
 ```
 
-> **Note:** The LLM Overlay is entirely optional. When no LLM is configured the boxes on the right are inert: profiling, recommendation, rendering, and execution all run without them.
+> **Note:** The LLM reasoning layer is entirely optional. When no LLM is configured the boxes on the right are inert: profiling, recommendation, rendering, and execution all run without them.
 
 ### Modes of Operation
 *   **Deterministic Mode (Default, called "Tier 0" internally):** Runs the pipeline from profiling to execution. It generates deterministic `skforecast` code and predictions without requiring an internet connection or an API key. All methods except `ask()` work in this mode.
@@ -115,7 +115,7 @@ flowchart TD
 
 ### Stage 2: Recommendation (`skforecast_ai.recommendation`)
 
-This is the "Brain" of the deterministic engine. Using a series of hardcoded, sequential business rules, it evaluates the profile to determine the optimal forecasting architecture. This transparent heuristic approach intentionally avoids the "black box" nature of traditional AutoML. The logic is split across `forecaster_selection.py`, `autoregressive.py`, `preprocessing.py`, and `metric_selection.py`, and is orchestrated across the assistant's `profile()` and `plan()` methods.
+This is the core of the deterministic engine. Using a series of hardcoded, sequential business rules, it evaluates the profile to determine the forecasting architecture. This heuristic approach intentionally avoids the "black box" nature of traditional AutoML. The logic is split across `forecaster_selection.py`, `autoregressive.py`, `preprocessing.py`, and `metric_selection.py`, and is orchestrated across the assistant's `profile()` and `plan()` methods.
 
 ```mermaid
 flowchart TD
@@ -194,7 +194,7 @@ flowchart TD
 ```
 
 **Key Operations:**
-- **Code Assembly:** Each `render_forecast_*` builds the script line-by-line via specialized emit helpers. Shared helpers live in `rendering/_helpers.py` (e.g. `_emit_data_loading`, `_emit_index_setup`, `_emit_preprocessing_steps`, `_emit_window_features`, `_emit_transformer_exog`, `_emit_metrics_section*`). Import and forecaster-creation helpers are **per task type**: `_emit_imports_single_series` / `_multi_series` / `_foundation` / `_statistical`, and `_emit_forecaster_creation_single` / `_multi` / `_foundation` / `_statistical`. There is no single `_emit_imports`/`_emit_forecaster_creation`, and no `_emit_fit_and_predict` (the fit/predict logic is emitted inline inside each `render_forecast_*` function.
+- **Code Assembly:** Each `render_forecast_*` builds the script line-by-line via specialized emit helpers. Shared helpers live in `rendering/_helpers.py` (e.g. `_emit_data_loading`, `_emit_index_setup`, `_emit_preprocessing_steps`, `_emit_window_features`, `_emit_transformer_exog`, `_emit_metrics_section*`). Import and forecaster-creation helpers are **per task type**: `_emit_imports_single_series` / `_multi_series` / `_foundation` / `_statistical`, and `_emit_forecaster_creation_single` / `_multi` / `_foundation` / `_statistical`. There is no single `_emit_imports`/`_emit_forecaster_creation`, and no `_emit_fit_and_predict` (the fit/predict logic is emitted inline inside each `render_forecast_*` function).
 - **Formatting:** `_emit_aligned_kwargs` applies alignment rules so the generated script is not just executable, but idiomatic and visually structured.
 - **Output:** A `RenderedScript` object (`schemas/results.py`) with three string fields (`imports`, `data_loading`, and `core`) plus two convenience properties: `full_script` (`imports + data_loading + core`, the standalone script returned by `forecast_code()`) and `executable` (`imports + core`, no CSV loading: this is what `exec()` runs).
 
@@ -259,7 +259,7 @@ flowchart LR
 
 ## 4. "Knowledge as Code" (Skills)
 
-A critical challenge in AI assistants is keeping the LLM's explanations consistent with the codebase's logic. If the recommendation engine applies one rule but the LLM explains another from outdated pre-training data, user trust is destroyed.
+A critical challenge in AI assistants is keeping the LLM's explanations consistent with the codebase's logic. If the recommendation engine applies one rule but the LLM explains another from outdated pre-training data, user trust erodes.
 
 `skforecast-ai` addresses this with the **Knowledge as Code** pattern. Best practices and heuristic thresholds are written up as isolated Markdown files called **Skills**, located in `skforecast_ai/skills/`. There are **16 skills**, each a directory containing a `SKILL.md` (plus an optional `references/` subdirectory). The inventory is enumerated in `ALL_SKILLS` (`skforecast_ai/llm/skills.py`): `autocorrelation-and-lag-selection`, `backtesting-configuration`, `choosing-a-forecaster`, `complete-api-reference`, `deep-learning-forecasting`, `drift-detection`, `feature-engineering`, `feature-selection`, `forecasting-multiple-series`, `forecasting-single-series`, `foundation-forecasting`, `hyperparameter-optimization`, `metric-selection`, `prediction-intervals`, `statistical-models`, `troubleshooting-common-errors`.
 
@@ -286,7 +286,7 @@ The deterministic recommendation engine does **not** read `SKILL.md` files at ru
 **Architectural Benefits:**
 1. **Two synchronized sources of truth:** the Python heuristics and the skill docs describe the same rules. The convention is to update both together when a best practice changes.
 2. **Contextual grounding:** when the user asks the LLM a question (e.g. *"Why Ridge instead of XGBoost?"*), the agent reads the relevant skill to ground its answer in `skforecast`'s actual rules, reducing hallucination.
-3. **Total transparency:** users can browse `skforecast_ai/skills/` on GitHub to see exactly the rules the assistant is bound by.
+3. **Transparency:** users can browse `skforecast_ai/skills/` on GitHub to see exactly the rules the assistant is bound by.
 
 ---
 
@@ -346,8 +346,4 @@ Persistent settings live in a TOML file at `~/.config/skforecast-ai/config.toml`
 - **`ForecastExecutionError`**: raised when the generated code fails inside `exec()`; exposes `original_error`, `generated_code`, and `execution_traceback` for debugging.
 
 > The `skforecast_ai/generation/` directory currently contains no active Python modules and is not part of the runtime pipeline.
-ipeline.
-
-time pipeline.
-ipeline.
 

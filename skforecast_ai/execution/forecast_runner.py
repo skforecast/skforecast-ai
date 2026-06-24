@@ -93,7 +93,7 @@ def run_forecast(
     -------
     result : dict
         Dictionary with keys `'metrics'`, `'predictions'`,
-        `'intervals'`, and `'generated_code'`.
+        `'intervals'`, and `'rendered_code'`.
     """
     rendered = render_forecast_script(profile, plan)
 
@@ -213,7 +213,7 @@ def _repredict_with_exog_future(
         if plan.task_type == "foundation":
             quantiles = [0.1, 0.5, 0.9]
             if plan.interval is not None:
-                quantiles = [round(v / 100, 2) for v in plan.interval]
+                quantiles = list(plan.interval)
                 if 0.5 not in quantiles:
                     quantiles = sorted([quantiles[0], 0.5, quantiles[1]])
             return forecaster.predict_quantiles(
@@ -223,14 +223,14 @@ def _repredict_with_exog_future(
             return forecaster.predict_interval(
                 steps=plan.steps,
                 exog=exog_future,
-                interval=plan.interval or [10, 90],
+                interval=plan.interval or [0.1, 0.9],
             )
         else:
             return forecaster.predict_interval(
                 steps=plan.steps,
                 exog=exog_future,
                 method=plan.interval_method,
-                interval=plan.interval or [10, 90],
+                interval=plan.interval or [0.1, 0.9],
             )
     else:
         return forecaster.predict(steps=plan.steps, exog=exog_future)

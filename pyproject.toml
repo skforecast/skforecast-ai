@@ -46,7 +46,6 @@ dependencies = [
     "skforecast>=0.23",
     "typer>=0.22",
     "rich>=13.9",
-    "statsmodels>=0.14.0",
 ]
 
 [project.optional-dependencies]

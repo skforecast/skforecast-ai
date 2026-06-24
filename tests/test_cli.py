@@ -170,11 +170,11 @@ class TestPlan:
         result = runner.invoke(
             app,
             ["plan", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--interval", "10,90", "--format", "json", "--quiet"],
+             "--steps", "10", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["plan"]["interval"] == [10, 90]
+        assert data["plan"]["interval"] == [0.1, 0.9]
         assert data["plan"]["interval_method"] is not None
 
     def test_plan_missing_steps(self, tmp_path):
@@ -322,7 +322,7 @@ class TestGenerateCode:
         result = runner.invoke(
             app,
             ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--interval", "10,90", "--format", "json", "--quiet"],
+             "--steps", "10", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -432,7 +432,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--interval", "10,90", "--format", "json", "--quiet"],
+             "--steps", "5", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)

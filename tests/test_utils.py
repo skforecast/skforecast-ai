@@ -1,15 +1,13 @@
 # Unit test _utils
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 import pytest
-import numpy as np
 import pandas as pd
 
 from skforecast_ai._utils import (
     _strip_code_blocks,
-    _coerce_to_dataframe,
+    _resolve_data_and_target,
     _run_agent_sync,
     _series_span_length,
     _display_n_observations,
@@ -72,15 +70,78 @@ def test_strip_code_blocks_output_when_no_code_blocks(text):
 
 
 # =============================================================================
-# _coerce_to_dataframe
+# _resolve_data_and_target
 # =============================================================================
-def test_coerce_to_dataframe_output_when_dataframe_input():
+def test_resolve_data_and_target_output_when_named_series():
     """
-    Test that passing a DataFrame returns it unchanged.
+    Test that a named Series is framed and its name is used as the target.
     """
-    df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
-    result = _coerce_to_dataframe(df)
-    pd.testing.assert_frame_equal(result, df)
+    index = pd.date_range("2020-01-01", periods=5, freq="D")
+    series = pd.Series([1, 2, 3, 4, 5], index=index, name="sales")
+
+    data, target = _resolve_data_and_target(series, target=None)
+
+    assert isinstance(data, pd.DataFrame)
+    assert target == "sales"
+    assert list(data.columns) == ["sales"]
+    pd.testing.assert_index_equal(data.index, index)
+
+
+def test_resolve_data_and_target_output_when_named_series_matching_target():
+    """
+    Test that providing a target matching the Series name is accepted.
+    """
+    series = pd.Series([1, 2, 3], name="sales")
+
+    data, target = _resolve_data_and_target(series, target="sales")
+
+    assert target == "sales"
+    assert list(data.columns) == ["sales"]
+
+
+def test_resolve_data_and_target_warns_and_uses_y_when_series_unnamed():
+    """
+    Test that an unnamed Series triggers a warning and uses 'y' as target.
+    """
+    series = pd.Series([1, 2, 3])
+
+    with pytest.warns(UserWarning, match="using 'y'"):
+        data, target = _resolve_data_and_target(series, target=None)
+
+    assert target == "y"
+    assert list(data.columns) == ["y"]
+
+
+def test_resolve_data_and_target_raises_when_target_mismatch_series_name():
+    """
+    Test that a target not matching the Series name raises ValueError.
+    """
+    series = pd.Series([1, 2, 3], name="sales")
+
+    with pytest.raises(ValueError, match="must match the Series name"):
+        _resolve_data_and_target(series, target="revenue")
+
+
+def test_resolve_data_and_target_raises_when_dataframe_and_target_none():
+    """
+    Test that a DataFrame input with target=None raises ValueError.
+    """
+    df = pd.DataFrame({"sales": [1, 2, 3]})
+
+    with pytest.raises(ValueError, match="`target` is required"):
+        _resolve_data_and_target(df, target=None)
+
+
+def test_resolve_data_and_target_output_when_dataframe_passthrough():
+    """
+    Test that a DataFrame input is returned unchanged with the given target.
+    """
+    df = pd.DataFrame({"sales": [1, 2, 3], "promo": [0, 1, 0]})
+
+    data, target = _resolve_data_and_target(df, target="sales")
+
+    assert target == "sales"
+    pd.testing.assert_frame_equal(data, df)
 
 
 @pytest.mark.parametrize(
@@ -88,7 +149,7 @@ def test_coerce_to_dataframe_output_when_dataframe_input():
     [str, Path],
     ids=["str_path", "Path_object"],
 )
-def test_coerce_to_dataframe_output_when_csv_path(tmp_path, path_type):
+def test_resolve_data_and_target_output_when_csv_path(tmp_path, path_type):
     """
     Test that a CSV file path (str or Path) is loaded into a DataFrame.
     """
@@ -99,11 +160,13 @@ def test_coerce_to_dataframe_output_when_csv_path(tmp_path, path_type):
     })
     df.to_csv(csv_path, index=False)
 
-    result = _coerce_to_dataframe(path_type(csv_path))
-    assert isinstance(result, pd.DataFrame)
-    assert "date" in result.columns
-    assert "value" in result.columns
-    assert len(result) == 3
+    data, target = _resolve_data_and_target(path_type(csv_path), target="value")
+
+    assert isinstance(data, pd.DataFrame)
+    assert target == "value"
+    assert "date" in data.columns
+    assert "value" in data.columns
+    assert len(data) == 3
 
 
 @pytest.mark.parametrize(
@@ -111,16 +174,16 @@ def test_coerce_to_dataframe_output_when_csv_path(tmp_path, path_type):
     [str, Path],
     ids=["str_path", "Path_object"],
 )
-def test_coerce_to_dataframe_raises_when_csv_path_not_found(tmp_path, path_type):
+def test_resolve_data_and_target_raises_when_csv_path_not_found(tmp_path, path_type):
     """
     Test that a clear FileNotFoundError is raised when the CSV path doesn't exist.
     """
     missing_path = tmp_path / "nonexistent.csv"
     with pytest.raises(FileNotFoundError, match="CSV file not found"):
-        _coerce_to_dataframe(path_type(missing_path))
+        _resolve_data_and_target(path_type(missing_path), target="value")
 
 
-def test_coerce_to_dataframe_parses_date_column(tmp_path):
+def test_resolve_data_and_target_parses_date_column(tmp_path):
     """
     Test that a date column in a CSV is detected and parsed as datetime.
     """
@@ -131,8 +194,9 @@ def test_coerce_to_dataframe_parses_date_column(tmp_path):
     })
     df.to_csv(csv_path, index=False)
 
-    result = _coerce_to_dataframe(csv_path)
-    assert pd.api.types.is_datetime64_any_dtype(result["date"])
+    data, _ = _resolve_data_and_target(csv_path, target="value")
+
+    assert pd.api.types.is_datetime64_any_dtype(data["date"])
 
 
 # =============================================================================

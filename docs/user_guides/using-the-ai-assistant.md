@@ -6,12 +6,22 @@ This guide covers turning a model on and asking it questions.
 
 ## Configure a provider
 
+The reasoning layer ships as an optional dependency. Install it alongside the package:
+
+```bash
+pip install "skforecast-ai[llm]"
+```
+
+Without this extra the deterministic methods still work; only the LLM-powered ones (`ask()`, `create_cv(prompt=...)`) require it.
+
 Enable the LLM at construction time with an `llm="provider:model"` string:
 
 ```python
 from skforecast_ai import ForecastingAssistant
 
-assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
+assistant = ForecastingAssistant(
+    llm="openai:gpt-4o-mini", api_key="your_api_key_here"
+)
 ```
 
 The string is always `provider:model_name`. Because only the first colon is used to split, model names may themselves contain colons (e.g. `ollama:qwen2.5:7b-instruct`).
@@ -36,8 +46,7 @@ For cloud providers, supply the API key in either way:
 
 ```python
 assistant = ForecastingAssistant(
-    llm="anthropic:claude-3-5-haiku-latest",
-    api_key="sk-...",
+    llm="anthropic:claude-3-5-haiku-latest", api_key="your_api_key_here"
 )
 ```
 
@@ -73,9 +82,17 @@ print(answer.explanation)
 ```python
 # Explain mode: profile and plan are computed first, then explained
 answer = assistant.ask(
-    "Is my data suitable for forecasting?",
+    prompt="Is my data suitable for forecasting?",
     data=data, target="y", date_column="date", steps=12,
 )
+```
+
+The simplest case is **Q&A mode**: a general question with no data attached, answered from the assistant's skills alone.
+
+```python
+# Q&A mode: no data, no result — a general forecasting question
+answer = assistant.ask("When should I use direct instead of recursive forecasting?")
+print(answer.explanation)
 ```
 
 !!! note "`forecast_result` and `backtest_result` are mutually exclusive"
@@ -83,20 +100,30 @@ answer = assistant.ask(
 
 ## What grounds the answers
 
-Answers are grounded in the assistant's rule-based **skills** (Markdown documents that mirror the engine's actual heuristics) so explanations stay consistent with what the deterministic engine did. Skill selection is automatic and rule-based (by task type and the keywords in your question); there's no fuzzy vector search. The mechanism is detailed in [How it works & trust](how-it-works-and-trust.md).
+Answers are grounded in the assistant's rule-based **skills** (Markdown documents that mirror the engine's actual heuristics) so explanations stay consistent with what the deterministic engine did. The mechanism is detailed in [How it works & trust](how-it-works-and-trust.md).
 
-Two optional arguments give you manual control:
+**By default, skill selection is automatic.** Every `ask()` call resolves the relevant skills for you: it starts from a base set implied by the task type, augments it with skills matched by keywords in your question, and drops any that would give conflicting guidance. The selection is fully rule-based, there's no fuzzy vector search.
+
+Two optional arguments override this automatic behavior:
 
 - `skills=[...]`: pin an explicit list of skills instead of letting the assistant choose. Valid names are in `skforecast_ai.ALL_SKILLS`.
 - `include_reference=True`: also inject the `skforecast` API reference, useful for detailed code questions.
 
+List the available skill names to know what you can pin:
+
+```python
+from skforecast_ai import ALL_SKILLS
+
+print(ALL_SKILLS)
+```
+
 ```python
 answer = assistant.ask(
-    "How do I add prediction intervals?",
-    forecast_result=result,
-    skills=["prediction-intervals"],
-    include_reference=True,
-)
+             prompt            = "How do I add prediction intervals?",
+             forecast_result   = result,
+             skills            = ["prediction-intervals"],
+             include_reference = True,
+         )
 ```
 
 ## Privacy
@@ -108,7 +135,7 @@ assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", send_data_to_llm=True
 ```
 
 !!! note "Results and backtest modes are the exception"
-    When you pass a `forecast_result` or `backtest_result`, the assistant sends the predictions, metrics, and intervals regardless of `send_data_to_llm` (the model needs them to discuss specific values. Your original training data is still governed by the setting.
+    When you pass a `forecast_result` or `backtest_result`, the assistant sends the predictions, metrics, and intervals regardless of `send_data_to_llm` (the model needs them to discuss specific values). Your original training data is still governed by the setting.
 
 ## Persisting configuration
 
@@ -142,8 +169,8 @@ The LLM is a paid, network-bound layer; the deterministic engine is neither. A f
 - **Pick a model that matches the question.** A small, fast model (e.g. `gpt-4o-mini`, `claude-3-5-haiku`, a local `ollama` model) is enough for most explanations. Reserve larger models for open-ended modeling advice.
 - **Local and free.** `ollama` runs on your machine with no per-call cost; a good default when iterating.
 
-!!! note "Retries"
-    Each `ask()` call retries automatically (twice) on transient provider/parse errors before surfacing the failure. Persistent failures raise with the provider's error so you can see the cause.
+!!! note "Failures degrade gracefully, they don't raise"
+    Within a single call the agent retries output validation up to twice. If the LLM still can't be reached or returns an unusable response, `ask()` does **not** raise: it emits a `UserWarning` and returns an `AskResult` whose `.explanation` is prefixed `[LLM unavailable]`, falling back to the deterministic plan explanation when one is available. The only hard error is `LLMRequiredError`, raised when no model was configured at all.
 
 ## Next steps
 

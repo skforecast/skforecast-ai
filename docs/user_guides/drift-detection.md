@@ -5,7 +5,7 @@ A model is only as good as the assumption that tomorrow looks like the data it w
 skforecast-ai produces standalone `skforecast` code, and `skforecast` ships built-in drift detectors. This guide shows how to add monitoring to a deployed forecast and where the assistant fits in.
 
 !!! note "This is a skforecast capability"
-    Drift detection runs on the model you deploy (the exported `skforecast` script), not through a `ForecastingAssistant` method. The assistant's role here is explanatory: it ships a `drift-detection` skill so the [AI assistant](using-the-ai-assistant.md) can walk you through these tools in plain language.
+    Drift detection runs on the model you deploy (the exported `skforecast` script), not through a `ForecastingAssistant` method. The assistant's role here is explanatory: it ships a `drift-detection` skill so the [AI assistant](using-the-ai-assistant.md) can walk you through these tools in plain language. For full details, see the [skforecast drift detection user guide](https://skforecast.org/latest/user_guides/drift-detection).
 
 ## Two detectors, two jobs
 
@@ -48,15 +48,20 @@ For scheduled jobs that compare a new batch against the training distribution us
 from skforecast.drift_detection import PopulationDriftDetector
 
 detector = PopulationDriftDetector(
-    chunk_size=100,                   # or 'W' / 'M' / 'D' for time-based chunks
-    threshold=3,                      # 3-sigma; raise to reduce false positives
-    threshold_method="std",           # 'std' or 'quantile'
-    max_out_of_range_proportion=0.1,
-)
-detector.fit(X=X_train)               # reference (training) distribution
+               chunk_size       = 100,    # int (obs per chunk) or a pandas offset like 'MS' / 'W' / 'D'
+               threshold        = 3,      # interpretation depends on threshold_method (see below)
+               threshold_method = "std",  # 'std' or 'quantile'
+               max_out_of_range_proportion = 0.1,
+           )
+detector.fit(X=X_train)                   # reference (training) distribution
 results, summary = detector.predict(X=X_new)
-print(summary)                        # per-feature drift summary
+print(summary)                            # per-feature drift summary
 ```
+
+The meaning of `threshold` depends on `threshold_method`:
+
+- `"std"` (default): a standard-deviation multiplier, drift is flagged when the statistic exceeds `mean + threshold * std`. `threshold=3` is the usual 3-sigma starting point.
+- `"quantile"`: a quantile of the reference distribution in `(0, 1)`, e.g. `threshold=0.95` for the 95th percentile.
 
 ## A monitoring loop
 

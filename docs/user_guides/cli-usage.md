@@ -1,10 +1,6 @@
 # CLI reference
 
-The `skforecast-ai` CLI runs the full forecasting pipeline from a terminal. Pass a CSV path or URL, specify your target column and horizon, and receive predictions, evaluation metrics, and the standalone Python script that produced them. No Python code required.
-
-```bash
-pip install "skforecast-ai[cli]"
-```
+The `skforecast-ai` CLI runs the full forecasting pipeline from a terminal. Pass a CSV path or URL, specify your target column and horizon, and receive predictions, evaluation metrics, and the standalone Python script that produced them. No Python code required.s
 
 Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline documentation on any command.
 
@@ -385,7 +381,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 | `--steps` | | Forecast horizon | `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
 | `--forecaster` | | Override forecaster class | `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
 | `--estimator` | | Override estimator class | `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
-| `--interval` | | Interval percentiles, e.g. `"10,90"` | `plan`, `forecast-code`, `backtest-code`, `forecast` |
+| `--interval` | | Interval quantiles, e.g. `"0.1,0.9"` | `plan`, `forecast-code`, `backtest-code`, `forecast` |
 
 ### Cross-validation / backtest
 

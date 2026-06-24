@@ -66,7 +66,7 @@ predictions = forecaster.predict(steps=12)
 #    no bootstrapping needed). Accepts both `interval` and `alpha`.
 predictions_interval = forecaster.predict_interval(
     steps=12,
-    interval=[10, 90],  # or use alpha=0.2 for 80% interval
+    interval=[0.1, 0.9],  # or use alpha=0.2 for 80% interval
 )
 ```
 

@@ -282,14 +282,14 @@ def _parse_target(target_str: str) -> str | list[str]:
     return parts if len(parts) > 1 else parts[0]
 
 
-def _parse_interval(interval_str: str | None) -> list[int] | None:
+def _parse_interval(interval_str: str | None) -> list[float] | None:
     """
     Parse `'lower,upper'` interval string into a two-element list or None.
 
     Parameters
     ----------
     interval_str : str, None
-        Comma-separated lower and upper percentiles (e.g. `'10,90'`).
+        Comma-separated lower and upper quantiles (e.g. `'0.1,0.9'`).
 
     Returns
     -------
@@ -298,10 +298,10 @@ def _parse_interval(interval_str: str | None) -> list[int] | None:
     """
     if interval_str is None:
         return None
-    parts = [int(x.strip()) for x in interval_str.split(",")]
+    parts = [float(x.strip()) for x in interval_str.split(",")]
     if len(parts) != 2:
         raise typer.BadParameter(
-            "Interval must be two comma-separated integers, e.g. '10,90'."
+            "Interval must be two comma-separated quantiles, e.g. '0.1,0.9'."
         )
     return parts
 
@@ -539,7 +539,7 @@ def plan(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -597,7 +597,7 @@ def refine_plan(
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Override forecast horizon.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '0.1,0.9'.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
@@ -648,7 +648,7 @@ def forecast_code(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -708,7 +708,7 @@ def backtest_code(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
     fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
     refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
@@ -898,7 +898,7 @@ def forecast(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     exog_future: Annotated[Path | None, typer.Option("--exog-future", help="CSV with future exogenous variables.")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,

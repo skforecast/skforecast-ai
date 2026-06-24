@@ -144,9 +144,9 @@ def test_refine_plan_output_when_interval_added():
 
     assert plan.interval is None
 
-    refined = assistant.refine_plan(profile, plan, interval=[10, 90])
+    refined = assistant.refine_plan(profile, plan, interval=[0.1, 0.9])
 
-    assert refined.interval == [10, 90]
+    assert refined.interval == [0.1, 0.9]
     assert refined.interval_method == "bootstrapping"
 
 
@@ -157,9 +157,9 @@ def test_refine_plan_output_when_interval_removed():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=10, interval=[10, 90])
+    plan = assistant.plan(profile, steps=10, interval=[0.1, 0.9])
 
-    assert plan.interval == [10, 90]
+    assert plan.interval == [0.1, 0.9]
 
     refined = assistant.refine_plan(profile, plan, interval=None)
 
@@ -182,12 +182,12 @@ def test_refine_plan_output_when_multiple_overrides():
         profile, plan,
         steps=30,
         estimator="XGBRegressor",
-        interval=[20, 80],
+        interval=[0.2, 0.8],
     )
 
     assert refined.steps == 30
     assert refined.estimator == "XGBRegressor"
-    assert refined.interval == [20, 80]
+    assert refined.interval == [0.2, 0.8]
     assert refined.interval_method == "bootstrapping"
 
 
@@ -202,8 +202,8 @@ def test_refine_plan_preserves_custom_forecaster_when_other_fields_refined():
         profile, steps=10, forecaster="ForecasterDirect"
     )
 
-    refined = assistant.refine_plan(profile, plan, steps=24, interval=[5, 95])
+    refined = assistant.refine_plan(profile, plan, steps=24, interval=[0.05, 0.95])
 
     assert refined.forecaster == "ForecasterDirect"
     assert refined.steps == 24
-    assert refined.interval == [5, 95]
+    assert refined.interval == [0.05, 0.95]

@@ -21,7 +21,7 @@
 forecaster.predict_interval(
     steps,
     method='bootstrapping',          # or 'conformal'
-    interval=[5, 95],                # percentiles → 90% interval
+    interval=[5, 95],                # quantiles → 90% interval
     n_boot=250,                      # only used with method='bootstrapping'
     use_in_sample_residuals=True,
     use_binned_residuals=True,
@@ -137,7 +137,7 @@ because residual variance often depends on the prediction magnitude.
 
 | Method | Available in | Description |
 |--------|-------------|-------------|
-| `predict_interval()` | All except Classifier | Lower/upper bounds at given percentiles |
+| `predict_interval()` | All except Classifier | Lower/upper bounds at given quantiles |
 | `predict_quantiles()` | Recursive, Direct, RecursiveMultiSeries, DirectMultiVariate | Arbitrary quantile predictions |
 | `predict_dist()` | Recursive, Direct, RecursiveMultiSeries, DirectMultiVariate | Fit a scipy distribution to bootstrapped predictions |
 | `predict_proba()` | RecursiveClassifier only | Class probabilities |

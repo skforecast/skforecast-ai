@@ -88,9 +88,9 @@ def test_plan_output_when_interval_bootstrapping():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=10, interval=[10, 90])
+    plan = assistant.plan(profile, steps=10, interval=[0.1, 0.9])
 
-    assert plan.interval == [10, 90]
+    assert plan.interval == [0.1, 0.9]
     assert plan.interval_method == "bootstrapping"
 
 
@@ -102,10 +102,10 @@ def test_plan_output_when_interval_native_for_statistical():
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(
-        profile, steps=10, forecaster="ForecasterStats", interval=[10, 90]
+        profile, steps=10, forecaster="ForecasterStats", interval=[0.1, 0.9]
     )
 
-    assert plan.interval == [10, 90]
+    assert plan.interval == [0.1, 0.9]
     assert plan.interval_method == "native"
     assert plan.task_type == "statistical"
 

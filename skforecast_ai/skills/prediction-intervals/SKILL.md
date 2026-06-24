@@ -47,7 +47,7 @@ forecaster.fit(y=y_train, store_in_sample_residuals=True)
 
 predictions = forecaster.predict_interval(
     steps=10,
-    interval=[10, 90],              # Percentiles → 80% interval (default is [5, 95] = 90%)
+    interval=[0.1, 0.9],              # quantiles → 80% interval (default is [5, 95] = 90%)
     method='bootstrapping',
     n_boot=250,                      # Number of bootstrap samples (default)
     use_in_sample_residuals=True,    # Use training residuals
@@ -65,7 +65,7 @@ forecaster.fit(y=y_train, store_in_sample_residuals=True)
 
 predictions = forecaster.predict_interval(
     steps=10,
-    interval=[10, 90],
+    interval=[0.1, 0.9],
     method='conformal',
     use_in_sample_residuals=True,    # Uses in_sample_residuals_ stored during fit
     use_binned_residuals=True,
@@ -86,7 +86,7 @@ forecaster.fit(y=y_train)
 # Uses parametric intervals from statsmodels — different interface
 predictions = forecaster.predict_interval(
     steps=12,
-    interval=[10, 90],         # Or use alpha=0.05 for 95% interval
+    interval=[0.1, 0.9],         # Or use alpha=0.05 for 95% interval
 )
 ```
 
@@ -104,7 +104,7 @@ forecaster = ForecasterFoundation(
 )
 forecaster.fit(series=y_train)
 
-predictions = forecaster.predict_interval(steps=24, interval=[10, 90])
+predictions = forecaster.predict_interval(steps=24, interval=[0.1, 0.9])
 predictions = forecaster.predict_quantiles(
     steps=24, quantiles=[0.1, 0.5, 0.9]
 )
@@ -130,7 +130,7 @@ metric, predictions = backtesting_forecaster(
     y=data['target'],
     cv=cv,
     metric='mean_absolute_error',
-    interval=[10, 90],
+    interval=[0.1, 0.9],
     interval_method='bootstrapping',   # or 'conformal'
     n_boot=250,
     use_in_sample_residuals=True,
@@ -148,7 +148,7 @@ from skforecast.recursive import ForecasterRecursiveMultiSeries
 predictions = forecaster_multi.predict_interval(
     steps=10,
     levels=['series_1', 'series_2'],
-    interval=[10, 90],
+    interval=[0.1, 0.9],
     method='conformal',
 )
 ```
@@ -174,7 +174,7 @@ forecaster.set_out_sample_residuals(
 # Now use them for intervals
 predictions = forecaster.predict_interval(
     steps=10,
-    interval=[10, 90],
+    interval=[0.1, 0.9],
     method='bootstrapping',
     use_in_sample_residuals=False,  # Use out-of-sample residuals
 )

@@ -56,8 +56,8 @@ def test_get_seasonal_period_output_when_different_frequencies(frequency, expect
 @pytest.mark.parametrize(
     "interval, expected",
     [
-        ([10, 90], "[10, 90]"),
-        (None, "[10, 90]  # default 80% prediction interval"),
+        ([0.1, 0.9], "[0.1, 0.9]"),
+        (None, "[0.1, 0.9]  # default 80% prediction interval"),
     ],
     ids=["with_interval", "without_interval"],
 )

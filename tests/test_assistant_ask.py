@@ -327,7 +327,7 @@ def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=5, interval=[10, 90])
+    plan = assistant.plan(profile, steps=5, interval=[0.1, 0.9])
 
     predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
     metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]})

@@ -14,7 +14,7 @@ There are five override keys, accepted everywhere overrides are allowed:
 | `estimator` | `str` | The scikit-learn-compatible estimator (e.g. `"LGBMRegressor"`, `"Ridge"`). |
 | `estimator_kwargs` | `dict` | Constructor arguments for the estimator (e.g. `{"n_estimators": 200}`). |
 | `steps` | `int` | The forecast horizon (number of steps ahead). |
-| `interval` | `list[int]` | Prediction interval percentiles `[lower, upper]`, e.g. `[10, 90]`. |
+| `interval` | `list[float]` | Prediction interval quantiles `[lower, upper]`, e.g. `[0.1, 0.9]`. |
 
 ## See your options first
 
@@ -101,7 +101,7 @@ validating the change with a backtest, see [Human-in-the-loop forecasting](human
 
 ## Adding prediction intervals
 
-Use `interval=[lower, upper]` (percentiles) to get uncertainty bounds. `[10, 90]` is an 80% interval; `[5, 95]` is 90%.
+Use `interval=[lower, upper]` (quantiles) to get uncertainty bounds. `[0.1, 0.9]` is an 80% interval; `[0.05, 0.95]` is 90%.
 
 ```python
 result = assistant.forecast(
@@ -109,7 +109,7 @@ result = assistant.forecast(
     target="y",
     steps=12,
     date_column="date",
-    interval=[10, 90],
+    interval=[0.1, 0.9],
 )
 
 print(result.intervals.head())
