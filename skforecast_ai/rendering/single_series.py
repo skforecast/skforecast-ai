@@ -13,6 +13,7 @@ from ._helpers import (
     _emit_production_note,
     _emit_transformer_exog,
     _emit_window_features,
+    _format_lags,
     _get_estimator_constructor,
     _get_interval_repr,
     _get_target_str,
@@ -48,7 +49,7 @@ def _emit_forecaster_creation_single(
     forecaster_kwargs.append(("estimator", estimator_str))
     if is_direct:
         forecaster_kwargs.append(("steps", str(plan.steps)))
-    forecaster_kwargs.append(("lags", str(lags)))
+    forecaster_kwargs.append(("lags", _format_lags(lags)))
 
     if window_features:
         forecaster_kwargs.append(("window_features", "window_features"))
