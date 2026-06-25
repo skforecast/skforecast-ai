@@ -63,13 +63,13 @@ The generated script is a complete, self-contained program. Internally the rende
 `generated.code` is the **full** script (imports + data loading + core): runnable on its own. When `forecast()` executes the pipeline, it runs the imports and core against an in-memory copy of your DataFrame and skips the CSV-loading section, which is why the results are produced without any disk I/O.
 
 !!! note "Where the script reads its data"
-    The data-loading section reads from a CSV path. If you passed a file path to the assistant, the script points at that file; if you passed a DataFrame in memory, it defaults to `data.csv`. Before running the script standalone, make sure your data is available at that path: or edit the loading line to match.
+    The data-loading section reads from a CSV path. If you passed a file path to the assistant, the script points at that file; if you passed a DataFrame in memory, it defaults to `data.csv`. Before running the script standalone, make sure your data is available at that path, or edit the loading line to match.
 
 ## Audit, modify, deploy
 
 The script is yours to own. Three common uses:
 
-1. **Audit before you trust.** Read the code to confirm the forecaster, lags, preprocessing, and metrics are what you expect: *before* committing to the result.
+1. **Audit before you trust.** Read the code to confirm the forecaster, lags, preprocessing, and metrics are what you expect, *before* committing to the result.
 2. **Reproduce anywhere.** Save it to a `.py` file and run it with plain `skforecast`. There is no runtime dependency on skforecast-ai.
 3. **Adapt for production.** Treat the script as a starting point: add logging, model persistence, scheduling, or a different data source, and ship it.
 

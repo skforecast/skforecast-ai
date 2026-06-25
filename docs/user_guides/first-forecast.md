@@ -1,11 +1,11 @@
 # Your first forecast
 
-Get **skforecast-ai** running end to end in minutes: pass in a time series and receive predictions, evaluation metrics, and the standalone Python script that produced them.
+Get **skforecast-ai** running end to end: pass in a time series and receive predictions, evaluation metrics, and the standalone Python script that produced them.
 
-No API key, no internet connection, and no configuration required. By default, the assistant runs in **deterministic mode**: it inspects your data, picks a sensible model using transparent rules, and runs a real `skforecast` pipeline locally. When you add an LLM, it acts like a senior data scientist reviewing your results: it reads every decision the pipeline made and tells you what it would change and why.
+By default, the assistant runs in **deterministic mode** with no API key, network access, or configuration required: it inspects your data, picks a sensible model using transparent rules, and runs a real `skforecast` pipeline locally. When you add an LLM, it acts like a senior data scientist reviewing your results: it reads every decision the pipeline made and tells you what it would change and why.
 
 !!! note "Before you start"
-    Install the package first: `pip install skforecast-ai`. See [Quick start](quick-start.md) for the one-line setup and a smoke test.
+    Install the package first: `pip install skforecast-ai`. See [Quick start](quick-start.md) for the one-line setup and a smoke test. New to time series forecasting? skforecast's [Introduction to forecasting](https://skforecast.org/latest/introduction-forecasting/introduction-forecasting) covers the machine-learning fundamentals (lags, multi-step prediction) this guide builds on.
 
 ---
 
@@ -16,7 +16,7 @@ This example uses a classic monthly water-demand series. Any `pandas.DataFrame` 
 ```python
 import pandas as pd
 
-url = "https://raw.githubusercontent.com/JoaquinAmatRodrigo/skforecast/master/data/h2o.csv"
+url = "https://raw.githubusercontent.com/skforecast/skforecast-datasets/refs/heads/main/data/h2o.csv"
 data = pd.read_csv(url, sep=",", header=0, names=["y", "date"])
 
 data.head()
@@ -40,11 +40,11 @@ Call `forecast()` with the data, the name of the target column, the date column,
 
 ```python
 result = assistant.forecast(
-    data=data,
-    target="y",
-    steps=12,
-    date_column="date",
-)
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             steps       = 12,
+         )
 ```
 
 This single call profiles the data, selects a forecaster and estimator, generates a `skforecast` script, and executes it.
@@ -66,10 +66,9 @@ print(result.code)
 
 | Attribute | What it holds |
 | --- | --- |
-| `result.predictions` | Forecasted values for the requested `steps` (a `DataFrame`). |
+| `result.predictions` | Forecasted values for the requested `steps` (a `DataFrame`). Includes `lower_bound`/`upper_bound` columns when `interval` is requested. |
 | `result.metrics` | Evaluation metrics (`MAE`, `MSE`, `MASE`). One row per series. |
 | `result.code` | The complete `skforecast` script that was executed. |
-| `result.intervals` | Prediction intervals (if requested). `None` otherwise. |
 | `result.profile` | What the assistant detected about your data. |
 | `result.plan` | The modeling decisions it made. |
 
@@ -77,7 +76,7 @@ print(result.code)
     `result.code` is not a reconstruction. It is *exactly* what ran to produce `result.predictions`. Copy it into a `.py` file and run it with no dependency on skforecast-ai. See [How it works & trust](how-it-works-and-trust.md) for details on this guarantee.
 
 !!! info "Unlock the AI reasoning layer (optional)"
-    If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`), the assistant gains an AI reasoning layer: it reads `result.profile` and `result.plan` and advises you like a senior data scientist reviewing your pipeline, explaining what it would change and why.
+    If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`), the assistant gains an AI reasoning layer: it reads `result.profile` and `result.plan` and advises you on what it would change and why.
 
     Use `ask()` to query it:
 
@@ -98,16 +97,16 @@ print(result.code)
 
 ## Prediction intervals (optional)
 
-Pass `interval=[lower, upper]` (percentiles) to receive confidence bounds alongside the point forecast:
+Pass `interval=[lower, upper]` (quantiles) to receive confidence bounds alongside the point forecast:
 
 ```python
 result = assistant.forecast(
-    data=data,
-    target="y",
-    steps=12,
-    date_column="date",
-    interval=[10, 90],  # 80% prediction interval
-)
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             steps       = 12,
+             interval    = [0.1, 0.9],  # 80% prediction interval
+         )
 
 print(result.intervals.head())
 ```
@@ -116,7 +115,7 @@ print(result.intervals.head())
 
 ## Under the hood
 
-The assistant follows a transparent, rule-based pipeline: **profile your data → plan a model → render code → execute it.** Every decision is inspectable.
+The assistant follows a rule-based pipeline: **profile your data → plan a model → render code → execute it.** Every decision is inspectable.
 
 - To understand each step and the objects passed between them, see [The forecasting workflow](the-forecasting-workflow.md).
 - To see why a particular forecaster, estimator, or set of lags was chosen, see [Customizing the model](customizing-the-model.md).

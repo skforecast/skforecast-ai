@@ -28,18 +28,22 @@ print(cv_explanation)
 
 # 3. Run the walk-forward evaluation
 result = assistant.backtest(
-    data=data,
-    target="y",
-    date_column="date",
-    cv=cv,
-    profile=profile,
-    plan=plan,
-)
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             cv          = cv,
+             profile     = profile,
+             plan        = plan,
+         )
 ```
 
-## Configuring the cross-validation
+## Defining the cross-validation folds
 
-`create_cv()` returns a configured `TimeSeriesFold` (skforecast's fold splitter) plus a plain-language `explanation` of the choices. With no arguments it derives sensible defaults from your data; override any of these to match how you actually deploy:
+`backtest()` needs a `cv`: a skforecast `TimeSeriesFold` that describes how the series is split into successive train/test folds. There are three ways to build one.
+
+### Smart defaults with `create_cv()`
+
+`create_cv()` returns a configured `TimeSeriesFold` (skforecast's fold splitter) plus a plain-language `explanation` of the choices. With no overrides it derives defaults from your data; override any of these to match how you actually deploy:
 
 | Parameter | Meaning |
 | --- | --- |
@@ -54,15 +58,54 @@ result = assistant.backtest(
 ```python
 # Example: simulate "retrain weekly, with a 1-day data delay, keep all history"
 cv, explanation = assistant.create_cv(
-    profile, plan,
-    refit=7,
-    gap=1,
-    fixed_train_size=False,
-)
+                      profile          = profile,
+                      plan             = plan,
+                      refit            = 7,
+                      gap              = 1,
+                      fixed_train_size = False,
+                  )
 ```
 
 !!! tip "Match the configuration to your deployment"
     The most useful backtest reproduces your real operating conditions. Retrain monthly? Set `refit` accordingly. Forecasts needed two days ahead of data availability? Set `gap=2`. The closer the configuration matches production, the more trustworthy the metrics.
+
+### Bring your own `TimeSeriesFold`
+
+If you already know how to configure skforecast's [`TimeSeriesFold`](https://skforecast.org/latest/user_guides/backtesting), build one yourself and pass it straight to `backtest()` (or `backtest_code()`), skipping `create_cv()` entirely:
+
+```python
+from skforecast.model_selection import TimeSeriesFold
+
+cv = TimeSeriesFold(
+         steps              = 12,
+         initial_train_size = 120,
+         refit              = False,
+     )
+
+result = assistant.backtest(
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             cv          = cv,
+         )
+```
+
+`create_cv()` is a convenience wrapper that picks sensible `TimeSeriesFold` defaults for you; when you already know the exact split you want, constructing it directly is equivalent. See skforecast's [backtesting user guide](https://skforecast.org/latest/user_guides/backtesting) for every available option.
+
+### Describe it in words *(requires an LLM)*
+
+If you have [an LLM configured](using-the-ai-assistant.md), describe your evaluation scenario in plain language and let `create_cv()` translate it into fold parameters via the `prompt` argument:
+
+```python
+assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", api_key="YOUR_API_KEY")
+cv, explanation = assistant.create_cv(
+                      profile = profile,
+                      plan    = plan,
+                      prompt  = "I retrain every Monday and need forecasts for the next 7 days.",
+                  )
+```
+
+Without an LLM, `prompt` raises `LLMRequiredError`; the deterministic defaults and explicit keyword arguments above cover everything you need in the default mode.
 
 ## Reading the result
 
@@ -83,29 +126,21 @@ print(result.cv_config)     # exactly which folds were run
 print(result.explanation)
 ```
 
-## Just the script, please
+## Python script 
 
 To get the backtesting script **without** executing it, to audit it or run it elsewhere: use `backtest_code()` instead of `backtest()`. It takes the same arguments and returns a `CodeGenerationResult` whose `.code` is the standalone script. See [Reproducible code](reproducible-code.md).
 
 ```python
-generated = assistant.backtest_code(data, target="y", date_column="date", cv=cv,
-                                    profile=profile, plan=plan)
+generated = assistant.backtest_code(
+                data        = data,
+                target      = "y",
+                date_column = "date",
+                cv          = cv,
+                profile     = profile,
+                plan        = plan
+            )
 print(generated.code)
 ```
-
-## Letting the LLM configure the folds *(optional)*
-
-If you have [an LLM configured](using-the-ai-assistant.md), you can describe your evaluation scenario in words and let it translate that into fold parameters via the `prompt` argument:
-
-```python
-assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
-cv, explanation = assistant.create_cv(
-    profile, plan,
-    prompt="I retrain every Monday and need forecasts for the next 7 days.",
-)
-```
-
-Without an LLM, `prompt` raises `LLMRequiredError`; the deterministic defaults and explicit keyword arguments above cover everything you need in the default mode.
 
 ## Next steps
 

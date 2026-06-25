@@ -115,7 +115,7 @@ conformal calibration is required.
 # Interval (lower/upper bounds from the model's quantiles)
 predictions = forecaster.predict_interval(
     steps=24,
-    interval=[10, 90],   # 80% prediction interval
+    interval=[0.1, 0.9],   # 80% prediction interval
 )
 # Columns: ['level', 'pred', 'lower_bound', 'upper_bound']
 

@@ -282,14 +282,14 @@ def _parse_target(target_str: str) -> str | list[str]:
     return parts if len(parts) > 1 else parts[0]
 
 
-def _parse_interval(interval_str: str | None) -> list[int] | None:
+def _parse_interval(interval_str: str | None) -> list[float] | None:
     """
     Parse `'lower,upper'` interval string into a two-element list or None.
 
     Parameters
     ----------
     interval_str : str, None
-        Comma-separated lower and upper percentiles (e.g. `'10,90'`).
+        Comma-separated lower and upper quantiles (e.g. `'0.1,0.9'`).
 
     Returns
     -------
@@ -298,10 +298,10 @@ def _parse_interval(interval_str: str | None) -> list[int] | None:
     """
     if interval_str is None:
         return None
-    parts = [int(x.strip()) for x in interval_str.split(",")]
+    parts = [float(x.strip()) for x in interval_str.split(",")]
     if len(parts) != 2:
         raise typer.BadParameter(
-            "Interval must be two comma-separated integers, e.g. '10,90'."
+            "Interval must be two comma-separated quantiles, e.g. '0.1,0.9'."
         )
     return parts
 
@@ -334,6 +334,56 @@ def _parse_estimator_kwargs(value: str | None) -> dict | None:
             "e.g. '{\"n_estimators\": 200}'."
         )
     return parsed
+
+
+def _load_exog_future(
+    path: Path | None,
+    date_column: str | None,
+    frequency: str | None = None,
+) -> pd.DataFrame | None:
+    """
+    Load a future exogenous CSV and set its datetime index.
+
+    Mirrors the index setup applied to the main dataset: when a date
+    column is provided it is parsed to datetime and set as the index;
+    otherwise the first column is parsed as the index. The frequency is
+    applied with `asfreq` when known and the index is sorted, so the
+    returned DataFrame carries a DatetimeIndex covering the forecast
+    horizon as required by skforecast.
+
+    Parameters
+    ----------
+    path : Path, None
+        Path to the future exogenous CSV file. If None, returns None.
+    date_column : str, None
+        Name of the column containing timestamps. If None, the first
+        column is parsed as the datetime index.
+    frequency : str, default None
+        Pandas frequency string to apply with `asfreq`. If None, no
+        frequency is enforced.
+
+    Returns
+    -------
+    exog_future : pandas DataFrame, None
+        Future exogenous variables indexed by a DatetimeIndex, or None
+        when `path` is None.
+    """
+    if path is None:
+        return None
+    if not path.is_file():
+        raise FileNotFoundError(f"Exog future CSV not found: '{path}'.")
+
+    if date_column is not None:
+        exog = pd.read_csv(path)
+        exog[date_column] = pd.to_datetime(exog[date_column])
+        exog = exog.set_index(date_column)
+    else:
+        exog = pd.read_csv(path, index_col=0, parse_dates=True)
+
+    if frequency:
+        exog = exog.asfreq(frequency)
+
+    return exog.sort_index()
 
 
 def _write_output(content: str, output: Path | None) -> None:
@@ -539,7 +589,7 @@ def plan(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -597,7 +647,7 @@ def refine_plan(
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Override forecast horizon.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '0.1,0.9'.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
@@ -648,7 +698,7 @@ def forecast_code(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -708,7 +758,7 @@ def backtest_code(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
     fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
     refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
@@ -881,10 +931,6 @@ def _forecast_result_to_json(result) -> str:
         "metrics": result.metrics.to_dict(orient="records"),
         "predictions": result.predictions.reset_index().to_dict(orient="records"),
     }
-    if result.intervals is not None:
-        data["intervals"] = result.intervals.reset_index().to_dict(orient="records")
-    else:
-        data["intervals"] = None
     return json.dumps(data, indent=2, default=str)
 
 
@@ -898,7 +944,7 @@ def forecast(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     exog_future: Annotated[Path | None, typer.Option("--exog-future", help="CSV with future exogenous variables.")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,
@@ -912,18 +958,16 @@ def forecast(
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
 
-        exog_future_df = None
-        if exog_future is not None:
-            if not exog_future.is_file():
-                raise FileNotFoundError(
-                    f"Exog future CSV not found: '{exog_future}'."
-                )
-            exog_future_df = pd.read_csv(exog_future)
-
         if from_plan is not None:
             bundle = _read_json_input(from_plan)
             prof = ForecastingProfile.model_validate(bundle["profile"])
             plan_obj = ForecastPlan.model_validate(bundle["plan"])
+
+            exog_future_df = _load_exog_future(
+                exog_future,
+                date_column=prof.data_profile.date_column,
+                frequency=prof.data_profile.frequency,
+            )
 
             with _spinner("Running forecast from plan...", quiet):
                 result = assistant.forecast(
@@ -944,6 +988,10 @@ def forecast(
                 raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
 
+            exog_future_df = _load_exog_future(
+                exog_future, date_column=date_column
+            )
+
             with _spinner("Running forecast...", quiet):
                 result = assistant.forecast(
                     data=data, target=parsed_target, steps=steps,
@@ -954,10 +1002,7 @@ def forecast(
                 )
 
         if output_predictions is not None:
-            preds = result.predictions
-            if result.intervals is not None:
-                preds = result.intervals
-            preds.to_csv(output_predictions)
+            result.predictions.to_csv(output_predictions)
             console.print(f"[green]Predictions written to:[/green] {output_predictions}")
 
         if output_code is not None:
@@ -998,13 +1043,16 @@ def _render_backtest_results(result) -> None:
     metrics = result.metrics
     table = Table(title="Backtest Metrics", show_lines=True)
 
-    if "series" in metrics.columns:
+    series_col = next(
+        (c for c in ("series", "levels") if c in metrics.columns), None
+    )
+    if series_col is not None:
         table.add_column("Series", style="bold")
-        metric_cols = [c for c in metrics.columns if c != "series"]
+        metric_cols = [c for c in metrics.columns if c != series_col]
         for col in metric_cols:
             table.add_column(col, justify="right")
         for _, row in metrics.iterrows():
-            values = [str(row["series"])]
+            values = [str(row[series_col])]
             for col in metric_cols:
                 val = row[col]
                 values.append(f"{val:.4f}" if val is not None else "N/A")

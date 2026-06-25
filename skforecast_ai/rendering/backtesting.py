@@ -5,6 +5,7 @@ from typing import Any
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
+    _emit_calendar_features,
     _emit_data_loading,
     _emit_imports_foundation,
     _emit_imports_multi_series,
@@ -165,6 +166,11 @@ def render_backtesting_single_series(
         _emit_window_features(core_lines, window_features)
         core_lines.append("")
 
+    # --- Calendar features ---
+    if kwargs.get("calendar_features"):
+        _emit_calendar_features(core_lines, kwargs["calendar_features"])
+        core_lines.append("")
+
     # --- Transformer exog ---
     if transformer_exog and plan.use_exog and profile.exog_columns:
         _emit_transformer_exog(core_lines, transformer_exog, profile)
@@ -279,6 +285,11 @@ def render_backtesting_multi_series(
         _emit_window_features(core_lines, window_features)
         core_lines.append("")
 
+    # --- Calendar features ---
+    if kwargs.get("calendar_features"):
+        _emit_calendar_features(core_lines, kwargs["calendar_features"])
+        core_lines.append("")
+
     # --- Transformer exog ---
     if transformer_exog and use_exog:
         _emit_transformer_exog(core_lines, transformer_exog, profile)
@@ -391,6 +402,11 @@ def render_backtesting_multivariate(
         _emit_window_features(core_lines, window_features)
         core_lines.append("")
 
+    # --- Calendar features ---
+    if kwargs.get("calendar_features"):
+        _emit_calendar_features(core_lines, kwargs["calendar_features"])
+        core_lines.append("")
+
     # --- Transformer exog ---
     if transformer_exog and use_exog:
         _emit_transformer_exog(core_lines, transformer_exog, profile)
@@ -430,7 +446,7 @@ def _get_quantiles_from_plan(plan: ForecastPlan) -> list[float] | None:
     if plan.interval_method is None:
         return None
     if plan.interval is not None:
-        quantiles = [round(v / 100, 2) for v in plan.interval]
+        quantiles = list(plan.interval)
         if 0.5 not in quantiles:
             quantiles = sorted([quantiles[0], 0.5, quantiles[1]])
         return quantiles

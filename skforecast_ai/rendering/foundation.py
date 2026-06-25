@@ -104,7 +104,7 @@ def render_forecast_foundation(
     if plan.interval_method is not None:
         # Derive quantiles from interval if provided
         if plan.interval is not None:
-            quantiles = [round(v / 100, 2) for v in plan.interval]
+            quantiles = list(plan.interval)
             # Add median if not present
             if 0.5 not in quantiles:
                 quantiles = sorted([quantiles[0], 0.5, quantiles[1]])

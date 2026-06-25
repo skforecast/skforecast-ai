@@ -1,32 +1,70 @@
-# Going further: features & tuning
+# Going further: customizing & tuning
 
-The assistant gives you a solid, deterministic baseline and the exact code behind it. Two levers usually move accuracy the most from there: **better features** and **tuned hyperparameters**. Both live in `skforecast` itself: you apply them to the generated script, and the [AI assistant](using-the-ai-assistant.md) can explain the options (it ships `feature-engineering`, `feature-selection`, and `hyperparameter-optimization` skills that ground its answers).
+The assistant gives you a deterministic baseline and the exact code behind it. That baseline is already feature-rich: profiling picks the **lags** (from the series autocorrelation), builds **rolling window features**, and adds **calendar features** when the frequency supports them, and all three are wired into the forecaster for you. "Going further" means *adjusting* those choices, not adding them from scratch.
 
-!!! note "Where this runs"
-    These are `skforecast` capabilities you apply to the exported baseline, not `ForecastingAssistant` methods. Start from `result.code` ([Reproducible code](reproducible-code.md)) and extend it.
+!!! note "Two ways to customize"
+    - **Through the assistant** with `refine_plan()`, for the knobs it exposes (`forecaster`, `estimator`, `estimator_kwargs`, `steps`, `interval`). The plan and the generated code stay in sync.
+    - **By editing the exported code** (`result.code`, see [Reproducible code](reproducible-code.md)) for everything else: the lags, the window/calendar features, or any other forecaster argument. These are derived deterministically from the profile and are not exposed as overrides.
 
-## Feature engineering
+## What the baseline already includes
 
-The biggest, cheapest wins are usually calendar and rolling features. All of these are built into `skforecast.preprocessing`, with no extra dependencies.
-
-**Calendar features** with `DateTimeFeatureTransformer` (use as `transformer_exog`):
+Run `profile()` then `plan()` and inspect what was chosen before changing anything. The concrete decisions (lags, window/calendar features, encoding) live in `plan.forecaster_kwargs`, and the estimator settings in `plan.estimator_kwargs`:
 
 ```python
-from skforecast.preprocessing import DateTimeFeatureTransformer
+profile = assistant.profile(data, target="y", date_column="date")
+plan    = assistant.plan(profile, steps=24)
 
-transformer_exog = DateTimeFeatureTransformer(
-    features=["month", "day_of_week", "week", "hour"],
-    encoding="cyclical",   # 'cyclical' | 'onehot' | 'spline' | None
+print(plan.forecaster_kwargs)   # lags, window_features, calendar_features, encoding, ...
+print(plan.estimator_kwargs)    # estimator hyperparameters (n_estimators, learning_rate, ...)
+```
+
+In the generated script these become real `skforecast` objects, for example:
+
+```python
+window_features = RollingFeatures(
+    stats        = ["mean", "std", "min", "max"],
+    window_sizes = [24, 24, 24, 24],
+)
+calendar_features = CalendarFeatures(
+    features = ["month", "week", "day_of_week", "hour"],
+    encoding = "cyclical",
 )
 ```
 
-**Rolling statistics** with `RollingFeatures` (mean, std, min, max, … over a window), passed via the `window_features` argument the assistant already configures for you. For non-stationary series, the `differentiation` argument makes the target stationary before modelling.
+## Tune what the assistant exposes (`refine_plan`)
 
-After adding features, prune redundant ones with `select_features` (the `feature-selection` skill covers this) so the model (and any search) stays tractable.
+To change the estimator, its hyperparameters, the horizon, or the interval, refine the plan. Everything else is re-derived deterministically, so the rest of the pipeline (and the code) stays consistent:
 
-## Hyperparameter optimization
+```python
+plan = assistant.refine_plan(
+           profile          = profile,
+           plan             = plan,
+           estimator        = "LGBMRegressor",
+           estimator_kwargs = {"n_estimators": 300, "learning_rate": 0.05},
+       )
 
-The assistant fixes a sensible estimator configuration deterministically. To push accuracy, run a search over the exported forecaster. `skforecast` offers three strategies:
+result = assistant.forecast(
+             data        = data, 
+             target      = "y",
+             date_column = "date", 
+             steps       = 24, 
+             profile     = profile, 
+             plan        = plan
+         )
+
+# The complete, standalone Python script that was executed
+print(result.code)
+```
+
+Then re-[backtest](backtesting.md) to confirm the change actually helped. This is the [human-in-the-loop workflow](human-in-the-loop.md) applied to tuning.
+
+## Customize lags, features, or any forecaster argument
+
+Lags, `window_features`, and `calendar_features` are not exposed by `refine_plan` (they come from the profile). To change them, start from the exported `result.code` and edit the forecaster construction directly: tweak `lags=...`, adjust the `RollingFeatures` / `CalendarFeatures` definitions, or set any other `skforecast` argument such as `differentiation` (to make a non-stationary series stationary) or `transformer_y`. After adding features, prune redundant ones with `select_features` (the assistant ships a `feature-selection` skill that explains this) so the model stays tractable. For the full range of `skforecast` options, see its [user guides table of contents](https://skforecast.org/latest/user_guides/table-of-contents).
+
+## Hyperparameter optimization *(manual for now)*
+
+Automated hyperparameter search is **not yet built into the assistant**; it is on the roadmap. In the meantime you can run a search yourself over the exported forecaster with `skforecast`, then feed the winning configuration back with `refine_plan(estimator_kwargs=...)`. For the full reference, see skforecast's [hyperparameter tuning and lag selection guide](https://skforecast.org/latest/user_guides/hyperparameter-tuning-and-lags-selection). `skforecast` offers three strategies:
 
 | Strategy | When | Speed |
 | --- | --- | --- |
@@ -53,10 +91,15 @@ def search_space(trial):
     }
 
 results, study = bayesian_search_forecaster(
-    forecaster=forecaster, y=data["target"], cv=cv,
-    search_space=search_space, metric="mean_absolute_error",
-    n_trials=50, return_best=True, random_state=123,
-)
+                     forecaster   = forecaster, 
+                     y            = data["target"], 
+                     cv           = cv,
+                     search_space = search_space, 
+                     metric       = "mean_absolute_error",
+                     n_trials     = 50, 
+                     return_best  = True, 
+                     random_state = 123,
+                 )
 ```
 
 Tips that save the most time and grief:
@@ -66,9 +109,9 @@ Tips that save the most time and grief:
 - **Use ≥ 20–50 trials** for Bayesian search to explore meaningfully.
 - Multi-series and statistical models have matching functions (`bayesian_search_forecaster_multiseries`, `grid_search_stats`).
 
-## Fold it back into the loop
+## Fold the result back in
 
-Feed a tuned configuration back through the assistant with `refine_plan(estimator=..., estimator_kwargs=...)` so the rest of your pipeline (and the generated code) stays consistent, then re-[backtest](backtesting.md) to confirm the gain is real. That's the [human-in-the-loop workflow](human-in-the-loop.md) applied to tuning.
+Once a search settles on good estimator hyperparameters, feed them back through the assistant with `refine_plan(estimator_kwargs=...)` so the plan and the generated code stay consistent, then re-[backtest](backtesting.md) to confirm the gain is real. That is the [human-in-the-loop workflow](human-in-the-loop.md) applied to tuning.
 
 ## Next steps
 

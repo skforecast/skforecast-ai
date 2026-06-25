@@ -285,6 +285,14 @@ class ForecastingProfile(BaseModel):
         `'window_sizes'`). Computed eagerly at profile time as they are
         forecaster-invariant. None when the series is too short or the
         task is statistical/foundation.
+    calendar_features : list of str, default None
+        Recommended calendar feature names (a subset of those supported
+        by `skforecast.preprocessing.CalendarFeatures`). Computed eagerly
+        at profile time as they depend only on the index frequency and
+        series length. None when the frequency is unknown, the series is
+        too short, the frequency has no sub-period seasonality, or the
+        task is statistical/foundation. The encoding is chosen later in
+        `plan()` based on the resolved estimator.
     explanation : str
         Human-readable explanation of why this forecaster + estimator
         combination was chosen.
@@ -304,4 +312,5 @@ class ForecastingProfile(BaseModel):
     estimator_candidates: list[str] = Field(default_factory=list)
     series_pacf: list[SeriesPacf] = Field(default_factory=list)
     window_features: list[dict] | None = None
+    calendar_features: list[str] | None = None
     explanation: str

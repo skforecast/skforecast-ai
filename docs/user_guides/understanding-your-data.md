@@ -35,14 +35,23 @@ dp = profile.data_profile
 | `dp.series_lengths` | Per-series start, end, and observation count. |
 | `dp.n_total_observations` | Pooled total across all series. |
 
+Each entry in `dp.series_lengths` is a `SeriesLengthInfo` with `.start`, `.end`, and `.length` attributes:
+
+```python
+for name, info in dp.series_lengths.items():
+    print(f"{name}: {info.length} obs  ({info.start} -> {info.end})")
+```
+
 The number of observations matters: it directly influences estimator choice (small datasets favor simpler models). See [Customizing the model](customizing-the-model.md).
 
 ### Time index
 
 ```python
-print(dp.index_type)       # 'datetime', 'range', or 'other'
-print(dp.frequency)        # e.g. 'MS' (month start), 'D', 'h'
-print(dp.has_gaps)         # missing timestamps within the range?
+print(dp.index_type)        # 'datetime', 'range', or 'other'
+print(dp.frequency)         # e.g. 'MS' (month start), 'D', 'h'
+print(dp.frequency_is_set)  # is index.freq already set?
+print(dp.index_is_monotonic)# timestamps sorted ascending?
+print(dp.has_gaps)          # missing timestamps within the range?
 ```
 
 | Field | Why it matters |
@@ -96,13 +105,15 @@ A compact snippet to sanity-check any dataset before forecasting:
 ```python
 dp = assistant.profile(data, target="y", date_column="date").data_profile
 
-print(f"format:        {dp.data_format}  (n_series={dp.n_series})")
-print(f"index:         {dp.index_type}  freq={dp.frequency}")
-print(f"gaps/dupes:    {dp.has_gaps} / {dp.has_duplicate_timestamps}")
-print(f"missing target:{dp.missing_target}")
-print(f"exog columns:  {dp.exog_columns}")
+print(f"format:         {dp.data_format}  (n_series={dp.n_series})")
+print(f"observations:   {dp.n_total_observations}")
+print(f"index:          {dp.index_type}  freq={dp.frequency}  (set={dp.frequency_is_set})")
+print(f"monotonic:      {dp.index_is_monotonic}")
+print(f"gaps/dupes:     {dp.has_gaps} / {dp.has_duplicate_timestamps}")
+print(f"missing target: {dp.missing_target}")
+print(f"exog columns:   {dp.exog_columns}")
 for w in dp.warnings:
-    print("⚠", w)
+    print("warning:", w)
 ```
 
 !!! tip "Ask the assistant to interpret the profile (optional LLM)"
@@ -111,15 +122,19 @@ for w in dp.warnings:
     the data first (deterministically) and then the LLM explains the findings:
 
     ```python
-    assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
+    assistant = ForecastingAssistant(
+        llm="openai:gpt-4o-mini", api_key="your_api_key_here"
+    )
+
+    prompt = "My series has gaps and missing target values. What should I fix before forecasting?"
 
     answer = assistant.ask(
-        "My series has gaps and missing target values. What should I fix before forecasting?",
-        data=data,
-        target="y",
-        date_column="date",
-        steps=12,
-    )
+                 prompt      = prompt,
+                 data        = data,
+                 target      = "y",
+                 date_column = "date",
+                 steps       = 12,
+             )
     print(answer.explanation)
     ```
 

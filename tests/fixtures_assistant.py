@@ -87,3 +87,16 @@ df_constant_target = pd.DataFrame(
         "sales": np.full(_n_obs, 42.0),
     }
 )
+
+# --- Single series as a named pandas Series with DatetimeIndex ---
+series_single = pd.Series(
+    np.arange(_n_obs, dtype=float),
+    index=_dates,
+    name="sales",
+)
+
+# --- Single series as an unnamed pandas Series with DatetimeIndex ---
+series_unnamed = pd.Series(
+    np.arange(_n_obs, dtype=float),
+    index=_dates,
+)

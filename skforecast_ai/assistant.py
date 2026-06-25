@@ -9,6 +9,7 @@ import warnings
 from pathlib import Path
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
+from skforecast.exceptions import IgnoredArgumentWarning
 from .exceptions import LLMRequiredError
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
@@ -31,6 +32,8 @@ from .recommendation import (
     derive_cv_defaults,
     derive_preprocessing_steps,
     finalize_lags,
+    select_calendar_encoding,
+    select_calendar_features,
     select_dropna_from_series,
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
@@ -49,7 +52,7 @@ from .schemas import (
     ForecastResult,
 )
 from ._utils import (
-    _coerce_to_dataframe,
+    _resolve_data_and_target,
     _run_agent_sync,
     _strip_code_blocks,
     _validate_task_input,
@@ -152,8 +155,8 @@ class ForecastingAssistant:
 
     def profile(
         self,
-        data: pd.DataFrame | str | Path,
-        target: str | list[str],
+        data: pd.Series | pd.DataFrame | str | Path,
+        target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
     ) -> ForecastingProfile:
@@ -167,11 +170,14 @@ class ForecastingAssistant:
 
         Parameters
         ----------
-        data : pandas DataFrame, str, Path
-            Input dataset or path to a CSV file.
-        target : str, list of str
+        data : pandas Series, pandas DataFrame, str, Path
+            Input dataset, a single series, or path to a CSV file. When a
+            pandas Series is passed, the target is derived from its name.
+        target : str, list of str, default None
             Name of the column to forecast. For wide-format multi-series,
             pass a list of column names where each column is a series.
+            Optional only when `data` is a pandas Series, in which case the
+            Series name is used (or `'y'` when the Series has no name).
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
@@ -185,7 +191,7 @@ class ForecastingAssistant:
         """
 
         data_path = str(data) if isinstance(data, (str, Path)) else "data.csv"
-        data = _coerce_to_dataframe(data)
+        data, target = _resolve_data_and_target(data, target)
 
         data_profile = create_data_profile(
             data             = data,
@@ -205,6 +211,12 @@ class ForecastingAssistant:
                               frequency      = data_profile.frequency,
                               series_pacf    = series_pacf,
                           )
+
+        calendar_features = select_calendar_features(
+                                task_type      = task_type,
+                                frequency      = data_profile.frequency,
+                                n_observations = data_profile.span_index_length,
+                            )
 
         estimator, estimator_candidates = select_estimator_and_candidates(
             task_type=task_type, n_observations=data_profile.n_total_observations
@@ -228,6 +240,7 @@ class ForecastingAssistant:
             estimator_candidates  = estimator_candidates,
             series_pacf           = series_pacf,
             window_features       = window_features,
+            calendar_features     = calendar_features,
             explanation           = explanation,
         )
 
@@ -238,7 +251,7 @@ class ForecastingAssistant:
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[int] | None = None,
+        interval: list[float] | None = None,
     ) -> ForecastPlan:
         """
         Build a detailed `ForecastPlan` from a `ForecastingProfile`.
@@ -265,9 +278,9 @@ class ForecastingAssistant:
             `{'n_estimators': 200, 'learning_rate': 0.05}`). Merged
             on top of built-in defaults (`random_state`, silencing
             flags). User values take precedence.
-        interval : list of int, default None
-            Prediction interval percentiles as a two-element list
-            `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
+        interval : list of float, default None
+            Prediction interval quantiles as a two-element list
+            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
             None, no prediction intervals are computed.
 
         Returns
@@ -315,6 +328,7 @@ class ForecastingAssistant:
             transformer_series = None
             transformer_exog = None
             dropna_from_series = None
+            calendar_features = None
         else:
             lags = finalize_lags(
                 series_pacf     = profile.series_pacf,
@@ -323,6 +337,14 @@ class ForecastingAssistant:
                 frequency       = data_profile.frequency,
             )
             window_features = profile.window_features
+
+            if profile.calendar_features:
+                calendar_features = {
+                    "features": profile.calendar_features,
+                    "encoding": select_calendar_encoding(est, task_type),
+                }
+            else:
+                calendar_features = None
 
             transformer_series = select_transformer_series(est, task_type)
 
@@ -346,9 +368,10 @@ class ForecastingAssistant:
             steps              = steps,
             lags               = lags,
             window_features    = window_features,
+            calendar_features  = calendar_features,
             transformer_series = transformer_series,
             transformer_exog   = transformer_exog,
-            dropna_from_series = dropna_from_series,
+            dropna_from_series = dropna_from_series
         )
 
         interval_method = None
@@ -375,6 +398,7 @@ class ForecastingAssistant:
             dropna_from_series = dropna_from_series,
             use_exog           = use_exog,
             metric_explanation = metric_explanation,
+            calendar_features  = calendar_features,
         )
 
         return ForecastPlan(
@@ -453,15 +477,15 @@ class ForecastingAssistant:
 
     def forecast_code(
         self,
-        data: pd.DataFrame | str | Path | None = None,
-        target: str | list[str] | None = None,
+        data: pd.Series | pd.DataFrame | str | Path | None = None,
         steps: int | None = None,
+        target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[int] | None = None,
+        interval: list[float] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
     ) -> CodeGenerationResult:
@@ -475,15 +499,17 @@ class ForecastingAssistant:
 
         Parameters
         ----------
-        data : pandas DataFrame, str, Path, default None
-            Input dataset or path to a CSV file. Required when
-            `profile` is not provided.
-        target : str, list of str, default None
-            Name of the column to forecast. Required when `profile`
-            is not provided.
+        data : pandas Series, pandas DataFrame, str, Path, default None
+            Input dataset, a single series, or path to a CSV file. Required
+            when `profile` is not provided. When a pandas Series is passed,
+            the target is derived from its name.
         steps : int, default None
             Forecast horizon (number of steps ahead to predict).
             Required when `plan` is not provided.
+        target : str, list of str, default None
+            Name of the column to forecast. Required when `profile`
+            is not provided, unless `data` is a pandas Series (the Series
+            name is used instead).
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
@@ -495,9 +521,9 @@ class ForecastingAssistant:
         estimator_kwargs : dict, default None
             Keyword arguments for the estimator constructor (e.g.
             `{'n_estimators': 200}`). See `plan()`.
-        interval : list of int, default None
-            Prediction interval percentiles as a two-element list
-            `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
+        interval : list of float, default None
+            Prediction interval quantiles as a two-element list
+            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
             None, no prediction intervals are computed.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling. If None, profiling
@@ -543,15 +569,15 @@ class ForecastingAssistant:
 
     def forecast(
         self,
-        data: pd.DataFrame | str | Path,
-        target: str | list[str],
+        data: pd.Series | pd.DataFrame | str | Path,
         steps: int,
+        target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[int] | None = None,
+        interval: list[float] | None = None,
         exog_future: pd.DataFrame | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
@@ -564,12 +590,14 @@ class ForecastingAssistant:
 
         Parameters
         ----------
-        data : pandas DataFrame, str, Path
-            Input dataset or path to a CSV file.
-        target : str, list of str
-            Name of the column to forecast.
+        data : pandas Series, pandas DataFrame, str, Path
+            Input dataset, a single series, or path to a CSV file. When a
+            pandas Series is passed, the target is derived from its name.
         steps : int
             Forecast horizon (number of steps ahead to predict).
+        target : str, list of str, default None
+            Name of the column to forecast. Optional only when `data` is a
+            pandas Series (the Series name is used instead).
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
@@ -581,9 +609,9 @@ class ForecastingAssistant:
         estimator_kwargs : dict, default None
             Keyword arguments for the estimator constructor (e.g.
             `{'n_estimators': 200}`). See `plan()`.
-        interval : list of int, default None
-            Prediction interval percentiles as a two-element list
-            `[lower, upper]` (e.g. `[10, 90]` for 80 % interval). If
+        interval : list of float, default None
+            Prediction interval quantiles as a two-element list
+            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
             None, no prediction intervals are computed.
         exog_future : pandas DataFrame, default None
             Exogenous variables covering the forecast horizon
@@ -602,8 +630,9 @@ class ForecastingAssistant:
         Returns
         -------
         result : ForecastResult
-            Forecasting profile, plan, generated code, predictions,
-            backtesting metric, and optional prediction intervals.
+            Forecasting profile, plan, generated code, predictions, and
+            backtesting metric. When prediction intervals are requested,
+            the interval columns are included in `result.predictions`.
 
         Notes
         -----
@@ -612,7 +641,7 @@ class ForecastingAssistant:
         script (`ForecastResult.code`) and the actual execution.
         """
 
-        data_df = _coerce_to_dataframe(data)
+        data_df, target = _resolve_data_and_target(data, target)
 
         if profile is None:
             profile = self.profile(
@@ -644,7 +673,6 @@ class ForecastingAssistant:
             code        = result["rendered_code"].full_script,
             metrics     = result["metrics"],
             predictions = result["predictions"],
-            intervals   = result["intervals"],
         )
 
     def create_cv(
@@ -800,9 +828,14 @@ class ForecastingAssistant:
 
         # Validate fold count (unless initial_train_size is a date string)
         if not skip_validation:
-            folds = cv.split(
-                X=pd.RangeIndex(span_index_length), as_pandas=False
-            )
+            # `window_size` is unset here (no forecaster attached yet), so
+            # skforecast emits an IgnoredArgumentWarning about the last
+            # window. It is irrelevant for the fold-count check below.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
+                folds = cv.split(
+                    X=pd.RangeIndex(span_index_length), as_pandas=False
+                )
             n_folds = len(folds)
             if n_folds < 2:
                 raise ValueError(
@@ -827,15 +860,15 @@ class ForecastingAssistant:
 
     def backtest_code(
         self,
-        data: pd.DataFrame | str | Path,
-        target: str | list[str],
+        data: pd.Series | pd.DataFrame | str | Path,
         cv: TimeSeriesFold,
+        target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[int] | None = None,
+        interval: list[float] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
     ) -> CodeGenerationResult:
@@ -848,13 +881,15 @@ class ForecastingAssistant:
 
         Parameters
         ----------
-        data : pandas DataFrame, str, Path
-            Input dataset or path to a CSV file.
-        target : str, list of str
-            Name of the column(s) to forecast.
+        data : pandas Series, pandas DataFrame, str, Path
+            Input dataset, a single series, or path to a CSV file. When a
+            pandas Series is passed, the target is derived from its name.
         cv : TimeSeriesFold
             Time series cross-validation fold splitter (output of
             `create_cv()` or user-constructed) [1]_.
+        target : str, list of str, default None
+            Name of the column(s) to forecast. Optional only when `data`
+            is a pandas Series (the Series name is used instead).
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
@@ -865,8 +900,8 @@ class ForecastingAssistant:
             Explicit estimator class name. See `profile()`.
         estimator_kwargs : dict, default None
             Keyword arguments for the estimator constructor.
-        interval : list of int, default None
-            Prediction interval percentiles as `[lower, upper]`.
+        interval : list of float, default None
+            Prediction interval quantiles as `[lower, upper]`.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling.
         plan : ForecastPlan, default None
@@ -910,15 +945,15 @@ class ForecastingAssistant:
 
     def backtest(
         self,
-        data: pd.DataFrame | str | Path,
-        target: str | list[str],
+        data: pd.Series | pd.DataFrame | str | Path,
         cv: TimeSeriesFold,
+        target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[int] | None = None,
+        interval: list[float] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
         show_progress: bool = True,
@@ -933,13 +968,15 @@ class ForecastingAssistant:
 
         Parameters
         ----------
-        data : pandas DataFrame, str, Path
-            Input dataset or path to a CSV file.
-        target : str, list of str
-            Name of the column(s) to forecast.
+        data : pandas Series, pandas DataFrame, str, Path
+            Input dataset, a single series, or path to a CSV file. When a
+            pandas Series is passed, the target is derived from its name.
         cv : TimeSeriesFold
             Time series cross-validation fold splitter (output of `create_cv()`
             or user-constructed) [1]_.
+        target : str, list of str, default None
+            Name of the column(s) to forecast. Optional only when `data`
+            is a pandas Series (the Series name is used instead).
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
@@ -950,8 +987,8 @@ class ForecastingAssistant:
             Explicit estimator class name. See `profile()`.
         estimator_kwargs : dict, default None
             Keyword arguments for the estimator constructor.
-        interval : list of int, default None
-            Prediction interval percentiles as `[lower, upper]`.
+        interval : list of float, default None
+            Prediction interval quantiles as `[lower, upper]`.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling.
         plan : ForecastPlan, default None
@@ -978,7 +1015,7 @@ class ForecastingAssistant:
         
         """
 
-        data_df = _coerce_to_dataframe(data)
+        data_df, target = _resolve_data_and_target(data, target)
 
         profile, plan = self._prepare_backtest(
             data             = data_df,
@@ -996,18 +1033,23 @@ class ForecastingAssistant:
 
         # Build human-readable CV explanation
         span_index_length = profile.data_profile.span_index_length
-        if isinstance(cv.initial_train_size, str):
-            # Date-based initial_train_size requires a DatetimeIndex.
-            index = pd.date_range(
-                        start   = profile.data_profile.start_date,
-                        periods = span_index_length,
-                        freq    = profile.data_profile.frequency,
-                    )
-            folds = cv.split(X=index, as_pandas=False)
-        else:
-            folds = cv.split(
-                X=pd.RangeIndex(span_index_length), as_pandas=False
-            )
+        # `window_size` is unset here (no forecaster attached yet), so
+        # skforecast emits an IgnoredArgumentWarning about the last
+        # window. It is irrelevant for building the explanation below.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
+            if isinstance(cv.initial_train_size, str):
+                # Date-based initial_train_size requires a DatetimeIndex.
+                index = pd.date_range(
+                            start   = profile.data_profile.start_date,
+                            periods = span_index_length,
+                            freq    = profile.data_profile.frequency,
+                        )
+                folds = cv.split(X=index, as_pandas=False)
+            else:
+                folds = cv.split(
+                    X=pd.RangeIndex(span_index_length), as_pandas=False
+                )
 
         # Extract cv_config after split
         cv_config = {
@@ -1047,7 +1089,7 @@ class ForecastingAssistant:
     def ask(
         self,
         prompt: str,
-        data: pd.DataFrame | str | Path | None = None,
+        data: pd.Series | pd.DataFrame | str | Path | None = None,
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
@@ -1070,8 +1112,8 @@ class ForecastingAssistant:
         - Explain mode (data or profile provided): deterministic
           profiling runs first, then the LLM explains the result.
         - Results mode (forecast_result provided): the LLM explains
-          forecast predictions, metrics, and intervals from a
-          completed `forecast()` run.
+          forecast predictions (including any interval columns) and
+          metrics from a completed `forecast()` run.
         - Backtest mode (backtest_result provided): the LLM explains
           backtesting metrics, predictions, and CV configuration from a
           completed `backtest()` run.
@@ -1080,13 +1122,16 @@ class ForecastingAssistant:
         ----------
         prompt : str
             Natural-language question or instruction.
-        data : pandas DataFrame, str, Path, default None
-            Optional dataset or path to a CSV file. When provided
-            (without a pre-computed profile), triggers deterministic
-            profiling + plan generation before the LLM call.
+        data : pandas Series, pandas DataFrame, str, Path, default None
+            Optional dataset, a single series, or path to a CSV file. When
+            provided (without a pre-computed profile), triggers
+            deterministic profiling + plan generation before the LLM call.
+            When a pandas Series is passed, the target is derived from its
+            name.
         target : str, list of str, default None
             Name of the target column(s). Required when `data` is
-            provided and `profile` is None.
+            provided and `profile` is None, unless `data` is a pandas
+            Series (the Series name is used instead).
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
@@ -1097,10 +1142,10 @@ class ForecastingAssistant:
             Pre-computed plan. If provided, plan generation is skipped.
         forecast_result : ForecastResult, default None
             Result from a previous `forecast()` call. When provided,
-            the LLM receives predictions, metrics, and intervals in
-            context so it can explain the forecast results. Extracts
-            `profile` and `plan` from the result unless
-            explicitly provided.
+            the LLM receives predictions (including any interval
+            columns) and metrics in context so it can explain the
+            forecast results. Extracts `profile` and `plan` from the
+            result unless explicitly provided.
         backtest_result : BacktestResult, default None
             Result from a previous `backtest()` call. When provided,
             the LLM receives backtesting metrics, predictions, and
@@ -1143,14 +1188,12 @@ class ForecastingAssistant:
         # --- Extract from forecast_result if provided ---
         predictions = None
         metrics = None
-        intervals = None
         cv_config = None
         if forecast_result is not None:
             profile = profile or forecast_result.profile
             plan = plan or forecast_result.plan
             predictions = forecast_result.predictions
             metrics = forecast_result.metrics
-            intervals = forecast_result.intervals
         elif backtest_result is not None:
             profile = profile or backtest_result.profile
             plan = plan or backtest_result.plan
@@ -1160,10 +1203,6 @@ class ForecastingAssistant:
 
         # --- Deterministic stage: compute profile/plan if needed ---
         if data is not None and profile is None:
-            if target is None:
-                raise ValueError(
-                    "`target` is required when `data` is provided."
-                )
             profile = self.profile(
                 data             = data,
                 target           = target,
@@ -1207,7 +1246,6 @@ class ForecastingAssistant:
             profile, plan,
             predictions=predictions,
             metrics=metrics,
-            intervals=intervals,
             cv_config=cv_config,
             send_data=send_data,
         )
@@ -1280,15 +1318,15 @@ class ForecastingAssistant:
     # --------------------------------------------------------------- private
     def _prepare_backtest(
         self,
-        data: pd.DataFrame | str | Path,
-        target: str | list[str],
+        data: pd.Series | pd.DataFrame | str | Path,
         cv: TimeSeriesFold,
+        target: str | list[str] | None,
         date_column: str | None,
         series_id_column: str | None,
         forecaster: str | None,
         estimator: str | None,
         estimator_kwargs: dict | None,
-        interval: list[int] | None,
+        interval: list[float] | None,
         profile: ForecastingProfile | None,
         plan: ForecastPlan | None,
     ) -> tuple[ForecastingProfile, ForecastPlan]:
@@ -1302,12 +1340,13 @@ class ForecastingAssistant:
 
         Parameters
         ----------
-        data : pandas DataFrame, str, Path
-            Input dataset or path to a CSV file.
-        target : str, list of str
-            Name of the column(s) to forecast.
+        data : pandas Series, pandas DataFrame, str, Path
+            Input dataset, a single series, or path to a CSV file.
         cv : TimeSeriesFold
             Cross-validation fold splitter.
+        target : str, list of str, None
+            Name of the column(s) to forecast. Optional only when `data`
+            is a pandas Series (the Series name is used instead).
         date_column : str, None
             Name of the column containing timestamps.
         series_id_column : str, None
@@ -1318,8 +1357,8 @@ class ForecastingAssistant:
             Explicit estimator class name override.
         estimator_kwargs : dict, None
             Keyword arguments for the estimator constructor.
-        interval : list of int, None
-            Prediction interval percentiles.
+        interval : list of float, None
+            Prediction interval quantiles.
         profile : ForecastingProfile, None
             Pre-computed profile.
         plan : ForecastPlan, None
@@ -1333,7 +1372,7 @@ class ForecastingAssistant:
             Resolved plan.
         """
 
-        data_df = _coerce_to_dataframe(data)
+        data_df, target = _resolve_data_and_target(data, target)
         steps = cv.steps
 
         if profile is None:
@@ -1572,7 +1611,14 @@ class ForecastingAssistant:
             differentiation=defaults.get("differentiation"),
             verbose=False,
         )
-        folds = cv.split(X=pd.RangeIndex(n_observations), as_pandas=False)
+        
+        # `window_size` is unset here (no forecaster attached yet), so
+        # skforecast emits an IgnoredArgumentWarning about the last
+        # window. It is irrelevant for the fold-count check below.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
+            folds = cv.split(X=pd.RangeIndex(n_observations), as_pandas=False)
+        
         if len(folds) < 2:
             raise ValueError(
                 f"Configuration produces only {len(folds)} fold(s). "

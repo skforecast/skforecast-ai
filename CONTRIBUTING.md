@@ -8,7 +8,7 @@
 
 Primarily, **skforecast-ai** development focuses on improving the deterministic recommendation engine, adding new *Skills* (business rules) for the LLM, or improving the code generation pipelines. However, there are many other ways to contribute:
 
-- Submit a bug report or feature request on [GitHub Issues](https://github.com/JoaquinAmatRodrigo/skforecast-ai/issues).
+- Submit a bug report or feature request on [GitHub Issues](https://github.com/skforecast/skforecast-ai/issues).
 - Write or improve [unit and integration tests](https://docs.pytest.org/en/latest/).
 - Improve the internal heuristics or `SKILL.md` documents.
 - Answer questions on our issues or discussions.

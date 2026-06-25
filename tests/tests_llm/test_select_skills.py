@@ -5,7 +5,9 @@ import pytest
 from skforecast_ai.llm.skills import (
     estimate_prompt_tokens,
     select_skills,
+    _REFERENCE_TOKEN_ESTIMATE,
     _SKILL_TOKEN_ESTIMATES,
+    _STATIC_PROMPT_TOKEN_ESTIMATE,
 )
 
 
@@ -102,8 +104,8 @@ def test_select_skills_trims_to_budget():
         question="How to add prediction intervals and hyperparameter tuning?",
         token_budget=5000,
     )
-    # Budget of 5000 should fit choosing-a-forecaster (2810) +
-    # forecasting-single-series (1224) = 4034, but not prediction-intervals (3225)
+    # Budget of 5000 fits choosing-a-forecaster (2702) +
+    # forecasting-single-series (1223) = 3925, but not prediction-intervals (3203)
     assert "choosing-a-forecaster" in result
     assert "forecasting-single-series" in result
     assert "prediction-intervals" not in result
@@ -239,19 +241,26 @@ def test_estimate_prompt_tokens_basic():
         skills=["choosing-a-forecaster"],
         include_reference=False,
     )
-    assert result == 200 + 2810
+    assert result == (
+        _STATIC_PROMPT_TOKEN_ESTIMATE
+        + _SKILL_TOKEN_ESTIMATES["choosing-a-forecaster"]
+    )
 
 
 def test_estimate_prompt_tokens_with_reference():
     """
-    Test that estimate_prompt_tokens adds reference tokens when
-    include_reference=True.
+    Test that estimate_prompt_tokens adds exactly the reference estimate
+    when include_reference=True.
     """
+    base = estimate_prompt_tokens(
+        skills=["choosing-a-forecaster"],
+        include_reference=False,
+    )
     result = estimate_prompt_tokens(
         skills=["choosing-a-forecaster"],
         include_reference=True,
     )
-    assert result == 200 + 2810 + 7600
+    assert result == base + _REFERENCE_TOKEN_ESTIMATE
 
 
 def test_estimate_prompt_tokens_multiple_skills():
@@ -260,7 +269,22 @@ def test_estimate_prompt_tokens_multiple_skills():
     """
     skills = ["choosing-a-forecaster", "forecasting-single-series"]
     result = estimate_prompt_tokens(skills=skills, include_reference=False)
-    assert result == 200 + 2810 + 1224
+    assert result == (
+        _STATIC_PROMPT_TOKEN_ESTIMATE
+        + sum(_SKILL_TOKEN_ESTIMATES[s] for s in skills)
+    )
+
+
+def test_estimate_prompt_tokens_unknown_skill_uses_default():
+    """
+    Test that estimate_prompt_tokens falls back to the 5000-token default
+    for an unknown skill name (not present in _SKILL_TOKEN_ESTIMATES).
+    """
+    result = estimate_prompt_tokens(
+        skills=["this-skill-does-not-exist"],
+        include_reference=False,
+    )
+    assert result == _STATIC_PROMPT_TOKEN_ESTIMATE + 5000
 
 
 def test_estimate_prompt_tokens_empty_skills():
@@ -269,7 +293,7 @@ def test_estimate_prompt_tokens_empty_skills():
     static prompt estimate.
     """
     result = estimate_prompt_tokens(skills=[], include_reference=False)
-    assert result == 200
+    assert result == _STATIC_PROMPT_TOKEN_ESTIMATE
 
 
 # ---------------------------------------------------------------------------

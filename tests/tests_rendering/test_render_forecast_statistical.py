@@ -135,7 +135,7 @@ def test_render_forecast_statistical_output_when_intervals_requested():
         "steps = 10\n"
         "predictions = forecaster.predict_interval(\n"
         "    steps    = steps,\n"
-        "    interval = [10, 90],\n"
+        "    interval = [0.1, 0.9],\n"
         ")\n"
         "print(predictions)\n"
         "\n"

@@ -6,7 +6,7 @@ When a forecast simply looks *wrong* rather than erroring, start one level up: a
 
 ## When the generated code fails: `ForecastExecutionError`
 
-Because the assistant runs real, generated code, a runtime failure surfaces as a `ForecastExecutionError`. It carries everything you need to debug it:
+Because the assistant runs real, generated code, a runtime failure surfaces as a `ForecastExecutionError`, raised by both `forecast()` and `backtest()`. It carries everything you need to debug it:
 
 ```python
 from skforecast_ai import ForecastingAssistant, ForecastExecutionError
@@ -14,16 +14,10 @@ from skforecast_ai import ForecastingAssistant, ForecastExecutionError
 try:
     result = ForecastingAssistant().forecast(data, target="y", steps=12, date_column="date")
 except ForecastExecutionError as err:
-    print(err.original_error)        # the underlying exception
-    print(err.generated_code)        # the exact script that failed
-    print(err.execution_traceback)   # the full traceback from execution
+    print(err.original_error)        # the underlying exception object raised inside the script
+    print(err.generated_code)        # the exact script that was executed
+    print(err.execution_traceback)   # the full formatted traceback
 ```
-
-| Attribute | What it holds |
-| --- | --- |
-| `err.original_error` | The underlying exception object raised inside the script. |
-| `err.generated_code` | The exact script that was executed. |
-| `err.execution_traceback` | The full formatted traceback. |
 
 !!! tip "Read the traceback against the code"
     The traceback line numbers refer to `err.generated_code`. Print both side by side to land directly on the failing line, then either fix the underlying data issue below, or adjust the plan (see [Customizing the model](customizing-the-model.md)).

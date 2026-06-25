@@ -1,6 +1,6 @@
 # Foundation models (zero-shot forecasting)
 
-Foundation models are large time series models **pre-trained on huge corpora**. They forecast a new series *without being trained on it*, or "zero-shot". There is no `fit` in the usual sense: the model stores your recent history as context and predicts from its pre-trained weights.
+Foundation models are large time series models **pre-trained on large collections of time series**. They forecast a new series *without being trained on it*, or "zero-shot". There is no `fit` in the usual sense: the model stores your recent history as context and predicts from its pre-trained weights.
 
 skforecast-ai treats a foundation model as just another forecaster you can select. The engine stays deterministic: it renders the same `skforecast` foundation code every time, and the optional LLM still only explains.
 
@@ -35,12 +35,12 @@ from skforecast_ai import ForecastingAssistant
 assistant = ForecastingAssistant()
 
 result = assistant.forecast(
-    data=data,
-    target="y",
-    steps=24,
-    date_column="date",
-    forecaster="ForecasterFoundation",   # zero-shot Chronos-2
-)
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             steps       = 24,
+             forecaster  = "ForecasterFoundation",   # zero-shot Chronos-2
+         )
 
 print(result.predictions)
 print(result.code)        # the exact skforecast foundation script that ran
@@ -61,11 +61,15 @@ Foundation models output **native quantile forecasts**, so no bootstrapping or c
 
 ```python
 result = assistant.forecast(
-    data=data, target="y", steps=24, date_column="date",
-    forecaster="ForecasterFoundation",
-    interval=[10, 90],     # 80% interval, taken from the model's quantiles
-)
-print(result.intervals.head())
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             steps       = 24,
+             forecaster  = "ForecasterFoundation",   # zero-shot Chronos-2
+             interval    = [0.1, 0.9],               # 80% interval, taken from the model's quantiles
+         )
+
+print(result.predictions.head())
 ```
 
 ## Backtesting
@@ -77,32 +81,28 @@ profile = assistant.profile(data, target="y", date_column="date")
 plan    = assistant.plan(profile, steps=24, forecaster="ForecasterFoundation")
 cv, _   = assistant.create_cv(profile, plan)
 
-bt = assistant.backtest(
-    data, target="y", date_column="date", cv=cv,
-    profile=profile, plan=plan,
-)
-print(bt.metrics)
+backtest_results = assistant.backtest(
+                       data        = data,
+                       target      = "y",
+                       date_column = "date",
+                       cv          = cv,
+                       profile     = profile,
+                       plan        = plan
+                   )
+
+print(backtest_results.metrics)
 ```
 
 ## Choosing among foundation models
 
-Chronos-2 is the default and the most broadly capable (it accepts exogenous variables and can share information across series). Other backends are available through the underlying `skforecast.foundation` API if you copy and adapt the generated code:
+Chronos-2 is the default and the most broadly capable (it accepts exogenous variables and can share information across series). Other backends are available through the underlying `skforecast.foundation` API if you copy and adapt the generated code.
 
-| Model | Exog support | Best for |
-| --- | :---: | --- |
-| **Chronos-2** (Amazon, default) | Yes | General purpose, exogenous variables, cross-series information |
-| TimesFM 2.5 (Google) | No | Long-horizon point/quantile forecasts |
-| Moirai-2 (Salesforce) | No | Probabilistic, multivariate pretraining |
-| TabICL (Soda-INRIA) | Yes | Tabular in-context learning, exog-aware |
-
-The full per-backend reference (context lengths, supported quantiles, exogenous handling, `cross_learning`) lives in the `foundation-forecasting` skill under `skforecast_ai/skills/`. The [AI assistant](using-the-ai-assistant.md) can walk you through it in plain language.
+The full per-backend reference (context lengths, supported quantiles, exogenous handling, `cross_learning`) lives in the `foundation-forecasting` skill under `skforecast_ai/skills/`. For the backend-level skforecast API, see the [foundation models user guide](https://skforecast.org/latest/user_guides/foundation-forecasting-models). The [AI assistant](using-the-ai-assistant.md) can walk you through it in plain language.
 
 ## Common pitfalls
 
-- **`fit()` does not train the model.** It only stores the recent context; the weights come from HuggingFace.
 - **Index needs a frequency.** Set one (`data.asfreq("h")`, `"D"`, `"MS"`, …) before forecasting. See [Troubleshooting](troubleshooting.md).
 - **First call is slow.** The model downloads on first use; subsequent calls are fast.
-- **Exogenous support varies by backend.** Chronos-2 and TabICL use exog; TimesFM 2.5 and Moirai-2 ignore it.
 
 ## Next steps
 

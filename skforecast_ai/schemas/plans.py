@@ -148,8 +148,8 @@ class ForecastPlan(BaseModel):
     frequency : str, default None
         Pandas frequency string for the series.
     interval : list, default None
-        Prediction interval percentiles as `[lower, upper]`
-        (e.g. `[10, 90]`). If None, no intervals are computed.
+        Prediction interval quantiles as `[lower, upper]`
+        (e.g. `[0.1, 0.9]`). If None, no intervals are computed.
     interval_method : str, default None
         Method for prediction intervals. One of `'bootstrapping'`,
         `'conformal'`, `'native'`.
@@ -181,7 +181,7 @@ class ForecastPlan(BaseModel):
     estimator_kwargs: dict[str, Any] = Field(default_factory=dict)
     steps: int = Field(gt=0)
     frequency: str | None = None
-    interval: list[int] | None = None
+    interval: list[float] | None = None
     interval_method: Literal["bootstrapping", "conformal", "native"] | None = None
     metric: str = "mean_absolute_error"
     metrics_to_compute: list[str] = Field(

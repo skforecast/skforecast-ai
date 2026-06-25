@@ -83,25 +83,25 @@ def test_build_context_message_with_predictions_and_metrics():
 
 def test_build_context_message_with_intervals():
     """
-    Test that intervals are included in standard verbosity when
-    send_data=True.
+    Test that prediction interval columns included in predictions are
+    rendered when send_data=True.
     """
-    predictions = pd.DataFrame({"pred": [10.0, 11.0]})
-    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.0]})
-    intervals = pd.DataFrame({
+    predictions = pd.DataFrame({
+        "pred": [10.0, 11.0],
         "lower_bound": [8.0, 9.0],
         "upper_bound": [12.0, 13.0],
     })
+    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.0]})
 
     result = build_context_message(
         predictions=predictions,
         metrics=metrics,
-        intervals=intervals,
         verbosity="standard",
         send_data=True,
     )
 
-    assert "### Prediction Intervals" in result
+    assert "### Predictions" in result
+    assert "lower_bound" in result
     assert "8.0" in result
     assert "12.0" in result
 
@@ -134,12 +134,12 @@ def test_build_context_message_results_only_no_profile():
 
 def test_build_context_message_send_data_false_excludes_raw_rows():
     """
-    Test that raw prediction/interval values are excluded when
-    send_data=False (default). Only aggregate stats should appear,
-    not tabular row-level data.
+    Test that raw prediction values (including interval columns) are
+    excluded when send_data=False (default). Only aggregate stats should
+    appear, not tabular row-level data.
     """
-    predictions = pd.DataFrame({"pred": [10.5, 11.2, 12.8]})
-    intervals = pd.DataFrame({
+    predictions = pd.DataFrame({
+        "pred": [10.5, 11.2, 12.8],
         "lower_bound": [8.0, 9.0, 10.0],
         "upper_bound": [13.0, 14.0, 15.0],
     })
@@ -148,7 +148,6 @@ def test_build_context_message_send_data_false_excludes_raw_rows():
     result = build_context_message(
         predictions=predictions,
         metrics=metrics,
-        intervals=intervals,
         send_data=False,
     )
 
@@ -157,15 +156,11 @@ def test_build_context_message_send_data_false_excludes_raw_rows():
     assert "1.5" in result
     # Predictions section uses summary format
     assert "### Predictions" in result
-    assert "Shape: 3 rows x 1 columns" in result
+    assert "Shape: 3 rows x 3 columns" in result
     # Row-level tabular format should not appear
     assert "0  10.5" not in result
     assert "1  11.2" not in result
     assert "2  12.8" not in result
-    # Intervals section uses summary format
-    assert "### Prediction Intervals" in result
-    assert "0   8.0" not in result
-    assert "1   9.0" not in result
 
 
 def test_build_context_message_send_data_true_includes_raw_rows():

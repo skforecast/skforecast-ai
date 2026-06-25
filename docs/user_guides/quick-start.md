@@ -1,6 +1,6 @@
 # Quick start
 
-Install **skforecast-ai** and verify the setup works in under a minute. For a step-by-step walkthrough of your first real forecast, continue to [Your first forecast](first-forecast.md).
+Install **skforecast-ai** and verify the setup works. For a step-by-step walkthrough of your first real forecast, continue to [Your first forecast](first-forecast.md). New to forecasting with machine learning? skforecast's [Introduction to forecasting](https://skforecast.org/latest/introduction-forecasting/introduction-forecasting) covers the fundamentals this documentation assumes.
 
 ## Install
 
@@ -14,7 +14,7 @@ Install **skforecast-ai** and verify the setup works in under a minute. For a st
 
 === "With LLM assistant"
 
-    Adds the optional language-model overlay for explanations and Q&A:
+    Adds the optional LLM reasoning layer for explanations and Q&A:
 
     ```bash
     pip install "skforecast-ai[llm]"
@@ -25,13 +25,13 @@ Install **skforecast-ai** and verify the setup works in under a minute. For a st
     For development or contributing:
 
     ```bash
-    git clone https://github.com/JoaquinAmatRodrigo/skforecast-ai.git
+    git clone https://github.com/skforecast/skforecast-ai.git
     cd skforecast-ai
     pip install -e ".[dev]"
     ```
 
 !!! note "Requirements"
-    skforecast-ai requires **Python ≥ 3.10**. The deterministic pipeline runs entirely offline; only the optional LLM overlay requires network access and a provider API key.
+    skforecast-ai requires **Python ≥ 3.10**. The deterministic pipeline runs entirely offline; only the optional LLM reasoning layer requires network access and a provider API key.
 
 ## Smoke test
 
@@ -42,17 +42,17 @@ import pandas as pd
 from skforecast_ai import ForecastingAssistant
 from skforecast.datasets import load_demo_dataset
 
-data = load_demo_dataset(verbose=False).to_frame().reset_index()
-assistant = ForecastingAssistant()
-result = assistant.forecast(data=data, target="y", steps=12, date_column="datetime")
+data = load_demo_dataset(verbose=False)
+assistant = ForecastingAssistant(llm=None)
+result = assistant.forecast(data=data, target="y", steps=12)
 
-print(result.predictions)
-print(result.metrics)
-print(result.code)
+print(result.predictions)   # forecast for the next 12 steps
+print(result.metrics)       # evaluation metrics: MAE, MSE, MASE
+print(result.code)          # the skforecast script that produced this result
 ```
 
-!!! tip "No API key required"
-    The smoke test runs in deterministic mode. No LLM, no internet connection, and no configuration are needed — the entire pipeline runs locally.
+!!! tip "Runs locally by default"
+    The smoke test runs in deterministic mode: no LLM, no network access, and no configuration required.
 
 ## Next steps
 
