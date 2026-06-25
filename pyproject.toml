@@ -52,6 +52,10 @@ dependencies = [
 llm = [
     "pydantic-ai>=1.100,<2"
 ]
+bedrock = [
+    "pydantic-ai>=1.100,<2",
+    "boto3>=1.34",
+]
 
 docs = [
     "mike==2.1.3",
