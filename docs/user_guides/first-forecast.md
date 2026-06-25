@@ -66,10 +66,9 @@ print(result.code)
 
 | Attribute | What it holds |
 | --- | --- |
-| `result.predictions` | Forecasted values for the requested `steps` (a `DataFrame`). |
+| `result.predictions` | Forecasted values for the requested `steps` (a `DataFrame`). Includes `lower_bound`/`upper_bound` columns when `interval` is requested. |
 | `result.metrics` | Evaluation metrics (`MAE`, `MSE`, `MASE`). One row per series. |
 | `result.code` | The complete `skforecast` script that was executed. |
-| `result.intervals` | Prediction intervals (if requested). `None` otherwise. |
 | `result.profile` | What the assistant detected about your data. |
 | `result.plan` | The modeling decisions it made. |
 

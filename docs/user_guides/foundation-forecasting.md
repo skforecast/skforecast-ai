@@ -68,7 +68,8 @@ result = assistant.forecast(
              forecaster  = "ForecasterFoundation",   # zero-shot Chronos-2
              interval    = [0.1, 0.9],               # 80% interval, taken from the model's quantiles
          )
-print(result.intervals.head())
+
+print(result.predictions.head())
 ```
 
 ## Backtesting
@@ -80,11 +81,16 @@ profile = assistant.profile(data, target="y", date_column="date")
 plan    = assistant.plan(profile, steps=24, forecaster="ForecasterFoundation")
 cv, _   = assistant.create_cv(profile, plan)
 
-bt = assistant.backtest(
-    data, target="y", date_column="date", cv=cv,
-    profile=profile, plan=plan,
-)
-print(bt.metrics)
+backtest_results = assistant.backtest(
+                       data        = data,
+                       target      = "y",
+                       date_column = "date",
+                       cv          = cv,
+                       profile     = profile,
+                       plan        = plan
+                   )
+
+print(backtest_results.metrics)
 ```
 
 ## Choosing among foundation models

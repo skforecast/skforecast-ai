@@ -90,9 +90,8 @@ The returned `ForecastResult` exposes everything the pipeline produced:
 
 | Attribute | What it holds |
 | --- | --- |
-| `result.predictions` | Forecast for the requested horizon |
+| `result.predictions` | Forecast for the requested horizon (includes interval columns when `interval` is requested) |
 | `result.metrics` | Backtest evaluation metrics (MAE, MSE, MASE) |
-| `result.intervals` | Prediction intervals (when `interval=` is requested) |
 | `result.code` | The runnable `skforecast` script that produced the result |
 | `result.profile` | What profiling detected about your data |
 | `result.plan` | The forecaster, estimator, lags, and metrics that were chosen |

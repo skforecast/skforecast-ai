@@ -39,13 +39,15 @@ flowchart TD
 ```python
 from skforecast_ai import ForecastingAssistant
 
-assistant = ForecastingAssistant()          # deterministic: no key, no network
+assistant = ForecastingAssistant(llm=None)  # deterministic: no key, no network
 ```
 
 **LLM mode (opt-in).** Configure a provider with the `llm="provider:model"` string. The model can then read the pipeline's internal state (for example, *why* an `LGBMRegressor` was chosen over `Ridge`) and answer questions about it in plain language through [the `ask()` interface](using-the-ai-assistant.md). Calling `ask()` without a configured model raises `LLMRequiredError`.
 
 ```python
-assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", api_key="your_api_key_here")   # explanations enabled
+assistant = ForecastingAssistant(
+    llm="openai:gpt-4o-mini", api_key="your_api_key_here"
+)   # explanations enabled
 ```
 
 The crucial point: switching on the LLM adds *explanations*. It does not change which forecaster runs, which lags are used, or what predictions come out. Run the same data twice, with and without an LLM, and the numbers are identical.
@@ -80,7 +82,9 @@ Because the skills are just files in the repository, you can read them yourself 
 By default the assistant does **not** send your raw data to the LLM; only the structural profile and the modeling decisions, which is what the model needs to explain its reasoning. If you want the model to see the underlying values, opt in explicitly:
 
 ```python
-assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", send_data_to_llm=True)
+assistant = ForecastingAssistant(
+    llm="openai:gpt-4o-mini", api_key="your_api_key_here", send_data_to_llm=True
+)
 ```
 
 ## Next steps
