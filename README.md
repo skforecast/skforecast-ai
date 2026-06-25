@@ -1,4 +1,6 @@
-# skforecast-ai
+<h1 align="left">
+    <img src="docs/img/banner-landing-page-skforecast.png"  style="margin-top: 0px;" alt="skforecast banner">
+</h1>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue" alt="Python version">

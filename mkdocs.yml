@@ -1,7 +1,7 @@
-site_name: skforecast-ai Docs
-repo_url: https://github.com/JoaquinAmatRodrigo/skforecast-ai
-site_url: https://github.com/JoaquinAmatRodrigo/skforecast-ai
-site_description: AI-powered forecasting assistant built on top of skforecast. It uses deterministic rules for robust forecasting and an optional LLM overlay to explain decisions and answer questions.
+site_name: skforecast-AI Docs
+repo_url: https://github.com/skforecast/skforecast-ai
+site_url: https://github.com/skforecast/skforecast-ai
+site_description: AI-powered forecasting assistant built on top of skforecast.
 site_author: Joaquin Amat Rodrigo and Javier Escobar Ortiz
 use_directory_urls: false
 copyright: Copyright &copy; 2024 - 2030 Joaquín Amat Rodrigo, Javier Escobar Ortiz
@@ -214,4 +214,4 @@ extra:
     - icon: fontawesome/brands/linkedin
       link: https://www.linkedin.com/company/skforecast/
     - icon: fontawesome/brands/github
-      link: https://github.com/JoaquinAmatRodrigo/skforecast-ai
+      link: https://github.com/skforecast/skforecast-ai
