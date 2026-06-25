@@ -77,6 +77,68 @@ def test_create_data_profile_output_when_multi_series_long_format():
     assert "series_id" not in profile.exog_columns
 
 
+def test_create_data_profile_output_when_date_column_matches_index_name():
+    """
+    Test create_data_profile resolves date_column to the index when it
+    matches the DatetimeIndex name (e.g. after set_index(date_column)).
+    """
+    df = df_single_daily.copy()
+    df.index.name = "fecha"
+
+    profile = create_data_profile(data=df, target="y", date_column="fecha")
+
+    assert profile.index_type == "datetime"
+    assert profile.date_column is None
+    assert profile.frequency == "D"
+    assert profile.end_train is not None
+
+
+def test_create_data_profile_ValueError_when_date_column_not_found():
+    """
+    Test create_data_profile raises a ValueError when date_column matches
+    neither a column nor the index name.
+    """
+    df = df_single_daily.copy()
+    df.index.name = "fecha"
+
+    err_msg = re.escape("date_column='wrong' was not found in the data.")
+    with pytest.raises(ValueError, match=err_msg):
+        create_data_profile(data=df, target="y", date_column="wrong")
+
+
+def test_create_data_profile_output_when_date_column_not_datetime():
+    """
+    Test create_data_profile sets index_type to 'other' when date_column
+    points to a column that does not hold datetime values.
+    """
+    df = df_single_daily.reset_index(drop=True)
+    df["label"] = ["a"] * len(df)
+
+    profile = create_data_profile(data=df, target="y", date_column="label")
+
+    assert profile.index_type == "other"
+    assert profile.date_column is None
+    assert profile.frequency is None
+    assert any("No datetime index" in w for w in profile.warnings)
+
+
+def test_create_data_profile_output_when_date_column_is_string_dtype():
+    """
+    Test create_data_profile resolves date_column when it is a string or
+    object column that parses to datetime.
+    """
+    df = df_single_daily.reset_index()
+    df.rename(columns={"index": "fecha"}, inplace=True)
+    df["fecha"] = df["fecha"].astype(str)
+
+    profile = create_data_profile(data=df, target="y", date_column="fecha")
+
+    assert profile.index_type == "datetime"
+    assert profile.date_column == "fecha"
+    assert profile.frequency == "D"
+    assert profile.end_train is not None
+
+
 def test_create_data_profile_output_when_missing_values_detected():
     """
     Test create_data_profile correctly reports per-column missing value

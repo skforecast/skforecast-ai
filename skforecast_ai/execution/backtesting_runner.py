@@ -71,7 +71,7 @@ def run_backtest(
     Returns
     -------
     result : dict
-        Dictionary with keys `'metrics'`, `'predictions'`, `'code'`,
+        Dictionary with keys `'metrics'`, `'predictions'`, `'rendered_code'`,
         and `'explanation'`.
     """
 

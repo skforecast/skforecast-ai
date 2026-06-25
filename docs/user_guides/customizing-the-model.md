@@ -14,7 +14,7 @@ There are five override keys, accepted everywhere overrides are allowed:
 | `estimator` | `str` | The scikit-learn-compatible estimator (e.g. `"LGBMRegressor"`, `"Ridge"`). |
 | `estimator_kwargs` | `dict` | Constructor arguments for the estimator (e.g. `{"n_estimators": 200}`). |
 | `steps` | `int` | The forecast horizon (number of steps ahead). |
-| `interval` | `list[int]` | Prediction interval percentiles `[lower, upper]`, e.g. `[10, 90]`. |
+| `interval` | `list[float]` | Prediction interval quantiles `[lower, upper]`, e.g. `[0.1, 0.9]`. |
 
 ## See your options first
 
@@ -45,9 +45,9 @@ Switching to a candidate is the safest kind of override: it's a model the assist
     profile = assistant.profile(data, target="y", date_column="date")
 
     answer = assistant.ask(
-        "Should I switch to LGBMRegressor given my dataset size and frequency?",
-        profile=profile,
-        steps=12,
+        prompt  = "Should I switch to LGBMRegressor given my dataset size and frequency?",
+        profile = profile,
+        steps   = 12,
     )
     print(answer.explanation)
     ```
@@ -63,13 +63,13 @@ The quickest path: pass the overrides straight to `forecast()`. Anything you don
 
 ```python
 result = assistant.forecast(
-    data=data,
-    target="y",
-    steps=12,
-    date_column="date",
-    estimator="LGBMRegressor",
-    estimator_kwargs={"n_estimators": 200, "learning_rate": 0.05},
-)
+             data             = data,
+             target           = "y",
+             date_column      = "date",
+             steps            = 12,
+             estimator        = "LGBMRegressor",
+             estimator_kwargs = {"n_estimators": 200, "learning_rate": 0.05},
+         )
 ```
 
 ### Option B: explicit, with `refine_plan()`
@@ -82,16 +82,23 @@ plan    = assistant.plan(profile, steps=12)
 
 # Override only what you want; the rest of the plan is preserved.
 plan = assistant.refine_plan(
-    profile, plan,
-    forecaster="ForecasterDirect",
-    estimator="Ridge",
-    steps=24,
-)
+           profile    = profile,
+           plan       = plan,
+           forecaster = "ForecasterDirect",
+           estimator  = "Ridge",
+           steps      = 24,
+       )
 
 print(plan.forecaster, plan.estimator, plan.steps)   # inspect before running
 
-result = assistant.forecast(data, target="y", steps=24, date_column="date",
-                            profile=profile, plan=plan)
+result = assistant.forecast(
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             steps       = 24,
+             profile     = profile,
+             plan        = plan
+         )
 ```
 
 `refine_plan(profile, plan, **overrides)` returns a new `ForecastPlan` with your changes applied and everything else (lags, metric, preprocessing) intact.
@@ -101,18 +108,18 @@ validating the change with a backtest, see [Human-in-the-loop forecasting](human
 
 ## Adding prediction intervals
 
-Use `interval=[lower, upper]` (percentiles) to get uncertainty bounds. `[10, 90]` is an 80% interval; `[5, 95]` is 90%.
+Use `interval=[lower, upper]` (quantiles) to get uncertainty bounds. `[0.1, 0.9]` is an 80% interval; `[0.05, 0.95]` is 90%.
 
 ```python
 result = assistant.forecast(
-    data=data,
-    target="y",
-    steps=12,
-    date_column="date",
-    interval=[10, 90],
-)
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             steps       = 12,
+             interval    = [0.1, 0.9],  # 80% prediction interval
+         )
 
-print(result.intervals.head())
+print(result.predictions.head())
 ```
 
 The assistant selects an appropriate interval method automatically based on the forecaster: bootstrapping or conformal for the regression-based forecasters, and native intervals for statistical and foundation models. You don't set the method yourself through this API.
@@ -123,13 +130,13 @@ Pass estimator constructor arguments via `estimator_kwargs`. These are merged on
 
 ```python
 result = assistant.forecast(
-    data=data,
-    target="y",
-    steps=12,
-    date_column="date",
-    estimator="LGBMRegressor",
-    estimator_kwargs={"n_estimators": 500, "num_leaves": 64, "learning_rate": 0.03},
-)
+             data             = data,
+             target           = "y",
+             date_column      = "date",
+             steps            = 12,
+             estimator        = "LGBMRegressor",
+             estimator_kwargs = {"n_estimators": 500, "num_leaves": 64, "learning_rate": 0.03}
+         )
 ```
 
 ## A note on which estimator fits

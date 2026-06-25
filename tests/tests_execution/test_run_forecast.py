@@ -54,16 +54,18 @@ def test_run_forecast_single_series_returns_metrics():
 
 def test_run_forecast_single_series_with_intervals():
     """
-    Test that run_forecast returns prediction intervals when interval_method
-    is set to bootstrapping.
+    Test that run_forecast includes prediction interval columns in
+    predictions when interval_method is set to bootstrapping.
     """
     result = run_forecast(
         data=df_single, profile=profile_single, plan=plan_single_with_intervals
     )
 
-    assert result["intervals"] is not None
-    assert isinstance(result["intervals"], pd.DataFrame)
-    assert len(result["intervals"]) == plan_single_with_intervals.steps
+    predictions = result["predictions"]
+    assert isinstance(predictions, pd.DataFrame)
+    assert len(predictions) == plan_single_with_intervals.steps
+    assert "lower_bound" in predictions.columns
+    assert "upper_bound" in predictions.columns
 
 
 # Tests: run_forecast — multi series
@@ -115,7 +117,8 @@ def test_run_forecast_statistical_returns_predictions():
     assert len(result["predictions"]) == plan_stats.steps
     assert isinstance(result["metrics"], pd.DataFrame)
     assert result["metrics"]["MAE"].iloc[0] > 0
-    assert result["intervals"] is not None
+    assert "lower_bound" in result["predictions"].columns
+    assert "upper_bound" in result["predictions"].columns
 
 
 # Tests: run_forecast — unsupported task type

@@ -7,14 +7,14 @@
 
 ## Governance
 
-**skforecast-ai** is an open-source project maintained by its core development team, with guidance and valuable contributions from the community. We strongly believe in openness, transparency, and collaboration. Everyone is encouraged to participate through issues, discussions, and pull requests on [GitHub](https://github.com/JoaquinAmatRodrigo/skforecast-ai).
+**skforecast-ai** is an open-source project maintained by its core development team, with guidance and valuable contributions from the community. We strongly believe in openness, transparency, and collaboration. Everyone is encouraged to participate through issues, discussions, and pull requests on [GitHub](https://github.com/skforecast/skforecast-ai).
 
 
 ## Core Development Team
 
 [![!linkedin](https://img.shields.io/static/v1?logo=linkedin&label=LinkedIn&message=news&color=lightblue)](https://www.linkedin.com/company/skforecast/) [![Forecasting Python](https://img.shields.io/static/v1?logo=readme&logoColor=white&label=Blog&labelColor=%23333333&message=Forecasting%20Python&color=%23ffab40)](https://cienciadedatos.net/en/forecasting-python)
 
-Meet the core developers behind [skforecast-ai](https://github.com/JoaquinAmatRodrigo/skforecast-ai).
+Meet the core developers behind [skforecast-ai](https://github.com/skforecast/skforecast-ai).
 
 
 <div class="profile-container">
@@ -45,9 +45,9 @@ Meet the core developers behind [skforecast-ai](https://github.com/JoaquinAmatRo
 
 ## Contributors
 
-[![GitHub contributors](https://img.shields.io/github/contributors-anon/JoaquinAmatRodrigo/skforecast-ai)](https://github.com/JoaquinAmatRodrigo/skforecast-ai/graphs/contributors)
+[![GitHub contributors](https://img.shields.io/github/contributors-anon/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/graphs/contributors)
 
-View the full list of [contributors](https://github.com/JoaquinAmatRodrigo/skforecast-ai/graphs/contributors) and their contributions to the project.
+View the full list of [contributors](https://github.com/skforecast/skforecast-ai/graphs/contributors) and their contributions to the project.
 
 Thank you for helping us make **skforecast-ai** better! 🎉
 
@@ -55,8 +55,8 @@ Thank you for helping us make **skforecast-ai** better! 🎉
 
     We value your input! Here are a few ways you can participate:
 
-    - **Report bugs** and suggest new features on our [GitHub Issues page](https://github.com/JoaquinAmatRodrigo/skforecast-ai/issues).
-    - **Contribute** to the project by [submitting code](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/CONTRIBUTING.md), adding new features, or improving the documentation.
+    - **Report bugs** and suggest new features on our [GitHub Issues page](https://github.com/skforecast/skforecast-ai/issues).
+    - **Contribute** to the project by [submitting code](https://github.com/skforecast/skforecast-ai/blob/master/CONTRIBUTING.md), adding new features, or improving the documentation.
     - **Share your feedback** on LinkedIn to help spread the word about skforecast-ai!
 
     Together, we can make time series forecasting accessible to everyone.
@@ -86,8 +86,8 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast [Computer software]. ht
 
 ## License
 
-[![License](https://img.shields.io/github/license/JoaquinAmatRodrigo/skforecast-ai)](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/LICENSE)
+[![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/master/LICENSE)
 
-**skforecast-ai software**: [Apache License 2.0](https://github.com/JoaquinAmatRodrigo/skforecast-ai/blob/master/LICENSE)
+**skforecast-ai software**: [Apache License 2.0](https://github.com/skforecast/skforecast-ai/blob/master/LICENSE)
 
 The underlying [`skforecast`](https://github.com/skforecast/skforecast) engine is distributed under its own [BSD-3-Clause License](https://github.com/skforecast/skforecast/blob/master/LICENSE).

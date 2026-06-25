@@ -283,7 +283,6 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
         code="# mock code",
         metrics=metrics,
         predictions=predictions,
-        intervals=None,
     )
 
     def _mock_resolve_model(self_=None):
@@ -321,27 +320,27 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
 
 def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
     """
-    Test that ask() in Results mode includes prediction intervals in the
-    context when they are present in the ForecastResult.
+    Test that ask() in Results mode includes prediction interval columns
+    in the context when they are present in the ForecastResult
+    predictions.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=5, interval=[10, 90])
+    plan = assistant.plan(profile, steps=5, interval=[0.1, 0.9])
 
-    predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]})
-    intervals = pd.DataFrame({
+    predictions = pd.DataFrame({
+        "pred": [10.0, 11.0, 12.0, 13.0, 14.0],
         "lower_bound": [8.0, 9.0, 10.0, 11.0, 12.0],
         "upper_bound": [12.0, 13.0, 14.0, 15.0, 16.0],
     })
+    metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]})
     mock_forecast_result = ForecastResult(
         profile=profile,
         plan=plan,
         code="# mock code",
         metrics=metrics,
         predictions=predictions,
-        intervals=intervals,
     )
 
     def _mock_resolve_model(self_=None):
@@ -357,7 +356,8 @@ def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
             async def run(self, msg, **kw):
-                assert "Prediction Intervals" in msg
+                assert "lower_bound" in msg
+                assert "upper_bound" in msg
                 return _FakeResult()
         return _FakeAgent()
 

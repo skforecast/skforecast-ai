@@ -8,6 +8,7 @@ from skforecast_ai.rendering._helpers import (
     _emit_aligned_kwargs,
     _emit_end_train,
     _emit_window_features,
+    _format_lags,
     _get_estimator_constructor,
     _get_estimator_import,
     _get_interval_repr,
@@ -56,8 +57,8 @@ def test_get_seasonal_period_output_when_different_frequencies(frequency, expect
 @pytest.mark.parametrize(
     "interval, expected",
     [
-        ([10, 90], "[10, 90]"),
-        (None, "[10, 90]  # default 80% prediction interval"),
+        ([0.1, 0.9], "[0.1, 0.9]"),
+        (None, "[0.1, 0.9]  # default 80% prediction interval"),
     ],
     ids=["with_interval", "without_interval"],
 )
@@ -74,6 +75,32 @@ def test_get_interval_repr_output_when_interval_set_or_none(interval, expected):
         explanation="test",
     )
     assert _get_interval_repr(plan) == expected
+
+
+# =============================================================================
+# Tests: _format_lags
+# =============================================================================
+@pytest.mark.parametrize(
+    "lags, expected",
+    [
+        ([1, 2, 3, 4], "4"),
+        ([1, 2], "2"),
+        (list(range(1, 73)), "72"),
+        ([1, 2, 3, 5], "[1, 2, 3, 5]"),
+        ([2, 3, 4], "[2, 3, 4]"),
+        ([1], "[1]"),
+        (24, "24"),
+        (None, "None"),
+        ([5, 4, 3, 2, 1], "[5, 4, 3, 2, 1]"),
+    ],
+    ids=lambda x: f"lags={x}",
+)
+def test_format_lags_output_when_different_inputs(lags, expected):
+    """
+    Test that _format_lags collapses a consecutive list starting at 1
+    into an integer string, and leaves any other value rendered with str.
+    """
+    assert _format_lags(lags) == expected
 
 
 # =============================================================================

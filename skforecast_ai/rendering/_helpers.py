@@ -102,7 +102,31 @@ def _get_interval_repr(plan: ForecastPlan) -> str:
     """Return the interval list as a code literal."""
     if plan.interval is not None:
         return repr(plan.interval)
-    return "[10, 90]  # default 80% prediction interval"
+    return "[0.1, 0.9]  # default 80% prediction interval"
+
+
+def _format_lags(lags: object) -> str:
+    """
+    Render the `lags` value as a compact code literal.
+
+    A list of consecutive integers starting at 1 (for example `[1, 2, 3, 4]`)
+    is collapsed to a single integer (`4`), since skforecast expands an integer
+    `n` into lags 1 to `n`. Any other value is rendered with `str`.
+
+    Parameters
+    ----------
+    lags : object
+        The `lags` value taken from the forecaster kwargs. Typically an int,
+        a list of ints, or None.
+
+    Returns
+    -------
+    lags_repr : str
+        Code literal for the `lags` argument.
+    """
+    if isinstance(lags, list) and lags == list(range(1, len(lags) + 1)) and len(lags) > 1:
+        return str(len(lags))
+    return str(lags)
 
 
 def _emit_preprocessing_steps(

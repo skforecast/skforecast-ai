@@ -23,6 +23,7 @@ Markers: `@pytest.mark.slow` for long-running tests (skip with `-m "not slow"`).
 - PEP 8 compliant (max line length 88, enforced by ruff)
 - Double quotes for strings (ruff `quote-style = "double"`)
 - Relative imports within package
+- When generating code comments, docstrings, and documentation, do not use en dashes (–), or em dashes (—). Use commas, colons, semicolons, or parentheses for punctuation instead.
 
 ### Dependencies
 
@@ -320,7 +321,7 @@ forecaster = ForecasterRecursive(
 # Predict with confidence intervals
 predictions = forecaster.predict_interval(
     steps=10,
-    interval=[10, 90],  # 80% prediction interval
+    interval=[0.1, 0.9],  # 80% prediction interval
     method='bootstrapping',  # or 'conformal'
     n_boot=500
 )
@@ -348,7 +349,7 @@ metric, predictions = backtesting_forecaster(
     cv=cv,                                      # TimeSeriesFold with CV configuration
     metric='mean_absolute_error',               # Metric(s): str, callable, or list
     exog=exog,                                  # Exogenous variables (optional)
-    interval=[10, 90],                          # Prediction intervals as percentiles (optional)
+    interval=[0.1, 0.9],                          # Prediction intervals as quantiles (optional)
     interval_method='bootstrapping',            # 'bootstrapping' or 'conformal'
     n_boot=250,                                 # Bootstrap iterations (only if method='bootstrapping')
     use_in_sample_residuals=True,               # Use training residuals for intervals
@@ -497,7 +498,7 @@ forecaster.fit(series=data['target'])  # Only stores context; no training
 predictions = forecaster.predict(steps=24)  # Long-format: columns ['level', 'pred']
 
 # Prediction intervals (native quantile output — no bootstrapping needed)
-predictions = forecaster.predict_interval(steps=24, interval=[10, 90])
+predictions = forecaster.predict_interval(steps=24, interval=[0.1, 0.9])
 predictions = forecaster.predict_quantiles(steps=24, quantiles=[0.1, 0.5, 0.9])
 
 # Multi-series (global zero-shot model) — pass a wide DataFrame

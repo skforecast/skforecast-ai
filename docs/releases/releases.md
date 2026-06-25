@@ -25,7 +25,7 @@ First public release. `skforecast-ai` wraps the [`skforecast`][assistant] engine
 + [Exceptions][exceptions]: `ForecastExecutionError` (carries the generated code and traceback) and `LLMRequiredError`.
 
 !!! note "Maturity"
-    The forecasting *engine* underneath ([`skforecast`](https://github.com/JoaquinAmatRodrigo/skforecast)) is mature and production-grade. The `skforecast-ai` assistant layer is at `0.1.0`: the public API may still change before `1.0`.
+    The forecasting *engine* underneath ([`skforecast`](https://github.com/skforecast/skforecast)) is mature and production-grade. The `skforecast-ai` assistant layer is at `0.1.0`: the public API may still change before `1.0`.
 
 
 <!-- Links to API Reference -->

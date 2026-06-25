@@ -85,7 +85,7 @@ print(f"MAE: {metric}")
 forecaster.fit(y=y_train, store_in_sample_residuals=True)
 predictions_interval = forecaster.predict_interval(
     steps=10,
-    interval=[10, 90],          # 80% prediction interval
+    interval=[0.1, 0.9],          # 80% prediction interval
     method='bootstrapping',
     n_boot=500,
 )

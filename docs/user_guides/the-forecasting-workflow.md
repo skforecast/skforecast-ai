@@ -1,6 +1,6 @@
 # The forecasting workflow
 
-In [Your first forecast](first-forecast.md) you called a single method, `forecast()`, and got predictions back. That call runs a four-step pipeline: all of it deterministic, all of it inspectable. Understanding each step lets you override any decision, inspect what the assistant chose and why, and get the generated code without running it. For the design principle behind this — why the pipeline is deterministic and where the optional LLM fits in — see [How it works & trust](how-it-works-and-trust.md).
+In [Your first forecast](first-forecast.md) you called a single method, `forecast()`, and got predictions back. That call runs a four-step pipeline: all of it deterministic, all of it inspectable. Understanding each step lets you override any decision, inspect what the assistant chose and why, and get the generated code without running it. For the design principle behind this — why the pipeline is deterministic and where the optional LLM fits in — see [How it works & trust](how-it-works-and-trust.md). New to the machine-learning approach to forecasting? skforecast's [Introduction to forecasting](https://skforecast.org/latest/introduction-forecasting/introduction-forecasting) explains the underlying concepts (lags, recursive multi-step prediction).
 
 The whole workflow is a chain of four steps. Each step takes the output of the previous one and produces a new, well-defined object:
 

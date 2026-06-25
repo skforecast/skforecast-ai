@@ -6,7 +6,14 @@ import pytest
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
 
-from tests.fixtures_assistant import df_single, df_no_exog, df_short, df_multi_long
+from tests.fixtures_assistant import (
+    df_single,
+    df_no_exog,
+    df_short,
+    df_multi_long,
+    series_single,
+    series_unnamed,
+)
 
 
 # =============================================================================
@@ -71,12 +78,41 @@ def test_forecast_code_contains_skforecast_imports():
 
 
 # =============================================================================
+# Tests: pandas Series input
+# =============================================================================
+def test_forecast_output_when_named_series():
+    """
+    Test that forecast() accepts a named pandas Series and derives the
+    target from the Series name.
+    """
+    assistant = ForecastingAssistant()
+    result = assistant.forecast(data=series_single, steps=10)
+
+    assert isinstance(result, ForecastResult)
+    assert result.plan.task_type == "single_series"
+    assert len(result.predictions) == 10
+
+
+def test_forecast_warns_and_uses_y_when_unnamed_series():
+    """
+    Test that forecast() warns and uses 'y' as the target when the input
+    Series has no name.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.warns(UserWarning, match="using 'y'"):
+        result = assistant.forecast(data=series_unnamed, steps=5)
+
+    assert result.profile.data_profile.target == "y"
+    assert len(result.predictions) == 5
+
+
+# =============================================================================
 # Tests: feature-rich (intervals, exog, multi-series)
 # =============================================================================
 def test_forecast_output_when_interval_requested():
     """
-    Test that forecast() returns intervals as a DataFrame when interval
-    is specified.
+    Test that forecast() includes prediction interval columns in
+    predictions when interval is specified.
     """
     assistant = ForecastingAssistant()
     result = assistant.forecast(
@@ -84,12 +120,13 @@ def test_forecast_output_when_interval_requested():
         target="sales",
         date_column="date",
         steps=5,
-        interval=[10, 90],
+        interval=[0.1, 0.9],
     )
 
-    assert result.intervals is not None
-    assert isinstance(result.intervals, pd.DataFrame)
-    assert len(result.intervals) == 5
+    assert isinstance(result.predictions, pd.DataFrame)
+    assert len(result.predictions) == 5
+    assert "lower_bound" in result.predictions.columns
+    assert "upper_bound" in result.predictions.columns
 
 
 def test_forecast_output_when_no_exog():

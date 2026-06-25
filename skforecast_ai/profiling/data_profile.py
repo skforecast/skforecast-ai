@@ -318,6 +318,35 @@ def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
     return data
 
 
+def _is_datetime_like(values: pd.Series | pd.Index) -> bool:
+    """
+    Check whether a Series or Index holds (or parses to) datetimes.
+
+    Parameters
+    ----------
+    values : pandas Series, pandas Index
+        Values to inspect.
+
+    Returns
+    -------
+    is_datetime_like : bool
+        True if the values are already datetime-typed, or if every value
+        is parseable as a datetime. False otherwise.
+    """
+    if pd.api.types.is_datetime64_any_dtype(values):
+        return True
+    if not (
+        pd.api.types.is_object_dtype(values)
+        or pd.api.types.is_string_dtype(values)
+    ):
+        return False
+    try:
+        parsed = pd.to_datetime(values, format="mixed", errors="coerce")
+    except (ValueError, TypeError):
+        return False
+    return bool(parsed.notna().all())
+
+
 def detect_date_column(
     data: pd.DataFrame,
     date_column: str | None,
@@ -335,15 +364,43 @@ def detect_date_column(
     Returns
     -------
     resolved_column : str, None
-        Name of the date column if found in columns, None if the index
-        is used as the datetime source or no datetime is found.
+        Name of the date column if a datetime-like column is used, None if
+        the index is the datetime source or no datetime is found.
     index_type : str
         One of `'datetime'`, `'range'`, `'other'`.
+
+    Raises
+    ------
+    ValueError
+        If `date_column` is provided but matches neither a column nor the
+        index name.
+
+    Notes
+    -----
+    Passing `date_column` does not assume the source is datetime. The
+    referenced column or index is validated with `_is_datetime_like`, and
+    `'other'` is returned when it does not hold datetime values.
     """
     if date_column is not None:
         if date_column in data.columns:
-            return date_column, "datetime"
-        return None, "other"
+            if _is_datetime_like(data[date_column]):
+                return date_column, "datetime"
+            return None, "other"
+        if data.index.name == date_column:
+            # The user pointed `date_column` at the index (e.g. after
+            # `set_index(date_column)`). Downstream uses the index only
+            # when it is a real DatetimeIndex.
+            if isinstance(data.index, pd.DatetimeIndex):
+                return None, "datetime"
+            return None, "other"
+        available = list(data.columns)
+        raise ValueError(
+            f"date_column='{date_column}' was not found in the data. It "
+            f"matches neither a column {available} nor the index name "
+            f"('{data.index.name}'). Pass a valid column name, set it as "
+            "the index, or omit date_column to use an existing "
+            "DatetimeIndex."
+        )
 
     if isinstance(data.index, pd.DatetimeIndex):
         return None, "datetime"

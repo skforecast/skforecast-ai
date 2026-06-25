@@ -148,8 +148,8 @@ def test_forecast_code_output_when_interval_requested():
         target="sales",
         date_column="date",
         steps=10,
-        interval=[10, 90],
+        interval=[0.1, 0.9],
     )
 
-    assert result.plan.interval == [10, 90]
+    assert result.plan.interval == [0.1, 0.9]
     assert "interval" in result.code.lower() or "predict_interval" in result.code

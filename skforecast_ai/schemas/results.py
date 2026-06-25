@@ -103,9 +103,9 @@ class ForecastResult(BaseModel):
         `['series', 'MAE', 'MSE', 'MASE']`. For single-series tasks
         this contains one row; for multi-series tasks one row per level.
     predictions : pandas DataFrame
-        Forecasted values for the requested steps.
-    intervals : pandas DataFrame, default None
-        Prediction intervals or quantile predictions when available.
+        Forecasted values for the requested steps. When prediction
+        intervals (or quantiles) are requested, the corresponding
+        bound columns are included alongside the point predictions.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -115,7 +115,6 @@ class ForecastResult(BaseModel):
     code: str
     metrics: Any  # pd.DataFrame
     predictions: Any  # pd.DataFrame
-    intervals: Any = None  # pd.DataFrame | None
 
 
 class BacktestResult(BaseModel):

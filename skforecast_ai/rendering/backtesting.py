@@ -446,7 +446,7 @@ def _get_quantiles_from_plan(plan: ForecastPlan) -> list[float] | None:
     if plan.interval_method is None:
         return None
     if plan.interval is not None:
-        quantiles = [round(v / 100, 2) for v in plan.interval]
+        quantiles = list(plan.interval)
         if 0.5 not in quantiles:
             quantiles = sorted([quantiles[0], 0.5, quantiles[1]])
         return quantiles

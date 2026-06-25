@@ -170,11 +170,11 @@ class TestPlan:
         result = runner.invoke(
             app,
             ["plan", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--interval", "10,90", "--format", "json", "--quiet"],
+             "--steps", "10", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["plan"]["interval"] == [10, 90]
+        assert data["plan"]["interval"] == [0.1, 0.9]
         assert data["plan"]["interval_method"] is not None
 
     def test_plan_missing_steps(self, tmp_path):
@@ -322,7 +322,7 @@ class TestGenerateCode:
         result = runner.invoke(
             app,
             ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--interval", "10,90", "--format", "json", "--quiet"],
+             "--steps", "10", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -426,18 +426,20 @@ class TestForecast:
 
     def test_forecast_with_interval(self, tmp_path):
         """
-        Forecast with --interval includes intervals in JSON output.
+        Forecast with --interval includes interval columns in the
+        predictions of the JSON output.
         """
         csv_path = _write_csv(tmp_path, df_single)
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--interval", "10,90", "--format", "json", "--quiet"],
+             "--steps", "5", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["intervals"] is not None
-        assert len(data["intervals"]) == 5
+        assert len(data["predictions"]) == 5
+        assert "lower_bound" in data["predictions"][0]
+        assert "upper_bound" in data["predictions"][0]
 
     def test_forecast_missing_file(self):
         """
@@ -475,6 +477,26 @@ class TestForecast:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["plan"]["estimator_kwargs"]["n_estimators"] == 150
+
+    def test_forecast_with_exog_future(self, tmp_path):
+        """
+        Forecast --exog-future loads the CSV with its date column as a
+        DatetimeIndex and produces predictions over the horizon.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        mask = (df_single["date"] >= "2023-03-22") & (df_single["date"] <= "2023-03-26")
+        exog_future = df_single.loc[mask, ["date", "promo"]]
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog-future", exog_path,
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["predictions"]) == 5
+
 
 
 # ---------------------------------------------------------------------------
@@ -704,3 +726,19 @@ class TestBacktest:
             ["backtest", "some.csv"],
         )
         assert result.exit_code == 1
+
+    def test_backtest_multi_series_table(self, tmp_path):
+        """
+        Backtest on wide multi-series renders the metrics table from the
+        skforecast `levels` column without a formatting error.
+        """
+        csv_path = _write_csv(tmp_path, df_multi_wide)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "series_a,series_b",
+             "--date-column", "date", "--steps", "5", "--quiet"],
+        )
+        assert result.exit_code == 0
+        assert "Backtest Metrics" in result.output
+        assert "series_a" in result.output
+        assert "series_b" in result.output

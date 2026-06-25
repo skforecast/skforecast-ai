@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 import threading
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -126,27 +127,69 @@ def _strip_code_blocks(text: str) -> str:
     return _CODE_BLOCK_RE.sub(_CODE_BLOCK_REPLACEMENT, text)
 
 
-def _coerce_to_dataframe(
-    data: pd.DataFrame | str | Path,
-) -> pd.DataFrame:
+def _resolve_data_and_target(
+    data: pd.Series | pd.DataFrame | str | Path,
+    target: str | list[str] | None,
+) -> tuple[pd.DataFrame, str | list[str]]:
     """
-    Load a CSV path or URL into a DataFrame, or return the DataFrame unchanged.
+    Coerce the input to a DataFrame and resolve the target column name.
 
-    The CSV is loaded without `parse_dates` (deprecated in pandas
-    2.2+). Date columns are detected and parsed by
-    `_try_parse_first_date_column` instead, leaving every column
-    intact so callers can reference a `date_column` by name.
+    Centralizes the rules for accepting a `pandas Series` as input. When
+    `data` is a Series, the target is derived from the Series name; for
+    every other input type a `target` must be provided explicitly. CSV
+    paths and URLs are loaded with `pandas.read_csv` (without `parse_dates`,
+    deprecated in pandas 2.2+); date columns are detected and parsed by
+    `_try_parse_first_date_column` instead, leaving every column intact so
+    callers can reference a `date_column` by name.
 
     Parameters
     ----------
-    data : pandas DataFrame, str, Path
-        Input dataset, path to a CSV file, or URL to a remote CSV.
+    data : pandas Series, pandas DataFrame, str, Path
+        Input dataset, a single series, or a path/URL to a CSV file.
+    target : str, list, None
+        Name of the column(s) to forecast. Optional only when `data` is a
+        Series (the name is used instead).
 
     Returns
     -------
-    df : pandas DataFrame
-        Loaded DataFrame.
+    data : pandas DataFrame
+        Coerced DataFrame.
+    target : str, list
+        Resolved target column name(s).
+
+    Raises
+    ------
+    ValueError
+        When `data` is a Series and `target` is provided but does not
+        match the Series name, or when `data` is not a Series and
+        `target` is None.
+    FileNotFoundError
+        When `data` is a path or URL that cannot be read.
     """
+    if isinstance(data, pd.Series):
+        name = data.name
+        if target is not None and target != name:
+            raise ValueError(
+                f"When `data` is a pandas Series and `target` is provided, "
+                f"`target` must match the Series name. Got target={target!r} "
+                f"and series.name={name!r}. Omit `target` to use the Series "
+                f"name, or rename the Series."
+            )
+        if name is None:
+            warnings.warn(
+                "The input Series has no name; using 'y' as the target name.",
+                UserWarning,
+                stacklevel=2,
+            )
+            resolved_target = "y"
+        else:
+            resolved_target = name
+        return data.to_frame(name=resolved_target), resolved_target
+
+    if target is None:
+        raise ValueError(
+            "`target` is required when `data` is not a pandas Series."
+        )
 
     if isinstance(data, (str, Path)):
         data_str = str(data)
@@ -157,16 +200,16 @@ def _coerce_to_dataframe(
                 raise FileNotFoundError(
                     f"Could not read CSV from URL: '{data_str}'. {e}"
                 ) from e
-            return _try_parse_first_date_column(df)
+            return _try_parse_first_date_column(df), target
         path = Path(data_str)
         if not path.is_file():
             raise FileNotFoundError(
                 f"CSV file not found: '{path}'. Please provide a valid file path."
             )
         df = pd.read_csv(path)
-        return _try_parse_first_date_column(df)
+        return _try_parse_first_date_column(df), target
 
-    return data
+    return data, target
 
 
 _agent_loop: asyncio.AbstractEventLoop | None = None

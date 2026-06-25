@@ -1,6 +1,6 @@
 # Human-in-the-loop forecasting
 
-The most powerful way to use skforecast-ai is as a loop, not a one-shot call. You get a baseline, ask *why* and *what could be better*, apply the change you agree with, and re-run, staying in control of every decision while the assistant handles the mechanics and keeps the result reproducible.
+skforecast-ai is designed to be used as a loop, not a one-shot call. You get a baseline, ask *why* and *what could be better*, apply the change you agree with, and re-run, staying in control of every decision while the assistant handles the mechanics and keeps the result reproducible.
 
 ```
 forecast()  →  ask("how could this be better?")  →  refine_plan(...)  →  forecast() / backtest()
@@ -20,9 +20,11 @@ The LLM **advises**; it never changes the model or the numbers. Every override i
 ```python
 from skforecast_ai import ForecastingAssistant
 
-assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")   # LLM enables step 2
+assistant = ForecastingAssistant(
+    llm="openai:gpt-4o-mini", api_key="your_api_key_here"
+)   # LLM enables step 2
 
-result = assistant.forecast(data, target="y", steps=24, date_column="date")
+result = assistant.forecast(data=data, target="y", date_column="date", steps=24)
 print(result.metrics)
 print(result.plan.forecaster, result.plan.estimator)
 print(result.plan.forecaster_kwargs)   # lags and other forecaster settings
@@ -54,10 +56,11 @@ profile = result.profile
 plan    = result.plan
 
 plan = assistant.refine_plan(
-    profile, plan,
-    estimator="LGBMRegressor",
-    estimator_kwargs={"n_estimators": 300, "learning_rate": 0.05},
-)
+           profile          = profile, 
+           plan             = plan,
+           estimator        = "LGBMRegressor",
+           estimator_kwargs = {"n_estimators": 300, "learning_rate": 0.05},
+       )
 print(plan.estimator, plan.estimator_kwargs)   # inspect before running
 ```
 
@@ -69,9 +72,13 @@ Re-run with the refined plan, passing the existing `profile`/`plan` so nothing i
 
 ```python
 improved = assistant.forecast(
-    data, target="y", steps=24, date_column="date",
-    profile=profile, plan=plan,
-)
+               data        = data, 
+               target      = "y", 
+               date_column = "date", 
+               steps       = 24,
+               profile     = profile, 
+               plan        = plan,
+           )
 print(improved.metrics)
 ```
 
@@ -79,11 +86,15 @@ Compare metrics against the baseline. A single forecast can be noisy, so for a d
 
 ```python
 cv, _ = assistant.create_cv(profile, plan)
-bt = assistant.backtest(
-    data, target="y", date_column="date", cv=cv,
-    profile=profile, plan=plan,
-)
-print(bt.metrics)
+backtest_results = assistant.backtest(
+                       data        = data, 
+                       target      = "y", 
+                       date_column = "date", 
+                       cv          = cv,
+                       profile     = profile, 
+                       plan        = plan,
+                   )
+print(backtest_results.metrics)
 ```
 
 ## 5. Iterate or ship

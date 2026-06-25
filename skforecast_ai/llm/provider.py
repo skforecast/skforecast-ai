@@ -91,6 +91,19 @@ def create_model(
             ),
         )
 
+    if provider == "bedrock":
+        from pydantic_ai.models.bedrock import BedrockConverseModel
+        from pydantic_ai.providers.bedrock import BedrockProvider
+
+        provider_kwargs = {}
+        if base_url is not None:
+            provider_kwargs["region_name"] = base_url
+        if api_key is not None:
+            provider_kwargs["api_key"] = api_key
+        return BedrockConverseModel(
+            model_name=model_name, provider=BedrockProvider(**provider_kwargs)
+        )
+
     if api_key is None:
         # Cloud providers: return string for Pydantic AI native resolution.
         # Pin the OpenAI prefix to 'openai-chat:' so the Chat Completions API

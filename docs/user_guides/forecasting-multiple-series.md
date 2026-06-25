@@ -1,6 +1,6 @@
 # Forecasting multiple series
 
-When you have more than one related series (stores, SKUs, sensors, regions), you have a choice to make about *how* they share information. skforecast-ai detects the multi-series case automatically and defaults to a sensible global model, but understanding the options helps you override well.
+When you have more than one related series (stores, SKUs, sensors, regions), the question is *how* they should share information. skforecast-ai detects the multi-series case automatically and defaults to a global model; understanding the options helps you override it deliberately.
 
 ## The two strategies
 
@@ -10,6 +10,8 @@ When the profile sees more than one series, the assistant considers two forecast
 | --- | --- | --- |
 | **`ForecasterRecursiveMultiSeries`** *(default)* | `multi_series` | One **global** model trained across all series. Each series is predicted on its own history, but they share learned parameters. |
 | **`ForecasterDirectMultiVariate`** | `multivariate` | Predicts **one target series** using the lagged values of *all* series as features. |
+
+For the underlying skforecast mechanics, see the [independent multi-series forecasting](https://skforecast.org/latest/user_guides/independent-multi-time-series-forecasting) and [multivariate forecasting](https://skforecast.org/latest/user_guides/dependent-multi-series-multivariate-forecasting) user guides.
 
 ```python
 profile = assistant.profile(data, target=["store_a", "store_b", "store_c"], date_column="date")
@@ -25,7 +27,7 @@ print(profile.forecaster_candidates)
 - You want to forecast **all of them**, not just one.
 - The series are related but not necessarily *causally* linked.
 
-This is the default for a reason: it scales to many series, handles different-length histories, and is the strongest general-purpose choice.
+This is the default: it scales to many series and handles different-length histories.
 
 **Reach for the multivariate model (`ForecasterDirectMultiVariate`) when:**
 
@@ -43,19 +45,27 @@ The default works without any override:
 
 ```python
 result = assistant.forecast(
-    data, target=["store_a", "store_b", "store_c"], steps=14, date_column="date",
-)
-print(result.metrics)   # per-series and aggregated metrics
+             data        = data, 
+             target      = ["store_a", "store_b", "store_c"], 
+             date_column = "date",
+             steps       = 14, 
+         )
+print(result.metrics)   # one row of metrics per series
 ```
 
 Switch to the multivariate strategy by overriding the forecaster (it must be a candidate):
 
 ```python
 result = assistant.forecast(
-    data, target=["store_a", "store_b", "store_c"], steps=14, date_column="date",
-    forecaster="ForecasterDirectMultiVariate",
-)
+             data        = data, 
+             target      = ["store_a", "store_b", "store_c"], 
+             date_column = "date",
+             steps       = 14, 
+             forecaster  = "ForecasterDirectMultiVariate",
+         )
 ```
+
+With the multivariate strategy, only the **first** column in `target` is forecast (the `level`); the remaining columns are used as predictors. To forecast a different series, list it first.
 
 ## A few things to know
 
