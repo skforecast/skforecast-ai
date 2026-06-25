@@ -111,8 +111,8 @@ def test_forecast_warns_and_uses_y_when_unnamed_series():
 # =============================================================================
 def test_forecast_output_when_interval_requested():
     """
-    Test that forecast() returns intervals as a DataFrame when interval
-    is specified.
+    Test that forecast() includes prediction interval columns in
+    predictions when interval is specified.
     """
     assistant = ForecastingAssistant()
     result = assistant.forecast(
@@ -123,9 +123,10 @@ def test_forecast_output_when_interval_requested():
         interval=[0.1, 0.9],
     )
 
-    assert result.intervals is not None
-    assert isinstance(result.intervals, pd.DataFrame)
-    assert len(result.intervals) == 5
+    assert isinstance(result.predictions, pd.DataFrame)
+    assert len(result.predictions) == 5
+    assert "lower_bound" in result.predictions.columns
+    assert "upper_bound" in result.predictions.columns
 
 
 def test_forecast_output_when_no_exog():

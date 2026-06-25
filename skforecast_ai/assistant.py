@@ -630,8 +630,9 @@ class ForecastingAssistant:
         Returns
         -------
         result : ForecastResult
-            Forecasting profile, plan, generated code, predictions,
-            backtesting metric, and optional prediction intervals.
+            Forecasting profile, plan, generated code, predictions, and
+            backtesting metric. When prediction intervals are requested,
+            the interval columns are included in `result.predictions`.
 
         Notes
         -----
@@ -672,7 +673,6 @@ class ForecastingAssistant:
             code        = result["rendered_code"].full_script,
             metrics     = result["metrics"],
             predictions = result["predictions"],
-            intervals   = result["intervals"],
         )
 
     def create_cv(
@@ -1112,8 +1112,8 @@ class ForecastingAssistant:
         - Explain mode (data or profile provided): deterministic
           profiling runs first, then the LLM explains the result.
         - Results mode (forecast_result provided): the LLM explains
-          forecast predictions, metrics, and intervals from a
-          completed `forecast()` run.
+          forecast predictions (including any interval columns) and
+          metrics from a completed `forecast()` run.
         - Backtest mode (backtest_result provided): the LLM explains
           backtesting metrics, predictions, and CV configuration from a
           completed `backtest()` run.
@@ -1142,10 +1142,10 @@ class ForecastingAssistant:
             Pre-computed plan. If provided, plan generation is skipped.
         forecast_result : ForecastResult, default None
             Result from a previous `forecast()` call. When provided,
-            the LLM receives predictions, metrics, and intervals in
-            context so it can explain the forecast results. Extracts
-            `profile` and `plan` from the result unless
-            explicitly provided.
+            the LLM receives predictions (including any interval
+            columns) and metrics in context so it can explain the
+            forecast results. Extracts `profile` and `plan` from the
+            result unless explicitly provided.
         backtest_result : BacktestResult, default None
             Result from a previous `backtest()` call. When provided,
             the LLM receives backtesting metrics, predictions, and
@@ -1188,14 +1188,12 @@ class ForecastingAssistant:
         # --- Extract from forecast_result if provided ---
         predictions = None
         metrics = None
-        intervals = None
         cv_config = None
         if forecast_result is not None:
             profile = profile or forecast_result.profile
             plan = plan or forecast_result.plan
             predictions = forecast_result.predictions
             metrics = forecast_result.metrics
-            intervals = forecast_result.intervals
         elif backtest_result is not None:
             profile = profile or backtest_result.profile
             plan = plan or backtest_result.plan
@@ -1248,7 +1246,6 @@ class ForecastingAssistant:
             profile, plan,
             predictions=predictions,
             metrics=metrics,
-            intervals=intervals,
             cv_config=cv_config,
             send_data=send_data,
         )

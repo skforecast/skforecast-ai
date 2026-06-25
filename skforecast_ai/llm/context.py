@@ -51,7 +51,6 @@ def build_context_message(
     plan: ForecastPlan | None = None,
     predictions: Any = None,
     metrics: Any = None,
-    intervals: Any = None,
     cv_config: dict | None = None,
     verbosity: Literal["compact", "standard", "full"] = "standard",
     send_data: bool = False,
@@ -70,11 +69,10 @@ def build_context_message(
     plan : ForecastPlan, default None
         Detailed forecasting plan.
     predictions : pandas DataFrame, default None
-        Forecasted values from a completed forecast run.
+        Forecasted values from a completed forecast run. When prediction
+        intervals are requested, the interval columns are included here.
     metrics : pandas DataFrame, default None
         Evaluation metrics from a completed forecast run.
-    intervals : pandas DataFrame, default None
-        Prediction intervals from a completed forecast run.
     cv_config : dict, default None
         Cross-validation configuration from a backtest run. When
         provided, a "Backtesting Configuration" section is rendered.
@@ -88,8 +86,8 @@ def build_context_message(
         - `'full'`: Above plus all warnings and series-length detail.
     send_data : bool, default False
         Whether raw data values may be included. When False, only
-        aggregate statistics are shown for predictions and intervals.
-        Metrics (already aggregated) are always included.
+        aggregate statistics are shown for predictions. Metrics
+        (already aggregated) are always included.
 
     Returns
     -------
@@ -178,13 +176,5 @@ def build_context_message(
                 parts.append(_serialize_dataframe(predictions))
             else:
                 parts.append(_summarize_dataframe(predictions))
-
-        if intervals is not None and verbosity in ("standard", "full"):
-            parts.append("")
-            parts.append("### Prediction Intervals")
-            if send_data:
-                parts.append(_serialize_dataframe(intervals))
-            else:
-                parts.append(_summarize_dataframe(intervals))
 
     return "\n".join(parts)

@@ -92,8 +92,9 @@ def run_forecast(
     Returns
     -------
     result : dict
-        Dictionary with keys `'metrics'`, `'predictions'`,
-        `'intervals'`, and `'rendered_code'`.
+        Dictionary with keys `'metrics'`, `'predictions'`, and
+        `'rendered_code'`. When prediction intervals are requested,
+        the interval columns are included in `'predictions'`.
     """
     rendered = render_forecast_script(profile, plan)
 
@@ -132,17 +133,9 @@ def run_forecast(
     if isinstance(predictions, pd.Series):
         predictions = predictions.to_frame()
 
-    # Separate interval columns from point predictions
-    intervals = None
-    if plan.interval_method is not None and predictions is not None:
-        intervals = predictions
-        if "pred" in predictions.columns:
-            predictions = predictions[["pred"]]
-
     return {
         "metrics": metrics,
         "predictions": predictions,
-        "intervals": intervals,
         "rendered_code": rendered,
     }
 
