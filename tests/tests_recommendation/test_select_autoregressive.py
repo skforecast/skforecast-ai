@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 
 from skforecast_ai.recommendation.autoregressive import (
+    _aggregate_lags_multiseries,
+    _aggregate_lags_multivariate,
     _strongest_pacf_window,
     compute_series_pacf,
     finalize_lags,
@@ -720,3 +722,190 @@ def test_select_autoregressive_output_lags_are_sorted_integers():
     assert lags == sorted(lags)
     # No duplicates
     assert len(lags) == len(set(lags))
+
+
+# ---------------------------------------------------------------------------
+# _aggregate_lags_multiseries (consensus)
+# ---------------------------------------------------------------------------
+def test_aggregate_lags_multiseries_keeps_shared_drops_rare():
+    """
+    Test the consensus floor: with 3 series and the default threshold of
+    0.5 (floor = ceil(3 * 0.5) = 2), a lag significant in only one series
+    is dropped while lags shared by at least two are kept, ranked by
+    series-count descending.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[1, 2, 5], pacf_abs=[0.9, 0.5, 0.3]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[1, 2], pacf_abs=[0.8, 0.4]),
+        SeriesPacf(series_id="c", n_observations=200, lags=[1], pacf_abs=[0.7]),
+    ]
+
+    result = _aggregate_lags_multiseries(series_pacf)
+
+    # lag 1 (in 3 series) ranks first, lag 2 (in 2 series) next; lag 5
+    # (only 1 series) is below the floor and excluded.
+    assert result == [1, 2]
+
+
+def test_aggregate_lags_multiseries_tie_broken_by_summed_pacf():
+    """
+    Test that lags with equal series-counts are ordered by summed `|PACF|`
+    descending.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[3, 4], pacf_abs=[0.2, 0.9]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[3, 4], pacf_abs=[0.2, 0.9]),
+    ]
+
+    result = _aggregate_lags_multiseries(series_pacf)
+
+    # Both lags appear in both series (count tie); lag 4 has the larger
+    # summed magnitude (1.8 vs 0.4) so it ranks first.
+    assert result == [4, 3]
+
+
+def test_aggregate_lags_multiseries_falls_back_to_full_ranked_set():
+    """
+    Test that when the threshold leaves no lag passing the floor, the full
+    ranked set is returned instead of an empty list.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[1, 2], pacf_abs=[0.9, 0.5]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[3, 4], pacf_abs=[0.8, 0.4]),
+    ]
+
+    # threshold 1.0 -> floor 2, but no lag is shared by both series.
+    result = _aggregate_lags_multiseries(series_pacf, consensus_threshold=1.0)
+
+    # Fallback: every lag, ranked by summed |PACF| descending.
+    assert result == [1, 3, 2, 4]
+
+
+def test_aggregate_lags_multiseries_empty_input():
+    """
+    Test that an empty primitive list yields an empty consensus list.
+    """
+    assert _aggregate_lags_multiseries([]) == []
+
+
+# ---------------------------------------------------------------------------
+# _aggregate_lags_multivariate (top-n union)
+# ---------------------------------------------------------------------------
+def test_aggregate_lags_multivariate_union_ordered_by_summed_pacf():
+    """
+    Test that the union of per-series lags is ordered by summed `|PACF|`
+    across series, descending.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[1, 2], pacf_abs=[0.5, 0.3]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[2, 3], pacf_abs=[0.6, 0.1]),
+    ]
+
+    result = _aggregate_lags_multivariate(series_pacf, top_n=10)
+
+    # Summed magnitudes: lag 2 -> 0.9, lag 1 -> 0.5, lag 3 -> 0.1.
+    assert result == [2, 1, 3]
+
+
+def test_aggregate_lags_multivariate_truncates_to_top_n_per_series():
+    """
+    Test that each series contributes only its strongest `top_n` lags, so
+    a weaker lag beyond the cut is absent from the union.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[1, 2, 3], pacf_abs=[0.9, 0.8, 0.7]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[4], pacf_abs=[0.5]),
+    ]
+
+    result = _aggregate_lags_multivariate(series_pacf, top_n=2)
+
+    # Series "a" contributes only lags 1 and 2 (top 2 by |PACF|); lag 3 is
+    # truncated. Union ordered by summed |PACF|.
+    assert 3 not in result
+    assert result == [1, 2, 4]
+
+
+def test_aggregate_lags_multivariate_empty_input():
+    """
+    Test that an empty primitive list yields an empty union list.
+    """
+    assert _aggregate_lags_multivariate([], top_n=10) == []
+
+
+# ---------------------------------------------------------------------------
+# finalize_lags: multi_series / multivariate dispatch (regression guards)
+# ---------------------------------------------------------------------------
+def test_finalize_lags_multi_series_end_to_end():
+    """
+    Test that the multi_series branch runs end-to-end and post-processes
+    the consensus lags. This path raised a TypeError before the
+    consensus_threshold keyword was fixed.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=365, lags=[1, 2, 7], pacf_abs=[0.9, 0.5, 0.3]),
+        SeriesPacf(series_id="b", n_observations=365, lags=[1, 3, 7], pacf_abs=[0.8, 0.4, 0.3]),
+    ]
+
+    lags = finalize_lags(
+        series_pacf    = series_pacf,
+        task_type      = "multi_series",
+        n_observations = 365,
+        frequency      = "D",
+    )
+
+    assert lags == sorted(set(lags))
+    assert all(isinstance(lag, int) and lag > 0 for lag in lags)
+    # Consensus lag 1 retained; lag 7 present via seasonal enrichment (daily).
+    assert 1 in lags
+    assert 7 in lags
+
+
+def test_finalize_lags_multi_series_consensus_threshold_threaded_through():
+    """
+    Test that the consensus_threshold argument actually reaches the
+    aggregation step. Rare lags (10, 12) appear in only one series each
+    and sit above the recent-lag safety-net range, so they survive at a
+    permissive threshold and are dropped at a strict one.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=300, lags=[1, 10], pacf_abs=[0.9, 0.5]),
+        SeriesPacf(series_id="b", n_observations=300, lags=[1, 12], pacf_abs=[0.8, 0.4]),
+    ]
+    kwargs = dict(
+        series_pacf    = series_pacf,
+        task_type      = "multi_series",
+        n_observations = 300,
+        frequency      = None,
+    )
+
+    permissive = finalize_lags(**kwargs, consensus_threshold=0.5)
+    strict = finalize_lags(**kwargs, consensus_threshold=1.0)
+
+    # floor 1: rare single-series lags kept.
+    assert 10 in permissive and 12 in permissive
+    # floor 2: only the shared lag survives consensus; the rare lags are
+    # not reintroduced by the safety net (which only adds 1..5).
+    assert 10 not in strict and 12 not in strict
+
+
+def test_finalize_lags_multivariate_end_to_end():
+    """
+    Test that the multivariate branch runs end-to-end and that the top-n
+    union lags survive the select_lags data budget.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=300, lags=[1, 2, 10], pacf_abs=[0.9, 0.6, 0.4]),
+        SeriesPacf(series_id="b", n_observations=300, lags=[2, 3], pacf_abs=[0.7, 0.5]),
+    ]
+
+    lags = finalize_lags(
+        series_pacf    = series_pacf,
+        task_type      = "multivariate",
+        n_observations = 300,
+        frequency      = None,
+    )
+
+    assert lags == sorted(set(lags))
+    assert all(isinstance(lag, int) and lag > 0 for lag in lags)
+    # Union of {1, 2, 10} and {2, 3}; all fit within max_lag = 300 // 3.
+    assert lags == [1, 2, 3, 10]
