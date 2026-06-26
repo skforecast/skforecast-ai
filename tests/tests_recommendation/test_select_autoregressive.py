@@ -4,14 +4,16 @@ import numpy as np
 import pandas as pd
 
 from skforecast_ai.recommendation.autoregressive import (
-    DEFAULT_PACF_CAP,
-    MAX_PACF_CAP,
     _strongest_pacf_window,
     compute_series_pacf,
     finalize_lags,
     select_window_features,
 )
 from skforecast_ai.schemas import DataProfile, SeriesPacf
+
+# Mirror the function-local caps in compute_series_pacf.
+MAX_PACF_CAP = 512
+DEFAULT_PACF_CAP = 50
 
 
 def _target_stats(series: pd.Series) -> dict:
@@ -335,23 +337,18 @@ def test_select_autoregressive_output_pacf_respects_max_lag_constraint():
 # ---------------------------------------------------------------------------
 def _capture_requested_n_lags(monkeypatch) -> list[int]:
     """
-    Patch `calculate_lag_autocorrelation` to record the `n_lags` argument
-    requested by `compute_series_pacf`, returning the capture list.
+    Patch `pacf` to record the `nlags` argument requested by
+    `compute_series_pacf`, returning the capture list.
     """
     import skforecast_ai.recommendation.autoregressive as ar
 
     captured: list[int] = []
 
-    def _fake_calc(data, n_lags, sort_by):
-        captured.append(n_lags)
-        return pd.DataFrame(
-            {
-                "lag": [1],
-                "partial_autocorrelation_abs": [0.0],
-            }
-        )
+    def _fake_pacf(x, nlags):
+        captured.append(nlags)
+        return np.zeros(nlags + 1)  # all-zero PACF -> nothing passes threshold
 
-    monkeypatch.setattr(ar, "calculate_lag_autocorrelation", _fake_calc)
+    monkeypatch.setattr(ar, "pacf", _fake_pacf)
     return captured
 
 

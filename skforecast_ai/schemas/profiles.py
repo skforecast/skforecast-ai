@@ -228,11 +228,12 @@ class SeriesPacf(BaseModel):
         long format).
     n_observations : int
         Cleaned per-series length (after trimming edge NaNs and
-        interpolating interior gaps) used to compute the white-noise
-        threshold `1.96 / sqrt(n)`. Not the raw column length.
+        interpolating interior gaps) used as the sample size for the PACF
+        significance test. Not the raw column length.
     lags : list of int
-        Significant lags (`|PACF| > 1.96 / sqrt(n)`), ordered by
-        descending `|PACF|` (importance order, not ascending index).
+        Significant lags retained by Benjamini-Hochberg FDR correction
+        and the minimum effect-size floor, ordered by descending `|PACF|`
+        (importance order, not ascending index).
     pacf_abs : list of float
         Absolute PACF magnitude aligned element-wise with `lags`
         (same order).
