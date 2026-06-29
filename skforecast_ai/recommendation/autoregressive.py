@@ -348,6 +348,7 @@ def select_lags(
     n_observations: int,
     seasonalities: list[int] | None = None,
     n_max_selected: int = 200,
+    max_fraction_allowed: float = 0.33,
 ) -> list[int]:
     """
     Post-process a candidate lag set into the final lag list.
@@ -360,8 +361,8 @@ def select_lags(
     It applies the following sequence of rules:
     
     1. Maximum-lag constraint: Enforces a strict data budget where the maximum
-       lag cannot exceed 1/3 of the total observations, ensuring enough data 
-       remains for training.
+       lag cannot exceed a specified fraction of the total observations
+       (default 33%), ensuring enough data remains for training.
     2. Very-short-series early return: If the series has fewer than 30 
        observations, it abandons the PACF candidates and returns a minimal 
        sequence of recent lags.
@@ -386,6 +387,9 @@ def select_lags(
         seasonal enrichment. If None or empty, no enrichment is applied.
     n_max_selected: int, default 200
         Maximum number of lags selected.
+    max_fraction_allowed : float, default 0.33
+        Maximum fraction of `n_observations` that a lag can span.
+        Prevents features from consuming too much of the training data.
 
     Returns
     -------
@@ -397,12 +401,12 @@ def select_lags(
     Source: `skforecast_ai/skills/autocorrelation-and-lag-selection/SKILL.md`.
 
     Constraints:
-    - `max(lags) < n_observations // 3` (leave enough training rows).
+    - `max(lags) < int(n_observations * max_fraction_allowed)` (leave enough training rows).
     - When the series is very short (< 30), only minimal lags are used.
 
     """
 
-    max_lag_allowed = max(n_observations // 3, 1)
+    max_lag_allowed = max(int(n_observations * max_fraction_allowed), 1)
     primary_season = seasonalities[0] if seasonalities else None
 
     if n_observations < 30:
@@ -429,69 +433,22 @@ def select_lags(
     return sorted(set(lags))
 
 
-def _strongest_pacf_window(
-    series_pacf: list[SeriesPacf],
-    max_window_allowed: int,
-    existing_windows: list[int],
-    min_window: int = 3,
-) -> int | None:
-    """
-    Pick a long rolling window from the strongest PACF lag.
-
-    Scans every series' significant lags and returns the lag with the
-    largest `|PACF|` (excluding lag 1, which the recent lags already
-    cover) that fits the data budget and is distinct from the seasonal
-    windows. Candidates are tried in descending `|PACF|` order, so a very
-    short strongest lag (below `min_window`) does not block a weaker but
-    usable longer lag.
-
-    Parameters
-    ----------
-    series_pacf : list of SeriesPacf
-        Per-series PACF primitive from `compute_series_pacf`.
-    max_window_allowed : int
-        Maximum window size permitted by the data budget.
-    existing_windows : list of int
-        Windows already selected from the seasonal ladder. A candidate
-        within one period of any of these is discarded as redundant.
-    min_window : int, default 3
-        The smallest rolling window worth computing.
-
-    Returns
-    -------
-    window : int, None
-        Rolling window size derived from the strongest usable PACF lag,
-        or None when no suitable lag exists.
-    """
-
-    candidates: list[tuple[float, int]] = []
-    for sp in series_pacf:
-        for lag, mag in zip(sp.lags, sp.pacf_abs):
-            if lag > 1:
-                candidates.append((mag, lag))
-
-    for _, lag in sorted(candidates, key=lambda c: c[0], reverse=True):
-        if not (min_window <= lag <= max_window_allowed):
-            continue
-        if any(abs(lag - w) <= 1 for w in existing_windows):
-            continue
-        return lag
-
-    return None
-
-
 def select_window_features(
     task_type: str,
     n_observations: int,
     frequency: str | None,
-    series_pacf: list[SeriesPacf],
     min_window: int = 3,
     max_window_multiple: int = 3,
     generic_window: int = 7,
+    max_fraction_allowed: float = 0.33,
 ) -> list[dict] | None:
     """
     Build window feature configurations following the feature-engineering
     skill recommendations.
+
+    Generates a multi-scale ladder of rolling window sizes designed to capture
+    short-term reactivity, seasonal patterns, and long-term trends without
+    exhausting the training data budget.
 
     Parameters
     ----------
@@ -501,44 +458,63 @@ def select_window_features(
         Number of observations available (per series).
     frequency : str, None
         Pandas frequency string used to determine seasonal periods.
-    series_pacf : list of SeriesPacf
-        Per-series PACF primitive from `compute_series_pacf`. The
-        strongest significant lag informs an extra long rolling window.
     min_window : int, default 3
         The smallest rolling window worth computing (a 1-2 period mean 
         adds no smoothing over the raw lags).
     max_window_multiple : int, default 3
         Caps the multi-scale ladder at this many multiples of the primary 
-        seasonal period (e.g. daily -> 7, 14, 21) so the rolling windows 
-        stay short relative to the training history.
+        seasonal period so the rolling windows stay short relative to the 
+        training history.
     generic_window : int, default 7
-        Fallback window size used when the frequency is non-seasonal.
+        Fallback window size used when the frequency is non-seasonal or
+        when the primary seasonal period is extremely short.
+    max_fraction_allowed : float, default 0.33
+        Maximum fraction of `n_observations` that a window can span.
+        Prevents rolling features from consuming too much training data.
 
     Returns
     -------
     window_features : list of dict, None
         List of window feature configurations (dicts with keys
         `'stats'` and `'window_sizes'`) suitable for constructing
-        `RollingFeatures` instances. None when the series is too short
-        to benefit from rolling statistics.
+        `RollingFeatures` instances. Returns None when the series is too
+        short to benefit from rolling statistics, or if the chosen model
+        does not support them.
 
     Notes
     -----
     Source: `skforecast_ai/skills/feature-engineering/SKILL.md`.
 
-    The selection logic:
-    - Multi-scale `roll_mean` over multiples of the primary seasonal
-      period (e.g. daily -> 7, 14, 21; hourly -> 24, 48, 72), capped at
-      `max_window_multiple` multiples.
-    - Extreme frequencies are handled by the bounds: sub-`min_window`
-      primary periods (e.g. yearly, primary 1) fall back to a generic
-      window, and large periods are capped by the data budget.
-    - An extra `roll_mean` at the strongest PACF lag (when distinct from
-      the seasonal windows) captures non-seasonal memory.
-    - `roll_std` is added only on the shortest window (the most reactive
-      volatility signal); longer windows keep `roll_mean` only.
-    - `max_window_size < n_observations * 0.25` (preserve training data).
-    - When the series is very short (< 60), window features are skipped.
+    **Selection Logic Progression:**
+    
+    1. **Data Budgeting:** The absolute maximum allowed window is strictly
+       capped at a fraction of the total observations (default 33%).
+       If the series is too short (< 60 observations) or this cap is
+       smaller than the `min_window`, no windows are generated.
+    2. **Short-term Reactivity:** Always includes the `min_window` to
+       capture immediate momentum and volatility.
+    3. **Seasonal Scaling:** Attempts to add the primary and secondary
+       seasonal periods derived from the `frequency`. If a seasonal period
+       exceeds the data budget, it is safely excluded.
+    4. **Trend Fallbacks:** If the frequency is seasonal:
+       - If both seasonalities fit, the ladder is complete.
+       - If only *one* seasonality fits, the algorithm searches backwards
+         from `max_window_multiple` down to `2` to find the largest
+         multiple of the primary season that fits the data budget. This
+         creates a distinct, long-term trend window. **Cycle Guard:** To
+         ensure the model can learn the seasonality, the trend budget is 
+         further restricted to leave at least 2 full seasonal cycles for 
+         training.
+       - If *no* seasonality fits (because the primary season is too large),
+         it falls back to a single long window capped exactly at the data
+         budget limit.
+    5. **Non-Seasonal Fallbacks:** If the frequency has no seasonality (or a
+       period `< min_window`), it ignores seasonality entirely and adds the
+       `generic_window` instead.
+    6. **Statistic Assignment:** The standard deviation (`"std"`) is only
+       computed on the shortest (most reactive) window in the ladder to avoid
+       flattening out the volatility signal. All longer windows calculate
+       only the `"mean"`.
     """
 
     if task_type in ("statistical", "foundation"):
@@ -547,38 +523,40 @@ def select_window_features(
     if n_observations < 60:
         return None
 
-    max_window_allowed = max(int(n_observations * 0.25), 1)
+    max_window_allowed = max(int(n_observations * max_fraction_allowed), 1)
     if max_window_allowed < min_window:
         return None
 
+    windows = [min_window]
     seasonalities = estimate_seasonality(frequency)
     primary_season = seasonalities[0] if seasonalities else None
 
     if primary_season is not None and primary_season >= min_window:
-        # Multi-scale ladder: multiples of the primary seasonal period.
-        windows = [primary_season * k for k in range(1, max_window_multiple + 1)]
-        windows = [w for w in windows if min_window <= w <= max_window_allowed]
-        if not windows:
+        seasonal_windows = [s for s in seasonalities if min_window <= s <= max_window_allowed]
+        windows.extend(seasonal_windows)
+
+        if not seasonal_windows:
             # Primary period exceeds the data budget: single capped window.
-            capped = min(primary_season, max_window_allowed)
-            windows = [capped] if capped >= min_window else []
+            windows.append(max_window_allowed)
+        elif len(seasonal_windows) == 1:
+            # Guarantee the trend window leaves at least 2 full seasonal cycles for training
+            safe_trend_limit = max(n_observations - (2 * primary_season), 0)
+            trend_budget = min(max_window_allowed, safe_trend_limit)
+            
+            # Try the longest allowed trend multiplier first, step down if it hits the budget cap
+            for k in range(max_window_multiple, 1, -1):
+                multiple = primary_season * k
+                if multiple <= trend_budget:
+                    windows.append(multiple)
+                    break
     else:
-        windows = [min(generic_window, max_window_allowed)]
+        windows.append(generic_window)
+
+    windows = [w for w in windows if min_window <= w <= max_window_allowed]
+    windows = sorted(set(windows))
 
     if not windows:
         return None
-
-    # PACF-informed long window: strongest non-trivial lag, when distinct.
-    pacf_window = _strongest_pacf_window(
-        series_pacf        = series_pacf,
-        max_window_allowed = max_window_allowed,
-        existing_windows   = windows,
-        min_window         = min_window,
-    )
-    if pacf_window is not None:
-        windows.append(pacf_window)
-
-    windows = sorted(set(windows))
 
     # roll_std only on the shortest (most reactive) window; roll_mean on all.
     shortest = windows[0]
@@ -600,6 +578,7 @@ def finalize_lags(
     frequency: str | None,
     top_n: int = 10,
     consensus_threshold: float = 0.5,
+    max_fraction_allowed: float = 0.33,
 ) -> list[int]:
     """
     Aggregate per-series PACF lags and post-process into a final lag list.
@@ -614,9 +593,9 @@ def finalize_lags(
     - multivariate: union of the top-n `|PACF|` lags of each series.
 
     When no PACF primitive is available, a minimal recent-lag fallback
-    (`1..min(5, n // 3)`) is returned. Otherwise applies `select_lags`.
-    The primary seasonal period is computed internally so callers stay
-    free of seasonality logic.
+    (`1..min(5, int(n * max_fraction))`) is returned. Otherwise applies
+    `select_lags`. The primary seasonal period is computed internally so
+    callers stay free of seasonality logic.
 
     Parameters
     ----------
@@ -632,6 +611,8 @@ def finalize_lags(
         Number of top lags taken per series for the multivariate union.
     consensus_threshold : float, default 0.5
         Threshold for multi-series lag consensus.
+    max_fraction_allowed : float, default 0.33
+        Maximum fraction of `n_observations` that a lag can span.
 
     Returns
     -------
@@ -659,12 +640,14 @@ def finalize_lags(
         # noise, or every lag filtered out by the significance threshold):
         # seed with a few recent lags so `select_lags` still applies the
         # safety net and seasonal enrichment.
-        candidate_lags = list(range(1, min(5, max(n_observations // 3, 1)) + 1))
+        max_lag_allowed = max(int(n_observations * max_fraction_allowed), 1)
+        candidate_lags = list(range(1, min(5, max_lag_allowed) + 1))
 
     lags = select_lags(
-               candidate_lags = candidate_lags,
-               n_observations = n_observations,
-               seasonalities  = seasonalities,
+               candidate_lags       = candidate_lags,
+               n_observations       = n_observations,
+               seasonalities        = seasonalities,
+               max_fraction_allowed = max_fraction_allowed,
            )
 
     return lags

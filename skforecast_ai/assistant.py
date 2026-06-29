@@ -209,7 +209,6 @@ class ForecastingAssistant:
                               task_type      = task_type,
                               n_observations = data_profile.span_index_length,
                               frequency      = data_profile.frequency,
-                              series_pacf    = series_pacf,
                           )
 
         calendar_features = select_calendar_features(
