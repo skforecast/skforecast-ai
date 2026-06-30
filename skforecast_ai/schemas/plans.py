@@ -115,6 +115,33 @@ class PreprocessingStep(BaseModel):
     blocking: bool = True
 
 
+class PlanOverrides(BaseModel):
+    """
+    LLM-produced overrides for a forecasting plan.
+
+    Attributes
+    ----------
+    lags : list of int, int, default None
+        Overridden lag indices or lag count.
+    window_features : list of dict, default None
+        Overridden window features configurations.
+    reasoning : str
+        Explanation of why the LLM chose these features based on the
+        user's domain knowledge prompt.
+    """
+    lags: list[int] | int | None = Field(
+        default=None,
+        description="The lag indices to use for the forecaster. E.g. [1, 2, 3, 7, 14] or an integer for consecutive lags.",
+    )
+    window_features: list[dict] | None = Field(
+        default=None,
+        description="The window features configurations to use. E.g. [{'stats': ['mean', 'std'], 'window_sizes': 7}].",
+    )
+    reasoning: str = Field(
+        description="Explanation of why these specific features (lags and window features) were chosen based on the user's prompt and time series context.",
+    )
+
+
 class ForecastPlan(DisplayMixin, BaseModel):
     """
     Detailed forecasting plan produced from a `ForecastingProfile`.

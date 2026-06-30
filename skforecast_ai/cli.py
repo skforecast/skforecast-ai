@@ -528,6 +528,56 @@ def profile(
             _render_profile_table(result)
 
 
+def _parse_lags(lags_str: str | None) -> int | list[int] | None:
+    """
+    Parse lags string into an int or list of ints.
+    
+    Parameters
+    ----------
+    lags_str : str, None
+        Comma-separated lag indices (e.g. '1,2,3') or a single int.
+        
+    Returns
+    -------
+    lags : int, list of int, None
+        Parsed lags or None.
+    """
+    if lags_str is None:
+        return None
+    try:
+        if "," in lags_str:
+            return [int(x.strip()) for x in lags_str.split(",")]
+        return int(lags_str)
+    except ValueError as e:
+        raise typer.BadParameter(f"Invalid format for --lags: {e}") from e
+
+def _parse_window_features(wf_str: str | None) -> list[dict] | None:
+    """
+    Parse window features JSON string.
+    
+    Parameters
+    ----------
+    wf_str : str, None
+        JSON string representing a list of dicts.
+        
+    Returns
+    -------
+    window_features : list of dict, None
+        Parsed list of dicts or None.
+    """
+    if wf_str is None:
+        return None
+    try:
+        parsed = json.loads(wf_str)
+    except json.JSONDecodeError as e:
+        raise typer.BadParameter(f"Invalid JSON in --window-features: {e}") from e
+    if not isinstance(parsed, list) or not all(isinstance(x, dict) for x in parsed):
+        raise typer.BadParameter(
+            "--window-features must be a JSON array of objects, "
+            "e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'."
+        )
+    return parsed
+
 @app.command()
 def plan(
     data: Annotated[str | None, typer.Argument(help="Path or URL to CSV file.")] = None,
@@ -539,6 +589,8 @@ def plan(
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
+    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'.")] = None,
     from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -553,6 +605,8 @@ def plan(
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
 
         if from_profile is not None:
             profile_data = _read_json_input(from_profile)
@@ -575,7 +629,8 @@ def plan(
             result = assistant.plan(
                 profile=prof, steps=steps, forecaster=forecaster,
                 estimator=estimator, estimator_kwargs=parsed_estimator_kwargs,
-                interval=parsed_interval,
+                interval=parsed_interval, lags=parsed_lags,
+                window_features=parsed_window_features,
             )
 
         if format == "json":
@@ -597,11 +652,17 @@ def refine_plan(
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Override forecast horizon.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '0.1,0.9'.")] = None,
+    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'.")] = None,
+    prompt: Annotated[str | None, typer.Option("--prompt", help="Natural language domain knowledge to guide LLM plan refinement.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for plan refinement.")] = None,
+    base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
+    api_key: Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
 ) -> None:
-    """Refine an existing forecasting plan by overriding specific fields."""
+    """Refine an existing forecasting plan by overriding specific fields or using LLM guidance."""
     with _error_handler():
         bundle_data = _read_json_input(from_plan)
         prof = ForecastingProfile.model_validate(bundle_data.get("profile", {}))
@@ -609,6 +670,18 @@ def refine_plan(
 
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
+
+        llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
+        base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
+        api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
+
+        assistant = ForecastingAssistant(
+            llm=llm_value,
+            base_url=base_url_value,
+            api_key=api_key_value,
+        )
 
         overrides: dict = {}
         if forecaster is not None:
@@ -621,10 +694,19 @@ def refine_plan(
             overrides["steps"] = steps
         if parsed_interval is not None:
             overrides["interval"] = parsed_interval
+        if parsed_lags is not None:
+            overrides["lags"] = parsed_lags
+        if parsed_window_features is not None:
+            overrides["window_features"] = parsed_window_features
 
-        assistant = ForecastingAssistant()
         with _spinner("Refining plan...", quiet):
             result = assistant.refine_plan(profile=prof, plan=plan_obj, **overrides)
+            
+            if prompt is not None:
+                with _spinner("Refining plan with AI...", quiet):
+                    result, reasoning = assistant.refine_plan_with_llm(
+                        profile=prof, plan=result, prompt=prompt
+                    )
 
         if format == "json":
             bundle = {
@@ -648,6 +730,8 @@ def forecast_code(
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
+    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'.")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -675,6 +759,8 @@ def forecast_code(
             parsed_target = _parse_target(target)
             parsed_interval = _parse_interval(interval)
             parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+            parsed_lags = _parse_lags(lags)
+            parsed_window_features = _parse_window_features(window_features)
 
             with _spinner("Generating code...", quiet):
                 result = assistant.forecast_code(
@@ -682,7 +768,8 @@ def forecast_code(
                     date_column=date_column, series_id_column=series_id_column,
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
-                    interval=parsed_interval,
+                    interval=parsed_interval, lags=parsed_lags,
+                    window_features=parsed_window_features,
                 )
 
         if format == "json":
@@ -707,6 +794,8 @@ def backtest_code(
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
+    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'.")] = None,
     initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
     fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
     refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
@@ -746,6 +835,8 @@ def backtest_code(
 
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
 
         with _spinner("Generating backtesting code...", quiet):
             # Profile (if needed)
@@ -766,6 +857,8 @@ def backtest_code(
                     estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
+                    lags=parsed_lags,
+                    window_features=parsed_window_features,
                 )
 
             # Generate CV

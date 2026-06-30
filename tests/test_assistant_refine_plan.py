@@ -23,12 +23,11 @@ def test_refine_plan_ValueError_when_invalid_override_key():
     plan = assistant.plan(profile, steps=10)
 
     err_msg = re.escape(
-        "Invalid override keys: ['lags']. "
-        "Allowed keys: ['estimator', 'estimator_kwargs', 'forecaster',"
-        " 'interval', 'steps']."
+        "Invalid override keys: ['not_a_valid_key']. "
+        "Allowed keys: ['estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'steps', 'window_features']."
     )
     with pytest.raises(ValueError, match=err_msg):
-        assistant.refine_plan(profile, plan, lags=[1, 2, 3])
+        assistant.refine_plan(profile, plan, not_a_valid_key="something")
 
 
 def test_refine_plan_ValueError_when_forecaster_not_in_candidates():

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 from pydantic_ai import Agent, RunContext
 
-from ..schemas import CVParams, ForecastingProfile, ForecastPlan
-from .prompts import _CV_ROLE_PROMPT, _STATIC_ROLE_PROMPT
+from ..schemas import CVParams, ForecastingProfile, ForecastPlan, PlanOverrides
+from .prompts import _CV_ROLE_PROMPT, _STATIC_ROLE_PROMPT, _PLAN_REFINEMENT_ROLE_PROMPT
 from .skills import load_llms_reference, load_skill, select_skills
 
 logger = logging.getLogger(__name__)
@@ -242,6 +242,98 @@ def create_cv_agent(
         total_chars = sum(len(p) for p in parts)
         logger.info(
             "CV agent dynamic instructions: ~%d tokens",
+            total_chars // 4,
+        )
+
+    return agent
+
+# ---------------------------------------------------------------------------
+# Plan refinement agent (structured output)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PlanRefinementDeps:
+    """
+    Runtime dependencies for the plan refinement agent.
+
+    Attributes
+    ----------
+    profile : ForecastingProfile
+        The profiled dataset and modeling decisions.
+    plan : ForecastPlan
+        The current forecasting plan.
+    prompt : str
+        The user's domain knowledge description.
+    """
+
+    profile: ForecastingProfile
+    plan: ForecastPlan
+    prompt: str
+
+
+def create_plan_refinement_agent(
+    model,
+) -> Agent[PlanRefinementDeps, PlanOverrides]:
+    """
+    Create a Pydantic AI agent for plan refinement with structured output.
+
+    The agent uses the user's domain knowledge to adjust lags and window
+    features, returning a `PlanOverrides` Pydantic model.
+
+    Parameters
+    ----------
+    model : str, Model
+        Pydantic AI model instance or string identifier.
+
+    Returns
+    -------
+    agent : Agent[PlanRefinementDeps, PlanOverrides]
+        Configured agent that returns structured `PlanOverrides`.
+    """
+    agent: Agent[PlanRefinementDeps, PlanOverrides] = Agent(
+        model,
+        output_type=PlanOverrides,
+        deps_type=PlanRefinementDeps,
+        instructions=_PLAN_REFINEMENT_ROLE_PROMPT,
+        retries=2,
+    )
+
+    @agent.instructions
+    def _data_context(ctx: RunContext[PlanRefinementDeps]) -> str:
+        """Inject dataset context and skill into dynamic instructions."""
+        deps = ctx.deps
+        dp = deps.profile.data_profile
+
+        parts: list[str] = []
+
+        # Data context
+        parts.append("## Dataset Context")
+        parts.append(f"- Total observations: {dp.n_total_observations}")
+        parts.append(f"- Span index length: {dp.span_index_length}")
+        parts.append(f"- Frequency: {dp.frequency or 'unknown'}")
+        parts.append(f"- Forecast horizon (steps): {deps.plan.steps}")
+        parts.append(f"- Current Lags: {deps.plan.forecaster_kwargs.get('lags')}")
+        parts.append(f"- Current Window Features: {deps.plan.forecaster_kwargs.get('window_features')}")
+        parts.append("")
+
+        parts.append("## User Domain Knowledge")
+        parts.append(f"{deps.prompt}")
+        parts.append("")
+
+        # Load skills
+        for skill_name in ["feature-engineering", "autocorrelation-and-lag-selection"]:
+            try:
+                skill_content = load_skill(skill_name)
+                parts.append(f"## Reference: {skill_name}\n\n{skill_content}\n")
+            except FileNotFoundError:
+                logger.warning(
+                    f"Skill '{skill_name}' not found, skipping."
+                )
+
+        total_chars = sum(len(p) for p in parts)
+        logger.info(
+            "Plan refinement agent dynamic instructions: ~%d tokens",
             total_chars // 4,
         )
 

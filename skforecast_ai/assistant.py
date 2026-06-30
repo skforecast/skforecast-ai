@@ -152,6 +152,7 @@ class ForecastingAssistant:
         self._model           = None
         self._agent           = None
         self._cv_agent        = None
+        self._plan_refinement_agent = None
 
     def profile(
         self,
@@ -251,6 +252,8 @@ class ForecastingAssistant:
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
         interval: list[float] | None = None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict] | None = None,
     ) -> ForecastPlan:
         """
         Build a detailed `ForecastPlan` from a `ForecastingProfile`.
@@ -281,6 +284,12 @@ class ForecastingAssistant:
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
             None, no prediction intervals are computed.
+        lags : int, list of int, default None
+            Explicit lag configuration. If provided, bypasses the
+            deterministic PACF-based lag selection.
+        window_features : list of dict, default None
+            Explicit window features configuration. If provided, bypasses
+            the deterministic window feature selection.
 
         Returns
         -------
@@ -322,20 +331,27 @@ class ForecastingAssistant:
             est = estimator
 
         if task_type in ("statistical", "foundation"):
-            lags = None
-            window_features = None
+            final_lags = None
+            final_window_features = None
             transformer_series = None
             transformer_exog = None
             dropna_from_series = None
             calendar_features = None
         else:
-            lags = finalize_lags(
-                series_pacf     = profile.series_pacf,
-                task_type       = task_type,
-                n_observations  = data_profile.span_index_length,
-                frequency       = data_profile.frequency,
-            )
-            window_features = profile.window_features
+            if lags is not None:
+                final_lags = lags
+            else:
+                final_lags = finalize_lags(
+                    series_pacf     = profile.series_pacf,
+                    task_type       = task_type,
+                    n_observations  = data_profile.span_index_length,
+                    frequency       = data_profile.frequency,
+                )
+            
+            if window_features is not None:
+                final_window_features = window_features
+            else:
+                final_window_features = profile.window_features
 
             if profile.calendar_features:
                 calendar_features = {
@@ -365,8 +381,8 @@ class ForecastingAssistant:
             forecaster         = fc,
             task_type          = task_type,
             steps              = steps,
-            lags               = lags,
-            window_features    = window_features,
+            lags               = final_lags,
+            window_features    = final_window_features,
             calendar_features  = calendar_features,
             transformer_series = transformer_series,
             transformer_exog   = transformer_exog,
@@ -391,8 +407,8 @@ class ForecastingAssistant:
         explanation = build_plan_explanation(
             forecaster         = fc,
             estimator          = est,
-            lags               = lags,
-            window_features    = window_features,
+            lags               = final_lags,
+            window_features    = final_window_features,
             interval_method    = interval_method,
             dropna_from_series = dropna_from_series,
             use_exog           = use_exog,
@@ -451,7 +467,7 @@ class ForecastingAssistant:
             Updated plan with overrides applied.
         """
 
-        allowed_keys = {"forecaster", "estimator", "estimator_kwargs", "steps", "interval"}
+        allowed_keys = {"forecaster", "estimator", "estimator_kwargs", "steps", "interval", "lags", "window_features"}
         invalid_keys = set(overrides) - allowed_keys
         if invalid_keys:
             raise ValueError(
@@ -464,6 +480,8 @@ class ForecastingAssistant:
         estimator = overrides.get("estimator", plan.estimator)
         estimator_kwargs = overrides.get("estimator_kwargs", plan.estimator_kwargs or None)
         interval = overrides.get("interval", plan.interval)
+        lags = overrides.get("lags", plan.forecaster_kwargs.get("lags"))
+        window_features = overrides.get("window_features", plan.forecaster_kwargs.get("window_features"))
 
         return self.plan(
             profile          = profile,
@@ -472,7 +490,69 @@ class ForecastingAssistant:
             estimator        = estimator,
             estimator_kwargs = estimator_kwargs,
             interval         = interval,
+            lags             = lags,
+            window_features  = window_features,
         )
+
+    def refine_plan_with_llm(
+        self,
+        profile: ForecastingProfile,
+        plan: ForecastPlan,
+        prompt: str,
+    ) -> tuple[ForecastPlan, str]:
+        """
+        Use the LLM to refine lags and window features based on domain knowledge.
+
+        Parameters
+        ----------
+        profile : ForecastingProfile
+            The profiled dataset and modeling decisions.
+        plan : ForecastPlan
+            The current forecasting plan.
+        prompt : str
+            The user's domain knowledge description.
+
+        Returns
+        -------
+        refined_plan : ForecastPlan
+            The updated plan with new lags and window features.
+        reasoning : str
+            The LLM's explanation of why it chose the specific features.
+        """
+        if self.llm is None:
+            raise LLMRequiredError("refine_plan_with_llm")
+
+        from .llm.agent import PlanRefinementDeps
+
+        agent = self._resolve_plan_refinement_agent()
+        deps = PlanRefinementDeps(
+            profile=profile,
+            plan=plan,
+            prompt=prompt,
+        )
+
+        try:
+            result = _run_agent_sync(agent, prompt, deps=deps)
+            overrides = result.output
+
+            refined_plan = self.refine_plan(
+                profile=profile,
+                plan=plan,
+                lags=overrides.lags,
+                window_features=overrides.window_features,
+            )
+
+            # Append the LLM's reasoning to the plan explanation
+            refined_plan.explanation += f"\n\nLLM Refinement Reasoning:\n{overrides.reasoning}"
+
+            return refined_plan, overrides.reasoning
+        except Exception as exc:
+            warnings.warn(
+                f"LLM plan refinement failed ({exc}). Returning original plan.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return plan, str(exc)
 
     def forecast_code(
         self,
@@ -485,6 +565,8 @@ class ForecastingAssistant:
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
         interval: list[float] | None = None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
     ) -> CodeGenerationResult:
@@ -524,6 +606,10 @@ class ForecastingAssistant:
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
             None, no prediction intervals are computed.
+        lags : int, list of int, default None
+            Explicit lag configuration.
+        window_features : list of dict, default None
+            Explicit window features configuration.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling. If None, profiling
             is performed from `data`.
@@ -554,6 +640,8 @@ class ForecastingAssistant:
                 estimator        = estimator,
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
+                lags             = lags,
+                window_features  = window_features,
             )
 
         code = render_forecast_script(
@@ -577,6 +665,8 @@ class ForecastingAssistant:
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
         interval: list[float] | None = None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict] | None = None,
         exog_future: pd.DataFrame | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
@@ -612,6 +702,10 @@ class ForecastingAssistant:
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
             None, no prediction intervals are computed.
+        lags : int, list of int, default None
+            Explicit lag configuration.
+        window_features : list of dict, default None
+            Explicit window features configuration.
         exog_future : pandas DataFrame, default None
             Exogenous variables covering the forecast horizon
             (`steps` rows). Required for final predictions when
@@ -657,6 +751,8 @@ class ForecastingAssistant:
                 estimator        = estimator,
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
+                lags             = lags,
+                window_features  = window_features,
             )
 
         result = run_forecast(
@@ -1328,6 +1424,8 @@ class ForecastingAssistant:
         interval: list[float] | None,
         profile: ForecastingProfile | None,
         plan: ForecastPlan | None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict] | None = None,
     ) -> tuple[ForecastingProfile, ForecastPlan]:
         """
         Resolve profile and plan for backtesting workflows.
@@ -1362,6 +1460,10 @@ class ForecastingAssistant:
             Pre-computed profile.
         plan : ForecastPlan, None
             Pre-computed plan.
+        lags : int, list of int, default None
+            Explicit lag configuration.
+        window_features : list of dict, default None
+            Explicit window features configuration.
 
         Returns
         -------
@@ -1390,6 +1492,8 @@ class ForecastingAssistant:
                 estimator        = estimator,
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
+                lags             = lags,
+                window_features  = window_features,
             )
         else:
             if cv.steps != plan.steps:
@@ -1459,6 +1563,23 @@ class ForecastingAssistant:
             self._cv_agent = create_cv_agent(model)
 
         return self._cv_agent
+
+    def _resolve_plan_refinement_agent(self):
+        """
+        Create and cache the plan refinement agent.
+
+        Returns
+        -------
+        agent : Agent[PlanRefinementDeps, PlanOverrides]
+            Cached plan refinement agent instance.
+        """
+        if self._plan_refinement_agent is None:
+            from .llm.agent import create_plan_refinement_agent
+
+            model = self._resolve_model()
+            self._plan_refinement_agent = create_plan_refinement_agent(model)
+
+        return self._plan_refinement_agent
 
     def _configure_cv_with_llm(
         self,
