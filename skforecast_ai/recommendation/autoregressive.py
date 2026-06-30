@@ -485,33 +485,38 @@ def select_window_features(
     -----
     Source: `skforecast_ai/skills/feature-engineering/SKILL.md`.
 
-    **Selection Logic Progression:**
+    Selection Logic Progression:
     
-    1. **Data Budgeting:** The absolute maximum allowed window is strictly
+    1. Data Budgeting: The absolute maximum allowed window is strictly
        capped at a fraction of the total observations (default 33%).
        If the series is too short (< 60 observations) or this cap is
        smaller than the `min_window`, no windows are generated.
-    2. **Short-term Reactivity:** Always includes the `min_window` to
+    2. Short-term Reactivity: Always includes the `min_window` to
        capture immediate momentum and volatility.
-    3. **Seasonal Scaling:** Attempts to add the primary and secondary
-       seasonal periods derived from the `frequency`. If a seasonal period
-       exceeds the data budget, it is safely excluded.
-    4. **Trend Fallbacks:** If the frequency is seasonal:
-       - If both seasonalities fit, the ladder is complete.
-       - If only *one* seasonality fits, the algorithm searches backwards
-         from `max_window_multiple` down to `2` to find the largest
-         multiple of the primary season that fits the data budget. This
-         creates a distinct, long-term trend window. **Cycle Guard:** To
-         ensure the model can learn the seasonality, the trend budget is 
-         further restricted to leave at least 2 full seasonal cycles for 
-         training.
-       - If *no* seasonality fits (because the primary season is too large),
+    3. Seasonal Scaling: Adds the usable seasonal periods derived from the
+       `frequency` (those at least `min_window` wide and within the data
+       budget). A rolling mean over a full seasonal cycle is a low-pass filter,
+       so these windows capture the *local level at the seasonal scale* (the
+       deseasonalized trend-cycle), not the seasonal shape itself; the seasonal
+       shape is carried by the lags selected in `select_lags`. The branch keys
+       off the set of usable periods rather than only the shortest cycle, so a
+       usable secondary period is kept even when the primary cycle is shorter
+       than `min_window` (e.g. ``"12h" -> [2, 14]`` keeps 14).
+    4. Trend Fallbacks: If the frequency is seasonal:
+       - If two seasonal periods fit, the ladder is complete.
+       - If only *one* fits, the algorithm searches backwards from
+         `max_window_multiple` down to `2` to find the largest multiple of that
+         period which still fits the data budget, creating a distinct
+         long-term trend window. (The `max_fraction_allowed` budget already
+         leaves ample history for training, so no extra cycle restriction is
+         applied.)
+       - If *no* period fits because every seasonal period exceeds the budget,
          it falls back to a single long window capped exactly at the data
          budget limit.
-    5. **Non-Seasonal Fallbacks:** If the frequency has no seasonality (or a
-       period `< min_window`), it ignores seasonality entirely and adds the
-       `generic_window` instead.
-    6. **Statistic Assignment:** The standard deviation (`"std"`) is only
+    5. Non-Seasonal Fallbacks: If the frequency has no seasonality (or only
+       periods shorter than `min_window`), it adds the `generic_window`
+       instead.
+    6. Statistic Assignment: The standard deviation (`"std"`) is only
        computed on the shortest (most reactive) window in the ladder to avoid
        flattening out the volatility signal. All longer windows calculate
        only the `"mean"`.
@@ -529,34 +534,35 @@ def select_window_features(
 
     windows = [min_window]
     seasonalities = estimate_seasonality(frequency)
-    primary_season = seasonalities[0] if seasonalities else None
+    # Seasonal periods that are usable as windows: at least `min_window` wide
+    # and within the data budget. Branching on this set (rather than only the
+    # smallest period) keeps a usable secondary period even when the primary
+    # cycle is too short to be a window (e.g. "12h" -> [2, 14] keeps 14).
+    usable_seasons = [s for s in seasonalities if min_window <= s <= max_window_allowed]
 
-    if primary_season is not None and primary_season >= min_window:
-        seasonal_windows = [s for s in seasonalities if min_window <= s <= max_window_allowed]
-        windows.extend(seasonal_windows)
+    if usable_seasons:
+        primary_season = usable_seasons[0]
+        windows.extend(usable_seasons)
 
-        if not seasonal_windows:
-            # Primary period exceeds the data budget: single capped window.
-            windows.append(max_window_allowed)
-        elif len(seasonal_windows) == 1:
-            # Guarantee the trend window leaves at least 2 full seasonal cycles for training
-            safe_trend_limit = max(n_observations - (2 * primary_season), 0)
-            trend_budget = min(max_window_allowed, safe_trend_limit)
-            
-            # Try the longest allowed trend multiplier first, step down if it hits the budget cap
+        if len(usable_seasons) == 1:
+            # Only the primary period fits: add a longer trend window at the
+            # largest multiple of it that still fits the data budget.
             for k in range(max_window_multiple, 1, -1):
                 multiple = primary_season * k
-                if multiple <= trend_budget:
+                if multiple <= max_window_allowed:
                     windows.append(multiple)
                     break
+    elif any(s > max_window_allowed for s in seasonalities):
+        # Seasonality exists but every period exceeds the data budget: a single
+        # window capped at the budget proxies the long-term trend.
+        windows.append(max_window_allowed)
     else:
+        # No seasonality (or only periods shorter than min_window).
         windows.append(generic_window)
 
-    windows = [w for w in windows if min_window <= w <= max_window_allowed]
-    windows = sorted(set(windows))
-
-    if not windows:
-        return None
+    # Clamp the generic fallback to the budget; every other entry is already in
+    # range by construction.
+    windows = sorted({w for w in windows if min_window <= w <= max_window_allowed})
 
     # roll_std only on the shortest (most reactive) window; roll_mean on all.
     shortest = windows[0]
