@@ -76,6 +76,8 @@ def render_explanation(text: str, title: str = "Explanation") -> Panel:
         title=title,
         title_align="center",
         border_style=_EXPLANATION_BORDER,
+        padding=(1, 2),
+        expand=True
     )
 
 
