@@ -1,4 +1,4 @@
-"""Unit tests for autoregressive lag and window feature selection."""
+# Unit test autoregressive recommendation/autoregressive
 
 import numpy as np
 import pandas as pd
@@ -82,9 +82,9 @@ def _make_series(n: int, seed: int = 123) -> pd.Series:
 # ---------------------------------------------------------------------------
 # Lags: PACF-based selection
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_when_daily_frequency():
+def test_autoregressive_output_when_daily_frequency():
     """
-    Test select_autoregressive returns lags and seasonal lags for a
+    Test select_lags_and_window_features returns lags and seasonal lags for a
     daily frequency series with 365 observations.
     """
     series = _make_series(365)
@@ -100,9 +100,9 @@ def test_select_autoregressive_output_when_daily_frequency():
     assert 7 in lags
 
 
-def test_select_autoregressive_output_when_hourly_frequency():
+def test_autoregressive_output_when_hourly_frequency():
     """
-    Test select_autoregressive includes seasonal lag 24 for hourly data
+    Test select_lags_and_window_features includes seasonal lag 24 for hourly data
     with enough observations.
     """
     series = _make_series(720)
@@ -117,9 +117,9 @@ def test_select_autoregressive_output_when_hourly_frequency():
     assert 168 not in lags
 
 
-def test_select_autoregressive_output_when_monthly_frequency():
+def test_autoregressive_output_when_monthly_frequency():
     """
-    Test select_autoregressive returns seasonal lag 12 for monthly data.
+    Test select_lags_and_window_features returns seasonal lag 12 for monthly data.
     """
     series = _make_series(120)
     lags, wf = select_lags_and_window_features(
@@ -130,9 +130,9 @@ def test_select_autoregressive_output_when_monthly_frequency():
     assert 12 in lags
 
 
-def test_select_autoregressive_output_when_weekly_frequency():
+def test_autoregressive_output_when_weekly_frequency():
     """
-    Test select_autoregressive returns seasonal lag 52 for weekly data
+    Test select_lags_and_window_features returns seasonal lag 52 for weekly data
     when enough observations are available.
     """
     series = _make_series(200)
@@ -144,9 +144,9 @@ def test_select_autoregressive_output_when_weekly_frequency():
     assert 52 in lags
 
 
-def test_select_autoregressive_output_when_no_frequency():
+def test_autoregressive_output_when_no_frequency():
     """
-    Test select_autoregressive works with no frequency (no seasonal
+    Test select_lags_and_window_features works with no frequency (no seasonal
     enrichment, only PACF-based lags).
     """
     series = _make_series(365)
@@ -159,9 +159,9 @@ def test_select_autoregressive_output_when_no_frequency():
     assert lags == sorted(lags)
 
 
-def test_select_autoregressive_output_when_very_short_series():
+def test_autoregressive_output_when_very_short_series():
     """
-    Test select_autoregressive returns minimal lags and no window features
+    Test select_lags_and_window_features returns minimal lags and no window features
     for a very short series (< 30 observations).
     """
     series = _make_series(20)
@@ -174,9 +174,9 @@ def test_select_autoregressive_output_when_very_short_series():
     assert wf is None
 
 
-def test_select_autoregressive_output_when_short_series_no_window_features():
+def test_autoregressive_output_when_short_series_no_window_features():
     """
-    Test select_autoregressive returns no window features for series
+    Test select_lags_and_window_features returns no window features for series
     with fewer than 60 observations.
     """
     series = _make_series(50)
@@ -190,7 +190,7 @@ def test_select_autoregressive_output_when_short_series_no_window_features():
 # ---------------------------------------------------------------------------
 # Lags: constraints
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_max_lag_respects_constraint():
+def test_autoregressive_output_max_lag_respects_constraint():
     """
     Test that the maximum lag never exceeds n_observations // 3.
     """
@@ -202,7 +202,7 @@ def test_select_autoregressive_output_max_lag_respects_constraint():
     assert max(lags) <= 100 // 3
 
 
-def test_select_autoregressive_output_seasonal_lag_excluded_when_too_large():
+def test_autoregressive_output_seasonal_lag_excluded_when_too_large():
     """
     Test that seasonal lags are excluded when they exceed the max allowed.
     For monthly data with only 30 observations, lag 12 exceeds 30//3=10.
@@ -216,7 +216,7 @@ def test_select_autoregressive_output_seasonal_lag_excluded_when_too_large():
     assert max(lags) <= 30 // 3
 
 
-def test_select_autoregressive_output_secondary_season_excluded_when_too_large():
+def test_autoregressive_output_secondary_season_excluded_when_too_large():
     """
     Test that secondary seasonal lag (168 for hourly) is excluded when
     n_observations is too small to allow it.
@@ -235,9 +235,9 @@ def test_select_autoregressive_output_secondary_season_excluded_when_too_large()
 # ---------------------------------------------------------------------------
 # PACF-based lag selection: specific patterns
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_when_pacf_with_ar_series():
+def test_autoregressive_output_when_pacf_with_ar_series():
     """
-    Test that select_autoregressive selects lags using PACF when a
+    Test that select_lags_and_window_features selects lags using PACF when a
     target series with clear AR structure is provided. An AR(2) series
     should select recent autoregressive lags (lag 1 and a low lag),
     evaluated without window-feature pruning so the raw lag set is checked.
@@ -274,7 +274,7 @@ def test_select_autoregressive_output_when_pacf_with_ar_series():
     assert 7 in lags
 
 
-def test_select_autoregressive_output_when_pacf_with_seasonal_series():
+def test_autoregressive_output_when_pacf_with_seasonal_series():
     """
     Test that PACF-based selection captures seasonal lags for a series
     with strong seasonal component (period 12 monthly).
@@ -294,7 +294,7 @@ def test_select_autoregressive_output_when_pacf_with_seasonal_series():
     assert lags == sorted(lags)
 
 
-def test_select_autoregressive_output_when_pacf_selects_few_lags():
+def test_autoregressive_output_when_pacf_selects_few_lags():
     """
     Test the safety net: when PACF selects very few significant lags
     (e.g. white noise series), at least 3 recent lags are returned and
@@ -315,7 +315,7 @@ def test_select_autoregressive_output_when_pacf_selects_few_lags():
     assert 7 in lags
 
 
-def test_select_autoregressive_output_pacf_respects_max_lag_constraint():
+def test_autoregressive_output_pacf_respects_max_lag_constraint():
     """
     Test that PACF-selected lags respect the n_observations // 3 constraint.
     """
@@ -418,7 +418,7 @@ def test_compute_series_pacf_n_lags_cap_default_when_no_frequency(monkeypatch):
 # ---------------------------------------------------------------------------
 # Window features: roll_std placement
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_window_features_std_only_on_shortest_window():
+def test_autoregressive_window_features_std_only_on_shortest_window():
     """
     Test that roll_std is added only on the shortest window while every
     longer window keeps roll_mean only.
@@ -438,7 +438,7 @@ def test_select_autoregressive_window_features_std_only_on_shortest_window():
             assert config["stats"] == ["mean"]
 
 
-def test_select_autoregressive_window_features_shortest_has_mean_and_std():
+def test_autoregressive_window_features_shortest_has_mean_and_std():
     """
     Test that the shortest window always carries both roll_mean and
     roll_std regardless of the series scale.
@@ -457,9 +457,9 @@ def test_select_autoregressive_window_features_shortest_has_mean_and_std():
 # ---------------------------------------------------------------------------
 # Window features: structure
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_window_features_for_daily():
+def test_autoregressive_output_window_features_for_daily():
     """
-    Test select_autoregressive returns multi-scale window features (short, 
+    Test select_lags_and_window_features returns multi-scale window features (short, 
     weekly, trend multiple) for daily frequency with sufficient data.
     """
     series = _make_series(365)
@@ -474,9 +474,9 @@ def test_select_autoregressive_output_window_features_for_daily():
     assert 21 in windows
 
 
-def test_select_autoregressive_output_window_features_for_hourly():
+def test_autoregressive_output_window_features_for_hourly():
     """
-    Test select_autoregressive returns a multi-scale window ladder
+    Test select_lags_and_window_features returns a multi-scale window ladder
     (3, 24, 168) for hourly data with sufficient observations, with
     roll_std only on the shortest window.
     """
@@ -501,9 +501,9 @@ def test_select_autoregressive_output_window_features_for_hourly():
             assert config["stats"] == ["mean"]
 
 
-def test_select_autoregressive_output_window_features_monthly():
+def test_autoregressive_output_window_features_monthly():
     """
-    Test select_autoregressive returns window features with window=3 and 12
+    Test select_lags_and_window_features returns window features with window=3 and 12
     for monthly frequency.
     """
     series = _make_series(120)
@@ -517,9 +517,9 @@ def test_select_autoregressive_output_window_features_monthly():
     assert 12 in windows
 
 
-def test_select_autoregressive_output_window_features_none_frequency():
+def test_autoregressive_output_window_features_none_frequency():
     """
-    Test select_autoregressive returns short and generic window features (3, 7)
+    Test select_lags_and_window_features returns short and generic window features (3, 7)
     when no frequency is provided but enough data exists.
     """
     series = _make_series(200)
@@ -533,7 +533,7 @@ def test_select_autoregressive_output_window_features_none_frequency():
     assert 7 in windows
 
 
-def test_select_autoregressive_output_window_features_capped_by_data_size():
+def test_autoregressive_output_window_features_capped_by_data_size():
     """
     Test that window sizes are capped at 33% of n_observations.
     For 60 observations with hourly data: max_window = int(60 * 0.33) = 19,
@@ -550,26 +550,33 @@ def test_select_autoregressive_output_window_features_capped_by_data_size():
         assert config["window_sizes"] <= max_window
 
 
-def test_select_autoregressive_output_no_long_window_when_equals_short():
+def test_autoregressive_output_no_long_window_when_equals_short():
     """
-    Test that a long window config is omitted when it would equal the
-    short window (e.g. monthly with no secondary season and 2*12=24
-    exceeds the data constraint).
+    Test that the seasonal/trend window is replaced by a single
+    budget-capped window when the seasonal period exceeds the data budget.
+    For monthly data with 60 observations the warm-up budget caps windows
+    at 10, so the seasonal period 12 (and its multiples) does not fit and a
+    single window capped at the budget is used instead, yielding a strictly
+    increasing ladder with no window equal to the short one.
     """
     series = _make_series(60)
     _, wf = select_lags_and_window_features(
         n_observations=60, frequency="ME", target_series=series
     )
 
-    if wf is not None and len(wf) > 1:
-        # Long window must be strictly greater than short
-        assert wf[1]["window_sizes"] > wf[0]["window_sizes"]
+    assert wf is not None
+    windows = [config["window_sizes"] for config in wf]
+    # Short window (3) + a single budget-capped window (10); the seasonal
+    # period 12 exceeds the 10-observation budget and is omitted.
+    assert windows == [3, 10]
+    # Strictly increasing: no degenerate window equal to the short one.
+    assert windows == sorted(set(windows))
 
 
 # ---------------------------------------------------------------------------
 # Window features: extreme frequencies
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_window_features_minutely():
+def test_autoregressive_output_window_features_minutely():
     """
     Test the multi-scale window ladder for minutely data (primary season
     60) with enough observations, capped by the data budget.
@@ -587,7 +594,7 @@ def test_select_autoregressive_output_window_features_minutely():
         assert w <= max_window
 
 
-def test_select_autoregressive_output_window_features_yearly_generic():
+def test_autoregressive_output_window_features_yearly_generic():
     """
     Test that an extreme low-period frequency (yearly, primary season 1)
     falls back to a generic short window instead of a degenerate window
@@ -608,7 +615,7 @@ def test_select_autoregressive_output_window_features_yearly_generic():
 # ---------------------------------------------------------------------------
 # Lag pruning when rolling mean present
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_lag_pruning_preserves_minimum_lags():
+def test_autoregressive_lag_pruning_preserves_minimum_lags():
     """
     Test that pruning never reduces lags below 3 elements.
     """
@@ -623,9 +630,9 @@ def test_select_autoregressive_lag_pruning_preserves_minimum_lags():
 # ---------------------------------------------------------------------------
 # Return type
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_returns_tuple():
+def test_autoregressive_output_returns_tuple():
     """
-    Test that select_autoregressive always returns a 2-element tuple.
+    Test that select_lags_and_window_features always returns a 2-element tuple.
     """
     series = _make_series(365)
     result = select_lags_and_window_features(
@@ -636,7 +643,7 @@ def test_select_autoregressive_output_returns_tuple():
     assert len(result) == 2
 
 
-def test_select_autoregressive_output_lags_are_sorted_integers():
+def test_autoregressive_output_lags_are_sorted_integers():
     """
     Test that lags are always sorted positive integers.
     """

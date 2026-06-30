@@ -227,9 +227,9 @@ class SeriesPacf(BaseModel):
         Name of the series (target column for single/wide, series id for
         long format).
     n_observations : int
-        Cleaned per-series length (after trimming edge NaNs and
-        interpolating interior gaps) used as the sample size for the PACF
-        significance test. Not the raw column length.
+        Number of non-NaN observations in the series (all NaNs, edge and
+        interior, are excluded by the count). Used as the sample size for
+        the PACF significance test. Not the raw column length.
     lags : list of int
         Significant lags retained by Benjamini-Hochberg FDR correction
         and the minimum effect-size floor, ordered by descending `|PACF|`

@@ -1,4 +1,4 @@
-"""Tests for derive_preprocessing_steps (Stage 4 compatibility)."""
+# Unit test derive_preprocessing_steps recommendation/preprocessing
 
 from skforecast_ai.recommendation import derive_preprocessing_steps
 from skforecast_ai.schemas import DataProfile, PreprocessingStep
