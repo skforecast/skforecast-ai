@@ -218,9 +218,11 @@ def compute_series_pacf(
         lags_arr = np.arange(1, effective_n_lags + 1)
         pacf_abs = np.abs(pacf_values[1:])
 
-        # Benjamini-Hochberg (FDR) correction
+        # Benjamini-Hochberg (FDR) correction. `norm.sf` (survival function)
+        # is used instead of `1 - norm.cdf` to preserve precision in the far
+        # tail where `1 - cdf` would lose significant digits.
         z_scores = pacf_abs * np.sqrt(n_valid)
-        p_values = 2 * (1 - norm.cdf(z_scores))
+        p_values = 2 * norm.sf(z_scores)
         sort_idx = np.argsort(p_values)
         sorted_p_values = p_values[sort_idx]
         alpha_fdr = 0.05
@@ -343,12 +345,58 @@ def _aggregate_lags_multivariate(
     return combined_lags
 
 
+def _max_window_size_allowed(
+    n_observations: int,
+    max_fraction_allowed: float,
+    n_reserved_rows: int = 0,
+) -> int:
+    """
+    Compute the largest `window_size` the data budget can afford.
+
+    The `window_size` is the number of leading observations a forecaster
+    consumes before it can emit its first training row, i.e.
+    `max(max(lags), max(window_sizes), differentiation)`. Lags and window
+    features draw from this single shared budget rather than independent
+    budgets: the forecaster's real `window_size` is the maximum of the two,
+    not their sum, so capping each at the same value keeps the combined
+    `window_size` within budget.
+
+    The budget is `int(n * max_fraction_allowed)` (minus any
+    `n_reserved_rows`), so at least `1 - max_fraction_allowed` of the
+    observations always remain for training. Short series are protected
+    separately by the `n < 30` (lags) and `n < 60` (window features) guards
+    in their respective selectors.
+
+    Parameters
+    ----------
+    n_observations : int
+        Number of observations available for training (per series).
+    max_fraction_allowed : float
+        Maximum fraction of `n_observations` the `window_size` may span.
+    n_reserved_rows : int, default 0
+        Additional rows consumed beyond the `window_size` that must be left
+        for training. For direct multi-step forecasters the last-step
+        regressor loses `steps - 1` extra rows, so pass `steps - 1` to keep
+        the effective training set within the same budget. Recursive
+        forecasters reserve nothing.
+
+    Returns
+    -------
+    max_window_size : int
+        Largest `window_size` (in observations) that respects the budget,
+        floored at 1.
+    """
+    budget = int(n_observations * max_fraction_allowed) - max(n_reserved_rows, 0)
+    return max(budget, 1)
+
+
 def select_lags(
     candidate_lags: list[int],
     n_observations: int,
     seasonalities: list[int] | None = None,
     n_max_selected: int = 200,
     max_fraction_allowed: float = 0.33,
+    n_reserved_rows: int = 0,
 ) -> list[int]:
     """
     Post-process a candidate lag set into the final lag list.
@@ -390,6 +438,11 @@ def select_lags(
     max_fraction_allowed : float, default 0.33
         Maximum fraction of `n_observations` that a lag can span.
         Prevents features from consuming too much of the training data.
+    n_reserved_rows : int, default 0
+        Rows consumed beyond the `window_size` that must stay available for
+        training, subtracted from the lag budget. For direct multi-step
+        forecasters pass `steps - 1` (the last-step regressor loses that
+        many extra rows); recursive forecasters reserve nothing.
 
     Returns
     -------
@@ -406,7 +459,9 @@ def select_lags(
 
     """
 
-    max_lag_allowed = max(int(n_observations * max_fraction_allowed), 1)
+    max_lag_allowed = _max_window_size_allowed(
+        n_observations, max_fraction_allowed, n_reserved_rows
+    )
     primary_season = seasonalities[0] if seasonalities else None
 
     if n_observations < 30:
@@ -528,7 +583,12 @@ def select_window_features(
     if n_observations < 60:
         return None
 
-    max_window_allowed = max(int(n_observations * max_fraction_allowed), 1)
+    # Windows draw from the same `window_size` budget as lags (see
+    # `_max_window_size_allowed`); the forecaster's real `window_size` is the
+    # max of the two, so sharing one cap keeps the combined `window_size`
+    # within budget. This budget is horizon-agnostic: window features are
+    # selected at profile time, before the forecast `steps` are known.
+    max_window_allowed = _max_window_size_allowed(n_observations, max_fraction_allowed)
     if max_window_allowed < min_window:
         return None
 
@@ -584,7 +644,9 @@ def finalize_lags(
     frequency: str | None,
     top_n: int = 10,
     consensus_threshold: float = 0.5,
+    n_max_selected: int = 200,
     max_fraction_allowed: float = 0.33,
+    n_reserved_rows: int = 0,
 ) -> list[int]:
     """
     Aggregate per-series PACF lags and post-process into a final lag list.
@@ -617,8 +679,15 @@ def finalize_lags(
         Number of top lags taken per series for the multivariate union.
     consensus_threshold : float, default 0.5
         Threshold for multi-series lag consensus.
+    n_max_selected : int, default 200
+        Maximum number of lags selected, forwarded to `select_lags`.
     max_fraction_allowed : float, default 0.33
         Maximum fraction of `n_observations` that a lag can span.
+    n_reserved_rows : int, default 0
+        Rows consumed beyond the `window_size` that must stay available for
+        training, forwarded to `select_lags`. For direct multi-step
+        forecasters pass `steps - 1`; recursive forecasters reserve
+        nothing.
 
     Returns
     -------
@@ -646,14 +715,18 @@ def finalize_lags(
         # noise, or every lag filtered out by the significance threshold):
         # seed with a few recent lags so `select_lags` still applies the
         # safety net and seasonal enrichment.
-        max_lag_allowed = max(int(n_observations * max_fraction_allowed), 1)
+        max_lag_allowed = _max_window_size_allowed(
+            n_observations, max_fraction_allowed, n_reserved_rows
+        )
         candidate_lags = list(range(1, min(5, max_lag_allowed) + 1))
 
     lags = select_lags(
                candidate_lags       = candidate_lags,
                n_observations       = n_observations,
                seasonalities        = seasonalities,
+               n_max_selected       = n_max_selected,
                max_fraction_allowed = max_fraction_allowed,
+               n_reserved_rows      = n_reserved_rows,
            )
 
     return lags

@@ -552,12 +552,11 @@ def test_autoregressive_output_window_features_capped_by_data_size():
 
 def test_autoregressive_output_no_long_window_when_equals_short():
     """
-    Test that the seasonal/trend window is replaced by a single
-    budget-capped window when the seasonal period exceeds the data budget.
-    For monthly data with 60 observations the warm-up budget caps windows
-    at 10, so the seasonal period 12 (and its multiples) does not fit and a
-    single window capped at the budget is used instead, yielding a strictly
-    increasing ladder with no window equal to the short one.
+    Test that the window ladder is strictly increasing with no degenerate
+    window equal to the short one. For monthly data with 60 observations the
+    warm-up budget caps windows at int(60 * 0.33) = 19, so the seasonal
+    period 12 fits and is used; its trend multiples (24, 36) exceed the
+    budget and are omitted, yielding the ladder [3, 12].
     """
     series = _make_series(60)
     _, wf = select_lags_and_window_features(
@@ -566,9 +565,9 @@ def test_autoregressive_output_no_long_window_when_equals_short():
 
     assert wf is not None
     windows = [config["window_sizes"] for config in wf]
-    # Short window (3) + a single budget-capped window (10); the seasonal
-    # period 12 exceeds the 10-observation budget and is omitted.
-    assert windows == [3, 10]
+    # Short window (3) + the seasonal period (12); trend multiples (24, 36)
+    # exceed the 19-observation budget and are omitted.
+    assert windows == [3, 12]
     # Strictly increasing: no degenerate window equal to the short one.
     assert windows == sorted(set(windows))
 

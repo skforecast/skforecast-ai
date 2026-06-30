@@ -329,11 +329,17 @@ class ForecastingAssistant:
             dropna_from_series = None
             calendar_features = None
         else:
+            # Direct forecasters lose `steps - 1` extra rows beyond the
+            # `window_size` (the last-step regressor needs the target at
+            # t + steps), so reserve them from the lag budget. Recursive
+            # forecasters reserve nothing.
+            n_reserved_rows = steps - 1 if "Direct" in fc else 0
             lags = finalize_lags(
                 series_pacf     = profile.series_pacf,
                 task_type       = task_type,
                 n_observations  = data_profile.span_index_length,
                 frequency       = data_profile.frequency,
+                n_reserved_rows = n_reserved_rows,
             )
             window_features = profile.window_features
 
