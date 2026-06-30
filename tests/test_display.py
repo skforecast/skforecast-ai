@@ -90,7 +90,7 @@ def test_render_explanation():
 
 def test_render_dataframe(sample_dataframe):
     result = render_dataframe(sample_dataframe, title="Test DF")
-    assert isinstance(result, Panel)
+    assert isinstance(result, Table)
 
 
 def test_render_metrics(sample_metrics):

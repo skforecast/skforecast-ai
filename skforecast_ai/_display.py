@@ -31,6 +31,16 @@ _CODE_THEME = "monokai"
 _EXPLANATION_BORDER = "color(214)"
 _PREVIEW_ROWS = 5
 _PREVIEW_THRESHOLD = 10
+_TABLE_KWARGS = {"show_lines": True}
+
+
+def _format_value(value: Any) -> str:
+    """Format a value for display in a table."""
+    if isinstance(value, bool):
+        return f"[{'green' if value else 'red'}]{value}[/]"
+    if value is None:
+        return "[dim]None[/]"
+    return str(value)
 
 
 def render_code(code: str, title: str | None = "Generated code") -> RenderableType:
@@ -81,9 +91,9 @@ def render_explanation(text: str, title: str = "Explanation") -> Panel:
     )
 
 
-def render_dataframe(df: Any, title: str = "Data") -> Panel:
+def render_dataframe(df: Any, title: str = "Data") -> Table:
     """
-    Render a pandas DataFrame as a text preview inside a panel.
+    Render a pandas DataFrame as a Rich table.
 
     Long frames are truncated to the head and tail rows, mirroring the CLI
     behaviour, so very large prediction frames stay readable.
@@ -93,23 +103,31 @@ def render_dataframe(df: Any, title: str = "Data") -> Panel:
     df : pandas.DataFrame
         DataFrame to render.
     title : str, default 'Data'
-        Panel title.
+        Table title.
 
     Returns
     -------
-    panel : rich.panel.Panel
-        Panel wrapping the (possibly truncated) string representation.
+    table : rich.table.Table
+        Populated data table.
     """
     n_rows = len(df)
+    table_title = f"{title} ({n_rows} rows)" if n_rows > _PREVIEW_THRESHOLD else title
+    table = Table(title=table_title, **_TABLE_KWARGS)
+    table.add_column("Index", style="dim")
+    for col in df.columns:
+        table.add_column(str(col), justify="right")
+
     if n_rows <= _PREVIEW_THRESHOLD:
-        return Panel(df.to_string(), title=title, title_align="center")
-    head = df.head(_PREVIEW_ROWS).to_string()
-    tail = df.tail(_PREVIEW_ROWS).to_string(header=False)
-    return Panel(
-        f"{head}\n  ...\n{tail}",
-        title=f"{title} ({n_rows} rows)",
-        title_align="center",
-    )
+        for idx, row in df.iterrows():
+            table.add_row(str(idx), *[str(x) for x in row])
+    else:
+        for idx, row in df.head(_PREVIEW_ROWS).iterrows():
+            table.add_row(str(idx), *[str(x) for x in row])
+        table.add_row("...", *["..."] * len(df.columns))
+        for idx, row in df.tail(_PREVIEW_ROWS).iterrows():
+            table.add_row(str(idx), *[str(x) for x in row])
+            
+    return table
 
 
 def render_metrics(metrics: Any, title: str = "Metrics") -> Table:
@@ -132,7 +150,7 @@ def render_metrics(metrics: Any, title: str = "Metrics") -> Table:
     table : rich.table.Table
         Populated metrics table.
     """
-    table = Table(title=title, show_lines=True)
+    table = Table(title=title, **_TABLE_KWARGS)
 
     series_col = next((c for c in ("series", "levels") if c in metrics.columns), None)
     if series_col is not None:
@@ -144,14 +162,16 @@ def render_metrics(metrics: Any, title: str = "Metrics") -> Table:
             values = [str(row[series_col])]
             for col in metric_cols:
                 val = row[col]
-                values.append(f"{val:.4f}" if val is not None else "N/A")
+                import pandas as pd
+                values.append(f"{val:.4f}" if not pd.isna(val) else "N/A")
             table.add_row(*values)
     else:
         for col in metrics.columns:
             table.add_column(col, justify="right")
         for _, row in metrics.iterrows():
+            import pandas as pd
             values = [
-                f"{row[col]:.4f}" if row[col] is not None else "N/A"
+                f"{row[col]:.4f}" if not pd.isna(row[col]) else "N/A"
                 for col in metrics.columns
             ]
             table.add_row(*values)
@@ -173,11 +193,11 @@ def render_cv_config(cv_config: dict) -> Table:
     table : rich.table.Table
         Two-column key/value table.
     """
-    table = Table(title="Cross-Validation Configuration", show_lines=True)
-    table.add_column("Parameter", style="bold")
+    table = Table(title="Cross-Validation Configuration", **_TABLE_KWARGS)
+    table.add_column("Parameter")
     table.add_column("Value", justify="right")
     for key, value in cv_config.items():
-        table.add_row(str(key), str(value))
+        table.add_row(str(key), _format_value(value))
     return table
 
 
@@ -200,25 +220,29 @@ def render_profile(profile: Any) -> RenderableType:
 
     dp = profile.data_profile
 
-    table = Table(title="Dataset Profile", show_lines=True)
-    table.add_column("Property", style="bold")
+    table = Table(title="Dataset Profile", **_TABLE_KWARGS)
+    table.add_column("Property")
     table.add_column("Value")
-    table.add_row("Format", dp.data_format)
-    table.add_row("Series", str(dp.n_series))
-    table.add_row("Observations", str(_display_n_observations(dp)))
-    table.add_row("Frequency", dp.frequency or "not detected")
-    table.add_row("Target", str(dp.target))
-    table.add_row("Exog columns", ", ".join(dp.exog_columns) if dp.exog_columns else "none")
-    table.add_row("Missing target", str(dp.missing_target) if dp.missing_target else "none")
+    table.add_row("Format", _format_value(dp.data_format))
+    table.add_row("Series", _format_value(dp.n_series))
+    table.add_row("Observations", _format_value(_display_n_observations(dp)))
+    table.add_row("Frequency", _format_value(dp.frequency or "not detected"))
+    table.add_row("Target", _format_value(dp.target))
+    table.add_row("Exog columns", _format_value(", ".join(dp.exog_columns) if dp.exog_columns else "none"))
+    
+    missing_val = _format_value(dp.missing_target if dp.missing_target else "none")
+    if dp.missing_target:
+        missing_val = f"[bold yellow]{missing_val}[/bold yellow]"
+    table.add_row("Missing target", missing_val)
 
-    rec_table = Table(title="Recommendation", show_lines=True)
-    rec_table.add_column("Property", style="bold")
+    rec_table = Table(title="Recommendation", **_TABLE_KWARGS)
+    rec_table.add_column("Property")
     rec_table.add_column("Value")
-    rec_table.add_row("Task type", profile.task_type)
-    rec_table.add_row("Forecaster", profile.forecaster)
-    rec_table.add_row("Forecaster candidates", ", ".join(profile.forecaster_candidates))
-    rec_table.add_row("Estimator", profile.estimator or "N/A")
-    rec_table.add_row("Estimator candidates", ", ".join(profile.estimator_candidates))
+    rec_table.add_row("Task type", _format_value(profile.task_type))
+    rec_table.add_row("Forecaster", _format_value(profile.forecaster))
+    rec_table.add_row("Forecaster candidates", _format_value(", ".join(profile.forecaster_candidates)))
+    rec_table.add_row("Estimator", _format_value(profile.estimator or "N/A"))
+    rec_table.add_row("Estimator candidates", _format_value(", ".join(profile.estimator_candidates)))
 
     return Group(
         table,
@@ -243,21 +267,21 @@ def render_plan(plan: Any) -> RenderableType:
     renderable : rich.console.RenderableType
         Group containing the plan table and the explanation panel.
     """
-    table = Table(title="Forecast Plan", show_lines=True)
-    table.add_column("Property", style="bold")
+    table = Table(title="Forecast Plan", **_TABLE_KWARGS)
+    table.add_column("Property")
     table.add_column("Value")
-    table.add_row("Forecaster", plan.forecaster)
-    table.add_row("Estimator", plan.estimator or "N/A")
-    table.add_row("Steps", str(plan.steps))
-    table.add_row("Frequency", plan.frequency or "not set")
+    table.add_row("Forecaster", _format_value(plan.forecaster))
+    table.add_row("Estimator", _format_value(plan.estimator or "N/A"))
+    table.add_row("Steps", _format_value(plan.steps))
+    table.add_row("Frequency", _format_value(plan.frequency or "not set"))
 
     lags = plan.forecaster_kwargs.get("lags")
-    table.add_row("Lags", str(lags) if lags is not None else "N/A")
+    table.add_row("Lags", _format_value(lags if lags is not None else "N/A"))
 
-    table.add_row("Use exog", str(plan.use_exog))
-    table.add_row("Interval", str(plan.interval) if plan.interval else "none")
-    table.add_row("Interval method", plan.interval_method or "N/A")
-    table.add_row("Primary metric", plan.metric)
+    table.add_row("Use exog", _format_value(plan.use_exog))
+    table.add_row("Interval", _format_value(plan.interval if plan.interval else "none"))
+    table.add_row("Interval method", _format_value(plan.interval_method or "N/A"))
+    table.add_row("Primary metric", _format_value(plan.metric))
 
     if plan.preprocessing_steps:
         steps_str = "\n".join(
@@ -265,7 +289,7 @@ def render_plan(plan: Any) -> RenderableType:
         )
         table.add_row("Preprocessing", steps_str)
     else:
-        table.add_row("Preprocessing", "none")
+        table.add_row("Preprocessing", _format_value("none"))
 
     return Group(
         table,
