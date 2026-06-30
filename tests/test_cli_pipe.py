@@ -348,6 +348,76 @@ class TestForecastFromPlan:
         assert "predictions" in output
         assert "metrics" in output
 
+    def test_forecast_from_plan_with_interval_override_produces_intervals(self, tmp_path):
+        """
+        forecast --from-plan --interval re-derives the plan via refine_plan
+        so prediction interval columns are produced, even when the saved
+        plan had no interval configured.
+        """
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+
+        # Generate a real plan bundle; interval is None by default.
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "5",
+            "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+        bundle = json.loads(plan_result.output)
+        assert bundle["plan"]["interval"] is None
+
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(bundle))
+
+        # Forecast from the saved plan with an interval override.
+        result = runner.invoke(app, [
+            "forecast", str(csv_file),
+            "--from-plan", str(plan_file),
+            "--interval", "0.1,0.9",
+            "--format", "json", "--quiet",
+        ])
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.output)
+        predictions = output["predictions"]
+        assert len(predictions) > 0
+        assert "lower_bound" in predictions[0]
+        assert "upper_bound" in predictions[0]
+
+    def test_forecast_from_plan_with_estimator_override_applies(self, tmp_path):
+        """
+        forecast --from-plan --estimator re-derives the plan via refine_plan
+        so the estimator override is honored instead of being silently
+        dropped. The generated code must reference the overriding estimator.
+        """
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+
+        # Generate a real plan bundle; the default estimator is LGBMRegressor.
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "5",
+            "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+        bundle = json.loads(plan_result.output)
+        assert bundle["plan"]["estimator"] == "Ridge"
+
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(bundle))
+
+        # Forecast from the saved plan, overriding the estimator.
+        result = runner.invoke(app, [
+            "forecast", str(csv_file),
+            "--from-plan", str(plan_file),
+            "--estimator", "LGBMRegressor",
+            "--format", "json", "--quiet",
+        ])
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.output)
+        assert "LGBMRegressor" in output["code"]
+        assert "Ridge" not in output["code"]
+
     def test_forecast_without_target_or_from_plan_errors(self, tmp_path):
         """forecast without --target/--steps or --from-plan exits with error."""
         csv_file = tmp_path / "data.csv"
@@ -358,6 +428,82 @@ class TestForecastFromPlan:
         ])
         assert result.exit_code == 1
         assert "required" in result.output.lower()
+
+
+class TestBacktestFromPlan:
+    """Tests for the backtest command with --from-plan."""
+
+    def test_backtest_fold_stride_consistent_across_paths(self, tmp_path):
+        """
+        backtest treats --fold-stride identically whether or not --from-plan
+        is used. Passing --fold-stride equal to steps must produce the same
+        number of predictions on both paths (the from-plan branch no longer
+        diverges because `steps` is None there).
+        """
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+
+        # Generate a real plan bundle with steps=5.
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "5",
+            "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+        bundle = json.loads(plan_result.output)
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(bundle))
+
+        # Path A: explicit args with --fold-stride equal to steps.
+        direct = runner.invoke(app, [
+            "backtest", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "5", "--fold-stride", "5",
+            "--format", "json", "--quiet",
+        ])
+        assert direct.exit_code == 0, direct.output
+
+        # Path B: --from-plan with the same --fold-stride.
+        from_plan = runner.invoke(app, [
+            "backtest", str(csv_file),
+            "--from-plan", str(plan_file), "--fold-stride", "5",
+            "--format", "json", "--quiet",
+        ])
+        assert from_plan.exit_code == 0, from_plan.output
+
+        direct_preds = json.loads(direct.output)["predictions"]
+        from_plan_preds = json.loads(from_plan.output)["predictions"]
+        assert len(direct_preds) == len(from_plan_preds)
+
+    def test_backtest_from_plan_with_estimator_override_applies(self, tmp_path):
+        """
+        backtest --from-plan --estimator re-derives the plan via refine_plan
+        so the estimator override is honored instead of being silently
+        dropped. The generated code must reference the overriding estimator.
+        """
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "5",
+            "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+        bundle = json.loads(plan_result.output)
+        assert bundle["plan"]["estimator"] == "Ridge"
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(bundle))
+
+        result = runner.invoke(app, [
+            "backtest", str(csv_file),
+            "--from-plan", str(plan_file),
+            "--estimator", "LGBMRegressor",
+            "--format", "json", "--quiet",
+        ])
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.output)
+        assert "LGBMRegressor" in output["code"]
+        assert "Ridge" not in output["code"]
 
 
 # ---------------------------------------------------------------------------

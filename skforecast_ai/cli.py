@@ -6,7 +6,6 @@ import contextlib
 import json
 import os
 import sys
-import warnings
 from pathlib import Path
 from typing import Annotated
 
@@ -336,20 +335,63 @@ def _parse_estimator_kwargs(value: str | None) -> dict | None:
     return parsed
 
 
+def _collect_plan_overrides(
+    forecaster: str | None,
+    estimator: str | None,
+    estimator_kwargs: dict | None,
+    interval: list[float] | None,
+) -> dict:
+    """
+    Build a dict of non-None plan overrides for `refine_plan`.
+
+    Collects the CLI override options that are set so a saved plan loaded
+    with `--from-plan` can be re-derived through `refine_plan`. Only keys
+    with a value are included; if none are set the returned dict is empty
+    and the caller can skip refinement.
+
+    Parameters
+    ----------
+    forecaster : str, None
+        Forecaster class override.
+    estimator : str, None
+        Estimator class override.
+    estimator_kwargs : dict, None
+        Estimator keyword arguments override.
+    interval : list of float, None
+        Prediction interval override.
+
+    Returns
+    -------
+    overrides : dict
+        Mapping of override keys to values, restricted to those provided.
+    """
+    overrides: dict = {}
+    if forecaster is not None:
+        overrides["forecaster"] = forecaster
+    if estimator is not None:
+        overrides["estimator"] = estimator
+    if estimator_kwargs is not None:
+        overrides["estimator_kwargs"] = estimator_kwargs
+    if interval is not None:
+        overrides["interval"] = interval
+    return overrides
+
+
 def _load_exog_future(
     path: Path | None,
     date_column: str | None,
-    frequency: str | None = None,
 ) -> pd.DataFrame | None:
     """
     Load a future exogenous CSV and set its datetime index.
 
     Mirrors the index setup applied to the main dataset: when a date
     column is provided it is parsed to datetime and set as the index;
-    otherwise the first column is parsed as the index. The frequency is
-    applied with `asfreq` when known and the index is sorted, so the
-    returned DataFrame carries a DatetimeIndex covering the forecast
-    horizon as required by skforecast.
+    otherwise the first column is parsed as the index. The index is
+    sorted so the returned DataFrame carries a DatetimeIndex covering the
+    forecast horizon. The series frequency is enforced later, during
+    execution, where the data profile is always available (see
+    `_repredict_with_exog_future`), keeping the behavior identical
+    regardless of how the workflow was invoked.
 
     Parameters
     ----------
@@ -358,9 +400,6 @@ def _load_exog_future(
     date_column : str, None
         Name of the column containing timestamps. If None, the first
         column is parsed as the datetime index.
-    frequency : str, default None
-        Pandas frequency string to apply with `asfreq`. If None, no
-        frequency is enforced.
 
     Returns
     -------
@@ -379,9 +418,6 @@ def _load_exog_future(
         exog = exog.set_index(date_column)
     else:
         exog = pd.read_csv(path, index_col=0, parse_dates=True)
-
-    if frequency:
-        exog = exog.asfreq(frequency)
 
     return exog.sort_index()
 
@@ -963,10 +999,24 @@ def forecast(
             prof = ForecastingProfile.model_validate(bundle["profile"])
             plan_obj = ForecastPlan.model_validate(bundle["plan"])
 
+            # Any override supplied alongside --from-plan is applied on top
+            # of the saved plan by re-deriving it through refine_plan. This
+            # keeps coupled fields (e.g. interval and interval_method)
+            # consistent and avoids silently dropping CLI overrides.
+            plan_overrides = _collect_plan_overrides(
+                forecaster=forecaster,
+                estimator=estimator,
+                estimator_kwargs=parsed_estimator_kwargs,
+                interval=parsed_interval,
+            )
+            if plan_overrides:
+                plan_obj = assistant.refine_plan(
+                    profile=prof, plan=plan_obj, **plan_overrides
+                )
+
             exog_future_df = _load_exog_future(
                 exog_future,
                 date_column=prof.data_profile.date_column,
-                frequency=prof.data_profile.frequency,
             )
 
             with _spinner("Running forecast from plan...", quiet):
@@ -975,7 +1025,6 @@ def forecast(
                     steps=plan_obj.steps,
                     date_column=prof.data_profile.date_column,
                     series_id_column=prof.data_profile.series_id_column,
-                    interval=parsed_interval or plan_obj.interval,
                     exog_future=exog_future_df,
                     profile=prof, plan=plan_obj,
                 )
@@ -1122,6 +1171,7 @@ def backtest(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
     fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
     refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
@@ -1144,6 +1194,7 @@ def backtest(
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
         api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_interval = _parse_interval(interval)
 
         assistant = ForecastingAssistant(
             llm=llm_value,
@@ -1173,17 +1224,7 @@ def backtest(
             prof = None
             plan_obj = None
 
-        # Suppress warnings when outputting JSON to avoid polluting stdout
-        warn_ctx = (
-            warnings.catch_warnings()
-            if format == "json"
-            else contextlib.nullcontext()
-        )
-
-        with warn_ctx, _spinner("Running backtest...", quiet):
-            if format == "json":
-                warnings.simplefilter("ignore")
-
+        with _spinner("Running backtest...", quiet):
             # Profile (if needed)
             if prof is None:
                 prof = assistant.profile(
@@ -1201,13 +1242,28 @@ def backtest(
                     forecaster=forecaster,
                     estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
+                    interval=parsed_interval,
                 )
+            else:
+                # Apply any override supplied alongside --from-plan on top of
+                # the saved plan, re-deriving via refine_plan so coupled
+                # fields stay consistent and no override is silently dropped.
+                plan_overrides = _collect_plan_overrides(
+                    forecaster=forecaster,
+                    estimator=estimator,
+                    estimator_kwargs=parsed_estimator_kwargs,
+                    interval=parsed_interval,
+                )
+                if plan_overrides:
+                    plan_obj = assistant.refine_plan(
+                        profile=prof, plan=plan_obj, **plan_overrides
+                    )
 
             # Generate CV
             cv_kwargs = {}
             if initial_train_size is not None:
                 cv_kwargs["initial_train_size"] = initial_train_size
-            if fold_stride is not None and fold_stride != steps:
+            if fold_stride is not None:
                 cv_kwargs["fold_stride"] = fold_stride
             if refit:
                 cv_kwargs["refit"] = refit
