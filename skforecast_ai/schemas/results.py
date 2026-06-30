@@ -108,11 +108,7 @@ class AskResult(DisplayMixin, BaseModel):
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield render_explanation(self.explanation)
-        if self.profile is not None:
-            yield render_profile(self.profile)
-        if self.plan is not None:
-            yield render_plan(self.plan)
+        yield render_explanation(self.explanation, title="Assistant Response")
         if self.code is not None:
             yield render_code(self.code)
 
