@@ -217,7 +217,7 @@ create a metric function for a specific quantile level.
 ```python
 from skforecast.metrics import create_mean_pinball_loss
 
-# Create metric for the 90th quantile
+# Create metric for the 90th percentile
 pinball_90 = create_mean_pinball_loss(alpha=0.9)
 
 # Use in backtesting (as callable)

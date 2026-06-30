@@ -33,6 +33,17 @@ Use `ForecasterRnn` when:
 - **After**: `hyperparameter-optimization` (tune RNN architecture and training hyperparameters)
 - **After**: `prediction-intervals` (only conformal intervals are supported for `ForecasterRnn`)
 
+## Stop Conditions
+
+Scan before writing code. Each row lists a rule, the symptom when it is broken, and the recovery. Full pitfall catalog: the `troubleshooting-common-errors` skill.
+
+| Rule | Symptom | Recovery |
+|------|---------|----------|
+| `lags` in `ForecasterRnn` must match `create_and_compile_model(..., lags=...)` | Input shape mismatch error during fit | Use the same `lags` value in both calls |
+| `ForecasterRnn` supports only `method='conformal'` for intervals | Error when calling `predict_interval(method='bootstrapping')` | Use `method='conformal'` |
+| Pass `exog` to `create_and_compile_model` if exog is used in `fit()` / `predict()` | Architecture mismatch or failure when predicting with exog | Build the model with the same `exog` you train on |
+| Scale inputs with `transformer_series=MinMaxScaler()` | Poor convergence; RNNs are scale-sensitive | Always set a scaler on `transformer_series` |
+
 ## Quick Start
 
 ```python
