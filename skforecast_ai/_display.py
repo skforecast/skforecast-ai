@@ -308,3 +308,21 @@ class DisplayMixin(JupyterMixin):
         None
         """
         (console or Console()).print(self)
+
+    def show_code(self, console: Console | None = None) -> None:
+        """
+        Print the generated code with syntax highlighting to a console.
+
+        Parameters
+        ----------
+        console : rich.console.Console, default None
+            Console to print to. A new default console is created if omitted.
+
+        Returns
+        -------
+        None
+        """
+        if hasattr(self, "code") and self.code is not None:
+            (console or Console()).print(render_code(self.code))
+        else:
+            (console or Console()).print("No code available to display.")

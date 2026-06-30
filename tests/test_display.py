@@ -166,6 +166,21 @@ class TestDisplayMixin:
         assert "text/html" in mimebundle
         assert "<pre" in mimebundle["text/html"]
 
+    def test_show_code(self, sample_profile, sample_plan):
+        result = CodeGenerationResult(
+            code="print('show_code_test')",
+            profile=sample_profile,
+            plan=sample_plan,
+        )
+        # Test .show_code() doesn't crash
+        result.show_code()
+
+        # Test fallback when code is None (e.g. AskResult without code)
+        result_no_code = AskResult(
+            explanation="No code here",
+        )
+        result_no_code.show_code()
+
     def test_backtest_result_display(self, sample_profile, sample_plan, sample_metrics, sample_dataframe):
         result = BacktestResult(
             explanation="Test backtest",
