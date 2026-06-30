@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
+from .._display import (
+    DisplayMixin,
+    render_code,
+    render_cv_config,
+    render_dataframe,
+    render_explanation,
+    render_metrics,
+    render_plan,
+    render_profile,
+)
 from .plans import ForecastPlan
 from .profiles import ForecastingProfile
+
+if TYPE_CHECKING:
+    from rich.console import Console, ConsoleOptions, RenderResult
 
 
 class RenderedScript(BaseModel):
@@ -44,7 +57,7 @@ class RenderedScript(BaseModel):
         return self.imports + "\n" + self.core
 
 
-class CodeGenerationResult(BaseModel):
+class CodeGenerationResult(DisplayMixin, BaseModel):
     """
     Result of the `forecast_code` workflow.
 
@@ -62,8 +75,15 @@ class CodeGenerationResult(BaseModel):
     plan: ForecastPlan
     code: str
 
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_profile(self.profile)
+        yield render_plan(self.plan)
+        yield render_code(self.code)
 
-class AskResult(BaseModel):
+
+class AskResult(DisplayMixin, BaseModel):
     """
     Result of the `ask` workflow (requires LLM).
 
@@ -85,8 +105,19 @@ class AskResult(BaseModel):
     code: str | None = None
     explanation: str
 
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_explanation(self.explanation)
+        if self.profile is not None:
+            yield render_profile(self.profile)
+        if self.plan is not None:
+            yield render_plan(self.plan)
+        if self.code is not None:
+            yield render_code(self.code)
 
-class ForecastResult(BaseModel):
+
+class ForecastResult(DisplayMixin, BaseModel):
     """
     Result of the `forecast` workflow (executes the pipeline end-to-end).
 
@@ -116,8 +147,17 @@ class ForecastResult(BaseModel):
     metrics: Any  # pd.DataFrame
     predictions: Any  # pd.DataFrame
 
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_profile(self.profile)
+        yield render_plan(self.plan)
+        yield render_metrics(self.metrics, title="Forecast Metrics")
+        yield render_dataframe(self.predictions, title="Predictions")
+        yield render_code(self.code)
 
-class BacktestResult(BaseModel):
+
+class BacktestResult(DisplayMixin, BaseModel):
     """
     Result of the `backtest` workflow.
 
@@ -149,3 +189,14 @@ class BacktestResult(BaseModel):
     predictions: Any  # pd.DataFrame
     code: str
     explanation: str
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_explanation(self.explanation)
+        yield render_cv_config(self.cv_config)
+        yield render_metrics(self.metrics, title="Backtest Metrics")
+        yield render_dataframe(self.predictions, title="Backtest Predictions")
+        yield render_profile(self.profile)
+        yield render_plan(self.plan)
+        yield render_code(self.code)
