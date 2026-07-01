@@ -59,6 +59,7 @@ from ._utils import (
     _strip_code_blocks,
     _validate_max_window_size,
     _validate_task_input,
+    _warn_if_plan_overrides_ignored,
 )
 
 
@@ -67,7 +68,7 @@ class ForecastingAssistant:
     AI-powered forecasting assistant built on skforecast.
 
     Analyses a time series dataset, selects a forecaster and estimator,
-    produces a ready-to-run Python script, and optionally executes it —
+    produces a ready-to-run Python script, and optionally executes it,
     returning predictions, metrics, and the exact code that generated them.
 
     All modeling decisions are deterministic and reproducible. An optional
@@ -106,14 +107,14 @@ class ForecastingAssistant:
     -----
     Three workflows are available:
 
-    Fast path — call a single method that handles everything internally:
+    Fast path: call a single method that handles everything internally:
 
     - `forecast_code()` profiles the data, builds a plan, and returns a
     ready-to-run Python script.
     - `forecast()` does the same and also executes the forecast,
     returning predictions and metrics.
 
-    Step-by-step path — for full control over each stage:
+    Step-by-step path: for full control over each stage:
 
     - `profile()` inspects the dataset and selects the recommended
     forecaster and estimator (with alternative candidates).
@@ -126,7 +127,7 @@ class ForecastingAssistant:
     - `forecast()` executes the workflow from a pre-computed profile and
     plan, returning predictions and metrics.
 
-    Backtesting path — evaluate model performance with time series
+    Backtesting path: evaluate model performance with time series
     cross-validation:
 
     - `create_cv()` produces a `TimeSeriesFold` with smart defaults
@@ -136,8 +137,9 @@ class ForecastingAssistant:
     - `backtest()` runs backtesting using the CV strategy and returns
     metrics, predictions, and reproducible code.
 
-    `ask()` is an LLM-powered method available in any workflow to
-    explain results, answer forecasting questions, or interpret metrics.
+    `ask()` is an LLM-powered method (requires `llm` to be configured)
+    available in any workflow to explain results, answer forecasting
+    questions, or interpret metrics.
 
     """
 
@@ -355,11 +357,17 @@ class ForecastingAssistant:
             if lags is not None:
                 final_lags = lags
             else:
+                # Direct forecasters lose `steps - 1` extra rows beyond the
+                # `window_size` (the last-step regressor needs the target at
+                # t + steps), so reserve them from the lag budget. Recursive
+                # forecasters reserve nothing.
+                n_reserved_rows = steps - 1 if "Direct" in fc else 0
                 final_lags = finalize_lags(
                     series_pacf     = profile.series_pacf,
                     task_type       = task_type,
                     n_observations  = data_profile.span_index_length,
                     frequency       = data_profile.frequency,
+                    n_reserved_rows = n_reserved_rows,
                 )
 
             if window_features is not None:
@@ -691,6 +699,14 @@ class ForecastingAssistant:
             Forecasting profile, plan, and generated code.
         """
 
+        _warn_if_plan_overrides_ignored(
+            plan             = plan,
+            forecaster       = forecaster,
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            interval         = interval,
+        )
+
         if profile is None:
             profile = self.profile(
                 data             = data,
@@ -800,6 +816,14 @@ class ForecastingAssistant:
         produces, ensuring perfect fidelity between the inspectable
         script (`ForecastResult.code`) and the actual execution.
         """
+
+        _warn_if_plan_overrides_ignored(
+            plan             = plan,
+            forecaster       = forecaster,
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            interval         = interval,
+        )
 
         data_df, target = _resolve_data_and_target(data, target)
 
@@ -1542,6 +1566,14 @@ class ForecastingAssistant:
         plan : ForecastPlan
             Resolved plan.
         """
+
+        _warn_if_plan_overrides_ignored(
+            plan             = plan,
+            forecaster       = forecaster,
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            interval         = interval,
+        )
 
         data_df, target = _resolve_data_and_target(data, target)
         steps = cv.steps

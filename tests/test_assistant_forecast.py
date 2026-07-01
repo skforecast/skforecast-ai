@@ -1,8 +1,12 @@
 # Unit test forecast ForecastingAssistant
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
+
+from skforecast.exceptions import IgnoredArgumentWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
 
@@ -204,3 +208,51 @@ def test_forecast_metrics_are_finite():
     assert np.isfinite(result.metrics["MSE"].iloc[0])
     assert result.metrics["MAE"].iloc[0] > 0
     assert result.metrics["MSE"].iloc[0] > 0
+
+
+# =============================================================================
+# Tests: ignored plan-override warning
+# =============================================================================
+def test_forecast_IgnoredArgumentWarning_when_interval_passed_with_plan():
+    """
+    Test that forecast() warns with IgnoredArgumentWarning when an interval
+    override is passed alongside a pre-built plan, because the planning
+    stage (which consumes interval) is skipped.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    with pytest.warns(IgnoredArgumentWarning, match="pre-built `plan`"):
+        assistant.forecast(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=5,
+            interval=[0.1, 0.9],
+            profile=profile,
+            plan=plan,
+        )
+
+
+def test_forecast_no_override_warning_when_plan_without_overrides():
+    """
+    Test that forecast() does not emit the plan-override warning when a
+    pre-built plan is passed without any plan-shaping override arguments.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        assistant.forecast(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=5,
+            profile=profile,
+            plan=plan,
+        )
+
+    assert not any("pre-built `plan`" in str(w.message) for w in records)

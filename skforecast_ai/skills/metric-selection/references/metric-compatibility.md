@@ -64,7 +64,7 @@ Complete reference for all metrics available in skforecast: properties, compatib
 | RMSSE | Same as MASE but want to penalize large errors more | Same as MASE |
 | Coverage | Evaluating prediction interval calibration | Want to measure interval width/sharpness (use CRPS) |
 | CRPS | Comprehensive interval/quantile evaluation (calibration + sharpness) | Only have point forecasts |
-| Pinball loss | Evaluating a specific quantile (e.g., 90th quantile for risk) | Need overall distributional assessment (use CRPS) |
+| Pinball loss | Evaluating a specific quantile (e.g., 90th percentile for risk) | Need overall distributional assessment (use CRPS) |
 | Balanced accuracy | Classification with imbalanced classes | Perfectly balanced classes (accuracy is simpler) |
 | F1 | Classification where both false positives and negatives matter | Need per-class detail (use precision/recall separately) |
 

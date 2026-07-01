@@ -525,6 +525,50 @@ class TestForecast:
         data = json.loads(result.output)
         assert len(data["predictions"]) == 5
 
+    def test_forecast_exog_future_consistent_direct_and_from_plan(self, tmp_path):
+        """
+        --exog-future produces identical predictions on the direct path and
+        the --from-plan path. Frequency enforcement now happens in the
+        execution layer, so both invocations sit the future exog on the same
+        regular grid regardless of how the workflow was started.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        mask = (df_single["date"] >= "2023-03-22") & (df_single["date"] <= "2023-03-26")
+        exog_future = df_single.loc[mask, ["date", "promo"]]
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+
+        # Direct path.
+        direct = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog-future", exog_path,
+             "--format", "json", "--quiet"],
+        )
+        assert direct.exit_code == 0, direct.output
+
+        # Build a real plan bundle, then run the --from-plan path.
+        plan_result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(json.loads(plan_result.output)))
+
+        from_plan = runner.invoke(
+            app,
+            ["forecast", csv_path, "--from-plan", str(plan_file),
+             "--exog-future", exog_path, "--format", "json", "--quiet"],
+        )
+        assert from_plan.exit_code == 0, from_plan.output
+
+        direct_preds = json.loads(direct.output)["predictions"]
+        from_plan_preds = json.loads(from_plan.output)["predictions"]
+        assert [p["pred"] for p in direct_preds] == [
+            p["pred"] for p in from_plan_preds
+        ]
+
 
 
 # ---------------------------------------------------------------------------
@@ -712,6 +756,24 @@ class TestBacktest:
         assert "cv_config" in data
         assert "code" in data
         assert "explanation" in data
+
+    def test_backtest_interval_produces_interval_columns(self, tmp_path):
+        """
+        Backtest --interval produces prediction interval columns
+        (lower_bound/upper_bound) in the JSON predictions output.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        predictions = data["predictions"]
+        assert len(predictions) > 0
+        assert "lower_bound" in predictions[0]
+        assert "upper_bound" in predictions[0]
 
     def test_backtest_output_predictions(self, tmp_path):
         """

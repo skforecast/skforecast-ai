@@ -14,7 +14,7 @@ from skforecast.exceptions import IgnoredArgumentWarning
 
 from ._constants import MAX_FEATURE_FRACTION
 from .profiling.data_profile import _try_parse_first_date_column
-from .schemas import DataProfile
+from .schemas import DataProfile, ForecastPlan
 
 _CODE_BLOCK_RE = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
 _CODE_BLOCK_REPLACEMENT = "(See `result.code` for the validated implementation.)"
@@ -261,6 +261,60 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
 def _strip_code_blocks(text: str) -> str:
     """Replace fenced code blocks with a pointer to result.code."""
     return _CODE_BLOCK_RE.sub(_CODE_BLOCK_REPLACEMENT, text)
+
+
+def _warn_if_plan_overrides_ignored(
+    plan: ForecastPlan | None,
+    forecaster: str | None,
+    estimator: str | None,
+    estimator_kwargs: dict | None,
+    interval: list[float] | None,
+) -> None:
+    """
+    Warn when plan-shaping arguments are ignored due to a supplied plan.
+
+    When a pre-built `plan` is passed to `forecast()` or `forecast_code()`,
+    the planning stage is skipped, so any argument that only feeds that
+    stage is silently dropped. This emits an `IgnoredArgumentWarning`
+    instead, pointing the caller to `refine_plan()`.
+
+    Parameters
+    ----------
+    plan : ForecastPlan, None
+        Pre-built plan supplied by the caller. When None, nothing is
+        warned because the planning stage runs normally.
+    forecaster : str, None
+        Forecaster override that would be ignored.
+    estimator : str, None
+        Estimator override that would be ignored.
+    estimator_kwargs : dict, None
+        Estimator keyword arguments that would be ignored.
+    interval : list of float, None
+        Prediction interval override that would be ignored.
+
+    Returns
+    -------
+    None
+    """
+    if plan is None:
+        return
+    ignored = [
+        name
+        for name, value in (
+            ("forecaster", forecaster),
+            ("estimator", estimator),
+            ("estimator_kwargs", estimator_kwargs),
+            ("interval", interval),
+        )
+        if value is not None
+    ]
+    if ignored:
+        warnings.warn(
+            f"A pre-built `plan` was provided, so the following argument(s) "
+            f"are ignored: {ignored}. To change these, refine the plan with "
+            f"`refine_plan()` before calling.",
+            IgnoredArgumentWarning,
+        )
 
 
 def _resolve_data_and_target(
