@@ -12,11 +12,14 @@ If your dataset represents retail sales, you might know that the day of the week
 When you provide a `prompt` describing your domain knowledge, the assistant passes it to a specialized agent acting as an expert time series feature engineer. 
 
 The agent analyzes your prompt alongside:
-1. The structural facts of your data (observations, frequency).
+1. The structural facts of your data (observations, frequency), including the exact maximum lag/window size your dataset can support.
 2. The current forecasting plan (horizon, current lags).
 3. Hardcoded rules from skforecast-ai's skills (e.g., ensuring lags don't consume too much training data).
 
 It then outputs a structured, deterministic update to your `lags` and `window_features`, returning a new `ForecastPlan` along with its reasoning.
+
+!!! note "Not applicable to statistical or foundation forecasters"
+    `ForecasterStats` and foundation-model plans (`task_type` `'statistical'` / `'foundation'`) don't use `lags` or `window_features`, so there is nothing for the LLM to refine. Calling `refine_plan_with_llm()` on such a plan skips the LLM call entirely and returns the original plan unchanged, with `reasoning` prefixed `"LLM refinement skipped: ..."`.
 
 ## Using the API
 
@@ -117,7 +120,9 @@ limit, rather than silently accepting it.
 
 Like all LLM features in `skforecast-ai`, `refine_plan_with_llm` operates within strict guardrails. The LLM is forced to output a structured JSON schema, which is parsed and validated by Pydantic before being applied to the plan.
 
-If the LLM suggests lags or window sizes that are too large for your dataset (violating the same data-budget check described above), or formatting that `skforecast` cannot accept, the call fails gracefully: it emits a `UserWarning`, returns your original plan untouched, and the returned `reasoning` string is replaced with an `"LLM refinement failed: ..."` message describing the error — so you can tell a genuine explanation apart from a failure.
+If the LLM suggests lags or window sizes that are too large for your dataset (violating the same data-budget check described above), the call is automatically retried: the assistant tells the model exactly which limit it violated and the maximum it must respect, up to 2 retries. This self-correction means a slightly-too-aggressive first suggestion (e.g. "capture the full year") usually still produces a usable plan on the next attempt.
+
+If the LLM still can't produce a feasible suggestion after all retries — or a transient failure occurs (e.g. a network/provider error) — the call fails gracefully: it emits a `UserWarning`, returns your original plan untouched, and the returned `reasoning` string is replaced with an `"LLM refinement failed: ..."` message describing the error — so you can tell a genuine explanation apart from a failure.
 
 ## Next steps
 

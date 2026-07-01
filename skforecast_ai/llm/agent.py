@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from pydantic_ai import Agent, RunContext
 
+from .._constants import MAX_FEATURE_FRACTION
 from ..schemas import CVParams, ForecastingProfile, ForecastPlan, PlanOverrides
 from .prompts import _CV_ROLE_PROMPT, _STATIC_ROLE_PROMPT, _PLAN_REFINEMENT_ROLE_PROMPT
 from .skills import load_llms_reference, load_skill, select_skills
@@ -309,6 +310,7 @@ def create_plan_refinement_agent(
         parts: list[str] = []
 
         # Data context
+        max_allowed = int(dp.span_index_length * MAX_FEATURE_FRACTION)
         parts.append("## Dataset Context")
         parts.append(f"- Total observations: {dp.n_total_observations}")
         parts.append(f"- Span index length: {dp.span_index_length}")
@@ -316,6 +318,10 @@ def create_plan_refinement_agent(
         parts.append(f"- Forecast horizon (steps): {deps.plan.steps}")
         parts.append(f"- Current Lags: {deps.plan.forecaster_kwargs.get('lags')}")
         parts.append(f"- Current Window Features: {deps.plan.forecaster_kwargs.get('window_features')}")
+        parts.append(
+            f"- Max allowed lag / window size (hard limit): {max_allowed} "
+            f"({int(MAX_FEATURE_FRACTION * 100)}% of span index length)"
+        )
         parts.append("")
 
         parts.append("## User Domain Knowledge")

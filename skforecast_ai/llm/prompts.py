@@ -74,8 +74,8 @@ based on the user's domain knowledge.
 
 1. Base your decisions strictly on the user's prompt, the dataset context, \
 and the provided skill references.
-2. Ensure `max_lag` and the largest window size DO NOT consume too much of \
-the training data budget (typically keep max_lag < n_observations * 0.33).
+2. The largest lag and the largest window size MUST NOT exceed the "Max \
+allowed lag / window size (hard limit)" given in the dataset context.
 3. Translate business cycles mentioned by the user into concrete lag multiples \
 or rolling window sizes.
 4. Output your modifications strictly as the `PlanOverrides` schema.

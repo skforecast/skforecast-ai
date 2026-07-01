@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 from skforecast.exceptions import IgnoredArgumentWarning
+from ._constants import MAX_FEATURE_FRACTION
 from .exceptions import LLMRequiredError
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
@@ -57,13 +58,6 @@ from ._utils import (
     _strip_code_blocks,
     _validate_task_input,
 )
-
-# Maximum fraction of the available observations that an explicit lag or
-# rolling-window feature may span. Mirrors ``finalize_lags``'
-# ``max_fraction_allowed`` so manual/LLM overrides honour the same budget as
-# the deterministic PACF-based selection.
-_MAX_FEATURE_FRACTION = 0.33
-
 
 def _max_feature_span(
     lags: int | list[int] | None,
@@ -386,12 +380,12 @@ class ForecastingAssistant:
             # them against the data budget before building the forecaster.
             if lags is not None or window_features is not None:
                 max_span = _max_feature_span(lags, window_features)
-                max_allowed = int(data_profile.span_index_length * _MAX_FEATURE_FRACTION)
+                max_allowed = int(data_profile.span_index_length * MAX_FEATURE_FRACTION)
                 if max_span > max_allowed:
                     raise ValueError(
                         f"Explicit lags/window_features span up to {max_span} "
                         f"observations, exceeding the budget of {max_allowed} "
-                        f"({int(_MAX_FEATURE_FRACTION * 100)}% of "
+                        f"({int(MAX_FEATURE_FRACTION * 100)}% of "
                         f"{data_profile.span_index_length} observations). "
                         f"Reduce the largest lag or window size."
                     )
@@ -567,6 +561,13 @@ class ForecastingAssistant:
         """
         Use the LLM to refine lags and window features based on domain knowledge.
 
+        Not applicable to `task_type` in `('statistical', 'foundation')`,
+        which do not use lags or window features — the LLM is not called
+        and the original plan is returned unchanged. When the LLM's
+        suggested lags/window_features exceed the same data budget enforced
+        by `plan()`, the call is retried with the concrete violation and
+        allowed maximum fed back, up to 2 retries.
+
         Parameters
         ----------
         profile : ForecastingProfile
@@ -580,15 +581,30 @@ class ForecastingAssistant:
         -------
         refined_plan : ForecastPlan
             The refined plan on success, or the original `plan` unchanged
-            if the refinement fails.
+            if the refinement fails or does not apply.
         reasoning : str
             On success, the LLM's explanation of the chosen features. On
             failure, a message prefixed with `"LLM refinement failed:"`
             describing the error (the original plan is returned in that
-            case, and a `UserWarning` is emitted).
+            case, and a `UserWarning` is emitted). When `task_type` does
+            not use lags/window features, a message prefixed with
+            `"LLM refinement skipped:"` is returned instead.
         """
         if self.llm is None:
             raise LLMRequiredError("refine_plan_with_llm")
+
+        if plan.task_type in ("statistical", "foundation"):
+            warnings.warn(
+                f"LLM plan refinement does not apply to task_type "
+                f"'{plan.task_type}' (no lags/window_features to refine). "
+                f"Returning original plan.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return plan, (
+                f"LLM refinement skipped: task_type '{plan.task_type}' "
+                f"does not use lags or window features."
+            )
 
         from .llm.agent import PlanRefinementDeps
 
@@ -599,12 +615,40 @@ class ForecastingAssistant:
             prompt=prompt,
         )
 
-        # The agent call reaches an external LLM and its structured output is
-        # only validated for shape, not for data-budget feasibility, so a broad
-        # catch keeps a transient/model failure from aborting the caller. The
-        # failure is surfaced via the returned message and a UserWarning.
-        try:
-            result = _run_agent_sync(agent, prompt, deps=deps)
+        span_index_length = profile.data_profile.span_index_length
+        max_allowed = int(span_index_length * MAX_FEATURE_FRACTION)
+
+        max_retries = 2
+        last_error = None
+
+        for attempt in range(1 + max_retries):
+            if attempt == 0:
+                user_message = prompt
+            else:
+                user_message = (
+                    f"{prompt}\n\n"
+                    f"[RETRY {attempt}/{max_retries}] Your previous "
+                    f"lags/window_features were infeasible: {last_error} "
+                    f"The dataset has {span_index_length} observations, so "
+                    f"the largest lag or window size must not exceed "
+                    f"{max_allowed} ({int(MAX_FEATURE_FRACTION * 100)}%). "
+                    f"Shrink the largest value and try again."
+                )
+
+            # A transient/model failure (network, or malformed structured
+            # output after pydantic-ai's own internal retries) is terminal
+            # here — a budget hint would not fix it, so it is not retried.
+            try:
+                result = _run_agent_sync(agent, user_message, deps=deps)
+            except Exception as exc:
+                warnings.warn(
+                    f"LLM plan refinement failed ({exc}). Returning "
+                    f"original plan.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                return plan, f"LLM refinement failed: {exc}"
+
             overrides = result.output
 
             # Materialise the typed WindowFeature models back into plain dicts,
@@ -614,6 +658,26 @@ class ForecastingAssistant:
                 if overrides.window_features is not None
                 else None
             )
+
+            # Pre-validate against the same data budget `plan()` enforces, so
+            # an infeasible suggestion drives a retry with concrete feedback
+            # instead of silently falling back to the original plan.
+            max_span = _max_feature_span(overrides.lags, window_features)
+            if max_span > max_allowed:
+                last_error = (
+                    f"lags/window_features span up to {max_span} "
+                    f"observations, exceeding the budget of {max_allowed}."
+                )
+                if attempt < max_retries:
+                    continue
+                warnings.warn(
+                    f"LLM plan refinement failed after {1 + max_retries} "
+                    f"attempts (last error: {last_error}). Returning "
+                    f"original plan.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                return plan, f"LLM refinement failed: {last_error}"
 
             refined_plan = self.refine_plan(
                 profile=profile,
@@ -626,13 +690,9 @@ class ForecastingAssistant:
             refined_plan.explanation += f"\n\nLLM Refinement Reasoning:\n{overrides.reasoning}"
 
             return refined_plan, overrides.reasoning
-        except Exception as exc:
-            warnings.warn(
-                f"LLM plan refinement failed ({exc}). Returning original plan.",
-                UserWarning,
-                stacklevel=2,
-            )
-            return plan, f"LLM refinement failed: {exc}"
+
+        # Unreachable: the loop above always returns on its last iteration.
+        return plan, "LLM refinement failed: exhausted retries"  # pragma: no cover
 
     def forecast_code(
         self,
