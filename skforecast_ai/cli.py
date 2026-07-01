@@ -12,15 +12,20 @@ from typing import Annotated
 import pandas as pd
 import typer
 from rich.console import Console
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.table import Table
 
 from pydantic import ValidationError
 
 from . import __version__
-from ._utils import _display_n_observations
+from ._display import (
+    render_code,
+    render_cv_config,
+    render_dataframe,
+    render_explanation,
+    render_metrics,
+    render_plan,
+    render_profile,
+)
 from .assistant import ForecastingAssistant
 from .config import (
     CONFIG_FILE,
@@ -507,36 +512,7 @@ def _render_profile_table(profile) -> None:
     -------
     None
     """
-    dp = profile.data_profile
-
-    table = Table(title="Dataset Profile", show_lines=True)
-    table.add_column("Property", style="bold")
-    table.add_column("Value")
-
-    table.add_row("Format", dp.data_format)
-    table.add_row("Series", str(dp.n_series))
-    table.add_row("Observations", str(_display_n_observations(dp)))
-    table.add_row("Frequency", dp.frequency or "not detected")
-    table.add_row("Target", str(dp.target))
-    table.add_row("Exog columns", ", ".join(dp.exog_columns) if dp.exog_columns else "none")
-    table.add_row("Missing target", str(dp.missing_target) if dp.missing_target else "none")
-
-    console.print(table)
-    console.print()
-
-    rec_table = Table(title="Recommendation", show_lines=True)
-    rec_table.add_column("Property", style="bold")
-    rec_table.add_column("Value")
-
-    rec_table.add_row("Task type", profile.task_type)
-    rec_table.add_row("Forecaster", profile.forecaster)
-    rec_table.add_row("Forecaster candidates", ", ".join(profile.forecaster_candidates))
-    rec_table.add_row("Estimator", profile.estimator or "N/A")
-    rec_table.add_row("Estimator candidates", ", ".join(profile.estimator_candidates))
-
-    console.print(rec_table)
-    console.print()
-    console.print(Panel(profile.explanation, title="Explanation"))
+    console.print(render_profile(profile))
 
 
 def _render_plan_panel(plan) -> None:
@@ -552,34 +528,7 @@ def _render_plan_panel(plan) -> None:
     -------
     None
     """
-    table = Table(title="Forecast Plan", show_lines=True)
-    table.add_column("Property", style="bold")
-    table.add_column("Value")
-
-    table.add_row("Forecaster", plan.forecaster)
-    table.add_row("Estimator", plan.estimator or "N/A")
-    table.add_row("Steps", str(plan.steps))
-    table.add_row("Frequency", plan.frequency or "not set")
-
-    lags = plan.forecaster_kwargs.get("lags")
-    table.add_row("Lags", str(lags) if lags is not None else "N/A")
-
-    table.add_row("Use exog", str(plan.use_exog))
-    table.add_row("Interval", str(plan.interval) if plan.interval else "none")
-    table.add_row("Interval method", plan.interval_method or "N/A")
-    table.add_row("Primary metric", plan.metric)
-
-    if plan.preprocessing_steps:
-        steps_str = "\n".join(
-            f"  - {s.action}: {s.reason}" for s in plan.preprocessing_steps
-        )
-        table.add_row("Preprocessing", steps_str)
-    else:
-        table.add_row("Preprocessing", "none")
-
-    console.print(table)
-    console.print()
-    console.print(Panel(plan.explanation, title="Plan Explanation"))
+    console.print(render_plan(plan))
 
 
 # ---------------------------------------------------------------------------
@@ -780,8 +729,7 @@ def forecast_code(
                 output.write_text(result.code)
                 console.print(f"[green]Code written to:[/green] {output}")
             else:
-                syntax = Syntax(result.code, "python", theme="monokai")
-                console.print(syntax)
+                console.print(render_code(result.code, title=None))
 
 
 @app.command(name="backtest-code")
@@ -896,8 +844,7 @@ def backtest_code(
                 output.write_text(result.code)
                 console.print(f"[green]Code written to:[/green] {output}")
             else:
-                syntax = Syntax(result.code, "python", theme="monokai")
-                console.print(syntax)
+                console.print(render_code(result.code, title=None))
 
 
 def _render_forecast_results(result) -> None:
@@ -913,37 +860,9 @@ def _render_forecast_results(result) -> None:
     -------
     None
     """
-    metrics = result.metrics
-
-    table = Table(title="Forecast Metrics", show_lines=True)
-    table.add_column("Series", style="bold")
-
-    # Dynamically add metric columns (all columns except 'series')
-    metric_cols = [c for c in metrics.columns if c != "series"]
-    for col in metric_cols:
-        table.add_column(col, justify="right")
-
-    for _, row in metrics.iterrows():
-        values = [str(row["series"])]
-        for col in metric_cols:
-            val = row[col]
-            values.append(f"{val:.4f}" if val is not None else "N/A")
-        table.add_row(*values)
-
-    console.print(table)
+    console.print(render_metrics(result.metrics, title="Forecast Metrics"))
     console.print()
-
-    predictions = result.predictions
-    n_rows = len(predictions)
-    if n_rows <= 10:
-        console.print(Panel(predictions.to_string(), title="Predictions"))
-    else:
-        head = predictions.head(5).to_string()
-        tail = predictions.tail(5).to_string(header=False)
-        console.print(Panel(
-            f"{head}\n  ...\n{tail}",
-            title=f"Predictions ({n_rows} rows)",
-        ))
+    console.print(render_dataframe(result.predictions, title="Predictions"))
 
 
 def _forecast_result_to_json(result) -> str:
@@ -1078,61 +997,11 @@ def _render_backtest_results(result) -> None:
     -------
     None
     """
-    # CV configuration summary
-    cv_config = result.cv_config
-    cv_table = Table(title="Cross-Validation Configuration", show_lines=True)
-    cv_table.add_column("Parameter", style="bold")
-    cv_table.add_column("Value", justify="right")
-    for key, value in cv_config.items():
-        cv_table.add_row(str(key), str(value))
-    console.print(cv_table)
+    console.print(render_cv_config(result.cv_config))
     console.print()
-
-    # Metrics
-    metrics = result.metrics
-    table = Table(title="Backtest Metrics", show_lines=True)
-
-    series_col = next(
-        (c for c in ("series", "levels") if c in metrics.columns), None
-    )
-    if series_col is not None:
-        table.add_column("Series", style="bold")
-        metric_cols = [c for c in metrics.columns if c != series_col]
-        for col in metric_cols:
-            table.add_column(col, justify="right")
-        for _, row in metrics.iterrows():
-            values = [str(row[series_col])]
-            for col in metric_cols:
-                val = row[col]
-                values.append(f"{val:.4f}" if val is not None else "N/A")
-            table.add_row(*values)
-    else:
-        # skforecast backtesting returns metrics without a 'series' column
-        # (columns are metric names, index may be levels)
-        for col in metrics.columns:
-            table.add_column(col, justify="right")
-        for _, row in metrics.iterrows():
-            values = []
-            for col in metrics.columns:
-                val = row[col]
-                values.append(f"{val:.4f}" if val is not None else "N/A")
-            table.add_row(*values)
-
-    console.print(table)
+    console.print(render_metrics(result.metrics, title="Backtest Metrics"))
     console.print()
-
-    # Predictions
-    predictions = result.predictions
-    n_rows = len(predictions)
-    if n_rows <= 10:
-        console.print(Panel(predictions.to_string(), title="Backtest Predictions"))
-    else:
-        head = predictions.head(5).to_string()
-        tail = predictions.tail(5).to_string(header=False)
-        console.print(Panel(
-            f"{head}\n  ...\n{tail}",
-            title=f"Backtest Predictions ({n_rows} rows)",
-        ))
+    console.print(render_dataframe(result.predictions, title="Backtest Predictions"))
 
 
 def _backtest_result_to_json(result) -> str:
@@ -1370,4 +1239,4 @@ def ask(
                 output_data["code"] = result.code
             print(json.dumps(output_data, indent=2, default=str))
         else:
-            console.print(Markdown(result.explanation))
+            console.print(render_explanation(result.explanation, title="Explanation"))

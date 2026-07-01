@@ -1,11 +1,10 @@
 """Plan schemas: forecasting configuration and overrides."""
 
 from __future__ import annotations
-
 from typing import Any, Literal
-
 from pydantic import BaseModel, Field
 
+from .._display import DisplayMixin, render_plan
 
 class CVParams(BaseModel):
     """
@@ -116,7 +115,7 @@ class PreprocessingStep(BaseModel):
     blocking: bool = True
 
 
-class ForecastPlan(BaseModel):
+class ForecastPlan(DisplayMixin, BaseModel):
     """
     Detailed forecasting plan produced from a `ForecastingProfile`.
 
@@ -191,3 +190,6 @@ class ForecastPlan(BaseModel):
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     explanation: str
+
+    def __rich_console__(self, console, options):
+        yield render_plan(self)

@@ -1,12 +1,11 @@
 """Profile schemas: data description and forecaster-specific analysis."""
 
 from __future__ import annotations
-
 from typing import Literal
-
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .._display import DisplayMixin, render_profile
 
 class SeriesLengthInfo(BaseModel):
     """
@@ -216,7 +215,6 @@ class DataProfile(BaseModel):
             self.n_total_observations = total
         return self
 
-
 class SeriesPacf(BaseModel):
     """
     PACF-significant lags for a single series.
@@ -245,7 +243,7 @@ class SeriesPacf(BaseModel):
     pacf_abs: list[float] = Field(default_factory=list)
 
 
-class ForecastingProfile(BaseModel):
+class ForecastingProfile(DisplayMixin, BaseModel):
     """
     High-level profile of the forecasting problem.
 
@@ -315,3 +313,6 @@ class ForecastingProfile(BaseModel):
     window_features: list[dict] | None = None
     calendar_features: list[str] | None = None
     explanation: str
+
+    def __rich_console__(self, console, options):
+        yield render_profile(self)
