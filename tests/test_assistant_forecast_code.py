@@ -1,5 +1,9 @@
 # Unit test forecast_code ForecastingAssistant
 
+import pytest
+
+from skforecast.exceptions import IgnoredArgumentWarning
+
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import CodeGenerationResult
 
@@ -153,3 +157,27 @@ def test_forecast_code_output_when_interval_requested():
 
     assert result.plan.interval == [0.1, 0.9]
     assert "interval" in result.code.lower() or "predict_interval" in result.code
+
+
+# =============================================================================
+# Tests: ignored plan-override warning
+# =============================================================================
+def test_forecast_code_IgnoredArgumentWarning_when_interval_passed_with_plan():
+    """
+    Test that forecast_code() warns with IgnoredArgumentWarning when an
+    interval override is passed alongside a pre-built plan, because the
+    planning stage (which consumes interval) is skipped.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.warns(IgnoredArgumentWarning, match="pre-built `plan`"):
+        assistant.forecast_code(
+            data=df_single,
+            target="sales",
+            steps=10,
+            interval=[0.1, 0.9],
+            profile=profile,
+            plan=plan,
+        )

@@ -126,7 +126,7 @@ def run_forecast(
     # If exog_future is provided, re-predict using the trained forecaster
     if exog_future is not None and forecaster is not None:
         predictions = _repredict_with_exog_future(
-            forecaster, plan, exog_future
+            forecaster, plan, exog_future, frequency=profile.frequency
         )
 
     # Ensure predictions is a DataFrame
@@ -184,6 +184,7 @@ def _repredict_with_exog_future(
     forecaster: Any,
     plan: ForecastPlan,
     exog_future: pd.DataFrame,
+    frequency: str | None = None,
 ) -> pd.DataFrame | pd.Series:
     """
     Re-run prediction using user-provided future exogenous variables.
@@ -196,12 +197,22 @@ def _repredict_with_exog_future(
         Forecast plan.
     exog_future : pandas DataFrame
         Exogenous variables for the forecast horizon.
+    frequency : str, default None
+        Pandas frequency string from the data profile. When provided, it
+        is enforced on the `exog_future` index with `asfreq` so the
+        future exogenous variables sit on the same regular grid as the
+        training data, as required by skforecast. Applying it here, where
+        the profile is always available, keeps the behavior identical
+        regardless of how the workflow was invoked.
 
     Returns
     -------
     predictions : pandas DataFrame, pandas Series
         Re-computed predictions.
     """
+    if frequency and isinstance(exog_future.index, pd.DatetimeIndex):
+        exog_future = exog_future.sort_index().asfreq(frequency)
+
     if plan.interval_method is not None:
         if plan.task_type == "foundation":
             quantiles = [0.1, 0.5, 0.9]

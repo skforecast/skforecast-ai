@@ -3,6 +3,7 @@
 from skforecast_ai.rendering.backtesting import (
     render_backtesting_foundation,
     render_backtesting_multi_series,
+    render_backtesting_multivariate,
     render_backtesting_single_series,
     render_backtesting_statistical,
 )
@@ -13,6 +14,7 @@ from .fixtures_rendering import (
     plan_foundation,
     plan_multi_series,
     plan_multi_series_exog,
+    plan_multivariate,
     plan_single_recursive_no_exog,
     plan_statistical,
     profile_multi_long,
@@ -113,6 +115,66 @@ def test_render_backtesting_multi_series_output_when_wide_format():
         "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
         "    lags      = 7,\n"
         "    encoding  = 'ordinal',\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster_multiseries(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = data[['series_a', 'series_b']],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+# =============================================================================
+# Tests: render_backtesting_multivariate — full script comparison
+# =============================================================================
+def test_render_backtesting_multivariate_output_when_wide_format():
+    """
+    Test that render_backtesting_multivariate produces the expected full
+    script with ForecasterDirectMultiVariate (level, steps) and the
+    backtesting_forecaster_multiseries call.
+    """
+    result = render_backtesting_multivariate(plan_multivariate, profile_multi_wide, cv_basic)
+
+    assert isinstance(result, RenderedScript)
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.direct import ForecasterDirectMultiVariate\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterDirectMultiVariate(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    level     = 'series_a',\n"
+        "    steps     = 5,\n"
+        "    lags      = 7,\n"
         ")\n"
         "\n"
         "# Time series cross-validation configuration\n"

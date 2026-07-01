@@ -1,17 +1,20 @@
-"""Unit tests for autoregressive lag and window feature selection."""
+# Unit test autoregressive recommendation/autoregressive
 
 import numpy as np
 import pandas as pd
 
 from skforecast_ai.recommendation.autoregressive import (
-    DEFAULT_PACF_CAP,
-    MAX_PACF_CAP,
-    _strongest_pacf_window,
+    _aggregate_lags_multiseries,
+    _aggregate_lags_multivariate,
     compute_series_pacf,
     finalize_lags,
     select_window_features,
 )
 from skforecast_ai.schemas import DataProfile, SeriesPacf
+
+# Mirror the function-local caps in compute_series_pacf.
+MAX_PACF_CAP = 512
+DEFAULT_PACF_CAP = 50
 
 
 def _target_stats(series: pd.Series) -> dict:
@@ -54,7 +57,7 @@ def select_lags_and_window_features(
 
     series_pacf = compute_series_pacf(df, profile)
     window_features = select_window_features(
-        task_type="single_series", n_observations=n_observations, frequency=frequency, series_pacf=series_pacf
+        task_type="single_series", n_observations=n_observations, frequency=frequency
     )
 
     lags = finalize_lags(
@@ -79,9 +82,9 @@ def _make_series(n: int, seed: int = 123) -> pd.Series:
 # ---------------------------------------------------------------------------
 # Lags: PACF-based selection
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_when_daily_frequency():
+def test_autoregressive_output_when_daily_frequency():
     """
-    Test select_autoregressive returns lags and seasonal lags for a
+    Test select_lags_and_window_features returns lags and seasonal lags for a
     daily frequency series with 365 observations.
     """
     series = _make_series(365)
@@ -97,9 +100,9 @@ def test_select_autoregressive_output_when_daily_frequency():
     assert 7 in lags
 
 
-def test_select_autoregressive_output_when_hourly_frequency():
+def test_autoregressive_output_when_hourly_frequency():
     """
-    Test select_autoregressive includes seasonal lag 24 for hourly data
+    Test select_lags_and_window_features includes seasonal lag 24 for hourly data
     with enough observations.
     """
     series = _make_series(720)
@@ -114,9 +117,9 @@ def test_select_autoregressive_output_when_hourly_frequency():
     assert 168 not in lags
 
 
-def test_select_autoregressive_output_when_monthly_frequency():
+def test_autoregressive_output_when_monthly_frequency():
     """
-    Test select_autoregressive returns seasonal lag 12 for monthly data.
+    Test select_lags_and_window_features returns seasonal lag 12 for monthly data.
     """
     series = _make_series(120)
     lags, wf = select_lags_and_window_features(
@@ -127,9 +130,9 @@ def test_select_autoregressive_output_when_monthly_frequency():
     assert 12 in lags
 
 
-def test_select_autoregressive_output_when_weekly_frequency():
+def test_autoregressive_output_when_weekly_frequency():
     """
-    Test select_autoregressive returns seasonal lag 52 for weekly data
+    Test select_lags_and_window_features returns seasonal lag 52 for weekly data
     when enough observations are available.
     """
     series = _make_series(200)
@@ -141,9 +144,9 @@ def test_select_autoregressive_output_when_weekly_frequency():
     assert 52 in lags
 
 
-def test_select_autoregressive_output_when_no_frequency():
+def test_autoregressive_output_when_no_frequency():
     """
-    Test select_autoregressive works with no frequency (no seasonal
+    Test select_lags_and_window_features works with no frequency (no seasonal
     enrichment, only PACF-based lags).
     """
     series = _make_series(365)
@@ -156,9 +159,9 @@ def test_select_autoregressive_output_when_no_frequency():
     assert lags == sorted(lags)
 
 
-def test_select_autoregressive_output_when_very_short_series():
+def test_autoregressive_output_when_very_short_series():
     """
-    Test select_autoregressive returns minimal lags and no window features
+    Test select_lags_and_window_features returns minimal lags and no window features
     for a very short series (< 30 observations).
     """
     series = _make_series(20)
@@ -171,9 +174,9 @@ def test_select_autoregressive_output_when_very_short_series():
     assert wf is None
 
 
-def test_select_autoregressive_output_when_short_series_no_window_features():
+def test_autoregressive_output_when_short_series_no_window_features():
     """
-    Test select_autoregressive returns no window features for series
+    Test select_lags_and_window_features returns no window features for series
     with fewer than 60 observations.
     """
     series = _make_series(50)
@@ -187,7 +190,7 @@ def test_select_autoregressive_output_when_short_series_no_window_features():
 # ---------------------------------------------------------------------------
 # Lags: constraints
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_max_lag_respects_constraint():
+def test_autoregressive_output_max_lag_respects_constraint():
     """
     Test that the maximum lag never exceeds n_observations // 3.
     """
@@ -199,7 +202,7 @@ def test_select_autoregressive_output_max_lag_respects_constraint():
     assert max(lags) <= 100 // 3
 
 
-def test_select_autoregressive_output_seasonal_lag_excluded_when_too_large():
+def test_autoregressive_output_seasonal_lag_excluded_when_too_large():
     """
     Test that seasonal lags are excluded when they exceed the max allowed.
     For monthly data with only 30 observations, lag 12 exceeds 30//3=10.
@@ -213,7 +216,7 @@ def test_select_autoregressive_output_seasonal_lag_excluded_when_too_large():
     assert max(lags) <= 30 // 3
 
 
-def test_select_autoregressive_output_secondary_season_excluded_when_too_large():
+def test_autoregressive_output_secondary_season_excluded_when_too_large():
     """
     Test that secondary seasonal lag (168 for hourly) is excluded when
     n_observations is too small to allow it.
@@ -232,9 +235,9 @@ def test_select_autoregressive_output_secondary_season_excluded_when_too_large()
 # ---------------------------------------------------------------------------
 # PACF-based lag selection: specific patterns
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_when_pacf_with_ar_series():
+def test_autoregressive_output_when_pacf_with_ar_series():
     """
-    Test that select_autoregressive selects lags using PACF when a
+    Test that select_lags_and_window_features selects lags using PACF when a
     target series with clear AR structure is provided. An AR(2) series
     should select recent autoregressive lags (lag 1 and a low lag),
     evaluated without window-feature pruning so the raw lag set is checked.
@@ -271,7 +274,7 @@ def test_select_autoregressive_output_when_pacf_with_ar_series():
     assert 7 in lags
 
 
-def test_select_autoregressive_output_when_pacf_with_seasonal_series():
+def test_autoregressive_output_when_pacf_with_seasonal_series():
     """
     Test that PACF-based selection captures seasonal lags for a series
     with strong seasonal component (period 12 monthly).
@@ -291,7 +294,7 @@ def test_select_autoregressive_output_when_pacf_with_seasonal_series():
     assert lags == sorted(lags)
 
 
-def test_select_autoregressive_output_when_pacf_selects_few_lags():
+def test_autoregressive_output_when_pacf_selects_few_lags():
     """
     Test the safety net: when PACF selects very few significant lags
     (e.g. white noise series), at least 3 recent lags are returned and
@@ -312,7 +315,7 @@ def test_select_autoregressive_output_when_pacf_selects_few_lags():
     assert 7 in lags
 
 
-def test_select_autoregressive_output_pacf_respects_max_lag_constraint():
+def test_autoregressive_output_pacf_respects_max_lag_constraint():
     """
     Test that PACF-selected lags respect the n_observations // 3 constraint.
     """
@@ -335,23 +338,18 @@ def test_select_autoregressive_output_pacf_respects_max_lag_constraint():
 # ---------------------------------------------------------------------------
 def _capture_requested_n_lags(monkeypatch) -> list[int]:
     """
-    Patch `calculate_lag_autocorrelation` to record the `n_lags` argument
-    requested by `compute_series_pacf`, returning the capture list.
+    Patch `pacf` to record the `nlags` argument requested by
+    `compute_series_pacf`, returning the capture list.
     """
     import skforecast_ai.recommendation.autoregressive as ar
 
     captured: list[int] = []
 
-    def _fake_calc(data, n_lags, sort_by):
-        captured.append(n_lags)
-        return pd.DataFrame(
-            {
-                "lag": [1],
-                "partial_autocorrelation_abs": [0.0],
-            }
-        )
+    def _fake_pacf(x, nlags):
+        captured.append(nlags)
+        return np.zeros(nlags + 1)  # all-zero PACF -> nothing passes threshold
 
-    monkeypatch.setattr(ar, "calculate_lag_autocorrelation", _fake_calc)
+    monkeypatch.setattr(ar, "pacf", _fake_pacf)
     return captured
 
 
@@ -420,7 +418,7 @@ def test_compute_series_pacf_n_lags_cap_default_when_no_frequency(monkeypatch):
 # ---------------------------------------------------------------------------
 # Window features: roll_std placement
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_window_features_std_only_on_shortest_window():
+def test_autoregressive_window_features_std_only_on_shortest_window():
     """
     Test that roll_std is added only on the shortest window while every
     longer window keeps roll_mean only.
@@ -440,7 +438,7 @@ def test_select_autoregressive_window_features_std_only_on_shortest_window():
             assert config["stats"] == ["mean"]
 
 
-def test_select_autoregressive_window_features_shortest_has_mean_and_std():
+def test_autoregressive_window_features_shortest_has_mean_and_std():
     """
     Test that the shortest window always carries both roll_mean and
     roll_std regardless of the series scale.
@@ -459,10 +457,10 @@ def test_select_autoregressive_window_features_shortest_has_mean_and_std():
 # ---------------------------------------------------------------------------
 # Window features: structure
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_window_features_for_daily():
+def test_autoregressive_output_window_features_for_daily():
     """
-    Test select_autoregressive returns window features with seasonal
-    window sizes for daily frequency with sufficient data.
+    Test select_lags_and_window_features returns multi-scale window features (short, 
+    weekly, trend multiple) for daily frequency with sufficient data.
     """
     series = _make_series(365)
     _, wf = select_lags_and_window_features(
@@ -470,19 +468,16 @@ def test_select_autoregressive_output_window_features_for_daily():
     )
 
     assert wf is not None
-    assert isinstance(wf, list)
-    assert len(wf) >= 1
-
-    # First config: short window at primary season (7)
-    short_config = wf[0]
-    assert "mean" in short_config["stats"]
-    assert short_config["window_sizes"] == 7
+    windows = [c["window_sizes"] for c in wf]
+    assert 3 in windows
+    assert 7 in windows
+    assert 21 in windows
 
 
-def test_select_autoregressive_output_window_features_for_hourly():
+def test_autoregressive_output_window_features_for_hourly():
     """
-    Test select_autoregressive returns a multi-scale window ladder
-    (24, 48, 72) for hourly data with sufficient observations, with
+    Test select_lags_and_window_features returns a multi-scale window ladder
+    (3, 24, 168) for hourly data with sufficient observations, with
     roll_std only on the shortest window.
     """
     series = _make_series(720)
@@ -492,10 +487,10 @@ def test_select_autoregressive_output_window_features_for_hourly():
 
     assert wf is not None
     windows = [c["window_sizes"] for c in wf]
-    # Multi-scale ladder: multiples of the primary season (24).
+    # Multi-scale ladder: short, primary season, secondary season.
+    assert 3 in windows
     assert 24 in windows
-    assert 48 in windows
-    assert 72 in windows
+    assert 168 in windows
 
     # roll_std only on the shortest window (24); others keep mean only.
     shortest = min(windows)
@@ -506,9 +501,9 @@ def test_select_autoregressive_output_window_features_for_hourly():
             assert config["stats"] == ["mean"]
 
 
-def test_select_autoregressive_output_window_features_monthly():
+def test_autoregressive_output_window_features_monthly():
     """
-    Test select_autoregressive returns window features with window=12
+    Test select_lags_and_window_features returns window features with window=3 and 12
     for monthly frequency.
     """
     series = _make_series(120)
@@ -517,13 +512,14 @@ def test_select_autoregressive_output_window_features_monthly():
     )
 
     assert wf is not None
-    short_config = wf[0]
-    assert short_config["window_sizes"] == 12
+    windows = [c["window_sizes"] for c in wf]
+    assert 3 in windows
+    assert 12 in windows
 
 
-def test_select_autoregressive_output_window_features_none_frequency():
+def test_autoregressive_output_window_features_none_frequency():
     """
-    Test select_autoregressive returns generic window features (window=7)
+    Test select_lags_and_window_features returns short and generic window features (3, 7)
     when no frequency is provided but enough data exists.
     """
     series = _make_series(200)
@@ -532,47 +528,54 @@ def test_select_autoregressive_output_window_features_none_frequency():
     )
 
     assert wf is not None
-    assert "mean" in wf[0]["stats"]
-    assert wf[0]["window_sizes"] == 7
+    windows = [c["window_sizes"] for c in wf]
+    assert 3 in windows
+    assert 7 in windows
 
 
-def test_select_autoregressive_output_window_features_capped_by_data_size():
+def test_autoregressive_output_window_features_capped_by_data_size():
     """
-    Test that window sizes are capped at 25% of n_observations.
-    For 80 observations with hourly data: max_window = 20, primary=24
-    -> window capped to 20.
+    Test that window sizes are capped at 33% of n_observations.
+    For 60 observations with hourly data: max_window = int(60 * 0.33) = 19,
+    primary=24 -> window capped to 19.
     """
-    series = _make_series(80)
+    series = _make_series(60)
     _, wf = select_lags_and_window_features(
-        n_observations=80, frequency="h", target_series=series
+        n_observations=60, frequency="h", target_series=series
     )
 
     assert wf is not None
-    max_window = int(80 * 0.25)
+    max_window = int(60 * 0.33)
     for config in wf:
         assert config["window_sizes"] <= max_window
 
 
-def test_select_autoregressive_output_no_long_window_when_equals_short():
+def test_autoregressive_output_no_long_window_when_equals_short():
     """
-    Test that a long window config is omitted when it would equal the
-    short window (e.g. monthly with no secondary season and 2*12=24
-    exceeds the data constraint).
+    Test that the window ladder is strictly increasing with no degenerate
+    window equal to the short one. For monthly data with 60 observations the
+    warm-up budget caps windows at int(60 * 0.33) = 19, so the seasonal
+    period 12 fits and is used; its trend multiples (24, 36) exceed the
+    budget and are omitted, yielding the ladder [3, 12].
     """
     series = _make_series(60)
     _, wf = select_lags_and_window_features(
         n_observations=60, frequency="ME", target_series=series
     )
 
-    if wf is not None and len(wf) > 1:
-        # Long window must be strictly greater than short
-        assert wf[1]["window_sizes"] > wf[0]["window_sizes"]
+    assert wf is not None
+    windows = [config["window_sizes"] for config in wf]
+    # Short window (3) + the seasonal period (12); trend multiples (24, 36)
+    # exceed the 19-observation budget and are omitted.
+    assert windows == [3, 12]
+    # Strictly increasing: no degenerate window equal to the short one.
+    assert windows == sorted(set(windows))
 
 
 # ---------------------------------------------------------------------------
 # Window features: extreme frequencies
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_window_features_minutely():
+def test_autoregressive_output_window_features_minutely():
     """
     Test the multi-scale window ladder for minutely data (primary season
     60) with enough observations, capped by the data budget.
@@ -585,12 +588,12 @@ def test_select_autoregressive_output_window_features_minutely():
     assert wf is not None
     windows = [config["window_sizes"] for config in wf]
     assert 60 in windows
-    max_window = int(1000 * 0.25)
+    max_window = int(1000 * 0.33)
     for w in windows:
         assert w <= max_window
 
 
-def test_select_autoregressive_output_window_features_yearly_generic():
+def test_autoregressive_output_window_features_yearly_generic():
     """
     Test that an extreme low-period frequency (yearly, primary season 1)
     falls back to a generic short window instead of a degenerate window
@@ -608,80 +611,10 @@ def test_select_autoregressive_output_window_features_yearly_generic():
         assert w >= 3
 
 
-def test_select_autoregressive_output_window_features_include_pacf_lag():
-    """
-    Test that the strongest PACF lag is added as an extra rolling window
-    distinct from the seasonal ladder. With no frequency the ladder is
-    the generic window (7); a series with strong period-12 memory
-    contributes a longer window.
-    """
-    rng = np.random.default_rng(42)
-    n = 240
-    t = np.arange(n)
-    y = np.sin(2 * np.pi * t / 12) + rng.normal(0, 0.3, n)
-    series = pd.Series(y, name="target")
-
-    _, wf = select_lags_and_window_features(
-        n_observations=n, frequency=None, target_series=series
-    )
-
-    windows = [config["window_sizes"] for config in wf]
-    assert 7 in windows
-    # PACF-derived window added alongside the generic base window.
-    assert len(windows) >= 2
-
-
-# ---------------------------------------------------------------------------
-# _strongest_pacf_window
-# ---------------------------------------------------------------------------
-def test_strongest_pacf_window_returns_strongest_non_trivial_lag():
-    """
-    Test that the strongest significant lag above 1 is returned when it
-    fits the data budget and is distinct from existing windows.
-    """
-    sp = SeriesPacf(
-        series_id="s", n_observations=200, lags=[1, 10, 3], pacf_abs=[0.9, 0.5, 0.2]
-    )
-    window = _strongest_pacf_window(
-        series_pacf=[sp], max_window_allowed=50, existing_windows=[7]
-    )
-
-    assert window == 10
-
-
-def test_strongest_pacf_window_None_when_only_lag_one():
-    """
-    Test that lag 1 is excluded (recent lags already cover it), so a
-    primitive with only lag 1 yields no window.
-    """
-    sp = SeriesPacf(series_id="s", n_observations=200, lags=[1], pacf_abs=[0.9])
-
-    assert _strongest_pacf_window([sp], max_window_allowed=50, existing_windows=[7]) is None
-
-
-def test_strongest_pacf_window_None_when_near_existing_window():
-    """
-    Test that a candidate within one period of an existing window is
-    discarded as redundant.
-    """
-    sp = SeriesPacf(series_id="s", n_observations=200, lags=[7], pacf_abs=[0.9])
-
-    assert _strongest_pacf_window([sp], max_window_allowed=50, existing_windows=[7]) is None
-
-
-def test_strongest_pacf_window_None_when_out_of_range():
-    """
-    Test that a candidate exceeding the data budget is discarded.
-    """
-    sp = SeriesPacf(series_id="s", n_observations=200, lags=[100], pacf_abs=[0.9])
-
-    assert _strongest_pacf_window([sp], max_window_allowed=50, existing_windows=[7]) is None
-
-
 # ---------------------------------------------------------------------------
 # Lag pruning when rolling mean present
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_lag_pruning_preserves_minimum_lags():
+def test_autoregressive_lag_pruning_preserves_minimum_lags():
     """
     Test that pruning never reduces lags below 3 elements.
     """
@@ -696,9 +629,9 @@ def test_select_autoregressive_lag_pruning_preserves_minimum_lags():
 # ---------------------------------------------------------------------------
 # Return type
 # ---------------------------------------------------------------------------
-def test_select_autoregressive_output_returns_tuple():
+def test_autoregressive_output_returns_tuple():
     """
-    Test that select_autoregressive always returns a 2-element tuple.
+    Test that select_lags_and_window_features always returns a 2-element tuple.
     """
     series = _make_series(365)
     result = select_lags_and_window_features(
@@ -709,7 +642,7 @@ def test_select_autoregressive_output_returns_tuple():
     assert len(result) == 2
 
 
-def test_select_autoregressive_output_lags_are_sorted_integers():
+def test_autoregressive_output_lags_are_sorted_integers():
     """
     Test that lags are always sorted positive integers.
     """
@@ -723,3 +656,190 @@ def test_select_autoregressive_output_lags_are_sorted_integers():
     assert lags == sorted(lags)
     # No duplicates
     assert len(lags) == len(set(lags))
+
+
+# ---------------------------------------------------------------------------
+# _aggregate_lags_multiseries (consensus)
+# ---------------------------------------------------------------------------
+def test_aggregate_lags_multiseries_keeps_shared_drops_rare():
+    """
+    Test the consensus floor: with 3 series and the default threshold of
+    0.5 (floor = ceil(3 * 0.5) = 2), a lag significant in only one series
+    is dropped while lags shared by at least two are kept, ranked by
+    series-count descending.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[1, 2, 5], pacf_abs=[0.9, 0.5, 0.3]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[1, 2], pacf_abs=[0.8, 0.4]),
+        SeriesPacf(series_id="c", n_observations=200, lags=[1], pacf_abs=[0.7]),
+    ]
+
+    result = _aggregate_lags_multiseries(series_pacf)
+
+    # lag 1 (in 3 series) ranks first, lag 2 (in 2 series) next; lag 5
+    # (only 1 series) is below the floor and excluded.
+    assert result == [1, 2]
+
+
+def test_aggregate_lags_multiseries_tie_broken_by_summed_pacf():
+    """
+    Test that lags with equal series-counts are ordered by summed `|PACF|`
+    descending.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[3, 4], pacf_abs=[0.2, 0.9]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[3, 4], pacf_abs=[0.2, 0.9]),
+    ]
+
+    result = _aggregate_lags_multiseries(series_pacf)
+
+    # Both lags appear in both series (count tie); lag 4 has the larger
+    # summed magnitude (1.8 vs 0.4) so it ranks first.
+    assert result == [4, 3]
+
+
+def test_aggregate_lags_multiseries_falls_back_to_full_ranked_set():
+    """
+    Test that when the threshold leaves no lag passing the floor, the full
+    ranked set is returned instead of an empty list.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[1, 2], pacf_abs=[0.9, 0.5]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[3, 4], pacf_abs=[0.8, 0.4]),
+    ]
+
+    # threshold 1.0 -> floor 2, but no lag is shared by both series.
+    result = _aggregate_lags_multiseries(series_pacf, consensus_threshold=1.0)
+
+    # Fallback: every lag, ranked by summed |PACF| descending.
+    assert result == [1, 3, 2, 4]
+
+
+def test_aggregate_lags_multiseries_empty_input():
+    """
+    Test that an empty primitive list yields an empty consensus list.
+    """
+    assert _aggregate_lags_multiseries([]) == []
+
+
+# ---------------------------------------------------------------------------
+# _aggregate_lags_multivariate (top-n union)
+# ---------------------------------------------------------------------------
+def test_aggregate_lags_multivariate_union_ordered_by_summed_pacf():
+    """
+    Test that the union of per-series lags is ordered by summed `|PACF|`
+    across series, descending.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[1, 2], pacf_abs=[0.5, 0.3]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[2, 3], pacf_abs=[0.6, 0.1]),
+    ]
+
+    result = _aggregate_lags_multivariate(series_pacf, top_n=10)
+
+    # Summed magnitudes: lag 2 -> 0.9, lag 1 -> 0.5, lag 3 -> 0.1.
+    assert result == [2, 1, 3]
+
+
+def test_aggregate_lags_multivariate_truncates_to_top_n_per_series():
+    """
+    Test that each series contributes only its strongest `top_n` lags, so
+    a weaker lag beyond the cut is absent from the union.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=200, lags=[1, 2, 3], pacf_abs=[0.9, 0.8, 0.7]),
+        SeriesPacf(series_id="b", n_observations=200, lags=[4], pacf_abs=[0.5]),
+    ]
+
+    result = _aggregate_lags_multivariate(series_pacf, top_n=2)
+
+    # Series "a" contributes only lags 1 and 2 (top 2 by |PACF|); lag 3 is
+    # truncated. Union ordered by summed |PACF|.
+    assert 3 not in result
+    assert result == [1, 2, 4]
+
+
+def test_aggregate_lags_multivariate_empty_input():
+    """
+    Test that an empty primitive list yields an empty union list.
+    """
+    assert _aggregate_lags_multivariate([], top_n=10) == []
+
+
+# ---------------------------------------------------------------------------
+# finalize_lags: multi_series / multivariate dispatch (regression guards)
+# ---------------------------------------------------------------------------
+def test_finalize_lags_multi_series_end_to_end():
+    """
+    Test that the multi_series branch runs end-to-end and post-processes
+    the consensus lags. This path raised a TypeError before the
+    consensus_threshold keyword was fixed.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=365, lags=[1, 2, 7], pacf_abs=[0.9, 0.5, 0.3]),
+        SeriesPacf(series_id="b", n_observations=365, lags=[1, 3, 7], pacf_abs=[0.8, 0.4, 0.3]),
+    ]
+
+    lags = finalize_lags(
+        series_pacf    = series_pacf,
+        task_type      = "multi_series",
+        n_observations = 365,
+        frequency      = "D",
+    )
+
+    assert lags == sorted(set(lags))
+    assert all(isinstance(lag, int) and lag > 0 for lag in lags)
+    # Consensus lag 1 retained; lag 7 present via seasonal enrichment (daily).
+    assert 1 in lags
+    assert 7 in lags
+
+
+def test_finalize_lags_multi_series_consensus_threshold_threaded_through():
+    """
+    Test that the consensus_threshold argument actually reaches the
+    aggregation step. Rare lags (10, 12) appear in only one series each
+    and sit above the recent-lag safety-net range, so they survive at a
+    permissive threshold and are dropped at a strict one.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=300, lags=[1, 10], pacf_abs=[0.9, 0.5]),
+        SeriesPacf(series_id="b", n_observations=300, lags=[1, 12], pacf_abs=[0.8, 0.4]),
+    ]
+    kwargs = dict(
+        series_pacf    = series_pacf,
+        task_type      = "multi_series",
+        n_observations = 300,
+        frequency      = None,
+    )
+
+    permissive = finalize_lags(**kwargs, consensus_threshold=0.5)
+    strict = finalize_lags(**kwargs, consensus_threshold=1.0)
+
+    # floor 1: rare single-series lags kept.
+    assert 10 in permissive and 12 in permissive
+    # floor 2: only the shared lag survives consensus; the rare lags are
+    # not reintroduced by the safety net (which only adds 1..5).
+    assert 10 not in strict and 12 not in strict
+
+
+def test_finalize_lags_multivariate_end_to_end():
+    """
+    Test that the multivariate branch runs end-to-end and that the top-n
+    union lags survive the select_lags data budget.
+    """
+    series_pacf = [
+        SeriesPacf(series_id="a", n_observations=300, lags=[1, 2, 10], pacf_abs=[0.9, 0.6, 0.4]),
+        SeriesPacf(series_id="b", n_observations=300, lags=[2, 3], pacf_abs=[0.7, 0.5]),
+    ]
+
+    lags = finalize_lags(
+        series_pacf    = series_pacf,
+        task_type      = "multivariate",
+        n_observations = 300,
+        frequency      = None,
+    )
+
+    assert lags == sorted(set(lags))
+    assert all(isinstance(lag, int) and lag > 0 for lag in lags)
+    # Union of {1, 2, 10} and {2, 3}; all fit within max_lag = 300 // 3.
+    assert lags == [1, 2, 3, 10]

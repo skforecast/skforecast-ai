@@ -23,10 +23,6 @@ from ..schemas import DataProfile
 # (e.g., `data[data[series_id] == id]`) on the entire DataFrame. Consider using
 # lazy evaluation or `groupby().get_group()` to isolate the sample.
 
-# TODO: Seasonality Logic - Handle Multipliers
-# Update `estimate_seasonality` to handle numeric frequency multipliers 
-# (e.g., "2H" or "15T"). Extract the multiplier and scale the base seasonal periods.
-
 # TODO: Magic Numbers - Parameterize Train Split
 # `_compute_end_train` hardcodes an 80% split (`idx = int(len(idx) * 0.8) - 1`). 
 # Parameterize this by adding a `train_fraction` argument with a default of 0.8 
@@ -67,60 +63,6 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
         return None
 
     return freq
-
-
-def estimate_seasonality(frequency: str | None) -> list[int]:
-    """
-    Estimate seasonal periods from a known frequency string.
-
-    Parameters
-    ----------
-    frequency : str, None
-        Pandas frequency string (e.g. `'h'`, `'D'`, `'ME'`).
-
-    Returns
-    -------
-    seasonalities : list
-        List of integer seasonal periods inferred from the frequency.
-        Returns an empty list if the frequency is None or unrecognized.
-
-    Notes
-    -----
-    This is a heuristic mapping. It does not perform spectral analysis
-    or autocorrelation-based detection.
-    """
-    if frequency is None:
-        return []
-
-    # Drop anchor suffixes from offset aliases (e.g. 'W-SUN', 'QS-OCT',
-    # 'A-DEC') so anchored frequencies returned by `pd.infer_freq` match
-    # the base keys below.
-    freq_upper = frequency.upper().split("-")[0]
-
-    seasonality_map: dict[str, list[int]] = {
-        "T":    [60, 1440],
-        "MIN":  [60, 1440],
-        "H":    [24, 168],
-        "D":    [7, 365],
-        "B":    [5, 252],
-        "W":    [52],
-        "MS":   [12],
-        "ME":   [12],
-        "M":    [12],
-        "QS":   [4],
-        "QE":   [4],
-        "Q":    [4],
-        "YS":   [1],
-        "YE":   [1],
-        "Y":    [1],
-        "A":    [1],
-    }
-
-    for key, seasons in seasonality_map.items():
-        if freq_upper == key or freq_upper.endswith(key):
-            return seasons
-
-    return []
 
 
 def create_data_profile(

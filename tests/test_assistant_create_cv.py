@@ -150,22 +150,37 @@ def test_create_cv_output_when_initial_train_size_float_override():
     assert cv.initial_train_size == 50
 
 
-def test_create_cv_output_when_initial_train_size_str_skips_validation():
+def test_create_cv_output_when_initial_train_size_str_date():
     """
-    Test that a str initial_train_size is passed through without fold
-    count validation.
+    Test that a str (date) initial_train_size is passed through and
+    validated against a DatetimeIndex built from the profile.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    # A date far into the future would fail validation, but str skips it
     cv, explanation = assistant.create_cv(
         profile, plan, initial_train_size="2023-03-01"
     )
 
     assert isinstance(cv, TimeSeriesFold)
     assert cv.initial_train_size == "2023-03-01"
+
+
+def test_create_cv_ValueError_when_initial_train_size_str_date_too_late():
+    """
+    Test that a str (date) initial_train_size leaving fewer than 2 folds
+    raises ValueError, mirroring the integer validation path.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    # df_single has 100 daily observations (2023-01-01 .. 2023-04-10). A
+    # near-final training date leaves too few observations for 2 folds.
+    err_msg = re.escape("At least 2 are required")
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.create_cv(profile, plan, initial_train_size="2023-04-09")
 
 
 def test_create_cv_output_when_refit_override():
@@ -432,6 +447,54 @@ def test_create_cv_llm_kwargs_override_llm(monkeypatch):
     assert cv.gap == 1
     # LLM values preserved for non-overridden params
     assert cv.initial_train_size == 50
+
+
+def test_create_cv_prompt_ignored_when_all_params_explicit(monkeypatch):
+    """
+    Test that create_cv() skips the LLM entirely (with a UserWarning) when
+    every CV parameter the LLM would decide is supplied explicitly.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    class _RaisingAgent:
+        async def run(self, msg, **kw):
+            raise AssertionError("LLM should not be called")
+
+    monkeypatch.setattr(assistant, "_cv_agent", _RaisingAgent())
+
+    def _mock_resolve_model(self_=None):
+        return "fake-model-string"
+
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cv, _ = assistant.create_cv(
+            profile,
+            plan,
+            prompt="I retrain weekly",
+            initial_train_size=50,
+            fold_stride=5,
+            refit=False,
+            fixed_train_size=True,
+            gap=0,
+            skip_folds=1,
+            allow_incomplete_fold=True,
+        )
+
+    assert isinstance(cv, TimeSeriesFold)
+    assert cv.initial_train_size == 50
+    assert cv.refit is False
+    assert cv.fixed_train_size is True
+    assert cv.gap == 0
+    ignored = [
+        x
+        for x in w
+        if "Prompt ignored: all CV parameters were set explicitly" in str(x.message)
+    ]
+    assert len(ignored) == 1
 
 
 def test_create_cv_llm_retry_then_success(monkeypatch):

@@ -9,12 +9,148 @@ import warnings
 from pathlib import Path
 
 import pandas as pd
+from skforecast.model_selection import TimeSeriesFold
+from skforecast.exceptions import IgnoredArgumentWarning
 
+from ._constants import MAX_FEATURE_FRACTION
 from .profiling.data_profile import _try_parse_first_date_column
-from .schemas import DataProfile
+from .schemas import DataProfile, ForecastPlan
 
 _CODE_BLOCK_RE = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
 _CODE_BLOCK_REPLACEMENT = "(See `result.code` for the validated implementation.)"
+
+
+def _max_window_size(
+    lags: int | list[int] | None,
+    window_features: list[dict] | None,
+) -> int:
+    """
+    Largest lag or rolling-window size implied by explicit feature overrides.
+
+    Parameters
+    ----------
+    lags : int, list of int, None
+        Explicit lag override. An int is interpreted as consecutive lags
+        `1..lags`, so its span equals the int itself.
+    window_features : list of dict, None
+        Explicit window features override. Each dict may carry
+        `window_sizes` as an int or a list of ints.
+
+    Returns
+    -------
+    span : int
+        Maximum span across all supplied features, or 0 when none apply.
+    """
+    spans: list[int] = []
+    if isinstance(lags, int):
+        spans.append(lags)
+    elif lags:
+        spans.append(max(lags))
+    for wf in window_features or []:
+        if not isinstance(wf, dict):
+            continue
+        sizes = wf.get("window_sizes")
+        if isinstance(sizes, int):
+            spans.append(sizes)
+        elif isinstance(sizes, (list, tuple)) and sizes:
+            spans.append(max(sizes))
+    return max(spans, default=0)
+
+
+def _validate_max_window_size(
+    lags: int | list[int] | None,
+    window_features: list[dict] | None,
+    span_index_length: int,
+) -> None:
+    """
+    Ensure explicit lags/window features fit within the available data.
+
+    The largest lag or rolling-window size (the forecaster's effective
+    `window_size`) consumes initial observations before the first training
+    row can be built. When it exceeds `MAX_FEATURE_FRACTION` of the series
+    length, too few rows remain to train reliably, so a `ValueError` is
+    raised. Deterministic lag/window selection already respects this limit;
+    this guard covers explicit (manual or LLM-supplied) overrides that
+    bypass it.
+
+    Parameters
+    ----------
+    lags : int, list of int, None
+        Explicit lag override. An int is interpreted as consecutive lags
+        `1..lags`, so its span equals the int itself.
+    window_features : list of dict, None
+        Explicit window features override. Each dict may carry
+        `window_sizes` as an int or a list of ints.
+    span_index_length : int
+        Number of observations spanned by the series index.
+
+    Returns
+    -------
+    None
+    """
+    max_span = _max_window_size(lags, window_features)
+    max_allowed = int(span_index_length * MAX_FEATURE_FRACTION)
+    if max_span > max_allowed:
+        raise ValueError(
+            f"Explicit lags/window_features span up to {max_span} "
+            f"observations, exceeding the maximum of {max_allowed} "
+            f"({int(MAX_FEATURE_FRACTION * 100)}% of "
+            f"{span_index_length} observations). "
+            f"Reduce the largest lag or window size."
+        )
+
+
+def _count_cv_folds(
+    cv: TimeSeriesFold,
+    n_observations: int,
+    start_date: str | None = None,
+    frequency: str | None = None,
+) -> int:
+    """
+    Count the folds a cross-validation splitter produces over a dataset.
+
+    Builds a throwaway index of the given length and runs `cv.split` to
+    count the resulting folds. A date-based `initial_train_size` needs a
+    DatetimeIndex so `cv.split` can locate the split date; integer or
+    fractional sizes are counted against a plain RangeIndex.
+
+    The `window_size` of `cv` is unset here (no forecaster attached yet),
+    so skforecast emits an `IgnoredArgumentWarning` about the last window.
+    It is irrelevant for counting folds and is suppressed.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter.
+    n_observations : int
+        Number of observations spanned by the dataset.
+    start_date : str, default None
+        First date of the dataset, used to build a DatetimeIndex when
+        `cv.initial_train_size` is a date string. Required in that case.
+    frequency : str, default None
+        Index frequency, used together with `start_date` to build the
+        DatetimeIndex. Required when `cv.initial_train_size` is a date
+        string.
+
+    Returns
+    -------
+    n_folds : int
+        Number of folds produced by the configuration.
+    """
+    if isinstance(cv.initial_train_size, str):
+        index = pd.date_range(
+                    start   = start_date,
+                    periods = n_observations,
+                    freq    = frequency,
+                )
+    else:
+        index = pd.RangeIndex(n_observations)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
+        folds = cv.split(X=index, as_pandas=False)
+
+    return len(folds)
 
 
 def _series_span_length(data_profile: DataProfile) -> int:
@@ -125,6 +261,60 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
 def _strip_code_blocks(text: str) -> str:
     """Replace fenced code blocks with a pointer to result.code."""
     return _CODE_BLOCK_RE.sub(_CODE_BLOCK_REPLACEMENT, text)
+
+
+def _warn_if_plan_overrides_ignored(
+    plan: ForecastPlan | None,
+    forecaster: str | None,
+    estimator: str | None,
+    estimator_kwargs: dict | None,
+    interval: list[float] | None,
+) -> None:
+    """
+    Warn when plan-shaping arguments are ignored due to a supplied plan.
+
+    When a pre-built `plan` is passed to `forecast()` or `forecast_code()`,
+    the planning stage is skipped, so any argument that only feeds that
+    stage is silently dropped. This emits an `IgnoredArgumentWarning`
+    instead, pointing the caller to `refine_plan()`.
+
+    Parameters
+    ----------
+    plan : ForecastPlan, None
+        Pre-built plan supplied by the caller. When None, nothing is
+        warned because the planning stage runs normally.
+    forecaster : str, None
+        Forecaster override that would be ignored.
+    estimator : str, None
+        Estimator override that would be ignored.
+    estimator_kwargs : dict, None
+        Estimator keyword arguments that would be ignored.
+    interval : list of float, None
+        Prediction interval override that would be ignored.
+
+    Returns
+    -------
+    None
+    """
+    if plan is None:
+        return
+    ignored = [
+        name
+        for name, value in (
+            ("forecaster", forecaster),
+            ("estimator", estimator),
+            ("estimator_kwargs", estimator_kwargs),
+            ("interval", interval),
+        )
+        if value is not None
+    ]
+    if ignored:
+        warnings.warn(
+            f"A pre-built `plan` was provided, so the following argument(s) "
+            f"are ignored: {ignored}. To change these, refine the plan with "
+            f"`refine_plan()` before calling.",
+            IgnoredArgumentWarning,
+        )
 
 
 def _resolve_data_and_target(

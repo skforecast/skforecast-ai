@@ -23,12 +23,38 @@ def test_refine_plan_ValueError_when_invalid_override_key():
     plan = assistant.plan(profile, steps=10)
 
     err_msg = re.escape(
-        "Invalid override keys: ['lags']. "
-        "Allowed keys: ['estimator', 'estimator_kwargs', 'forecaster',"
-        " 'interval', 'steps']."
+        "Invalid override keys: ['not_a_valid_key']. "
+        "Allowed keys: ['estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'steps', 'window_features']."
     )
     with pytest.raises(ValueError, match=err_msg):
-        assistant.refine_plan(profile, plan, lags=[1, 2, 3])
+        assistant.refine_plan(profile, plan, not_a_valid_key="something")
+
+
+def test_refine_plan_ValueError_when_lags_exceed_data_budget():
+    """
+    Test that explicit lags spanning more than the allowed fraction of the
+    available observations raise ValueError before building the plan.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    # 100 observations -> budget is int(100 * 0.33) = 33.
+    with pytest.raises(ValueError, match=re.escape("exceeding the maximum")):
+        assistant.refine_plan(profile, plan, lags=50)
+
+
+def test_refine_plan_output_when_lags_within_budget():
+    """
+    Test that an explicit lag override within the data budget is applied.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    refined = assistant.refine_plan(profile, plan, lags=[1, 2, 7])
+
+    assert refined.forecaster_kwargs["lags"] == [1, 2, 7]
 
 
 def test_refine_plan_ValueError_when_forecaster_not_in_candidates():

@@ -1,12 +1,11 @@
 """Profile schemas: data description and forecaster-specific analysis."""
 
 from __future__ import annotations
-
 from typing import Literal
-
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .._display import DisplayMixin, render_profile
 
 class SeriesLengthInfo(BaseModel):
     """
@@ -197,7 +196,7 @@ class DataProfile(BaseModel):
     @field_validator("series_lengths", mode="before")
     @classmethod
     def _coerce_series_lengths(cls, value: object) -> object:
-        """Coerce ``int`` values into ``SeriesLengthInfo(length=int)``."""
+        """Coerce `int` values into `SeriesLengthInfo(length=int)`."""
         if isinstance(value, dict):
             return {
                 key: ({"length": v} if isinstance(v, int) else v)
@@ -216,7 +215,6 @@ class DataProfile(BaseModel):
             self.n_total_observations = total
         return self
 
-
 class SeriesPacf(BaseModel):
     """
     PACF-significant lags for a single series.
@@ -227,12 +225,13 @@ class SeriesPacf(BaseModel):
         Name of the series (target column for single/wide, series id for
         long format).
     n_observations : int
-        Cleaned per-series length (after trimming edge NaNs and
-        interpolating interior gaps) used to compute the white-noise
-        threshold `1.96 / sqrt(n)`. Not the raw column length.
+        Number of non-NaN observations in the series (all NaNs, edge and
+        interior, are excluded by the count). Used as the sample size for
+        the PACF significance test. Not the raw column length.
     lags : list of int
-        Significant lags (`|PACF| > 1.96 / sqrt(n)`), ordered by
-        descending `|PACF|` (importance order, not ascending index).
+        Significant lags retained by Benjamini-Hochberg FDR correction
+        and the minimum effect-size floor, ordered by descending `|PACF|`
+        (importance order, not ascending index).
     pacf_abs : list of float
         Absolute PACF magnitude aligned element-wise with `lags`
         (same order).
@@ -244,7 +243,7 @@ class SeriesPacf(BaseModel):
     pacf_abs: list[float] = Field(default_factory=list)
 
 
-class ForecastingProfile(BaseModel):
+class ForecastingProfile(DisplayMixin, BaseModel):
     """
     High-level profile of the forecasting problem.
 
@@ -314,3 +313,6 @@ class ForecastingProfile(BaseModel):
     window_features: list[dict] | None = None
     calendar_features: list[str] | None = None
     explanation: str
+
+    def __rich_console__(self, console, options):
+        yield render_profile(self)

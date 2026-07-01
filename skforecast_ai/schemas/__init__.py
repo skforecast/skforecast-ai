@@ -1,6 +1,6 @@
 """Pydantic schemas for skforecast-ai data contracts."""
 
-from .plans import CVParams, ForecastPlan, PreprocessingStep
+from .plans import CVParams, ForecastPlan, PreprocessingStep, PlanOverrides
 from .profiles import DataProfile, ForecastingProfile, SeriesLengthInfo, SeriesPacf
 from .results import (
     AskResult,
@@ -19,6 +19,7 @@ __all__ = [
     "ForecastingProfile",
     "ForecastPlan",
     "ForecastResult",
+    "PlanOverrides",
     "PreprocessingStep",
     "RenderedScript",
     "SeriesLengthInfo",

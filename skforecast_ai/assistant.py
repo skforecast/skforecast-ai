@@ -9,7 +9,7 @@ import warnings
 from pathlib import Path
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
-from skforecast.exceptions import IgnoredArgumentWarning
+from ._constants import MAX_FEATURE_FRACTION
 from .exceptions import LLMRequiredError
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
@@ -52,10 +52,14 @@ from .schemas import (
     ForecastResult,
 )
 from ._utils import (
+    _count_cv_folds,
+    _max_window_size,
     _resolve_data_and_target,
     _run_agent_sync,
     _strip_code_blocks,
+    _validate_max_window_size,
     _validate_task_input,
+    _warn_if_plan_overrides_ignored,
 )
 
 
@@ -64,7 +68,7 @@ class ForecastingAssistant:
     AI-powered forecasting assistant built on skforecast.
 
     Analyses a time series dataset, selects a forecaster and estimator,
-    produces a ready-to-run Python script, and optionally executes it —
+    produces a ready-to-run Python script, and optionally executes it,
     returning predictions, metrics, and the exact code that generated them.
 
     All modeling decisions are deterministic and reproducible. An optional
@@ -103,26 +107,27 @@ class ForecastingAssistant:
     -----
     Three workflows are available:
 
-    Fast path — call a single method that handles everything internally:
+    Fast path: call a single method that handles everything internally:
 
     - `forecast_code()` profiles the data, builds a plan, and returns a
     ready-to-run Python script.
     - `forecast()` does the same and also executes the forecast,
     returning predictions and metrics.
 
-    Step-by-step path — for full control over each stage:
+    Step-by-step path: for full control over each stage:
 
     - `profile()` inspects the dataset and selects the recommended
     forecaster and estimator (with alternative candidates).
     - `plan()` takes the profile and derives the detailed configuration
     (lags, metric, preprocessing, intervals, NaN handling).
-    - `refine_plan()` adjusts an existing plan with user overrides (if desired).
+    - `refine_plan()` adjusts an existing plan with user overrides, or with
+    LLM guidance when a `prompt` is provided (if desired).
     - `forecast_code()` generates a Python script (accepts pre-computed
     `profile` and `plan` for full control).
     - `forecast()` executes the workflow from a pre-computed profile and
     plan, returning predictions and metrics.
 
-    Backtesting path — evaluate model performance with time series
+    Backtesting path: evaluate model performance with time series
     cross-validation:
 
     - `create_cv()` produces a `TimeSeriesFold` with smart defaults
@@ -132,8 +137,9 @@ class ForecastingAssistant:
     - `backtest()` runs backtesting using the CV strategy and returns
     metrics, predictions, and reproducible code.
 
-    `ask()` is an LLM-powered method available in any workflow to
-    explain results, answer forecasting questions, or interpret metrics.
+    `ask()` is an LLM-powered method (requires `llm` to be configured)
+    available in any workflow to explain results, answer forecasting
+    questions, or interpret metrics.
 
     """
 
@@ -152,6 +158,7 @@ class ForecastingAssistant:
         self._model           = None
         self._agent           = None
         self._cv_agent        = None
+        self._plan_refinement_agent = None
 
     def profile(
         self,
@@ -209,7 +216,6 @@ class ForecastingAssistant:
                               task_type      = task_type,
                               n_observations = data_profile.span_index_length,
                               frequency      = data_profile.frequency,
-                              series_pacf    = series_pacf,
                           )
 
         calendar_features = select_calendar_features(
@@ -252,6 +258,8 @@ class ForecastingAssistant:
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
         interval: list[float] | None = None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict] | None = None,
     ) -> ForecastPlan:
         """
         Build a detailed `ForecastPlan` from a `ForecastingProfile`.
@@ -282,6 +290,12 @@ class ForecastingAssistant:
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
             None, no prediction intervals are computed.
+        lags : int, list of int, default None
+            Explicit lag configuration. If provided, bypasses the
+            deterministic PACF-based lag selection.
+        window_features : list of dict, default None
+            Explicit window features configuration. If provided, bypasses
+            the deterministic window feature selection.
 
         Returns
         -------
@@ -323,20 +337,43 @@ class ForecastingAssistant:
             est = estimator
 
         if task_type in ("statistical", "foundation"):
-            lags = None
-            window_features = None
+            final_lags = None
+            final_window_features = None
             transformer_series = None
             transformer_exog = None
             dropna_from_series = None
             calendar_features = None
         else:
-            lags = finalize_lags(
-                series_pacf     = profile.series_pacf,
-                task_type       = task_type,
-                n_observations  = data_profile.span_index_length,
-                frequency       = data_profile.frequency,
-            )
-            window_features = profile.window_features
+            # Explicit lag/window overrides (manual or LLM-supplied) bypass the
+            # deterministic PACF selection and its budget guard, so validate
+            # them against the data budget before building the forecaster.
+            if lags is not None or window_features is not None:
+                _validate_max_window_size(
+                    lags              = lags,
+                    window_features   = window_features,
+                    span_index_length = data_profile.span_index_length
+                )
+
+            if lags is not None:
+                final_lags = lags
+            else:
+                # Direct forecasters lose `steps - 1` extra rows beyond the
+                # `window_size` (the last-step regressor needs the target at
+                # t + steps), so reserve them from the lag budget. Recursive
+                # forecasters reserve nothing.
+                n_reserved_rows = steps - 1 if "Direct" in fc else 0
+                final_lags = finalize_lags(
+                    series_pacf     = profile.series_pacf,
+                    task_type       = task_type,
+                    n_observations  = data_profile.span_index_length,
+                    frequency       = data_profile.frequency,
+                    n_reserved_rows = n_reserved_rows,
+                )
+
+            if window_features is not None:
+                final_window_features = window_features
+            else:
+                final_window_features = profile.window_features
 
             if profile.calendar_features:
                 calendar_features = {
@@ -366,8 +403,8 @@ class ForecastingAssistant:
             forecaster         = fc,
             task_type          = task_type,
             steps              = steps,
-            lags               = lags,
-            window_features    = window_features,
+            lags               = final_lags,
+            window_features    = final_window_features,
             calendar_features  = calendar_features,
             transformer_series = transformer_series,
             transformer_exog   = transformer_exog,
@@ -392,8 +429,8 @@ class ForecastingAssistant:
         explanation = build_plan_explanation(
             forecaster         = fc,
             estimator          = est,
-            lags               = lags,
-            window_features    = window_features,
+            lags               = final_lags,
+            window_features    = final_window_features,
             interval_method    = interval_method,
             dropna_from_series = dropna_from_series,
             use_exog           = use_exog,
@@ -422,18 +459,42 @@ class ForecastingAssistant:
         self,
         profile: ForecastingProfile,
         plan: ForecastPlan,
+        prompt: str | None = None,
         **overrides,
     ) -> ForecastPlan:
         """
-        Re-derive a forecast plan applying user overrides.
+        Re-derive a forecast plan applying user overrides or LLM guidance.
 
-        Takes an existing plan and a set of overrides, then calls
-        `plan()` with the merged parameters. Only the
-        overridden fields change; everything else is re-derived
-        deterministically from the original profile.
+        Operates in two modes:
 
-        Supported overrides: `forecaster`, `estimator`,
-        `estimator_kwargs`, `steps`, `interval`.
+        - Deterministic mode (`prompt=None`): takes an existing plan and a
+          set of overrides, then calls `plan()` with the merged parameters.
+          Only the overridden fields change; everything else is re-derived
+          deterministically from the original profile.
+        - LLM mode (`prompt` provided): a specialized agent interprets the
+          natural-language domain knowledge and suggests `lags` and
+          `window_features`, which are merged on top of the deterministic
+          plan. The agent's reasoning is appended to the returned plan's
+          `explanation`.
+
+        Supported overrides: `forecaster`, `estimator`, `estimator_kwargs`, 
+        `steps`, `interval`, `lags`, `window_features`.
+
+        Note that `lags` and `window_features` default to the values
+        already stored in `plan.forecaster_kwargs`, so refining an
+        unrelated field (e.g. `steps`) preserves the existing features
+        rather than re-running the PACF-based selection.
+
+        In LLM mode, explicit `lags`/`window_features` overrides take
+        precedence over the LLM suggestion (a `UserWarning` is emitted for
+        each shadowed field, and a note recording the overridden field(s) is
+        appended to the explanation). When both are supplied explicitly, the
+        LLM has nothing left to decide and is not called. LLM mode does not
+        apply to `task_type` in `('statistical', 'foundation')`, which do not
+        use lags or window features; the prompt is ignored with a
+        `UserWarning`. When the agent omits a field, or the LLM call fails or
+        its suggestion cannot satisfy the data budget, that field keeps the
+        plan's existing value (a `UserWarning` is emitted on failure).
 
         Parameters
         ----------
@@ -441,18 +502,25 @@ class ForecastingAssistant:
             Original profile that produced the plan.
         plan : ForecastPlan
             Existing plan to refine.
+        prompt : str, default None
+            Natural-language domain knowledge used to guide LLM refinement of
+            `lags` and `window_features`. When None, only the explicit
+            overrides are applied. Requires an LLM to be configured.
         **overrides
             Keyword arguments to override. Accepted keys:
             `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
-            `interval`.
+            `interval`, `lags`, `window_features`.
 
         Returns
         -------
         plan : ForecastPlan
-            Updated plan with overrides applied.
+            Updated plan with overrides (and any LLM refinement) applied. In
+            LLM mode, the agent's reasoning is appended to `plan.explanation`.
         """
 
-        allowed_keys = {"forecaster", "estimator", "estimator_kwargs", "steps", "interval"}
+        allowed_keys = {
+            "forecaster", "estimator", "estimator_kwargs", "steps", "interval", "lags", "window_features"
+        }
         invalid_keys = set(overrides) - allowed_keys
         if invalid_keys:
             raise ValueError(
@@ -460,20 +528,106 @@ class ForecastingAssistant:
                 f"Allowed keys: {sorted(allowed_keys)}."
             )
 
+        reasoning = None
+        shadowed_fields: list[str] = []
+        if prompt is not None:
+            if self.llm is None:
+                raise LLMRequiredError("refine_plan")
+
+            if plan.task_type in ("statistical", "foundation"):
+                warnings.warn(
+                    f"LLM plan refinement does not apply to task_type "
+                    f"'{plan.task_type}' (no lags/window_features to refine). "
+                    f"Ignoring prompt.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            elif "lags" in overrides and "window_features" in overrides:
+                warnings.warn(
+                    "Prompt ignored: both lags and window_features were set "
+                    "explicitly, leaving nothing for the LLM to decide.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            else:
+                # Fail fast when an explicit lags/window_features override
+                # already exceeds the data budget, so an LLM call is not spent
+                # only for self.plan() to reject the explicit value afterwards.
+                explicit_lags = overrides.get("lags")
+                explicit_window_features = overrides.get("window_features")
+                if explicit_lags is not None or explicit_window_features is not None:
+                    _validate_max_window_size(
+                        lags              = explicit_lags,
+                        window_features   = explicit_window_features,
+                        span_index_length = profile.data_profile.span_index_length,
+                    )
+
+                llm_lags, llm_window_features, reasoning = (
+                    self._refine_features_with_llm(
+                        profile = profile,
+                        plan    = plan,
+                        prompt  = prompt,
+                    )
+                )
+                # Category-A precedence: an explicit lags/window_features
+                # override wins over the LLM suggestion (warn and record each
+                # shadowed field). Otherwise inject the LLM value only when the
+                # agent actually suggested one; a field the agent omitted
+                # (None), or a failed call (reasoning=None), preserves the
+                # plan's existing value rather than re-running the
+                # deterministic selection.
+                if reasoning is not None:
+                    llm_features = {
+                        "lags": llm_lags,
+                        "window_features": llm_window_features,
+                    }
+                    for field, value in llm_features.items():
+                        if value is None:
+                            continue
+                        if field in overrides:
+                            shadowed_fields.append(field)
+                            warnings.warn(
+                                f"Explicit {field} override shadowed the LLM "
+                                f"suggestion.",
+                                UserWarning,
+                                stacklevel=2,
+                            )
+                        else:
+                            overrides[field] = value
+
         steps = overrides.get("steps", plan.steps)
         forecaster = overrides.get("forecaster", plan.forecaster)
         estimator = overrides.get("estimator", plan.estimator)
         estimator_kwargs = overrides.get("estimator_kwargs", plan.estimator_kwargs or None)
         interval = overrides.get("interval", plan.interval)
+        lags = overrides.get("lags", plan.forecaster_kwargs.get("lags"))
+        window_features = overrides.get("window_features", plan.forecaster_kwargs.get("window_features"))
 
-        return self.plan(
+        refined_plan = self.plan(
             profile          = profile,
             steps            = steps,
             forecaster       = forecaster,
             estimator        = estimator,
             estimator_kwargs = estimator_kwargs,
             interval         = interval,
+            lags             = lags,
+            window_features  = window_features,
         )
+
+        if reasoning is not None:
+            refined_plan.explanation += (
+                f"\n\nLLM Refinement Reasoning:\n{reasoning}"
+            )
+            if shadowed_fields:
+                # The LLM's narrative may describe a field that an explicit
+                # override replaced. Record which fields actually took
+                # precedence so the persisted explanation is not misleading.
+                refined_plan.explanation += (
+                    f"\n\nNote: explicit override(s) took precedence over the "
+                    f"LLM suggestion for: {', '.join(shadowed_fields)}."
+                )
+
+        return refined_plan
 
     def forecast_code(
         self,
@@ -486,6 +640,8 @@ class ForecastingAssistant:
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
         interval: list[float] | None = None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
     ) -> CodeGenerationResult:
@@ -525,6 +681,10 @@ class ForecastingAssistant:
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
             None, no prediction intervals are computed.
+        lags : int, list of int, default None
+            Explicit lag configuration.
+        window_features : list of dict, default None
+            Explicit window features configuration.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling. If None, profiling
             is performed from `data`.
@@ -538,6 +698,14 @@ class ForecastingAssistant:
         result : CodeGenerationResult
             Forecasting profile, plan, and generated code.
         """
+
+        _warn_if_plan_overrides_ignored(
+            plan             = plan,
+            forecaster       = forecaster,
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            interval         = interval,
+        )
 
         if profile is None:
             profile = self.profile(
@@ -555,6 +723,8 @@ class ForecastingAssistant:
                 estimator        = estimator,
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
+                lags             = lags,
+                window_features  = window_features,
             )
 
         code = render_forecast_script(
@@ -578,6 +748,8 @@ class ForecastingAssistant:
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
         interval: list[float] | None = None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict] | None = None,
         exog_future: pd.DataFrame | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
@@ -613,6 +785,10 @@ class ForecastingAssistant:
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
             None, no prediction intervals are computed.
+        lags : int, list of int, default None
+            Explicit lag configuration.
+        window_features : list of dict, default None
+            Explicit window features configuration.
         exog_future : pandas DataFrame, default None
             Exogenous variables covering the forecast horizon
             (`steps` rows). Required for final predictions when
@@ -641,6 +817,14 @@ class ForecastingAssistant:
         script (`ForecastResult.code`) and the actual execution.
         """
 
+        _warn_if_plan_overrides_ignored(
+            plan             = plan,
+            forecaster       = forecaster,
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            interval         = interval,
+        )
+
         data_df, target = _resolve_data_and_target(data, target)
 
         if profile is None:
@@ -658,6 +842,8 @@ class ForecastingAssistant:
                 estimator        = estimator,
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
+                lags             = lags,
+                window_features  = window_features,
             )
 
         result = run_forecast(
@@ -771,10 +957,31 @@ class ForecastingAssistant:
         # -----------------------------------------------------------------
         # LLM path: when prompt is provided, use LLM for CV configuration
         # -----------------------------------------------------------------
-        if prompt is not None:
-            if self.llm is None:
-                raise LLMRequiredError("create_cv")
+        if prompt is not None and self.llm is None:
+            raise LLMRequiredError("create_cv")
 
+        # All CV parameters the LLM would otherwise decide. When every one is
+        # set explicitly, the LLM has nothing left to decide, so skip the call.
+        llm_decidable = (
+            initial_train_size,
+            refit,
+            fixed_train_size,
+            gap,
+            fold_stride,
+            skip_folds,
+            allow_incomplete_fold,
+        )
+        use_llm = prompt is not None
+        if use_llm and all(param is not None for param in llm_decidable):
+            warnings.warn(
+                "Prompt ignored: all CV parameters were set explicitly, "
+                "leaving nothing for the LLM to decide.",
+                UserWarning,
+                stacklevel=2,
+            )
+            use_llm = False
+
+        if use_llm:
             defaults = self._configure_cv_with_llm(
                            profile        = profile,
                            plan           = plan,
@@ -801,7 +1008,6 @@ class ForecastingAssistant:
 
         # Handle initial_train_size type conversion
         its = defaults["initial_train_size"]
-        skip_validation = False
         if isinstance(its, float):
             if not (0 < its < 1):
                 raise ValueError(
@@ -809,8 +1015,6 @@ class ForecastingAssistant:
                     f"0 < value < 1, got {its}."
                 )
             defaults["initial_train_size"] = int(its * span_index_length)
-        elif isinstance(its, str):
-            skip_validation = True
 
         # Instantiate TimeSeriesFold
         cv = TimeSeriesFold(
@@ -826,32 +1030,28 @@ class ForecastingAssistant:
             verbose               = False,
         )
 
-        # Validate fold count (unless initial_train_size is a date string)
-        if not skip_validation:
-            # `window_size` is unset here (no forecaster attached yet), so
-            # skforecast emits an IgnoredArgumentWarning about the last
-            # window. It is irrelevant for the fold-count check below.
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
-                folds = cv.split(
-                    X=pd.RangeIndex(span_index_length), as_pandas=False
-                )
-            n_folds = len(folds)
-            if n_folds < 2:
-                raise ValueError(
-                    f"The resolved CV configuration produces only "
-                    f"{n_folds} fold(s). At least 2 are required. "
-                    f"Resolved parameters: {defaults}."
-                )
-        else:
-            n_folds = None
+        # Validate fold count. A date-based initial_train_size needs a
+        # DatetimeIndex so `cv.split` can locate the split date; integer or
+        # fractional sizes are validated against a plain RangeIndex.
+        n_folds = _count_cv_folds(
+                      cv             = cv,
+                      n_observations = span_index_length,
+                      start_date     = profile.data_profile.start_date,
+                      frequency      = profile.data_profile.frequency,
+                  )
+        if n_folds < 2:
+            raise ValueError(
+                f"The resolved CV configuration produces only "
+                f"{n_folds} fold(s). At least 2 are required. "
+                f"Resolved parameters: {defaults}."
+            )
 
         # Build explanation
         reasoning = defaults.pop("_reasoning", None)
         explanation = build_cv_explanation(
                           cv_params      = defaults,
                           n_observations = span_index_length,
-                          n_folds        = n_folds if n_folds is not None else 0,
+                          n_folds        = n_folds,
                       )
         if reasoning:
             explanation = f"{reasoning} {explanation}"
@@ -1033,23 +1233,12 @@ class ForecastingAssistant:
 
         # Build human-readable CV explanation
         span_index_length = profile.data_profile.span_index_length
-        # `window_size` is unset here (no forecaster attached yet), so
-        # skforecast emits an IgnoredArgumentWarning about the last
-        # window. It is irrelevant for building the explanation below.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
-            if isinstance(cv.initial_train_size, str):
-                # Date-based initial_train_size requires a DatetimeIndex.
-                index = pd.date_range(
-                            start   = profile.data_profile.start_date,
-                            periods = span_index_length,
-                            freq    = profile.data_profile.frequency,
-                        )
-                folds = cv.split(X=index, as_pandas=False)
-            else:
-                folds = cv.split(
-                    X=pd.RangeIndex(span_index_length), as_pandas=False
-                )
+        n_folds = _count_cv_folds(
+                      cv             = cv,
+                      n_observations = span_index_length,
+                      start_date     = profile.data_profile.start_date,
+                      frequency      = profile.data_profile.frequency,
+                  )
 
         # Extract cv_config after split
         cv_config = {
@@ -1064,7 +1253,7 @@ class ForecastingAssistant:
         cv_explanation = build_cv_explanation(
                              cv_params      = cv_config,
                              n_observations = span_index_length,
-                             n_folds        = len(folds),
+                             n_folds        = n_folds,
                          )
 
         result = run_backtest(
@@ -1329,6 +1518,8 @@ class ForecastingAssistant:
         interval: list[float] | None,
         profile: ForecastingProfile | None,
         plan: ForecastPlan | None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict] | None = None,
     ) -> tuple[ForecastingProfile, ForecastPlan]:
         """
         Resolve profile and plan for backtesting workflows.
@@ -1363,6 +1554,10 @@ class ForecastingAssistant:
             Pre-computed profile.
         plan : ForecastPlan, None
             Pre-computed plan.
+        lags : int, list of int, default None
+            Explicit lag configuration.
+        window_features : list of dict, default None
+            Explicit window features configuration.
 
         Returns
         -------
@@ -1371,6 +1566,14 @@ class ForecastingAssistant:
         plan : ForecastPlan
             Resolved plan.
         """
+
+        _warn_if_plan_overrides_ignored(
+            plan             = plan,
+            forecaster       = forecaster,
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            interval         = interval,
+        )
 
         data_df, target = _resolve_data_and_target(data, target)
         steps = cv.steps
@@ -1391,6 +1594,8 @@ class ForecastingAssistant:
                 estimator        = estimator,
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
+                lags             = lags,
+                window_features  = window_features,
             )
         else:
             if cv.steps != plan.steps:
@@ -1460,6 +1665,135 @@ class ForecastingAssistant:
             self._cv_agent = create_cv_agent(model)
 
         return self._cv_agent
+
+    def _resolve_plan_refinement_agent(self):
+        """
+        Create and cache the plan refinement agent.
+
+        Returns
+        -------
+        agent : Agent[PlanRefinementDeps, PlanOverrides]
+            Cached plan refinement agent instance.
+        """
+        if self._plan_refinement_agent is None:
+            from .llm.agent import create_plan_refinement_agent
+
+            model = self._resolve_model()
+            self._plan_refinement_agent = create_plan_refinement_agent(model)
+
+        return self._plan_refinement_agent
+
+    def _refine_features_with_llm(
+        self,
+        profile: ForecastingProfile,
+        plan: ForecastPlan,
+        prompt: str,
+    ) -> tuple[int | list[int] | None, list[dict] | None, str | None]:
+        """
+        Use the LLM to suggest lags and window features from domain knowledge.
+
+        Retries up to 2 times when the suggested lags/window_features exceed
+        the data budget enforced by `plan()`, feeding the concrete violation
+        back each time. On a transient/model failure, or after retries are
+        exhausted, a `UserWarning` is emitted and `(None, None, None)` is
+        returned so the caller falls back to the deterministic plan.
+
+        Parameters
+        ----------
+        profile : ForecastingProfile
+            The profiled dataset and modeling decisions.
+        plan : ForecastPlan
+            The current forecasting plan.
+        prompt : str
+            The user's domain knowledge description.
+
+        Returns
+        -------
+        lags : int, list of int, None
+            The LLM-suggested lags, or None on failure.
+        window_features : list of dict, None
+            The LLM-suggested window features as plain dicts, or None on
+            failure.
+        reasoning : str, None
+            The LLM's explanation on success, or None on failure.
+        """
+        from .llm.agent import PlanRefinementDeps
+
+        agent = self._resolve_plan_refinement_agent()
+        deps = PlanRefinementDeps(
+            profile=profile,
+            plan=plan,
+            prompt=prompt,
+        )
+
+        span_index_length = profile.data_profile.span_index_length
+        max_allowed = int(span_index_length * MAX_FEATURE_FRACTION)
+
+        max_retries = 2
+        last_error = None
+
+        for attempt in range(1 + max_retries):
+            if attempt == 0:
+                user_message = prompt
+            else:
+                user_message = (
+                    f"{prompt}\n\n"
+                    f"[RETRY {attempt}/{max_retries}] Your previous "
+                    f"lags/window_features were infeasible: {last_error} "
+                    f"The dataset has {span_index_length} observations, so "
+                    f"the largest lag or window size must not exceed "
+                    f"{max_allowed} ({int(MAX_FEATURE_FRACTION * 100)}%). "
+                    f"Shrink the largest value and try again."
+                )
+
+            # A transient/model failure (network, or malformed structured
+            # output after pydantic-ai's own internal retries) is terminal
+            # here — a budget hint would not fix it, so it is not retried.
+            try:
+                result = _run_agent_sync(agent, user_message, deps=deps)
+            except Exception as exc:
+                warnings.warn(
+                    f"LLM plan refinement failed ({exc}). Returning "
+                    f"deterministic plan.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                return None, None, None
+
+            llm_overrides = result.output
+
+            # Materialise the typed WindowFeature models back into plain dicts,
+            # the format the deterministic plan pipeline stores and renders.
+            window_features = (
+                [wf.model_dump() for wf in llm_overrides.window_features]
+                if llm_overrides.window_features is not None
+                else None
+            )
+
+            # Pre-validate against the same data budget `plan()` enforces, so
+            # an infeasible suggestion drives a retry with concrete feedback
+            # instead of silently falling back to the deterministic plan.
+            max_span = _max_window_size(llm_overrides.lags, window_features)
+            if max_span > max_allowed:
+                last_error = (
+                    f"lags/window_features span up to {max_span} "
+                    f"observations, exceeding the maximum of {max_allowed}."
+                )
+                if attempt < max_retries:
+                    continue
+                warnings.warn(
+                    f"LLM plan refinement failed after {1 + max_retries} "
+                    f"attempts (last error: {last_error}). Returning "
+                    f"deterministic plan.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                return None, None, None
+
+            return llm_overrides.lags, window_features, llm_overrides.reasoning
+
+        # Unreachable: the loop above always returns on its last iteration.
+        return None, None, None  # pragma: no cover
 
     def _configure_cv_with_llm(
         self,
@@ -1611,17 +1945,11 @@ class ForecastingAssistant:
             differentiation=defaults.get("differentiation"),
             verbose=False,
         )
-        
-        # `window_size` is unset here (no forecaster attached yet), so
-        # skforecast emits an IgnoredArgumentWarning about the last
-        # window. It is irrelevant for the fold-count check below.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
-            folds = cv.split(X=pd.RangeIndex(n_observations), as_pandas=False)
-        
-        if len(folds) < 2:
+
+        n_folds = _count_cv_folds(cv=cv, n_observations=n_observations)
+        if n_folds < 2:
             raise ValueError(
-                f"Configuration produces only {len(folds)} fold(s). "
+                f"Configuration produces only {n_folds} fold(s). "
                 f"At least 2 required. Parameters: {defaults}."
             )
 

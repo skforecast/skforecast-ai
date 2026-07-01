@@ -33,6 +33,7 @@ nav:
     - AI assistant:
       - Using the AI assistant: user_guides/using-the-ai-assistant.md
       - Human-in-the-loop: user_guides/human-in-the-loop.md
+      - LLM-guided plan refinement: user_guides/llm-plan-refinement.md
 
   - Examples and tutorials:
     - Interactive Q&A: examples/talking-to-the-agent.ipynb

@@ -111,7 +111,7 @@ detector = PopulationDriftDetector(
 
 # Quantile method: flag if statistic > empirical quantile
 detector = PopulationDriftDetector(
-    threshold=0.95,             # 95th quantile
+    threshold=0.95,             # 95th percentile
     threshold_method='quantile',
 )
 ```
