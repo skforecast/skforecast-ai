@@ -15,32 +15,58 @@ providing ``_repr_mimebundle_`` (automatic rendering in Jupyter), the
 """
 
 from __future__ import annotations
+from numbers import Number
 from typing import TYPE_CHECKING, Any
 
+import pandas as pd
 from rich.console import Console, Group
 from rich.jupyter import JupyterMixin
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
 if TYPE_CHECKING:
+    from pandas import DataFrame
     from rich.console import ConsoleOptions, RenderableType, RenderResult
 
+    from .schemas.plans import ForecastPlan
+    from .schemas.profiles import ForecastingProfile
+
 _CODE_THEME = "monokai"
-_EXPLANATION_BORDER = "color(214)"
+_PANEL_BORDER = "color(214)"
 _PREVIEW_ROWS = 5
 _PREVIEW_THRESHOLD = 10
 _TABLE_KWARGS = {"show_lines": True}
 
 
 def _format_value(value: Any) -> str:
-    """Format a value for display in a table."""
+    """Format a value for display in a table.
+
+    The stringified value is markup-escaped so that literal brackets in the
+    data are not interpreted as Rich markup; the intentional style tags are
+    added around the escaped text.
+    """
     if isinstance(value, bool):
         return f"[{'green' if value else 'red'}]{value}[/]"
     if value is None:
         return "[dim]None[/]"
-    return str(value)
+    return escape(str(value))
+
+
+def _format_metric(value: Any) -> str:
+    """Format a single metric cell for display.
+
+    Returns ``"N/A"`` for missing values, a 4-decimal float for real numbers,
+    and the markup-escaped string otherwise (so non-numeric cells do not raise
+    on the ``.4f`` format).
+    """
+    if pd.isna(value):
+        return "N/A"
+    if isinstance(value, Number) and not isinstance(value, bool):
+        return f"{value:.4f}"
+    return escape(str(value))
 
 
 def render_code(code: str, title: str | None = "Generated code") -> RenderableType:
@@ -62,7 +88,7 @@ def render_code(code: str, title: str | None = "Generated code") -> RenderableTy
     syntax = Syntax(code, "python", theme=_CODE_THEME, word_wrap=True)
     if title is None:
         return syntax
-    return Panel(syntax, title=title, title_align="center", border_style=_EXPLANATION_BORDER)
+    return Panel(syntax, title=title, title_align="center", border_style=_PANEL_BORDER)
 
 
 def render_explanation(text: str, title: str = "Explanation") -> Panel:
@@ -85,13 +111,13 @@ def render_explanation(text: str, title: str = "Explanation") -> Panel:
         Markdown(text),
         title=title,
         title_align="center",
-        border_style=_EXPLANATION_BORDER,
+        border_style=_PANEL_BORDER,
         padding=(1, 2),
         expand=True
     )
 
 
-def render_dataframe(df: Any, title: str = "Data") -> Table:
+def render_dataframe(df: DataFrame, title: str = "Data") -> Table:
     """
     Render a pandas DataFrame as a Rich table.
 
@@ -115,22 +141,27 @@ def render_dataframe(df: Any, title: str = "Data") -> Table:
     table = Table(title=table_title, **_TABLE_KWARGS)
     table.add_column("Index", style="dim")
     for col in df.columns:
-        table.add_column(str(col), justify="right")
+        table.add_column(escape(str(col)), justify="right")
 
-    if n_rows <= _PREVIEW_THRESHOLD:
+    def _add_row(idx: Any, row: Any) -> None:
+        table.add_row(escape(str(idx)), *[escape(str(x)) for x in row])
+
+    # Only truncate when the head+tail preview is actually shorter than the
+    # full frame; otherwise render every row.
+    if n_rows <= 2 * _PREVIEW_ROWS:
         for idx, row in df.iterrows():
-            table.add_row(str(idx), *[str(x) for x in row])
+            _add_row(idx, row)
     else:
         for idx, row in df.head(_PREVIEW_ROWS).iterrows():
-            table.add_row(str(idx), *[str(x) for x in row])
+            _add_row(idx, row)
         table.add_row("...", *["..."] * len(df.columns))
         for idx, row in df.tail(_PREVIEW_ROWS).iterrows():
-            table.add_row(str(idx), *[str(x) for x in row])
-            
+            _add_row(idx, row)
+
     return table
 
 
-def render_metrics(metrics: Any, title: str = "Metrics") -> Table:
+def render_metrics(metrics: DataFrame, title: str = "Metrics") -> Table:
     """
     Render a metrics DataFrame as a Rich table.
 
@@ -153,28 +184,17 @@ def render_metrics(metrics: Any, title: str = "Metrics") -> Table:
     table = Table(title=title, **_TABLE_KWARGS)
 
     series_col = next((c for c in ("series", "levels") if c in metrics.columns), None)
+    metric_cols = [c for c in metrics.columns if c != series_col]
+
     if series_col is not None:
         table.add_column("Series", style="bold")
-        metric_cols = [c for c in metrics.columns if c != series_col]
-        for col in metric_cols:
-            table.add_column(col, justify="right")
-        for _, row in metrics.iterrows():
-            values = [str(row[series_col])]
-            for col in metric_cols:
-                val = row[col]
-                import pandas as pd
-                values.append(f"{val:.4f}" if not pd.isna(val) else "N/A")
-            table.add_row(*values)
-    else:
-        for col in metrics.columns:
-            table.add_column(col, justify="right")
-        for _, row in metrics.iterrows():
-            import pandas as pd
-            values = [
-                f"{row[col]:.4f}" if not pd.isna(row[col]) else "N/A"
-                for col in metrics.columns
-            ]
-            table.add_row(*values)
+    for col in metric_cols:
+        table.add_column(escape(str(col)), justify="right")
+
+    for _, row in metrics.iterrows():
+        values = [escape(str(row[series_col]))] if series_col is not None else []
+        values.extend(_format_metric(row[col]) for col in metric_cols)
+        table.add_row(*values)
 
     return table
 
@@ -197,13 +217,13 @@ def render_cv_config(cv_config: dict) -> Table:
     table.add_column("Parameter")
     table.add_column("Value", justify="right")
     for key, value in cv_config.items():
-        table.add_row(str(key), _format_value(value))
+        table.add_row(escape(str(key)), _format_value(value))
     return table
 
 
-def render_profile(profile: Any) -> RenderableType:
+def render_profile(profile: ForecastingProfile) -> RenderableType:
     """
-    Render a `ForecastingProfile` as a group of tables and an explanation panel.       
+    Render a `ForecastingProfile` as a group of tables and an explanation panel.
 
     Parameters
     ----------
@@ -216,6 +236,8 @@ def render_profile(profile: Any) -> RenderableType:
         Group containing the dataset profile table, recommendation table, and
         the explanation panel.
     """
+    # Must stay local: _utils imports schemas, which imports .._display at
+    # module level (DisplayMixin). Hoisting this would reintroduce that cycle.
     from ._utils import _display_n_observations
 
     dp = profile.data_profile
@@ -229,7 +251,7 @@ def render_profile(profile: Any) -> RenderableType:
     table.add_row("Frequency", _format_value(dp.frequency or "not detected"))
     table.add_row("Target", _format_value(dp.target))
     table.add_row("Exog columns", _format_value(", ".join(dp.exog_columns) if dp.exog_columns else "none"))
-    
+
     missing_val = _format_value(dp.missing_target if dp.missing_target else "none")
     if dp.missing_target:
         missing_val = f"[bold yellow]{missing_val}[/bold yellow]"
@@ -253,7 +275,7 @@ def render_profile(profile: Any) -> RenderableType:
     )
 
 
-def render_plan(plan: Any) -> RenderableType:
+def render_plan(plan: ForecastPlan) -> RenderableType:
     """
     Render a `ForecastPlan` as a table plus an explanation panel.
 
@@ -285,7 +307,8 @@ def render_plan(plan: Any) -> RenderableType:
 
     if plan.preprocessing_steps:
         steps_str = "\n".join(
-            f"  - {s.action}: {s.reason}" for s in plan.preprocessing_steps
+            f"  - {escape(str(s.action))}: {escape(str(s.reason))}"
+            for s in plan.preprocessing_steps
         )
         table.add_row("Preprocessing", steps_str)
     else:
