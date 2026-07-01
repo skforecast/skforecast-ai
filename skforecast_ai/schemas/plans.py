@@ -115,6 +115,52 @@ class PreprocessingStep(BaseModel):
     blocking: bool = True
 
 
+class WindowFeature(BaseModel):
+    """
+    A single rolling-window feature specification for a forecaster.
+
+    Attributes
+    ----------
+    stats : list of str
+        Rolling statistics to compute (e.g. `['mean', 'std']`).
+    window_sizes : int, list of int
+        Rolling window length(s) in observations.
+    """
+    stats: list[str] = Field(
+        description="Rolling statistics to compute, e.g. ['mean', 'std', 'min', 'max'].",
+    )
+    window_sizes: int | list[int] = Field(
+        description="Rolling window length(s) in observations, e.g. 7 or [7, 14].",
+    )
+
+
+class PlanOverrides(BaseModel):
+    """
+    LLM-produced overrides for a forecasting plan.
+
+    Attributes
+    ----------
+    lags : list of int, int, default None
+        Overridden lag indices or lag count.
+    window_features : list of WindowFeature, default None
+        Overridden window features configurations.
+    reasoning : str
+        Explanation of why the LLM chose these features based on the
+        user's domain knowledge prompt.
+    """
+    lags: list[int] | int | None = Field(
+        default=None,
+        description="The lag indices to use for the forecaster. E.g. [1, 2, 3, 7, 14] or an integer for consecutive lags.",
+    )
+    window_features: list[WindowFeature] | None = Field(
+        default=None,
+        description="The window features configurations to use. E.g. [{'stats': ['mean', 'std'], 'window_sizes': 7}].",
+    )
+    reasoning: str = Field(
+        description="Explanation of why these specific features (lags and window features) were chosen based on the user's prompt and time series context.",
+    )
+
+
 class ForecastPlan(DisplayMixin, BaseModel):
     """
     Detailed forecasting plan produced from a `ForecastingProfile`.

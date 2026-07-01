@@ -2,16 +2,16 @@
 Rich rendering helpers shared by the CLI and the result objects.
 
 The functions in this module are *pure*: they build and return Rich
-renderables (``Panel``, ``Syntax``, ``Table``, ``Group``) without printing
+renderables (`Panel`, `Syntax`, `Table`, `Group`) without printing
 anything. This lets a single set of renderers drive both the Typer CLI
 (`skforecast_ai/cli.py`) and the automatic notebook/terminal display of the
 result schemas (`skforecast_ai/schemas/results.py`), so styling never
 diverges between them.
 
 `DisplayMixin` wires those renderables into the Pydantic result classes,
-providing ``_repr_mimebundle_`` (automatic rendering in Jupyter), the
-``__rich_console__`` protocol (``rich.print`` / terminal), and an explicit
-``show()`` method.
+providing `_repr_mimebundle_` (automatic rendering in Jupyter), the
+`__rich_console__` protocol (`rich.print` / terminal), and an explicit
+`show()` method.
 """
 
 from __future__ import annotations
@@ -58,9 +58,9 @@ def _format_value(value: Any) -> str:
 def _format_metric(value: Any) -> str:
     """Format a single metric cell for display.
 
-    Returns ``"N/A"`` for missing values, a 4-decimal float for real numbers,
+    Returns `"N/A"` for missing values, a 4-decimal float for real numbers,
     and the markup-escaped string otherwise (so non-numeric cells do not raise
-    on the ``.4f`` format).
+    on the `.4f` format).
     """
     if pd.isna(value):
         return "N/A"

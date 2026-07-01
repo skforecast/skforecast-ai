@@ -1,5 +1,11 @@
 """Shared forecaster-type constants used across modules."""
 
+# Maximum fraction of the available observations that an explicit lag or
+# rolling-window feature may span. Mirrors `finalize_lags`'
+# `max_fraction_allowed` so manual/LLM overrides honour the same budget as
+# the deterministic PACF-based selection.
+MAX_FEATURE_FRACTION = 0.33
+
 MULTI_SERIES_FORECASTERS: set[str] = {
     "ForecasterRecursiveMultiSeries",
 }

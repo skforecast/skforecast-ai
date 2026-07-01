@@ -3,14 +3,42 @@
 import ast
 import json
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
-from skforecast_ai.cli import app
+from skforecast_ai.cli import app, _parse_lags
 from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_assistant import df_single, df_multi_long, df_multi_wide
 
 runner = CliRunner()
+
+
+# ---------------------------------------------------------------------------
+# _parse_lags helper
+# ---------------------------------------------------------------------------
+
+
+class TestParseLags:
+    """Tests for the `_parse_lags` CLI helper."""
+
+    def test_parse_lags_output_when_none(self):
+        assert _parse_lags(None) is None
+
+    def test_parse_lags_output_when_single_int(self):
+        assert _parse_lags("7") == 7
+
+    def test_parse_lags_output_when_list(self):
+        assert _parse_lags("1,2,3") == [1, 2, 3]
+
+    def test_parse_lags_BadParameter_when_not_int(self):
+        with pytest.raises(typer.BadParameter):
+            _parse_lags("1,x,3")
+
+    def test_parse_lags_BadParameter_when_non_positive(self):
+        with pytest.raises(typer.BadParameter, match="positive integers"):
+            _parse_lags("0,1,2")
 
 
 def _write_csv(tmp_path, df, name="data.csv"):

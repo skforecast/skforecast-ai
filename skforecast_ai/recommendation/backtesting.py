@@ -134,8 +134,8 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
     Compute the minimum initial training size based on task type.
 
     The effective window size of a forecaster is
-    ``max(max_lag, max_window_from_window_features)``.
-    ``initial_train_size`` must exceed this value for skforecast to
+    `max(max_lag, max_window_from_window_features)`.
+    `initial_train_size` must exceed this value for skforecast to
     accept the CV configuration.
 
     Parameters
@@ -193,7 +193,7 @@ def _position_to_date(
 
     Uses the start date and frequency to reconstruct the date at the
     given position (1-based count, so the date returned is at index
-    ``position - 1``).
+    `position - 1`).
 
     Parameters
     ----------

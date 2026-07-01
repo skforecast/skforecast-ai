@@ -153,3 +153,7 @@ dmypy.json
 
 # Docs execution logs
 tools/execute_docs/logs/
+
+# Local scratch artifacts
+/test_out.json
+/test_plan.json

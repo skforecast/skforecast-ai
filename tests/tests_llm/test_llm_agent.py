@@ -147,3 +147,42 @@ def test_agent_has_no_tools():
 
     tool_names = set(agent._function_toolset.tools.keys())
     assert len(tool_names) == 0
+
+
+def test_plan_refinement_agent_injects_max_allowed_budget():
+    """
+    Test that the plan refinement agent's dynamic instructions surface the
+    concrete data-budget hard limit derived from span_index_length, so the
+    LLM does not have to compute it from the vague 0.33 rule.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai import ForecastingAssistant
+    from skforecast_ai.llm.agent import PlanRefinementDeps, create_plan_refinement_agent
+
+    from tests.fixtures_assistant import df_single
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        tool_name = info.output_tools[0].name
+        return ModelResponse(
+            parts=[ToolCallPart(
+                tool_name=tool_name,
+                args={"lags": [1, 2], "window_features": None, "reasoning": "ok"},
+            )]
+        )
+
+    agent = create_plan_refinement_agent(FunctionModel(respond))
+    deps = PlanRefinementDeps(profile=profile, plan=plan, prompt="weekly seasonality")
+    agent.run_sync("weekly seasonality", deps=deps)
+
+    # 100 observations -> budget is int(100 * 0.33) = 33.
+    assert "Max allowed lag / window size (hard limit): 33" in captured["instructions"]
