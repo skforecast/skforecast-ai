@@ -708,13 +708,9 @@ def refine_plan(
             overrides["window_features"] = parsed_window_features
 
         with _spinner("Refining plan...", quiet):
-            result = assistant.refine_plan(profile=prof, plan=plan_obj, **overrides)
-
-        if prompt is not None:
-            with _spinner("Refining plan with AI...", quiet):
-                result, _ = assistant.refine_plan_with_llm(
-                    profile=prof, plan=result, prompt=prompt
-                )
+            result = assistant.refine_plan(
+                profile=prof, plan=plan_obj, prompt=prompt, **overrides
+            )
 
         if format == "json":
             bundle = {

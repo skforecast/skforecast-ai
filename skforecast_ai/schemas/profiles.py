@@ -196,7 +196,7 @@ class DataProfile(BaseModel):
     @field_validator("series_lengths", mode="before")
     @classmethod
     def _coerce_series_lengths(cls, value: object) -> object:
-        """Coerce ``int`` values into ``SeriesLengthInfo(length=int)``."""
+        """Coerce `int` values into `SeriesLengthInfo(length=int)`."""
         if isinstance(value, dict):
             return {
                 key: ({"length": v} if isinstance(v, int) else v)

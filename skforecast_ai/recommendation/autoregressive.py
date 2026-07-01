@@ -32,18 +32,18 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
     Notes
     -----
     The frequency is split into an optional integer multiplier and a base
-    alias (e.g. ``'15min' -> (15, 'MIN')``, ``'2W' -> (2, 'W')``).
+    alias (e.g. `'15min' -> (15, 'MIN')`, `'2W' -> (2, 'W')`).
 
     Variable-length / non-fixed offsets (week, month, quarter, year and
     the business day) are read from a static heuristic table because
     their duration is not a fixed timedelta. The multiplier divides the
-    tabulated periods, so ``'2W'`` (biweekly) yields ``[26]`` and
-    ``'2MS'`` (bi-monthly) yields ``[6]``.
+    tabulated periods, so `'2W'` (biweekly) yields `[26]` and
+    `'2MS'` (bi-monthly) yields `[6]`.
 
     All other offsets are resolved with
-    ``pd.tseries.frequencies.to_offset``. Only ``Tick`` offsets have a
+    `pd.tseries.frequencies.to_offset`. Only `Tick` offsets have a
     true fixed duration; the interval in seconds is derived via
-    ``pd.Timedelta`` and divided into the standard cycles (hour, day,
+    `pd.Timedelta` and divided into the standard cycles (hour, day,
     week, 365-day year). The two shortest qualifying cycles (periods
     >= 2) are returned.
     """
@@ -501,7 +501,7 @@ def select_window_features(
        shape is carried by the lags selected in `select_lags`. The branch keys
        off the set of usable periods rather than only the shortest cycle, so a
        usable secondary period is kept even when the primary cycle is shorter
-       than `min_window` (e.g. ``"12h" -> [2, 14]`` keeps 14).
+       than `min_window` (e.g. `"12h" -> [2, 14]` keeps 14).
     4. Trend Fallbacks: If the frequency is seasonal:
        - If two seasonal periods fit, the ladder is complete.
        - If only *one* fits, the algorithm searches backwards from

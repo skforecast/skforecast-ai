@@ -16,6 +16,12 @@ There are five override keys, accepted everywhere overrides are allowed:
 | `steps` | `int` | The forecast horizon (number of steps ahead). |
 | `interval` | `list[float]` | Prediction interval quantiles `[lower, upper]`, e.g. `[0.1, 0.9]`. |
 
+!!! tip "Overriding lags and window features"
+    The feature-engineering knobs, `lags` and `window_features`, are also
+    accepted by `plan()` and `refine_plan()`. They have their own guide,
+    [AI-guided plan refinement](llm-plan-refinement.md), which covers both
+    setting them manually and letting a natural-language prompt derive them.
+
 ## See your options first
 
 The profile already lists the alternatives the assistant considered, in preference order. Inspect them before overriding:

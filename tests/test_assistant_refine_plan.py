@@ -40,7 +40,7 @@ def test_refine_plan_ValueError_when_lags_exceed_data_budget():
     plan = assistant.plan(profile, steps=10)
 
     # 100 observations -> budget is int(100 * 0.33) = 33.
-    with pytest.raises(ValueError, match=re.escape("exceeding the budget")):
+    with pytest.raises(ValueError, match=re.escape("exceeding the maximum")):
         assistant.refine_plan(profile, plan, lags=50)
 
 
