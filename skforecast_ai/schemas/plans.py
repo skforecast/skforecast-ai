@@ -115,6 +115,25 @@ class PreprocessingStep(BaseModel):
     blocking: bool = True
 
 
+class WindowFeature(BaseModel):
+    """
+    A single rolling-window feature specification for a forecaster.
+
+    Attributes
+    ----------
+    stats : list of str
+        Rolling statistics to compute (e.g. `['mean', 'std']`).
+    window_sizes : int, list of int
+        Rolling window length(s) in observations.
+    """
+    stats: list[str] = Field(
+        description="Rolling statistics to compute, e.g. ['mean', 'std', 'min', 'max'].",
+    )
+    window_sizes: int | list[int] = Field(
+        description="Rolling window length(s) in observations, e.g. 7 or [7, 14].",
+    )
+
+
 class PlanOverrides(BaseModel):
     """
     LLM-produced overrides for a forecasting plan.
@@ -123,7 +142,7 @@ class PlanOverrides(BaseModel):
     ----------
     lags : list of int, int, default None
         Overridden lag indices or lag count.
-    window_features : list of dict, default None
+    window_features : list of WindowFeature, default None
         Overridden window features configurations.
     reasoning : str
         Explanation of why the LLM chose these features based on the
@@ -133,7 +152,7 @@ class PlanOverrides(BaseModel):
         default=None,
         description="The lag indices to use for the forecaster. E.g. [1, 2, 3, 7, 14] or an integer for consecutive lags.",
     )
-    window_features: list[dict] | None = Field(
+    window_features: list[WindowFeature] | None = Field(
         default=None,
         description="The window features configurations to use. E.g. [{'stats': ['mean', 'std'], 'window_sizes': 7}].",
     )

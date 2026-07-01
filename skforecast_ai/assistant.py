@@ -58,6 +58,49 @@ from ._utils import (
     _validate_task_input,
 )
 
+# Maximum fraction of the available observations that an explicit lag or
+# rolling-window feature may span. Mirrors ``finalize_lags``'
+# ``max_fraction_allowed`` so manual/LLM overrides honour the same budget as
+# the deterministic PACF-based selection.
+_MAX_FEATURE_FRACTION = 0.33
+
+
+def _max_feature_span(
+    lags: int | list[int] | None,
+    window_features: list[dict] | None,
+) -> int:
+    """
+    Largest lag or rolling-window size implied by explicit feature overrides.
+
+    Parameters
+    ----------
+    lags : int, list of int, None
+        Explicit lag override. An int is interpreted as consecutive lags
+        `1..lags`, so its span equals the int itself.
+    window_features : list of dict, None
+        Explicit window features override. Each dict may carry
+        `window_sizes` as an int or a list of ints.
+
+    Returns
+    -------
+    span : int
+        Maximum span across all supplied features, or 0 when none apply.
+    """
+    spans: list[int] = []
+    if isinstance(lags, int):
+        spans.append(lags)
+    elif lags:
+        spans.append(max(lags))
+    for wf in window_features or []:
+        if not isinstance(wf, dict):
+            continue
+        sizes = wf.get("window_sizes")
+        if isinstance(sizes, int):
+            spans.append(sizes)
+        elif isinstance(sizes, (list, tuple)) and sizes:
+            spans.append(max(sizes))
+    return max(spans, default=0)
+
 
 class ForecastingAssistant:
     """
@@ -338,6 +381,21 @@ class ForecastingAssistant:
             dropna_from_series = None
             calendar_features = None
         else:
+            # Explicit lag/window overrides (manual or LLM-supplied) bypass the
+            # deterministic PACF selection and its budget guard, so validate
+            # them against the data budget before building the forecaster.
+            if lags is not None or window_features is not None:
+                max_span = _max_feature_span(lags, window_features)
+                max_allowed = int(data_profile.span_index_length * _MAX_FEATURE_FRACTION)
+                if max_span > max_allowed:
+                    raise ValueError(
+                        f"Explicit lags/window_features span up to {max_span} "
+                        f"observations, exceeding the budget of {max_allowed} "
+                        f"({int(_MAX_FEATURE_FRACTION * 100)}% of "
+                        f"{data_profile.span_index_length} observations). "
+                        f"Reduce the largest lag or window size."
+                    )
+
             if lags is not None:
                 final_lags = lags
             else:
@@ -347,7 +405,7 @@ class ForecastingAssistant:
                     n_observations  = data_profile.span_index_length,
                     frequency       = data_profile.frequency,
                 )
-            
+
             if window_features is not None:
                 final_window_features = window_features
             else:
@@ -448,7 +506,13 @@ class ForecastingAssistant:
         deterministically from the original profile.
 
         Supported overrides: `forecaster`, `estimator`,
-        `estimator_kwargs`, `steps`, `interval`.
+        `estimator_kwargs`, `steps`, `interval`, `lags`,
+        `window_features`.
+
+        Note that `lags` and `window_features` default to the values
+        already stored in `plan.forecaster_kwargs`, so refining an
+        unrelated field (e.g. `steps`) preserves the existing features
+        rather than re-running the PACF-based selection.
 
         Parameters
         ----------
@@ -459,7 +523,7 @@ class ForecastingAssistant:
         **overrides
             Keyword arguments to override. Accepted keys:
             `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
-            `interval`.
+            `interval`, `lags`, `window_features`.
 
         Returns
         -------
@@ -515,9 +579,13 @@ class ForecastingAssistant:
         Returns
         -------
         refined_plan : ForecastPlan
-            The updated plan with new lags and window features.
+            The refined plan on success, or the original `plan` unchanged
+            if the refinement fails.
         reasoning : str
-            The LLM's explanation of why it chose the specific features.
+            On success, the LLM's explanation of the chosen features. On
+            failure, a message prefixed with `"LLM refinement failed:"`
+            describing the error (the original plan is returned in that
+            case, and a `UserWarning` is emitted).
         """
         if self.llm is None:
             raise LLMRequiredError("refine_plan_with_llm")
@@ -531,15 +599,27 @@ class ForecastingAssistant:
             prompt=prompt,
         )
 
+        # The agent call reaches an external LLM and its structured output is
+        # only validated for shape, not for data-budget feasibility, so a broad
+        # catch keeps a transient/model failure from aborting the caller. The
+        # failure is surfaced via the returned message and a UserWarning.
         try:
             result = _run_agent_sync(agent, prompt, deps=deps)
             overrides = result.output
+
+            # Materialise the typed WindowFeature models back into plain dicts,
+            # the format the deterministic plan pipeline stores and renders.
+            window_features = (
+                [wf.model_dump() for wf in overrides.window_features]
+                if overrides.window_features is not None
+                else None
+            )
 
             refined_plan = self.refine_plan(
                 profile=profile,
                 plan=plan,
                 lags=overrides.lags,
-                window_features=overrides.window_features,
+                window_features=window_features,
             )
 
             # Append the LLM's reasoning to the plan explanation
@@ -552,7 +632,7 @@ class ForecastingAssistant:
                 UserWarning,
                 stacklevel=2,
             )
-            return plan, str(exc)
+            return plan, f"LLM refinement failed: {exc}"
 
     def forecast_code(
         self,

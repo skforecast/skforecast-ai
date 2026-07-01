@@ -107,11 +107,17 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 \
   --window-features '[{"stats": ["mean"], "window_sizes": 6}]'
 ```
 
+Manual overrides are still checked against the same data budget as the
+deterministic engine: the largest lag or window size cannot exceed ~33% of
+the available observations. If you request something too large for your
+dataset, `plan()`/`refine_plan()` raises a `ValueError` describing the
+limit, rather than silently accepting it.
+
 ## Safety and Guardrails
 
-Like all LLM features in `skforecast-ai`, `refine_plan_with_llm` operates within strict guardrails. The LLM is forced to output a structured JSON schema, which is parsed and validated by Pydantic before being applied to the plan. 
+Like all LLM features in `skforecast-ai`, `refine_plan_with_llm` operates within strict guardrails. The LLM is forced to output a structured JSON schema, which is parsed and validated by Pydantic before being applied to the plan.
 
-If the LLM suggests lags that are too large for your dataset, or formatting that `skforecast` cannot accept, the validation step will fail gracefully, emit a warning, and return your original plan untouched.
+If the LLM suggests lags or window sizes that are too large for your dataset (violating the same data-budget check described above), or formatting that `skforecast` cannot accept, the call fails gracefully: it emits a `UserWarning`, returns your original plan untouched, and the returned `reasoning` string is replaced with an `"LLM refinement failed: ..."` message describing the error — so you can tell a genuine explanation apart from a failure.
 
 ## Next steps
 

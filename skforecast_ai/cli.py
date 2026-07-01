@@ -531,12 +531,12 @@ def profile(
 def _parse_lags(lags_str: str | None) -> int | list[int] | None:
     """
     Parse lags string into an int or list of ints.
-    
+
     Parameters
     ----------
     lags_str : str, None
         Comma-separated lag indices (e.g. '1,2,3') or a single int.
-        
+
     Returns
     -------
     lags : int, list of int, None
@@ -546,20 +546,27 @@ def _parse_lags(lags_str: str | None) -> int | list[int] | None:
         return None
     try:
         if "," in lags_str:
-            return [int(x.strip()) for x in lags_str.split(",")]
-        return int(lags_str)
+            lags: int | list[int] = [int(x.strip()) for x in lags_str.split(",")]
+        else:
+            lags = int(lags_str)
     except ValueError as e:
         raise typer.BadParameter(f"Invalid format for --lags: {e}") from e
+
+    values = lags if isinstance(lags, list) else [lags]
+    if any(v < 1 for v in values):
+        raise typer.BadParameter("--lags must be positive integers (>= 1).")
+    return lags
+
 
 def _parse_window_features(wf_str: str | None) -> list[dict] | None:
     """
     Parse window features JSON string.
-    
+
     Parameters
     ----------
     wf_str : str, None
         JSON string representing a list of dicts.
-        
+
     Returns
     -------
     window_features : list of dict, None
@@ -577,6 +584,7 @@ def _parse_window_features(wf_str: str | None) -> list[dict] | None:
             "e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'."
         )
     return parsed
+
 
 @app.command()
 def plan(
@@ -701,12 +709,12 @@ def refine_plan(
 
         with _spinner("Refining plan...", quiet):
             result = assistant.refine_plan(profile=prof, plan=plan_obj, **overrides)
-            
-            if prompt is not None:
-                with _spinner("Refining plan with AI...", quiet):
-                    result, reasoning = assistant.refine_plan_with_llm(
-                        profile=prof, plan=result, prompt=prompt
-                    )
+
+        if prompt is not None:
+            with _spinner("Refining plan with AI...", quiet):
+                result, _ = assistant.refine_plan_with_llm(
+                    profile=prof, plan=result, prompt=prompt
+                )
 
         if format == "json":
             bundle = {
