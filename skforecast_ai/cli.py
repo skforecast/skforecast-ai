@@ -310,6 +310,38 @@ def _parse_interval(interval_str: str | None) -> list[float] | None:
     return parts
 
 
+def _parse_test_size(value: str | None) -> int | float | str | None:
+    """
+    Parse the `--test-size` string into an int, float, or date string.
+
+    An integer literal is returned as `int` (last N observations), a
+    decimal literal as `float` (fraction of observations), and anything
+    else is passed through unchanged as a date string (test-set start).
+
+    Parameters
+    ----------
+    value : str, None
+        Raw `--test-size` value. None selects prediction mode.
+
+    Returns
+    -------
+    test_size : int, float, str, None
+        Parsed test size, or None when input is None.
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    return value
+
+
 def _parse_estimator_kwargs(value: str | None) -> dict | None:
     """
     Parse JSON string into dict for estimator hyperparameters.
@@ -382,7 +414,7 @@ def _collect_plan_overrides(
     return overrides
 
 
-def _load_exog_future(
+def _load_exog(
     path: Path | None,
     date_column: str | None,
 ) -> pd.DataFrame | None:
@@ -394,9 +426,8 @@ def _load_exog_future(
     otherwise the first column is parsed as the index. The index is
     sorted so the returned DataFrame carries a DatetimeIndex covering the
     forecast horizon. The series frequency is enforced later, during
-    execution, where the data profile is always available (see
-    `_repredict_with_exog_future`), keeping the behavior identical
-    regardless of how the workflow was invoked.
+    execution, where the data profile is always available, keeping the
+    behavior identical regardless of how the workflow was invoked.
 
     Parameters
     ----------
@@ -408,14 +439,14 @@ def _load_exog_future(
 
     Returns
     -------
-    exog_future : pandas DataFrame, None
+    exog : pandas DataFrame, None
         Future exogenous variables indexed by a DatetimeIndex, or None
         when `path` is None.
     """
     if path is None:
         return None
     if not path.is_file():
-        raise FileNotFoundError(f"Exog future CSV not found: '{path}'.")
+        raise FileNotFoundError(f"Exog CSV not found: '{path}'.")
 
     if date_column is not None:
         exog = pd.read_csv(path)
@@ -957,8 +988,9 @@ def _render_forecast_results(result) -> None:
     -------
     None
     """
-    console.print(render_metrics(result.metrics, title="Forecast Metrics"))
-    console.print()
+    if result.metrics is not None:
+        console.print(render_metrics(result.metrics, title="Forecast Metrics"))
+        console.print()
     console.print(render_dataframe(result.predictions, title="Predictions"))
 
 
@@ -980,7 +1012,11 @@ def _forecast_result_to_json(result) -> str:
         "profile": result.profile.model_dump(mode="json"),
         "plan": result.plan.model_dump(mode="json"),
         "code": result.code,
-        "metrics": result.metrics.to_dict(orient="records"),
+        "metrics": (
+            result.metrics.to_dict(orient="records")
+            if result.metrics is not None
+            else None
+        ),
         "predictions": result.predictions.reset_index().to_dict(orient="records"),
     }
     return json.dumps(data, indent=2, default=str)
@@ -997,7 +1033,8 @@ def forecast(
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
-    exog_future: Annotated[Path | None, typer.Option("--exog-future", help="CSV with future exogenous variables.")] = None,
+    test_size: Annotated[str | None, typer.Option("--test-size", help="Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). When omitted, forecasts the future.")] = None,
+    exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous variables (prediction mode).")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
@@ -1009,6 +1046,7 @@ def forecast(
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_test_size = _parse_test_size(test_size)
 
         if from_plan is not None:
             bundle = _read_json_input(from_plan)
@@ -1030,8 +1068,8 @@ def forecast(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
 
-            exog_future_df = _load_exog_future(
-                exog_future,
+            exog_df = _load_exog(
+                exog,
                 date_column=prof.data_profile.date_column,
             )
 
@@ -1041,7 +1079,8 @@ def forecast(
                     steps=plan_obj.steps,
                     date_column=prof.data_profile.date_column,
                     series_id_column=prof.data_profile.series_id_column,
-                    exog_future=exog_future_df,
+                    test_size=parsed_test_size,
+                    exog=exog_df,
                     profile=prof, plan=plan_obj,
                 )
         else:
@@ -1053,8 +1092,8 @@ def forecast(
                 raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
 
-            exog_future_df = _load_exog_future(
-                exog_future, date_column=date_column
+            exog_df = _load_exog(
+                exog, date_column=date_column
             )
 
             with _spinner("Running forecast...", quiet):
@@ -1063,7 +1102,8 @@ def forecast(
                     date_column=date_column, series_id_column=series_id_column,
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
-                    interval=parsed_interval, exog_future=exog_future_df,
+                    interval=parsed_interval,
+                    test_size=parsed_test_size, exog=exog_df,
                 )
 
         if output_predictions is not None:

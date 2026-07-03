@@ -56,6 +56,12 @@ bedrock = [
     "pydantic-ai>=1.100,<2",
     "boto3>=1.34",
 ]
+all = [
+    "pydantic-ai>=1.100,<2",
+    "boto3>=1.34",
+]
+
+full = ["skforecast-ai[all]"]
 
 docs = [
     "mike==2.1.3",
@@ -75,7 +81,7 @@ test = [
 ]
 
 dev = [
-    "skforecast-ai[llm,docs,test]"
+    "skforecast-ai[all,docs,test]"
 ]
 
 [project.scripts]

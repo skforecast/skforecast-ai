@@ -317,6 +317,82 @@ def _warn_if_plan_overrides_ignored(
         )
 
 
+def _validate_forecast_mode(
+    evaluate: bool,
+    exog: pd.DataFrame | None,
+    has_exog: bool,
+    steps: int,
+    require_exog: bool = True,
+) -> None:
+    """
+    Validate the `exog` argument against the effective forecast mode.
+
+    Enforces the boundaries between evaluation mode and prediction mode,
+    so misaligned inputs fail fast with an actionable message instead of
+    surfacing deep inside skforecast. The mode is determined by the
+    caller (evaluation when `test_size` is set or the supplied plan
+    already carries an `end_train` boundary; prediction otherwise).
+
+    Parameters
+    ----------
+    evaluate : bool
+        Whether the workflow runs in evaluation mode (train/test split).
+        When False, the workflow forecasts the future (prediction mode).
+    exog : pandas DataFrame, None
+        Future exogenous variables supplied for prediction mode.
+    has_exog : bool
+        Whether the profiled data contains exogenous variables.
+    steps : int
+        Forecast horizon.
+    require_exog : bool, default True
+        Whether prediction mode must be supplied with future `exog` when
+        the data contains exogenous variables. `forecast()` executes the
+        pipeline and needs the values, so it requires them. `forecast_code()`
+        only renders a script (which loads the future values from a CSV at
+        run time), so it sets this to False and validates the remaining
+        rules without demanding `exog`.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If `exog` is supplied in evaluation mode; if prediction mode is
+        used but required/forbidden `exog` rules are violated; or if the
+        supplied `exog` does not cover the forecast horizon.
+    """
+    if evaluate:
+        if exog is not None:
+            raise ValueError(
+                "`exog` is only used for future prediction (`test_size=None`). "
+                "In evaluation mode the test-set exogenous values are taken "
+                "from the train/test split, so `exog` must not be provided."
+            )
+        return
+
+    # Prediction mode.
+    if require_exog and has_exog and exog is None:
+        raise ValueError(
+            "`exog` is required for future prediction because the data "
+            "contains exogenous variables. Provide future exogenous "
+            "values covering the forecast horizon, or pass `test_size` "
+            "to run in evaluation mode instead."
+        )
+    if not has_exog and exog is not None:
+        raise ValueError(
+            "`exog` was provided but the data contains no exogenous "
+            "variables. Remove `exog` or add exogenous columns to the "
+            "data."
+        )
+    if exog is not None and len(exog) < steps:
+        raise ValueError(
+            f"`exog` must cover the forecast horizon: {steps} rows are "
+            f"required but only {len(exog)} were provided."
+        )
+
+
 def _resolve_data_and_target(
     data: pd.Series | pd.DataFrame | str | Path,
     target: str | list[str] | None,

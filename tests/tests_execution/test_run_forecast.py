@@ -10,14 +10,19 @@ from skforecast_ai.execution.forecast_runner import run_forecast
 from skforecast_ai.schemas import ForecastPlan
 
 from .fixtures_execution import (
+    _end_train_single,
     df_multi,
     df_single,
+    df_single_future_exog,
     plan_multi,
     plan_single,
     plan_single_custom_kwargs,
+    plan_single_predict,
+    plan_single_predict_no_exog,
     plan_single_with_intervals,
     profile_multi,
     profile_single,
+    profile_single_no_exog,
 )
 
 
@@ -107,6 +112,7 @@ def test_run_forecast_statistical_returns_predictions():
         frequency="D",
         interval_method="native",
         use_exog=False,
+        end_train=_end_train_single,
         warnings=[],
         explanation="Statistical ARIMA model.",
     )
@@ -136,6 +142,7 @@ def test_run_forecast_ForecastExecutionError_when_invalid_estimator():
         estimator="NonExistentEstimator",
         steps=5,
         frequency="D",
+        end_train=_end_train_single,
         explanation="Bad estimator.",
     )
 
@@ -158,3 +165,42 @@ def test_run_forecast_single_series_with_custom_estimator_kwargs():
     assert isinstance(result["predictions"], pd.DataFrame)
     assert len(result["predictions"]) == plan_single_custom_kwargs.steps
     assert result["metrics"]["MAE"].iloc[0] > 0
+
+
+# Tests: run_forecast — prediction mode (plan.end_train is None)
+
+
+def test_run_forecast_prediction_mode_no_exog_returns_no_metrics():
+    """
+    Test that run_forecast in prediction mode (plan.end_train is None) for
+    data without exogenous variables trains on all data, forecasts the
+    future, and returns no metrics.
+    """
+    result = run_forecast(
+        data=df_single,
+        profile=profile_single_no_exog,
+        plan=plan_single_predict_no_exog,
+    )
+
+    assert result["metrics"] is None
+    assert isinstance(result["predictions"], pd.DataFrame)
+    assert len(result["predictions"]) == plan_single_predict_no_exog.steps
+
+
+def test_run_forecast_prediction_mode_with_exog_returns_no_metrics():
+    """
+    Test that run_forecast in prediction mode with exogenous variables uses
+    the future `exog` supplied to forecast the horizon and returns no
+    metrics.
+    """
+    result = run_forecast(
+        data=df_single,
+        profile=profile_single,
+        plan=plan_single_predict,
+        exog=df_single_future_exog,
+    )
+
+    assert result["metrics"] is None
+    assert isinstance(result["predictions"], pd.DataFrame)
+    assert len(result["predictions"]) == plan_single_predict.steps
+

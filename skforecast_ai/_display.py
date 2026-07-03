@@ -37,8 +37,8 @@ if TYPE_CHECKING:
 _CODE_THEME = "monokai"
 _PANEL_BORDER = "color(214)"
 _PREVIEW_ROWS = 5
-_PREVIEW_THRESHOLD = 10
 _TABLE_KWARGS = {"show_lines": True}
+_SPACER = ""
 
 
 def _format_value(value: Any) -> str:
@@ -65,6 +65,21 @@ def _format_metric(value: Any) -> str:
     if pd.isna(value):
         return "N/A"
     if isinstance(value, Number) and not isinstance(value, bool):
+        return f"{value:.4f}"
+    return escape(str(value))
+
+
+def _format_cell(value: Any) -> str:
+    """Format a single DataFrame cell for display.
+
+    Returns `"N/A"` for missing values and a 4-decimal float for real floats
+    (keeping integers untruncated), otherwise the markup-escaped string. This
+    keeps prediction previews readable without altering integer or label
+    columns.
+    """
+    if pd.isna(value):
+        return "N/A"
+    if isinstance(value, float):
         return f"{value:.4f}"
     return escape(str(value))
 
@@ -137,14 +152,14 @@ def render_dataframe(df: DataFrame, title: str = "Data") -> Table:
         Populated data table.
     """
     n_rows = len(df)
-    table_title = f"{title} ({n_rows} rows)" if n_rows > _PREVIEW_THRESHOLD else title
+    table_title = f"{title} ({n_rows} rows)" if n_rows > 2 * _PREVIEW_ROWS else title
     table = Table(title=table_title, **_TABLE_KWARGS)
     table.add_column("Index", style="dim")
     for col in df.columns:
         table.add_column(escape(str(col)), justify="right")
 
     def _add_row(idx: Any, row: Any) -> None:
-        table.add_row(escape(str(idx)), *[escape(str(x)) for x in row])
+        table.add_row(escape(str(idx)), *[_format_cell(x) for x in row])
 
     # Only truncate when the head+tail preview is actually shorter than the
     # full frame; otherwise render every row.
@@ -268,9 +283,9 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
 
     return Group(
         table,
-        "",
+        _SPACER,
         rec_table,
-        "",
+        _SPACER,
         render_explanation(profile.explanation, title="Explanation"),
     )
 
@@ -316,7 +331,7 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
 
     return Group(
         table,
-        "",
+        _SPACER,
         render_explanation(plan.explanation, title="Plan Explanation"),
     )
 

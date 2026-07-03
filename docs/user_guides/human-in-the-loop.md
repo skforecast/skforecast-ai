@@ -24,7 +24,8 @@ assistant = ForecastingAssistant(
     llm="openai:gpt-4o-mini", api_key="your_api_key_here"
 )   # LLM enables step 2
 
-result = assistant.forecast(data=data, target="y", date_column="date", steps=24)
+# Evaluation mode (test_size) so the baseline reports metrics to improve on
+result = assistant.forecast(data=data, target="y", date_column="date", steps=24, test_size=0.2)
 print(result.metrics)
 print(result.plan.forecaster, result.plan.estimator)
 print(result.plan.forecaster_kwargs)   # lags and other forecaster settings
@@ -68,7 +69,7 @@ The override keys are the same everywhere: `forecaster`, `estimator`, `estimator
 
 ## 4. Re-run and measure
 
-Re-run with the refined plan, passing the existing `profile`/`plan` so nothing is recomputed:
+Re-run with the refined plan, passing the existing `profile`/`plan` so nothing is recomputed. Use the same `test_size` as the baseline so the metrics are comparable:
 
 ```python
 improved = assistant.forecast(
@@ -76,6 +77,7 @@ improved = assistant.forecast(
                target      = "y", 
                date_column = "date", 
                steps       = 24,
+               test_size   = 0.2,
                profile     = profile, 
                plan        = plan,
            )

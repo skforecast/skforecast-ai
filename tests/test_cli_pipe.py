@@ -34,11 +34,11 @@ MOCK_PROFILE = {
         "index_is_monotonic": True,
         "has_gaps": False,
         "has_duplicate_timestamps": False,
+        "start_date": "2023-01-01",
         "exog_columns": ["promo"],
         "categorical_exog": [],
         "missing_exog": {},
         "data_path": "data.csv",
-        "end_train": "2023-03-22",
         "warnings": [],
     },
     "task_type": "single_series",
@@ -62,6 +62,7 @@ MOCK_PLAN = {
     "interval": None,
     "interval_method": None,
     "use_exog": True,
+    "end_train": "2023-03-22",
     "preprocessing_steps": [],
     "warnings": [],
     "explanation": "Recursive strategy with LightGBM.",
@@ -341,6 +342,7 @@ class TestForecastFromPlan:
         result = runner.invoke(app, [
             "forecast", str(csv_file),
             "--from-plan", str(plan_file),
+            "--test-size", "0.2",
             "--format", "json", "--quiet",
         ])
         assert result.exit_code == 0, result.output
@@ -375,6 +377,7 @@ class TestForecastFromPlan:
             "forecast", str(csv_file),
             "--from-plan", str(plan_file),
             "--interval", "0.1,0.9",
+            "--test-size", "0.2",
             "--format", "json", "--quiet",
         ])
         assert result.exit_code == 0, result.output
@@ -411,6 +414,7 @@ class TestForecastFromPlan:
             "forecast", str(csv_file),
             "--from-plan", str(plan_file),
             "--estimator", "LGBMRegressor",
+            "--test-size", "0.2",
             "--format", "json", "--quiet",
         ])
         assert result.exit_code == 0, result.output

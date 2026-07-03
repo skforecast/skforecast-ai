@@ -47,18 +47,23 @@ result = assistant.forecast(
          )
 ```
 
-This single call profiles the data, selects a forecaster and estimator, generates a `skforecast` script, and executes it.
+This single call profiles the data, selects a forecaster and estimator, generates a `skforecast` script, and executes it. By default `forecast()` runs in **prediction mode**: it trains on *all* your data and forecasts the future. There is no held-out test set, so it returns no metrics (there is nothing to compare a future forecast against yet).
+
+!!! info "Two modes: predict the future vs. evaluate the model"
+    `forecast()` has two modes, selected by the `test_size` argument:
+
+    - **Prediction mode** (default, `test_size=None`): trains on all data and forecasts the future. `result.metrics` is `None`. If your data has exogenous columns, you must pass their future values via `exog` (see [Customizing the model](customizing-the-model.md)).
+    - **Evaluation mode** (`test_size=...`): holds out the last part of the series as a test set, trains on the rest, predicts the test window, and reports metrics. Use this to measure accuracy before trusting a forecast.
+
+    For repeated, walk-forward evaluation across many points in time, use [backtesting](backtesting.md) instead of a single split.
 
 ## Step 4: Read the results
 
 `forecast()` returns a `ForecastResult`. Access everything via attribute access:
 
 ```python
-# Forecasted values for the next 12 steps
+# Forecasted values for the next 12 steps (the future)
 print(result.predictions.head())
-
-# Evaluation metrics: MAE, MSE, MASE per series
-print(result.metrics)
 
 # The complete, standalone Python script that was executed
 print(result.code)
@@ -67,13 +72,40 @@ print(result.code)
 | Attribute | What it holds |
 | --- | --- |
 | `result.predictions` | Forecasted values for the requested `steps` (a `DataFrame`). Includes `lower_bound`/`upper_bound` columns when `interval` is requested. |
-| `result.metrics` | Evaluation metrics (`MAE`, `MSE`, `MASE`). One row per series. |
+| `result.metrics` | Evaluation metrics (`MAE`, `MSE`, `MASE`), one row per series. `None` in prediction mode (the default); populated only when you pass `test_size`. |
 | `result.code` | The complete `skforecast` script that was executed. |
 | `result.profile` | What the assistant detected about your data. |
 | `result.plan` | The modeling decisions it made. |
 
 !!! tip "The script is the source of truth"
     `result.code` is not a reconstruction. It is *exactly* what ran to produce `result.predictions`. Copy it into a `.py` file and run it with no dependency on skforecast-ai. See [How it works & trust](how-it-works-and-trust.md) for details on this guarantee.
+
+## Step 5: Evaluate the model (optional)
+
+To measure how well the model performs before trusting the forecast, pass `test_size`. The assistant then splits your series, trains on the earlier portion, predicts the held-out tail, and reports metrics:
+
+```python
+result = assistant.forecast(
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             steps       = 12,
+             test_size   = 12,   # hold out the last 12 observations as a test set
+         )
+
+# Now metrics are available: MAE, MSE, MASE per series
+print(result.metrics)
+```
+
+`test_size` accepts three forms:
+
+| Value | Meaning |
+| --- | --- |
+| `int` (e.g. `12`) | The last *N* observations form the test set. |
+| `float` in `(0, 1)` (e.g. `0.2`) | The last fraction of observations form the test set. |
+| date string / `Timestamp` (e.g. `"2005-01-01"`) | The first timestamp of the test set (the split point). |
+
+Once you are satisfied with the evaluation, drop `test_size` to retrain on all data and forecast the real future.
 
 !!! info "Unlock the AI reasoning layer (optional)"
     If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`), the assistant gains an AI reasoning layer: it reads `result.profile` and `result.plan` and advises you on what it would change and why.

@@ -34,6 +34,7 @@ def test_forecast_output_when_single_series():
         target="sales",
         date_column="date",
         steps=10,
+        test_size=0.2,
     )
 
     assert isinstance(result, ForecastResult)
@@ -58,6 +59,7 @@ def test_forecast_predictions_length_matches_steps():
         target="sales",
         date_column="date",
         steps=steps,
+        test_size=0.2,
     )
 
     assert len(result.predictions) == steps
@@ -74,6 +76,7 @@ def test_forecast_code_contains_skforecast_imports():
         target="sales",
         date_column="date",
         steps=5,
+        test_size=0.2,
     )
 
     assert isinstance(result.code, str)
@@ -125,6 +128,7 @@ def test_forecast_output_when_interval_requested():
         date_column="date",
         steps=5,
         interval=[0.1, 0.9],
+        test_size=0.2,
     )
 
     assert isinstance(result.predictions, pd.DataFrame)
@@ -202,6 +206,7 @@ def test_forecast_metrics_are_finite():
         target="sales",
         date_column="date",
         steps=5,
+        test_size=0.2,
     )
 
     assert np.isfinite(result.metrics["MAE"].iloc[0])
@@ -230,6 +235,7 @@ def test_forecast_IgnoredArgumentWarning_when_interval_passed_with_plan():
             date_column="date",
             steps=5,
             interval=[0.1, 0.9],
+            test_size=0.2,
             profile=profile,
             plan=plan,
         )
@@ -251,8 +257,181 @@ def test_forecast_no_override_warning_when_plan_without_overrides():
             target="sales",
             date_column="date",
             steps=5,
+            test_size=0.2,
             profile=profile,
             plan=plan,
         )
 
     assert not any("pre-built `plan`" in str(w.message) for w in records)
+
+
+# =============================================================================
+# Tests: evaluation vs prediction mode
+# =============================================================================
+def test_forecast_evaluation_mode_returns_metrics():
+    """
+    Test that forecast() in evaluation mode (test_size set) returns a
+    metrics DataFrame computed against the held-out test set.
+    """
+    assistant = ForecastingAssistant()
+    result = assistant.forecast(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        steps=5,
+        test_size=0.2,
+    )
+
+    assert isinstance(result.metrics, pd.DataFrame)
+    assert list(result.metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert result.plan.end_train is not None
+
+
+def test_forecast_prediction_mode_returns_no_metrics():
+    """
+    Test that forecast() in prediction mode (test_size None) trains on all
+    data, forecasts the future, and returns no metrics.
+    """
+    assistant = ForecastingAssistant()
+    result = assistant.forecast(
+        data=df_no_exog,
+        target="sales",
+        date_column="date",
+        steps=5,
+    )
+
+    assert result.metrics is None
+    assert result.plan.end_train is None
+    assert len(result.predictions) == 5
+
+
+def test_forecast_prediction_mode_with_exog_returns_no_metrics():
+    """
+    Test that forecast() in prediction mode with exogenous data forecasts
+    the future using the supplied future `exog` and returns no metrics.
+    """
+    future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+    exog = pd.DataFrame({"promo": np.tile([0.0, 1.0], 3)[:5]}, index=future_dates)
+
+    assistant = ForecastingAssistant()
+    result = assistant.forecast(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        steps=5,
+        exog=exog,
+    )
+
+    assert result.metrics is None
+    assert result.plan.end_train is None
+    assert len(result.predictions) == 5
+
+
+# =============================================================================
+# Tests: forecast-mode validation guards
+# =============================================================================
+def test_forecast_ValueError_when_test_size_and_exog_combined():
+    """
+    Test that forecast() raises ValueError when both test_size (evaluation
+    mode) and exog (prediction mode) are supplied.
+    """
+    future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+    exog = pd.DataFrame({"promo": np.tile([0.0, 1.0], 3)[:5]}, index=future_dates)
+
+    assistant = ForecastingAssistant()
+    with pytest.raises(ValueError, match="only used for future prediction"):
+        assistant.forecast(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=5,
+            test_size=0.2,
+            exog=exog,
+        )
+
+
+def test_forecast_ValueError_when_prediction_mode_missing_exog():
+    """
+    Test that forecast() raises ValueError in prediction mode when the data
+    contains exogenous variables but no future `exog` is provided.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.raises(ValueError, match="exog. is required for future prediction"):
+        assistant.forecast(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=5,
+        )
+
+
+def test_forecast_ValueError_when_exog_provided_without_exog_data():
+    """
+    Test that forecast() raises ValueError in prediction mode when future
+    `exog` is provided but the data contains no exogenous variables.
+    """
+    future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+    exog = pd.DataFrame({"promo": np.tile([0.0, 1.0], 3)[:5]}, index=future_dates)
+
+    assistant = ForecastingAssistant()
+    with pytest.raises(ValueError, match="data contains no exogenous"):
+        assistant.forecast(
+            data=df_no_exog,
+            target="sales",
+            date_column="date",
+            steps=5,
+            exog=exog,
+        )
+
+
+def test_forecast_prebuilt_evaluation_plan_without_test_size_no_exog_required():
+    """
+    Test that a pre-built evaluation-mode plan (its `end_train` already set)
+    passed without `test_size` runs in evaluation mode and does NOT demand
+    future `exog`, even when the data contains exogenous variables. The
+    effective mode is driven by the plan's `end_train`, not by `test_size`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    split_date = str(df_single["date"].iloc[int(len(df_single) * 0.8)].date())
+    plan = plan.model_copy(update={"end_train": split_date})
+
+    result = assistant.forecast(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        steps=5,
+        profile=profile,
+        plan=plan,
+    )
+
+    assert result.metrics is not None
+    assert result.plan.end_train == split_date
+
+
+def test_forecast_ValueError_when_exog_with_prebuilt_evaluation_plan():
+    """
+    Test that supplying `exog` alongside a pre-built evaluation-mode plan
+    (no `test_size`) raises, because evaluation mode takes its test-set
+    exogenous values from the split.
+    """
+    future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+    exog = pd.DataFrame({"promo": np.tile([0.0, 1.0], 3)[:5]}, index=future_dates)
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    split_date = str(df_single["date"].iloc[int(len(df_single) * 0.8)].date())
+    plan = plan.model_copy(update={"end_train": split_date})
+
+    with pytest.raises(ValueError, match="only used for future prediction"):
+        assistant.forecast(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=5,
+            exog=exog,
+            profile=profile,
+            plan=plan,
+        )

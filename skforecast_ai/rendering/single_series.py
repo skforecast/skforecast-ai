@@ -6,6 +6,8 @@ from ._helpers import (
     _emit_calendar_features,
     _emit_data_loading,
     _emit_end_train,
+    _emit_future_exog_index_setup,
+    _emit_future_exog_loading,
     _emit_imports_single_series,
     _emit_index_setup,
     _emit_metrics_section,
@@ -91,45 +93,55 @@ def render_forecast_single_series(
     core_lines: list[str] = []
 
     # --- Imports ---
+    evaluate = plan.end_train is not None
+    exog_columns = profile.exog_columns
+    use_exog = bool(plan.use_exog and exog_columns)
+
     _emit_imports_single_series(
         import_lines,
         plan,
         profile,
-        include_metrics=True,
+        include_metrics=evaluate,
     )
 
     # --- Load data ---
     _emit_data_loading(loading_lines, profile)
+    if not evaluate and use_exog:
+        _emit_future_exog_loading(loading_lines, profile)
 
     # --- Index setup (runs in both standalone and exec modes) ---
     _emit_index_setup(core_lines, profile)
+    if not evaluate and use_exog:
+        _emit_future_exog_index_setup(core_lines, profile)
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)
 
-    # --- Train/test split ---
-    exog_columns = profile.exog_columns
-    core_lines.append("# Train/test split")
-    _emit_end_train(core_lines, profile)
-    core_lines.append("data_train = data.loc[:end_train]")
-    core_lines.append("data_test  = data.loc[data.index > end_train]")
-    if plan.use_exog and exog_columns:
-        exog_cols_repr = repr(exog_columns)
-        core_lines.append(f"exog_features = {exog_cols_repr}")
-    core_lines.append("")
-    core_lines.append("print(")
-    core_lines.append(
-        '    f"Train dates : {data_train.index.min()} --- '
-        '{data_train.index.max()}  (n={len(data_train)})"'
-    )
-    core_lines.append(")")
-    core_lines.append("print(")
-    core_lines.append(
-        '    f"Test dates  : {data_test.index.min()} --- '
-        '{data_test.index.max()}  (n={len(data_test)})"'
-    )
-    core_lines.append(")")
-    core_lines.append("")
+    # --- Train/test split (evaluation mode) ---
+    if evaluate:
+        core_lines.append("# Train/test split")
+        _emit_end_train(core_lines, plan)
+        core_lines.append("data_train = data.loc[:end_train]")
+        core_lines.append("data_test  = data.loc[data.index > end_train]")
+        if use_exog:
+            core_lines.append(f"exog_features = {repr(exog_columns)}")
+        core_lines.append("")
+        core_lines.append("print(")
+        core_lines.append(
+            '    f"Train dates : {data_train.index.min()} --- '
+            '{data_train.index.max()}  (n={len(data_train)})"'
+        )
+        core_lines.append(")")
+        core_lines.append("print(")
+        core_lines.append(
+            '    f"Test dates  : {data_test.index.min()} --- '
+            '{data_test.index.max()}  (n={len(data_test)})"'
+        )
+        core_lines.append(")")
+        core_lines.append("")
+    elif use_exog:
+        core_lines.append(f"exog_features = {repr(exog_columns)}")
+        core_lines.append("")
 
     # --- Window features ---
     if window_features:
@@ -142,20 +154,25 @@ def render_forecast_single_series(
         core_lines.append("")
 
     # --- Transformer exog ---
-    if transformer_exog and plan.use_exog and exog_columns:
+    if transformer_exog and use_exog:
         _emit_transformer_exog(core_lines, transformer_exog, profile)
 
     # --- Create forecaster ---
     _emit_forecaster_creation_single(core_lines, plan, profile)
+
+    # In evaluation mode the model trains on the training split; in
+    # prediction mode it trains on all the data and forecasts the future.
+    train_var = "data_train" if evaluate else "data"
+    exog_pred = "data_test[exog_features]" if evaluate else "exog_future[exog_features]"
 
     # --- Fit & Predict ---
     if plan.interval_method is not None:
         interval_repr = _get_interval_repr(plan)
         core_lines.append("# Fit")
         fit_kwargs: list[tuple[str, str]] = []
-        fit_kwargs.append(("y", f"data_train[{repr(target)}]"))
-        if plan.use_exog and exog_columns:
-            fit_kwargs.append(("exog", "data_train[exog_features]"))
+        fit_kwargs.append(("y", f"{train_var}[{repr(target)}]"))
+        if use_exog:
+            fit_kwargs.append(("exog", f"{train_var}[exog_features]"))
         fit_kwargs.append(("store_in_sample_residuals", "True"))
         _emit_aligned_kwargs(core_lines, "forecaster.fit(", fit_kwargs)
         core_lines.append("")
@@ -164,48 +181,46 @@ def render_forecast_single_series(
         core_lines.append(f"steps = {plan.steps}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
-        if plan.use_exog and exog_columns:
-            predict_kwargs.append(("exog", "data_test[exog_features]"))
+        if use_exog:
+            predict_kwargs.append(("exog", exog_pred))
         predict_kwargs.append(("method", f"'{plan.interval_method}'"))
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(core_lines, "predictions = forecaster.predict_interval(", predict_kwargs)
     else:
         core_lines.append("# Fit")
-        if plan.use_exog and exog_columns:
+        if use_exog:
             core_lines.append(
-                f"forecaster.fit(y=data_train[{repr(target)}], "
-                f"exog=data_train[exog_features])"
+                f"forecaster.fit(y={train_var}[{repr(target)}], "
+                f"exog={train_var}[exog_features])"
             )
         else:
-            core_lines.append(f"forecaster.fit(y=data_train[{repr(target)}])")
+            core_lines.append(f"forecaster.fit(y={train_var}[{repr(target)}])")
         core_lines.append("")
         core_lines.append("# Predict")
         core_lines.append(f"steps = {plan.steps}")
-        if plan.use_exog and exog_columns:
+        if use_exog:
             core_lines.append(
-                "predictions = forecaster.predict("
-                "steps=steps, exog=data_test[exog_features])"
+                f"predictions = forecaster.predict(steps=steps, exog={exog_pred})"
             )
         else:
             core_lines.append("predictions = forecaster.predict(steps=steps)")
     core_lines.append("print(predictions)")
     core_lines.append("")
 
-    pred_expr = "predictions['pred']" if plan.interval_method else "predictions"
+    # --- Metrics & production note (evaluation mode only) ---
+    if evaluate:
+        pred_expr = "predictions['pred']" if plan.interval_method else "predictions"
+        _emit_metrics_section(
+            core_lines,
+            actual_expr=f"data_test[{repr(target)}].iloc[:steps]",
+            pred_expr=pred_expr,
+            train_expr=f"data_train[{repr(target)}]",
+            metrics_to_compute=plan.metrics_to_compute,
+        )
+        core_lines.append("")
 
-    # --- Metrics ---
-    _emit_metrics_section(
-        core_lines,
-        actual_expr=f"data_test[{repr(target)}].iloc[:steps]",
-        pred_expr=pred_expr,
-        train_expr=f"data_train[{repr(target)}]",
-        metrics_to_compute=plan.metrics_to_compute,
-    )
-    core_lines.append("")
-
-    # --- Production note ---
-    _emit_production_note(core_lines, use_exog=bool(plan.use_exog and exog_columns))
-    core_lines.append("")
+        _emit_production_note(core_lines, use_exog=use_exog)
+        core_lines.append("")
 
     return RenderedScript(
         imports      = "\n".join(import_lines),

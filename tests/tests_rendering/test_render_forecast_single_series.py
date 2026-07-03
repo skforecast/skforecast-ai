@@ -1,20 +1,17 @@
 # Unit test render_forecast_single_series rendering
 
-import re
-
-import pytest
-
 from skforecast_ai.rendering import render_forecast_single_series
 from skforecast_ai.schemas import RenderedScript
 
 from .fixtures_rendering import (
     plan_single_direct,
+    plan_single_no_end_train,
+    plan_single_predict_exog,
     plan_single_recursive,
     plan_single_recursive_no_exog,
     plan_single_with_intervals,
     plan_single_with_window_features,
     profile_single,
-    profile_single_no_end_train,
     profile_single_no_exog,
 )
 
@@ -63,7 +60,7 @@ def test_render_forecast_single_series_output_when_no_exog():
         "data = data.sort_index()\n"
         "\n"
         "# Train/test split\n"
-        "end_train = '2023-03-12'  # 80% of data, adjust to change the split point\n"
+        "end_train = '2023-03-12'  # last training date, adjust to change the split point\n"
         "data_train = data.loc[:end_train]\n"
         "data_test  = data.loc[data.index > end_train]\n"
         "\n"
@@ -134,7 +131,7 @@ def test_render_forecast_single_series_output_when_exog():
         "data = data.sort_index()\n"
         "\n"
         "# Train/test split\n"
-        "end_train = '2023-03-12'  # 80% of data, adjust to change the split point\n"
+        "end_train = '2023-03-12'  # last training date, adjust to change the split point\n"
         "data_train = data.loc[:end_train]\n"
         "data_test  = data.loc[data.index > end_train]\n"
         "exog_features = ['promo']\n"
@@ -206,7 +203,7 @@ def test_render_forecast_single_series_output_when_intervals_requested():
         "data = data.sort_index()\n"
         "\n"
         "# Train/test split\n"
-        "end_train = '2023-03-12'  # 80% of data, adjust to change the split point\n"
+        "end_train = '2023-03-12'  # last training date, adjust to change the split point\n"
         "data_train = data.loc[:end_train]\n"
         "data_test  = data.loc[data.index > end_train]\n"
         "\n"
@@ -287,7 +284,7 @@ def test_render_forecast_single_series_output_when_window_features():
         "data = data.sort_index()\n"
         "\n"
         "# Train/test split\n"
-        "end_train = '2023-03-12'  # 80% of data, adjust to change the split point\n"
+        "end_train = '2023-03-12'  # last training date, adjust to change the split point\n"
         "data_train = data.loc[:end_train]\n"
         "data_test  = data.loc[data.index > end_train]\n"
         "\n"
@@ -364,7 +361,7 @@ def test_render_forecast_single_series_output_when_direct_strategy():
         "data = data.sort_index()\n"
         "\n"
         "# Train/test split\n"
-        "end_train = '2023-03-12'  # 80% of data, adjust to change the split point\n"
+        "end_train = '2023-03-12'  # last training date, adjust to change the split point\n"
         "data_train = data.loc[:end_train]\n"
         "data_test  = data.loc[data.index > end_train]\n"
         "\n"
@@ -414,16 +411,118 @@ def test_render_forecast_single_series_output_when_direct_strategy():
 
 
 # =============================================================================
-# Tests: Negative — error when profile.end_train is None
+# Tests: Prediction mode — no train/test split when plan.end_train is None
 # =============================================================================
-def test_render_forecast_single_series_ValueError_when_end_train_is_none():
+def test_render_forecast_single_series_output_when_prediction_mode():
     """
-    Test that render_forecast_single_series raises ValueError when
-    profile.end_train is None (data profiling not completed).
+    Test that render_forecast_single_series produces prediction-mode code
+    when plan.end_train is None: no train/test split, fit on the full
+    data, and no metrics section.
     """
-    msg = re.escape(
-        "profile.end_train must be set before generating code. "
-        "Run data profiling first so the 80% split date is computed."
+    result = render_forecast_single_series(
+        plan_single_no_end_train, profile_single_no_exog
     )
-    with pytest.raises(ValueError, match=msg):
-        render_forecast_single_series(plan_single_recursive_no_exog, profile_single_no_end_train)
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(y=data['sales'])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps)\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected
+
+    # Prediction mode must not emit any of the evaluation-mode constructs.
+    assert "# Train/test split" not in result.full_script
+    assert "data_train" not in result.full_script
+    assert "data_test" not in result.full_script
+    assert "# Evaluate on test set" not in result.full_script
+    assert "mean_absolute_error" not in result.full_script
+
+
+def test_render_forecast_single_series_prepares_future_exog_index_when_prediction_exog():
+    """
+    Test that prediction mode with exog loads and prepares the future
+    exogenous frame exactly like `data` (same `date_column`-driven read
+    and index setup), so `data` and `exog_future` share one code path and
+    the standalone script and the in-memory run agree. `profile_single`
+    uses a `date_column`, so both use the read_csv + set_index style.
+    """
+    result = render_forecast_single_series(
+        plan_single_predict_exog, profile_single
+    )
+    date_col = profile_single.date_column
+    freq = profile_single.frequency
+
+    # The future exog is loaded in the (non-executed) preamble, mirroring
+    # how `data` is loaded (no index_col, since a date column is used).
+    assert "data = pd.read_csv('data.csv')" in result.data_loading
+    assert "exog_future = pd.read_csv('exog_future.csv')" in result.data_loading
+
+    # ... and prepared in the executed core with the same steps as `data`.
+    assert f"exog_future[{date_col!r}] = pd.to_datetime(exog_future[{date_col!r}])" in result.core
+    assert f"exog_future = exog_future.set_index({date_col!r})" in result.core
+    assert f"exog_future = exog_future.asfreq('{freq}')" in result.core
+    assert "exog_future = exog_future.sort_index()" in result.core
+
+    prep_pos = result.core.index("exog_future = exog_future.set_index")
+    fit_pos = result.core.index("forecaster.fit(")
+    assert prep_pos < fit_pos
+
+
+def test_render_forecast_single_series_future_exog_uses_index_style_when_no_date_column():
+    """
+    Test that when the profile has no date column (the datetime is already
+    the index), both `data` and `exog_future` are loaded with the
+    index-based read (`index_col=0, parse_dates=True`) and prepared with
+    asfreq + sort only, keeping the two consistent.
+    """
+    profile = profile_single_no_exog.model_copy(
+        update={"date_column": None, "exog_columns": ["promo"]}
+    )
+    result = render_forecast_single_series(plan_single_predict_exog, profile)
+
+    assert (
+        "data = pd.read_csv('data.csv', index_col=0, parse_dates=True)"
+        in result.data_loading
+    )
+    assert (
+        "exog_future = pd.read_csv('exog_future.csv', index_col=0, parse_dates=True)"
+        in result.data_loading
+    )
+    assert "exog_future = exog_future.asfreq('D')" in result.core
+    assert "exog_future = exog_future.sort_index()" in result.core
+    # No date column, so no set_index for either frame.
+    assert "exog_future.set_index" not in result.core
+
+
+def test_render_forecast_single_series_no_future_exog_prep_when_no_exog():
+    """
+    Test that prediction mode without exog does not emit any future
+    exogenous index preparation.
+    """
+    result = render_forecast_single_series(
+        plan_single_no_end_train, profile_single_no_exog
+    )
+
+    assert "exog_future" not in result.full_script

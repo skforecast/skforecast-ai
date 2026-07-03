@@ -75,7 +75,11 @@ Missing values in the target. You have three options:
 
 ### `exog does not cover the forecast horizon`
 
-Exogenous predictors must include rows for **every future step** you forecast. If you predict 12 steps ahead, the future exogenous frame needs 12 rows with matching timestamps. Pass them via `exog_future` on `forecast()`.
+Exogenous predictors must include rows for **every future step** you forecast. If you predict 12 steps ahead, the future exogenous frame needs 12 rows with matching timestamps. Pass them via `exog` on `forecast()` (prediction mode).
+
+### `exog is required for future prediction`
+
+You called `forecast()` in prediction mode (no `test_size`) on data that has exogenous columns, but did not supply their future values. Either provide `exog` covering the forecast horizon, or pass `test_size` to evaluate the model on a held-out test set instead (evaluation mode takes its exogenous values from the split). Note that `exog` and `test_size` are mutually exclusive.
 
 ## Not enough data for backtesting
 

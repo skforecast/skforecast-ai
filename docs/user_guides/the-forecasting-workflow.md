@@ -85,7 +85,14 @@ result = assistant.forecast(data, target="y", steps=12, date_column="date",
                             profile=profile, plan=plan)
 ```
 
-`forecast()` renders the plan into a `skforecast` script, executes it, and returns a **`ForecastResult`** with `predictions`, `metrics`, `code`, and optional `intervals`.
+`forecast()` renders the plan into a `skforecast` script, executes it, and returns a **`ForecastResult`** with `predictions`, `code`, optional `intervals`, and `metrics`.
+
+It runs in one of two modes, chosen by the `test_size` argument:
+
+- **Prediction mode** (default, `test_size=None`): trains on *all* the data and forecasts the future. `result.metrics` is `None` (there is no held-out ground truth). When the data has exogenous columns, pass their future values via `exog`.
+- **Evaluation mode** (`test_size=...`): holds out the last part of the series as a test set, trains on the rest, predicts the test window, and returns `metrics`. `test_size` accepts an `int` (last *N* observations), a `float` in `(0, 1)` (last fraction), or a date/`Timestamp` (the split point).
+
+For repeated, walk-forward evaluation use [backtesting](backtesting.md) instead of a single split.
 
 Passing `profile=` and `plan=` reuses the work you already did. Omit them and `forecast()` runs `profile()` and `plan()` for you internally, which is exactly what the one-line call in [Your first forecast](first-forecast.md) does.
 
@@ -95,7 +102,7 @@ There are two ways to finish the workflow, depending on whether you want results
 
 | Method | Returns | Use it when |
 | --- | --- | --- |
-| `forecast()` | `ForecastResult`: predictions, metrics, and `code` | You want the actual forecast now. |
+| `forecast()` | `ForecastResult`: predictions, `code`, and (in evaluation mode) metrics | You want the actual forecast now. |
 | `forecast_code()` | `CodeGenerationResult`: the script, **not executed** | You want to inspect, modify, or deploy the code yourself first. |
 
 Both produce the *same* script for the same inputs. `forecast()` runs it; `forecast_code()` just hands it to you. See [Reproducible code](reproducible-code.md).
@@ -136,7 +143,7 @@ touches nothing except the text you read.
 
 ```python
 assistant = ForecastingAssistant(llm="openai:gpt-4o-mini")
-result = assistant.forecast(data, target="y", steps=12, date_column="date")
+result = assistant.forecast(data, target="y", steps=12, date_column="date", test_size=0.2)
 
 answer = assistant.ask(
     "What concrete changes would most improve these metrics?",
@@ -147,7 +154,7 @@ print(answer.explanation)   # read the suggestions
 # You decide what to apply:
 plan = assistant.refine_plan(result.profile, result.plan, estimator="LGBMRegressor")
 improved = assistant.forecast(
-    data, target="y", steps=12, date_column="date",
+    data, target="y", steps=12, date_column="date", test_size=0.2,
     profile=result.profile, plan=plan,
 )
 print(improved.metrics)

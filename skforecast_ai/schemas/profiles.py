@@ -146,11 +146,6 @@ class DataProfile(BaseModel):
         Path to the source CSV file. Derived automatically during
         profiling: if the input is a file path, this stores it; if the
         input is a DataFrame, defaults to `'data.csv'`.
-    end_train : str, default None
-        Last datetime (inclusive) of the training set as a string
-        (e.g. `'2005-03-01'`). Computed during profiling at the 80%
-        mark of the datetime index. Used by code generation to emit a
-        date-based train/test split.
     warnings : list
         Human-readable warnings generated during profiling.
     """
@@ -188,7 +183,6 @@ class DataProfile(BaseModel):
 
     # -- Train/test split --
     start_date: str | None = None
-    end_train: str | None = None
 
     # -- Diagnostics --
     warnings: list[str] = Field(default_factory=list)

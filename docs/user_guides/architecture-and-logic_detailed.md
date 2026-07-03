@@ -195,6 +195,7 @@ flowchart TD
 
 **Key Operations:**
 - **Code Assembly:** Each `render_forecast_*` builds the script line-by-line via specialized emit helpers. Shared helpers live in `rendering/_helpers.py` (e.g. `_emit_data_loading`, `_emit_index_setup`, `_emit_preprocessing_steps`, `_emit_window_features`, `_emit_transformer_exog`, `_emit_metrics_section*`). Import and forecaster-creation helpers are **per task type**: `_emit_imports_single_series` / `_multi_series` / `_foundation` / `_statistical`, and `_emit_forecaster_creation_single` / `_multi` / `_foundation` / `_statistical`. There is no single `_emit_imports`/`_emit_forecaster_creation`, and no `_emit_fit_and_predict` (the fit/predict logic is emitted inline inside each `render_forecast_*` function).
+- **Two rendering modes:** the script shape depends on `plan.end_train`. In **evaluation mode** (`end_train` set) the renderer emits a train/test split, fits on the training portion, predicts the test window, and appends the metrics section. In **prediction mode** (`end_train` is `None`) there is no split or metrics: the model fits on all data and forecasts the future, and when the data has exogenous columns the data-loading section also loads the future `exog_future` values. `_emit_end_train` and `_emit_metrics_section*` are therefore called only in evaluation mode. `plan.end_train` is resolved from the `test_size` argument by `forecast()` / `forecast_code()` (via `resolve_end_train`), not by `plan()`.
 - **Formatting:** `_emit_aligned_kwargs` applies alignment rules so the generated script is not just executable, but idiomatic and visually structured.
 - **Output:** A `RenderedScript` object (`schemas/results.py`) with three string fields (`imports`, `data_loading`, and `core`) plus two convenience properties: `full_script` (`imports + data_loading + core`, the standalone script returned by `forecast_code()`) and `executable` (`imports + core`, no CSV loading: this is what `exec()` runs).
 
@@ -224,10 +225,10 @@ flowchart TD
 ```
 
 **Key Operations:**
-- **Environment Setup:** Loads a copy of the user's `pandas.DataFrame` directly into the namespace under the key `"data"` (`namespace = {"data": data.copy()}`). This avoids disk I/O (writing temporary CSVs) during execution. `stdout` from the generated code is captured.
+- **Environment Setup:** Loads a copy of the user's `pandas.DataFrame` directly into the namespace under the key `"data"` (`namespace = {"data": data.copy()}`). This avoids disk I/O (writing temporary CSVs) during execution. In prediction mode with exogenous variables, the future `exog` is also injected as `exog_future`. `stdout` from the generated code is captured.
 - **Error handling:** If the generated code raises, it is wrapped in `ForecastExecutionError`, which carries both the `generated_code` and the full `execution_traceback` for debugging.
-- **State Extraction:** After execution, the runner pulls predictions, optional intervals, and metric values out of the namespace and assembles a metrics DataFrame (columns like `series, MAE, MSE, MASE`).
-- **Output:** `run_forecast` returns a plain **`dict`** with keys `metrics`, `predictions`, `intervals`, and `rendered_code` (the `RenderedScript` object, not a string). `ForecastingAssistant.forecast()` then wraps this dict into the typed `ForecastResult` schema, exposing `.code` via `rendered_code.full_script`.
+- **State Extraction:** After execution, the runner pulls predictions and optional intervals out of the namespace. In **evaluation mode** it also assembles a metrics DataFrame (columns like `series, MAE, MSE, MASE`); in **prediction mode** `metrics` is `None` (there is no held-out ground truth).
+- **Output:** `run_forecast` returns a plain **`dict`** with keys `metrics`, `predictions`, `intervals`, and `rendered_code` (the `RenderedScript` object, not a string). `ForecastingAssistant.forecast()` then wraps this dict into the typed `ForecastResult` schema, exposing `.code` via `rendered_code.full_script`. `ForecastResult.metrics` is `None` in prediction mode.
 
 ---
 

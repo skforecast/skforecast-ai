@@ -204,3 +204,19 @@ def test_plan_output_when_exog_present():
     plan = assistant.plan(profile, steps=10)
 
     assert plan.use_exog is True
+
+
+# =============================================================================
+# Tests: end_train
+# =============================================================================
+def test_plan_end_train_is_none():
+    """
+    Test that plan() always leaves end_train as None. The evaluation split
+    boundary is a forecast-only concern resolved by forecast()/
+    forecast_code() from their test_size argument, not by plan().
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    assert plan.end_train is None

@@ -18,10 +18,6 @@ from skforecast_ai.rendering._helpers import (
 )
 from skforecast_ai.schemas import DataProfile, ForecastPlan
 
-from .fixtures_rendering import (
-    profile_single,
-)
-
 
 # =============================================================================
 # Tests: _get_seasonal_period
@@ -195,31 +191,38 @@ def test_emit_aligned_kwargs_output_when_multiple_params():
 # =============================================================================
 def test_emit_end_train_ValueError_when_end_train_is_none():
     """
-    Test that _emit_end_train raises ValueError when profile.end_train
-    is None.
+    Test that _emit_end_train raises ValueError when plan.end_train is
+    None, since evaluation code requires a concrete split date.
     """
-    profile = DataProfile(
-        n_series=1,
-        series_lengths={"sales": 100},
-        target="sales",
-        index_type="datetime",
+    plan = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        steps=10,
         end_train=None,
+        explanation="test",
     )
-    err_msg = re.escape("profile.end_train must be set before generating code.")
+    err_msg = re.escape("plan.end_train must be set to generate evaluation code.")
     with pytest.raises(ValueError, match=err_msg):
-        _emit_end_train([], profile)
+        _emit_end_train([], plan)
 
 
 def test_emit_end_train_output_when_end_train_set():
     """
-    Test that _emit_end_train emits the correct date literal with
-    the 80% comment.
+    Test that _emit_end_train emits the correct date literal with the
+    "last training date" comment when plan.end_train is set.
     """
+    plan = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        steps=10,
+        end_train="2023-03-12",
+        explanation="test",
+    )
     lines: list[str] = []
-    _emit_end_train(lines, profile_single)
+    _emit_end_train(lines, plan)
     assert len(lines) == 1
     assert "end_train = '2023-03-12'" in lines[0]
-    assert "80%" in lines[0]
+    assert "last training date" in lines[0]
 
 
 # =============================================================================

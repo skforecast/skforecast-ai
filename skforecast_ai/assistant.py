@@ -21,7 +21,7 @@ from .llm import (
     estimate_prompt_tokens,
     select_skills,
 )
-from .profiling import create_data_profile
+from .profiling import create_data_profile, resolve_end_train
 from .recommendation import (
     _build_profile_explanation,
     build_cv_explanation,
@@ -57,6 +57,7 @@ from ._utils import (
     _resolve_data_and_target,
     _run_agent_sync,
     _strip_code_blocks,
+    _validate_forecast_mode,
     _validate_max_window_size,
     _validate_task_input,
     _warn_if_plan_overrides_ignored,
@@ -642,6 +643,8 @@ class ForecastingAssistant:
         interval: list[float] | None = None,
         lags: int | list[int] | None = None,
         window_features: list[dict] | None = None,
+        test_size: int | float | str | pd.Timestamp | None = None,
+        exog: pd.DataFrame | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
     ) -> CodeGenerationResult:
@@ -652,6 +655,18 @@ class ForecastingAssistant:
         and code generation in a single call. Pre-computed `profile`
         and/or `plan` can be passed to skip those stages (e.g. after
         modifying the plan with `refine_plan()`).
+
+        The method operates in one of two modes depending on `test_size`:
+
+        - Evaluation mode (`test_size` is set): the data is split into
+        train and test sets, the forecaster is trained on the training
+        set, predictions are made for the test set and metrics are
+        computed against the held-out observations.
+        - Prediction mode (`test_size` is None, the default): the
+        forecaster is trained on all available data and forecasts the
+        future. No metrics are returned because there is no ground
+        truth to compare against. When the data contains exogenous
+        variables, future values must be supplied through `exog`.
 
         Parameters
         ----------
@@ -685,6 +700,25 @@ class ForecastingAssistant:
             Explicit lag configuration.
         window_features : list of dict, default None
             Explicit window features configuration.
+        test_size : int, float, str, pandas Timestamp, default None
+            Size or start of the test set, selecting the evaluation or
+            prediction mode described above.
+
+            - int: the last `test_size` observations form the test set.
+            - float in `(0, 1)`: the last fraction `test_size` of the
+            observations form the test set.
+            - str or pandas Timestamp: the first timestamp of the test
+            set (the split boundary).
+
+            When None (default), the method runs in prediction mode.
+        exog : pandas DataFrame, default None
+            Future exogenous variables covering the forecast horizon.
+            Mirrors `forecast()` for signature consistency. Because this
+            method only generates code (the rendered prediction-mode
+            script loads the future values from `'exog_future.csv'` at run
+            time), `exog` is optional here and is used only to validate
+            the inputs: it must not be combined with `test_size`, and it
+            must not be supplied when the data has no exogenous columns.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling. If None, profiling
             is performed from `data`.
@@ -715,6 +749,24 @@ class ForecastingAssistant:
                 series_id_column = series_id_column,
             )
 
+        has_exog = bool(profile.data_profile.exog_columns)
+        # Evaluation mode is driven by `test_size`, or by a pre-built plan
+        # that already carries an `end_train` split boundary. Everything
+        # else is prediction mode (forecast the future).
+        evaluate = test_size is not None or (
+            plan is not None and plan.end_train is not None
+        )
+        effective_steps = steps if steps is not None else (
+            plan.steps if plan is not None else 0
+        )
+        _validate_forecast_mode(
+            evaluate     = evaluate,
+            exog         = exog,
+            has_exog     = has_exog,
+            steps        = effective_steps,
+            require_exog = False,
+        )
+
         if plan is None:
             plan = self.plan(
                 profile          = profile,
@@ -726,6 +778,17 @@ class ForecastingAssistant:
                 lags             = lags,
                 window_features  = window_features,
             )
+
+        # Resolve the forecast-only split boundary here (see `forecast()`),
+        # stamping it onto the plan whether it was built or supplied.
+        if test_size is not None:
+            end_train = resolve_end_train(
+                start_date     = profile.data_profile.start_date,
+                frequency      = profile.data_profile.frequency,
+                n_observations = profile.data_profile.span_index_length,
+                test_size      = test_size,
+            )
+            plan = plan.model_copy(update={"end_train": end_train})
 
         code = render_forecast_script(
             profile=profile.data_profile, plan=plan
@@ -750,7 +813,8 @@ class ForecastingAssistant:
         interval: list[float] | None = None,
         lags: int | list[int] | None = None,
         window_features: list[dict] | None = None,
-        exog_future: pd.DataFrame | None = None,
+        test_size: int | float | str | pd.Timestamp | None = None,
+        exog: pd.DataFrame | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
     ) -> ForecastResult:
@@ -758,7 +822,21 @@ class ForecastingAssistant:
         Execute a full forecasting workflow end-to-end.
 
         Convenience wrapper that chains `profile()`, `plan()`,
-        validation and programmatic execution.
+        validation and programmatic execution. Pre-computed `profile`
+        and/or `plan` can be passed to skip those stages (e.g. after
+        modifying the plan with `refine_plan()`).
+
+        The method operates in one of two modes depending on `test_size`:
+
+        - Evaluation mode (`test_size` is set): the data is split into
+        train and test sets, the forecaster is trained on the training
+        set, predictions are made for the test set and metrics are
+        computed against the held-out observations.
+        - Prediction mode (`test_size` is None, the default): the
+        forecaster is trained on all available data and forecasts the
+        future. No metrics are returned because there is no ground
+        truth to compare against. When the data contains exogenous
+        variables, future values must be supplied through `exog`.
 
         Parameters
         ----------
@@ -789,12 +867,24 @@ class ForecastingAssistant:
             Explicit lag configuration.
         window_features : list of dict, default None
             Explicit window features configuration.
-        exog_future : pandas DataFrame, default None
-            Exogenous variables covering the forecast horizon
-            (`steps` rows). Required for final predictions when
-            exogenous variables are used. If None and exog is present,
-            the last `steps` rows of the training data exog are used
-            (backtesting mode).
+        test_size : int, float, str, pandas Timestamp, default None
+            Size or start of the test set, selecting the evaluation or
+            prediction mode described above.
+
+            - int: the last `test_size` observations form the test set.
+            - float in `(0, 1)`: the last fraction `test_size` of the
+            observations form the test set.
+            - str or pandas Timestamp: the first timestamp of the test
+            set (the split boundary).
+
+            When None (default), the method runs in prediction mode.
+        exog : pandas DataFrame, default None
+            Future exogenous variables covering the forecast horizon
+            (at least `steps` rows). Used only in prediction mode
+            (`test_size=None`) and required there when the data contains
+            exogenous variables. Must not be combined with `test_size`:
+            in evaluation mode the test-set exogenous values are taken
+            from the split.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling. If None, profiling
             is performed from `data`.
@@ -807,8 +897,11 @@ class ForecastingAssistant:
         -------
         result : ForecastResult
             Forecasting profile, plan, generated code, predictions, and
-            backtesting metric. When prediction intervals are requested,
-            the interval columns are included in `result.predictions`.
+            evaluation metrics. Metrics are only computed in evaluation
+            mode (`test_size` is set); in prediction mode
+            `result.metrics` is None. When prediction intervals are
+            requested, the interval columns are included in
+            `result.predictions`.
 
         Notes
         -----
@@ -834,6 +927,21 @@ class ForecastingAssistant:
                 date_column      = date_column,
                 series_id_column = series_id_column,
             )
+
+        has_exog = bool(profile.data_profile.exog_columns)
+        # Evaluation mode is driven by `test_size`, or by a pre-built plan
+        # that already carries an `end_train` split boundary. Everything
+        # else is prediction mode (forecast the future).
+        evaluate = test_size is not None or (
+            plan is not None and plan.end_train is not None
+        )
+        _validate_forecast_mode(
+            evaluate = evaluate,
+            exog     = exog,
+            has_exog = has_exog,
+            steps    = steps,
+        )
+
         if plan is None:
             plan = self.plan(
                 profile          = profile,
@@ -846,11 +954,23 @@ class ForecastingAssistant:
                 window_features  = window_features,
             )
 
+        # `test_size` is a forecast-only concept, so the split boundary is
+        # resolved here rather than in the shared `plan()` method. It is
+        # stamped onto the plan whether it was freshly built or supplied.
+        if test_size is not None:
+            end_train = resolve_end_train(
+                start_date     = profile.data_profile.start_date,
+                frequency      = profile.data_profile.frequency,
+                n_observations = profile.data_profile.span_index_length,
+                test_size      = test_size,
+            )
+            plan = plan.model_copy(update={"end_train": end_train})
+
         result = run_forecast(
-            data        = data_df,
-            profile     = profile.data_profile,
-            plan        = plan,
-            exog_future = exog_future,
+            data    = data_df,
+            profile = profile.data_profile,
+            plan    = plan,
+            exog    = exog,
         )
 
         return ForecastResult(

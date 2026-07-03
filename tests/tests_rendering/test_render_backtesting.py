@@ -20,7 +20,6 @@ from .fixtures_rendering import (
     profile_multi_long,
     profile_multi_wide,
     profile_multi_wide_exog,
-    profile_single_no_end_train,
     profile_single_no_exog,
 )
 
@@ -443,19 +442,15 @@ def test_render_backtesting_multi_series_output_when_wide_format_with_exog():
 
 
 # =============================================================================
-# Tests: Negative — error when profile.end_train is None
+# Tests: backtesting does not require a train/test split boundary
 # =============================================================================
-def test_render_backtesting_multi_series_ValueError_when_end_train_is_none():
+def test_render_backtesting_single_series_output_when_no_end_train_needed():
     """
-    Test that render_backtesting_multi_series raises ValueError when
-    profile.end_train is None and data_format is 'single' (where
-    end_train is needed for the train/test split in forecasting).
-    This test verifies that the backtesting renderer does NOT raise
-    for this condition since backtesting doesn't emit end_train.
+    Test that render_backtesting_single_series renders successfully without
+    a train/test split boundary. Backtesting renderers use CV folds and do
+    not emit `end_train`, so they never require it on the plan or profile.
     """
-    # Backtesting renderers do not require end_train — they use CV folds.
-    # Confirm no error is raised even with end_train=None.
     result = render_backtesting_single_series(
-        plan_single_recursive_no_exog, profile_single_no_end_train, cv_basic
+        plan_single_recursive_no_exog, profile_single_no_exog, cv_basic
     )
     assert isinstance(result, RenderedScript)

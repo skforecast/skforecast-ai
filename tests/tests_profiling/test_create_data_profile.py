@@ -90,7 +90,7 @@ def test_create_data_profile_output_when_date_column_matches_index_name():
     assert profile.index_type == "datetime"
     assert profile.date_column is None
     assert profile.frequency == "D"
-    assert profile.end_train is not None
+    assert profile.start_date is not None
 
 
 def test_create_data_profile_ValueError_when_date_column_not_found():
@@ -136,7 +136,7 @@ def test_create_data_profile_output_when_date_column_is_string_dtype():
     assert profile.index_type == "datetime"
     assert profile.date_column == "fecha"
     assert profile.frequency == "D"
-    assert profile.end_train is not None
+    assert profile.start_date is not None
 
 
 def test_create_data_profile_output_when_missing_values_detected():

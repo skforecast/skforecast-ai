@@ -41,7 +41,7 @@ This is the default: it scales to many series and handles different-length histo
 
 ## Running it through the assistant
 
-The default works without any override:
+The default works without any override. Pass `test_size` to evaluate the global model on a held-out test set (reporting one row of metrics per series); omit it to forecast the future:
 
 ```python
 result = assistant.forecast(
@@ -49,6 +49,7 @@ result = assistant.forecast(
              target      = ["store_a", "store_b", "store_c"], 
              date_column = "date",
              steps       = 14, 
+             test_size   = 14,   # evaluate: hold out the last 14 observations
          )
 print(result.metrics)   # one row of metrics per series
 ```

@@ -196,13 +196,21 @@ skforecast-ai forecast-code --from-plan plan.json --output forecast.py
 
 ## forecast
 
-Run the full pipeline end-to-end (profile, plan, generate code, execute) and report metrics plus predictions. See [Your first forecast](first-forecast.md) and [The forecasting workflow](the-forecasting-workflow.md) for a guided walkthrough.
+Run the full pipeline end-to-end (profile, plan, generate code, execute) and report predictions, plus metrics when you evaluate. See [Your first forecast](first-forecast.md) and [The forecasting workflow](the-forecasting-workflow.md) for a guided walkthrough.
+
+`forecast` runs in two modes:
+
+- **Prediction mode** (default): trains on all data and forecasts the future. No metrics. When the data has exogenous columns, supply their future values with `--exog`.
+- **Evaluation mode** (`--test-size`): holds out the last part of the series as a test set and reports metrics. `--test-size` accepts an integer (last *N* observations), a float in `(0, 1)` (last fraction), or a date (the split point).
 
 ```bash
-URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o.csv"
 
-# Basic forecast
+# Forecast the future (prediction mode)
 skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12
+
+# Evaluate the model on a held-out test set (reports metrics)
+skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --test-size 0.2
 
 # With prediction intervals and saved predictions
 skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 \
@@ -215,8 +223,9 @@ skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --format
 skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 \
   --forecaster ForecasterDirect --estimator Ridge
 
-# Provide future exogenous values covering the horizon
-skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --exog-future future_exog.csv
+# Prediction mode with exogenous data: provide future values covering the horizon
+EXOG_URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+skforecast-ai forecast "$EXOG_URL" --target y --date-column fecha --steps 12 --exog future_exog.csv
 ```
 
 See [Dataset shapes](#dataset-shapes) for multi-series and long-format examples.
@@ -416,7 +425,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 | `--target` | `-t` | Target column(s), comma-separated | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
 | `--date-column` | `-d` | Date/timestamp column | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
 | `--series-id-column` | `-s` | Series identifier (long-format) | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
-| `--exog-future` | | Future exog CSV | `forecast` |
+| `--exog` | | Future exogenous CSV covering the horizon (prediction mode) | `forecast` |
 | `--data` | | Dataset CSV for context | `ask` |
 
 ### Forecast configuration
@@ -424,6 +433,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
 | `--steps` | | Forecast horizon | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
+| `--test-size` | | Evaluation test set size: int (last *N* obs), float in (0,1) (fraction), or date (test-set start). Omit to forecast the future. | `forecast` |
 | `--forecaster` | | Override forecaster class | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
 | `--estimator` | | Override estimator class | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
 | `--estimator-kwargs` | | Estimator hyperparameters as a JSON string | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |

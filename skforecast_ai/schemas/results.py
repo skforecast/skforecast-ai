@@ -125,10 +125,12 @@ class ForecastResult(DisplayMixin, BaseModel):
         Detailed forecasting plan that was executed.
     code : str
         Generated Python script equivalent to the execution.
-    metrics : pandas DataFrame
+    metrics : pandas DataFrame, None
         Evaluation metrics. DataFrame with columns
         `['series', 'MAE', 'MSE', 'MASE']`. For single-series tasks
         this contains one row; for multi-series tasks one row per level.
+        None in prediction mode (`test_size=None`), where there is no
+        ground truth to evaluate against.
     predictions : pandas DataFrame
         Forecasted values for the requested steps. When prediction
         intervals (or quantiles) are requested, the corresponding
@@ -140,7 +142,7 @@ class ForecastResult(DisplayMixin, BaseModel):
     profile: ForecastingProfile
     plan: ForecastPlan
     code: str
-    metrics: Any  # pd.DataFrame
+    metrics: Any  # pd.DataFrame | None
     predictions: Any  # pd.DataFrame
 
     def __rich_console__(
@@ -148,7 +150,8 @@ class ForecastResult(DisplayMixin, BaseModel):
     ) -> RenderResult:
         yield render_profile(self.profile)
         yield render_plan(self.plan)
-        yield render_metrics(self.metrics, title="Forecast Metrics")
+        if self.metrics is not None:
+            yield render_metrics(self.metrics, title="Forecast Metrics")
         yield render_dataframe(self.predictions, title="Predictions")
         yield render_code(self.code)
 

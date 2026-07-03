@@ -22,7 +22,6 @@ profile_single = DataProfile(
     frequency_is_set=False,
     exog_columns=["promo"],
     categorical_exog=[],
-    end_train="2023-03-12",
     data_path="data.csv",
 )
 
@@ -39,7 +38,6 @@ profile_single_no_exog = DataProfile(
     frequency_is_set=False,
     exog_columns=[],
     categorical_exog=[],
-    end_train="2023-03-12",
     data_path="data.csv",
 )
 
@@ -56,7 +54,6 @@ profile_single_mixed_exog = DataProfile(
     frequency_is_set=False,
     exog_columns=["temp", "holiday"],
     categorical_exog=["holiday"],
-    end_train="2023-03-12",
     data_path="data.csv",
 )
 
@@ -76,7 +73,6 @@ profile_multi_wide = DataProfile(
     frequency_is_set=False,
     exog_columns=[],
     categorical_exog=[],
-    end_train="2023-03-12",
     data_path="data.csv",
 )
 
@@ -97,7 +93,6 @@ profile_multi_long = DataProfile(
     frequency_is_set=False,
     exog_columns=[],
     categorical_exog=[],
-    end_train="2023-03-12",
     data_path="data.csv",
 )
 
@@ -117,7 +112,6 @@ profile_multi_wide_exog = DataProfile(
     frequency_is_set=False,
     exog_columns=["promo", "holiday"],
     categorical_exog=["holiday"],
-    end_train="2023-03-12",
     data_path="data.csv",
 )
 
@@ -138,30 +132,18 @@ profile_multi_long_exog = DataProfile(
     frequency_is_set=False,
     exog_columns=["promo"],
     categorical_exog=[],
-    end_train="2023-03-12",
-    data_path="data.csv",
-)
-
-profile_single_no_end_train = DataProfile(
-    data_format="single",
-    n_series=1,
-    series_lengths={"sales": 100},
-    target="sales",
-    target_dtype="numeric",
-    target_stats={"sales": {"min": 10.0, "max": 200.0, "mean": 105.0, "std": 40.0}},
-    date_column="date",
-    index_type="datetime",
-    frequency="D",
-    frequency_is_set=False,
-    exog_columns=[],
-    categorical_exog=[],
-    end_train=None,
     data_path="data.csv",
 )
 
 
 # =============================================================================
 # ForecastPlan fixtures
+# =============================================================================
+#
+# The train/test split boundary now lives on the plan via ``end_train``.
+# Fixtures below carry a concrete ``end_train`` so they render/execute in
+# EVALUATION mode (split + metrics). Prediction-mode fixtures with
+# ``end_train=None`` are defined further down.
 # =============================================================================
 
 plan_single_recursive = ForecastPlan(
@@ -173,6 +155,7 @@ plan_single_recursive = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=True,
+    end_train="2023-03-12",
     explanation="Single series recursive forecasting with LightGBM.",
 )
 
@@ -185,6 +168,7 @@ plan_single_recursive_no_exog = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Single series recursive forecasting without exogenous.",
 )
 
@@ -197,6 +181,7 @@ plan_single_direct = ForecastPlan(
     steps=5,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Single series direct forecasting.",
 )
 
@@ -211,6 +196,7 @@ plan_single_with_intervals = ForecastPlan(
     interval=[0.1, 0.9],
     interval_method="bootstrapping",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Single series with prediction intervals.",
 )
 
@@ -226,6 +212,7 @@ plan_single_with_window_features = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Single series with rolling window features.",
 )
 
@@ -238,6 +225,7 @@ plan_single_with_transformer_y = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Single series with transformer_y.",
 )
 
@@ -250,6 +238,7 @@ plan_single_with_transformer_exog = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=True,
+    end_train="2023-03-12",
     explanation="Single series with transformer_exog.",
 )
 
@@ -262,6 +251,7 @@ plan_multi_series = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Multi-series forecasting with global model.",
 )
 
@@ -274,6 +264,7 @@ plan_multi_series_exog = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=True,
+    end_train="2023-03-12",
     explanation="Multi-series forecasting with exogenous variables.",
 )
 
@@ -290,6 +281,7 @@ plan_multi_series_with_transformer_series = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Multi-series with transformer_series.",
 )
 
@@ -306,6 +298,7 @@ plan_multi_series_with_window_features = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Multi-series with window features.",
 )
 
@@ -318,6 +311,7 @@ plan_multivariate = ForecastPlan(
     steps=5,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Multivariate forecasting.",
 )
 
@@ -330,6 +324,7 @@ plan_statistical = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Auto-ARIMA statistical forecasting.",
 )
 
@@ -344,6 +339,7 @@ plan_statistical_with_intervals = ForecastPlan(
     interval=[0.1, 0.9],
     interval_method="native",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Auto-ARIMA with prediction intervals.",
 )
 
@@ -356,6 +352,7 @@ plan_foundation = ForecastPlan(
     steps=10,
     frequency="D",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Foundation model forecasting with Chronos-2.",
 )
 
@@ -370,7 +367,43 @@ plan_foundation_with_intervals = ForecastPlan(
     interval=[0.1, 0.9],
     interval_method="native",
     use_exog=False,
+    end_train="2023-03-12",
     explanation="Foundation model with quantile predictions.",
+)
+
+
+# =============================================================================
+# Prediction-mode ForecastPlan fixtures (end_train=None)
+# =============================================================================
+#
+# With ``end_train=None`` the renderers emit prediction-mode code: no
+# train/test split, fit on the full data, and no metrics section.
+# =============================================================================
+
+plan_single_no_end_train = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": 7},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train=None,
+    explanation="Single series recursive forecasting (prediction mode).",
+)
+
+plan_single_predict_exog = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": 7},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=True,
+    end_train=None,
+    explanation="Single series with exog (prediction mode).",
 )
 
 

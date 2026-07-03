@@ -23,21 +23,11 @@ from ..schemas import DataProfile
 # (e.g., `data[data[series_id] == id]`) on the entire DataFrame. Consider using
 # lazy evaluation or `groupby().get_group()` to isolate the sample.
 
-# TODO: Magic Numbers - Parameterize Train Split
-# `_compute_end_train` hardcodes an 80% split (`idx = int(len(idx) * 0.8) - 1`). 
-# Parameterize this by adding a `train_fraction` argument with a default of 0.8 
-# so users can customize the split boundary.
-
 # TODO: Multi-Target Logic - Check All Target Dtypes
 # In `create_data_profile`, `target_dtype` only checks the first target column. 
 # For wide-format multi-series, it should verify if dtypes are mixed across targets 
 # or return a dictionary mapping each target to its dtype.
 
-# TODO: Bug Fix - Prevent Data Leakage in Sub-daily Splits
-# `_compute_end_train` checks only the split timestamp for a time component. 
-# If a sub-daily index happens to split exactly at midnight, it returns a 
-# date string, causing pandas `.loc` to include the rest of the day 
-# (up to 23:59:59), leaking test data into the train set. 
 
 def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     """
@@ -173,9 +163,6 @@ def create_data_profile(
         representative_n, frequency, missing_target, missing_exog, index_type
     )
 
-    # Compute end_train: the datetime at the 80% mark of the index
-    end_train = _compute_end_train(datetime_index)
-
     # Compute start_date: the reference start for position-to-date
     # conversion.  For long format with multiple series that may have
     # different start dates, use the latest (max) start date so that
@@ -222,7 +209,6 @@ def create_data_profile(
         data_path=data_path,
         # Train/test split
         start_date=start_date,
-        end_train=end_train,
         # Diagnostics
         warnings=warnings,
     )
@@ -1137,11 +1123,9 @@ def _check_target_is_constant(data: pd.DataFrame, target: str) -> bool:
     return bool(series.std() == 0)
 
 
-def _compute_end_train(
-    datetime_index: pd.DatetimeIndex | None,
-) -> str | None:
+def _format_split_ts(ts: pd.Timestamp) -> str:
     """
-    Compute the end-of-training date at the 80 % mark of the index.
+    Format a split-boundary timestamp as a string literal.
 
     For sub-daily frequencies the full timestamp is returned to avoid
     ambiguity between partial-string `.loc` slicing (which includes all
@@ -1150,23 +1134,110 @@ def _compute_end_train(
 
     Parameters
     ----------
-    datetime_index : pandas DatetimeIndex, None
-        The sorted datetime index of the dataset.
+    ts : pandas Timestamp
+        The split-boundary timestamp.
 
     Returns
     -------
-    end_train : str, None
-        ISO-formatted date or datetime string at the 80 % position.
-        Date-only (e.g. `'2005-03-01'`) for daily or coarser
-        frequencies; full timestamp (e.g. `'2012-08-07 23:00:00'`) for
-        sub-daily frequencies. None if no datetime index is available.
+    end_train : str
+        Date-only string (e.g. `'2005-03-01'`) when the timestamp falls
+        on midnight, otherwise a full timestamp string (e.g.
+        `'2012-08-07 23:00:00'`).
     """
-    if datetime_index is None or len(datetime_index) == 0:
-        return None
-    idx = int(len(datetime_index) * 0.8) - 1
-    idx = max(0, min(idx, len(datetime_index) - 1))
-    ts = datetime_index[idx]
-    # Sub-daily: return full timestamp to avoid .loc vs > comparison mismatch
     if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
         return str(ts)
     return str(ts.date())
+
+
+def resolve_end_train(
+    start_date: str | None,
+    frequency: str | None,
+    n_observations: int,
+    test_size: int | float | str | pd.Timestamp,
+) -> str:
+    """
+    Resolve a ``test_size`` specification into an ``end_train`` boundary.
+
+    Rebuilds the datetime index from ``start_date``, ``frequency`` and
+    ``n_observations`` (the same reconstruction convention used elsewhere
+    for date-based cross-validation), then converts ``test_size`` into the
+    last training timestamp.
+
+    Parameters
+    ----------
+    start_date : str, None
+        First timestamp of the dataset.
+    frequency : str, None
+        Pandas frequency string of the index.
+    n_observations : int
+        Number of observations spanned by the index.
+    test_size : int, float, str, pandas Timestamp
+        Size or start of the test set.
+
+        - int: the last ``test_size`` observations form the test set.
+        - float in ``(0, 1)``: the last fraction ``test_size`` of the
+          observations form the test set.
+        - str or pandas Timestamp: the first timestamp of the test set
+          (the split boundary).
+
+    Returns
+    -------
+    end_train : str
+        Last datetime (inclusive) of the training set, formatted with
+        `_format_split_ts`.
+
+    Raises
+    ------
+    ValueError
+        If a datetime index cannot be reconstructed, or ``test_size`` is
+        out of range or leaves an empty train or test set.
+    """
+    if start_date is None or frequency is None:
+        raise ValueError(
+            "`test_size` requires a datetime index with a known frequency. "
+            "Set the index frequency (e.g. `data.asfreq(...)`) before "
+            "forecasting."
+        )
+
+    index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
+    n = len(index)
+
+    # bool is a subclass of int; reject it explicitly to avoid silent misuse.
+    if isinstance(test_size, bool):
+        raise TypeError(
+            f"`test_size` must be an int, float, str or Timestamp, not bool."
+        )
+
+    if isinstance(test_size, int):
+        if not 1 <= test_size < n:
+            raise ValueError(
+                f"Integer `test_size` must be between 1 and {n - 1} "
+                f"(number of observations is {n}), got {test_size}."
+            )
+        boundary_idx = n - test_size - 1
+    elif isinstance(test_size, float):
+        if not 0.0 < test_size < 1.0:
+            raise ValueError(
+                f"Float `test_size` must be in the open interval (0, 1), "
+                f"got {test_size}."
+            )
+        n_test = round(n * test_size)
+        n_test = max(1, min(n_test, n - 1))
+        boundary_idx = n - n_test - 1
+    elif isinstance(test_size, (str, pd.Timestamp)):
+        ts = pd.Timestamp(test_size)
+        if not index[0] < ts <= index[-1]:
+            raise ValueError(
+                f"Timestamp `test_size` ({ts}) must fall within the data "
+                f"range, after {index[0]} and no later than {index[-1]}, so "
+                f"that both train and test sets are non-empty."
+            )
+        train_positions = (index < ts).nonzero()[0]
+        boundary_idx = int(train_positions[-1])
+    else:
+        raise TypeError(
+            f"`test_size` must be an int, float, str or Timestamp, "
+            f"got {type(test_size).__name__}."
+        )
+
+    return _format_split_ts(index[boundary_idx])

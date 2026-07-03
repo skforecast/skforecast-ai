@@ -44,15 +44,18 @@ from skforecast.datasets import load_demo_dataset
 
 data = load_demo_dataset(verbose=False)
 assistant = ForecastingAssistant(llm=None)
-result = assistant.forecast(data=data, target="y", steps=12)
+result = assistant.forecast(data=data, target="y", steps=12, test_size=12)
 
-print(result.predictions)   # forecast for the next 12 steps
+print(result.predictions)   # forecast for the held-out test window
 print(result.metrics)       # evaluation metrics: MAE, MSE, MASE
 print(result.code)          # the skforecast script that produced this result
 ```
 
 !!! tip "Runs locally by default"
     The smoke test runs in deterministic mode: no LLM, no network access, and no configuration required.
+
+!!! note "Evaluate vs. forecast the future"
+    Passing `test_size=12` runs `forecast()` in **evaluation mode**: it holds out the last 12 observations, trains on the rest, and reports metrics. Drop `test_size` to run the default **prediction mode**, which trains on all data and forecasts the future (no metrics). See [Your first forecast](first-forecast.md).
 
 ## Next steps
 

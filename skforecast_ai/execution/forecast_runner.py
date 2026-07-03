@@ -66,7 +66,7 @@ def run_forecast(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
-    exog_future: pd.DataFrame | None = None,
+    exog: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
     Execute a forecasting workflow by running the generated code.
@@ -74,6 +74,15 @@ def run_forecast(
     The code executed is identical to what `forecast_code()` produces
     (minus the CSV loading preamble). This guarantees that the
     `ForecastResult.code` field always reflects exactly what was run.
+
+    The behavior depends on `plan.end_train`:
+
+    - Evaluation mode (`plan.end_train` is set): the data is split, the
+      forecaster is trained on the training portion, the test portion is
+      predicted and metrics are computed.
+    - Prediction mode (`plan.end_train` is None): the forecaster is
+      trained on all the data and forecasts the future. Future exogenous
+      variables, when required, are supplied through `exog`.
 
     Parameters
     ----------
@@ -84,50 +93,70 @@ def run_forecast(
         Profiled dataset metadata.
     plan : ForecastPlan
         Validated forecast plan produced by the recommendation engine.
-    exog_future : pandas DataFrame, default None
-        Exogenous variables covering the forecast horizon. If provided,
-        predictions are re-computed using these values after the main
-        execution.
+    exog : pandas DataFrame, default None
+        Future exogenous variables covering the forecast horizon. Used
+        only in prediction mode; injected into the executed code as the
+        `exog_future` variable.
 
     Returns
     -------
     result : dict
         Dictionary with keys `'metrics'`, `'predictions'`, and
-        `'rendered_code'`. When prediction intervals are requested,
-        the interval columns are included in `'predictions'`.
+        `'rendered_code'`. In prediction mode `'metrics'` is None. When
+        prediction intervals are requested, the interval columns are
+        included in `'predictions'`.
     """
     rendered = render_forecast_script(profile, plan)
 
-    # Execute the rendered code with `data` pre-loaded in the namespace
-    namespace = _exec_rendered_code(rendered, data)
+    # The rendered code prepares the future exog exactly like `data`
+    # (sort + asfreq, plus `set_index` when a date column is used). When
+    # the data uses a date column, `data` is injected with that column
+    # present, so the injected future exog must expose the same column for
+    # the shared preparation code to run identically. Users typically pass
+    # exog pre-indexed by datetime, so move that index back to a named
+    # column here.
+    if (
+        exog is not None
+        and profile.date_column
+        and profile.date_column not in exog.columns
+    ):
+        exog = exog.copy()
+        exog.index.name = profile.date_column
+        exog = exog.reset_index()
+
+    # Execute the rendered code with `data` (and optional future `exog`)
+    # pre-loaded in the namespace. The future exog is injected raw; the
+    # rendered core code prepares it (same steps as `data`), so that
+    # preparation is both shown in `result.code` and actually run.
+    namespace = _exec_rendered_code(rendered, data, exog)
 
     # Extract standard results from the executed namespace
     predictions = namespace.get("predictions")
-    forecaster = namespace.get("forecaster")
 
-    # Build unified metrics DataFrame
-    metrics_df = namespace.get("metrics_df")
-    if metrics_df is not None:
-        # Multi-series: metrics_df already has dynamic columns
-        metrics = metrics_df
+    evaluate_mode = plan.end_train is not None
+
+    if not evaluate_mode:
+        # Prediction mode forecasts the future; there is no ground truth
+        # to compare against, so no metrics are produced.
+        metrics = None
     else:
-        # Single series: extract scalar variables by metric var name
-        target_name = profile.target
-        if isinstance(target_name, list):
-            target_name = target_name[0]
-        row: dict[str, object] = {"series": target_name}
-        for m in plan.metrics_to_compute:
-            info = _METRIC_REGISTRY.get(m)
-            if info is None:
-                continue
-            row[info["label"]] = namespace.get(info["var"])
-        metrics = pd.DataFrame([row])
-
-    # If exog_future is provided, re-predict using the trained forecaster
-    if exog_future is not None and forecaster is not None:
-        predictions = _repredict_with_exog_future(
-            forecaster, plan, exog_future, frequency=profile.frequency
-        )
+        # Build unified metrics DataFrame
+        metrics_df = namespace.get("metrics_df")
+        if metrics_df is not None:
+            # Multi-series: metrics_df already has dynamic columns
+            metrics = metrics_df
+        else:
+            # Single series: extract scalar variables by metric var name
+            target_name = profile.target
+            if isinstance(target_name, list):
+                target_name = target_name[0]
+            row: dict[str, object] = {"series": target_name}
+            for m in plan.metrics_to_compute:
+                info = _METRIC_REGISTRY.get(m)
+                if info is None:
+                    continue
+                row[info["label"]] = namespace.get(info["var"])
+            metrics = pd.DataFrame([row])
 
     # Ensure predictions is a DataFrame
     if isinstance(predictions, pd.Series):
@@ -143,6 +172,7 @@ def run_forecast(
 def _exec_rendered_code(
     rendered: RenderedScript,
     data: pd.DataFrame,
+    exog: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
     Execute the rendered code with data injected into the namespace.
@@ -153,6 +183,9 @@ def _exec_rendered_code(
         Structured rendered code.
     data : pandas DataFrame
         Input dataset to inject as the `data` variable.
+    exog : pandas DataFrame, default None
+        Future exogenous variables to inject as the `exog_future`
+        variable (prediction mode only).
 
     Returns
     -------
@@ -161,6 +194,8 @@ def _exec_rendered_code(
     """
     code_to_exec = rendered.executable
     namespace: dict[str, Any] = {"data": data.copy()}
+    if exog is not None:
+        namespace["exog_future"] = exog.copy()
 
     compiled = compile(code_to_exec, "<forecast>", "exec")
 
@@ -178,63 +213,3 @@ def _exec_rendered_code(
         ) from e
 
     return namespace
-
-
-def _repredict_with_exog_future(
-    forecaster: Any,
-    plan: ForecastPlan,
-    exog_future: pd.DataFrame,
-    frequency: str | None = None,
-) -> pd.DataFrame | pd.Series:
-    """
-    Re-run prediction using user-provided future exogenous variables.
-
-    Parameters
-    ----------
-    forecaster : object
-        Fitted forecaster from the executed namespace.
-    plan : ForecastPlan
-        Forecast plan.
-    exog_future : pandas DataFrame
-        Exogenous variables for the forecast horizon.
-    frequency : str, default None
-        Pandas frequency string from the data profile. When provided, it
-        is enforced on the `exog_future` index with `asfreq` so the
-        future exogenous variables sit on the same regular grid as the
-        training data, as required by skforecast. Applying it here, where
-        the profile is always available, keeps the behavior identical
-        regardless of how the workflow was invoked.
-
-    Returns
-    -------
-    predictions : pandas DataFrame, pandas Series
-        Re-computed predictions.
-    """
-    if frequency and isinstance(exog_future.index, pd.DatetimeIndex):
-        exog_future = exog_future.sort_index().asfreq(frequency)
-
-    if plan.interval_method is not None:
-        if plan.task_type == "foundation":
-            quantiles = [0.1, 0.5, 0.9]
-            if plan.interval is not None:
-                quantiles = list(plan.interval)
-                if 0.5 not in quantiles:
-                    quantiles = sorted([quantiles[0], 0.5, quantiles[1]])
-            return forecaster.predict_quantiles(
-                steps=plan.steps, exog=exog_future, quantiles=quantiles
-            )
-        elif plan.task_type == "statistical":
-            return forecaster.predict_interval(
-                steps=plan.steps,
-                exog=exog_future,
-                interval=plan.interval or [0.1, 0.9],
-            )
-        else:
-            return forecaster.predict_interval(
-                steps=plan.steps,
-                exog=exog_future,
-                method=plan.interval_method,
-                interval=plan.interval or [0.1, 0.9],
-            )
-    else:
-        return forecaster.predict(steps=plan.steps, exog=exog_future)

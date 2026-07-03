@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from .._display import DisplayMixin, render_plan
 
+
 class CVParams(BaseModel):
     """
     LLM-produced cross-validation parameters for `TimeSeriesFold`.
@@ -192,6 +193,14 @@ class ForecastPlan(DisplayMixin, BaseModel):
         Number of steps ahead to predict. Must be greater than 0.
     frequency : str, default None
         Pandas frequency string for the series.
+    end_train : str, default None
+        Last datetime (inclusive) of the training set as a string
+        (e.g. `'2005-03-01'`). When set, the generated code runs in
+        evaluation mode: it splits the data at this boundary, trains on
+        the training portion, predicts the test portion and computes
+        metrics. When None, the generated code runs in prediction mode:
+        it trains on all available data and forecasts the future (no
+        metrics, since there is no ground truth to compare against).
     interval : list, default None
         Prediction interval quantiles as `[lower, upper]`
         (e.g. `[0.1, 0.9]`). If None, no intervals are computed.
@@ -226,6 +235,7 @@ class ForecastPlan(DisplayMixin, BaseModel):
     estimator_kwargs: dict[str, Any] = Field(default_factory=dict)
     steps: int = Field(gt=0)
     frequency: str | None = None
+    end_train: str | None = None
     interval: list[float] | None = None
     interval_method: Literal["bootstrapping", "conformal", "native"] | None = None
     metric: str = "mean_absolute_error"

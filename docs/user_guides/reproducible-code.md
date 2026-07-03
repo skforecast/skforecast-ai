@@ -57,8 +57,8 @@ The generated script is a complete, self-contained program. Internally the rende
 | Section | Contents |
 | --- | --- |
 | **Imports** | Every `skforecast`, scikit-learn, and pandas import the script needs. |
-| **Data loading** | Reads your dataset from a CSV path and sets up the datetime index. |
-| **Core** | Preprocessing, the train/test split, forecaster creation, `fit`, `predict`, and metrics. |
+| **Data loading** | Reads your dataset from a CSV path and sets up the datetime index. In prediction mode with exogenous variables, it also loads the future `exog` values. |
+| **Core** | Preprocessing, forecaster creation, `fit`, and `predict`. In evaluation mode (`test_size` set) it also emits the train/test split and metrics; in prediction mode (the default) it trains on all data and forecasts the future, with no split or metrics. |
 
 `generated.code` is the **full** script (imports + data loading + core): runnable on its own. When `forecast()` executes the pipeline, it runs the imports and core against an in-memory copy of your DataFrame and skips the CSV-loading section, which is why the results are produced without any disk I/O.
 

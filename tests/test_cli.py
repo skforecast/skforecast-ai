@@ -3,6 +3,7 @@
 import ast
 import json
 
+import pandas as pd
 import pytest
 import typer
 from typer.testing import CliRunner
@@ -397,7 +398,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--quiet"],
         )
         assert result.exit_code == 0
         assert "MAE" in result.output
@@ -411,7 +412,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -429,7 +430,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--output-predictions", str(preds_path), "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--output-predictions", str(preds_path), "--quiet"],
         )
         assert result.exit_code == 0
         assert preds_path.exists()
@@ -446,7 +447,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--output-code", str(code_path), "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--output-code", str(code_path), "--quiet"],
         )
         assert result.exit_code == 0
         assert code_path.exists()
@@ -461,7 +462,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -498,7 +499,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--estimator", "RandomForestRegressor",
+             "--steps", "5", "--test-size", "0.2", "--estimator", "RandomForestRegressor",
              "--estimator-kwargs", '{"n_estimators": 150, "random_state": 123}',
              "--format", "json", "--quiet"],
         )
@@ -506,42 +507,66 @@ class TestForecast:
         data = json.loads(result.output)
         assert data["plan"]["estimator_kwargs"]["n_estimators"] == 150
 
-    def test_forecast_with_exog_future(self, tmp_path):
+    def test_forecast_with_test_size(self, tmp_path):
         """
-        Forecast --exog-future loads the CSV with its date column as a
-        DatetimeIndex and produces predictions over the horizon.
+        Forecast --test-size runs in evaluation mode: the data is split and
+        metrics (MAE, MSE, MASE) are reported over the test set.
         """
         csv_path = _write_csv(tmp_path, df_single)
-        mask = (df_single["date"] >= "2023-03-22") & (df_single["date"] <= "2023-03-26")
-        exog_future = df_single.loc[mask, ["date", "promo"]]
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--test-size", "20", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["plan"]["end_train"] is not None
+        assert len(data["metrics"]) == 1
+        assert "MAE" in data["metrics"][0]
+        assert len(data["predictions"]) == 5
+
+    def test_forecast_with_exog(self, tmp_path):
+        """
+        Forecast --exog forecasts the future (prediction mode): the model is
+        trained on all data and predicts the horizon using the supplied
+        future exogenous values.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+        exog_future = pd.DataFrame(
+            {"date": future_dates, "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        )
         exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--exog-future", exog_path,
+             "--steps", "5", "--exog", exog_path,
              "--format", "json", "--quiet"],
         )
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         data = json.loads(result.output)
+        assert data["plan"]["end_train"] is None
         assert len(data["predictions"]) == 5
 
-    def test_forecast_exog_future_consistent_direct_and_from_plan(self, tmp_path):
+    def test_forecast_exog_consistent_direct_and_from_plan(self, tmp_path):
         """
-        --exog-future produces identical predictions on the direct path and
-        the --from-plan path. Frequency enforcement now happens in the
-        execution layer, so both invocations sit the future exog on the same
-        regular grid regardless of how the workflow was started.
+        --exog produces identical predictions on the direct path and the
+        --from-plan path. Frequency enforcement now happens in the execution
+        layer, so both invocations sit the future exog on the same regular
+        grid regardless of how the workflow was started.
         """
         csv_path = _write_csv(tmp_path, df_single)
-        mask = (df_single["date"] >= "2023-03-22") & (df_single["date"] <= "2023-03-26")
-        exog_future = df_single.loc[mask, ["date", "promo"]]
+        future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+        exog_future = pd.DataFrame(
+            {"date": future_dates, "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        )
         exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
 
         # Direct path.
         direct = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--exog-future", exog_path,
+             "--steps", "5", "--exog", exog_path,
              "--format", "json", "--quiet"],
         )
         assert direct.exit_code == 0, direct.output
@@ -559,7 +584,7 @@ class TestForecast:
         from_plan = runner.invoke(
             app,
             ["forecast", csv_path, "--from-plan", str(plan_file),
-             "--exog-future", exog_path, "--format", "json", "--quiet"],
+             "--exog", exog_path, "--format", "json", "--quiet"],
         )
         assert from_plan.exit_code == 0, from_plan.output
 

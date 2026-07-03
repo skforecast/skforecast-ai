@@ -149,6 +149,61 @@ result = assistant.forecast(
 
 The assistant's default estimator depends on how much data you have: smaller datasets favor a simpler, regularized model (`Ridge`) to avoid overfitting, while larger ones use gradient boosting (`LGBMRegressor`). If you override `estimator`, choose one suited to your dataset size; you can always compare options with [backtesting](backtesting.md). The full rule is described in [How it works & trust](how-it-works-and-trust.md).
 
+## Evaluate the model, or forecast the future
+
+`forecast()` runs in one of two modes, controlled by `test_size`:
+
+- **Prediction mode** (default): trains on all data and forecasts the future. `result.metrics` is `None`.
+- **Evaluation mode** (`test_size=...`): holds out the last part of the series, trains on the rest, predicts the held-out window, and reports metrics.
+
+```python
+# Evaluation: measure accuracy on a held-out test set
+evaluation = assistant.forecast(
+                 data        = data,
+                 target      = "y",
+                 date_column = "date",
+                 steps       = 12,
+                 test_size   = 0.2,   # last 20% of the series is the test set
+             )
+print(evaluation.metrics)
+
+# Prediction: retrain on everything and forecast the real future
+forecast = assistant.forecast(
+               data        = data,
+               target      = "y",
+               date_column = "date",
+               steps       = 12,
+           )
+print(forecast.predictions)
+```
+
+`test_size` accepts an `int` (last *N* observations), a `float` in `(0, 1)` (last fraction), or a date string / `Timestamp` (the first timestamp of the test set). For repeated, walk-forward evaluation, use [backtesting](backtesting.md).
+
+## Forecasting with exogenous variables
+
+Exogenous variables (predictors known alongside the target, e.g. calendar flags, weather, promotions) are detected automatically during profiling. How you supply them depends on the mode:
+
+- **Evaluation mode** (`test_size=...`): the future exogenous values are taken from the held-out test window, so you pass nothing extra.
+- **Prediction mode** (the default): the future is unknown, so you must provide exogenous values covering the forecast horizon via `exog`. The frame needs one row per forecast step, indexed by the future timestamps.
+
+```python
+# Prediction mode with exogenous variables
+future_exog = pd.DataFrame(
+    {"temperature": [...], "is_holiday": [...]},   # one row per future step
+    index=future_dates,                             # steps timestamps
+)
+
+result = assistant.forecast(
+             data        = data,
+             target      = "y",
+             date_column = "date",
+             steps       = 12,
+             exog        = future_exog,
+         )
+```
+
+If the data has exogenous columns and you call `forecast()` in prediction mode without `exog`, the assistant raises a clear error asking for the future values. Passing `exog` together with `test_size` is rejected, since evaluation takes its exogenous values from the split.
+
 ## Next steps
 
 - **[Backtesting & validation](backtesting.md)**: measure whether your override actually improved the forecast.
