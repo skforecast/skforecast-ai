@@ -60,6 +60,7 @@ from ._utils import (
     _validate_forecast_mode,
     _validate_max_window_size,
     _validate_task_input,
+    _validate_window_features,
     _warn_if_plan_overrides_ignored,
 )
 
@@ -255,12 +256,12 @@ class ForecastingAssistant:
         self,
         profile: ForecastingProfile,
         steps: int,
+        interval: list[float] | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[float] | None = None,
         lags: int | list[int] | None = None,
-        window_features: list[dict] | None = None,
+        window_features: list[dict[str, list[str] | int]] | None = None,
     ) -> ForecastPlan:
         """
         Build a detailed `ForecastPlan` from a `ForecastingProfile`.
@@ -276,6 +277,10 @@ class ForecastingAssistant:
             Output of `profile()`.
         steps : int
             Forecast horizon (number of steps ahead to predict).
+        interval : list of float, default None
+            Prediction interval quantiles as a two-element list
+            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
+            None, no prediction intervals are computed.
         forecaster : str, default None
             Explicit forecaster class name to override the profile
             recommendation. Must be in `profile.forecaster_candidates`.
@@ -287,16 +292,21 @@ class ForecastingAssistant:
             `{'n_estimators': 200, 'learning_rate': 0.05}`). Merged
             on top of built-in defaults (`random_state`, silencing
             flags). User values take precedence.
-        interval : list of float, default None
-            Prediction interval quantiles as a two-element list
-            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
-            None, no prediction intervals are computed.
         lags : int, list of int, default None
             Explicit lag configuration. If provided, bypasses the
             deterministic PACF-based lag selection.
         window_features : list of dict, default None
-            Explicit window features configuration. If provided, bypasses
-            the deterministic window feature selection.
+            Explicit window (rolling) features configuration. Each dict
+            must contain the keys `'stats'` (a list of rolling statistics)
+            and `'window_sizes'` (a scalar int applied to every stat in
+            that same dict), for example `[{'stats': ['mean', 'std'],
+            'window_sizes': 3}, {'stats': ['mean'], 'window_sizes': 24},
+            {'stats': ['mean'], 'window_sizes': 168}]`. To combine several
+            window sizes, add one dict per size. Allowed stats are
+            `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`,
+            `'ratio_min_max'`, `'coef_variation'`, and `'ewm'`. If
+            provided, bypasses the deterministic window feature selection.
+            deterministic window feature selection.
 
         Returns
         -------
@@ -348,6 +358,9 @@ class ForecastingAssistant:
             # Explicit lag/window overrides (manual or LLM-supplied) bypass the
             # deterministic PACF selection and its budget guard, so validate
             # them against the data budget before building the forecaster.
+            if window_features is not None:
+                _validate_window_features(window_features)
+
             if lags is not None or window_features is not None:
                 _validate_max_window_size(
                     lags              = lags,
@@ -520,7 +533,8 @@ class ForecastingAssistant:
         """
 
         allowed_keys = {
-            "forecaster", "estimator", "estimator_kwargs", "steps", "interval", "lags", "window_features"
+            "forecaster", "estimator", "estimator_kwargs", "steps", "interval", 
+            "lags", "window_features"
         }
         invalid_keys = set(overrides) - allowed_keys
         if invalid_keys:
@@ -556,6 +570,8 @@ class ForecastingAssistant:
                 # only for self.plan() to reject the explicit value afterwards.
                 explicit_lags = overrides.get("lags")
                 explicit_window_features = overrides.get("window_features")
+                if explicit_window_features is not None:
+                    _validate_window_features(explicit_window_features)
                 if explicit_lags is not None or explicit_window_features is not None:
                     _validate_max_window_size(
                         lags              = explicit_lags,
@@ -637,14 +653,14 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
+        exog: pd.DataFrame | None = None,
+        interval: list[float] | None = None,
+        test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[float] | None = None,
         lags: int | list[int] | None = None,
-        window_features: list[dict] | None = None,
-        test_size: int | float | str | pd.Timestamp | None = None,
-        exog: pd.DataFrame | None = None,
+        window_features: list[dict[str, list[str] | int]] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
     ) -> CodeGenerationResult:
@@ -680,26 +696,27 @@ class ForecastingAssistant:
         target : str, list of str, default None
             Name of the column to forecast. Required when `profile`
             is not provided, unless `data` is a pandas Series (the Series
-            name is used instead).
+            name is used instead). For wide-format multi-series, pass a
+            list of column names where each column is a series.
         date_column : str, default None
-            Name of the column containing timestamps.
+            Name of the column containing timestamps. When None, the
+            index of `data` is assumed to be a DatetimeIndex.
         series_id_column : str, default None
-            Name of the column identifying individual series.
-        forecaster : str, default None
-            Explicit forecaster class name. See `profile()`.
-        estimator : str, default None
-            Explicit estimator class name. See `profile()`.
-        estimator_kwargs : dict, default None
-            Keyword arguments for the estimator constructor (e.g.
-            `{'n_estimators': 200}`). See `plan()`.
+            Name of the column identifying individual series (long-format
+            multi-series input). When None, the data is treated as
+            single-series or wide-format multi-series.
+        exog : pandas DataFrame, default None
+            Future exogenous variables covering the forecast horizon.
+            Mirrors `forecast()` for signature consistency. Because this
+            method only generates code (the rendered prediction-mode
+            script loads the future values from `'exog_future.csv'` at run
+            time), `exog` is optional here and is used only to validate
+            the inputs: it must not be combined with `test_size`, and it
+            must not be supplied when the data has no exogenous columns.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
-            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
+            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
             None, no prediction intervals are computed.
-        lags : int, list of int, default None
-            Explicit lag configuration.
-        window_features : list of dict, default None
-            Explicit window features configuration.
         test_size : int, float, str, pandas Timestamp, default None
             Size or start of the test set, selecting the evaluation or
             prediction mode described above.
@@ -711,14 +728,39 @@ class ForecastingAssistant:
             set (the split boundary).
 
             When None (default), the method runs in prediction mode.
-        exog : pandas DataFrame, default None
-            Future exogenous variables covering the forecast horizon.
-            Mirrors `forecast()` for signature consistency. Because this
-            method only generates code (the rendered prediction-mode
-            script loads the future values from `'exog_future.csv'` at run
-            time), `exog` is optional here and is used only to validate
-            the inputs: it must not be combined with `test_size`, and it
-            must not be supplied when the data has no exogenous columns.
+        forecaster : str, default None
+            Explicit forecaster class name to use instead of the
+            recommended one (e.g. `'ForecasterRecursive'`,
+            `'ForecasterDirect'`, `'ForecasterRecursiveMultiSeries'`).
+            When None, the most suitable forecaster is selected
+            automatically from the characteristics of the data.
+        estimator : str, default None
+            Explicit regressor class name to use instead of the
+            recommended one (e.g. `'HistGradientBoostingRegressor'`,
+            `'LGBMRegressor'`). When None, a suitable estimator is
+            selected automatically based on the dataset size.
+        estimator_kwargs : dict, default None
+            Keyword arguments for the estimator constructor (e.g.
+            `{'n_estimators': 200, 'learning_rate': 0.05}`). Merged on
+            top of built-in defaults (`random_state` and silencing
+            flags), with user values taking precedence. When None, only
+            the built-in defaults are used.
+        lags : int, list of int, default None
+            Explicit lag configuration. An integer uses lags 1 to `lags`;
+            a list uses the specified lags. When None, lags are selected
+            automatically from the partial autocorrelation of the series.
+        window_features : list of dict, default None
+            Explicit window (rolling) features configuration. Each dict
+            must contain the keys `'stats'` (a list of rolling statistics)
+            and `'window_sizes'` (a scalar int applied to every stat in
+            that same dict), for example `[{'stats': ['mean', 'std'],
+            'window_sizes': 3}, {'stats': ['mean'], 'window_sizes': 24},
+            {'stats': ['mean'], 'window_sizes': 168}]`. To combine several
+            window sizes, add one dict per size. Allowed stats are
+            `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`,
+            `'ratio_min_max'`, `'coef_variation'`, and `'ewm'`. When None,
+            window features are selected automatically from the
+            characteristics of the data.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling. If None, profiling
             is performed from `data`.
@@ -807,14 +849,14 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
+        exog: pd.DataFrame | None = None,
+        interval: list[float] | None = None,
+        test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[float] | None = None,
         lags: int | list[int] | None = None,
-        window_features: list[dict] | None = None,
-        test_size: int | float | str | pd.Timestamp | None = None,
-        exog: pd.DataFrame | None = None,
+        window_features: list[dict[str, list[str] | int]] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
     ) -> ForecastResult:
@@ -847,26 +889,27 @@ class ForecastingAssistant:
             Forecast horizon (number of steps ahead to predict).
         target : str, list of str, default None
             Name of the column to forecast. Optional only when `data` is a
-            pandas Series (the Series name is used instead).
+            pandas Series (the Series name is used instead). For
+            wide-format multi-series, pass a list of column names where
+            each column is a series.
         date_column : str, default None
-            Name of the column containing timestamps.
+            Name of the column containing timestamps. When None, the
+            index of `data` is assumed to be a DatetimeIndex.
         series_id_column : str, default None
-            Name of the column identifying individual series.
-        forecaster : str, default None
-            Explicit forecaster class name. See `profile()`.
-        estimator : str, default None
-            Explicit estimator class name. See `profile()`.
-        estimator_kwargs : dict, default None
-            Keyword arguments for the estimator constructor (e.g.
-            `{'n_estimators': 200}`). See `plan()`.
+            Name of the column identifying individual series (long-format
+            multi-series input). When None, the data is treated as
+            single-series or wide-format multi-series.
+        exog : pandas DataFrame, default None
+            Future exogenous variables covering the forecast horizon
+            (at least `steps` rows). Used only in prediction mode
+            (`test_size=None`) and required there when the data contains
+            exogenous variables. Must not be combined with `test_size`:
+            in evaluation mode the test-set exogenous values are taken
+            from the split.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
-            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
+            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
             None, no prediction intervals are computed.
-        lags : int, list of int, default None
-            Explicit lag configuration.
-        window_features : list of dict, default None
-            Explicit window features configuration.
         test_size : int, float, str, pandas Timestamp, default None
             Size or start of the test set, selecting the evaluation or
             prediction mode described above.
@@ -878,13 +921,39 @@ class ForecastingAssistant:
             set (the split boundary).
 
             When None (default), the method runs in prediction mode.
-        exog : pandas DataFrame, default None
-            Future exogenous variables covering the forecast horizon
-            (at least `steps` rows). Used only in prediction mode
-            (`test_size=None`) and required there when the data contains
-            exogenous variables. Must not be combined with `test_size`:
-            in evaluation mode the test-set exogenous values are taken
-            from the split.
+        forecaster : str, default None
+            Explicit forecaster class name to use instead of the
+            recommended one (e.g. `'ForecasterRecursive'`,
+            `'ForecasterDirect'`, `'ForecasterRecursiveMultiSeries'`).
+            When None, the most suitable forecaster is selected
+            automatically from the characteristics of the data.
+        estimator : str, default None
+            Explicit regressor class name to use instead of the
+            recommended one (e.g. `'HistGradientBoostingRegressor'`,
+            `'LGBMRegressor'`). When None, a suitable estimator is
+            selected automatically based on the dataset size.
+        estimator_kwargs : dict, default None
+            Keyword arguments for the estimator constructor (e.g.
+            `{'n_estimators': 200, 'learning_rate': 0.05}`). Merged on
+            top of built-in defaults (`random_state` and silencing
+            flags), with user values taking precedence. When None, only
+            the built-in defaults are used.
+        lags : int, list of int, default None
+            Explicit lag configuration. An integer uses lags 1 to `lags`;
+            a list uses the specified lags. When None, lags are selected
+            automatically from the partial autocorrelation of the series.
+        window_features : list of dict, default None
+            Explicit window (rolling) features configuration. Each dict
+            must contain the keys `'stats'` (a list of rolling statistics)
+            and `'window_sizes'` (a scalar int applied to every stat in
+            that same dict), for example `[{'stats': ['mean', 'std'],
+            'window_sizes': 3}, {'stats': ['mean'], 'window_sizes': 24},
+            {'stats': ['mean'], 'window_sizes': 168}]`. To combine several
+            window sizes, add one dict per size. Allowed stats are
+            `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`,
+            `'ratio_min_max'`, `'coef_variation'`, and `'ewm'`. When None,
+            window features are selected automatically from the
+            characteristics of the data.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling. If None, profiling
             is performed from `data`.
@@ -1185,10 +1254,10 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
+        interval: list[float] | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[float] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
     ) -> CodeGenerationResult:
@@ -1209,19 +1278,37 @@ class ForecastingAssistant:
             `create_cv()` or user-constructed) [1]_.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
-            is a pandas Series (the Series name is used instead).
+            is a pandas Series (the Series name is used instead). For
+            wide-format multi-series, pass a list of column names where
+            each column is a series.
         date_column : str, default None
-            Name of the column containing timestamps.
+            Name of the column containing timestamps. When None, the
+            index of `data` is assumed to be a DatetimeIndex.
         series_id_column : str, default None
-            Name of the column identifying individual series.
-        forecaster : str, default None
-            Explicit forecaster class name. See `profile()`.
-        estimator : str, default None
-            Explicit estimator class name. See `profile()`.
-        estimator_kwargs : dict, default None
-            Keyword arguments for the estimator constructor.
+            Name of the column identifying individual series (long-format
+            multi-series input). When None, the data is treated as
+            single-series or wide-format multi-series.
         interval : list of float, default None
-            Prediction interval quantiles as `[lower, upper]`.
+            Prediction interval quantiles as a two-element list
+            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
+            None, no prediction intervals are computed.
+        forecaster : str, default None
+            Explicit forecaster class name to use instead of the
+            recommended one (e.g. `'ForecasterRecursive'`,
+            `'ForecasterDirect'`, `'ForecasterRecursiveMultiSeries'`).
+            When None, the most suitable forecaster is selected
+            automatically from the characteristics of the data.
+        estimator : str, default None
+            Explicit regressor class name to use instead of the
+            recommended one (e.g. `'HistGradientBoostingRegressor'`,
+            `'LGBMRegressor'`). When None, a suitable estimator is
+            selected automatically based on the dataset size.
+        estimator_kwargs : dict, default None
+            Keyword arguments for the estimator constructor (e.g.
+            `{'n_estimators': 200, 'learning_rate': 0.05}`). Merged on
+            top of built-in defaults (`random_state` and silencing
+            flags), with user values taking precedence. When None, only
+            the built-in defaults are used.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling.
         plan : ForecastPlan, default None
@@ -1231,6 +1318,13 @@ class ForecastingAssistant:
         -------
         result : CodeGenerationResult
             Forecasting profile, plan, and generated backtesting code.
+
+        Notes
+        -----
+        To customize `lags` or `window_features`, build the plan with
+        `plan()` (or `refine_plan()`) and pass it via `plan`, then build a
+        matching `cv` with `create_cv()`. This keeps the plan and the
+        cross-validation configuration consistent.
 
         References
         ----------
@@ -1270,10 +1364,10 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
+        interval: list[float] | None = None,
         forecaster: str | None = None,
         estimator: str | None = None,
         estimator_kwargs: dict | None = None,
-        interval: list[float] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
         show_progress: bool = True,
@@ -1296,19 +1390,37 @@ class ForecastingAssistant:
             or user-constructed) [1]_.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
-            is a pandas Series (the Series name is used instead).
+            is a pandas Series (the Series name is used instead). For
+            wide-format multi-series, pass a list of column names where
+            each column is a series.
         date_column : str, default None
-            Name of the column containing timestamps.
+            Name of the column containing timestamps. When None, the
+            index of `data` is assumed to be a DatetimeIndex.
         series_id_column : str, default None
-            Name of the column identifying individual series.
-        forecaster : str, default None
-            Explicit forecaster class name. See `profile()`.
-        estimator : str, default None
-            Explicit estimator class name. See `profile()`.
-        estimator_kwargs : dict, default None
-            Keyword arguments for the estimator constructor.
+            Name of the column identifying individual series (long-format
+            multi-series input). When None, the data is treated as
+            single-series or wide-format multi-series.
         interval : list of float, default None
-            Prediction interval quantiles as `[lower, upper]`.
+            Prediction interval quantiles as a two-element list
+            `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
+            None, no prediction intervals are computed.
+        forecaster : str, default None
+            Explicit forecaster class name to use instead of the
+            recommended one (e.g. `'ForecasterRecursive'`,
+            `'ForecasterDirect'`, `'ForecasterRecursiveMultiSeries'`).
+            When None, the most suitable forecaster is selected
+            automatically from the characteristics of the data.
+        estimator : str, default None
+            Explicit regressor class name to use instead of the
+            recommended one (e.g. `'HistGradientBoostingRegressor'`,
+            `'LGBMRegressor'`). When None, a suitable estimator is
+            selected automatically based on the dataset size.
+        estimator_kwargs : dict, default None
+            Keyword arguments for the estimator constructor (e.g.
+            `{'n_estimators': 200, 'learning_rate': 0.05}`). Merged on
+            top of built-in defaults (`random_state` and silencing
+            flags), with user values taking precedence. When None, only
+            the built-in defaults are used.
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling.
         plan : ForecastPlan, default None
@@ -1328,6 +1440,11 @@ class ForecastingAssistant:
         uses them. Exogenous variables are extracted automatically from
         `profile.data_profile.exog_columns`.
 
+        To customize `lags` or `window_features`, build the plan with
+        `plan()` (or `refine_plan()`) and pass it via `plan`, then build a
+        matching `cv` with `create_cv()`. This keeps the plan and the
+        cross-validation configuration consistent.
+
         References
         ----------
         [1] Skforecast `TimeSeriesFold` API Reference:
@@ -1343,10 +1460,10 @@ class ForecastingAssistant:
             cv               = cv,
             date_column      = date_column,
             series_id_column = series_id_column,
+            interval         = interval,
             forecaster       = forecaster,
             estimator        = estimator,
             estimator_kwargs = estimator_kwargs,
-            interval         = interval,
             profile          = profile,
             plan             = plan,
         )
@@ -1632,14 +1749,12 @@ class ForecastingAssistant:
         target: str | list[str] | None,
         date_column: str | None,
         series_id_column: str | None,
+        interval: list[float] | None,
         forecaster: str | None,
         estimator: str | None,
         estimator_kwargs: dict | None,
-        interval: list[float] | None,
         profile: ForecastingProfile | None,
         plan: ForecastPlan | None,
-        lags: int | list[int] | None = None,
-        window_features: list[dict] | None = None,
     ) -> tuple[ForecastingProfile, ForecastPlan]:
         """
         Resolve profile and plan for backtesting workflows.
@@ -1662,22 +1777,18 @@ class ForecastingAssistant:
             Name of the column containing timestamps.
         series_id_column : str, None
             Name of the column identifying individual series.
+        interval : list of float, None
+            Prediction interval quantiles.
         forecaster : str, None
             Explicit forecaster class name override.
         estimator : str, None
             Explicit estimator class name override.
         estimator_kwargs : dict, None
             Keyword arguments for the estimator constructor.
-        interval : list of float, None
-            Prediction interval quantiles.
         profile : ForecastingProfile, None
             Pre-computed profile.
         plan : ForecastPlan, None
             Pre-computed plan.
-        lags : int, list of int, default None
-            Explicit lag configuration.
-        window_features : list of dict, default None
-            Explicit window features configuration.
 
         Returns
         -------
@@ -1714,8 +1825,6 @@ class ForecastingAssistant:
                 estimator        = estimator,
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
-                lags             = lags,
-                window_features  = window_features,
             )
         else:
             if cv.steps != plan.steps:
@@ -1833,7 +1942,13 @@ class ForecastingAssistant:
             The LLM-suggested lags, or None on failure.
         window_features : list of dict, None
             The LLM-suggested window features as plain dicts, or None on
-            failure.
+            failure. Each dict contains the keys `'stats'` (a list of
+            rolling statistics) and `'window_sizes'` (a scalar int applied
+            to every stat in that same dict), for example `[{'stats':
+            ['mean', 'std'], 'window_sizes': 3}, {'stats': ['mean'],
+            'window_sizes': 24}]`. Allowed stats are `'mean'`, `'std'`,
+            `'min'`, `'max'`, `'sum'`, `'median'`, `'ratio_min_max'`,
+            `'coef_variation'`, and `'ewm'`.
         reasoning : str, None
             The LLM's explanation on success, or None on failure.
         """

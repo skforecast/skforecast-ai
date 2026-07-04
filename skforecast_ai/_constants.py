@@ -78,3 +78,18 @@ NAN_TOLERANT_ESTIMATORS: set[str] = {
     "XGBRegressor",
     "HistGradientBoostingRegressor",
 }
+
+# Rolling statistics supported by skforecast's `RollingFeatures`. Explicit
+# `window_features` overrides (manual, CLI, or LLM-supplied) are validated
+# against this set.
+ALLOWED_WINDOW_STATS: set[str] = {
+    "mean",
+    "std",
+    "min",
+    "max",
+    "sum",
+    "median",
+    "ratio_min_max",
+    "coef_variation",
+    "ewm",
+}

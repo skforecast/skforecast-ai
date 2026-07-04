@@ -124,14 +124,20 @@ class WindowFeature(BaseModel):
     ----------
     stats : list of str
         Rolling statistics to compute (e.g. `['mean', 'std']`).
-    window_sizes : int, list of int
-        Rolling window length(s) in observations.
+    window_sizes : int
+        Rolling window length in observations, applied to every statistic
+        in `stats`. Must be a scalar; to combine several window sizes, use
+        one `WindowFeature` per size.
     """
     stats: list[str] = Field(
         description="Rolling statistics to compute, e.g. ['mean', 'std', 'min', 'max'].",
     )
-    window_sizes: int | list[int] = Field(
-        description="Rolling window length(s) in observations, e.g. 7 or [7, 14].",
+    window_sizes: int = Field(
+        description=(
+            "Rolling window length in observations, e.g. 7. Scalar only: it "
+            "is applied to every statistic in `stats`. Use one entry per "
+            "window size to combine several sizes."
+        ),
     )
 
 
