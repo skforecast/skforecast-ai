@@ -53,7 +53,8 @@ TARBALL_SKILLS_PREFIX = "skills/"
 # Helpers
 # ---------------------------------------------------------------------------
 def _resolve_branch(branch: str) -> str:
-    """Resolve branch name. If 'auto', derive from pyproject.toml.
+    """
+    Resolve branch name. If 'auto', derive from pyproject.toml.
 
     Parses the skforecast dependency spec (e.g. 'skforecast>=0.22,<0.23')
     and returns the branch pattern '{major}.{minor}.x' (e.g. '0.22.x').
@@ -108,7 +109,8 @@ def _download(url: str, branch: str) -> bytes:
 def _extract_from_tarball(
     data: bytes,
 ) -> tuple[bytes | None, dict[str, bytes]]:
-    """Extract llms-base.txt and skills from tarball bytes.
+    """
+    Extract llms-base.txt and skills from tarball bytes.
 
     Returns
     -------

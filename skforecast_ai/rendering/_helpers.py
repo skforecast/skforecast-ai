@@ -280,7 +280,7 @@ def _emit_window_features(lines: list[str], window_features: list[dict]) -> None
     all_window_sizes: list[int] = []
     for wf in window_features:
         stats = wf.get("stats", [])
-        window_size = wf.get("window_sizes")
+        window_size = wf.get("window_size")
         for stat in stats:
             all_stats.append(stat)
             all_window_sizes.append(window_size)

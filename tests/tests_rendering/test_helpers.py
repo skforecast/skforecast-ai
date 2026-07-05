@@ -300,7 +300,7 @@ def test_emit_window_features_output_when_features_provided():
     """
     # Non-empty window features
     lines: list[str] = []
-    window_features = [{"stats": ["mean", "std"], "window_sizes": 7}]
+    window_features = [{"stats": ["mean", "std"], "window_size": 7}]
     _emit_window_features(lines, window_features)
     expected = [
         "window_features = RollingFeatures(",

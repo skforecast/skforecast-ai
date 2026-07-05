@@ -429,10 +429,10 @@ def test_autoregressive_window_features_std_only_on_shortest_window():
     )
 
     assert wf is not None
-    windows = [config["window_sizes"] for config in wf]
+    windows = [config["window_size"] for config in wf]
     shortest = min(windows)
     for config in wf:
-        if config["window_sizes"] == shortest:
+        if config["window_size"] == shortest:
             assert "std" in config["stats"]
         else:
             assert config["stats"] == ["mean"]
@@ -468,7 +468,7 @@ def test_autoregressive_output_window_features_for_daily():
     )
 
     assert wf is not None
-    windows = [c["window_sizes"] for c in wf]
+    windows = [c["window_size"] for c in wf]
     assert 3 in windows
     assert 7 in windows
     assert 21 in windows
@@ -486,7 +486,7 @@ def test_autoregressive_output_window_features_for_hourly():
     )
 
     assert wf is not None
-    windows = [c["window_sizes"] for c in wf]
+    windows = [c["window_size"] for c in wf]
     # Multi-scale ladder: short, primary season, secondary season.
     assert 3 in windows
     assert 24 in windows
@@ -495,7 +495,7 @@ def test_autoregressive_output_window_features_for_hourly():
     # roll_std only on the shortest window (24); others keep mean only.
     shortest = min(windows)
     for config in wf:
-        if config["window_sizes"] == shortest:
+        if config["window_size"] == shortest:
             assert "std" in config["stats"]
         else:
             assert config["stats"] == ["mean"]
@@ -512,7 +512,7 @@ def test_autoregressive_output_window_features_monthly():
     )
 
     assert wf is not None
-    windows = [c["window_sizes"] for c in wf]
+    windows = [c["window_size"] for c in wf]
     assert 3 in windows
     assert 12 in windows
 
@@ -528,7 +528,7 @@ def test_autoregressive_output_window_features_none_frequency():
     )
 
     assert wf is not None
-    windows = [c["window_sizes"] for c in wf]
+    windows = [c["window_size"] for c in wf]
     assert 3 in windows
     assert 7 in windows
 
@@ -547,7 +547,7 @@ def test_autoregressive_output_window_features_capped_by_data_size():
     assert wf is not None
     max_window = int(60 * 0.33)
     for config in wf:
-        assert config["window_sizes"] <= max_window
+        assert config["window_size"] <= max_window
 
 
 def test_autoregressive_output_no_long_window_when_equals_short():
@@ -564,7 +564,7 @@ def test_autoregressive_output_no_long_window_when_equals_short():
     )
 
     assert wf is not None
-    windows = [config["window_sizes"] for config in wf]
+    windows = [config["window_size"] for config in wf]
     # Short window (3) + the seasonal period (12); trend multiples (24, 36)
     # exceed the 19-observation budget and are omitted.
     assert windows == [3, 12]
@@ -586,7 +586,7 @@ def test_autoregressive_output_window_features_minutely():
     )
 
     assert wf is not None
-    windows = [config["window_sizes"] for config in wf]
+    windows = [config["window_size"] for config in wf]
     assert 60 in windows
     max_window = int(1000 * 0.33)
     for w in windows:
@@ -605,7 +605,7 @@ def test_autoregressive_output_window_features_yearly_generic():
     )
 
     assert wf is not None
-    windows = [config["window_sizes"] for config in wf]
+    windows = [config["window_size"] for config in wf]
     assert 7 in windows
     for w in windows:
         assert w >= 3

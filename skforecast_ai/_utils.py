@@ -33,7 +33,7 @@ def _max_window_size(
         Explicit lag override. An int is interpreted as consecutive lags
         `1..lags`, so its span equals the int itself.
     window_features : list of dict, None
-        Explicit window features override. Each dict carries `window_sizes`
+        Explicit window features override. Each dict carries `window_size`
         as a scalar int (a list is tolerated defensively).
 
     Returns
@@ -49,7 +49,7 @@ def _max_window_size(
     for wf in window_features or []:
         if not isinstance(wf, dict):
             continue
-        sizes = wf.get("window_sizes")
+        sizes = wf.get("window_size")
         if isinstance(sizes, int):
             spans.append(sizes)
         elif isinstance(sizes, (list, tuple)) and sizes:
@@ -79,7 +79,7 @@ def _validate_max_window_size(
         Explicit lag override. An int is interpreted as consecutive lags
         `1..lags`, so its span equals the int itself.
     window_features : list of dict, None
-        Explicit window features override. Each dict carries `window_sizes`
+        Explicit window features override. Each dict carries `window_size`
         as a scalar int (a list is tolerated defensively).
     span_index_length : int
         Number of observations spanned by the series index.
@@ -105,7 +105,7 @@ def _validate_window_features(window_features: list[dict] | None) -> None:
     Validate the structure of an explicit `window_features` override.
 
     Each entry must be a dict with a `'stats'` key (a non-empty list whose
-    members are all in `ALLOWED_WINDOW_STATS`) and a `'window_sizes'` key
+    members are all in `ALLOWED_WINDOW_STATS`) and a `'window_size'` key
     holding a scalar positive int. A scalar is required because the code
     generator pairs every statistic in an entry with that entry's single
     window size; a list would be emitted as a nested list and rejected by
@@ -135,15 +135,15 @@ def _validate_window_features(window_features: list[dict] | None) -> None:
         if not isinstance(wf, dict):
             raise ValueError(
                 f"`window_features[{i}]` must be a dict with keys 'stats' "
-                f"and 'window_sizes', got {type(wf).__name__}."
+                f"and 'window_size', got {type(wf).__name__}."
             )
 
-        missing = {"stats", "window_sizes"} - wf.keys()
+        missing = {"stats", "window_size"} - wf.keys()
         if missing:
             raise ValueError(
                 f"`window_features[{i}]` is missing required key(s): "
                 f"{sorted(missing)}. Each entry must have 'stats' and "
-                f"'window_sizes'."
+                f"'window_size'."
             )
 
         stats = wf["stats"]
@@ -160,20 +160,20 @@ def _validate_window_features(window_features: list[dict] | None) -> None:
                 f"{sorted(ALLOWED_WINDOW_STATS)}."
             )
 
-        window_sizes = wf["window_sizes"]
+        window_size = wf["window_size"]
         # `bool` is a subclass of `int`; reject it explicitly.
-        if not isinstance(window_sizes, int) or isinstance(window_sizes, bool):
+        if not isinstance(window_size, int) or isinstance(window_size, bool):
             raise ValueError(
-                f"`window_features[{i}]['window_sizes']` must be a scalar "
-                f"int, got {window_sizes!r}. Within a single entry 'stats' "
-                f"may be a list but 'window_sizes' must be a scalar applied "
+                f"`window_features[{i}]['window_size']` must be a scalar "
+                f"int, got {window_size!r}. Within a single entry 'stats' "
+                f"may be a list but 'window_size' must be a scalar applied "
                 f"to all of them; add one entry per window size to use "
                 f"several sizes."
             )
-        if window_sizes < 1:
+        if window_size < 1:
             raise ValueError(
-                f"`window_features[{i}]['window_sizes']` must be a positive "
-                f"int, got {window_sizes}."
+                f"`window_features[{i}]['window_size']` must be a positive "
+                f"int, got {window_size}."
             )
 
 

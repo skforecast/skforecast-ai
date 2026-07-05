@@ -531,7 +531,7 @@ def select_window_features(
     -------
     window_features : list of dict, None
         List of window feature configurations (dicts with keys
-        `'stats'` and `'window_sizes'`) suitable for constructing
+        `'stats'` and `'window_size'`) suitable for constructing
         `RollingFeatures` instances. Returns None when the series is too
         short to benefit from rolling statistics, or if the chosen model
         does not support them.
@@ -629,7 +629,7 @@ def select_window_features(
     wf_configs = [
         {
             "stats": ["mean", "std"] if w == shortest else ["mean"],
-            "window_sizes": w,
+            "window_size": w,
         }
         for w in windows
     ]

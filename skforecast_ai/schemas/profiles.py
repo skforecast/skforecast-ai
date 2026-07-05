@@ -275,7 +275,7 @@ class ForecastingProfile(DisplayMixin, BaseModel):
         primitives for the chosen forecaster.
     window_features : list of dict, default None
         Window feature configurations (dicts with keys `'stats'` and
-        `'window_sizes'`). Computed eagerly at profile time as they are
+        `'window_size'`). Computed eagerly at profile time as they are
         forecaster-invariant. None when the series is too short or the
         task is statistical/foundation.
     calendar_features : list of str, default None

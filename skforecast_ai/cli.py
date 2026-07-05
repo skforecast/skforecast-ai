@@ -648,7 +648,7 @@ def _parse_window_features(wf_str: str | None) -> list[dict] | None:
     if not isinstance(parsed, list) or not all(isinstance(x, dict) for x in parsed):
         raise typer.BadParameter(
             "--window-features must be a JSON array of objects, "
-            "e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'."
+            "e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'."
         )
     return parsed
 
@@ -665,7 +665,7 @@ def plan(
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
-    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
     from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -728,7 +728,7 @@ def refine_plan(
     steps: Annotated[int | None, typer.Option("--steps", help="Override forecast horizon.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '0.1,0.9'.")] = None,
     lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
-    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
     prompt: Annotated[str | None, typer.Option("--prompt", help="Natural language domain knowledge to guide LLM plan refinement.")] = None,
     llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for plan refinement.")] = None,
     base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
@@ -802,7 +802,7 @@ def forecast_code(
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
-    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -866,7 +866,7 @@ def backtest_code(
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
-    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_sizes\": 7}]'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
     initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
     fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
     refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,

@@ -371,12 +371,12 @@ def test_validate_task_input_passes_when_valid():
     "window_features",
     [
         None,
-        [{"stats": ["mean"], "window_sizes": 7}],
-        [{"stats": ["mean", "std"], "window_sizes": 3}],
+        [{"stats": ["mean"], "window_size": 7}],
+        [{"stats": ["mean", "std"], "window_size": 3}],
         [
-            {"stats": ["mean", "std"], "window_sizes": 3},
-            {"stats": ["mean"], "window_sizes": 24},
-            {"stats": ["ratio_min_max", "coef_variation", "ewm"], "window_sizes": 168},
+            {"stats": ["mean", "std"], "window_size": 3},
+            {"stats": ["mean"], "window_size": 24},
+            {"stats": ["ratio_min_max", "coef_variation", "ewm"], "window_size": 168},
         ],
     ],
     ids=lambda wf: f"window_features: {wf}",
@@ -392,23 +392,23 @@ def test_validate_window_features_passes_when_valid(window_features):
 @pytest.mark.parametrize(
     "window_features, match",
     [
-        ({"stats": ["mean"], "window_sizes": 7}, "must be a list of dicts"),
+        ({"stats": ["mean"], "window_size": 7}, "must be a list of dicts"),
         ([["mean", 7]], "must be a dict"),
         ([{"stats": ["mean"]}], "missing required key"),
-        ([{"window_sizes": 7}], "missing required key"),
-        ([{"stats": "mean", "window_sizes": 7}], "non-empty list"),
-        ([{"stats": [], "window_sizes": 7}], "non-empty list"),
-        ([{"stats": ["mean", "variance"], "window_sizes": 7}], "unsupported"),
-        ([{"stats": ["mean"], "window_sizes": [3, 7]}], "must be a scalar int"),
-        ([{"stats": ["mean"], "window_sizes": 7.0}], "must be a scalar int"),
-        ([{"stats": ["mean"], "window_sizes": True}], "must be a scalar int"),
-        ([{"stats": ["mean"], "window_sizes": 0}], "must be a positive int"),
+        ([{"window_size": 7}], "missing required key"),
+        ([{"stats": "mean", "window_size": 7}], "non-empty list"),
+        ([{"stats": [], "window_size": 7}], "non-empty list"),
+        ([{"stats": ["mean", "variance"], "window_size": 7}], "unsupported"),
+        ([{"stats": ["mean"], "window_size": [3, 7]}], "must be a scalar int"),
+        ([{"stats": ["mean"], "window_size": 7.0}], "must be a scalar int"),
+        ([{"stats": ["mean"], "window_size": True}], "must be a scalar int"),
+        ([{"stats": ["mean"], "window_size": 0}], "must be a positive int"),
     ],
 )
 def test_validate_window_features_raises_when_invalid(window_features, match):
     """
     Test that malformed window_features (wrong container, missing keys,
-    unsupported stats, or non-scalar/invalid window_sizes) raise ValueError.
+    unsupported stats, or non-scalar/invalid window_size) raise ValueError.
     """
     with pytest.raises(ValueError, match=match):
         _validate_window_features(window_features)

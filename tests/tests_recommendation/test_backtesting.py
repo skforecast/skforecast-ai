@@ -38,7 +38,7 @@ def test_compute_min_train_size_output_when_lags_list():
 
 def test_compute_min_train_size_output_when_window_features_int_dominate_lags():
     """
-    Test that an integer window_sizes larger than max_lag drives the
+    Test that an integer window_size larger than max_lag drives the
     effective window, so min train size is max_window + steps.
     """
     plan = _make_plan(
@@ -46,7 +46,7 @@ def test_compute_min_train_size_output_when_window_features_int_dominate_lags():
         steps=10,
         forecaster_kwargs={
             "lags": 7,
-            "window_features": [{"stats": ["mean"], "window_sizes": 30}],
+            "window_features": [{"stats": ["mean"], "window_size": 30}],
         },
     )
 
@@ -55,7 +55,7 @@ def test_compute_min_train_size_output_when_window_features_int_dominate_lags():
 
 def test_compute_min_train_size_output_when_window_features_list_sizes():
     """
-    Test that a list of window_sizes uses its maximum value when
+    Test that a list of window_size uses its maximum value when
     computing the effective window.
     """
     plan = _make_plan(
@@ -63,7 +63,7 @@ def test_compute_min_train_size_output_when_window_features_list_sizes():
         steps=10,
         forecaster_kwargs={
             "lags": 5,
-            "window_features": [{"stats": ["mean"], "window_sizes": [3, 14]}],
+            "window_features": [{"stats": ["mean"], "window_size": [3, 14]}],
         },
     )
 

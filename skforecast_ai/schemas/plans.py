@@ -124,7 +124,7 @@ class WindowFeature(BaseModel):
     ----------
     stats : list of str
         Rolling statistics to compute (e.g. `['mean', 'std']`).
-    window_sizes : int
+    window_size : int
         Rolling window length in observations, applied to every statistic
         in `stats`. Must be a scalar; to combine several window sizes, use
         one `WindowFeature` per size.
@@ -132,7 +132,7 @@ class WindowFeature(BaseModel):
     stats: list[str] = Field(
         description="Rolling statistics to compute, e.g. ['mean', 'std', 'min', 'max'].",
     )
-    window_sizes: int = Field(
+    window_size: int = Field(
         description=(
             "Rolling window length in observations, e.g. 7. Scalar only: it "
             "is applied to every statistic in `stats`. Use one entry per "
@@ -161,7 +161,7 @@ class PlanOverrides(BaseModel):
     )
     window_features: list[WindowFeature] | None = Field(
         default=None,
-        description="The window features configurations to use. E.g. [{'stats': ['mean', 'std'], 'window_sizes': 7}].",
+        description="The window features configurations to use. E.g. [{'stats': ['mean', 'std'], 'window_size': 7}].",
     )
     reasoning: str = Field(
         description="Explanation of why these specific features (lags and window features) were chosen based on the user's prompt and time series context.",

@@ -166,7 +166,7 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
         wf = plan.forecaster_kwargs.get("window_features")
         if isinstance(wf, list):
             for entry in wf:
-                ws = entry.get("window_sizes")
+                ws = entry.get("window_size")
                 if isinstance(ws, int):
                     max_window = max(max_window, ws)
                 elif isinstance(ws, list):

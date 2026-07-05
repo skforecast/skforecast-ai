@@ -90,7 +90,7 @@ def test_refine_plan_prompt_success(monkeypatch):
 
     overrides = PlanOverrides(
         lags=[1, 2, 7],
-        window_features=[WindowFeature(stats=["mean"], window_sizes=7)],
+        window_features=[WindowFeature(stats=["mean"], window_size=7)],
         reasoning="Weekly seasonality drives the 7-lag and 7-window choice.",
     )
     agent, call_count = _make_fake_agent([overrides])
@@ -101,7 +101,7 @@ def test_refine_plan_prompt_success(monkeypatch):
 
     assert refined.forecaster_kwargs["lags"] == [1, 2, 7]
     assert refined.forecaster_kwargs["window_features"] == [
-        {"stats": ["mean"], "window_sizes": 7}
+        {"stats": ["mean"], "window_size": 7}
     ]
     assert "Weekly seasonality drives" in refined.explanation
     assert "LLM Refinement Reasoning" in refined.explanation
@@ -124,7 +124,7 @@ def test_refine_plan_prompt_explicit_lags_shadow_llm(monkeypatch):
 
     overrides = PlanOverrides(
         lags=[1, 2, 7],
-        window_features=[WindowFeature(stats=["mean"], window_sizes=7)],
+        window_features=[WindowFeature(stats=["mean"], window_size=7)],
         reasoning="Weekly seasonality.",
     )
     agent, call_count = _make_fake_agent([overrides])
@@ -140,7 +140,7 @@ def test_refine_plan_prompt_explicit_lags_shadow_llm(monkeypatch):
     # Explicit lags win; LLM window_features are applied.
     assert refined.forecaster_kwargs["lags"] == [3, 4, 5]
     assert refined.forecaster_kwargs["window_features"] == [
-        {"stats": ["mean"], "window_sizes": 7}
+        {"stats": ["mean"], "window_size": 7}
     ]
     assert call_count["n"] == 1
     shadow = [x for x in w if "Explicit lags override shadowed" in str(x.message)]
@@ -163,14 +163,14 @@ def test_refine_plan_prompt_explicit_window_features_shadow_llm(monkeypatch):
 
     overrides = PlanOverrides(
         lags=[1, 2, 7],
-        window_features=[WindowFeature(stats=["mean"], window_sizes=7)],
+        window_features=[WindowFeature(stats=["mean"], window_size=7)],
         reasoning="Weekly seasonality.",
     )
     agent, call_count = _make_fake_agent([overrides])
     monkeypatch.setattr(assistant, "_plan_refinement_agent", agent)
     monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
 
-    explicit_wf = [{"stats": ["std"], "window_sizes": 3}]
+    explicit_wf = [{"stats": ["std"], "window_size": 3}]
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         refined = assistant.refine_plan(
@@ -212,7 +212,7 @@ def test_refine_plan_prompt_ignored_when_both_lags_and_wf_explicit(monkeypatch):
     monkeypatch.setattr(assistant, "_plan_refinement_agent", agent)
     monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
 
-    explicit_wf = [{"stats": ["std"], "window_sizes": 3}]
+    explicit_wf = [{"stats": ["std"], "window_size": 3}]
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         refined = assistant.refine_plan(
@@ -252,7 +252,7 @@ def test_refine_plan_prompt_no_shadow_warning_when_llm_field_absent(monkeypatch)
     monkeypatch.setattr(assistant, "_plan_refinement_agent", agent)
     monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
 
-    explicit_wf = [{"stats": ["std"], "window_sizes": 3}]
+    explicit_wf = [{"stats": ["std"], "window_size": 3}]
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         refined = assistant.refine_plan(
@@ -287,7 +287,7 @@ def test_refine_plan_prompt_preserves_existing_lags_when_llm_omits_them(monkeypa
     # LLM suggests only window_features; it returns no lags.
     overrides = PlanOverrides(
         lags=None,
-        window_features=[WindowFeature(stats=["mean"], window_sizes=7)],
+        window_features=[WindowFeature(stats=["mean"], window_size=7)],
         reasoning="Only a rolling mean is needed.",
     )
     agent, call_count = _make_fake_agent([overrides])
@@ -299,7 +299,7 @@ def test_refine_plan_prompt_preserves_existing_lags_when_llm_omits_them(monkeypa
     # Existing lags preserved; LLM window_features applied.
     assert refined.forecaster_kwargs["lags"] == [1, 5, 9]
     assert refined.forecaster_kwargs["window_features"] == [
-        {"stats": ["mean"], "window_sizes": 7}
+        {"stats": ["mean"], "window_size": 7}
     ]
     assert "Only a rolling mean is needed." in refined.explanation
     assert call_count["n"] == 1

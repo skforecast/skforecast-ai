@@ -298,10 +298,10 @@ class ForecastingAssistant:
         window_features : list of dict, default None
             Explicit window (rolling) features configuration. Each dict
             must contain the keys `'stats'` (a list of rolling statistics)
-            and `'window_sizes'` (a scalar int applied to every stat in
+            and `'window_size'` (a scalar int applied to every stat in
             that same dict), for example `[{'stats': ['mean', 'std'],
-            'window_sizes': 3}, {'stats': ['mean'], 'window_sizes': 24},
-            {'stats': ['mean'], 'window_sizes': 168}]`. To combine several
+            'window_size': 3}, {'stats': ['mean'], 'window_size': 24},
+            {'stats': ['mean'], 'window_size': 168}]`. To combine several
             window sizes, add one dict per size. Allowed stats are
             `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`,
             `'ratio_min_max'`, `'coef_variation'`, and `'ewm'`. If
@@ -752,10 +752,10 @@ class ForecastingAssistant:
         window_features : list of dict, default None
             Explicit window (rolling) features configuration. Each dict
             must contain the keys `'stats'` (a list of rolling statistics)
-            and `'window_sizes'` (a scalar int applied to every stat in
+            and `'window_size'` (a scalar int applied to every stat in
             that same dict), for example `[{'stats': ['mean', 'std'],
-            'window_sizes': 3}, {'stats': ['mean'], 'window_sizes': 24},
-            {'stats': ['mean'], 'window_sizes': 168}]`. To combine several
+            'window_size': 3}, {'stats': ['mean'], 'window_size': 24},
+            {'stats': ['mean'], 'window_size': 168}]`. To combine several
             window sizes, add one dict per size. Allowed stats are
             `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`,
             `'ratio_min_max'`, `'coef_variation'`, and `'ewm'`. When None,
@@ -945,10 +945,10 @@ class ForecastingAssistant:
         window_features : list of dict, default None
             Explicit window (rolling) features configuration. Each dict
             must contain the keys `'stats'` (a list of rolling statistics)
-            and `'window_sizes'` (a scalar int applied to every stat in
+            and `'window_size'` (a scalar int applied to every stat in
             that same dict), for example `[{'stats': ['mean', 'std'],
-            'window_sizes': 3}, {'stats': ['mean'], 'window_sizes': 24},
-            {'stats': ['mean'], 'window_sizes': 168}]`. To combine several
+            'window_size': 3}, {'stats': ['mean'], 'window_size': 24},
+            {'stats': ['mean'], 'window_size': 168}]`. To combine several
             window sizes, add one dict per size. Allowed stats are
             `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`,
             `'ratio_min_max'`, `'coef_variation'`, and `'ewm'`. When None,
@@ -1943,10 +1943,10 @@ class ForecastingAssistant:
         window_features : list of dict, None
             The LLM-suggested window features as plain dicts, or None on
             failure. Each dict contains the keys `'stats'` (a list of
-            rolling statistics) and `'window_sizes'` (a scalar int applied
+            rolling statistics) and `'window_size'` (a scalar int applied
             to every stat in that same dict), for example `[{'stats':
-            ['mean', 'std'], 'window_sizes': 3}, {'stats': ['mean'],
-            'window_sizes': 24}]`. Allowed stats are `'mean'`, `'std'`,
+            ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'],
+            'window_size': 24}]`. Allowed stats are `'mean'`, `'std'`,
             `'min'`, `'max'`, `'sum'`, `'median'`, `'ratio_min_max'`,
             `'coef_variation'`, and `'ewm'`.
         reasoning : str, None

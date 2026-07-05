@@ -205,7 +205,7 @@ plan_single_with_window_features = ForecastPlan(
     forecaster="ForecasterRecursive",
     forecaster_kwargs={
         "lags": 7,
-        "window_features": [{"stats": ["mean", "std"], "window_sizes": 7}],
+        "window_features": [{"stats": ["mean", "std"], "window_size": 7}],
     },
     estimator="LGBMRegressor",
     estimator_kwargs={},
@@ -291,7 +291,7 @@ plan_multi_series_with_window_features = ForecastPlan(
     forecaster_kwargs={
         "lags": 7,
         "encoding": "ordinal",
-        "window_features": [{"stats": ["mean"], "window_sizes": 7}],
+        "window_features": [{"stats": ["mean"], "window_size": 7}],
     },
     estimator="LGBMRegressor",
     estimator_kwargs={},

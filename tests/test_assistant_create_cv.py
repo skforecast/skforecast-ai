@@ -310,7 +310,7 @@ def test_create_cv_output_when_floor_by_window_features():
     # Window features with window_size = 60 → effective window = 60
     plan.forecaster_kwargs["lags"] = 10
     plan.forecaster_kwargs["window_features"] = [
-        {"stats": ["mean"], "window_sizes": 60}
+        {"stats": ["mean"], "window_size": 60}
     ]
 
     cv, _ = assistant.create_cv(profile, plan)

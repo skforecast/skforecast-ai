@@ -64,7 +64,7 @@ def build_plan_explanation(
         descriptions: list[str] = []
         if isinstance(window_features, list):
             for wf in window_features:
-                ws = wf.get("window_sizes")
+                ws = wf.get("window_size")
                 for stat in wf.get("stats", []):
                     descriptions.append(f"{stat}(window={ws})")
         if descriptions:

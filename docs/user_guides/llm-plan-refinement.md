@@ -112,7 +112,7 @@ plan = assistant.plan(
     profile=profile, 
     steps=14, 
     lags=[1, 7, 14], 
-    window_features=[{'stats': ['mean', 'std'], 'window_sizes': 7}]
+    window_features=[{'stats': ['mean', 'std'], 'window_size': 7}]
 )
 
 # Or refining an existing plan
@@ -127,7 +127,7 @@ refined_plan = assistant.refine_plan(
 ```bash
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 \
   --lags "1,2,3,12" \
-  --window-features '[{"stats": ["mean"], "window_sizes": 6}]'
+  --window-features '[{"stats": ["mean"], "window_size": 6}]'
 ```
 
 Manual overrides are still checked against the same data budget as the
