@@ -46,6 +46,8 @@ dependencies = [
     "skforecast>=0.23",
     "typer>=0.22",
     "rich>=13.9",
+    "tomli>=2.0; python_version < '3.11'",
+    "statsmodels>=0.13, <0.15",
 ]
 
 [project.optional-dependencies]
@@ -80,7 +82,9 @@ test = [
     "pytest>=9",
     "pytest-cov>=7",
     "pytest-xdist>=3.8",
+    "pydantic-ai>=2,<3",
     "lightgbm>=4.0,<5.0",
+    "statsmodels>=0.13, <0.15",
 ]
 
 dev = [
