@@ -15,6 +15,8 @@ from tests.fixtures_assistant import (
     df_multi_wide,
     df_with_missing,
     df_constant_target,
+    series_single,
+    series_unnamed,
 )
 
 
@@ -61,7 +63,7 @@ def test_profile_output_when_single_series():
     assert isinstance(profile, ForecastingProfile)
     assert isinstance(profile.data_profile, DataProfile)
     assert profile.data_profile.target == "sales"
-    assert profile.data_profile.n_observations == 100
+    assert profile.data_profile.series_lengths["sales"].length == 100
     assert profile.data_profile.n_series == 1
     assert profile.data_profile.index_type == "datetime"
     assert "promo" in profile.data_profile.exog_columns
@@ -81,6 +83,56 @@ def test_profile_output_when_no_exog():
 
     assert profile.data_profile.exog_columns == []
     assert profile.data_profile.n_series == 1
+
+
+# =============================================================================
+# Tests: pandas Series input
+# =============================================================================
+def test_profile_output_when_named_series():
+    """
+    Test that profile() accepts a named pandas Series and derives the
+    target from the Series name.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=series_single)
+
+    assert isinstance(profile, ForecastingProfile)
+    assert profile.data_profile.target == "sales"
+    assert profile.data_profile.n_series == 1
+    assert profile.data_profile.index_type == "datetime"
+    assert profile.data_profile.exog_columns == []
+
+
+def test_profile_warns_and_uses_y_when_unnamed_series():
+    """
+    Test that profile() warns and uses 'y' as the target when the input
+    Series has no name.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.warns(UserWarning, match="using 'y'"):
+        profile = assistant.profile(data=series_unnamed)
+
+    assert profile.data_profile.target == "y"
+
+
+def test_profile_ValueError_when_series_target_mismatch():
+    """
+    Test that profile() raises ValueError when a target is provided that
+    does not match the Series name.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.raises(ValueError, match="must match the Series name"):
+        assistant.profile(data=series_single, target="revenue")
+
+
+def test_profile_ValueError_when_dataframe_and_target_none():
+    """
+    Test that profile() raises ValueError when a non-Series input is
+    provided without a target.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.raises(ValueError, match="`target` is required"):
+        assistant.profile(data=df_single, date_column="date")
 
 
 # =============================================================================
@@ -146,7 +198,7 @@ def test_profile_output_when_short_series():
     )
 
     assert isinstance(profile, ForecastingProfile)
-    assert profile.data_profile.n_observations == 25
+    assert profile.data_profile.series_lengths["sales"].length == 25
 
 
 # =============================================================================
@@ -171,4 +223,4 @@ def test_profile_output_when_csv_path(tmp_path, path_type):
 
     assert isinstance(profile, ForecastingProfile)
     assert profile.data_profile.target == "sales"
-    assert profile.data_profile.n_observations == 100
+    assert profile.data_profile.series_lengths["sales"].length == 100

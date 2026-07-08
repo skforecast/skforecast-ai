@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from .._utils import _display_n_observations
 from ..schemas import ForecastingProfile, ForecastPlan
 
 _MAX_ROWS_FULL = 30
@@ -19,11 +20,18 @@ def _serialize_dataframe(df: Any) -> str:
     numeric_cols = df.select_dtypes(include="number")
     stats = ""
     if not numeric_cols.empty:
-        stats = (
-            f"\n\nSummary: min={numeric_cols.min().min():.4g}, "
-            f"max={numeric_cols.max().max():.4g}, "
-            f"mean={numeric_cols.mean().mean():.4g}"
-        )
+        # Report per-column statistics rather than a single blended value.
+        # Collapsing point predictions and interval bounds (e.g. `pred`,
+        # `lower_bound`, `upper_bound`) into one min/max/mean would let the
+        # reader mistake an interval edge for a forecast value.
+        lines = ["", "Per-column summary (all rows):"]
+        for col in numeric_cols.columns:
+            col_data = numeric_cols[col]
+            lines.append(
+                f"  {col}: min={col_data.min():.4g}, "
+                f"max={col_data.max():.4g}, mean={col_data.mean():.4g}"
+            )
+        stats = "\n" + "\n".join(lines)
     return f"{head}\n... ({len(df) - 10} rows omitted) ...\n{tail}{stats}"
 
 
@@ -50,7 +58,6 @@ def build_context_message(
     plan: ForecastPlan | None = None,
     predictions: Any = None,
     metrics: Any = None,
-    intervals: Any = None,
     cv_config: dict | None = None,
     verbosity: Literal["compact", "standard", "full"] = "standard",
     send_data: bool = False,
@@ -69,11 +76,10 @@ def build_context_message(
     plan : ForecastPlan, default None
         Detailed forecasting plan.
     predictions : pandas DataFrame, default None
-        Forecasted values from a completed forecast run.
+        Forecasted values from a completed forecast run. When prediction
+        intervals are requested, the interval columns are included here.
     metrics : pandas DataFrame, default None
         Evaluation metrics from a completed forecast run.
-    intervals : pandas DataFrame, default None
-        Prediction intervals from a completed forecast run.
     cv_config : dict, default None
         Cross-validation configuration from a backtest run. When
         provided, a "Backtesting Configuration" section is rendered.
@@ -87,8 +93,8 @@ def build_context_message(
         - `'full'`: Above plus all warnings and series-length detail.
     send_data : bool, default False
         Whether raw data values may be included. When False, only
-        aggregate statistics are shown for predictions and intervals.
-        Metrics (already aggregated) are always included.
+        aggregate statistics are shown for predictions. Metrics
+        (already aggregated) are always included.
 
     Returns
     -------
@@ -111,7 +117,7 @@ def build_context_message(
     if profile is not None:
         dp = profile.data_profile
         parts.append("## Dataset")
-        parts.append(f"- Observations: {dp.n_observations}")
+        parts.append(f"- Observations: {_display_n_observations(dp)}")
         parts.append(f"- Series: {dp.n_series}")
         parts.append(f"- Frequency: {dp.frequency or 'unknown'}")
         parts.append(f"- Target: {dp.target}")
@@ -144,6 +150,16 @@ def build_context_message(
                 parts.append(
                     f"- Window features: {plan.forecaster_kwargs['window_features']}"
                 )
+        if plan.interval is not None:
+            coverage = (plan.interval[1] - plan.interval[0]) * 100
+            parts.append(
+                f"- Prediction interval: {plan.interval} "
+                f"({coverage:.4g}% coverage)"
+            )
+            if plan.interval_method is not None:
+                parts.append(f"- Interval method: {plan.interval_method}")
+        if plan.metric:
+            parts.append(f"- Primary metric: {plan.metric}")
         if verbosity in ("standard", "full") and plan.preprocessing_steps:
             for step in plan.preprocessing_steps:
                 prefix = "[required]" if step.blocking else "[recommended]"
@@ -169,6 +185,16 @@ def build_context_message(
             parts.append("")
             parts.append("### Evaluation Metrics")
             parts.append(metrics.to_string(index=False))
+        elif predictions is not None:
+            # Prediction mode: predictions exist but there is no held-out
+            # ground truth, so no metrics were computed. State this explicitly
+            # so the explanation does not frame the metric choice as a
+            # completed evaluation.
+            parts.append("")
+            parts.append(
+                "Note: no evaluation metrics were computed (prediction mode, "
+                "no ground truth to score against)."
+            )
 
         if predictions is not None:
             parts.append("")
@@ -177,13 +203,5 @@ def build_context_message(
                 parts.append(_serialize_dataframe(predictions))
             else:
                 parts.append(_summarize_dataframe(predictions))
-
-        if intervals is not None and verbosity in ("standard", "full"):
-            parts.append("")
-            parts.append("### Prediction Intervals")
-            if send_data:
-                parts.append(_serialize_dataframe(intervals))
-            else:
-                parts.append(_summarize_dataframe(intervals))
 
     return "\n".join(parts)

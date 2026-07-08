@@ -8,6 +8,7 @@ from skforecast_ai.rendering._helpers import (
     _emit_aligned_kwargs,
     _emit_end_train,
     _emit_window_features,
+    _format_lags,
     _get_estimator_constructor,
     _get_estimator_import,
     _get_interval_repr,
@@ -16,10 +17,6 @@ from skforecast_ai.rendering._helpers import (
     _needs_column_transformer,
 )
 from skforecast_ai.schemas import DataProfile, ForecastPlan
-
-from .fixtures_rendering import (
-    profile_single,
-)
 
 
 # =============================================================================
@@ -56,8 +53,8 @@ def test_get_seasonal_period_output_when_different_frequencies(frequency, expect
 @pytest.mark.parametrize(
     "interval, expected",
     [
-        ([10, 90], "[10, 90]"),
-        (None, "[10, 90]  # default 80% prediction interval"),
+        ([0.1, 0.9], "[0.1, 0.9]"),
+        (None, "[0.1, 0.9]  # default 80% prediction interval"),
     ],
     ids=["with_interval", "without_interval"],
 )
@@ -74,6 +71,32 @@ def test_get_interval_repr_output_when_interval_set_or_none(interval, expected):
         explanation="test",
     )
     assert _get_interval_repr(plan) == expected
+
+
+# =============================================================================
+# Tests: _format_lags
+# =============================================================================
+@pytest.mark.parametrize(
+    "lags, expected",
+    [
+        ([1, 2, 3, 4], "4"),
+        ([1, 2], "2"),
+        (list(range(1, 73)), "72"),
+        ([1, 2, 3, 5], "[1, 2, 3, 5]"),
+        ([2, 3, 4], "[2, 3, 4]"),
+        ([1], "[1]"),
+        (24, "24"),
+        (None, "None"),
+        ([5, 4, 3, 2, 1], "[5, 4, 3, 2, 1]"),
+    ],
+    ids=lambda x: f"lags={x}",
+)
+def test_format_lags_output_when_different_inputs(lags, expected):
+    """
+    Test that _format_lags collapses a consecutive list starting at 1
+    into an integer string, and leaves any other value rendered with str.
+    """
+    assert _format_lags(lags) == expected
 
 
 # =============================================================================
@@ -168,31 +191,38 @@ def test_emit_aligned_kwargs_output_when_multiple_params():
 # =============================================================================
 def test_emit_end_train_ValueError_when_end_train_is_none():
     """
-    Test that _emit_end_train raises ValueError when profile.end_train
-    is None.
+    Test that _emit_end_train raises ValueError when plan.end_train is
+    None, since evaluation code requires a concrete split date.
     """
-    profile = DataProfile(
-        n_series=1,
-        n_observations=100,
-        target="sales",
-        index_type="datetime",
+    plan = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        steps=10,
         end_train=None,
+        explanation="test",
     )
-    err_msg = re.escape("profile.end_train must be set before generating code.")
+    err_msg = re.escape("plan.end_train must be set to generate evaluation code.")
     with pytest.raises(ValueError, match=err_msg):
-        _emit_end_train([], profile)
+        _emit_end_train([], plan)
 
 
 def test_emit_end_train_output_when_end_train_set():
     """
-    Test that _emit_end_train emits the correct date literal with
-    the 80% comment.
+    Test that _emit_end_train emits the correct date literal with the
+    "last training date" comment when plan.end_train is set.
     """
+    plan = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        steps=10,
+        end_train="2023-03-12",
+        explanation="test",
+    )
     lines: list[str] = []
-    _emit_end_train(lines, profile_single)
+    _emit_end_train(lines, plan)
     assert len(lines) == 1
     assert "end_train = '2023-03-12'" in lines[0]
-    assert "80%" in lines[0]
+    assert "last training date" in lines[0]
 
 
 # =============================================================================
@@ -227,7 +257,7 @@ def test_get_metric_imports_output_when_multiple_metrics():
     [
         (
             DataProfile(
-                n_series=1, n_observations=100, target="sales",
+                n_series=1, series_lengths={"sales": 100}, target="sales",
                 index_type="datetime", exog_columns=["temp", "holiday"],
                 categorical_exog=["holiday"],
             ),
@@ -235,7 +265,7 @@ def test_get_metric_imports_output_when_multiple_metrics():
         ),
         (
             DataProfile(
-                n_series=1, n_observations=100, target="sales",
+                n_series=1, series_lengths={"sales": 100}, target="sales",
                 index_type="datetime", exog_columns=["promo"],
                 categorical_exog=[],
             ),
@@ -243,7 +273,7 @@ def test_get_metric_imports_output_when_multiple_metrics():
         ),
         (
             DataProfile(
-                n_series=1, n_observations=100, target="sales",
+                n_series=1, series_lengths={"sales": 100}, target="sales",
                 index_type="datetime", exog_columns=[],
                 categorical_exog=[],
             ),
@@ -270,7 +300,7 @@ def test_emit_window_features_output_when_features_provided():
     """
     # Non-empty window features
     lines: list[str] = []
-    window_features = [{"stats": ["mean", "std"], "window_sizes": 7}]
+    window_features = [{"stats": ["mean", "std"], "window_size": 7}]
     _emit_window_features(lines, window_features)
     expected = [
         "window_features = RollingFeatures(",

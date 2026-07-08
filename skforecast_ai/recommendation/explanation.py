@@ -14,13 +14,14 @@ def build_plan_explanation(
     dropna_from_series: bool | None,
     use_exog: bool,
     metric_explanation: str | None = None,
+    calendar_features: dict | None = None,
 ) -> str:
     """
-    Assemble a human-readable explanation of the plan-level decisions.
+    Compose a sentence-by-sentence summary of the plan configuration.
 
-    Focuses on *what* the plan configures (lags, window features,
-    interval method, NaN handling, metric) rather than *why* a
-    forecaster was chosen (which belongs in the profile explanation).
+    Covers lags, window features, interval method, NaN handling, exogenous
+    variables, and metric. Does not explain forecaster/estimator selection —
+    that belongs in the profile explanation.
 
     Parameters
     ----------
@@ -40,6 +41,9 @@ def build_plan_explanation(
         Whether exogenous variables are included.
     metric_explanation : str, default None
         Metric explanation sentence.
+    calendar_features : dict, default None
+        Calendar feature configuration with keys `'features'` and
+        `'encoding'`. None when no calendar features are used.
 
     Returns
     -------
@@ -60,11 +64,20 @@ def build_plan_explanation(
         descriptions: list[str] = []
         if isinstance(window_features, list):
             for wf in window_features:
-                ws = wf.get("window_sizes")
+                ws = wf.get("window_size")
                 for stat in wf.get("stats", []):
                     descriptions.append(f"{stat}(window={ws})")
         if descriptions:
             parts.append(f"Window features: {descriptions}.")
+
+    if calendar_features is not None:
+        feature_names = calendar_features.get("features")
+        if feature_names:
+            encoding = calendar_features.get("encoding")
+            encoding_str = encoding if encoding is not None else "raw ordinal"
+            parts.append(
+                f"Calendar features: {feature_names} ({encoding_str} encoding)."
+            )
 
     if interval_method is not None:
         parts.append(f"Prediction intervals via {interval_method}.")
@@ -92,7 +105,8 @@ def _build_profile_explanation(
     data_profile: DataProfile,
 ) -> str:
     """
-    Build a short explanation of the coarse modeling decisions.
+    Compose a human-readable sentence explaining why a specific forecaster and
+    estimator were selected, listing the available alternatives.
 
     Parameters
     ----------
@@ -141,14 +155,47 @@ def _build_profile_explanation(
             f"A single-series ML forecaster ({forecaster}) is recommended."
         )
 
+    # Data context anchoring the recommendation.
+    context_bits: list[str] = []
+    n_obs = data_profile.n_total_observations
+    if n_obs:
+        context_bits.append(f"{n_obs} observations")
+    if data_profile.frequency is not None:
+        context_bits.append(f"'{data_profile.frequency}' frequency")
+    elif data_profile.index_type != "datetime":
+        context_bits.append(f"a {data_profile.index_type} index")
+    if context_bits:
+        parts.append(f"Data: {', '.join(context_bits)}.")
+
     alt_forecasters = [c for c in forecaster_candidates if c != forecaster]
     if alt_forecasters:
         parts.append(f"Alternative forecasters: {alt_forecasters}.")
 
     if estimator is not None:
         parts.append(f"Estimator: {estimator}.")
+        # Estimator choice is driven by dataset size for ML tasks.
+        if task_type not in ("statistical", "foundation") and n_obs:
+            if estimator == "Ridge":
+                parts.append(
+                    f"A linear model is preferred because the dataset is small "
+                    f"({n_obs} observations < 250); gradient boosting is offered "
+                    f"as an alternative once more data is available."
+                )
+            else:
+                parts.append(
+                    f"A gradient boosting model is preferred for a dataset of "
+                    f"this size ({n_obs} observations)."
+                )
         alt_estimators = [c for c in estimator_candidates if c != estimator]
         if alt_estimators:
             parts.append(f"Alternative estimators: {alt_estimators}.")
+
+    if data_profile.exog_columns:
+        n_exog = len(data_profile.exog_columns)
+        n_cat = len(data_profile.categorical_exog)
+        exog_note = f"{n_exog} exogenous variable" + ("s" if n_exog != 1 else "")
+        if n_cat:
+            exog_note += f" ({n_cat} categorical)"
+        parts.append(f"{exog_note} available as predictors.")
 
     return " ".join(parts)

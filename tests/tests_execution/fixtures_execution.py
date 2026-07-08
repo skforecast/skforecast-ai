@@ -33,7 +33,7 @@ _end_train_single = str(_dates[int(_n_obs * 0.8) - 1].date())
 
 profile_single = DataProfile(
     n_series=1,
-    n_observations=_n_obs,
+    series_lengths={"sales": _n_obs},
     target="sales",
     date_column="date",
     index_type="datetime",
@@ -42,7 +42,6 @@ profile_single = DataProfile(
     categorical_exog=[],
     missing_target={},
     missing_exog={},
-    end_train=_end_train_single,
     warnings=[],
 )
 
@@ -55,6 +54,7 @@ plan_single = ForecastPlan(
     frequency="D",
     interval_method=None,
     use_exog=True,
+    end_train=_end_train_single,
     warnings=[],
     explanation="Single series with exog, Ridge for moderate dataset size.",
 )
@@ -68,6 +68,7 @@ plan_single_with_intervals = ForecastPlan(
     frequency="D",
     interval_method="bootstrapping",
     use_exog=False,
+    end_train=_end_train_single,
     warnings=[],
     explanation="Single series with bootstrapping intervals.",
 )
@@ -91,7 +92,7 @@ _end_train_multi = str(_dates_multi[int(len(_dates_multi) * 0.8) - 1].date())
 profile_multi = DataProfile(
     data_format="long",
     n_series=2,
-    n_observations=_n_obs_multi,
+    series_lengths={"value": _n_obs_multi},
     target="value",
     date_column="date",
     series_id_column="series_id",
@@ -101,7 +102,6 @@ profile_multi = DataProfile(
     categorical_exog=[],
     missing_target={},
     missing_exog={},
-    end_train=_end_train_multi,
     warnings=[],
 )
 
@@ -114,6 +114,7 @@ plan_multi = ForecastPlan(
     frequency="D",
     interval_method=None,
     use_exog=False,
+    end_train=_end_train_multi,
     warnings=[],
     explanation="Multi-series with Ridge, ordinal encoding.",
 )
@@ -134,7 +135,7 @@ _end_train_short = str(_dates_short[int(_n_obs_short * 0.8) - 1].date())
 
 profile_short = DataProfile(
     n_series=1,
-    n_observations=_n_obs_short,
+    series_lengths={"sales": _n_obs_short},
     target="sales",
     date_column="date",
     index_type="datetime",
@@ -143,7 +144,6 @@ profile_short = DataProfile(
     categorical_exog=[],
     missing_target={},
     missing_exog={},
-    end_train=_end_train_short,
     warnings=[],
 )
 
@@ -156,6 +156,7 @@ plan_short = ForecastPlan(
     frequency="D",
     interval_method=None,
     use_exog=False,
+    end_train=_end_train_short,
     warnings=[],
     explanation="Short series with Ridge.",
 )
@@ -171,6 +172,7 @@ plan_single_custom_kwargs = ForecastPlan(
     frequency="D",
     interval_method=None,
     use_exog=False,
+    end_train=_end_train_single,
     warnings=[],
     explanation="Single series with custom estimator kwargs.",
 )
@@ -205,7 +207,7 @@ cv_explanation_single = (
 
 profile_single_no_exog = DataProfile(
     n_series=1,
-    n_observations=_n_obs,
+    series_lengths={"sales": _n_obs},
     target="sales",
     date_column="date",
     index_type="datetime",
@@ -214,7 +216,6 @@ profile_single_no_exog = DataProfile(
     categorical_exog=[],
     missing_target={},
     missing_exog={},
-    end_train=_end_train_single,
     warnings=[],
 )
 
@@ -229,4 +230,49 @@ plan_statistical = ForecastPlan(
     use_exog=False,
     warnings=[],
     explanation="Statistical ARIMA model for backtesting.",
+)
+
+
+# --- Prediction-mode fixtures (end_train=None) ---
+#
+# With ``end_train=None`` run_forecast trains on all data and forecasts the
+# future; no metrics are produced. When the data has exogenous variables,
+# future values must be supplied through ``exog``.
+
+plan_single_predict = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
+    estimator="Ridge",
+    steps=10,
+    frequency="D",
+    interval_method=None,
+    use_exog=True,
+    end_train=None,
+    warnings=[],
+    explanation="Single series with exog (prediction mode).",
+)
+
+plan_single_predict_no_exog = ForecastPlan(
+    task_type="single_series",
+    forecaster="ForecasterRecursive",
+    forecaster_kwargs={"lags": [1, 2, 3, 4, 5, 6, 7], "dropna_from_series": False},
+    estimator="Ridge",
+    steps=10,
+    frequency="D",
+    interval_method=None,
+    use_exog=False,
+    end_train=None,
+    warnings=[],
+    explanation="Single series without exog (prediction mode).",
+)
+
+# Future exogenous variables covering the forecast horizon for the single
+# series fixture (the 10 days following the last training observation).
+_future_dates_single = pd.date_range(
+    _dates[-1] + pd.Timedelta(days=1), periods=10, freq="D"
+)
+df_single_future_exog = pd.DataFrame(
+    {"promo": _rng.normal(50, 10, len(_future_dates_single))},
+    index=_future_dates_single,
 )

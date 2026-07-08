@@ -88,9 +88,9 @@ def test_plan_output_when_interval_bootstrapping():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=10, interval=[10, 90])
+    plan = assistant.plan(profile, steps=10, interval=[0.1, 0.9])
 
-    assert plan.interval == [10, 90]
+    assert plan.interval == [0.1, 0.9]
     assert plan.interval_method == "bootstrapping"
 
 
@@ -102,10 +102,10 @@ def test_plan_output_when_interval_native_for_statistical():
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(
-        profile, steps=10, forecaster="ForecasterStats", interval=[10, 90]
+        profile, steps=10, forecaster="ForecasterStats", interval=[0.1, 0.9]
     )
 
-    assert plan.interval == [10, 90]
+    assert plan.interval == [0.1, 0.9]
     assert plan.interval_method == "native"
     assert plan.task_type == "statistical"
 
@@ -123,6 +123,36 @@ def test_plan_output_when_statistical_has_no_lags():
 
     assert plan.task_type == "statistical"
     assert "lags" not in plan.forecaster_kwargs or plan.forecaster_kwargs.get("lags") is None
+
+
+def test_plan_output_when_foundation_forecaster():
+    """
+    Test that plan() assigns the foundation estimator and empty
+    forecaster_kwargs for a foundation forecaster override.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, forecaster="ForecasterFoundation"
+    )
+
+    assert plan.task_type == "foundation"
+    assert plan.estimator == "Chronos-2"
+    assert plan.forecaster_kwargs == {}
+
+
+def test_plan_deterministic():
+    """
+    Test that plan() is deterministic: two identical calls produce
+    equal plans.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan_1 = assistant.plan(profile, steps=10)
+    plan_2 = assistant.plan(profile, steps=10)
+
+    assert plan_1 == plan_2
+
 
 
 def test_plan_output_when_estimator_kwargs_provided():
@@ -174,3 +204,19 @@ def test_plan_output_when_exog_present():
     plan = assistant.plan(profile, steps=10)
 
     assert plan.use_exog is True
+
+
+# =============================================================================
+# Tests: end_train
+# =============================================================================
+def test_plan_end_train_is_none():
+    """
+    Test that plan() always leaves end_train as None. The evaluation split
+    boundary is a forecast-only concern resolved by forecast()/
+    forecast_code() from their test_size argument, not by plan().
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    assert plan.end_train is None

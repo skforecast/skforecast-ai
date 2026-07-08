@@ -9,7 +9,7 @@ import pytest
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
 from skforecast_ai.schemas import AskResult, ForecastResult, BacktestResult
 
-from tests.fixtures_assistant import df_single
+from tests.fixtures_assistant import df_single, patch_agent
 
 
 # =============================================================================
@@ -34,11 +34,7 @@ def test_ask_ValueError_when_data_provided_without_target(monkeypatch):
     is None.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
-
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+    patch_agent(monkeypatch, assistant, output="unused")
 
     with pytest.raises(ValueError, match="`target` is required"):
         assistant.ask(prompt="What should I do?", data=df_single)
@@ -51,11 +47,7 @@ def test_ask_ValueError_when_profile_provided_without_steps(monkeypatch):
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+    patch_agent(monkeypatch, assistant, output="unused")
 
     with pytest.raises(ValueError, match="`steps` is required"):
         assistant.ask(prompt="Explain this", profile=profile)
@@ -70,24 +62,11 @@ def test_ask_qa_mode_output_when_no_data(monkeypatch):
     with just the user question and returns a plain text explanation.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
-
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    class _FakeResult:
-        output = "Skforecast is a Python library for time series."
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, msg, **kw):
-                return _FakeResult()
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output="Skforecast is a Python library for time series.",
+    )
 
     result = assistant.ask(prompt="What is skforecast?")
 
@@ -104,27 +83,14 @@ def test_ask_qa_mode_preserves_code_blocks(monkeypatch):
     output since there is no validated code to reference.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
-
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    class _FakeResult:
-        output = (
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output=(
             "Use ForecasterRecursive:\n\n"
             "```python\nfrom skforecast.recursive import ForecasterRecursive\n```"
-        )
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, msg, **kw):
-                return _FakeResult()
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+        ),
+    )
 
     result = assistant.ask(prompt="How do I create a recursive forecaster?")
 
@@ -142,27 +108,13 @@ def test_ask_explain_mode_output_when_data_provided(monkeypatch):
     plan deterministically, then passes context to the LLM.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
-
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    class _FakeResult:
-        output = "This plan uses ForecasterRecursive with LGBMRegressor."
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, msg, **kw):
-                assert "## Dataset" in msg
-                assert "## Forecast Plan" in msg
-                assert "## Question" in msg
-                return _FakeResult()
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+    capture = {}
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output="This plan uses ForecasterRecursive with LGBMRegressor.",
+        capture=capture,
+    )
 
     result = assistant.ask(
         prompt="Explain this plan",
@@ -171,6 +123,11 @@ def test_ask_explain_mode_output_when_data_provided(monkeypatch):
         date_column="date",
         steps=10,
     )
+
+    # Context message carries the dataset, plan, and question sections.
+    assert "## Dataset" in capture["message"]
+    assert "## Forecast Plan" in capture["message"]
+    assert "## Question" in capture["message"]
 
     assert isinstance(result, AskResult)
     assert result.profile is not None
@@ -185,28 +142,15 @@ def test_ask_explain_mode_strips_code_blocks(monkeypatch):
     output (since validated code exists in result.code).
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
-
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    class _FakeResult:
-        output = (
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output=(
             "The strategy uses LightGBM.\n\n"
             "```python\nfrom skforecast.recursive import ForecasterRecursive\n```\n\n"
             "This is optimal for daily data."
-        )
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, msg, **kw):
-                return _FakeResult()
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+        ),
+    )
 
     result = assistant.ask(
         prompt="Explain the forecasting strategy",
@@ -229,24 +173,7 @@ def test_ask_output_when_precomputed_profile(monkeypatch):
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    class _FakeResult:
-        output = "Great plan for daily data."
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, msg, **kw):
-                return _FakeResult()
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+    patch_agent(monkeypatch, assistant, output="Great plan for daily data.")
 
     result = assistant.ask(
         prompt="Is this a good plan?",
@@ -283,35 +210,26 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
         code="# mock code",
         metrics=metrics,
         predictions=predictions,
-        intervals=None,
     )
 
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    class _FakeResult:
-        output = "Based on the predictions, values increase steadily."
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, msg, **kw):
-                assert "## Forecast Results" in msg
-                assert "Predictions" in msg
-                assert "Evaluation Metrics" in msg
-                assert "MAE" in msg
-                return _FakeResult()
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+    capture = {}
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output="Based on the predictions, values increase steadily.",
+        capture=capture,
+    )
 
     result = assistant.ask(
         prompt="Explain the predictions",
         forecast_result=mock_forecast_result,
     )
+
+    # Context message carries the results sections and metric values.
+    assert "## Forecast Results" in capture["message"]
+    assert "Predictions" in capture["message"]
+    assert "Evaluation Metrics" in capture["message"]
+    assert "MAE" in capture["message"]
 
     assert result.profile is profile
     assert result.plan is plan
@@ -321,52 +239,45 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
 
 def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
     """
-    Test that ask() in Results mode includes prediction intervals in the
-    context when they are present in the ForecastResult.
+    Test that ask() in Results mode includes prediction interval columns
+    in the context when they are present in the ForecastResult
+    predictions.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=5, interval=[10, 90])
+    plan = assistant.plan(profile, steps=5, interval=[0.1, 0.9])
 
-    predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]})
-    intervals = pd.DataFrame({
+    predictions = pd.DataFrame({
+        "pred": [10.0, 11.0, 12.0, 13.0, 14.0],
         "lower_bound": [8.0, 9.0, 10.0, 11.0, 12.0],
         "upper_bound": [12.0, 13.0, 14.0, 15.0, 16.0],
     })
+    metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]})
     mock_forecast_result = ForecastResult(
         profile=profile,
         plan=plan,
         code="# mock code",
         metrics=metrics,
         predictions=predictions,
-        intervals=intervals,
     )
 
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    class _FakeResult:
-        output = "Intervals are narrow, indicating high confidence."
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, msg, **kw):
-                assert "Prediction Intervals" in msg
-                return _FakeResult()
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+    capture = {}
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output="Intervals are narrow, indicating high confidence.",
+        capture=capture,
+    )
 
     result = assistant.ask(
         prompt="Explain the intervals",
         forecast_result=mock_forecast_result,
     )
+
+    # Interval columns are surfaced in the context message.
+    assert "lower_bound" in capture["message"]
+    assert "upper_bound" in capture["message"]
 
     assert result.explanation == "Intervals are narrow, indicating high confidence."
 
@@ -380,21 +291,9 @@ def test_ask_fallback_when_llm_fails_with_data(monkeypatch):
     AskResult with a warning when the LLM call fails.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
-
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, *a, **kw):
-                raise RuntimeError("Connection refused")
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+    patch_agent(
+        monkeypatch, assistant, error=RuntimeError("Connection refused")
+    )
 
     with pytest.warns(UserWarning, match="LLM call failed"):
         result = assistant.ask(
@@ -417,21 +316,9 @@ def test_ask_fallback_when_llm_fails_no_data(monkeypatch):
     provided — returns an error explanation without crashing.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
-
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, *a, **kw):
-                raise RuntimeError("Connection refused")
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+    patch_agent(
+        monkeypatch, assistant, error=RuntimeError("Connection refused")
+    )
 
     with pytest.warns(UserWarning, match="LLM call failed"):
         result = assistant.ask(prompt="What forecaster should I use?")
@@ -463,29 +350,21 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
         intervals=None,
     )
 
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    class _FakeResult:
-        output = "The predictions show an upward trend."
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, msg, **kw):
-                assert "rows omitted" in msg
-                return _FakeResult()
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+    capture = {}
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output="The predictions show an upward trend.",
+        capture=capture,
+    )
 
     result = assistant.ask(
         prompt="Summarize the predictions",
         forecast_result=mock_forecast_result,
     )
+
+    # Large prediction tables are truncated in the context message.
+    assert "rows omitted" in capture["message"]
 
     assert result.explanation == "The predictions show an upward trend."
 
@@ -524,6 +403,34 @@ def test_ask_ValueError_when_both_results_provided():
         )
 
 
+def test_ask_TypeError_when_forecast_result_wrong_type():
+    """
+    Test that ask() raises TypeError when forecast_result is not a
+    ForecastResult object.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    err_msg = re.escape(
+        "`forecast_result` must be a `ForecastResult` object, got str."
+    )
+    with pytest.raises(TypeError, match=err_msg):
+        assistant.ask(prompt="Explain", forecast_result="not a result")
+
+
+def test_ask_TypeError_when_backtest_result_wrong_type():
+    """
+    Test that ask() raises TypeError when backtest_result is not a
+    BacktestResult object.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    err_msg = re.escape(
+        "`backtest_result` must be a `BacktestResult` object, got dict."
+    )
+    with pytest.raises(TypeError, match=err_msg):
+        assistant.ask(prompt="Explain", backtest_result={"not": "a result"})
+
+
 def test_ask_output_when_backtest_result_provided(monkeypatch):
     """
     Test that ask() in Backtest mode passes metrics, predictions, and
@@ -555,32 +462,24 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
         explanation="Backtest explanation",
     )
 
-    def _mock_resolve_model(self_=None):
-        return "fake-model-string"
-
-    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
-
-    import skforecast_ai.llm.agent as agent_mod
-
-    class _FakeResult:
-        output = "The backtest shows consistent performance across folds."
-
-    def _mock_create_agent(*args, **kwargs):
-        class _FakeAgent:
-            def run_sync(self, msg, **kw):
-                assert "## Backtesting Configuration" in msg
-                assert "initial_train_size" in msg
-                assert "## Forecast Results" in msg
-                assert "MAE" in msg
-                return _FakeResult()
-        return _FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+    capture = {}
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output="The backtest shows consistent performance across folds.",
+        capture=capture,
+    )
 
     result = assistant.ask(
         prompt="Explain the backtest results",
         backtest_result=mock_backtest_result,
     )
+
+    # Context message carries the backtest configuration and results.
+    assert "## Backtesting Configuration" in capture["message"]
+    assert "initial_train_size" in capture["message"]
+    assert "## Forecast Results" in capture["message"]
+    assert "MAE" in capture["message"]
 
     assert result.profile is profile
     assert result.plan is plan

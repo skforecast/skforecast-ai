@@ -87,3 +87,66 @@ df_constant_target = pd.DataFrame(
         "sales": np.full(_n_obs, 42.0),
     }
 )
+
+# --- Single series as a named pandas Series with DatetimeIndex ---
+series_single = pd.Series(
+    np.arange(_n_obs, dtype=float),
+    index=_dates,
+    name="sales",
+)
+
+# --- Single series as an unnamed pandas Series with DatetimeIndex ---
+series_unnamed = pd.Series(
+    np.arange(_n_obs, dtype=float),
+    index=_dates,
+)
+
+
+def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None):
+    """
+    Patch model resolution and the LLM agent factory used by `ask()`.
+
+    Replaces `assistant._resolve_model` and
+    `skforecast_ai.llm.agent.create_forecasting_agent` so the LLM path
+    runs without network access. The fake agent records the message it
+    receives into `capture["message"]` when a dict is provided, allowing
+    context assertions to be made after the call returns instead of
+    inside `run`, where the broad `except` in `ask()` would swallow them.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        The pytest monkeypatch fixture.
+    assistant : ForecastingAssistant
+        The assistant whose `_resolve_model` is patched.
+    output : str, default None
+        Value returned as the agent's `output` attribute.
+    error : Exception, default None
+        If provided, the agent raises this exception instead of returning.
+    capture : dict, default None
+        If provided, the message passed to `run` is stored under the
+        "message" key.
+    """
+    import skforecast_ai.llm.agent as agent_mod
+
+    def _mock_resolve_model(self_=None):
+        return "fake-model-string"
+
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    class _FakeResult:
+        def __init__(self, out):
+            self.output = out
+
+    def _mock_create_agent(*args, **kwargs):
+        class _FakeAgent:
+            async def run(self, msg, **kw):
+                if capture is not None:
+                    capture["message"] = msg
+                if error is not None:
+                    raise error
+                return _FakeResult(output)
+
+        return _FakeAgent()
+
+    monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)

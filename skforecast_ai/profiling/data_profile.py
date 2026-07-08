@@ -1,11 +1,32 @@
-"""Data profiling: inspect a DataFrame and produce a DataProfile."""
+################################################################################
+#                               data_profile                                   #
+#                                                                              #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
-
 from ..schemas import DataProfile
+
+# TODO: Performance & Data Integrity - Lookahead Sampling
+# Refactor `_try_parse_first_date_column` to test a small sample (e.g., 50 rows)
+# before parsing the whole column. `pd.to_datetime` with `format="mixed"` is
+# computationally expensive and can accidentally parse categorical text IDs as dates.
+
+# TODO: Long Format Robustness - Fallback Series ID
+# In `_extract_datetime_index`, if frequency inference fails on the first series ID,
+# iterate through a few alternative series IDs before defaulting to None.
+
+# TODO: Memory Optimization - Mask Filtering
+# Optimize `_extract_datetime_index` to avoid creating heavy boolean masks 
+# (e.g., `data[data[series_id] == id]`) on the entire DataFrame. Consider using
+# lazy evaluation or `groupby().get_group()` to isolate the sample.
+
+# TODO: Multi-Target Logic - Check All Target Dtypes
+# In `create_data_profile`, `target_dtype` only checks the first target column. 
+# For wide-format multi-series, it should verify if dtypes are mixed across targets 
+# or return a dictionary mapping each target to its dtype.
 
 
 def infer_frequency(index: pd.DatetimeIndex) -> str | None:
@@ -32,57 +53,6 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
         return None
 
     return freq
-
-
-def estimate_seasonality(frequency: str | None) -> list[int]:
-    """
-    Estimate seasonal periods from a known frequency string.
-
-    Parameters
-    ----------
-    frequency : str, None
-        Pandas frequency string (e.g. `'h'`, `'D'`, `'ME'`).
-
-    Returns
-    -------
-    seasonalities : list
-        List of integer seasonal periods inferred from the frequency.
-        Returns an empty list if the frequency is None or unrecognized.
-
-    Notes
-    -----
-    This is a heuristic mapping. It does not perform spectral analysis
-    or autocorrelation-based detection.
-    """
-    if frequency is None:
-        return []
-
-    freq_upper = frequency.upper()
-
-    seasonality_map: dict[str, list[int]] = {
-        "T":    [60, 1440],
-        "MIN":  [60, 1440],
-        "H":    [24, 168],
-        "D":    [7, 365],
-        "B":    [5, 252],
-        "W":    [52],
-        "MS":   [12],
-        "ME":   [12],
-        "M":    [12],
-        "QS":   [4],
-        "QE":   [4],
-        "Q":    [4],
-        "YS":   [1],
-        "YE":   [1],
-        "Y":    [1],
-        "A":    [1],
-    }
-
-    for key, seasons in seasonality_map.items():
-        if freq_upper == key or freq_upper.endswith(key):
-            return seasons
-
-    return []
 
 
 def create_data_profile(
@@ -126,6 +96,12 @@ def create_data_profile(
         # index becomes a regular column.
         data = _try_parse_first_date_column(data)
 
+    # Normalize a MultiIndex (level 0 = series_id, level 1 = datetime) into
+    # flat long format so every downstream helper sees named columns.
+    data, date_column, series_id_column = _normalize_multiindex(
+        data, date_column, series_id_column
+    )
+
     # Determine data format from user input
     data_format = _resolve_data_format(target, series_id_column)
 
@@ -150,10 +126,14 @@ def create_data_profile(
         deduped_index = datetime_index[~datetime_index.duplicated(keep="first")]
         frequency = infer_frequency(deduped_index)
 
-    # Compute n_series, n_observations, and series_lengths
-    n_series, n_observations, series_lengths = _compute_series_metrics(
-        data, target, series_id_column, data_format
+    # Compute n_series and per-series ranges (start, end, length)
+    n_series, series_lengths = _compute_series_metrics(
+        data, target, series_id_column, date_col, data_format, index_type
     )
+
+    # Representative per-series length (shortest series) for data-quality
+    # warnings such as the short-series check.
+    representative_n = min(info["length"] for info in series_lengths.values())
 
     # Target dtype (use first target column for multi)
     first_target = target[0] if isinstance(target, list) else target
@@ -180,11 +160,8 @@ def create_data_profile(
     target_stats = compute_target_stats(data, target, data_format, series_id_column)
 
     warnings = generate_warnings(
-        n_observations, frequency, missing_target, missing_exog, index_type
+        representative_n, frequency, missing_target, missing_exog, index_type
     )
-
-    # Compute end_train: the datetime at the 80% mark of the index
-    end_train = _compute_end_train(datetime_index)
 
     # Compute start_date: the reference start for position-to-date
     # conversion.  For long format with multiple series that may have
@@ -209,7 +186,6 @@ def create_data_profile(
         # Structure / Format
         data_format=data_format,
         n_series=n_series,
-        n_observations=n_observations,
         series_lengths=series_lengths,
         # Target
         target=target,
@@ -233,7 +209,6 @@ def create_data_profile(
         data_path=data_path,
         # Train/test split
         start_date=start_date,
-        end_train=end_train,
         # Diagnostics
         warnings=warnings,
     )
@@ -241,10 +216,10 @@ def create_data_profile(
 
 def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
     """
-    Try to convert the first object-dtype column to datetime.
+    Try to convert the first object or string dtype column to datetime.
 
     When a CSV is exported via `DataFrame.to_csv()` the DatetimeIndex
-    becomes a regular column with object dtype (e.g. `"Unnamed: 0"` or
+    becomes a regular column with object or string dtype (e.g. `"Unnamed: 0"` or
     `"date"`). `pd.read_csv(parse_dates=True)` often fails to
     auto-parse these. This helper converts the first parseable column
     in-place so that downstream `detect_date_column` can identify it.
@@ -260,7 +235,7 @@ def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
         DataFrame with the first date-like column converted (if found).
     """
     for col in data.columns:
-        if data[col].dtype == object:
+        if pd.api.types.is_object_dtype(data[col]) or pd.api.types.is_string_dtype(data[col]):
             try:
                 parsed = pd.to_datetime(data[col], format="mixed")
                 if parsed.notna().all():
@@ -269,6 +244,35 @@ def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
             except (ValueError, TypeError):
                 continue
     return data
+
+
+def _is_datetime_like(values: pd.Series | pd.Index) -> bool:
+    """
+    Check whether a Series or Index holds (or parses to) datetimes.
+
+    Parameters
+    ----------
+    values : pandas Series, pandas Index
+        Values to inspect.
+
+    Returns
+    -------
+    is_datetime_like : bool
+        True if the values are already datetime-typed, or if every value
+        is parseable as a datetime. False otherwise.
+    """
+    if pd.api.types.is_datetime64_any_dtype(values):
+        return True
+    if not (
+        pd.api.types.is_object_dtype(values)
+        or pd.api.types.is_string_dtype(values)
+    ):
+        return False
+    try:
+        parsed = pd.to_datetime(values, format="mixed", errors="coerce")
+    except (ValueError, TypeError):
+        return False
+    return bool(parsed.notna().all())
 
 
 def detect_date_column(
@@ -288,15 +292,43 @@ def detect_date_column(
     Returns
     -------
     resolved_column : str, None
-        Name of the date column if found in columns, None if the index
-        is used as the datetime source or no datetime is found.
+        Name of the date column if a datetime-like column is used, None if
+        the index is the datetime source or no datetime is found.
     index_type : str
         One of `'datetime'`, `'range'`, `'other'`.
+
+    Raises
+    ------
+    ValueError
+        If `date_column` is provided but matches neither a column nor the
+        index name.
+
+    Notes
+    -----
+    Passing `date_column` does not assume the source is datetime. The
+    referenced column or index is validated with `_is_datetime_like`, and
+    `'other'` is returned when it does not hold datetime values.
     """
     if date_column is not None:
         if date_column in data.columns:
-            return date_column, "datetime"
-        return None, "other"
+            if _is_datetime_like(data[date_column]):
+                return date_column, "datetime"
+            return None, "other"
+        if data.index.name == date_column:
+            # The user pointed `date_column` at the index (e.g. after
+            # `set_index(date_column)`). Downstream uses the index only
+            # when it is a real DatetimeIndex.
+            if isinstance(data.index, pd.DatetimeIndex):
+                return None, "datetime"
+            return None, "other"
+        available = list(data.columns)
+        raise ValueError(
+            f"date_column='{date_column}' was not found in the data. It "
+            f"matches neither a column {available} nor the index name "
+            f"('{data.index.name}'). Pass a valid column name, set it as "
+            "the index, or omit date_column to use an existing "
+            "DatetimeIndex."
+        )
 
     if isinstance(data.index, pd.DatetimeIndex):
         return None, "datetime"
@@ -309,6 +341,58 @@ def detect_date_column(
         return None, "range"
 
     return None, "other"
+
+
+def _normalize_multiindex(
+    data: pd.DataFrame,
+    date_column: str | None,
+    series_id_column: str | None,
+) -> tuple[pd.DataFrame, str | None, str | None]:
+    """
+    Flatten a MultiIndex DataFrame into long format.
+
+    A two-level MultiIndex is interpreted as `(series_id, datetime)`:
+    level 0 identifies the series and level 1 is the datetime index.
+    The levels are reset into regular columns so that all downstream
+    profiling helpers operate on a flat long-format DataFrame.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset. Returned unchanged if its index is not a
+        MultiIndex with at least two levels.
+    date_column : str, None
+        User-specified date column name. Filled from level 1 when None.
+    series_id_column : str, None
+        User-specified series identifier column. Filled from level 0
+        when None.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        Flattened DataFrame (or the original if no MultiIndex).
+    date_column : str, None
+        Resolved date column name.
+    series_id_column : str, None
+        Resolved series identifier column name.
+    """
+    if not isinstance(data.index, pd.MultiIndex) or data.index.nlevels < 2:
+        return data, date_column, series_id_column
+
+    names = list(data.index.names)
+    id_name = names[0] if names[0] is not None else "series_id"
+    date_name = names[1] if names[1] is not None else "datetime"
+
+    data = data.copy()
+    data.index = data.index.set_names([id_name, date_name])
+    data = data.reset_index()
+
+    if series_id_column is None:
+        series_id_column = id_name
+    if date_column is None:
+        date_column = date_name
+
+    return data, date_column, series_id_column
 
 
 def _resolve_data_format(
@@ -337,14 +421,71 @@ def _resolve_data_format(
     return "single"
 
 
+def _fmt_timestamp(ts: pd.Timestamp) -> str:
+    """
+    Format a timestamp as a date string, keeping the time part if present.
+
+    Parameters
+    ----------
+    ts : pandas Timestamp
+        Timestamp to format.
+
+    Returns
+    -------
+    formatted : str
+        `'YYYY-MM-DD'` when the time component is midnight, otherwise the
+        full timestamp string.
+    """
+    ts = pd.Timestamp(ts)
+    if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+        return str(ts)
+    return str(ts.date())
+
+
+def _frame_index_bounds(
+    frame: pd.DataFrame,
+    date_col: str | None,
+    datetime_available: bool,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    """
+    Return the first and last timestamps of a frame's datetime source.
+
+    Parameters
+    ----------
+    frame : pandas DataFrame
+        Frame (or per-series group) to inspect.
+    date_col : str, None
+        Resolved date column name. When None, the frame index is used.
+    datetime_available : bool
+        Whether a datetime source exists at all.
+
+    Returns
+    -------
+    start : pandas Timestamp, None
+        Minimum timestamp, or None when no datetime source exists.
+    end : pandas Timestamp, None
+        Maximum timestamp, or None when no datetime source exists.
+    """
+    if not datetime_available:
+        return None, None
+    if date_col is not None and date_col in frame.columns:
+        col = pd.to_datetime(frame[date_col])
+        return col.min(), col.max()
+    if isinstance(frame.index, pd.DatetimeIndex):
+        return frame.index.min(), frame.index.max()
+    return None, None
+
+
 def _compute_series_metrics(
     data: pd.DataFrame,
     target: str | list[str],
     series_id_column: str | None,
+    date_col: str | None,
     data_format: str,
-) -> tuple[int, int, dict[str, int] | None]:
+    index_type: str,
+) -> tuple[int, dict[str, dict]]:
     """
-    Compute n_series, n_observations (per series), and series_lengths.
+    Compute the number of series and per-series index ranges.
 
     Parameters
     ----------
@@ -354,41 +495,54 @@ def _compute_series_metrics(
         Target column name(s).
     series_id_column : str, None
         Series identifier column for long format.
+    date_col : str, None
+        Resolved date column name.
     data_format : str
         One of `'single'`, `'wide'`, `'long'`.
+    index_type : str
+        One of `'datetime'`, `'range'`, `'other'`.
 
     Returns
     -------
     n_series : int
         Number of individual time series.
-    n_observations : int
-        Observations per series (min for long format).
-    series_lengths : dict, None
-        Per-series observation counts. None for single series.
+    series_lengths : dict
+        Mapping of series name to a dict with keys `'start'`, `'end'`,
+        and `'length'`. Always populated, including single series.
+    
     """
+
+    datetime_available = index_type == "datetime"
+
+    def _range(frame: pd.DataFrame, length: int) -> dict:
+        start, end = _frame_index_bounds(frame, date_col, datetime_available)
+        return {
+            "start": _fmt_timestamp(start) if start is not None else None,
+            "end": _fmt_timestamp(end) if end is not None else None,
+            "length": int(length),
+        }
+
     if data_format == "wide":
         target_cols = target if isinstance(target, list) else [target]
-        n_series = len(target_cols)
-        # All series share the same index, so physical length = len(data)
-        series_lengths = {col: len(data) for col in target_cols}
-        n_observations = len(data)
-        return n_series, n_observations, series_lengths
+        # All series share the same index, so each spans the full frame.
+        series_lengths = {col: _range(data, len(data)) for col in target_cols}
+        return len(target_cols), series_lengths
 
-    if data_format == "long":
-        if series_id_column is not None and series_id_column in data.columns:
-            group_sizes = data.groupby(series_id_column).size()
-            series_lengths = {
-                str(name): int(length)
-                for name, length in group_sizes.items()
-            }
-            n_series = len(series_lengths)
-            n_observations = min(series_lengths.values())
-            return n_series, n_observations, series_lengths
-        # Fallback: series_id_column not in data
-        return 1, len(data), None
+    if (
+        data_format == "long"
+        and series_id_column is not None
+        and series_id_column in data.columns
+    ):
+        series_lengths = {
+            str(name): _range(group, len(group))
+            for name, group in data.groupby(series_id_column)
+        }
+        return len(series_lengths), series_lengths
 
-    # Single series
-    return 1, len(data), None
+    # Single series (or long fallback when series_id_column is absent)
+    target_name = target[0] if isinstance(target, list) else target
+    series_lengths = {str(target_name): _range(data, len(data))}
+    return 1, series_lengths
 
 
 def _extract_datetime_index(
@@ -611,11 +765,10 @@ def count_missing_values(
         # Count NaN in target per series_id
         target_col = target_cols[0]
         missing_per_series = (
-            data.groupby(series_id_column)[target_col]
-            .apply(lambda s: int(s.isna().sum()))
+            data[target_col].isna().groupby(data[series_id_column]).sum()
         )
         missing_target = {
-            str(name): count
+            str(name): int(count)
             for name, count in missing_per_series.items()
             if count > 0
         }
@@ -970,11 +1123,9 @@ def _check_target_is_constant(data: pd.DataFrame, target: str) -> bool:
     return bool(series.std() == 0)
 
 
-def _compute_end_train(
-    datetime_index: pd.DatetimeIndex | None,
-) -> str | None:
+def _format_split_ts(ts: pd.Timestamp) -> str:
     """
-    Compute the end-of-training date at the 80 % mark of the index.
+    Format a split-boundary timestamp as a string literal.
 
     For sub-daily frequencies the full timestamp is returned to avoid
     ambiguity between partial-string `.loc` slicing (which includes all
@@ -983,23 +1134,110 @@ def _compute_end_train(
 
     Parameters
     ----------
-    datetime_index : pandas DatetimeIndex, None
-        The sorted datetime index of the dataset.
+    ts : pandas Timestamp
+        The split-boundary timestamp.
 
     Returns
     -------
-    end_train : str, None
-        ISO-formatted date or datetime string at the 80 % position.
-        Date-only (e.g. `'2005-03-01'`) for daily or coarser
-        frequencies; full timestamp (e.g. `'2012-08-07 23:00:00'`) for
-        sub-daily frequencies. None if no datetime index is available.
+    end_train : str
+        Date-only string (e.g. `'2005-03-01'`) when the timestamp falls
+        on midnight, otherwise a full timestamp string (e.g.
+        `'2012-08-07 23:00:00'`).
     """
-    if datetime_index is None or len(datetime_index) == 0:
-        return None
-    idx = int(len(datetime_index) * 0.8) - 1
-    idx = max(0, min(idx, len(datetime_index) - 1))
-    ts = datetime_index[idx]
-    # Sub-daily: return full timestamp to avoid .loc vs > comparison mismatch
     if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
         return str(ts)
     return str(ts.date())
+
+
+def resolve_end_train(
+    start_date: str | None,
+    frequency: str | None,
+    n_observations: int,
+    test_size: int | float | str | pd.Timestamp,
+) -> str:
+    """
+    Resolve a ``test_size`` specification into an ``end_train`` boundary.
+
+    Rebuilds the datetime index from ``start_date``, ``frequency`` and
+    ``n_observations`` (the same reconstruction convention used elsewhere
+    for date-based cross-validation), then converts ``test_size`` into the
+    last training timestamp.
+
+    Parameters
+    ----------
+    start_date : str, None
+        First timestamp of the dataset.
+    frequency : str, None
+        Pandas frequency string of the index.
+    n_observations : int
+        Number of observations spanned by the index.
+    test_size : int, float, str, pandas Timestamp
+        Size or start of the test set.
+
+        - int: the last ``test_size`` observations form the test set.
+        - float in ``(0, 1)``: the last fraction ``test_size`` of the
+          observations form the test set.
+        - str or pandas Timestamp: the first timestamp of the test set
+          (the split boundary).
+
+    Returns
+    -------
+    end_train : str
+        Last datetime (inclusive) of the training set, formatted with
+        `_format_split_ts`.
+
+    Raises
+    ------
+    ValueError
+        If a datetime index cannot be reconstructed, or ``test_size`` is
+        out of range or leaves an empty train or test set.
+    """
+    if start_date is None or frequency is None:
+        raise ValueError(
+            "`test_size` requires a datetime index with a known frequency. "
+            "Set the index frequency (e.g. `data.asfreq(...)`) before "
+            "forecasting."
+        )
+
+    index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
+    n = len(index)
+
+    # bool is a subclass of int; reject it explicitly to avoid silent misuse.
+    if isinstance(test_size, bool):
+        raise TypeError(
+            f"`test_size` must be an int, float, str or Timestamp, not bool."
+        )
+
+    if isinstance(test_size, int):
+        if not 1 <= test_size < n:
+            raise ValueError(
+                f"Integer `test_size` must be between 1 and {n - 1} "
+                f"(number of observations is {n}), got {test_size}."
+            )
+        boundary_idx = n - test_size - 1
+    elif isinstance(test_size, float):
+        if not 0.0 < test_size < 1.0:
+            raise ValueError(
+                f"Float `test_size` must be in the open interval (0, 1), "
+                f"got {test_size}."
+            )
+        n_test = round(n * test_size)
+        n_test = max(1, min(n_test, n - 1))
+        boundary_idx = n - n_test - 1
+    elif isinstance(test_size, (str, pd.Timestamp)):
+        ts = pd.Timestamp(test_size)
+        if not index[0] < ts <= index[-1]:
+            raise ValueError(
+                f"Timestamp `test_size` ({ts}) must fall within the data "
+                f"range, after {index[0]} and no later than {index[-1]}, so "
+                f"that both train and test sets are non-empty."
+            )
+        train_positions = (index < ts).nonzero()[0]
+        boundary_idx = int(train_positions[-1])
+    else:
+        raise TypeError(
+            f"`test_size` must be an int, float, str or Timestamp, "
+            f"got {type(test_size).__name__}."
+        )
+
+    return _format_split_ts(index[boundary_idx])

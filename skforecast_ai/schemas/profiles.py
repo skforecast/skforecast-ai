@@ -1,10 +1,80 @@
 """Profile schemas: data description and forecaster-specific analysis."""
 
 from __future__ import annotations
+from typing import Literal
+import pandas as pd
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from typing import Any, Literal
+from .._display import DisplayMixin, render_profile
 
-from pydantic import BaseModel, ConfigDict, Field
+class SeriesLengthInfo(BaseModel):
+    """
+    Per-series index range and observation count.
+
+    Attributes
+    ----------
+    start : str, default None
+        First timestamp of the series as a string (e.g. `'2020-01-01'`).
+        None when the index is not datetime.
+    end : str, default None
+        Last timestamp of the series as a string. None when the index is
+        not datetime.
+    length : int
+        Number of observations in the series.
+    """
+
+    start: str | None = None
+    end: str | None = None
+    length: int
+
+
+def _resolve_observation_counts(
+    series_lengths: dict[str, SeriesLengthInfo],
+    frequency: str | None,
+) -> tuple[int, int]:
+    """
+    Resolve the span index length and the total number of observations.
+
+    Merges the two quantities the assistant needs from the per-series
+    ranges: the length of the union datetime index that spans every
+    series (used for lag, window, and cross-validation sizing) and the
+    pooled total number of observations (used for estimator sizing).
+
+    Parameters
+    ----------
+    series_lengths : dict
+        Mapping of series name to its `SeriesLengthInfo`.
+    frequency : str, default None
+        Inferred pandas frequency string. When None, or when datetime
+        bounds are missing, the span falls back to the longest individual
+        series.
+
+    Returns
+    -------
+    span_index_length : int
+        Number of observations in the union index from the earliest start
+        to the latest end at `frequency`.
+    n_total_observations : int
+        Sum of every series length.
+    """
+    infos = list(series_lengths.values())
+    n_total_observations = sum(info.length for info in infos)
+
+    starts = [info.start for info in infos if info.start is not None]
+    ends = [info.end for info in infos if info.end is not None]
+    if not starts or not ends or frequency is None:
+        return max(info.length for info in infos), n_total_observations
+
+    start = min(pd.Timestamp(s) for s in starts)
+    end = max(pd.Timestamp(e) for e in ends)
+    try:
+        span_index_length = len(
+            pd.date_range(start=start, end=end, freq=frequency)
+        )
+    except (ValueError, TypeError):
+        span_index_length = max(info.length for info in infos)
+
+    return span_index_length, n_total_observations
 
 
 class DataProfile(BaseModel):
@@ -17,14 +87,23 @@ class DataProfile(BaseModel):
         Layout of the dataset. One of `'single'`, `'wide'`, `'long'`.
     n_series : int
         Number of individual time series.
-    n_observations : int
-        Number of observations per series. For single and wide formats
-        this equals `len(data)`. For long format this is the length
-        of the shortest series (the limiting factor for lags and
-        backtesting decisions).
-    series_lengths : dict, default None
-        Mapping of series name to number of observations. Only populated
-        for multi-series datasets (wide or long). None for single series.
+    series_lengths : dict
+        Mapping of series name to its `SeriesLengthInfo` (start, end,
+        and length). Always populated, including single series (keyed by
+        the target name). The task-aware effective number of
+        observations is derived from this mapping (span for
+        `multi_series`, common length for `multivariate`, single length
+        otherwise).
+    span_index_length : int
+        Length of the union datetime index spanning every series, from
+        the earliest start to the latest end at `frequency`. Falls back
+        to the longest individual series when datetime bounds or
+        frequency are unavailable. Computed automatically from
+        `series_lengths`.
+    n_total_observations : int
+        Pooled total number of observations across all series (the sum of
+        every series length). Computed automatically from
+        `series_lengths`.
     target : str, list
         Name(s) of the target column(s). A single string for single
         series and long format. A list of strings for wide format where
@@ -67,11 +146,6 @@ class DataProfile(BaseModel):
         Path to the source CSV file. Derived automatically during
         profiling: if the input is a file path, this stores it; if the
         input is a DataFrame, defaults to `'data.csv'`.
-    end_train : str, default None
-        Last datetime (inclusive) of the training set as a string
-        (e.g. `'2005-03-01'`). Computed during profiling at the 80%
-        mark of the datetime index. Used by code generation to emit a
-        date-based train/test split.
     warnings : list
         Human-readable warnings generated during profiling.
     """
@@ -79,8 +153,9 @@ class DataProfile(BaseModel):
     # -- Structure / Format --
     data_format: Literal["single", "wide", "long"] = "single"
     n_series: int
-    n_observations: int
-    series_lengths: dict[str, int] | None = None
+    series_lengths: dict[str, SeriesLengthInfo]
+    span_index_length: int = 0
+    n_total_observations: int = 0
 
     # -- Target --
     target: str | list[str]
@@ -108,56 +183,61 @@ class DataProfile(BaseModel):
 
     # -- Train/test split --
     start_date: str | None = None
-    end_train: str | None = None
 
     # -- Diagnostics --
     warnings: list[str] = Field(default_factory=list)
 
+    @field_validator("series_lengths", mode="before")
+    @classmethod
+    def _coerce_series_lengths(cls, value: object) -> object:
+        """Coerce `int` values into `SeriesLengthInfo(length=int)`."""
+        if isinstance(value, dict):
+            return {
+                key: ({"length": v} if isinstance(v, int) else v)
+                for key, v in value.items()
+            }
+        return value
 
-class ForecastingAnalysis(BaseModel):
+    @model_validator(mode="after")
+    def _populate_observation_counts(self) -> "DataProfile":
+        """Derive `span_index_length` and `n_total_observations`."""
+        if self.series_lengths:
+            span, total = _resolve_observation_counts(
+                self.series_lengths, self.frequency
+            )
+            self.span_index_length = span
+            self.n_total_observations = total
+        return self
+
+class SeriesPacf(BaseModel):
     """
-    Forecaster-specific analysis computed after selecting the forecaster type.
+    PACF-significant lags for a single series.
 
     Attributes
     ----------
-    effective_n_observations : int
-        Number of observations to use for lag/backtesting decisions.
-        For multi-series, this is `min_series_length`; for single
-        series, this equals `n_observations`.
-    min_series_length : int, default None
-        Length of the shortest series (multi-series only).
-    max_series_length : int, default None
-        Length of the longest series (multi-series only).
-    series_length_ratio : float, default None
-        Ratio of max to min series length (multi-series only).
-    short_series : list, default None
-        Names of series with fewer than 50 observations (multi-series
-        only). Useful for targeted warnings and code generation filters.
-    target_has_trend : bool, default None
-        Whether the target exhibits a monotonic trend (single ML only).
-    target_variance : float, default None
-        Variance of the target column (single ML only).
-    target_series : pandas Series, default None
-        Target series (NaN-free) used for data-aware lag selection via
-        PACF analysis. Excluded from serialization.
-    viable_context_length : int, default None
-        Usable context length for foundation models.
+    series_id : str
+        Name of the series (target column for single/wide, series id for
+        long format).
+    n_observations : int
+        Number of non-NaN observations in the series (all NaNs, edge and
+        interior, are excluded by the count). Used as the sample size for
+        the PACF significance test. Not the raw column length.
+    lags : list of int
+        Significant lags retained by Benjamini-Hochberg FDR correction
+        and the minimum effect-size floor, ordered by descending `|PACF|`
+        (importance order, not ascending index).
+    pacf_abs : list of float
+        Absolute PACF magnitude aligned element-wise with `lags`
+        (same order).
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    effective_n_observations: int
-    min_series_length: int | None = None
-    max_series_length: int | None = None
-    series_length_ratio: float | None = None
-    short_series: list[str] | None = None
-    target_has_trend: bool | None = None
-    target_variance: float | None = None
-    target_series: Any = Field(default=None, exclude=True)
-    viable_context_length: int | None = None
+    series_id: str
+    n_observations: int
+    lags: list[int] = Field(default_factory=list)
+    pacf_abs: list[float] = Field(default_factory=list)
 
 
-class ForecastingProfile(BaseModel):
+class ForecastingProfile(DisplayMixin, BaseModel):
     """
     High-level profile of the forecasting problem.
 
@@ -188,9 +268,24 @@ class ForecastingProfile(BaseModel):
     estimator_candidates : list
         Ordered list of compatible estimator names. Empty when the
         selected forecaster does not use an external estimator.
-    analysis_context : ForecastingAnalysis
-        Forecasting-specific analysis (per-series stats, viable context
-        length, etc.).
+    series_pacf : list of SeriesPacf
+        Per-series PACF-significant lags (the forecaster-invariant lag
+        primitive). Empty for statistical and foundation tasks. The
+        final lag set is derived in `plan()` by aggregating these
+        primitives for the chosen forecaster.
+    window_features : list of dict, default None
+        Window feature configurations (dicts with keys `'stats'` and
+        `'window_size'`). Computed eagerly at profile time as they are
+        forecaster-invariant. None when the series is too short or the
+        task is statistical/foundation.
+    calendar_features : list of str, default None
+        Recommended calendar feature names (a subset of those supported
+        by `skforecast.preprocessing.CalendarFeatures`). Computed eagerly
+        at profile time as they depend only on the index frequency and
+        series length. None when the frequency is unknown, the series is
+        too short, the frequency has no sub-period seasonality, or the
+        task is statistical/foundation. The encoding is chosen later in
+        `plan()` based on the resolved estimator.
     explanation : str
         Human-readable explanation of why this forecaster + estimator
         combination was chosen.
@@ -208,5 +303,10 @@ class ForecastingProfile(BaseModel):
     forecaster_candidates: list[str] = Field(default_factory=list)
     estimator: str | None = None
     estimator_candidates: list[str] = Field(default_factory=list)
-    analysis_context: ForecastingAnalysis
+    series_pacf: list[SeriesPacf] = Field(default_factory=list)
+    window_features: list[dict] | None = None
+    calendar_features: list[str] | None = None
     explanation: str
+
+    def __rich_console__(self, console, options):
+        yield render_profile(self)

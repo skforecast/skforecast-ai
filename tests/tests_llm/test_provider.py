@@ -75,11 +75,12 @@ def test_create_model_output_when_none():
 
 def test_create_model_output_when_cloud_provider():
     """
-    Test that create_model with a cloud provider string returns the
-    raw string for Pydantic AI native resolution.
+    Test that create_model with an OpenAI provider string returns the
+    'openai-chat:' prefixed string, pinning the Chat Completions API for
+    Pydantic AI native resolution.
     """
     result = create_model("openai:gpt-4o-mini")
-    assert result == "openai:gpt-4o-mini"
+    assert result == "openai-chat:gpt-4o-mini"
 
 
 def test_create_model_output_when_ollama_default_url():

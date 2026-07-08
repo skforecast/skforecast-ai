@@ -1,10 +1,11 @@
 """Plan schemas: forecasting configuration and overrides."""
 
 from __future__ import annotations
-
 from typing import Any, Literal
-
 from pydantic import BaseModel, Field
+
+from .._constants import WindowStat
+from .._display import DisplayMixin, render_plan
 
 
 class CVParams(BaseModel):
@@ -116,7 +117,66 @@ class PreprocessingStep(BaseModel):
     blocking: bool = True
 
 
-class ForecastPlan(BaseModel):
+class WindowFeature(BaseModel):
+    """
+    A single rolling-window feature specification for a forecaster.
+
+    Attributes
+    ----------
+    stats : list of str
+        Rolling statistics to compute (e.g. `['mean', 'std']`). Each value
+        must be one of the statistics supported by skforecast's
+        `RollingFeatures`: `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`,
+        `'median'`, `'ratio_min_max'`, `'coef_variation'`, `'ewm'`.
+    window_size : int
+        Rolling window length in observations, applied to every statistic
+        in `stats`. Must be a scalar; to combine several window sizes, use
+        one `WindowFeature` per size.
+    """
+    stats: list[WindowStat] = Field(
+        description=(
+            "Rolling statistics to compute. Each value must be one of: "
+            "'mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', "
+            "'coef_variation', 'ewm'."
+        ),
+    )
+    window_size: int = Field(
+        description=(
+            "Rolling window length in observations, e.g. 7. Scalar only: it "
+            "is applied to every statistic in `stats`. Use one entry per "
+            "window size to combine several sizes."
+        ),
+    )
+
+
+class PlanOverrides(BaseModel):
+    """
+    LLM-produced overrides for a forecasting plan.
+
+    Attributes
+    ----------
+    lags : list of int, int, default None
+        Overridden lag indices or lag count.
+    window_features : list of WindowFeature, default None
+        Overridden window features configurations.
+    reasoning : str
+        Explanation of why the LLM chose these features based on the
+        user's domain knowledge prompt.
+    """
+    lags: list[int] | int | None = Field(
+        default=None,
+        description="The lag indices to use for the forecaster. E.g. [1, 2, 3, 7, 14] or an integer for consecutive lags.",
+    )
+    window_features: list[WindowFeature] | None = Field(
+        default=None,
+        description="The window features configurations to use. E.g. [{'stats': ['mean', 'std'], 'window_size': 7}].",
+    )
+    reasoning: str = Field(
+        description="Explanation of why these specific features (lags and window features) were chosen based on the user's prompt and time series context.",
+    )
+
+
+class ForecastPlan(DisplayMixin, BaseModel):
     """
     Detailed forecasting plan produced from a `ForecastingProfile`.
 
@@ -147,9 +207,17 @@ class ForecastPlan(BaseModel):
         Number of steps ahead to predict. Must be greater than 0.
     frequency : str, default None
         Pandas frequency string for the series.
+    end_train : str, default None
+        Last datetime (inclusive) of the training set as a string
+        (e.g. `'2005-03-01'`). When set, the generated code runs in
+        evaluation mode: it splits the data at this boundary, trains on
+        the training portion, predicts the test portion and computes
+        metrics. When None, the generated code runs in prediction mode:
+        it trains on all available data and forecasts the future (no
+        metrics, since there is no ground truth to compare against).
     interval : list, default None
-        Prediction interval percentiles as `[lower, upper]`
-        (e.g. `[10, 90]`). If None, no intervals are computed.
+        Prediction interval quantiles as `[lower, upper]`
+        (e.g. `[0.1, 0.9]`). If None, no intervals are computed.
     interval_method : str, default None
         Method for prediction intervals. One of `'bootstrapping'`,
         `'conformal'`, `'native'`.
@@ -164,6 +232,11 @@ class ForecastPlan(BaseModel):
         Ordered list of preprocessing steps required before forecasting.
     warnings : list
         Human-readable warnings about the plan.
+    llm_refined_fields : list
+        Names of the fields (`'lags'`, `'window_features'`) whose values
+        were suggested by the LLM during `refine_plan()`. Empty for
+        deterministic plans and for fields the user overrode explicitly.
+        Used to flag LLM-sourced values when the plan is displayed.
     explanation : str
         Explanation of the plan-level decisions.
     """
@@ -181,7 +254,8 @@ class ForecastPlan(BaseModel):
     estimator_kwargs: dict[str, Any] = Field(default_factory=dict)
     steps: int = Field(gt=0)
     frequency: str | None = None
-    interval: list[int] | None = None
+    end_train: str | None = None
+    interval: list[float] | None = None
     interval_method: Literal["bootstrapping", "conformal", "native"] | None = None
     metric: str = "mean_absolute_error"
     metrics_to_compute: list[str] = Field(
@@ -190,4 +264,8 @@ class ForecastPlan(BaseModel):
     use_exog: bool = False
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    llm_refined_fields: list[str] = Field(default_factory=list)
     explanation: str
+
+    def __rich_console__(self, console, options):
+        yield render_plan(self)

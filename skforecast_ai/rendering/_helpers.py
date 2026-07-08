@@ -102,7 +102,31 @@ def _get_interval_repr(plan: ForecastPlan) -> str:
     """Return the interval list as a code literal."""
     if plan.interval is not None:
         return repr(plan.interval)
-    return "[10, 90]  # default 80% prediction interval"
+    return "[0.1, 0.9]  # default 80% prediction interval"
+
+
+def _format_lags(lags: object) -> str:
+    """
+    Render the `lags` value as a compact code literal.
+
+    A list of consecutive integers starting at 1 (for example `[1, 2, 3, 4]`)
+    is collapsed to a single integer (`4`), since skforecast expands an integer
+    `n` into lags 1 to `n`. Any other value is rendered with `str`.
+
+    Parameters
+    ----------
+    lags : object
+        The `lags` value taken from the forecaster kwargs. Typically an int,
+        a list of ints, or None.
+
+    Returns
+    -------
+    lags_repr : str
+        Code literal for the `lags` argument.
+    """
+    if isinstance(lags, list) and lags == list(range(1, len(lags) + 1)) and len(lags) > 1:
+        return str(len(lags))
+    return str(lags)
 
 
 def _emit_preprocessing_steps(
@@ -143,6 +167,10 @@ def _emit_data_loading(
     lines: list[str],
     profile: DataProfile,
     long_format: bool = False,
+    *,
+    var: str = "data",
+    path: str | None = None,
+    comment: str = "# Load data",
 ) -> None:
     """
     Append CSV-loading code lines (only the read_csv call).
@@ -156,6 +184,14 @@ def _emit_data_loading(
     long_format : bool, default False
         If `False` (wide format), emits read_csv only.
         If `True` (long format), emits read_csv only.
+    var : str, default 'data'
+        Name of the variable to assign the loaded frame to. Allows the
+        same loader to be reused for the future exogenous frame
+        (`var='exog_future'`).
+    path : str, default None
+        CSV path to read from. Defaults to `profile.data_path`.
+    comment : str, default '# Load data'
+        Comment header emitted above the read_csv call.
 
     Returns
     -------
@@ -163,18 +199,18 @@ def _emit_data_loading(
     
     """
 
-    data_path = profile.data_path
+    data_path = profile.data_path if path is None else path
     date_col = profile.date_column
 
-    lines.append("# Load data")
+    lines.append(comment)
     if long_format:
-        lines.append(f"data = pd.read_csv({repr(data_path)})")
+        lines.append(f"{var} = pd.read_csv({repr(data_path)})")
     else:
         if date_col:
-            lines.append(f"data = pd.read_csv({repr(data_path)})")
+            lines.append(f"{var} = pd.read_csv({repr(data_path)})")
         else:
             lines.append(
-                f"data = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
+                f"{var} = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
             )
     lines.append("")
 
@@ -183,6 +219,8 @@ def _emit_index_setup(
     lines: list[str],
     profile: DataProfile,
     long_format: bool = False,
+    *,
+    var: str = "data",
 ) -> None:
     """
     Append index-setup code (to_datetime, set_index, asfreq, sort).
@@ -200,6 +238,9 @@ def _emit_index_setup(
     long_format : bool, default False
         If `False` (wide format), emits set_index + asfreq + sort_index.
         If `True` (long format), emits to_datetime + sort_values only.
+    var : str, default 'data'
+        Name of the variable to prepare. Allows the same preparation to
+        be reused for the future exogenous frame (`var='exog_future'`).
 
     Returns
     -------
@@ -213,19 +254,19 @@ def _emit_index_setup(
     if long_format:
         if date_col:
             lines.append(
-                f"data[{repr(date_col)}] = pd.to_datetime(data[{repr(date_col)}])"
+                f"{var}[{repr(date_col)}] = pd.to_datetime({var}[{repr(date_col)}])"
             )
-            lines.append(f"data = data.sort_values({repr(date_col)})")
+            lines.append(f"{var} = {var}.sort_values({repr(date_col)})")
         lines.append("")
     else:
         if date_col:
             lines.append(
-                f"data[{repr(date_col)}] = pd.to_datetime(data[{repr(date_col)}])"
+                f"{var}[{repr(date_col)}] = pd.to_datetime({var}[{repr(date_col)}])"
             )
-            lines.append(f"data = data.set_index({repr(date_col)})")
+            lines.append(f"{var} = {var}.set_index({repr(date_col)})")
         if frequency and not profile.has_duplicate_timestamps:
-            lines.append(f"data = data.asfreq('{frequency}')")
-        lines.append("data = data.sort_index()")
+            lines.append(f"{var} = {var}.asfreq('{frequency}')")
+        lines.append(f"{var} = {var}.sort_index()")
         lines.append("")
 
 
@@ -239,7 +280,7 @@ def _emit_window_features(lines: list[str], window_features: list[dict]) -> None
     all_window_sizes: list[int] = []
     for wf in window_features:
         stats = wf.get("stats", [])
-        window_size = wf.get("window_sizes")
+        window_size = wf.get("window_size")
         for stat in stats:
             all_stats.append(stat)
             all_window_sizes.append(window_size)
@@ -247,6 +288,29 @@ def _emit_window_features(lines: list[str], window_features: list[dict]) -> None
     lines.append("window_features = RollingFeatures(")
     lines.append(f"    stats        = {all_stats},")
     lines.append(f"    window_sizes = {all_window_sizes},")
+    lines.append(")")
+
+
+def _emit_calendar_features(lines: list[str], calendar_features: dict) -> None:
+    """Append CalendarFeatures construction code.
+
+    `keep_original_columns` is intentionally omitted: when `X` is a
+    `DatetimeIndex` there are no original columns to keep, so the argument
+    has no effect.
+    """
+    if not calendar_features:
+        return
+
+    features = calendar_features.get("features")
+    if not features:
+        return
+
+    encoding = calendar_features.get("encoding")
+    encoding_repr = repr(encoding) if encoding is not None else "None"
+
+    lines.append("calendar_features = CalendarFeatures(")
+    lines.append(f"    features = {features},")
+    lines.append(f"    encoding = {encoding_repr},")
     lines.append(")")
 
 
@@ -309,22 +373,58 @@ def _emit_production_note(
 
 def _emit_end_train(
     lines: list[str],
-    profile: DataProfile,
+    plan: ForecastPlan,
 ) -> None:
     """Emit the `end_train` variable (date-based split point).
 
-    Raises `ValueError` if `profile.end_train` is not set because the
-    generated code must contain a concrete date literal.
+    Raises `ValueError` if `plan.end_train` is not set because the
+    evaluation code must contain a concrete date literal.
     """
-    if profile.end_train is None:
+    if plan.end_train is None:
         raise ValueError(
-            "profile.end_train must be set before generating code. "
-            "Run data profiling first so the 80% split date is computed."
+            "plan.end_train must be set to generate evaluation code. "
+            "Pass `test_size` so the train/test split date is computed."
         )
     lines.append(
-        f"end_train = {repr(profile.end_train)}"
-        "  # 80% of data, adjust to change the split point"
+        f"end_train = {repr(plan.end_train)}"
+        "  # last training date, adjust to change the split point"
     )
+
+
+def _emit_future_exog_loading(
+    lines: list[str],
+    profile: DataProfile,
+) -> None:
+    """Emit code loading future exogenous variables (prediction mode).
+
+    Delegates to `_emit_data_loading` so `exog_future` is loaded exactly
+    like `data` (same `date_column`-driven read). Only used by the
+    standalone script (`full_script`); in exec mode the `exog_future`
+    variable is injected directly into the namespace.
+    """
+    _emit_data_loading(
+        lines,
+        profile,
+        var="exog_future",
+        path="exog_future.csv",
+        comment="# Load future exogenous variables covering the forecast horizon",
+    )
+
+
+def _emit_future_exog_index_setup(
+    lines: list[str],
+    profile: DataProfile,
+) -> None:
+    """Append index-setup code for the future exogenous variables.
+
+    Delegates to `_emit_index_setup` so `exog_future` is prepared exactly
+    like `data` (`to_datetime`/`set_index` when a date column is used,
+    then `asfreq` + `sort_index`). Emitted into the core code so it runs
+    both in standalone scripts and in exec mode, putting the future
+    exogenous variables on the same regular, sorted grid as the training
+    data, as required by skforecast.
+    """
+    _emit_index_setup(lines, profile, var="exog_future")
 
 
 def _get_metric_imports(metrics_to_compute: list[str]) -> list[str]:
@@ -537,6 +637,7 @@ def _emit_imports_single_series(
     transformer_y = kwargs.get("transformer_y")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
+    calendar_features = kwargs.get("calendar_features")
     estimator_import = _get_estimator_import(plan.estimator)
 
     lines.append("import pandas as pd")
@@ -547,8 +648,16 @@ def _emit_imports_single_series(
     if include_metrics:
         lines.extend(_get_metric_imports(plan.metrics_to_compute))
     lines.append(estimator_import)
+    preprocessing_imports: list[str] = []
     if window_features:
-        lines.append("from skforecast.preprocessing import RollingFeatures")
+        preprocessing_imports.append("RollingFeatures")
+    if calendar_features:
+        preprocessing_imports.append("CalendarFeatures")
+    if preprocessing_imports:
+        lines.append(
+            "from skforecast.preprocessing import "
+            + ", ".join(preprocessing_imports)
+        )
     lines.append(f"from skforecast.{forecaster_module} import {forecaster_class}")
     if include_backtesting:
         lines.append(
@@ -592,6 +701,7 @@ def _emit_imports_multi_series(
     transformer_series = kwargs.get("transformer_series")
     transformer_exog = kwargs.get("transformer_exog")
     window_features = kwargs.get("window_features")
+    calendar_features = kwargs.get("calendar_features")
     estimator_import = _get_estimator_import(plan.estimator)
 
     lines.append("import pandas as pd")
@@ -606,6 +716,8 @@ def _emit_imports_multi_series(
     preprocessing_imports: list[str] = []
     if window_features:
         preprocessing_imports.append("RollingFeatures")
+    if calendar_features:
+        preprocessing_imports.append("CalendarFeatures")
     if is_multi_series and not is_wide:
         preprocessing_imports.append("reshape_series_long_to_dict")
         if plan.use_exog and profile.exog_columns:

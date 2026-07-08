@@ -17,7 +17,7 @@ def test_data_profile_invalid_index_type():
     with pytest.raises(ValidationError, match=err_msg):
         DataProfile(
             n_series=1,
-            n_observations=100,
+            series_lengths={"y": 100},
             target="y",
             index_type="invalid",
         )
@@ -59,11 +59,11 @@ def test_data_profile_minimal():
     """
     profile = DataProfile(
         n_series=1,
-        n_observations=100,
+        series_lengths={"y": 100},
         target="y",
         index_type="datetime",
     )
-    assert profile.n_observations == 100
+    assert profile.series_lengths["y"].length == 100
     assert profile.n_series == 1
     assert profile.index_type == "datetime"
     assert profile.target == "y"
@@ -75,6 +75,8 @@ def test_data_profile_minimal():
     assert profile.missing_target == {}
     assert profile.missing_exog == {}
     assert profile.warnings == []
+    assert profile.span_index_length == 100
+    assert profile.n_total_observations == 100
 
 
 def test_data_profile_full():
@@ -83,7 +85,7 @@ def test_data_profile_full():
     """
     profile = DataProfile(
         n_series=3,
-        n_observations=500,
+        series_lengths={"s1": 500, "s2": 500, "s3": 500},
         target="sales",
         index_type="datetime",
         frequency="h",
@@ -104,6 +106,45 @@ def test_data_profile_full():
     assert profile.missing_target == {"sales": 5}
     assert profile.missing_exog == {"temperature": 2}
     assert profile.warnings == ["Missing values detected"]
+    assert profile.n_total_observations == 1500
+
+
+def test_data_profile_observation_counts_span_from_datetime_bounds():
+    """
+    Test span_index_length is computed from the union datetime index and
+    n_total_observations is the pooled sum when series have datetime
+    bounds and a frequency.
+    """
+    profile = DataProfile(
+        n_series=2,
+        series_lengths={
+            "s1": {"start": "2020-01-01", "end": "2020-04-09", "length": 100},
+            "s2": {"start": "2020-02-10", "end": "2020-06-28", "length": 140},
+        },
+        target="sales",
+        index_type="datetime",
+        frequency="D",
+    )
+    assert profile.span_index_length == 180
+    assert profile.n_total_observations == 240
+
+
+def test_data_profile_observation_counts_fallback_without_frequency():
+    """
+    Test span_index_length falls back to the longest individual series
+    when no frequency is available.
+    """
+    profile = DataProfile(
+        n_series=2,
+        series_lengths={
+            "s1": {"start": "2020-01-01", "end": "2020-04-09", "length": 100},
+            "s2": {"start": "2020-02-10", "end": "2020-06-28", "length": 140},
+        },
+        target="sales",
+        index_type="datetime",
+    )
+    assert profile.span_index_length == 140
+    assert profile.n_total_observations == 240
 
 
 def test_forecast_plan_minimal():
@@ -134,7 +175,7 @@ def test_data_profile_json_roundtrip():
     """
     profile = DataProfile(
         n_series=1,
-        n_observations=200,
+        series_lengths={"value": 200},
         target="value",
         index_type="range",
         exog_columns=["x1", "x2"],

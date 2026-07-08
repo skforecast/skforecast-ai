@@ -14,7 +14,7 @@ from skforecast_ai.schemas import DataProfile
 
 profile_single_no_zeros = DataProfile(
     n_series       = 1,
-    n_observations = 365,
+    series_lengths = {"y": 365},
     target         = "y",
     index_type     = "datetime",
     frequency      = "D",
@@ -23,7 +23,7 @@ profile_single_no_zeros = DataProfile(
 
 profile_single_with_zeros = DataProfile(
     n_series       = 1,
-    n_observations = 365,
+    series_lengths = {"y": 365},
     target         = "y",
     index_type     = "datetime",
     frequency      = "D",
@@ -32,7 +32,7 @@ profile_single_with_zeros = DataProfile(
 
 profile_single_near_zero = DataProfile(
     n_series       = 1,
-    n_observations = 365,
+    series_lengths = {"y": 365},
     target         = "y",
     index_type     = "datetime",
     frequency      = "D",
@@ -41,7 +41,7 @@ profile_single_near_zero = DataProfile(
 
 profile_multi_series = DataProfile(
     n_series       = 3,
-    n_observations = 300,
+    series_lengths = {"value": 300},
     target         = "value",
     index_type     = "datetime",
     frequency      = "D",
@@ -54,7 +54,7 @@ profile_multi_series = DataProfile(
 
 profile_multi_series_with_zeros = DataProfile(
     n_series       = 2,
-    n_observations = 300,
+    series_lengths = {"value": 300},
     target         = "value",
     index_type     = "datetime",
     frequency      = "D",
@@ -66,7 +66,7 @@ profile_multi_series_with_zeros = DataProfile(
 
 profile_no_stats = DataProfile(
     n_series       = 1,
-    n_observations = 100,
+    series_lengths = {"y": 100},
     target         = "y",
     index_type     = "datetime",
     frequency      = "D",
@@ -187,7 +187,7 @@ class TestTargetHasZeros:
         """
         profile = DataProfile(
             n_series       = 1,
-            n_observations = 100,
+            series_lengths = {"y": 100},
             target         = "y",
             index_type     = "datetime",
             frequency      = "D",

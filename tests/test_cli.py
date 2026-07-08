@@ -3,14 +3,43 @@
 import ast
 import json
 
+import pandas as pd
+import pytest
+import typer
 from typer.testing import CliRunner
 
-from skforecast_ai.cli import app
+from skforecast_ai.cli import app, _parse_lags
 from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_assistant import df_single, df_multi_long, df_multi_wide
 
 runner = CliRunner()
+
+
+# ---------------------------------------------------------------------------
+# _parse_lags helper
+# ---------------------------------------------------------------------------
+
+
+class TestParseLags:
+    """Tests for the `_parse_lags` CLI helper."""
+
+    def test_parse_lags_output_when_none(self):
+        assert _parse_lags(None) is None
+
+    def test_parse_lags_output_when_single_int(self):
+        assert _parse_lags("7") == 7
+
+    def test_parse_lags_output_when_list(self):
+        assert _parse_lags("1,2,3") == [1, 2, 3]
+
+    def test_parse_lags_BadParameter_when_not_int(self):
+        with pytest.raises(typer.BadParameter):
+            _parse_lags("1,x,3")
+
+    def test_parse_lags_BadParameter_when_non_positive(self):
+        with pytest.raises(typer.BadParameter, match="positive integers"):
+            _parse_lags("0,1,2")
 
 
 def _write_csv(tmp_path, df, name="data.csv"):
@@ -170,11 +199,11 @@ class TestPlan:
         result = runner.invoke(
             app,
             ["plan", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--interval", "10,90", "--format", "json", "--quiet"],
+             "--steps", "10", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["plan"]["interval"] == [10, 90]
+        assert data["plan"]["interval"] == [0.1, 0.9]
         assert data["plan"]["interval_method"] is not None
 
     def test_plan_missing_steps(self, tmp_path):
@@ -322,7 +351,7 @@ class TestGenerateCode:
         result = runner.invoke(
             app,
             ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--interval", "10,90", "--format", "json", "--quiet"],
+             "--steps", "10", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -369,7 +398,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--quiet"],
         )
         assert result.exit_code == 0
         assert "MAE" in result.output
@@ -383,7 +412,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -401,7 +430,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--output-predictions", str(preds_path), "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--output-predictions", str(preds_path), "--quiet"],
         )
         assert result.exit_code == 0
         assert preds_path.exists()
@@ -418,7 +447,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--output-code", str(code_path), "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--output-code", str(code_path), "--quiet"],
         )
         assert result.exit_code == 0
         assert code_path.exists()
@@ -426,18 +455,20 @@ class TestForecast:
 
     def test_forecast_with_interval(self, tmp_path):
         """
-        Forecast with --interval includes intervals in JSON output.
+        Forecast with --interval includes interval columns in the
+        predictions of the JSON output.
         """
         csv_path = _write_csv(tmp_path, df_single)
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--interval", "10,90", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "0.2", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["intervals"] is not None
-        assert len(data["intervals"]) == 5
+        assert len(data["predictions"]) == 5
+        assert "lower_bound" in data["predictions"][0]
+        assert "upper_bound" in data["predictions"][0]
 
     def test_forecast_missing_file(self):
         """
@@ -468,13 +499,101 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--estimator", "RandomForestRegressor",
+             "--steps", "5", "--test-size", "0.2", "--estimator", "RandomForestRegressor",
              "--estimator-kwargs", '{"n_estimators": 150, "random_state": 123}',
              "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["plan"]["estimator_kwargs"]["n_estimators"] == 150
+
+    def test_forecast_with_test_size(self, tmp_path):
+        """
+        Forecast --test-size runs in evaluation mode: the data is split and
+        metrics (MAE, MSE, MASE) are reported over the test set.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--test-size", "20", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["plan"]["end_train"] is not None
+        assert len(data["metrics"]) == 1
+        assert "MAE" in data["metrics"][0]
+        assert len(data["predictions"]) == 5
+
+    def test_forecast_with_exog(self, tmp_path):
+        """
+        Forecast --exog forecasts the future (prediction mode): the model is
+        trained on all data and predicts the horizon using the supplied
+        future exogenous values.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+        exog_future = pd.DataFrame(
+            {"date": future_dates, "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        )
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog", exog_path,
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["plan"]["end_train"] is None
+        assert len(data["predictions"]) == 5
+
+    def test_forecast_exog_consistent_direct_and_from_plan(self, tmp_path):
+        """
+        --exog produces identical predictions on the direct path and the
+        --from-plan path. Frequency enforcement now happens in the execution
+        layer, so both invocations sit the future exog on the same regular
+        grid regardless of how the workflow was started.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+        exog_future = pd.DataFrame(
+            {"date": future_dates, "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        )
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+
+        # Direct path.
+        direct = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog", exog_path,
+             "--format", "json", "--quiet"],
+        )
+        assert direct.exit_code == 0, direct.output
+
+        # Build a real plan bundle, then run the --from-plan path.
+        plan_result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(json.loads(plan_result.output)))
+
+        from_plan = runner.invoke(
+            app,
+            ["forecast", csv_path, "--from-plan", str(plan_file),
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert from_plan.exit_code == 0, from_plan.output
+
+        direct_preds = json.loads(direct.output)["predictions"]
+        from_plan_preds = json.loads(from_plan.output)["predictions"]
+        assert [p["pred"] for p in direct_preds] == [
+            p["pred"] for p in from_plan_preds
+        ]
+
 
 
 # ---------------------------------------------------------------------------
@@ -491,7 +610,7 @@ def _mock_ask_agent(monkeypatch, response_text="This is a test response."):
 
     def _mock_create_agent(*args, **kwargs):
         class _FakeAgent:
-            def run_sync(self, msg, **kw):
+            async def run(self, msg, **kw):
                 return _FakeResult()
         return _FakeAgent()
 
@@ -663,6 +782,24 @@ class TestBacktest:
         assert "code" in data
         assert "explanation" in data
 
+    def test_backtest_interval_produces_interval_columns(self, tmp_path):
+        """
+        Backtest --interval produces prediction interval columns
+        (lower_bound/upper_bound) in the JSON predictions output.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        predictions = data["predictions"]
+        assert len(predictions) > 0
+        assert "lower_bound" in predictions[0]
+        assert "upper_bound" in predictions[0]
+
     def test_backtest_output_predictions(self, tmp_path):
         """
         Backtest --output-predictions writes a CSV file with predictions.
@@ -704,3 +841,19 @@ class TestBacktest:
             ["backtest", "some.csv"],
         )
         assert result.exit_code == 1
+
+    def test_backtest_multi_series_table(self, tmp_path):
+        """
+        Backtest on wide multi-series renders the metrics table from the
+        skforecast `levels` column without a formatting error.
+        """
+        csv_path = _write_csv(tmp_path, df_multi_wide)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "series_a,series_b",
+             "--date-column", "date", "--steps", "5", "--quiet"],
+        )
+        assert result.exit_code == 0
+        assert "Backtest Metrics" in result.output
+        assert "series_a" in result.output
+        assert "series_b" in result.output

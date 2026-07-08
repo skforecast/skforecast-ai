@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
+from .._display import (
+    DisplayMixin,
+    render_code,
+    render_cv_config,
+    render_dataframe,
+    render_explanation,
+    render_metrics,
+    render_plan,
+    render_profile,
+)
 from .plans import ForecastPlan
 from .profiles import ForecastingProfile
+
+if TYPE_CHECKING:
+    from rich.console import Console, ConsoleOptions, RenderResult
 
 
 class RenderedScript(BaseModel):
@@ -44,7 +57,7 @@ class RenderedScript(BaseModel):
         return self.imports + "\n" + self.core
 
 
-class CodeGenerationResult(BaseModel):
+class CodeGenerationResult(DisplayMixin, BaseModel):
     """
     Result of the `forecast_code` workflow.
 
@@ -62,31 +75,15 @@ class CodeGenerationResult(BaseModel):
     plan: ForecastPlan
     code: str
 
-
-class AskResult(BaseModel):
-    """
-    Result of the `ask` workflow (requires LLM).
-
-    Attributes
-    ----------
-    profile : ForecastingProfile, default None
-        Profile of the input dataset and high-level modeling decisions,
-        if data was provided.
-    plan : ForecastPlan, default None
-        Detailed forecasting plan, if the agent produced one.
-    code : str, default None
-        Generated Python script, if the agent produced one.
-    explanation : str
-        LLM-generated explanation or response.
-    """
-
-    profile: ForecastingProfile | None = None
-    plan: ForecastPlan | None = None
-    code: str | None = None
-    explanation: str
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_profile(self.profile)
+        yield render_plan(self.plan)
+        yield render_code(self.code)
 
 
-class ForecastResult(BaseModel):
+class ForecastResult(DisplayMixin, BaseModel):
     """
     Result of the `forecast` workflow (executes the pipeline end-to-end).
 
@@ -98,14 +95,16 @@ class ForecastResult(BaseModel):
         Detailed forecasting plan that was executed.
     code : str
         Generated Python script equivalent to the execution.
-    metrics : pandas DataFrame
+    metrics : pandas DataFrame, None
         Evaluation metrics. DataFrame with columns
         `['series', 'MAE', 'MSE', 'MASE']`. For single-series tasks
         this contains one row; for multi-series tasks one row per level.
+        None in prediction mode (`test_size=None`), where there is no
+        ground truth to evaluate against.
     predictions : pandas DataFrame
-        Forecasted values for the requested steps.
-    intervals : pandas DataFrame, default None
-        Prediction intervals or quantile predictions when available.
+        Forecasted values for the requested steps. When prediction
+        intervals (or quantiles) are requested, the corresponding
+        bound columns are included alongside the point predictions.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -113,12 +112,21 @@ class ForecastResult(BaseModel):
     profile: ForecastingProfile
     plan: ForecastPlan
     code: str
-    metrics: Any  # pd.DataFrame
+    metrics: Any  # pd.DataFrame | None
     predictions: Any  # pd.DataFrame
-    intervals: Any = None  # pd.DataFrame | None
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_profile(self.profile)
+        yield render_plan(self.plan)
+        if self.metrics is not None:
+            yield render_metrics(self.metrics, title="Forecast Metrics")
+        yield render_dataframe(self.predictions, title="Predictions")
+        yield render_code(self.code)
 
 
-class BacktestResult(BaseModel):
+class BacktestResult(DisplayMixin, BaseModel):
     """
     Result of the `backtest` workflow.
 
@@ -150,3 +158,44 @@ class BacktestResult(BaseModel):
     predictions: Any  # pd.DataFrame
     code: str
     explanation: str
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_explanation(self.explanation)
+        yield render_cv_config(self.cv_config)
+        yield render_metrics(self.metrics, title="Backtest Metrics")
+        yield render_dataframe(self.predictions, title="Backtest Predictions")
+        yield render_profile(self.profile)
+        yield render_plan(self.plan)
+        yield render_code(self.code)
+
+
+class AskResult(DisplayMixin, BaseModel):
+    """
+    Result of the `ask` workflow (requires LLM).
+
+    Attributes
+    ----------
+    profile : ForecastingProfile, default None
+        Profile of the input dataset and high-level modeling decisions,
+        if data was provided.
+    plan : ForecastPlan, default None
+        Detailed forecasting plan, if the agent produced one.
+    code : str, default None
+        Generated Python script, if the agent produced one.
+    explanation : str
+        LLM-generated explanation or response.
+    """
+
+    profile: ForecastingProfile | None = None
+    plan: ForecastPlan | None = None
+    code: str | None = None
+    explanation: str
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_explanation(self.explanation, title="Assistant Response")
+        if self.code is not None:
+            yield render_code(self.code)

@@ -6,21 +6,26 @@ import contextlib
 import json
 import os
 import sys
-import warnings
 from pathlib import Path
 from typing import Annotated
 
 import pandas as pd
 import typer
 from rich.console import Console
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.table import Table
 
 from pydantic import ValidationError
 
 from . import __version__
+from ._display import (
+    render_code,
+    render_cv_config,
+    render_dataframe,
+    render_explanation,
+    render_metrics,
+    render_plan,
+    render_profile,
+)
 from .assistant import ForecastingAssistant
 from .config import (
     CONFIG_FILE,
@@ -281,14 +286,14 @@ def _parse_target(target_str: str) -> str | list[str]:
     return parts if len(parts) > 1 else parts[0]
 
 
-def _parse_interval(interval_str: str | None) -> list[int] | None:
+def _parse_interval(interval_str: str | None) -> list[float] | None:
     """
     Parse `'lower,upper'` interval string into a two-element list or None.
 
     Parameters
     ----------
     interval_str : str, None
-        Comma-separated lower and upper percentiles (e.g. `'10,90'`).
+        Comma-separated lower and upper quantiles (e.g. `'0.1,0.9'`).
 
     Returns
     -------
@@ -297,12 +302,44 @@ def _parse_interval(interval_str: str | None) -> list[int] | None:
     """
     if interval_str is None:
         return None
-    parts = [int(x.strip()) for x in interval_str.split(",")]
+    parts = [float(x.strip()) for x in interval_str.split(",")]
     if len(parts) != 2:
         raise typer.BadParameter(
-            "Interval must be two comma-separated integers, e.g. '10,90'."
+            "Interval must be two comma-separated quantiles, e.g. '0.1,0.9'."
         )
     return parts
+
+
+def _parse_test_size(value: str | None) -> int | float | str | None:
+    """
+    Parse the `--test-size` string into an int, float, or date string.
+
+    An integer literal is returned as `int` (last N observations), a
+    decimal literal as `float` (fraction of observations), and anything
+    else is passed through unchanged as a date string (test-set start).
+
+    Parameters
+    ----------
+    value : str, None
+        Raw `--test-size` value. None selects prediction mode.
+
+    Returns
+    -------
+    test_size : int, float, str, None
+        Parsed test size, or None when input is None.
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    return value
 
 
 def _parse_estimator_kwargs(value: str | None) -> dict | None:
@@ -333,6 +370,92 @@ def _parse_estimator_kwargs(value: str | None) -> dict | None:
             "e.g. '{\"n_estimators\": 200}'."
         )
     return parsed
+
+
+def _collect_plan_overrides(
+    forecaster: str | None,
+    estimator: str | None,
+    estimator_kwargs: dict | None,
+    interval: list[float] | None,
+) -> dict:
+    """
+    Build a dict of non-None plan overrides for `refine_plan`.
+
+    Collects the CLI override options that are set so a saved plan loaded
+    with `--from-plan` can be re-derived through `refine_plan`. Only keys
+    with a value are included; if none are set the returned dict is empty
+    and the caller can skip refinement.
+
+    Parameters
+    ----------
+    forecaster : str, None
+        Forecaster class override.
+    estimator : str, None
+        Estimator class override.
+    estimator_kwargs : dict, None
+        Estimator keyword arguments override.
+    interval : list of float, None
+        Prediction interval override.
+
+    Returns
+    -------
+    overrides : dict
+        Mapping of override keys to values, restricted to those provided.
+    """
+    overrides: dict = {}
+    if forecaster is not None:
+        overrides["forecaster"] = forecaster
+    if estimator is not None:
+        overrides["estimator"] = estimator
+    if estimator_kwargs is not None:
+        overrides["estimator_kwargs"] = estimator_kwargs
+    if interval is not None:
+        overrides["interval"] = interval
+    return overrides
+
+
+def _load_exog(
+    path: Path | None,
+    date_column: str | None,
+) -> pd.DataFrame | None:
+    """
+    Load a future exogenous CSV and set its datetime index.
+
+    Mirrors the index setup applied to the main dataset: when a date
+    column is provided it is parsed to datetime and set as the index;
+    otherwise the first column is parsed as the index. The index is
+    sorted so the returned DataFrame carries a DatetimeIndex covering the
+    forecast horizon. The series frequency is enforced later, during
+    execution, where the data profile is always available, keeping the
+    behavior identical regardless of how the workflow was invoked.
+
+    Parameters
+    ----------
+    path : Path, None
+        Path to the future exogenous CSV file. If None, returns None.
+    date_column : str, None
+        Name of the column containing timestamps. If None, the first
+        column is parsed as the datetime index.
+
+    Returns
+    -------
+    exog : pandas DataFrame, None
+        Future exogenous variables indexed by a DatetimeIndex, or None
+        when `path` is None.
+    """
+    if path is None:
+        return None
+    if not path.is_file():
+        raise FileNotFoundError(f"Exog CSV not found: '{path}'.")
+
+    if date_column is not None:
+        exog = pd.read_csv(path)
+        exog[date_column] = pd.to_datetime(exog[date_column])
+        exog = exog.set_index(date_column)
+    else:
+        exog = pd.read_csv(path, index_col=0, parse_dates=True)
+
+    return exog.sort_index()
 
 
 def _write_output(content: str, output: Path | None) -> None:
@@ -420,36 +543,7 @@ def _render_profile_table(profile) -> None:
     -------
     None
     """
-    dp = profile.data_profile
-
-    table = Table(title="Dataset Profile", show_lines=True)
-    table.add_column("Property", style="bold")
-    table.add_column("Value")
-
-    table.add_row("Format", dp.data_format)
-    table.add_row("Series", str(dp.n_series))
-    table.add_row("Observations", str(dp.n_observations))
-    table.add_row("Frequency", dp.frequency or "not detected")
-    table.add_row("Target", str(dp.target))
-    table.add_row("Exog columns", ", ".join(dp.exog_columns) if dp.exog_columns else "none")
-    table.add_row("Missing target", str(dp.missing_target) if dp.missing_target else "none")
-
-    console.print(table)
-    console.print()
-
-    rec_table = Table(title="Recommendation", show_lines=True)
-    rec_table.add_column("Property", style="bold")
-    rec_table.add_column("Value")
-
-    rec_table.add_row("Task type", profile.task_type)
-    rec_table.add_row("Forecaster", profile.forecaster)
-    rec_table.add_row("Forecaster candidates", ", ".join(profile.forecaster_candidates))
-    rec_table.add_row("Estimator", profile.estimator or "N/A")
-    rec_table.add_row("Estimator candidates", ", ".join(profile.estimator_candidates))
-
-    console.print(rec_table)
-    console.print()
-    console.print(Panel(profile.explanation, title="Explanation"))
+    console.print(render_profile(profile))
 
 
 def _render_plan_panel(plan) -> None:
@@ -465,34 +559,7 @@ def _render_plan_panel(plan) -> None:
     -------
     None
     """
-    table = Table(title="Forecast Plan", show_lines=True)
-    table.add_column("Property", style="bold")
-    table.add_column("Value")
-
-    table.add_row("Forecaster", plan.forecaster)
-    table.add_row("Estimator", plan.estimator or "N/A")
-    table.add_row("Steps", str(plan.steps))
-    table.add_row("Frequency", plan.frequency or "not set")
-
-    lags = plan.forecaster_kwargs.get("lags")
-    table.add_row("Lags", str(lags) if lags is not None else "N/A")
-
-    table.add_row("Use exog", str(plan.use_exog))
-    table.add_row("Interval", str(plan.interval) if plan.interval else "none")
-    table.add_row("Interval method", plan.interval_method or "N/A")
-    table.add_row("Primary metric", plan.metric)
-
-    if plan.preprocessing_steps:
-        steps_str = "\n".join(
-            f"  - {s.action}: {s.reason}" for s in plan.preprocessing_steps
-        )
-        table.add_row("Preprocessing", steps_str)
-    else:
-        table.add_row("Preprocessing", "none")
-
-    console.print(table)
-    console.print()
-    console.print(Panel(plan.explanation, title="Plan Explanation"))
+    console.print(render_plan(plan))
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +595,64 @@ def profile(
             _render_profile_table(result)
 
 
+def _parse_lags(lags_str: str | None) -> int | list[int] | None:
+    """
+    Parse lags string into an int or list of ints.
+
+    Parameters
+    ----------
+    lags_str : str, None
+        Comma-separated lag indices (e.g. '1,2,3') or a single int.
+
+    Returns
+    -------
+    lags : int, list of int, None
+        Parsed lags or None.
+    """
+    if lags_str is None:
+        return None
+    try:
+        if "," in lags_str:
+            lags: int | list[int] = [int(x.strip()) for x in lags_str.split(",")]
+        else:
+            lags = int(lags_str)
+    except ValueError as e:
+        raise typer.BadParameter(f"Invalid format for --lags: {e}") from e
+
+    values = lags if isinstance(lags, list) else [lags]
+    if any(v < 1 for v in values):
+        raise typer.BadParameter("--lags must be positive integers (>= 1).")
+    return lags
+
+
+def _parse_window_features(wf_str: str | None) -> list[dict] | None:
+    """
+    Parse window features JSON string.
+
+    Parameters
+    ----------
+    wf_str : str, None
+        JSON string representing a list of dicts.
+
+    Returns
+    -------
+    window_features : list of dict, None
+        Parsed list of dicts or None.
+    """
+    if wf_str is None:
+        return None
+    try:
+        parsed = json.loads(wf_str)
+    except json.JSONDecodeError as e:
+        raise typer.BadParameter(f"Invalid JSON in --window-features: {e}") from e
+    if not isinstance(parsed, list) or not all(isinstance(x, dict) for x in parsed):
+        raise typer.BadParameter(
+            "--window-features must be a JSON array of objects, "
+            "e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'."
+        )
+    return parsed
+
+
 @app.command()
 def plan(
     data: Annotated[str | None, typer.Argument(help="Path or URL to CSV file.")] = None,
@@ -538,7 +663,9 @@ def plan(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
+    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
     from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -553,6 +680,8 @@ def plan(
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
 
         if from_profile is not None:
             profile_data = _read_json_input(from_profile)
@@ -575,7 +704,8 @@ def plan(
             result = assistant.plan(
                 profile=prof, steps=steps, forecaster=forecaster,
                 estimator=estimator, estimator_kwargs=parsed_estimator_kwargs,
-                interval=parsed_interval,
+                interval=parsed_interval, lags=parsed_lags,
+                window_features=parsed_window_features,
             )
 
         if format == "json":
@@ -596,12 +726,18 @@ def refine_plan(
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Override forecast horizon.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '0.1,0.9'.")] = None,
+    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
+    prompt: Annotated[str | None, typer.Option("--prompt", help="Natural language domain knowledge to guide LLM plan refinement.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for plan refinement.")] = None,
+    base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
+    api_key: Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
 ) -> None:
-    """Refine an existing forecasting plan by overriding specific fields."""
+    """Refine an existing forecasting plan by overriding specific fields or using LLM guidance."""
     with _error_handler():
         bundle_data = _read_json_input(from_plan)
         prof = ForecastingProfile.model_validate(bundle_data.get("profile", {}))
@@ -609,6 +745,18 @@ def refine_plan(
 
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
+
+        llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
+        base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
+        api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
+
+        assistant = ForecastingAssistant(
+            llm=llm_value,
+            base_url=base_url_value,
+            api_key=api_key_value,
+        )
 
         overrides: dict = {}
         if forecaster is not None:
@@ -621,10 +769,15 @@ def refine_plan(
             overrides["steps"] = steps
         if parsed_interval is not None:
             overrides["interval"] = parsed_interval
+        if parsed_lags is not None:
+            overrides["lags"] = parsed_lags
+        if parsed_window_features is not None:
+            overrides["window_features"] = parsed_window_features
 
-        assistant = ForecastingAssistant()
         with _spinner("Refining plan...", quiet):
-            result = assistant.refine_plan(profile=prof, plan=plan_obj, **overrides)
+            result = assistant.refine_plan(
+                profile=prof, plan=plan_obj, prompt=prompt, **overrides
+            )
 
         if format == "json":
             bundle = {
@@ -647,7 +800,9 @@ def forecast_code(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
+    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
     output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
@@ -675,6 +830,8 @@ def forecast_code(
             parsed_target = _parse_target(target)
             parsed_interval = _parse_interval(interval)
             parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+            parsed_lags = _parse_lags(lags)
+            parsed_window_features = _parse_window_features(window_features)
 
             with _spinner("Generating code...", quiet):
                 result = assistant.forecast_code(
@@ -682,7 +839,8 @@ def forecast_code(
                     date_column=date_column, series_id_column=series_id_column,
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
-                    interval=parsed_interval,
+                    interval=parsed_interval, lags=parsed_lags,
+                    window_features=parsed_window_features,
                 )
 
         if format == "json":
@@ -693,8 +851,7 @@ def forecast_code(
                 output.write_text(result.code)
                 console.print(f"[green]Code written to:[/green] {output}")
             else:
-                syntax = Syntax(result.code, "python", theme="monokai")
-                console.print(syntax)
+                console.print(render_code(result.code, title=None))
 
 
 @app.command(name="backtest-code")
@@ -707,7 +864,9 @@ def backtest_code(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
+    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
+    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
     initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
     fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
     refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
@@ -747,6 +906,8 @@ def backtest_code(
 
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
 
         with _spinner("Generating backtesting code...", quiet):
             # Profile (if needed)
@@ -767,6 +928,8 @@ def backtest_code(
                     estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
+                    lags=parsed_lags,
+                    window_features=parsed_window_features,
                 )
 
             # Generate CV
@@ -809,8 +972,7 @@ def backtest_code(
                 output.write_text(result.code)
                 console.print(f"[green]Code written to:[/green] {output}")
             else:
-                syntax = Syntax(result.code, "python", theme="monokai")
-                console.print(syntax)
+                console.print(render_code(result.code, title=None))
 
 
 def _render_forecast_results(result) -> None:
@@ -826,37 +988,10 @@ def _render_forecast_results(result) -> None:
     -------
     None
     """
-    metrics = result.metrics
-
-    table = Table(title="Forecast Metrics", show_lines=True)
-    table.add_column("Series", style="bold")
-
-    # Dynamically add metric columns (all columns except 'series')
-    metric_cols = [c for c in metrics.columns if c != "series"]
-    for col in metric_cols:
-        table.add_column(col, justify="right")
-
-    for _, row in metrics.iterrows():
-        values = [str(row["series"])]
-        for col in metric_cols:
-            val = row[col]
-            values.append(f"{val:.4f}" if val is not None else "N/A")
-        table.add_row(*values)
-
-    console.print(table)
-    console.print()
-
-    predictions = result.predictions
-    n_rows = len(predictions)
-    if n_rows <= 10:
-        console.print(Panel(predictions.to_string(), title="Predictions"))
-    else:
-        head = predictions.head(5).to_string()
-        tail = predictions.tail(5).to_string(header=False)
-        console.print(Panel(
-            f"{head}\n  ...\n{tail}",
-            title=f"Predictions ({n_rows} rows)",
-        ))
+    if result.metrics is not None:
+        console.print(render_metrics(result.metrics, title="Forecast Metrics"))
+        console.print()
+    console.print(render_dataframe(result.predictions, title="Predictions"))
 
 
 def _forecast_result_to_json(result) -> str:
@@ -877,13 +1012,13 @@ def _forecast_result_to_json(result) -> str:
         "profile": result.profile.model_dump(mode="json"),
         "plan": result.plan.model_dump(mode="json"),
         "code": result.code,
-        "metrics": result.metrics.to_dict(orient="records"),
+        "metrics": (
+            result.metrics.to_dict(orient="records")
+            if result.metrics is not None
+            else None
+        ),
         "predictions": result.predictions.reset_index().to_dict(orient="records"),
     }
-    if result.intervals is not None:
-        data["intervals"] = result.intervals.reset_index().to_dict(orient="records")
-    else:
-        data["intervals"] = None
     return json.dumps(data, indent=2, default=str)
 
 
@@ -897,8 +1032,9 @@ def forecast(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '10,90'.")] = None,
-    exog_future: Annotated[Path | None, typer.Option("--exog-future", help="CSV with future exogenous variables.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
+    test_size: Annotated[str | None, typer.Option("--test-size", help="Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). When omitted, forecasts the future.")] = None,
+    exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous variables (prediction mode).")] = None,
     from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
     output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
@@ -910,19 +1046,32 @@ def forecast(
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
-
-        exog_future_df = None
-        if exog_future is not None:
-            if not exog_future.is_file():
-                raise FileNotFoundError(
-                    f"Exog future CSV not found: '{exog_future}'."
-                )
-            exog_future_df = pd.read_csv(exog_future)
+        parsed_test_size = _parse_test_size(test_size)
 
         if from_plan is not None:
             bundle = _read_json_input(from_plan)
             prof = ForecastingProfile.model_validate(bundle["profile"])
             plan_obj = ForecastPlan.model_validate(bundle["plan"])
+
+            # Any override supplied alongside --from-plan is applied on top
+            # of the saved plan by re-deriving it through refine_plan. This
+            # keeps coupled fields (e.g. interval and interval_method)
+            # consistent and avoids silently dropping CLI overrides.
+            plan_overrides = _collect_plan_overrides(
+                forecaster=forecaster,
+                estimator=estimator,
+                estimator_kwargs=parsed_estimator_kwargs,
+                interval=parsed_interval,
+            )
+            if plan_overrides:
+                plan_obj = assistant.refine_plan(
+                    profile=prof, plan=plan_obj, **plan_overrides
+                )
+
+            exog_df = _load_exog(
+                exog,
+                date_column=prof.data_profile.date_column,
+            )
 
             with _spinner("Running forecast from plan...", quiet):
                 result = assistant.forecast(
@@ -930,8 +1079,8 @@ def forecast(
                     steps=plan_obj.steps,
                     date_column=prof.data_profile.date_column,
                     series_id_column=prof.data_profile.series_id_column,
-                    interval=parsed_interval or plan_obj.interval,
-                    exog_future=exog_future_df,
+                    test_size=parsed_test_size,
+                    exog=exog_df,
                     profile=prof, plan=plan_obj,
                 )
         else:
@@ -943,20 +1092,22 @@ def forecast(
                 raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
 
+            exog_df = _load_exog(
+                exog, date_column=date_column
+            )
+
             with _spinner("Running forecast...", quiet):
                 result = assistant.forecast(
                     data=data, target=parsed_target, steps=steps,
                     date_column=date_column, series_id_column=series_id_column,
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
-                    interval=parsed_interval, exog_future=exog_future_df,
+                    interval=parsed_interval,
+                    test_size=parsed_test_size, exog=exog_df,
                 )
 
         if output_predictions is not None:
-            preds = result.predictions
-            if result.intervals is not None:
-                preds = result.intervals
-            preds.to_csv(output_predictions)
+            result.predictions.to_csv(output_predictions)
             console.print(f"[green]Predictions written to:[/green] {output_predictions}")
 
         if output_code is not None:
@@ -983,58 +1134,11 @@ def _render_backtest_results(result) -> None:
     -------
     None
     """
-    # CV configuration summary
-    cv_config = result.cv_config
-    cv_table = Table(title="Cross-Validation Configuration", show_lines=True)
-    cv_table.add_column("Parameter", style="bold")
-    cv_table.add_column("Value", justify="right")
-    for key, value in cv_config.items():
-        cv_table.add_row(str(key), str(value))
-    console.print(cv_table)
+    console.print(render_cv_config(result.cv_config))
     console.print()
-
-    # Metrics
-    metrics = result.metrics
-    table = Table(title="Backtest Metrics", show_lines=True)
-
-    if "series" in metrics.columns:
-        table.add_column("Series", style="bold")
-        metric_cols = [c for c in metrics.columns if c != "series"]
-        for col in metric_cols:
-            table.add_column(col, justify="right")
-        for _, row in metrics.iterrows():
-            values = [str(row["series"])]
-            for col in metric_cols:
-                val = row[col]
-                values.append(f"{val:.4f}" if val is not None else "N/A")
-            table.add_row(*values)
-    else:
-        # skforecast backtesting returns metrics without a 'series' column
-        # (columns are metric names, index may be levels)
-        for col in metrics.columns:
-            table.add_column(col, justify="right")
-        for _, row in metrics.iterrows():
-            values = []
-            for col in metrics.columns:
-                val = row[col]
-                values.append(f"{val:.4f}" if val is not None else "N/A")
-            table.add_row(*values)
-
-    console.print(table)
+    console.print(render_metrics(result.metrics, title="Backtest Metrics"))
     console.print()
-
-    # Predictions
-    predictions = result.predictions
-    n_rows = len(predictions)
-    if n_rows <= 10:
-        console.print(Panel(predictions.to_string(), title="Backtest Predictions"))
-    else:
-        head = predictions.head(5).to_string()
-        tail = predictions.tail(5).to_string(header=False)
-        console.print(Panel(
-            f"{head}\n  ...\n{tail}",
-            title=f"Backtest Predictions ({n_rows} rows)",
-        ))
+    console.print(render_dataframe(result.predictions, title="Backtest Predictions"))
 
 
 def _backtest_result_to_json(result) -> str:
@@ -1073,6 +1177,7 @@ def backtest(
     forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
     estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
     fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
     refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
@@ -1095,6 +1200,7 @@ def backtest(
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
         api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_interval = _parse_interval(interval)
 
         assistant = ForecastingAssistant(
             llm=llm_value,
@@ -1124,17 +1230,7 @@ def backtest(
             prof = None
             plan_obj = None
 
-        # Suppress warnings when outputting JSON to avoid polluting stdout
-        warn_ctx = (
-            warnings.catch_warnings()
-            if format == "json"
-            else contextlib.nullcontext()
-        )
-
-        with warn_ctx, _spinner("Running backtest...", quiet):
-            if format == "json":
-                warnings.simplefilter("ignore")
-
+        with _spinner("Running backtest...", quiet):
             # Profile (if needed)
             if prof is None:
                 prof = assistant.profile(
@@ -1152,13 +1248,28 @@ def backtest(
                     forecaster=forecaster,
                     estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
+                    interval=parsed_interval,
                 )
+            else:
+                # Apply any override supplied alongside --from-plan on top of
+                # the saved plan, re-deriving via refine_plan so coupled
+                # fields stay consistent and no override is silently dropped.
+                plan_overrides = _collect_plan_overrides(
+                    forecaster=forecaster,
+                    estimator=estimator,
+                    estimator_kwargs=parsed_estimator_kwargs,
+                    interval=parsed_interval,
+                )
+                if plan_overrides:
+                    plan_obj = assistant.refine_plan(
+                        profile=prof, plan=plan_obj, **plan_overrides
+                    )
 
             # Generate CV
             cv_kwargs = {}
             if initial_train_size is not None:
                 cv_kwargs["initial_train_size"] = initial_train_size
-            if fold_stride is not None and fold_stride != steps:
+            if fold_stride is not None:
                 cv_kwargs["fold_stride"] = fold_stride
             if refit:
                 cv_kwargs["refit"] = refit
@@ -1265,4 +1376,4 @@ def ask(
                 output_data["code"] = result.code
             print(json.dumps(output_data, indent=2, default=str))
         else:
-            console.print(Markdown(result.explanation))
+            console.print(render_explanation(result.explanation, title="Explanation"))

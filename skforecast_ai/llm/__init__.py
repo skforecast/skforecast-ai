@@ -37,10 +37,22 @@ def _lazy_import_cv_agent():
     return create_cv_agent, CVDeps
 
 
+def _lazy_import_plan_refinement_agent():
+    """Lazy import for plan refinement agent."""
+    from .agent import PlanRefinementDeps, create_plan_refinement_agent
+
+    return create_plan_refinement_agent, PlanRefinementDeps
+
+
 def __getattr__(name):
     if name in ("create_forecasting_agent", "AskDeps"):
         create_forecasting_agent, AskDeps = _lazy_import_agent()
         if name == "create_forecasting_agent":
             return create_forecasting_agent
         return AskDeps
+    if name in ("create_plan_refinement_agent", "PlanRefinementDeps"):
+        create_plan_refinement_agent, PlanRefinementDeps = _lazy_import_plan_refinement_agent()
+        if name == "create_plan_refinement_agent":
+            return create_plan_refinement_agent
+        return PlanRefinementDeps
     raise AttributeError(f"module 'skforecast_ai.llm' has no attribute {name!r}")
