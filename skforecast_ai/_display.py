@@ -312,8 +312,31 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
     table.add_row("Steps", _format_value(plan.steps))
     table.add_row("Frequency", _format_value(plan.frequency or "not set"))
 
+    refined = set(plan.llm_refined_fields)
+    llm_tag = "  [magenta](LLM-suggested)[/]"
+
     lags = plan.forecaster_kwargs.get("lags")
-    table.add_row("Lags", _format_value(lags if lags is not None else "N/A"))
+    lags_value = _format_value(lags if lags is not None else "N/A")
+    if "lags" in refined:
+        lags_value += llm_tag
+    table.add_row("Lags", lags_value)
+
+    window_features = plan.forecaster_kwargs.get("window_features")
+    window_value = _format_value(
+        window_features if window_features is not None else "N/A"
+    )
+    if "window_features" in refined:
+        window_value += llm_tag
+    table.add_row("Window features", window_value)
+
+    calendar_features = plan.forecaster_kwargs.get("calendar_features")
+    if isinstance(calendar_features, dict) and calendar_features.get("features"):
+        features = calendar_features["features"]
+        encoding = calendar_features.get("encoding") or "raw ordinal"
+        calendar_value = _format_value(f"{features} ({encoding} encoding)")
+    else:
+        calendar_value = _format_value("none")
+    table.add_row("Calendar features", calendar_value)
 
     table.add_row("Use exog", _format_value(plan.use_exog))
     table.add_row("Interval", _format_value(plan.interval if plan.interval else "none"))
@@ -390,3 +413,21 @@ class DisplayMixin(JupyterMixin):
             (console or Console()).print(render_code(self.code))
         else:
             (console or Console()).print("No code available to display.")
+
+    def show_explanation(self, console: Console | None = None) -> None:
+        """
+        Print the explanation with Markdown formatting to a console.
+
+        Parameters
+        ----------
+        console : rich.console.Console, default None
+            Console to print to. A new default console is created if omitted.
+
+        Returns
+        -------
+        None
+        """
+        if hasattr(self, "explanation") and self.explanation is not None:
+            (console or Console()).print(render_explanation(self.explanation))
+        else:
+            (console or Console()).print("No explanation available to display.")

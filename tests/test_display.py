@@ -303,6 +303,67 @@ def test_render_plan_shows_na_when_estimator_missing(sample_plan):
     assert "N/A" in text
 
 
+def test_render_plan_shows_calendar_features_row(sample_plan):
+    """
+    Test that render_plan surfaces calendar features from forecaster_kwargs as
+    a dedicated table row, including the feature names and encoding.
+    """
+    plan = sample_plan.model_copy(
+        update={
+            "forecaster_kwargs": {
+                "calendar_features": {
+                    "features": ["hour", "day_of_week"],
+                    "encoding": "cyclical",
+                }
+            }
+        }
+    )
+    text = _render_to_text(render_plan(plan))
+    assert "Calendar features" in text
+    assert "hour" in text
+    assert "day_of_week" in text
+    assert "cyclical" in text
+
+
+def test_render_plan_shows_none_when_no_calendar_features(sample_plan):
+    """
+    Test that render_plan renders 'none' for calendar features when none are
+    present in forecaster_kwargs.
+    """
+    text = _render_to_text(render_plan(sample_plan))
+    assert "Calendar features" in text
+
+
+def test_render_plan_marks_llm_refined_fields(sample_plan):
+    """
+    Test that render_plan flags lags and window features as LLM-suggested when
+    they are listed in llm_refined_fields.
+    """
+    plan = sample_plan.model_copy(
+        update={
+            "forecaster_kwargs": {
+                "lags": [1, 2, 7],
+                "window_features": [{"stats": ["mean"], "window_size": 7}],
+            },
+            "llm_refined_fields": ["lags", "window_features"],
+        }
+    )
+    text = _render_to_text(render_plan(plan))
+    assert "LLM-suggested" in text
+
+
+def test_render_plan_no_llm_marker_without_refined_fields(sample_plan):
+    """
+    Test that render_plan does not flag any field as LLM-suggested when
+    llm_refined_fields is empty (deterministic plan).
+    """
+    plan = sample_plan.model_copy(
+        update={"forecaster_kwargs": {"lags": [1, 2, 7]}}
+    )
+    text = _render_to_text(render_plan(plan))
+    assert "LLM-suggested" not in text
+
+
 class TestDisplayMixin:
     """
     Tests for the shared DisplayMixin rich-display protocol.
@@ -383,6 +444,28 @@ class TestDisplayMixin:
         console = Console(file=io.StringIO(), width=200, color_system=None)
         AskResult(explanation="no code here").show_code(console=console)
         assert "No code available" in console.file.getvalue()
+
+    def test_show_explanation_prints_rendered_explanation(self):
+        """
+        Test that show_explanation prints the explanation text to the console.
+        """
+        console = Console(file=io.StringIO(), width=200, color_system=None)
+        AskResult(explanation="marker_explanation").show_explanation(console=console)
+        assert "marker_explanation" in console.file.getvalue()
+
+    def test_show_explanation_fallback_when_no_explanation(
+        self, sample_profile, sample_plan
+    ):
+        """
+        Test that show_explanation prints a fallback message when the result
+        has no explanation (e.g. a CodeGenerationResult).
+        """
+        result = CodeGenerationResult(
+            code="print('x')", profile=sample_profile, plan=sample_plan
+        )
+        console = Console(file=io.StringIO(), width=200, color_system=None)
+        result.show_explanation(console=console)
+        assert "No explanation available" in console.file.getvalue()
 
     def test_rich_console_not_implemented_in_base_mixin(self):
         """

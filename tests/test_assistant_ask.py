@@ -403,6 +403,34 @@ def test_ask_ValueError_when_both_results_provided():
         )
 
 
+def test_ask_TypeError_when_forecast_result_wrong_type():
+    """
+    Test that ask() raises TypeError when forecast_result is not a
+    ForecastResult object.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    err_msg = re.escape(
+        "`forecast_result` must be a `ForecastResult` object, got str."
+    )
+    with pytest.raises(TypeError, match=err_msg):
+        assistant.ask(prompt="Explain", forecast_result="not a result")
+
+
+def test_ask_TypeError_when_backtest_result_wrong_type():
+    """
+    Test that ask() raises TypeError when backtest_result is not a
+    BacktestResult object.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    err_msg = re.escape(
+        "`backtest_result` must be a `BacktestResult` object, got dict."
+    )
+    with pytest.raises(TypeError, match=err_msg):
+        assistant.ask(prompt="Explain", backtest_result={"not": "a result"})
+
+
 def test_ask_output_when_backtest_result_provided(monkeypatch):
     """
     Test that ask() in Backtest mode passes metrics, predictions, and

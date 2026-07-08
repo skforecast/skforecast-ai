@@ -545,6 +545,7 @@ class ForecastingAssistant:
 
         reasoning = None
         shadowed_fields: list[str] = []
+        llm_applied_fields: list[str] = []
         if prompt is not None:
             if self.llm is None:
                 raise LLMRequiredError("refine_plan")
@@ -611,6 +612,7 @@ class ForecastingAssistant:
                             )
                         else:
                             overrides[field] = value
+                            llm_applied_fields.append(field)
 
         steps = overrides.get("steps", plan.steps)
         forecaster = overrides.get("forecaster", plan.forecaster)
@@ -635,6 +637,7 @@ class ForecastingAssistant:
             refined_plan.explanation += (
                 f"\n\nLLM Refinement Reasoning:\n{reasoning}"
             )
+            refined_plan.llm_refined_fields = llm_applied_fields
             if shadowed_fields:
                 # The LLM's narrative may describe a field that an explicit
                 # override replaced. Record which fields actually took
@@ -642,6 +645,16 @@ class ForecastingAssistant:
                 refined_plan.explanation += (
                     f"\n\nNote: explicit override(s) took precedence over the "
                     f"LLM suggestion for: {', '.join(shadowed_fields)}."
+                )
+            if llm_applied_fields:
+                # LLM-suggested features are hypotheses, not measured
+                # improvements. Make the lack of validation explicit so the
+                # user does not read the plan as a proven accuracy gain.
+                refined_plan.explanation += (
+                    "\n\nNote: the LLM-suggested "
+                    f"{' and '.join(llm_applied_fields)} are hypotheses, not "
+                    "validated improvements. Confirm any expected accuracy "
+                    "gain before relying on them."
                 )
 
         return refined_plan
@@ -1131,7 +1144,7 @@ class ForecastingAssistant:
         -------
         cv : TimeSeriesFold
             Configured cross-validation fold splitter.
-        explanation : str
+        cv_explanation : str
             Human-readable explanation of the chosen configuration.
 
         References
@@ -1237,15 +1250,15 @@ class ForecastingAssistant:
 
         # Build explanation
         reasoning = defaults.pop("_reasoning", None)
-        explanation = build_cv_explanation(
-                          cv_params      = defaults,
-                          n_observations = span_index_length,
-                          n_folds        = n_folds,
-                      )
+        cv_explanation = build_cv_explanation(
+                             cv_params      = defaults,
+                             n_observations = span_index_length,
+                             n_folds        = n_folds,
+                         )
         if reasoning:
-            explanation = f"{reasoning} {explanation}"
+            cv_explanation = f"{reasoning} {cv_explanation}"
 
-        return cv, explanation
+        return cv, cv_explanation
 
     def backtest_code(
         self,
@@ -1609,6 +1622,22 @@ class ForecastingAssistant:
             raise ValueError(
                 "`forecast_result` and `backtest_result` are mutually "
                 "exclusive — provide one or the other, not both."
+            )
+
+        if forecast_result is not None and not isinstance(
+            forecast_result, ForecastResult
+        ):
+            raise TypeError(
+                f"`forecast_result` must be a `ForecastResult` object, got "
+                f"{type(forecast_result).__name__}."
+            )
+
+        if backtest_result is not None and not isinstance(
+            backtest_result, BacktestResult
+        ):
+            raise TypeError(
+                f"`backtest_result` must be a `BacktestResult` object, got "
+                f"{type(backtest_result).__name__}."
             )
 
         # --- Extract from forecast_result if provided ---

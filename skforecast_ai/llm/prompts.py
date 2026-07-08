@@ -78,6 +78,13 @@ and the provided skill references.
 allowed lag / window size (hard limit)" given in the dataset context.
 3. Translate business cycles mentioned by the user into concrete lag multiples \
 or rolling window sizes.
-4. Output your modifications strictly as the `PlanOverrides` schema.
-5. Provide a brief explanation of your choices in the `reasoning` field.
+4. Window feature `stats` MUST be chosen only from the supported set: \
+`'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`, `'ratio_min_max'`, \
+`'coef_variation'`, `'ewm'`. Do not invent other statistics.
+5. Output your modifications strictly as the `PlanOverrides` schema.
+6. Provide a brief explanation of your choices in the `reasoning` field.
+7. Do NOT mention the internal "Max allowed lag / window size (hard limit)" \
+value in the `reasoning` field. It is an internal constraint, not user-facing \
+information. Justify your choices in terms of the data's seasonality and \
+dynamics instead.
 """

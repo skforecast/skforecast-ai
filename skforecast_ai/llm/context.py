@@ -20,11 +20,18 @@ def _serialize_dataframe(df: Any) -> str:
     numeric_cols = df.select_dtypes(include="number")
     stats = ""
     if not numeric_cols.empty:
-        stats = (
-            f"\n\nSummary: min={numeric_cols.min().min():.4g}, "
-            f"max={numeric_cols.max().max():.4g}, "
-            f"mean={numeric_cols.mean().mean():.4g}"
-        )
+        # Report per-column statistics rather than a single blended value.
+        # Collapsing point predictions and interval bounds (e.g. `pred`,
+        # `lower_bound`, `upper_bound`) into one min/max/mean would let the
+        # reader mistake an interval edge for a forecast value.
+        lines = ["", "Per-column summary (all rows):"]
+        for col in numeric_cols.columns:
+            col_data = numeric_cols[col]
+            lines.append(
+                f"  {col}: min={col_data.min():.4g}, "
+                f"max={col_data.max():.4g}, mean={col_data.mean():.4g}"
+            )
+        stats = "\n" + "\n".join(lines)
     return f"{head}\n... ({len(df) - 10} rows omitted) ...\n{tail}{stats}"
 
 
@@ -143,6 +150,16 @@ def build_context_message(
                 parts.append(
                     f"- Window features: {plan.forecaster_kwargs['window_features']}"
                 )
+        if plan.interval is not None:
+            coverage = (plan.interval[1] - plan.interval[0]) * 100
+            parts.append(
+                f"- Prediction interval: {plan.interval} "
+                f"({coverage:.4g}% coverage)"
+            )
+            if plan.interval_method is not None:
+                parts.append(f"- Interval method: {plan.interval_method}")
+        if plan.metric:
+            parts.append(f"- Primary metric: {plan.metric}")
         if verbosity in ("standard", "full") and plan.preprocessing_steps:
             for step in plan.preprocessing_steps:
                 prefix = "[required]" if step.blocking else "[recommended]"
@@ -168,6 +185,16 @@ def build_context_message(
             parts.append("")
             parts.append("### Evaluation Metrics")
             parts.append(metrics.to_string(index=False))
+        elif predictions is not None:
+            # Prediction mode: predictions exist but there is no held-out
+            # ground truth, so no metrics were computed. State this explicitly
+            # so the explanation does not frame the metric choice as a
+            # completed evaluation.
+            parts.append("")
+            parts.append(
+                "Note: no evaluation metrics were computed (prediction mode, "
+                "no ground truth to score against)."
+            )
 
         if predictions is not None:
             parts.append("")

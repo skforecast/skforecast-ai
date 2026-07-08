@@ -83,36 +83,6 @@ class CodeGenerationResult(DisplayMixin, BaseModel):
         yield render_code(self.code)
 
 
-class AskResult(DisplayMixin, BaseModel):
-    """
-    Result of the `ask` workflow (requires LLM).
-
-    Attributes
-    ----------
-    profile : ForecastingProfile, default None
-        Profile of the input dataset and high-level modeling decisions,
-        if data was provided.
-    plan : ForecastPlan, default None
-        Detailed forecasting plan, if the agent produced one.
-    code : str, default None
-        Generated Python script, if the agent produced one.
-    explanation : str
-        LLM-generated explanation or response.
-    """
-
-    profile: ForecastingProfile | None = None
-    plan: ForecastPlan | None = None
-    code: str | None = None
-    explanation: str
-
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
-        yield render_explanation(self.explanation, title="Assistant Response")
-        if self.code is not None:
-            yield render_code(self.code)
-
-
 class ForecastResult(DisplayMixin, BaseModel):
     """
     Result of the `forecast` workflow (executes the pipeline end-to-end).
@@ -199,3 +169,33 @@ class BacktestResult(DisplayMixin, BaseModel):
         yield render_profile(self.profile)
         yield render_plan(self.plan)
         yield render_code(self.code)
+
+
+class AskResult(DisplayMixin, BaseModel):
+    """
+    Result of the `ask` workflow (requires LLM).
+
+    Attributes
+    ----------
+    profile : ForecastingProfile, default None
+        Profile of the input dataset and high-level modeling decisions,
+        if data was provided.
+    plan : ForecastPlan, default None
+        Detailed forecasting plan, if the agent produced one.
+    code : str, default None
+        Generated Python script, if the agent produced one.
+    explanation : str
+        LLM-generated explanation or response.
+    """
+
+    profile: ForecastingProfile | None = None
+    plan: ForecastPlan | None = None
+    code: str | None = None
+    explanation: str
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_explanation(self.explanation, title="Assistant Response")
+        if self.code is not None:
+            yield render_code(self.code)

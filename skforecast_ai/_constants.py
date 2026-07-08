@@ -1,5 +1,7 @@
 """Shared forecaster-type constants used across modules."""
 
+from typing import Literal, get_args
+
 # Maximum fraction of the available observations that an explicit lag or
 # rolling-window feature may span. Mirrors `finalize_lags`'
 # `max_fraction_allowed` so manual/LLM overrides honour the same budget as
@@ -82,7 +84,7 @@ NAN_TOLERANT_ESTIMATORS: set[str] = {
 # Rolling statistics supported by skforecast's `RollingFeatures`. Explicit
 # `window_features` overrides (manual, CLI, or LLM-supplied) are validated
 # against this set.
-ALLOWED_WINDOW_STATS: set[str] = {
+WindowStat = Literal[
     "mean",
     "std",
     "min",
@@ -92,4 +94,6 @@ ALLOWED_WINDOW_STATS: set[str] = {
     "ratio_min_max",
     "coef_variation",
     "ewm",
-}
+]
+
+ALLOWED_WINDOW_STATS: set[str] = set(get_args(WindowStat))

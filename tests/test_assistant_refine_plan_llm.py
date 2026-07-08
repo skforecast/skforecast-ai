@@ -107,6 +107,11 @@ def test_refine_plan_prompt_success(monkeypatch):
     assert "LLM Refinement Reasoning" in refined.explanation
     # Nothing was shadowed, so no override note is appended.
     assert "took precedence over the LLM suggestion" not in refined.explanation
+    # Both features came from the LLM and are flagged as such.
+    assert refined.llm_refined_fields == ["lags", "window_features"]
+    # The not-validated caveat is appended for LLM-sourced features.
+    assert "are hypotheses, not" in refined.explanation
+    assert "Confirm any expected accuracy" in refined.explanation
     assert call_count["n"] == 1
 
 
@@ -145,6 +150,8 @@ def test_refine_plan_prompt_explicit_lags_shadow_llm(monkeypatch):
     assert call_count["n"] == 1
     shadow = [x for x in w if "Explicit lags override shadowed" in str(x.message)]
     assert len(shadow) == 1
+    # Only the LLM-sourced window_features is flagged as refined.
+    assert refined.llm_refined_fields == ["window_features"]
     # The persisted explanation records which field the override replaced.
     assert (
         "explicit override(s) took precedence over the LLM suggestion for: lags"
@@ -188,6 +195,8 @@ def test_refine_plan_prompt_explicit_window_features_shadow_llm(monkeypatch):
         x for x in w if "Explicit window_features override shadowed" in str(x.message)
     ]
     assert len(shadow) == 1
+    # Only the LLM-sourced lags is flagged as refined.
+    assert refined.llm_refined_fields == ["lags"]
     # The persisted explanation records which field the override replaced.
     assert (
         "explicit override(s) took precedence over the LLM suggestion for: "

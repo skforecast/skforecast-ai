@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from pydantic import BaseModel, Field
 
+from .._constants import WindowStat
 from .._display import DisplayMixin, render_plan
 
 
@@ -123,14 +124,21 @@ class WindowFeature(BaseModel):
     Attributes
     ----------
     stats : list of str
-        Rolling statistics to compute (e.g. `['mean', 'std']`).
+        Rolling statistics to compute (e.g. `['mean', 'std']`). Each value
+        must be one of the statistics supported by skforecast's
+        `RollingFeatures`: `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`,
+        `'median'`, `'ratio_min_max'`, `'coef_variation'`, `'ewm'`.
     window_size : int
         Rolling window length in observations, applied to every statistic
         in `stats`. Must be a scalar; to combine several window sizes, use
         one `WindowFeature` per size.
     """
-    stats: list[str] = Field(
-        description="Rolling statistics to compute, e.g. ['mean', 'std', 'min', 'max'].",
+    stats: list[WindowStat] = Field(
+        description=(
+            "Rolling statistics to compute. Each value must be one of: "
+            "'mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', "
+            "'coef_variation', 'ewm'."
+        ),
     )
     window_size: int = Field(
         description=(
@@ -224,6 +232,11 @@ class ForecastPlan(DisplayMixin, BaseModel):
         Ordered list of preprocessing steps required before forecasting.
     warnings : list
         Human-readable warnings about the plan.
+    llm_refined_fields : list
+        Names of the fields (`'lags'`, `'window_features'`) whose values
+        were suggested by the LLM during `refine_plan()`. Empty for
+        deterministic plans and for fields the user overrode explicitly.
+        Used to flag LLM-sourced values when the plan is displayed.
     explanation : str
         Explanation of the plan-level decisions.
     """
@@ -251,6 +264,7 @@ class ForecastPlan(DisplayMixin, BaseModel):
     use_exog: bool = False
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    llm_refined_fields: list[str] = Field(default_factory=list)
     explanation: str
 
     def __rich_console__(self, console, options):

@@ -36,7 +36,29 @@ def test_serialize_dataframe_large_truncated():
     assert "rows omitted" in result
     assert "0.0" in result  # head
     assert "49.0" in result  # tail
-    assert "Summary" in result
+    assert "Per-column summary" in result
+
+
+def test_serialize_dataframe_truncated_summary_is_per_column():
+    """
+    Test that the truncated summary reports statistics per column instead of
+    blending point predictions and interval bounds into a single value.
+    """
+    df = pd.DataFrame(
+        {
+            "pred": np.arange(40, dtype=float),
+            "lower_bound": np.arange(40, dtype=float) - 5,
+            "upper_bound": np.arange(40, dtype=float) + 5,
+        }
+    )
+    result = _serialize_dataframe(df)
+
+    # Each column reports its own statistics.
+    assert "pred: min=0, max=39, mean=19.5" in result
+    assert "lower_bound: min=-5, max=34, mean=14.5" in result
+    assert "upper_bound: min=5, max=44, mean=24.5" in result
+    # The blended cross-column line must not be produced.
+    assert "Summary: min=" not in result
 
 
 def test_serialize_dataframe_exactly_30_rows():
@@ -104,6 +126,72 @@ def test_build_context_message_with_intervals():
     assert "lower_bound" in result
     assert "8.0" in result
     assert "12.0" in result
+
+
+def test_build_context_message_plan_includes_interval_method_and_metric():
+    """
+    Test that the plan section reports the prediction interval with its
+    coverage, the interval method, and the primary metric, so the LLM does
+    not have to guess them.
+    """
+    from skforecast_ai.schemas import ForecastPlan
+
+    plan = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        estimator="LGBMRegressor",
+        steps=36,
+        interval=[0.1, 0.9],
+        interval_method="bootstrapping",
+        metric="mean_absolute_error",
+        explanation="Recursive plan.",
+    )
+
+    result = build_context_message(plan=plan)
+
+    assert "## Forecast Plan" in result
+    assert "Prediction interval: [0.1, 0.9] (80% coverage)" in result
+    assert "Interval method: bootstrapping" in result
+    assert "Primary metric: mean_absolute_error" in result
+
+
+def test_build_context_message_plan_omits_interval_when_none():
+    """
+    Test that no prediction interval line is rendered when the plan has no
+    interval configured.
+    """
+    from skforecast_ai.schemas import ForecastPlan
+
+    plan = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        estimator="LGBMRegressor",
+        steps=36,
+        interval=None,
+        explanation="Recursive plan.",
+    )
+
+    result = build_context_message(plan=plan)
+
+    assert "Prediction interval" not in result
+    assert "Interval method" not in result
+
+
+def test_build_context_message_predictions_without_metrics_notes_prediction_mode():
+    """
+    Test that a note is added when predictions exist but metrics are None
+    (prediction mode), and that no evaluation-metrics section is rendered.
+    """
+    predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0]})
+
+    result = build_context_message(
+        predictions=predictions, metrics=None, send_data=True
+    )
+
+    assert "## Forecast Results" in result
+    assert "### Evaluation Metrics" not in result
+    assert "no evaluation metrics were computed" in result
+    assert "### Predictions" in result
 
 
 def test_build_context_message_empty_when_no_args():
