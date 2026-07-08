@@ -91,24 +91,24 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
 # Measured token estimates (chars / 4) for each skill (SKILL.md + references/).
 _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "autocorrelation-and-lag-selection": 2038,
-    "backtesting-configuration": 1076,
-    "choosing-a-forecaster": 2702,
-    "complete-api-reference": 11360,
-    "deep-learning-forecasting": 3873,
+    "backtesting-configuration": 1818,
+    "choosing-a-forecaster": 2719,
+    "complete-api-reference": 11452,
+    "deep-learning-forecasting": 4103,
     "drift-detection": 1246,
-    "feature-engineering": 10569,
+    "feature-engineering": 10823,
     "feature-selection": 1406,
-    "forecasting-multiple-series": 1480,
-    "forecasting-single-series": 1223,
-    "foundation-forecasting": 3201,
-    "hyperparameter-optimization": 3330,
+    "forecasting-multiple-series": 1762,
+    "forecasting-single-series": 1476,
+    "foundation-forecasting": 4305,
+    "hyperparameter-optimization": 3553,
     "metric-selection": 4986,
-    "prediction-intervals": 3203,
-    "statistical-models": 3741,
-    "troubleshooting-common-errors": 2099,
+    "prediction-intervals": 4403,
+    "statistical-models": 3979,
+    "troubleshooting-common-errors": 2195,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 7647  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 7746  # llms-base.txt measured size
 _STATIC_PROMPT_TOKEN_ESTIMATE = 200
 
 
