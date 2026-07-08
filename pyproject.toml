@@ -82,7 +82,10 @@ test = [
     "pytest>=9",
     "pytest-cov>=7",
     "pytest-xdist>=3.8",
+
     "pydantic-ai>=2,<3",
+    "pydantic-ai[groq]>=2,<3",
+    
     "lightgbm>=4.0,<5.0",
     "statsmodels>=0.13, <0.15",
 ]
