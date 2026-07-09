@@ -18,7 +18,7 @@ The `ask` command and LLM-assisted backtest configuration also need the optional
 pip install "skforecast-ai[llm]"
 ```
 
-See [Using the AI assistant](using-the-ai-assistant.md) for supported providers, API keys, and local model setup.
+See the AI assistant documentation for supported providers, API keys, and local model setup.
 
 ---
 
@@ -58,7 +58,7 @@ skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12
 
 ## Dataset shapes
 
-The CLI handles three data layouts. The combination of `--target`, `--date-column`, and `--series-id-column` tells it which one you have. See [Understanding your data](understanding-your-data.md) for how layouts are detected and [Forecasting multiple series](forecasting-multiple-series.md) for multi-series workflows.
+The CLI handles three data layouts. The combination of `--target`, `--date-column`, and `--series-id-column` tells it which one you have.
 
 | Layout | Flags | Example |
 |--------|-------|---------|
@@ -87,7 +87,7 @@ skforecast-ai forecast sales.csv --target revenue --date-column date --series-id
 
 ## profile
 
-Inspect a dataset and print the recommended forecaster, estimator, and key data characteristics. No horizon required. See [Understanding your data](understanding-your-data.md) for how these characteristics are detected.
+Inspect a dataset and print the recommended forecaster, estimator, and key data characteristics. No horizon required.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -102,7 +102,7 @@ skforecast-ai profile "$URL" --target y --date-column fecha --format json
 
 ## plan
 
-Turn a profile into a detailed forecasting plan: forecaster, estimator, lags, preprocessing, and (optionally) prediction intervals. See [The forecasting workflow](the-forecasting-workflow.md) and [Customizing the model](customizing-the-model.md) for how a plan is assembled.
+Turn a profile into a detailed forecasting plan: forecaster, estimator, lags, preprocessing, and (optionally) prediction intervals.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -127,7 +127,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format jso
 
 ## refine-plan
 
-Adjust an existing plan without re-profiling the dataset: change the horizon, switch forecasters, tune estimator hyperparameters, or add intervals. See [Human-in-the-loop](human-in-the-loop.md) for overriding modeling decisions safely.
+Adjust an existing plan without re-profiling the dataset: change the horizon, switch forecasters, tune estimator hyperparameters, or add intervals.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -152,7 +152,7 @@ skforecast-ai refine-plan --from-plan plan.json --interval "0.1,0.9" --format js
 
 ## Save and replay a plan
 
-A saved plan separates the modeling decision from execution, which helps with auditing, scheduling, or rerunning the same plan against updated data. See [Reproducible code](reproducible-code.md) for the scripts behind a plan.
+A saved plan separates the modeling decision from execution, which helps with auditing, scheduling, or rerunning the same plan against updated data.
 
 !!! note
     When `--from-plan` is used, `DATA`, `--target`, and `--steps` are optional for `forecast-code` (the values come from the bundle). `DATA` is still required for `forecast`, which needs actual data to execute.
@@ -177,7 +177,7 @@ skforecast-ai forecast "$URL" --from-plan plan.json --interval "0.1,0.9"
 
 ## forecast-code
 
-Generate a self-contained Python script without executing it. Useful for inspection, version control, or manual runs. The output is the script itself; use `--format json` to wrap it with the profile and plan. See [Reproducible code](reproducible-code.md) for what the generated script contains.
+Generate a self-contained Python script without executing it. Useful for inspection, version control, or manual runs. The output is the script itself; use `--format json` to wrap it with the profile and plan.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -196,7 +196,7 @@ skforecast-ai forecast-code --from-plan plan.json --output forecast.py
 
 ## forecast
 
-Run the full pipeline end-to-end (profile, plan, generate code, execute) and report predictions, plus metrics when you evaluate. See [Your first forecast](first-forecast.md) and [The forecasting workflow](the-forecasting-workflow.md) for a guided walkthrough.
+Run the full pipeline end-to-end (profile, plan, generate code, execute) and report predictions, plus metrics when you evaluate. See [Your first forecast](first-forecast.md) for a guided walkthrough.
 
 `forecast` runs in two modes:
 
@@ -234,7 +234,7 @@ See [Dataset shapes](#dataset-shapes) for multi-series and long-format examples.
 
 ## backtest-code
 
-Generate a backtesting script without executing it. Useful for inspection, version control, or manual execution. See [Backtesting & validation](backtesting.md) for the concepts and [Reproducible code](reproducible-code.md) for the generated script.
+Generate a backtesting script without executing it. Useful for inspection, version control, or manual execution.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -276,7 +276,7 @@ skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 \
 
 ## backtest
 
-Run backtesting evaluation with cross-validation. Chains profile → plan → create_cv → backtest automatically. See [Backtesting & validation](backtesting.md) for a conceptual overview and the Python API equivalent.
+Run backtesting evaluation with cross-validation. Chains profile → plan → create_cv → backtest automatically.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -343,7 +343,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 ## ask
 
 !!! note "Requires LLM extras"
-    `ask` requires an API key and the LLM extras: `pip install "skforecast-ai[llm]"`. See [Using the AI assistant](using-the-ai-assistant.md) for supported providers, API key setup, and local model options.
+    `ask` requires an API key and the LLM extras: `pip install "skforecast-ai[llm]"`. See the AI assistant documentation for supported providers, API key setup, and local model options.
 
 Query an LLM about your forecast, your data, or general forecasting strategy. The LLM can optionally receive your data profile for context, but raw data is never sent by default.
 

@@ -59,5 +59,4 @@ print(result.code)          # the skforecast script that produced this result
 ## Next steps
 
 - **[Your first forecast](first-forecast.md)**: the same call, explained step by step.
-- **[The forecasting workflow](the-forecasting-workflow.md)**: inspect and override each stage of the pipeline.
-- **[Using the AI assistant](using-the-ai-assistant.md)** *(optional)*: configure a language model to explain decisions and answer questions about your forecast.
+- **[Agentic forecasting](agentic-forecasting.ipynb)**: End-to-end walkthrough on a real hourly dataset.

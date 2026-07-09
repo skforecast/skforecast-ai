@@ -34,7 +34,7 @@ from skforecast_ai import ForecastingAssistant
 assistant = ForecastingAssistant()
 ```
 
-With no arguments, the assistant runs the full forecasting pipeline. To add an AI reasoning layer on top, see [Using the AI assistant](using-the-ai-assistant.md).
+With no arguments, the assistant runs the full forecasting pipeline. To add an AI reasoning layer on top, see the AI assistant section below.
 
 ## Run the forecast
 
@@ -58,7 +58,7 @@ The `forecast()` method is the fastest way to generate predictions. In a single 
 
     + **Evaluation mode** (`test_size` is set). The dataset is split into train and test sets, the model is trained on the training portion, and predictions for the test window are compared against the held-out actuals to compute metrics. In this mode, the test-set exogenous values are taken from the split, so `exog` must not be passed.
 
-    For repeated, walk-forward evaluation across many points in time, use [backtesting](backtesting.md) instead of a single split.
+    For repeated, walk-forward evaluation across many points in time, use backtesting instead of a single split.
 
 ## Explore the results
 
@@ -91,7 +91,7 @@ results.show_code()
 
 
 !!! tip "The script is the source of truth"
-    `result.code` is not a reconstruction. It is *exactly* what ran to produce `result.predictions`. Copy it into a `.py` file and run it with no dependency on skforecast-ai. See [How it works & trust](how-it-works-and-trust.md) for details on this guarantee.
+    `result.code` is not a reconstruction. It is *exactly* what ran to produce `result.predictions`. Copy it into a `.py` file and run it with no dependency on skforecast-ai.
 
 ## Evaluate the model
 
@@ -179,7 +179,7 @@ answer = assistant.ask(
 answer
 ```
 
-The LLM does not alter the forecast; the numbers are identical whether or not a model is configured. To act on a suggestion, see [Human-in-the-loop forecasting](human-in-the-loop.md).
+The LLM does not alter the forecast; the numbers are identical whether or not a model is configured.
 
 ---
 
@@ -187,17 +187,8 @@ The LLM does not alter the forecast; the numbers are identical whether or not a 
 
 The assistant follows a four-step rule-based pipeline — **profile → plan → render code → execute** — and every decision at each step is fully inspectable.
 
-- To understand each step and the objects passed between them, see [The forecasting workflow](the-forecasting-workflow.md).
-- To see why a particular forecaster, estimator, or set of lags was chosen, see [Customizing the model](customizing-the-model.md).
-- To check what the assistant detected in your data (frequency, gaps, missing values), see [Understanding your data](understanding-your-data.md).
-
 ---
 
 ## Next steps
 
-- [**Complete worked example**](../examples/agentic-forecasting-with-skforecast-ai.ipynb): End-to-end fast-path walkthrough on a real hourly dataset — exogenous variables, prediction intervals, `refine_plan()`, backtesting, and `ask()` for interpretation.
-- [**Customizing the model**](customizing-the-model.md): Override the forecaster, estimator, hyperparameters, or horizon.
-- [**Backtesting & validation**](backtesting.md): Evaluate the model with walk-forward cross-validation.
-- [**Reproducible code**](reproducible-code.md): Get the standalone script without executing it, for auditing and deployment.
-- [**Using the AI assistant**](using-the-ai-assistant.md) *(optional)*: Configure a provider and ask questions about your forecast.
-- [**Human-in-the-loop forecasting**](human-in-the-loop.md) *(optional)*: Use `ask()` suggestions to drive `refine_plan()` and iterate toward a better model.
+- [**Complete worked example**](agentic-forecasting.ipynb): End-to-end fast-path walkthrough on a real hourly dataset — exogenous variables, prediction intervals, `refine_plan()`, backtesting, and `ask()` for interpretation.

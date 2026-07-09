@@ -174,24 +174,13 @@ answer = assistant.ask("Why was this model chosen?", forecast_result=result)
 print(answer.explanation)
 ```
 
-Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md)**.
+Read more in **[Your first forecast](docs/README.md)**.
 
 ---
 
 ## 📚 Documentation
 
-| Guide | What it covers |
-| --- | --- |
-| [Your first forecast](docs/user_guides/first-forecast.md) | Data → forecast in a few lines (start here) |
-| [The forecasting workflow](docs/user_guides/the-forecasting-workflow.md) | `profile → plan → refine_plan → forecast`, step by step |
-| [How it works & trust](docs/user_guides/how-it-works-and-trust.md) | Determinism, the `exec()` fidelity guarantee, and privacy |
-| [Understanding your data](docs/user_guides/understanding-your-data.md) | What profiling detects and how to read it |
-| [Customizing the model](docs/user_guides/customizing-the-model.md) | Override the forecaster, estimator, horizon, or intervals |
-| [Backtesting & validation](docs/user_guides/backtesting.md) | Rigorous walk-forward evaluation |
-| [CLI usage](docs/user_guides/cli-usage.md) | Run the full pipeline from the terminal |
-| [Using the AI assistant](docs/user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
-| [Foundation models](docs/user_guides/foundation-forecasting.md) | Zero-shot forecasting with Chronos-2 and friends |
-| [Human-in-the-loop](docs/user_guides/human-in-the-loop.md) | Forecast → ask → refine → re-run, end to end |
+Read more in **[Your first forecast](docs/README.md)**.
 
 ---
 
