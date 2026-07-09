@@ -24,19 +24,18 @@
 
 ---
 
-**An AI forecasting assistant built on a deterministic engine.** skforecast-ai pairs a deterministic forecasting engine (built on [`skforecast`](https://skforecast.org)) with an **LLM reasoning layer**. Give it a time series and it profiles the data, selects a model using established best practices, evaluates it, and returns the forecast along with the runnable `skforecast` script that produced it.
+**An AI forecasting assistant built on a deterministic engine.** **skforecast-ai** pairs a deterministic forecasting engine built on [skforecast](https://skforecast.org) with an **LLM reasoning layer**. Give it a time series and it profiles the data, selects a model using established best practices, evaluates it, and returns the forecast along with the runnable **skforecast** script that produced it.
 
 ---
 
 
 ## ✨ Why skforecast-ai?
 
-- 🎯 **Deterministic by design**: a rule-based engine. Same input → same output, every time.
-- 🔍 **Code you can inspect**: the script you see is the code that ran (`result.code`). Inspect it, version it, or run it standalone with plain `skforecast`.
+- 🎯 **Deterministic by design**: built as a strict rule-based engine to guarantee absolute consistency, same input always means the same output.
+- 🔍 **Code you can inspect**: the script you see is the code that ran. Inspect it, version it, or run it standalone with plain **skforecast**.
 - ⚡ **From data to forecast in one call**: automatic data profiling, model and estimator selection, lag/feature engineering, and backtest evaluation.
 - 💻 **Python or terminal**: drive the full pipeline from a few lines of Python or from the command line.
-- 💬 **LLM reasoning layer**: explains the decisions the engine made, in plain language. It never touches the math.
-- 🔌 **Runs locally, no API key**: the forecasting pipeline works offline. The LLM reasoning layer is optional.
+- 💬 **LLM reasoning layer**: explains the engine's decisions in plain language, helps you improve the configuration, and lets you ask for advice. This layer is entirely optional; the core forecasting pipeline can run fully offline.
 - 🏗️ **Built on skforecast**: recursive & direct forecasters, multi-series, statistical, and foundation models (Chronos-2, TimesFM, Moirai, and more).
 
 ---

@@ -1,6 +1,10 @@
 # Quick start
 
-Install **skforecast-ai** and verify the setup works. For a step-by-step walkthrough of your first real forecast, continue to [Your first forecast](first-forecast.md). New to forecasting with machine learning? skforecast's [Introduction to forecasting](https://skforecast.org/latest/introduction-forecasting/introduction-forecasting) covers the fundamentals this documentation assumes.
+Install **skforecast-ai** and verify the setup works. For a step-by-step walkthrough of your first real forecast, continue to [Your first forecast](first-forecast.md).
+
+
+!!! note ""
+    New to forecasting with machine learning? skforecast's [Introduction to forecasting](https://skforecast.org/latest/introduction-forecasting/introduction-forecasting) covers the fundamentals this documentation assumes.
 
 ## Install
 
@@ -30,8 +34,6 @@ Install **skforecast-ai** and verify the setup works. For a step-by-step walkthr
     pip install -e ".[dev]"
     ```
 
-!!! note "Requirements"
-    skforecast-ai requires **Python ≥ 3.10**. The deterministic pipeline runs entirely offline; only the optional LLM reasoning layer requires network access and a provider API key.
 
 ## Smoke test
 
@@ -53,9 +55,6 @@ print(result.code)          # the skforecast script that produced this result
 
 !!! tip "Runs locally by default"
     The smoke test runs in deterministic mode: no LLM, no network access, and no configuration required.
-
-!!! note "Evaluate vs. forecast the future"
-    Passing `test_size=12` runs `forecast()` in **evaluation mode**: it holds out the last 12 observations, trains on the rest, and reports metrics. Drop `test_size` to run the default **prediction mode**, which trains on all data and forecasts the future (no metrics). See [Your first forecast](first-forecast.md).
 
 ## Next steps
 

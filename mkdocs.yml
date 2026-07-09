@@ -13,7 +13,6 @@ nav:
   - Quick start:
     - Installation: user_guides/quick-start.md
     - Your first forecast: user_guides/first-forecast.md
-    - Using the CLI: user_guides/cli-usage.md
 
   - User Guides:
     - Core concepts:
@@ -34,6 +33,7 @@ nav:
       - Using the AI assistant: user_guides/using-the-ai-assistant.md
       - Human-in-the-loop: user_guides/human-in-the-loop.md
       - LLM-guided plan refinement: user_guides/llm-plan-refinement.md
+    - Using the CLI: user_guides/cli-usage.md
 
   - Examples:
     - Agentic forecasting: examples/agentic-forecasting-with-skforecast-ai.ipynb
