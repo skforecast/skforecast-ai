@@ -35,11 +35,9 @@ nav:
       - Human-in-the-loop: user_guides/human-in-the-loop.md
       - LLM-guided plan refinement: user_guides/llm-plan-refinement.md
 
-  - Examples and tutorials:
-    - Interactive Q&A: examples/talking-to-the-agent.ipynb
-    - End-to-end Forecasting: examples/end-to-end-forecasting.ipynb
-    - LLM-guided Backtesting: examples/agentic-backtesting.ipynb
-    - "Advanced: Reasoning Engine internals": examples/advanced-reasoning-engine.ipynb
+  - Examples:
+    - Agentic forecasting: examples/agentic-forecasting-with-skforecast-ai.ipynb
+    - Agentic forecasting step by step: examples/agentic-forecasting-with-skforecast-ai-step-by-step.ipynb
 
   - API Reference:
     - Assistant: api/assistant.md
