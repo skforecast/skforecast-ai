@@ -39,6 +39,9 @@ nav:
     - Agentic forecasting: examples/agentic-forecasting-with-skforecast-ai.ipynb
     - Agentic forecasting step by step: examples/agentic-forecasting-with-skforecast-ai-step-by-step.ipynb
 
+  - Releases:
+    - Changelog: releases/releases.md
+
   - API Reference:
     - Assistant: api/assistant.md
     - CLI: api/cli.md

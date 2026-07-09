@@ -3,33 +3,31 @@
     <img src="img/banner-landing-page-dark-mode-skforecast.png#only-dark" align="left" style="margin-bottom: 30px; margin-top: 0px;">
 </div>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue" alt="Python version">
-  <a href="https://pypi.org/project/skforecast-ai/"><img src="https://img.shields.io/pypi/v/skforecast-ai?color=blue" alt="PyPI version"></a>
-  <a href="https://pypi.org/project/skforecast-ai/"><img src="https://img.shields.io/pypi/dm/skforecast-ai?color=blue" alt="PyPI downloads"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License"></a>
-  <a href="https://github.com/skforecast/skforecast"><img src="https://img.shields.io/badge/built%20on-skforecast-orange" alt="Built on skforecast"></a>
-</p>
+<div style="clear: both;"></div>
 
-**An AI forecasting assistant built on a deterministic engine.** `skforecast-ai` pairs a **deterministic forecasting engine** (built on [`skforecast`](https://skforecast.org)) with an **LLM reasoning layer**. Give it a time series and it profiles the data, selects a model using established best practices, evaluates it, and returns the forecast along with the runnable `skforecast` script that produced it.
+![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
+[![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai/)
+[![Build status](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml)
+[![Project Status: Active](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/skforecast/skforecast-ai/graphs/commit-activity)
+[![Downloads](https://static.pepy.tech/badge/skforecast-ai)](https://pepy.tech/project/skforecast-ai)
+[![Downloads](https://img.shields.io/pypi/dm/skforecast-ai?style=flat-square&color=blue&label=downloads%2Fmonth)](https://pypistats.org/packages/skforecast-ai)
+[![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE)
+[![paypal](https://img.shields.io/static/v1?style=social&amp;label=Donate&amp;message=%E2%9D%A4&amp;logo=Paypal&amp;color&amp;link=%3curl%3e)](https://www.paypal.com/donate/?hosted_button_id=D2JZSWRLTZDL6)
+[![buymeacoffee](https://img.shields.io/badge/-Buy_me_a%C2%A0coffee-gray?logo=buy-me-a-coffee)](https://www.buymeacoffee.com/skforecast)
+![GitHub Sponsors](https://img.shields.io/github/sponsors/joaquinamatrodrigo?logo=github&label=Github%20sponsors&link=https%3A%2F%2Fgithub.com%2Fsponsors%2FJoaquinAmatRodrigo)
+[![Open Collective](https://img.shields.io/badge/Open_Collective-2A3F54?logo=opencollective&logoColor=white)](https://opencollective.com/skforecast)
+[![!linkedin](https://img.shields.io/static/v1?logo=linkedin&label=LinkedIn&message=news&color=lightblue)](https://www.linkedin.com/company/skforecast/)
+[![!discord](https://img.shields.io/static/v1?logo=discord&label=discord&message=chat&color=lightgreen)](https://discord.gg/3V52qpNkuj)
+[![Forecasting Python](https://img.shields.io/static/v1?logo=readme&logoColor=white&label=Blog&labelColor=%23333333&message=Forecasting%20Python&color=%23ffab40)](https://cienciadedatos.net/en/forecasting-python)
+[![Skforecast Studio](https://img.shields.io/badge/Skforecast%20Studio-Launch%20App-f79939?logo=rocket)](https://studio.skforecast.org/)
 
-The engine is deterministic: the same data always yields the same result. The LLM is a reasoning layer that explains decisions but never makes them. It interprets backtesting metrics, diagnoses errors, and suggests improvements you can choose to apply, but it never alters the underlying math.
+---
+
+**An AI forecasting assistant built on a deterministic engine.** skforecast-ai pairs a deterministic forecasting engine (built on [`skforecast`](https://skforecast.org)) with an **LLM reasoning layer**. Give it a time series and it profiles the data, selects a model using established best practices, evaluates it, and returns the forecast along with the runnable `skforecast` script that produced it.
 
 ---
 
-## Table of contents
-
-- [Why skforecast-ai?](#-why-skforecast-ai)
-- [Installation](#-installation)
-- [Quickstart (Python)](#-quickstart-python)
-- [Quickstart (CLI)](#-quickstart-cli)
-- [How it works](#-how-it-works)
-- [Documentation](#-documentation)
-- [Contributing](#-contributing)
-- [Citation](#-citation)
-- [License](#-license)
-
----
 
 ## ✨ Why skforecast-ai?
 
@@ -99,7 +97,7 @@ The returned `ForecastResult` exposes everything the pipeline produced:
 | `result.profile` | What profiling detected about your data |
 | `result.plan` | The forecaster, estimator, lags, and metrics that were chosen |
 
-👉 New here? Walk through it step by step in **[Your first forecast](docs/user_guides/first-forecast.md)**.
+👉 New here? Walk through it step by step in **[Your first forecast](user_guides/first-forecast.md)**.
 
 ---
 
@@ -120,7 +118,7 @@ skforecast-ai forecast-code data.csv --target y --date-column datetime --steps 1
 
 Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline documentation on any command.
 
-👉 Full command reference in **[CLI usage](docs/user_guides/cli-usage.md)**.
+👉 Full command reference in **[CLI usage](user_guides/cli-usage.md)**.
 
 ---
 
@@ -167,7 +165,7 @@ answer = assistant.ask("Why was this model chosen?", forecast_result=result)
 print(answer.explanation)
 ```
 
-Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md)**.
+Read more in **[How it works & trust](user_guides/how-it-works-and-trust.md)**.
 
 ---
 
@@ -175,22 +173,22 @@ Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md
 
 | Guide | What it covers |
 | --- | --- |
-| [Your first forecast](docs/user_guides/first-forecast.md) | Data → forecast in a few lines (start here) |
-| [The forecasting workflow](docs/user_guides/the-forecasting-workflow.md) | `profile → plan → refine_plan → forecast`, step by step |
-| [How it works & trust](docs/user_guides/how-it-works-and-trust.md) | Determinism, the `exec()` fidelity guarantee, and privacy |
-| [Understanding your data](docs/user_guides/understanding-your-data.md) | What profiling detects and how to read it |
-| [Customizing the model](docs/user_guides/customizing-the-model.md) | Override the forecaster, estimator, horizon, or intervals |
-| [Backtesting & validation](docs/user_guides/backtesting.md) | Rigorous walk-forward evaluation |
-| [CLI usage](docs/user_guides/cli-usage.md) | Run the full pipeline from the terminal |
-| [Using the AI assistant](docs/user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
-| [Foundation models](docs/user_guides/foundation-forecasting.md) | Zero-shot forecasting with Chronos-2 and friends |
-| [Human-in-the-loop](docs/user_guides/human-in-the-loop.md) | Forecast → ask → refine → re-run, end to end |
+| [Your first forecast](user_guides/first-forecast.md) | Data → forecast in a few lines (start here) |
+| [The forecasting workflow](user_guides/the-forecasting-workflow.md) | `profile → plan → refine_plan → forecast`, step by step |
+| [How it works & trust](user_guides/how-it-works-and-trust.md) | Determinism, the `exec()` fidelity guarantee, and privacy |
+| [Understanding your data](user_guides/understanding-your-data.md) | What profiling detects and how to read it |
+| [Customizing the model](user_guides/customizing-the-model.md) | Override the forecaster, estimator, horizon, or intervals |
+| [Backtesting & validation](user_guides/backtesting.md) | Rigorous walk-forward evaluation |
+| [CLI usage](user_guides/cli-usage.md) | Run the full pipeline from the terminal |
+| [Using the AI assistant](user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
+| [Foundation models](user_guides/foundation-forecasting.md) | Zero-shot forecasting with Chronos-2 and friends |
+| [Human-in-the-loop](user_guides/human-in-the-loop.md) | Forecast → ask → refine → re-run, end to end |
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome, whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md) to get started.
+Contributions are welcome, whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](https://github.com/skforecast/skforecast-ai/blob/main/CONTRIBUTING.md) and our [Code of Conduct](https://github.com/skforecast/skforecast-ai/blob/main/CODE_OF_CONDUCT.md) to get started.
 
 ---
 
