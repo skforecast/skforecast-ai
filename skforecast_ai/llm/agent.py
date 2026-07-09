@@ -1,12 +1,14 @@
-"""Pydantic AI agent for forecasting Q&A and explanation."""
+################################################################################
+#                               llm: agent                                     #
+#                                                                              #
+# Pydantic AI agent for forecasting Q&A and explanation.                       #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 import logging
 from dataclasses import dataclass
-
 from pydantic_ai import Agent, RunContext
-
 from .._constants import MAX_FEATURE_FRACTION
 from ..schemas import CVParams, ForecastingProfile, ForecastPlan, PlanOverrides
 from .prompts import _CV_ROLE_PROMPT, _STATIC_ROLE_PROMPT, _PLAN_REFINEMENT_ROLE_PROMPT

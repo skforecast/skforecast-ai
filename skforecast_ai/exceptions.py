@@ -1,4 +1,9 @@
-"""Custom exceptions for skforecast-ai."""
+################################################################################
+#                               Exceptions                                     #
+#                                                                              #
+# Custom exceptions for skforecast-ai                                          #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 
 class LLMRequiredError(Exception):

@@ -1,9 +1,12 @@
-"""Transformer, NaN handling, exog usage, kwargs, and preprocessing step rules."""
+################################################################################
+#                       Recommendations: preprocesing                          #
+#                                                                              #
+# Transformer, NaN handling, exog usage, kwargs, and preprocessing step rules  #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 from typing import Any
-
 from .._constants import (
     AUTOREG_FORECASTERS,
     DIRECT_FORECASTERS,

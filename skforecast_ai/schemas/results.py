@@ -1,11 +1,13 @@
-"""Result schemas: workflow outputs from forecast_code, ask, and forecast."""
+################################################################################
+#                             Result schemas                                   #
+#                                                                              #
+# Result schemas: workflow outputs from forecast_code, ask, and forecast       #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
-
 from pydantic import BaseModel, ConfigDict
-
 from .._display import (
     DisplayMixin,
     render_code,

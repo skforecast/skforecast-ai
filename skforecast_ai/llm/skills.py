@@ -1,7 +1,11 @@
-"""Skill inventory, loading, selection, and token budgeting."""
+################################################################################
+#                               llm: skills                                    #
+#                                                                              #
+# Skill inventory, loading, selection, and token budgeting.                    #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 import logging
 import re
 from functools import lru_cache
@@ -31,10 +35,6 @@ ALL_SKILLS = [
     "statistical-models",
     "troubleshooting-common-errors",
 ]
-
-# ---------------------------------------------------------------------------
-# Skill selection: routing table + keyword augmentation
-# ---------------------------------------------------------------------------
 
 _TASK_TYPE_SKILLS: dict[str | None, list[str]] = {
     "single_series": ["choosing-a-forecaster", "forecasting-single-series"],

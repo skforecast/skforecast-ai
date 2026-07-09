@@ -1,19 +1,17 @@
-"""Programmatic execution of backtesting workflows using skforecast APIs.
-
-This module follows the same approach as `forecast_runner.py`: render
-the backtesting code as a string, then execute that exact code via
-exec(). This guarantees perfect fidelity between the inspectable
-script in `BacktestResult.code` and the actual execution.
-"""
+################################################################################
+#                          Backtesting Runner                                  #
+#                                                                              #
+# Programmatic execution of backtesting workflows using skforecast APIs        #
+# Render the backtesting code as a string and code via exec()                  #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 import io
 import re
 import traceback
 from contextlib import redirect_stdout
 from typing import Any, Callable
-
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 

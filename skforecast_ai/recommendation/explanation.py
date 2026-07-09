@@ -1,7 +1,12 @@
-"""Human-readable explanation builders for forecasting decisions."""
+################################################################################
+#                              Explanation builders                            #
+#                                                                              #
+# Human-readable explanation builders for forecasting decisions                #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
+
 
 from __future__ import annotations
-
 from ..schemas import DataProfile
 
 

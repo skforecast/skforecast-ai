@@ -1,7 +1,11 @@
-"""Calendar features selection rules."""
+################################################################################
+#                       Recommendations: Calendar features                     #
+#                                                                              #
+# Calendar features selection rules                                            #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 from .._constants import TREE_BASED_ESTIMATORS
 
 # Calendar feature selection. `MIN_OBS_CALENDAR` is the smallest series length

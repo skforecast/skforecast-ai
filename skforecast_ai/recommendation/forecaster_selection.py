@@ -1,5 +1,5 @@
 ################################################################################
-#                          forecaster_selection                                #
+#                    Recommendations: forecaster_selection                     #
 #                                                                              #
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################

@@ -1,9 +1,12 @@
-"""Context message building and DataFrame serialization for LLM prompts."""
+################################################################################
+#                               llm: Context                                   #
+#                                                                              #
+# Context message building and DataFrame serialization for LLM prompts.        #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 from typing import Any, Literal
-
 from .._utils import _display_n_observations
 from ..schemas import ForecastingProfile, ForecastPlan
 

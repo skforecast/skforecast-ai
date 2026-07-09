@@ -1,23 +1,13 @@
-"""
-Rich rendering helpers shared by the CLI and the result objects.
-
-The functions in this module are *pure*: they build and return Rich
-renderables (`Panel`, `Syntax`, `Table`, `Group`) without printing
-anything. This lets a single set of renderers drive both the Typer CLI
-(`skforecast_ai/cli.py`) and the automatic notebook/terminal display of the
-result schemas (`skforecast_ai/schemas/results.py`), so styling never
-diverges between them.
-
-`DisplayMixin` wires those renderables into the Pydantic result classes,
-providing `_repr_mimebundle_` (automatic rendering in Jupyter), the
-`__rich_console__` protocol (`rich.print` / terminal), and an explicit
-`show()` method.
-"""
+################################################################################
+#                                Display                                       #
+#                                                                              #
+# Rich rendering helpers shared by the CLI and the result objects              #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
 from numbers import Number
 from typing import TYPE_CHECKING, Any
-
 import pandas as pd
 from rich.console import Console, Group
 from rich.jupyter import JupyterMixin

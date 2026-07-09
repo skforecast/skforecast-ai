@@ -1,4 +1,9 @@
-"""Script rendering for statistical forecasting (Auto-ARIMA)."""
+################################################################################
+#                       Rendering for statistical forecasting                  #
+#                                                                              #
+# Script rendering for statistical forecasting (Auto-ARIMA)                    #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (

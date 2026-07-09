@@ -1,10 +1,14 @@
-"""Profile schemas: data description and forecaster-specific analysis."""
+################################################################################
+#                              Profile schemas                                 #
+#                                                                              #
+# Profile schemas: data description and forecaster-specific analysis           #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
 from typing import Literal
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
-
 from .._display import DisplayMixin, render_profile
 
 class SeriesLengthInfo(BaseModel):

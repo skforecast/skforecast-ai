@@ -1,9 +1,13 @@
-"""Plan schemas: forecasting configuration and overrides."""
+################################################################################
+#                               Plans schemas                                  #
+#                                                                              #
+# Plan schemas: forecasting configuration and overrides                        #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
 from typing import Any, Literal
 from pydantic import BaseModel, Field
-
 from .._constants import WindowStat
 from .._display import DisplayMixin, render_plan
 

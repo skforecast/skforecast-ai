@@ -1,9 +1,12 @@
-"""Cross-validation strategy recommendation for backtesting."""
+################################################################################
+#                       Recommendations: backtesting                           #
+#                                                                              #
+# Cross-validation strategy recommendation for backtesting                     #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 import pandas as pd
-
 from ..schemas import ForecastingProfile, ForecastPlan
 
 

@@ -1,17 +1,16 @@
-"""Programmatic execution of forecasting workflows using skforecast APIs.
-
-This module executes the same code that `forecast_code()` produces,
-guaranteeing perfect fidelity between the inspectable script and the
-actual execution.
-"""
+################################################################################
+#                          Forecasting Runner                                  #
+#                                                                              #
+# Programmatic execution of forecasting workflows using skforecast APIs        #
+# Render the forecasting code as a string and code via exec()                  #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
 from typing import Any, Callable
-
 import io
 import traceback
 from contextlib import redirect_stdout
-
 import pandas as pd
 
 from ..exceptions import ForecastExecutionError

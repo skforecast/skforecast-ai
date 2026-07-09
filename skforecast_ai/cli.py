@@ -1,4 +1,9 @@
-"""Typer CLI for skforecast-ai"""
+################################################################################
+#                                    CLI                                       #
+#                                                                              #
+# Typer CLI for skforecast-ai                                                  #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
 
@@ -8,12 +13,10 @@ import os
 import sys
 from pathlib import Path
 from typing import Annotated
-
 import pandas as pd
 import typer
 from rich.console import Console
 from rich.table import Table
-
 from pydantic import ValidationError
 
 from . import __version__
@@ -85,12 +88,6 @@ def main(
 
 
 console = Console()
-
-
-# ---------------------------------------------------------------------------
-# Config subcommand
-# ---------------------------------------------------------------------------
-
 config_app = typer.Typer(help="Manage persistent configuration.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 
@@ -165,10 +162,6 @@ def config_path() -> None:
     """
     print(str(CONFIG_FILE))
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 _SECRET_KEYS = {"llm.api_key"}
 
@@ -560,11 +553,6 @@ def _render_plan_panel(plan) -> None:
     None
     """
     console.print(render_plan(plan))
-
-
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
 
 
 @app.command()
