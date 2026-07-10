@@ -312,5 +312,5 @@ class ForecastingProfile(DisplayMixin, BaseModel):
     calendar_features: list[str] | None = None
     explanation: str
 
-    def __rich_console__(self, console, options):
+    def _rich_body(self, console, options):
         yield render_profile(self)

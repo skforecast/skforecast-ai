@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict
 from .._display import (
     DisplayMixin,
-    render_code,
     render_cv_config,
     render_dataframe,
     render_explanation,
@@ -77,12 +76,11 @@ class CodeGenerationResult(DisplayMixin, BaseModel):
     plan: ForecastPlan
     code: str
 
-    def __rich_console__(
+    def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
         yield render_profile(self.profile)
         yield render_plan(self.plan)
-        yield render_code(self.code)
 
 
 class ForecastResult(DisplayMixin, BaseModel):
@@ -117,7 +115,7 @@ class ForecastResult(DisplayMixin, BaseModel):
     metrics: Any  # pd.DataFrame | None
     predictions: Any  # pd.DataFrame
 
-    def __rich_console__(
+    def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
         yield render_profile(self.profile)
@@ -125,7 +123,6 @@ class ForecastResult(DisplayMixin, BaseModel):
         if self.metrics is not None:
             yield render_metrics(self.metrics, title="Forecast Metrics")
         yield render_dataframe(self.predictions, title="Predictions")
-        yield render_code(self.code)
 
 
 class BacktestResult(DisplayMixin, BaseModel):
@@ -161,7 +158,7 @@ class BacktestResult(DisplayMixin, BaseModel):
     code: str
     explanation: str
 
-    def __rich_console__(
+    def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
         yield render_explanation(self.explanation)
@@ -170,7 +167,6 @@ class BacktestResult(DisplayMixin, BaseModel):
         yield render_dataframe(self.predictions, title="Backtest Predictions")
         yield render_profile(self.profile)
         yield render_plan(self.plan)
-        yield render_code(self.code)
 
 
 class AskResult(DisplayMixin, BaseModel):
@@ -195,9 +191,7 @@ class AskResult(DisplayMixin, BaseModel):
     code: str | None = None
     explanation: str
 
-    def __rich_console__(
+    def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
         yield render_explanation(self.explanation, title="Assistant Response")
-        if self.code is not None:
-            yield render_code(self.code)

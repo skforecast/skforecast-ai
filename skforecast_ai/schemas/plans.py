@@ -271,5 +271,5 @@ class ForecastPlan(DisplayMixin, BaseModel):
     llm_refined_fields: list[str] = Field(default_factory=list)
     explanation: str
 
-    def __rich_console__(self, console, options):
+    def _rich_body(self, console, options):
         yield render_plan(self)

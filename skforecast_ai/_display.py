@@ -35,7 +35,7 @@ _PANEL_BORDER = "color(214)"
 _PREVIEW_ROWS = 5
 _TABLE_KWARGS = {"show_lines": True}
 _SPACER = ""
-MAX_WIDTH = 95
+MAX_WIDTH = 90
 
 
 def _default_console() -> Console:
@@ -89,7 +89,7 @@ def _format_cell(value: Any) -> str:
     """
     if pd.isna(value):
         return "N/A"
-    if isinstance(value, float):
+    if pd.api.types.is_float(value):
         return f"{value:.4f}"
     return escape(str(value))
 
@@ -403,9 +403,15 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     rec_table.add_column("Value")
     rec_table.add_row("Task type", _format_value(profile.task_type))
     rec_table.add_row("Forecaster", _format_value(profile.forecaster))
-    rec_table.add_row("Forecaster candidates", _format_value(", ".join(profile.forecaster_candidates)))
+    rec_table.add_row(
+        "Forecaster candidates",
+        _format_value(", ".join(profile.forecaster_candidates) if profile.forecaster_candidates else "none"),
+    )
     rec_table.add_row("Estimator", _format_value(profile.estimator or "N/A"))
-    rec_table.add_row("Estimator candidates", _format_value(", ".join(profile.estimator_candidates)))
+    rec_table.add_row(
+        "Estimator candidates",
+        _format_value(", ".join(profile.estimator_candidates) if profile.estimator_candidates else "none"),
+    )
 
     return Group(
         table,
@@ -472,6 +478,7 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
     if plan.preprocessing_steps:
         steps_str = "\n".join(
             f"  - {escape(str(s.action))}: {escape(str(s.reason))}"
+            + ("" if s.blocking else " [dim](optional)[/]")
             for s in plan.preprocessing_steps
         )
         table.add_row("Preprocessing", steps_str)
@@ -485,38 +492,70 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
     )
 
 
+class _BodyOnly(JupyterMixin):
+    """Wraps a `DisplayMixin` instance to render only its non-code body."""
+
+    def __init__(self, owner: DisplayMixin) -> None:
+        self._owner = owner
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield from self._owner._rich_body(console, options)
+
+
 class DisplayMixin(JupyterMixin):
     """
     Mixin that gives a result object rich display in notebooks and terminals.
 
-    Subclasses must implement `__rich_console__`, yielding the Rich
-    renderables that make up their display. This mixin then provides:
+    Subclasses must implement `_rich_body`, yielding the Rich renderables
+    that make up their display, excluding the generated-code block. This
+    mixin then provides:
 
+    - `__rich_console__`: yields the subclass's body followed by the code
+      block (via `render_code`), if the object has a non-`None` `code`
+      attribute. This makes the object work with `rich.print(result)` and
+      `console.print(result)` in a terminal.
     - `_repr_mimebundle_`: automatic HTML rendering in Jupyter without CSS
       bleeding, capped at `MAX_WIDTH` (overrides `JupyterMixin`, which
       otherwise renders at the ambient console's full width, which some
       notebook front-ends report as much wider than a typical terminal).
+      The code block, if present, is rendered with the same copy-button HTML
+      `show_code` uses, instead of a plain Rich panel.
     - `show`: explicit printing to a `rich.console.Console`.
-
-    The `__rich_console__` protocol additionally makes the object work with
-    `rich.print(result)` and `console.print(result)` in a terminal.
     """
 
-    def __rich_console__(
+    def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:  # pragma: no cover - overridden by subclasses
         raise NotImplementedError(
-            f"{type(self).__name__} must implement __rich_console__"
+            f"{type(self).__name__} must implement _rich_body"
         )
 
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield from self._rich_body(console, options)
+        code = getattr(self, "code", None)
+        if code is not None:
+            yield render_code(code)
+
     def _repr_mimebundle_(
-        self, include: Sequence[str], exclude: Sequence[str], **kwargs: Any
+        self, include: Sequence[str] | None, exclude: Sequence[str] | None, **kwargs: Any
     ) -> dict[str, str]:
         console = get_console()
         original_width = console._width
         console.width = min(console.width, MAX_WIDTH)
         try:
-            return super()._repr_mimebundle_(include, exclude, **kwargs)
+            bundle = super()._repr_mimebundle_(include, exclude, **kwargs)
+            code = getattr(self, "code", None)
+            if code is not None and "text/html" in bundle:
+                body_bundle = _BodyOnly(self)._repr_mimebundle_(["text/html"], [])
+                bundle = {
+                    **bundle,
+                    "text/html": body_bundle.get("text/html", "") + render_code_html(code),
+                }
+            return bundle
         finally:
             console.width = original_width
 

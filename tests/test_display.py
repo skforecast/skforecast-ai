@@ -445,6 +445,31 @@ class TestDisplayMixin:
         AskResult(explanation="no code here").show_code(console=console)
         assert "No code available" in console.file.getvalue()
 
+    def test_repr_mimebundle_uses_copy_button_html_for_code(
+        self, sample_profile, sample_plan
+    ):
+        """
+        Test that auto-displaying a result with code (e.g. via bare `result`
+        in a notebook) renders the code block with the same copy-button HTML
+        `show_code` uses, instead of a plain Rich-exported panel.
+        """
+        result = CodeGenerationResult(
+            code="print('marker_code')", profile=sample_profile, plan=sample_plan
+        )
+        mimebundle = result._repr_mimebundle_(include=[], exclude=[])
+        assert "skfCopyCode" in mimebundle["text/html"]
+        assert "marker_code" in mimebundle["text/html"]
+
+    def test_repr_mimebundle_omits_copy_button_when_no_code(self):
+        """
+        Test that auto-displaying a result without code (e.g. an AskResult
+        with no generated script) falls back to the plain Rich mimebundle,
+        with no copy-button markup.
+        """
+        result = AskResult(explanation="answer")
+        mimebundle = result._repr_mimebundle_(include=[], exclude=[])
+        assert "skfCopyCode" not in mimebundle["text/html"]
+
     def test_show_explanation_prints_rendered_explanation(self):
         """
         Test that show_explanation prints the explanation text to the console.
@@ -475,6 +500,6 @@ class TestDisplayMixin:
         class Dummy(DisplayMixin):
             pass
 
-        err_msg = re.escape("Dummy must implement __rich_console__")
+        err_msg = re.escape("Dummy must implement _rich_body")
         with pytest.raises(NotImplementedError, match=err_msg):
             Console(file=io.StringIO()).print(Dummy())
