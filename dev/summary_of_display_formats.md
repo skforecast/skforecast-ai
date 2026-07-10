@@ -1,0 +1,10 @@
+## How `_display.py` renders output, by context
+
+| Scenario | What Python actually calls | What happens | Result |
+|---|---|---|---|
+| **`print(result)`** (script or console, any Python) | `str(result)` → `DisplayMixin.__str__` | Renders the full Rich display (`_rich_body` + code block) into an intermediate `Console(file=io.StringIO())`, mirroring the *real* ambient console's width and `is_terminal` | Same table/panel layout as `.show()`. Colored if stdout is a real interactive terminal, plain text if redirected (file, log, pytest capture) |
+| **Bare REPL echo** — typing `result` with no `print()`, in a plain Python console | `repr(result)` → inherited `BaseModel.__repr__` (untouched) | Pydantic's compact one-line field dump (`ForecastPlan(task_type=..., forecaster=..., ...)`) | **Not** Rich — deliberately left alone so `repr()` stays cheap, safe, and won't leak ANSI codes into debuggers/IDE tooltips/pytest diffs |
+| **Jupyter notebook** — `result` as the last line of a cell | IPython's display system checks `_repr_mimebundle_` *before* `repr`/`str` → `DisplayMixin._repr_mimebundle_` | Ambient console width capped at `MAX_WIDTH`; body rendered via `_BodyOnly` to HTML; if `code` is set, it's rendered separately via `render_code_html` (syntax-highlighted block + one-click copy button) and appended | Rich HTML output with the copy-button code block, not a plain Rich panel |
+| **IPython terminal** (`ipython`, not a notebook — a console, but not "plain Python") | Also calls `_repr_mimebundle_` (IPython does this regardless of notebook vs terminal) | Rich's base `JupyterMixin._repr_mimebundle_` still builds both `text/plain` and `text/html`, but the terminal frontend can only show `text/plain` | Effectively the same table/panel text as `print()`, since `text/plain` comes from rendering `self` through Rich; the computed `text/html` is silently discarded |
+
+**Explicit calls** (`result.show()`, `console.print(result)`) bypass all of the above entirely — they go straight through `__rich_console__`, so they always get the full Rich rendering regardless of context. These remain the most reliable way to guarantee Rich output.
