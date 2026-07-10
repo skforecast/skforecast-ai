@@ -164,7 +164,7 @@ extra:
     provider: mike
   analytics:
     provider: google
-    property: G-GR8X9Z9LKL
+    property: G-1L7X239QEB
   consent:
     title: Cookie consent
     description: >- 
