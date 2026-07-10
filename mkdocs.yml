@@ -109,6 +109,7 @@ theme:
   font:
     text: Open Sans
     code: Ubuntu Mono
+  logo: img/logo-skforecast.png
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: light
