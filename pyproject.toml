@@ -76,6 +76,7 @@ docs = [
     "mkdocs-typer2[mkdocs]==0.4.1",
     "mkdocstrings==1.0.4",
     "mkdocstrings-python==2.0.3",
+    "mkdocs-typer2==0.4.1",
     "black==26.3.1",
 ]
 
