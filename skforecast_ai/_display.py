@@ -522,9 +522,12 @@ class DisplayMixin(JupyterMixin):
       notebook front-ends report as much wider than a typical terminal).
       The code block, if present, is rendered with the same copy-button HTML
       `show_code` uses, instead of a plain Rich panel.
-    - `__repr__`: plain-text rendering of the same display for bare
-      `print(result)` / REPL echo, so console users benefit from Rich too
-      without calling `show()` explicitly.
+    - `__str__`: plain-text rendering of the same display for bare
+      `print(result)`, so console users benefit from Rich too without
+      calling `show()` explicitly. `__repr__` is deliberately left as
+      `BaseModel`'s default (compact, side-effect-free), since debuggers,
+      IDE variable inspectors, and test-failure diffs rely on `repr()`
+      being cheap and safe, and generally don't render ANSI color codes.
     - `show`: explicit printing to a `rich.console.Console`.
     """
 
@@ -543,9 +546,9 @@ class DisplayMixin(JupyterMixin):
         if code is not None:
             yield render_code(code)
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         """
-        Render the Rich display as plain text, for bare `print()`/REPL echo.
+        Render the Rich display as plain text, for bare `print(result)`.
 
         Mirrors the ambient console's real terminal capability (color and
         width) into an intermediate capture buffer, since a `StringIO` is
