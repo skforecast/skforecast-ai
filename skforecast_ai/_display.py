@@ -6,6 +6,9 @@
 ################################################################################
 
 from __future__ import annotations
+import base64
+import html
+import io
 from numbers import Number
 from typing import TYPE_CHECKING, Any
 import pandas as pd
@@ -111,6 +114,122 @@ def render_code(code: str, title: str | None = "Generated code") -> RenderableTy
     if title is None:
         return syntax
     return Panel(syntax, title=title, title_align="center", border_style=_PANEL_BORDER)
+
+
+# JavaScript for the notebook copy button. Defined once on `window` (guarded so
+# repeated cell executions do not redefine it) and shared by every rendered
+# block. The raw code is passed as a base64 `data-code` attribute so that
+# arbitrary source (quotes, newlines, unicode) survives HTML attribute
+# normalization and is decoded back to exact bytes before copying.
+_COPY_BUTTON_SCRIPT = """
+if (!window.skfCopyCode) {
+  window.skfCopyCode = function (btn) {
+    function fallback(text, done) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+      document.body.removeChild(ta);
+      done();
+    }
+    var bin = atob(btn.getAttribute('data-code'));
+    var bytes = Uint8Array.from(bin, function (c) { return c.charCodeAt(0); });
+    var text = new TextDecoder('utf-8').decode(bytes);
+    var done = function () {
+      var original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function () { btn.textContent = original; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () {
+        fallback(text, done);
+      });
+    } else {
+      fallback(text, done);
+    }
+  };
+}
+"""
+
+
+def _highlighted_code_html(code: str) -> str:
+    """
+    Return syntax-highlighted HTML spans for `code` (no wrapping element).
+
+    The code is rendered with the same Rich `Syntax` highlighter used by the
+    terminal panel and exported to a self-contained HTML fragment with inline
+    styles, so it renders identically regardless of the notebook front-end.
+    Lines longer than `MAX_WIDTH` are wrapped so the block never overflows.
+    """
+    console = Console(
+        record=True,
+        width=MAX_WIDTH,
+        file=io.StringIO(),
+        force_jupyter=False,
+        force_terminal=True,
+    )
+    console.print(
+        Syntax(
+            code.rstrip("\n"),
+            "python",
+            theme=_CODE_THEME,
+            word_wrap=True,
+        )
+    )
+    inner = console.export_html(inline_styles=True, code_format="{code}")
+    return inner.rstrip("\n")
+
+
+def render_code_html(code: str, title: str = "Generated code") -> str:
+    """
+    Render Python source as an HTML block with a one-click copy button.
+
+    Intended for notebook front-ends. The rendered block shows
+    syntax-highlighted code without any surrounding border characters, so a
+    manual selection copies clean source. The copy button copies the exact
+    original code (real line breaks preserved) via the browser clipboard API.
+
+    Parameters
+    ----------
+    code : str
+        Python source code to display.
+    title : str, default 'Generated code'
+        Header label shown above the code block.
+
+    Returns
+    -------
+    html : str
+        Self-contained HTML fragment (styles inlined) for display in a
+        notebook via `IPython.display.HTML`.
+    """
+    encoded = base64.b64encode(code.encode("utf-8")).decode("ascii")
+    inner = _highlighted_code_html(code)
+    title_html = html.escape(title)
+    return (
+        '<div style="border:1px solid #444;border-radius:6px;overflow:hidden;'
+        'margin:4px 0;font-family:Menlo,\'DejaVu Sans Mono\',consolas,'
+        "'Courier New',monospace\">"
+        '<div style="display:flex;justify-content:space-between;'
+        "align-items:center;background:#1e1e1e;padding:6px 10px;"
+        'border-bottom:1px solid #444;">'
+        f'<span style="color:#ffaf00;font-weight:600;font-size:1em;">'
+        f"{title_html}</span>"
+        '<button type="button" onclick="skfCopyCode(this)" '
+        f'data-code="{encoded}" '
+        'style="cursor:pointer;border:1px solid #666;border-radius:4px;'
+        "background:#2d2d2d;color:#eee;font-size:0.95em;padding:3px 12px;"
+        'font-family:inherit;">Copy</button>'
+        "</div>"
+        '<pre style="margin:0;padding:10px;background:#272822;color:#f8f8f2;'
+        'overflow-x:auto;white-space:pre;line-height:1.4;">'
+        f"{inner}</pre>"
+        "</div>"
+        f"<script>{_COPY_BUTTON_SCRIPT}</script>"
+    )
 
 
 def render_explanation(text: str, title: str = "Explanation") -> Panel:
@@ -420,6 +539,11 @@ class DisplayMixin(JupyterMixin):
         """
         Print the generated code with syntax highlighting to a console.
 
+        In a notebook front-end the code is displayed as an HTML block with a
+        one-click copy button that copies clean source (no border characters,
+        real line breaks preserved). In a terminal the code is printed inside
+        the usual syntax-highlighted panel.
+
         Parameters
         ----------
         console : rich.console.Console, default None
@@ -429,10 +553,19 @@ class DisplayMixin(JupyterMixin):
         -------
         None
         """
-        if hasattr(self, "code") and self.code is not None:
-            (console or _default_console()).print(render_code(self.code))
-        else:
-            (console or _default_console()).print("No code available to display.")
+        target = console or _default_console()
+        if not (hasattr(self, "code") and self.code is not None):
+            target.print("No code available to display.")
+            return
+        if target.is_jupyter:
+            try:
+                from IPython.display import HTML, display
+
+                display(HTML(render_code_html(self.code)))
+                return
+            except ImportError:
+                pass
+        target.print(render_code(self.code))
 
     def show_explanation(self, console: Console | None = None) -> None:
         """
