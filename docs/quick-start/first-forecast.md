@@ -193,4 +193,4 @@ The assistant follows a four-step rule-based pipeline — **profile → plan →
 
 ## Next steps
 
-- [**Complete worked example**](agentic-forecasting.ipynb): End-to-end fast-path walkthrough on a real hourly dataset — exogenous variables, prediction intervals, `refine_plan()`, backtesting, and `ask()` for interpretation.
+- [**Complete worked example**](../user-guides/agentic-forecasting.ipynb): End-to-end fast-path walkthrough on a real hourly dataset — exogenous variables, prediction intervals, `refine_plan()`, backtesting, and `ask()` for interpretation.

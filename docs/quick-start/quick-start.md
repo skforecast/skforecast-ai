@@ -59,4 +59,4 @@ print(result.code)          # the skforecast script that produced this result
 ## Next steps
 
 - **[Your first forecast](first-forecast.md)**: the same call, explained step by step.
-- **[Agentic forecasting](agentic-forecasting.ipynb)**: End-to-end walkthrough on a real hourly dataset.
+- **[Agentic forecasting](../user-guides/agentic-forecasting.ipynb)**: End-to-end walkthrough on a real hourly dataset.

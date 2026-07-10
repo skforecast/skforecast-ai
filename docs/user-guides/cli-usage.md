@@ -196,7 +196,7 @@ skforecast-ai forecast-code --from-plan plan.json --output forecast.py
 
 ## forecast
 
-Run the full pipeline end-to-end (profile, plan, generate code, execute) and report predictions, plus metrics when you evaluate. See [Your first forecast](first-forecast.md) for a guided walkthrough.
+Run the full pipeline end-to-end (profile, plan, generate code, execute) and report predictions, plus metrics when you evaluate. See [Your first forecast](../quick-start/first-forecast.md) for a guided walkthrough.
 
 `forecast` runs in two modes:
 

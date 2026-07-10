@@ -41,6 +41,9 @@ extra_javascript:
   - javascripts/mathjax.js
   - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
 
+hooks:
+  - tools/mkdocs_hooks.py
+
 plugins:
   - mkdocstrings:
       handlers:
@@ -61,6 +64,9 @@ plugins:
             summary: true
             group_by_category: true
             show_category_heading: true
+  - mkdocs-typer2:
+      pretty: true
+      engine: native
   - mkdocs-jupyter:
       allow_errors: False
       execute: False

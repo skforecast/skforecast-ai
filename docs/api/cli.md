@@ -1,3 +1,5 @@
-# `CLI`
+# CLI
 
-::: skforecast_ai.cli.
+::: mkdocs-typer2
+    :module: skforecast_ai.cli
+    :name: skforecast-ai
