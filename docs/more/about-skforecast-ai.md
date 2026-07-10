@@ -2,8 +2,7 @@
 
 ## History
 
-**skforecast-ai** was born from a simple idea: the [`skforecast`](https://github.com/skforecast/skforecast) engine already makes time series forecasting robust and reproducible, so what if an assistant could take care of the decisions around it (profiling the data, choosing a model, evaluating it) while staying completely transparent about *why*? The result is a deterministic, rule-based assistant that returns the forecast together with the exact, runnable script that produced it, plus an optional LLM layer that explains the reasoning without ever changing the math. The project builds directly on the mature `skforecast` ecosystem and grows alongside it.
-
+**skforecast-ai** was born from a simple idea: pair the robust, reproducible time series forecasting of the [`skforecast`](https://github.com/skforecast/skforecast) engine with the advanced reasoning capabilities of an LLM. What if an assistant could handle the complex decisions around forecasting, such as profiling data, selecting models, and evaluating metrics, while explicitly reasoning through each step? The result is a transparent, two-tier system: a deterministic, rule-based core that generates the exact, runnable script, elevated by an LLM layer that explains the strategic why behind every decision without ever altering the underlying math. The project builds directly on the mature skforecast ecosystem and grows alongside it.
 
 ## Governance
 
