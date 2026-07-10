@@ -106,7 +106,7 @@ The returned `ForecastResult` exposes everything the pipeline produced:
 | `result.profile` | What profiling detected about your data |
 | `result.plan` | The forecaster, estimator, lags, and metrics that were chosen |
 
-👉 New here? Walk through it step by step in **[Your first forecast](docs/user_guides/first-forecast.md)**.
+👉 New here? Walk through it step by step in **[Your first forecast](docs/user-guides/first-forecast.md)**.
 
 ---
 
@@ -127,7 +127,7 @@ skforecast-ai forecast-code data.csv --target y --date-column datetime --steps 1
 
 Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline documentation on any command.
 
-👉 Full command reference in **[CLI usage](docs/user_guides/cli-usage.md)**.
+👉 Full command reference in **[CLI usage](docs/user-guides/cli-usage.md)**.
 
 ---
 

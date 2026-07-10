@@ -11,51 +11,24 @@ nav:
     - Welcome to skforecast-ai: README.md
   
   - Quick start:
-    - Installation: user_guides/quick-start.md
-    - Your first forecast: user_guides/first-forecast.md
+    - Quick start: quick-start/quick-start.md
+    - Your first forecast: quick-start/first-forecast.md
+    - How to install: quick-start/how-to-install.md
 
   - User Guides:
-    - Agentic forecasting:
-       - Forecasting assistant: user_guides/agentic-forecasting.ipynb
-       - Agentic forecasting step by step: user_guides/agentic-forecasting-step-by-step.ipynb
-       - Monitoring & drift detection: user_guides/drift-detection.md
-    - Using the CLI: user_guides/cli-usage.md
+    - Agentic forecasting: user-guides/agentic-forecasting.ipynb
+    - Agentic forecasting step by step: user-guides/agentic-forecasting-step-by-step.ipynb
+    - Using the CLI: user-guides/cli-usage.md
   - Releases:
     - Changelog: releases/releases.md
 
   - API Reference:
     - Assistant: api/assistant.md
-    - CLI: api/cli.md
-    - Config: api/config.md
-    - Exceptions: api/exceptions.md
-    - Execution:
-      - Backtesting Runner: api/execution/backtesting_runner.md
-      - Forecast Runner: api/execution/forecast_runner.md
-    - LLM:
-      - Agent: api/llm/agent.md
-      - Context: api/llm/context.md
-      - Prompts: api/llm/prompts.md
-      - Provider: api/llm/provider.md
-      - Skills: api/llm/skills.md
-    - Profiling:
-      - Data Profile: api/profiling/data_profile.md
-    - Recommendation:
-      - Autoregressive: api/recommendation/autoregressive.md
-      - Backtesting: api/recommendation/backtesting.md
-      - Explanation: api/recommendation/explanation.md
-      - Forecaster Selection: api/recommendation/forecaster_selection.md
-      - Metric Selection: api/recommendation/metric_selection.md
-      - Preprocessing: api/recommendation/preprocessing.md
-    - Rendering:
-      - Backtesting: api/rendering/backtesting.md
-      - Foundation: api/rendering/foundation.md
-      - Multi Series: api/rendering/multi_series.md
-      - Single Series: api/rendering/single_series.md
-      - Statistical: api/rendering/statistical.md
     - Schemas:
+      - Results: api/schemas/results.md
       - Plans: api/schemas/plans.md
       - Profiles: api/schemas/profiles.md
-      - Results: api/schemas/results.md
+    - CLI: api/cli.md
 
   - More: 
     - About skforecast-ai: more/about-skforecast-ai.md

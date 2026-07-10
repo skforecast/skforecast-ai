@@ -1,1 +1,3 @@
-::: skforecast_ai.cli
+# `CLI`
+
+::: skforecast_ai.cli.

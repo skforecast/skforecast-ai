@@ -96,7 +96,7 @@ The returned `ForecastResult` exposes everything the pipeline produced:
 | `result.profile` | What profiling detected about your data |
 | `result.plan` | The forecaster, estimator, lags, and metrics that were chosen |
 
-👉 New here? Walk through it step by step in **[Your first forecast](user_guides/first-forecast.md)**.
+👉 New here? Walk through it step by step in **[Your first forecast](user-guides/first-forecast.md)**.
 
 ---
 
@@ -117,7 +117,7 @@ skforecast-ai forecast-code data.csv --target y --date-column datetime --steps 1
 
 Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline documentation on any command.
 
-👉 Full command reference in **[CLI usage](user_guides/cli-usage.md)**.
+👉 Full command reference in **[CLI usage](user-guides/cli-usage.md)**.
 
 ---
 
@@ -164,7 +164,7 @@ answer = assistant.ask("Why was this model chosen?", forecast_result=result)
 print(answer.explanation)
 ```
 
-Read more in **[How it works & trust](user_guides/how-it-works-and-trust.md)**.
+Read more in **[How it works & trust](user-guides/how-it-works-and-trust.md)**.
 
 ---
 

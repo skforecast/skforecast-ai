@@ -1,1 +1,3 @@
-::: skforecast_ai.assistant
+# `ForecastingAssistant`
+
+::: skforecast_ai.assistant.ForecastingAssistant

@@ -9,6 +9,7 @@ from __future__ import annotations
 from numbers import Number
 from typing import TYPE_CHECKING, Any
 import pandas as pd
+from rich import get_console
 from rich.console import Console, Group
 from rich.jupyter import JupyterMixin
 from rich.markdown import Markdown
@@ -18,6 +19,8 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pandas import DataFrame
     from rich.console import ConsoleOptions, RenderableType, RenderResult
 
@@ -29,6 +32,20 @@ _PANEL_BORDER = "color(214)"
 _PREVIEW_ROWS = 5
 _TABLE_KWARGS = {"show_lines": True}
 _SPACER = ""
+MAX_WIDTH = 95
+
+
+def _default_console() -> Console:
+    """A fresh `Console`, capped at `MAX_WIDTH` only when running in Jupyter.
+
+    A real terminal keeps Rich's own auto-detected width; Jupyter kernels
+    otherwise default to a fixed 115 columns (`rich.console.
+    JUPYTER_DEFAULT_COLUMNS`), well past `MAX_WIDTH`.
+    """
+    console = Console()
+    if console.is_jupyter:
+        console.width = min(console.width, MAX_WIDTH)
+    return console
 
 
 def _format_value(value: Any) -> str:
@@ -356,8 +373,10 @@ class DisplayMixin(JupyterMixin):
     Subclasses must implement `__rich_console__`, yielding the Rich
     renderables that make up their display. This mixin then provides:
 
-    - `_repr_mimebundle_` (inherited from `JupyterMixin`): automatic HTML
-      rendering in Jupyter without CSS bleeding.
+    - `_repr_mimebundle_`: automatic HTML rendering in Jupyter without CSS
+      bleeding, capped at `MAX_WIDTH` (overrides `JupyterMixin`, which
+      otherwise renders at the ambient console's full width, which some
+      notebook front-ends report as much wider than a typical terminal).
     - `show`: explicit printing to a `rich.console.Console`.
 
     The `__rich_console__` protocol additionally makes the object work with
@@ -370,6 +389,17 @@ class DisplayMixin(JupyterMixin):
         raise NotImplementedError(
             f"{type(self).__name__} must implement __rich_console__"
         )
+
+    def _repr_mimebundle_(
+        self, include: Sequence[str], exclude: Sequence[str], **kwargs: Any
+    ) -> dict[str, str]:
+        console = get_console()
+        original_width = console._width
+        console.width = min(console.width, MAX_WIDTH)
+        try:
+            return super()._repr_mimebundle_(include, exclude, **kwargs)
+        finally:
+            console.width = original_width
 
     def show(self, console: Console | None = None) -> None:
         """
@@ -384,7 +414,7 @@ class DisplayMixin(JupyterMixin):
         -------
         None
         """
-        (console or Console()).print(self)
+        (console or _default_console()).print(self)
 
     def show_code(self, console: Console | None = None) -> None:
         """
@@ -400,9 +430,9 @@ class DisplayMixin(JupyterMixin):
         None
         """
         if hasattr(self, "code") and self.code is not None:
-            (console or Console()).print(render_code(self.code))
+            (console or _default_console()).print(render_code(self.code))
         else:
-            (console or Console()).print("No code available to display.")
+            (console or _default_console()).print("No code available to display.")
 
     def show_explanation(self, console: Console | None = None) -> None:
         """
@@ -418,6 +448,6 @@ class DisplayMixin(JupyterMixin):
         None
         """
         if hasattr(self, "explanation") and self.explanation is not None:
-            (console or Console()).print(render_explanation(self.explanation))
+            (console or _default_console()).print(render_explanation(self.explanation))
         else:
-            (console or Console()).print("No explanation available to display.")
+            (console or _default_console()).print("No explanation available to display.")

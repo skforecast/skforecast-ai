@@ -20,7 +20,6 @@ import pandas as pd
 
 url = "https://raw.githubusercontent.com/skforecast/skforecast-datasets/refs/heads/main/data/h2o.csv"
 data = pd.read_csv(url, sep=",", header=0, names=["y", "date"])
-
 data.head()
 ```
 
@@ -80,13 +79,13 @@ results.predictions.head()
 ```
 
 ```python
-# Full results object
-results
+# The standalone Python script that was executed
+results.show_code()
 ```
 
 ```python
-# The standalone Python script that was executed
-results.show_code()
+# Full results object
+results
 ```
 
 
@@ -138,7 +137,7 @@ print(result.predictions.head())
 
 ---
 
-## AI reasoning layer (optional)
+## AI reasoning layer
 
 If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`), the assistant gains an AI reasoning layer: it reads `result.profile` and `result.plan` and advises you on what it would change and why.
 
@@ -152,6 +151,8 @@ If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`), the a
 Use `ask()` to query it:
 
 ```python
+# Initialize the assistant
+# ------------------------
 LLM_MODEL = "google:gemini-3-flash-preview"
 api_key = os.getenv("GOOGLE_API_KEY")
 
@@ -160,6 +161,7 @@ assistant = ForecastingAssistant(
 )
 
 # Using aws bedrock
+# -----------------
 # assistant = ForecastingAssistant(
 #     llm='bedrock:eu.anthropic.claude-sonnet-4-6',
 #     base_url="eu-west-1"
@@ -173,7 +175,7 @@ result = assistant.forecast(
          )
 
 answer = assistant.ask(
-    "Why was this estimator chosen, and what could improve accuracy?",
+    prompt = "Why was this estimator chosen, and what could improve accuracy?",
     forecast_result=result,
 )
 answer
