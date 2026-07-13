@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 620" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="1040" height="620" fill="#ffffff"/>
+
+  <!-- ===================== FAST PATH CARD ===================== -->
+  <rect x="20" y="20" width="440" height="470" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+  <path d="M32,20 h416 a12,12 0 0 1 12,12 v28 h-440 v-28 a12,12 0 0 1 12,-12 z" fill="#0969da"/>
+  <text x="240" y="45" text-anchor="middle" fill="#ffffff" font-size="15" font-weight="700">Fast path: one call</text>
+
+  <text x="36" y="82" fill="#24292f" font-size="12">Profiling, planning and execution happen internally.</text>
+
+  <rect x="36" y="95" width="408" height="32" rx="8" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="240" y="116" text-anchor="middle" fill="#24292f" font-size="13" font-weight="600">data</text>
+
+  <text x="240" y="149" text-anchor="middle" fill="#57606a" font-size="18">&#8595;</text>
+
+  <!-- Forecast column -->
+  <rect x="36" y="158" width="196" height="288" rx="8" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="134" y="180" text-anchor="middle" fill="#57606a" font-size="11" letter-spacing="0.5">FORECAST</text>
+  <rect x="48" y="190" width="172" height="48" rx="8" fill="#dbeafe" stroke="#0969da"/>
+  <text x="134" y="210" text-anchor="middle" fill="#24292f" font-size="13" font-weight="700">forecast()</text>
+  <text x="134" y="227" text-anchor="middle" fill="#57606a" font-size="11">or forecast_code()</text>
+  <text x="134" y="256" text-anchor="middle" fill="#57606a" font-size="15">&#8595;</text>
+  <text x="134" y="276" text-anchor="middle" fill="#24292f" font-size="12">predictions + code</text>
+
+  <!-- Backtesting column -->
+  <rect x="248" y="158" width="196" height="288" rx="8" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="346" y="180" text-anchor="middle" fill="#57606a" font-size="10" letter-spacing="0.5">BACKTESTING (VALIDATION)</text>
+  <rect x="260" y="190" width="172" height="60" rx="8" fill="#dbeafe" stroke="#0969da"/>
+  <text x="346" y="208" text-anchor="middle" fill="#24292f" font-size="13" font-weight="700">create_cv()</text>
+  <text x="346" y="223" text-anchor="middle" fill="#57606a" font-size="10">Deterministic, Agentic mode</text>
+  <text x="346" y="238" text-anchor="middle" fill="#57606a" font-size="9">or pass a skforecast TimeSeriesFold object</text>
+  <text x="346" y="266" text-anchor="middle" fill="#57606a" font-size="15">&#8595;</text>
+  <rect x="260" y="274" width="172" height="46" rx="8" fill="#dbeafe" stroke="#0969da"/>
+  <text x="346" y="294" text-anchor="middle" fill="#24292f" font-size="13" font-weight="700">backtest()</text>
+  <text x="346" y="310" text-anchor="middle" fill="#57606a" font-size="10">or backtest_code()</text>
+  <text x="346" y="336" text-anchor="middle" fill="#57606a" font-size="15">&#8595;</text>
+  <text x="346" y="356" text-anchor="middle" fill="#24292f" font-size="11">metrics + predictions + code</text>
+
+  <!-- ===================== STEP-BY-STEP CARD ===================== -->
+  <rect x="480" y="20" width="540" height="470" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+  <path d="M492,20 h516 a12,12 0 0 1 12,12 v28 h-540 v-28 a12,12 0 0 1 12,-12 z" fill="#1a7f37"/>
+  <text x="750" y="45" text-anchor="middle" fill="#ffffff" font-size="15" font-weight="700">Step-by-step path: full control</text>
+
+  <text x="496" y="82" fill="#24292f" font-size="12">Build a profile and a plan from your data, then branch into</text>
+  <text x="496" y="97" fill="#24292f" font-size="12">forecasting and backtesting.</text>
+
+  <rect x="496" y="106" width="508" height="30" rx="8" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="750" y="125" text-anchor="middle" fill="#24292f" font-size="13" font-weight="600">data</text>
+  <text x="750" y="152" text-anchor="middle" fill="#57606a" font-size="16">&#8595;</text>
+
+  <rect x="496" y="160" width="508" height="32" rx="8" fill="#dcfce7" stroke="#1a7f37"/>
+  <text x="750" y="181" text-anchor="middle" fill="#24292f" font-size="13" font-weight="700">profile()</text>
+  <text x="750" y="208" text-anchor="middle" fill="#57606a" font-size="16">&#8595;</text>
+
+  <rect x="496" y="216" width="508" height="44" rx="8" fill="#dcfce7" stroke="#1a7f37"/>
+  <text x="750" y="235" text-anchor="middle" fill="#24292f" font-size="13" font-weight="700">plan()</text>
+  <text x="750" y="251" text-anchor="middle" fill="#57606a" font-size="10">refine_plan(), optional (Deterministic or Agentic mode)</text>
+  <text x="750" y="278" text-anchor="middle" fill="#57606a" font-size="16">&#8595;</text>
+
+  <!-- Forecast column -->
+  <rect x="496" y="288" width="246" height="185" rx="8" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="619" y="310" text-anchor="middle" fill="#57606a" font-size="11" letter-spacing="0.5">FORECAST</text>
+  <rect x="508" y="320" width="222" height="48" rx="8" fill="#dcfce7" stroke="#1a7f37"/>
+  <text x="619" y="340" text-anchor="middle" fill="#24292f" font-size="13" font-weight="700">forecast()</text>
+  <text x="619" y="357" text-anchor="middle" fill="#57606a" font-size="11">or forecast_code()</text>
+  <text x="619" y="386" text-anchor="middle" fill="#57606a" font-size="15">&#8595;</text>
+  <text x="619" y="406" text-anchor="middle" fill="#24292f" font-size="12">predictions + code</text>
+
+  <!-- Backtesting column -->
+  <rect x="758" y="288" width="246" height="185" rx="8" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="881" y="310" text-anchor="middle" fill="#57606a" font-size="10" letter-spacing="0.5">BACKTESTING (VALIDATION)</text>
+  <rect x="770" y="318" width="222" height="54" rx="8" fill="#dcfce7" stroke="#1a7f37"/>
+  <text x="881" y="335" text-anchor="middle" fill="#24292f" font-size="13" font-weight="700">create_cv()</text>
+  <text x="881" y="350" text-anchor="middle" fill="#57606a" font-size="9">Deterministic, Agentic mode</text>
+  <text x="881" y="363" text-anchor="middle" fill="#57606a" font-size="8">or pass a skforecast TimeSeriesFold object</text>
+  <text x="881" y="388" text-anchor="middle" fill="#57606a" font-size="15">&#8595;</text>
+  <rect x="770" y="396" width="222" height="42" rx="8" fill="#dcfce7" stroke="#1a7f37"/>
+  <text x="881" y="414" text-anchor="middle" fill="#24292f" font-size="13" font-weight="700">backtest()</text>
+  <text x="881" y="429" text-anchor="middle" fill="#57606a" font-size="9">or backtest_code()</text>
+  <text x="881" y="454" text-anchor="middle" fill="#57606a" font-size="14">&#8595;</text>
+  <text x="881" y="470" text-anchor="middle" fill="#24292f" font-size="10">metrics + predictions + code</text>
+
+  <!-- ===================== ASK() BANNER ===================== -->
+  <rect x="20" y="510" width="1000" height="90" rx="12" fill="#faf5ff" stroke="#8250df"/>
+  <path d="M32,510 h976 a12,12 0 0 1 12,12 v24 h-1000 v-24 a12,12 0 0 1 12,-12 z" fill="#8250df"/>
+  <text x="36" y="533" fill="#ffffff" font-size="14" font-weight="700">LLM reasoning: available at any moment, in any workflow</text>
+  <text x="36" y="568" fill="#24292f" font-size="12">Call ask() before, during or after either path. It can take a profile, a plan,</text>
+  <text x="36" y="585" fill="#24292f" font-size="12">a forecast_result, a backtest_result, or nothing at all (pure Q&amp;A).</text>
+</svg>
