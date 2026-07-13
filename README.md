@@ -135,73 +135,9 @@ A useful mental model is that forecasting and validation are separate branches. 
 
 The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
 
-<div style="box-sizing:border-box; margin:16px 0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:#24292f; max-width:100%;">
-  <div style="box-sizing:border-box; display:flex; gap:20px; flex-wrap:wrap; align-items:stretch;">
-
-<!-- Fast path -->
-<div style="box-sizing:border-box; flex:1 1 260px; min-width:0; border:1px solid #d0d7de; border-radius:12px; overflow:hidden; display:flex; flex-direction:column;">
-    <div style="box-sizing:border-box; background:#0969da; color:#ffffff; padding:12px 16px; font-size:15px; font-weight:700;">Fast path: one call</div>
-    <div style="box-sizing:border-box; padding:16px; background:#f6f8fa; flex:1;">
-    <p style="margin:0 0 12px 0; font-size:13px;">Profiling, planning and execution happen internally.</p>
-    <div style="box-sizing:border-box; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px 12px; text-align:center; font-weight:600;">data</div>
-    <div style="text-align:center; color:#57606a; font-size:18px; line-height:1.4;">&#8595;</div>
-    <div style="box-sizing:border-box; display:flex; gap:12px; flex-wrap:wrap;">
-        <div style="box-sizing:border-box; flex:1 1 150px; min-width:0; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px;">
-        <div style="font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.5px; text-align:center; margin-bottom:6px;">Forecast</div>
-        <div style="box-sizing:border-box; background:#dbeafe; border:1px solid #0969da; border-radius:8px; padding:8px; text-align:center; font-weight:700;">forecast()<br><span style="font-weight:400; font-size:12px; color:#57606a;">or forecast_code()</span></div>
-        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
-        <div style="text-align:center; font-size:12px; color:#24292f;">predictions + code</div>
-        </div>
-        <div style="box-sizing:border-box; flex:1 1 150px; min-width:0; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px;">
-        <div style="font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.5px; text-align:center; margin-bottom:6px;">Backtesting (validation)</div>
-        <div style="box-sizing:border-box; background:#dbeafe; border:1px solid #0969da; border-radius:8px; padding:8px; text-align:center; font-weight:700;">create_cv()<br><span style="font-weight:400; font-size:12px; color:#57606a;">Deterministic, Agentic mode</span><br><span style="font-weight:400; font-size:12px; color:#57606a;">or pass a skforecast TimeSeriesFold object</span></div>
-        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
-        <div style="box-sizing:border-box; background:#dbeafe; border:1px solid #0969da; border-radius:8px; padding:8px; text-align:center; font-weight:700;">backtest()<br><span style="font-weight:400; font-size:12px; color:#57606a;">or backtest_code()</span></div>
-        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
-        <div style="text-align:center; font-size:12px; color:#24292f;">metrics + predictions + code</div>
-        </div>
-    </div>
-    </div>
-</div>
-
-<!-- Step-by-step path -->
-<div style="box-sizing:border-box; flex:1.6 1 340px; min-width:0; border:1px solid #d0d7de; border-radius:12px; overflow:hidden; display:flex; flex-direction:column;">
-    <div style="box-sizing:border-box; background:#1a7f37; color:#ffffff; padding:12px 16px; font-size:15px; font-weight:700;">Step-by-step path: full control</div>
-    <div style="box-sizing:border-box; padding:16px; background:#f6f8fa; flex:1;">
-    <p style="margin:0 0 12px 0; font-size:13px;">Build a <code>profile</code> and a <code>plan</code> from your data, then branch into forecasting and backtesting.</p>
-    <div style="box-sizing:border-box; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:8px 12px; text-align:center; font-weight:600;">data</div>
-    <div style="text-align:center; color:#57606a; font-size:16px; line-height:1.4;">&#8595;</div>
-    <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px 12px; text-align:center; font-weight:700;">profile()</div>
-    <div style="text-align:center; color:#57606a; font-size:16px; line-height:1.4;">&#8595;</div>
-    <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px 12px; text-align:center; font-weight:700;">plan()<br><span style="font-weight:400; font-size:12px; color:#57606a;">refine_plan(), optional (Deterministic or Agentic mode)</span></div>
-    <div style="text-align:center; color:#57606a; font-size:16px; line-height:1.4;">&#8595;</div>
-    <div style="box-sizing:border-box; display:flex; gap:12px; flex-wrap:wrap;">
-        <div style="box-sizing:border-box; flex:1 1 150px; min-width:0; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px;">
-        <div style="font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.5px; text-align:center; margin-bottom:6px;">Forecast</div>
-        <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px; text-align:center; font-weight:700;">forecast()<br><span style="font-weight:400; font-size:12px; color:#57606a;">or forecast_code()</span></div>
-        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
-        <div style="text-align:center; font-size:12px; color:#24292f;">predictions + code</div>
-        </div>
-        <div style="box-sizing:border-box; flex:1 1 150px; min-width:0; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px;">
-        <div style="font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.5px; text-align:center; margin-bottom:6px;">Backtesting (validation)</div>
-        <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px; text-align:center; font-weight:700;">create_cv()<br><span style="font-weight:400; font-size:12px; color:#57606a;">Deterministic, Agentic mode</span><br><span style="font-weight:400; font-size:12px; color:#57606a;">or pass a skforecast TimeSeriesFold object</span></div>
-        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
-        <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px; text-align:center; font-weight:700;">backtest()<br><span style="font-weight:400; font-size:12px; color:#57606a;">or backtest_code()</span></div>
-        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
-        <div style="text-align:center; font-size:12px; color:#24292f;">metrics + predictions + code</div>
-        </div>
-    </div>
-    </div>
-</div>
-
-  </div>
-
-  <!-- ask() banner -->
-  <div style="box-sizing:border-box; margin-top:16px; border:1px solid #8250df; border-radius:12px; overflow:hidden;">
-    <div style="box-sizing:border-box; background:#8250df; color:#ffffff; padding:10px 16px; font-size:15px; font-weight:700;">LLM reasoning: available at any moment, in any workflow</div>
-    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. It can take a <code>profile</code>, a <code>plan</code>, a <code>forecast_result</code>, a <code>backtest_result</code>, or nothing at all (pure Q&amp;A).</div>
-  </div>
-</div>
+<p align="center">
+  <img src="docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">
+</p>
 
 Read more in **[Introduction to agentic forecasting]**.
 
