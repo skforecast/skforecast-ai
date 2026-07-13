@@ -1,4 +1,10 @@
-"""System prompt templates for the LLM agent."""
+################################################################################
+#                             llm: System prompts                              #
+#                                                                              #
+# System prompt templates for the LLM agent                                    #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
+
 
 from __future__ import annotations
 
@@ -8,9 +14,6 @@ __all__ = [
     "_STATIC_ROLE_PROMPT",
 ]
 
-# ---------------------------------------------------------------------------
-# Static role prompt (used by agent.py via instructions= parameter)
-# ---------------------------------------------------------------------------
 
 _STATIC_ROLE_PROMPT = """\
 You are a forecasting assistant built on skforecast (v0.22.0+). Your role is \
@@ -38,10 +41,6 @@ language ("may contribute", "is associated with") for exogenous variable effects
 Use markdown formatting.
 """
 
-# ---------------------------------------------------------------------------
-# CV configuration agent prompt (structured output)
-# ---------------------------------------------------------------------------
-
 _CV_ROLE_PROMPT = """\
 You configure time series cross-validation strategies for backtesting. \
 Given a user's deployment scenario and dataset metadata, return optimal \
@@ -60,10 +59,6 @@ deployment delay, translate to gap.
 5. Always explain your reasoning in the `reasoning` field.
 6. Only set parameters you are confident about. Leave others at defaults.
 """
-
-# ---------------------------------------------------------------------------
-# Plan refinement agent prompt (structured output)
-# ---------------------------------------------------------------------------
 
 _PLAN_REFINEMENT_ROLE_PROMPT = """\
 You are an expert time series feature engineer working with skforecast. \

@@ -1,13 +1,16 @@
-"""Shared internal utilities for skforecast_ai."""
+################################################################################
+#                                  Utils                                       #
+#                                                                              #
+# Shared internal utilities for skforecast_ai                                  #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 import asyncio
 import re
 import threading
 import warnings
 from pathlib import Path
-
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 from skforecast.exceptions import IgnoredArgumentWarning

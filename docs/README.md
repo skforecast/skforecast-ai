@@ -1,47 +1,39 @@
 <div style="margin-bottom: 20px;">
-    <img src="img/banner-landing-page-skforecast.png#only-light" align="left" style="margin-bottom: 30px; margin-top: 0px;">
-    <img src="img/banner-landing-page-dark-mode-skforecast.png#only-dark" align="left" style="margin-bottom: 30px; margin-top: 0px;">
+    <img src="img/banner-landing-page-skforecast-ai.png#only-light" align="left" style="margin-bottom: 30px; margin-top: 0px;">
+    <img src="img/banner-landing-page-dark-mode-skforecast-ai.png#only-dark" align="left" style="margin-bottom: 30px; margin-top: 0px;">
 </div>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue" alt="Python version">
-  <a href="https://pypi.org/project/skforecast-ai/"><img src="https://img.shields.io/pypi/v/skforecast-ai?color=blue" alt="PyPI version"></a>
-  <a href="https://pypi.org/project/skforecast-ai/"><img src="https://img.shields.io/pypi/dm/skforecast-ai?color=blue" alt="PyPI downloads"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License"></a>
-  <a href="https://github.com/skforecast/skforecast"><img src="https://img.shields.io/badge/built%20on-skforecast-orange" alt="Built on skforecast"></a>
-</p>
+<div style="clear: both;"></div>
 
-**An AI forecasting assistant built on a deterministic engine.** `skforecast-ai` pairs a **deterministic forecasting engine** (built on [`skforecast`](https://skforecast.org)) with an **LLM reasoning layer**. Give it a time series and it profiles the data, selects a model using established best practices, evaluates it, and returns the forecast along with the runnable `skforecast` script that produced it.
+![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
+[![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai/)
+[![Build status](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml)
+[![Project Status: Active](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
+[![Downloads](https://static.pepy.tech/badge/skforecast-ai)](https://pepy.tech/project/skforecast-ai)
+[![Downloads](https://img.shields.io/pypi/dm/skforecast-ai?style=flat-square&color=blue&label=downloads%2Fmonth)](https://pypistats.org/packages/skforecast-ai)
+[![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE)
+[![paypal](https://img.shields.io/static/v1?style=social&amp;label=Donate&amp;message=%E2%9D%A4&amp;logo=Paypal&amp;color&amp;link=%3curl%3e)](https://www.paypal.com/donate/?hosted_button_id=D2JZSWRLTZDL6)
+[![buymeacoffee](https://img.shields.io/badge/-Buy_me_a%C2%A0coffee-gray?logo=buy-me-a-coffee)](https://www.buymeacoffee.com/skforecast)
+![GitHub Sponsors](https://img.shields.io/github/sponsors/joaquinamatrodrigo?logo=github&label=Github%20sponsors&link=https%3A%2F%2Fgithub.com%2Fsponsors%2FJoaquinAmatRodrigo)
+[![Open Collective](https://img.shields.io/badge/Open_Collective-2A3F54?logo=opencollective&logoColor=white)](https://opencollective.com/skforecast)
+[![!linkedin](https://img.shields.io/static/v1?logo=linkedin&label=LinkedIn&message=news&color=lightblue)](https://www.linkedin.com/company/skforecast/)
+[![!discord](https://img.shields.io/static/v1?logo=discord&label=discord&message=chat&color=lightgreen)](https://discord.gg/3V52qpNkuj)
+[![Forecasting Python](https://img.shields.io/static/v1?logo=readme&logoColor=white&label=Blog&labelColor=%23333333&message=Forecasting%20Python&color=%23ffab40)](https://cienciadedatos.net/en/forecasting-python)
+[![Skforecast Studio](https://img.shields.io/badge/Skforecast%20Studio-Launch%20App-f79939?logo=rocket)](https://studio.skforecast.org/)
 
-The engine is deterministic: the same data always yields the same result. The LLM is a reasoning layer that explains decisions but never makes them. It interprets backtesting metrics, diagnoses errors, and suggests improvements you can choose to apply, but it never alters the underlying math.
 
----
+**skforecast-ai** is an **AI forecasting assistant** that pairs a deterministic engine, powered by [**skforecast**](https://skforecast.org), with an **LLM reasoning layer**. Simply provide a time series, and the assistant automatically profiles the data, selects a model using established best practices, and evaluates its performance. It returns both the final forecast and the runnable skforecast script that produced it.
 
-## Table of contents
-
-- [Why skforecast-ai?](#-why-skforecast-ai)
-- [Installation](#-installation)
-- [Quickstart (Python)](#-quickstart-python)
-- [Quickstart (CLI)](#-quickstart-cli)
-- [How it works](#-how-it-works)
-- [Documentation](#-documentation)
-- [Contributing](#-contributing)
-- [Citation](#-citation)
-- [License](#-license)
-
----
 
 ## ✨ Why skforecast-ai?
 
-- 🎯 **Deterministic by design**: a rule-based engine. Same input → same output, every time.
-- 🔍 **Code you can inspect**: the script you see is the code that ran (`result.code`). Inspect it, version it, or run it standalone with plain `skforecast`.
+- 🎯 **Deterministic by design**: built as a strict rule-based engine to guarantee absolute consistency, same input always means the same output.
+- 🔍 **Code you can inspect**: the script you see is the code that ran. Inspect it, version it, or run it standalone with plain **skforecast**.
 - ⚡ **From data to forecast in one call**: automatic data profiling, model and estimator selection, lag/feature engineering, and backtest evaluation.
 - 💻 **Python or terminal**: drive the full pipeline from a few lines of Python or from the command line.
-- 💬 **LLM reasoning layer**: explains the decisions the engine made, in plain language. It never touches the math.
-- 🔌 **Runs locally, no API key**: the forecasting pipeline works offline. The LLM reasoning layer is optional.
+- 💬 **LLM reasoning layer**: explains the engine's decisions in plain language, helps you improve the configuration, and lets you ask for advice. This layer is entirely optional; the core forecasting pipeline can run fully offline.
 - 🏗️ **Built on skforecast**: recursive & direct forecasters, multi-series, statistical, and foundation models (Chronos-2, TimesFM, Moirai, and more).
 
----
 
 ## 📦 Installation
 
@@ -67,7 +59,6 @@ pip install -e ".[dev]"
 ```
 </details>
 
----
 
 ## 🚀 Quickstart (Python)
 
@@ -99,9 +90,9 @@ The returned `ForecastResult` exposes everything the pipeline produced:
 | `result.profile` | What profiling detected about your data |
 | `result.plan` | The forecaster, estimator, lags, and metrics that were chosen |
 
-👉 New here? Walk through it step by step in **[Your first forecast](docs/user_guides/first-forecast.md)**.
+👉 New here? Walk through it step by step in **[Your first forecast](./quick-start/first-forecast.md)**.
 
----
+
 
 ## 💻 Quickstart (CLI)
 
@@ -120,79 +111,96 @@ skforecast-ai forecast-code data.csv --target y --date-column datetime --steps 1
 
 Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline documentation on any command.
 
-👉 Full command reference in **[CLI usage](docs/user_guides/cli-usage.md)**.
+👉 Full command reference in **[CLI usage](./user-guides/cli-usage.md)**.
 
----
 
 ## 🧠 How it works
 
-Every forecast flows through four inspectable stages:
+**skforecast-ai** supports two distinct workflows using the same underlying forecasting engine:
 
-```mermaid
-flowchart LR
-    %% Input
-    A[("Your data")]:::data -->|Raw Data| B
++ **The Fast Path:** Use this when you want a forecast or backtest result in a single call. The assistant profiles the data, builds the modeling plan, executes the workflow, and returns the results alongside the reproducible `skforecast` code.
 
-    %% Core Pipeline Grouping
-    subgraph Engine ["Core Processing Engine"]
-        direction LR
-        B("`**profile()**<br/>*inspect*`"):::stage -->|Metadata| C("`**plan()**<br/>*decide*`"):::stage
-        C -->|Strategy| D("`**forecast_code()**<br/>*audit*`"):::stage
-    end
++ **The Step-by-Step Path:** Use this when you want granular control to inspect or adjust intermediate decisions. You can manually create a profile, build a plan, optionally refine it with the LLM, define a validation strategy, evaluate the model, and then generate the forecast.
 
-    %% Output
-    D -->|Generated Script| E[/"`**forecast()**<br/>*run*`"/]:::output
+A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data.
 
-    %% Styling (Based on uploaded skforecast architecture image)
-    classDef data    fill:#ffffff,stroke:#333333,stroke-width:2px,color:#333333
-    classDef stage   fill:#fff8f0,stroke:#f59e0b,stroke-width:2px,color:#333333
-    classDef output  fill:#f8f9fa,stroke:#a1a1aa,stroke-width:2px,color:#333333
-    
-    %% Subgraph Styling
-    style Engine fill:transparent,stroke:#333333,stroke-width:2px,color:#333333
-```
+The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
 
-1. **Profile** (`profile()`): inspect the data (frequency, gaps, missing values, exogenous columns).
-2. **Plan** (`plan()`): choose the forecaster, estimator, lags, and metrics using transparent rules. Use `refine_plan()` to override any decision before generating code.
-3. **Generate** (`forecast_code()`): render a standalone `skforecast` script.
-4. **Execute** (`forecast()`): run that script and return predictions, metrics, and the code.
+<div style="box-sizing:border-box; margin:16px 0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:#24292f; max-width:100%;">
+  <div style="box-sizing:border-box; display:flex; gap:20px; flex-wrap:wrap; align-items:stretch;">
 
-Need rigorous walk-forward evaluation? `backtest()` runs the same plan through time-series cross-validation and returns per-fold metrics.
+<!-- Fast path -->
+<div style="box-sizing:border-box; flex:1 1 260px; min-width:0; border:1px solid #d0d7de; border-radius:12px; overflow:hidden; display:flex; flex-direction:column;">
+    <div style="box-sizing:border-box; background:#0969da; color:#ffffff; padding:12px 16px; font-size:15px; font-weight:700;">Fast path: one call</div>
+    <div style="box-sizing:border-box; padding:16px; background:#f6f8fa; flex:1;">
+    <p style="margin:0 0 12px 0; font-size:13px;">Profiling, planning and execution happen internally.</p>
+    <div style="box-sizing:border-box; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px 12px; text-align:center; font-weight:600;">data</div>
+    <div style="text-align:center; color:#57606a; font-size:18px; line-height:1.4;">&#8595;</div>
+    <div style="box-sizing:border-box; display:flex; gap:12px; flex-wrap:wrap;">
+        <div style="box-sizing:border-box; flex:1 1 150px; min-width:0; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px;">
+        <div style="font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.5px; text-align:center; margin-bottom:6px;">Forecast</div>
+        <div style="box-sizing:border-box; background:#dbeafe; border:1px solid #0969da; border-radius:8px; padding:8px; text-align:center; font-weight:700;">forecast()<br><span style="font-weight:400; font-size:12px; color:#57606a;">or forecast_code()</span></div>
+        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
+        <div style="text-align:center; font-size:12px; color:#24292f;">predictions + code</div>
+        </div>
+        <div style="box-sizing:border-box; flex:1 1 150px; min-width:0; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px;">
+        <div style="font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.5px; text-align:center; margin-bottom:6px;">Backtesting (validation)</div>
+        <div style="box-sizing:border-box; background:#dbeafe; border:1px solid #0969da; border-radius:8px; padding:8px; text-align:center; font-weight:700;">create_cv()<br><span style="font-weight:400; font-size:12px; color:#57606a;">Deterministic, Agentic mode</span><br><span style="font-weight:400; font-size:12px; color:#57606a;">or pass a skforecast TimeSeriesFold object</span></div>
+        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
+        <div style="box-sizing:border-box; background:#dbeafe; border:1px solid #0969da; border-radius:8px; padding:8px; text-align:center; font-weight:700;">backtest()<br><span style="font-weight:400; font-size:12px; color:#57606a;">or backtest_code()</span></div>
+        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
+        <div style="text-align:center; font-size:12px; color:#24292f;">metrics + predictions + code</div>
+        </div>
+    </div>
+    </div>
+</div>
 
-The LLM reasoning layer can read each stage to *explain* decisions and *suggest improvements*:
+<!-- Step-by-step path -->
+<div style="box-sizing:border-box; flex:1.6 1 340px; min-width:0; border:1px solid #d0d7de; border-radius:12px; overflow:hidden; display:flex; flex-direction:column;">
+    <div style="box-sizing:border-box; background:#1a7f37; color:#ffffff; padding:12px 16px; font-size:15px; font-weight:700;">Step-by-step path: full control</div>
+    <div style="box-sizing:border-box; padding:16px; background:#f6f8fa; flex:1;">
+    <p style="margin:0 0 12px 0; font-size:13px;">Build a <code>profile</code> and a <code>plan</code> from your data, then branch into forecasting and backtesting.</p>
+    <div style="box-sizing:border-box; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:8px 12px; text-align:center; font-weight:600;">data</div>
+    <div style="text-align:center; color:#57606a; font-size:16px; line-height:1.4;">&#8595;</div>
+    <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px 12px; text-align:center; font-weight:700;">profile()</div>
+    <div style="text-align:center; color:#57606a; font-size:16px; line-height:1.4;">&#8595;</div>
+    <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px 12px; text-align:center; font-weight:700;">plan()<br><span style="font-weight:400; font-size:12px; color:#57606a;">refine_plan(), optional (Deterministic or Agentic mode)</span></div>
+    <div style="text-align:center; color:#57606a; font-size:16px; line-height:1.4;">&#8595;</div>
+    <div style="box-sizing:border-box; display:flex; gap:12px; flex-wrap:wrap;">
+        <div style="box-sizing:border-box; flex:1 1 150px; min-width:0; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px;">
+        <div style="font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.5px; text-align:center; margin-bottom:6px;">Forecast</div>
+        <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px; text-align:center; font-weight:700;">forecast()<br><span style="font-weight:400; font-size:12px; color:#57606a;">or forecast_code()</span></div>
+        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
+        <div style="text-align:center; font-size:12px; color:#24292f;">predictions + code</div>
+        </div>
+        <div style="box-sizing:border-box; flex:1 1 150px; min-width:0; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px;">
+        <div style="font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.5px; text-align:center; margin-bottom:6px;">Backtesting (validation)</div>
+        <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px; text-align:center; font-weight:700;">create_cv()<br><span style="font-weight:400; font-size:12px; color:#57606a;">Deterministic, Agentic mode</span><br><span style="font-weight:400; font-size:12px; color:#57606a;">or pass a skforecast TimeSeriesFold object</span></div>
+        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
+        <div style="box-sizing:border-box; background:#dcfce7; border:1px solid #1a7f37; border-radius:8px; padding:8px; text-align:center; font-weight:700;">backtest()<br><span style="font-weight:400; font-size:12px; color:#57606a;">or backtest_code()</span></div>
+        <div style="text-align:center; color:#57606a; font-size:15px; line-height:1.4;">&#8595;</div>
+        <div style="text-align:center; font-size:12px; color:#24292f;">metrics + predictions + code</div>
+        </div>
+    </div>
+    </div>
+</div>
 
-```python
-assistant = ForecastingAssistant(llm="openai:gpt-4o-mini", api_key="YOUR_API_KEY")
-answer = assistant.ask("Why was this model chosen?", forecast_result=result)
-print(answer.explanation)
-```
+  </div>
 
-Read more in **[How it works & trust](docs/user_guides/how-it-works-and-trust.md)**.
+  <!-- ask() banner -->
+  <div style="box-sizing:border-box; margin-top:16px; border:1px solid #8250df; border-radius:12px; overflow:hidden;">
+    <div style="box-sizing:border-box; background:#8250df; color:#ffffff; padding:10px 16px; font-size:15px; font-weight:700;">LLM reasoning: available at any moment, in any workflow</div>
+    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. It can take a <code>profile</code>, a <code>plan</code>, a <code>forecast_result</code>, a <code>backtest_result</code>, or nothing at all (pure Q&amp;A).</div>
+  </div>
+</div>
 
----
+Read more in **[Agentic Forecasting](./user-guides/agentic-forecasting.ipynb)**.
 
-## 📚 Documentation
-
-| Guide | What it covers |
-| --- | --- |
-| [Your first forecast](docs/user_guides/first-forecast.md) | Data → forecast in a few lines (start here) |
-| [The forecasting workflow](docs/user_guides/the-forecasting-workflow.md) | `profile → plan → refine_plan → forecast`, step by step |
-| [How it works & trust](docs/user_guides/how-it-works-and-trust.md) | Determinism, the `exec()` fidelity guarantee, and privacy |
-| [Understanding your data](docs/user_guides/understanding-your-data.md) | What profiling detects and how to read it |
-| [Customizing the model](docs/user_guides/customizing-the-model.md) | Override the forecaster, estimator, horizon, or intervals |
-| [Backtesting & validation](docs/user_guides/backtesting.md) | Rigorous walk-forward evaluation |
-| [CLI usage](docs/user_guides/cli-usage.md) | Run the full pipeline from the terminal |
-| [Using the AI assistant](docs/user_guides/using-the-ai-assistant.md) | *(optional)* Configure an LLM and ask questions |
-| [Foundation models](docs/user_guides/foundation-forecasting.md) | Zero-shot forecasting with Chronos-2 and friends |
-| [Human-in-the-loop](docs/user_guides/human-in-the-loop.md) | Forecast → ask → refine → re-run, end to end |
-
----
 
 ## 🤝 Contributing
 
-Contributions are welcome, whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md) to get started.
+Contributions are welcome, whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](https://github.com/skforecast/skforecast-ai/blob/main/CONTRIBUTING.md) and our [Code of Conduct](https://github.com/skforecast/skforecast-ai/blob/main/CODE_OF_CONDUCT.md) to get started.
 
----
 
 ## 📖 Citation
 
@@ -214,10 +222,6 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast (Version 0.23.0) [Compu
 @software{skforecast,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast},
-  version = {0.23.0},
-  month   = {6},
-  year    = {2026},
-  license = {BSD-3-Clause},
   url     = {https://skforecast.org/},
   doi     = {10.5281/zenodo.8382787}
 }
@@ -225,10 +229,9 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast (Version 0.23.0) [Compu
 
 View the [citation file](https://github.com/skforecast/skforecast/blob/master/CITATION.cff).
 
----
 
 ## 📄 License
 
-Licensed under the Apache License 2.0 (see [LICENSE](LICENSE) for details).
+Licensed under the Apache License 2.0 (see [LICENSE](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE) for details).
 
 Built with ❤️ on top of [skforecast](https://skforecast.org).

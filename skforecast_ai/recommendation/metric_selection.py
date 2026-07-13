@@ -1,7 +1,11 @@
-"""Deterministic metric selection based on data characteristics and task type."""
+################################################################################
+#                       Recommendations: metrics                               #
+#                                                                              #
+# Deterministic metric selection based on data characteristics and task type   #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 from ..schemas import DataProfile
 
 

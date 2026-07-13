@@ -1,7 +1,11 @@
-"""Persistent configuration for skforecast-ai CLI."""
+################################################################################
+#                               Config                                         #
+#                                                                              #
+# Persistent configuration for skforecast-ai CLI                               #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
-
 import os
 import sys
 from pathlib import Path
@@ -10,7 +14,6 @@ if sys.version_info >= (3, 11):
     import tomllib
 else:
     import tomli as tomllib
-
 
 CONFIG_DIR: Path = (
     Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "skforecast-ai"

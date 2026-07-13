@@ -1,4 +1,10 @@
-"""Shared forecaster-type constants used across modules."""
+
+################################################################################
+#                                Constants                                     #
+#                                                                              #
+# Shared forecaster-type constants used across modules                         #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from typing import Literal, get_args
 

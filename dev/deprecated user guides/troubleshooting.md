@@ -85,7 +85,7 @@ You called `forecast()` in prediction mode (no `test_size`) on data that has exo
 
 Backtesting needs enough history for the initial training window **plus** at least one test fold. On short series, `backtest()` can fail with a fold-sizing error. To fix it, give the splitter more room:
 
-- Lower `initial_train_size` in [`create_cv()`](backtesting.md#configuring-the-cross-validation).
+- Lower `initial_train_size` in [`create_cv()`](backtesting.md#defining-the-cross-validation-folds).
 - Reduce `steps` so each fold is smaller.
 - Set `allow_incomplete_fold=True` to permit a final shorter fold.
 

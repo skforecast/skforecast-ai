@@ -5,7 +5,7 @@ A model is only as good as the assumption that tomorrow looks like the data it w
 skforecast-ai produces standalone `skforecast` code, and `skforecast` ships built-in drift detectors. This guide shows how to add monitoring to a deployed forecast and where the assistant fits in.
 
 !!! note "This is a skforecast capability"
-    Drift detection runs on the model you deploy (the exported `skforecast` script), not through a `ForecastingAssistant` method. The assistant's role here is explanatory: it ships a `drift-detection` skill so the [AI assistant](using-the-ai-assistant.md) can walk you through these tools in plain language. For full details, see the [skforecast drift detection user guide](https://skforecast.org/latest/user_guides/drift-detection).
+    Drift detection runs on the model you deploy (the exported `skforecast` script), not through a `ForecastingAssistant` method. The assistant's role here is explanatory: it ships a `drift-detection` skill so the AI assistant can walk you through these tools in plain language. For full details, see the [skforecast drift detection user guide](https://skforecast.org/latest/user_guides/drift-detection).
 
 ## Two detectors, two jobs
 
@@ -75,17 +75,16 @@ def predict_with_monitoring(new_window, new_exog):
     return forecaster.predict(steps=10, exog=new_exog)
 ```
 
-When drift fires, the natural response is to re-profile and re-fit with skforecast-ai on fresh data, then redeploy the new script, closing the loop with the [human-in-the-loop workflow](human-in-the-loop.md).
+When drift fires, the natural response is to re-profile and re-fit with skforecast-ai on fresh data, then redeploy the new script.
 
 ## Practical guidance
 
 - **Fit detectors on training data, never on test/new data.** The reference must be the distribution the model learned.
 - **Drift ≠ wrong.** It's a *risk signal*, not proof the model failed. Use it to prioritise retraining, paired with backtested error tracking.
 - **Tune sensitivity.** Start at `threshold=3` (3-sigma) and adjust based on your false-positive tolerance.
-- **Relationship to intervals.** [Prediction intervals](customizing-the-model.md#adding-prediction-intervals) quantify uncertainty *within* the training distribution; drift detection tells you when that distribution itself has moved.
+- **Relationship to intervals.** Prediction intervals quantify uncertainty *within* the training distribution; drift detection tells you when that distribution itself has moved.
 
 ## Next steps
 
-- **[Human-in-the-loop](human-in-the-loop.md)**: re-profile and refine when drift signals a retrain.
-- **[Backtesting & validation](backtesting.md)**: track error over rolling folds alongside drift.
-- **[Using the AI assistant](using-the-ai-assistant.md)**: ask the assistant to explain detector choices and thresholds.
+- **[Monitoring & drift detection](https://skforecast.org/latest/user_guides/drift-detection)**: full skforecast drift detection reference.
+- **[Agentic forecasting step by step](agentic-forecasting-step-by-step.ipynb)**: complete end-to-end walkthrough including retrain cycles.

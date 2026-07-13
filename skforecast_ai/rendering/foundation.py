@@ -1,4 +1,9 @@
-"""Script rendering for foundation model forecasting."""
+################################################################################
+#                       Rendering for foundation                               #
+#                                                                              #
+# Script rendering for foundation model forecasting                            #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (

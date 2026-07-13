@@ -1,7 +1,11 @@
-"""Script rendering for backtesting workflows."""
+################################################################################
+#                       Rendering for backtesting                              #
+#                                                                              #
+# Script rendering for backtesting workflows                                   #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from typing import Any
-
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
@@ -124,11 +128,6 @@ def _emit_backtesting_call_multiseries(
     lines.append("print(predictions.head())")
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Template: backtesting single_series
-# ─────────────────────────────────────────────────────────────────────
-
-
 def render_backtesting_single_series(
     plan: ForecastPlan,
     profile: DataProfile,
@@ -189,11 +188,6 @@ def render_backtesting_single_series(
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),
     )
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Template: backtesting multi_series
-# ─────────────────────────────────────────────────────────────────────
 
 
 def render_backtesting_multi_series(
@@ -318,11 +312,6 @@ def render_backtesting_multi_series(
     )
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Template: backtesting multivariate
-# ─────────────────────────────────────────────────────────────────────
-
-
 def render_backtesting_multivariate(
     plan: ForecastPlan,
     profile: DataProfile,
@@ -434,10 +423,6 @@ def render_backtesting_multivariate(
         core="\n".join(core_lines),
     )
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Template: backtesting foundation
-# ─────────────────────────────────────────────────────────────────────
 
 
 def _get_quantiles_from_plan(plan: ForecastPlan) -> list[float] | None:
@@ -558,11 +543,6 @@ def render_backtesting_foundation(
         data_loading="\n".join(loading_lines),
         core="\n".join(core_lines),
     )
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Template: backtesting statistical
-# ─────────────────────────────────────────────────────────────────────
 
 
 def _emit_backtesting_call_statistical(

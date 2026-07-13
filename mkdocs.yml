@@ -11,69 +11,25 @@ nav:
     - Welcome to skforecast-ai: README.md
   
   - Quick start:
-    - Installation: user_guides/quick-start.md
-    - Your first forecast: user_guides/first-forecast.md
-    - Using the CLI: user_guides/cli-usage.md
+    - Quick start: quick-start/quick-start.md
+    - Your first forecast: quick-start/first-forecast.md
+    - How to install: quick-start/how-to-install.md
 
   - User Guides:
-    - Core concepts:
-      - The forecasting workflow: user_guides/the-forecasting-workflow.md
-      - How it works & trust: user_guides/how-it-works-and-trust.md
-      - Architecture & internals: user_guides/architecture-and-logic_detailed.md
-    - Working with your forecast:
-      - Understanding your data: user_guides/understanding-your-data.md
-      - Customizing the model: user_guides/customizing-the-model.md
-      - Forecasting multiple series: user_guides/forecasting-multiple-series.md
-      - Foundation models (zero-shot): user_guides/foundation-forecasting.md
-      - "Going further: features & tuning": user_guides/going-further.md
-      - Reproducible code: user_guides/reproducible-code.md
-      - Backtesting & validation: user_guides/backtesting.md
-      - Monitoring & drift detection: user_guides/drift-detection.md
-      - Troubleshooting: user_guides/troubleshooting.md
-    - AI assistant:
-      - Using the AI assistant: user_guides/using-the-ai-assistant.md
-      - Human-in-the-loop: user_guides/human-in-the-loop.md
-      - LLM-guided plan refinement: user_guides/llm-plan-refinement.md
-
-  - Examples and tutorials:
-    - Interactive Q&A: examples/talking-to-the-agent.ipynb
-    - End-to-end Forecasting: examples/end-to-end-forecasting.ipynb
-    - LLM-guided Backtesting: examples/agentic-backtesting.ipynb
-    - "Advanced: Reasoning Engine internals": examples/advanced-reasoning-engine.ipynb
+    - Agentic forecasting: user-guides/agentic-forecasting.ipynb
+    - Agentic forecasting step by step: user-guides/agentic-forecasting-step-by-step.ipynb
+    - Using the CLI: user-guides/cli-usage.md
 
   - API Reference:
     - Assistant: api/assistant.md
-    - CLI: api/cli.md
-    - Config: api/config.md
-    - Exceptions: api/exceptions.md
-    - Execution:
-      - Backtesting Runner: api/execution/backtesting_runner.md
-      - Forecast Runner: api/execution/forecast_runner.md
-    - LLM:
-      - Agent: api/llm/agent.md
-      - Context: api/llm/context.md
-      - Prompts: api/llm/prompts.md
-      - Provider: api/llm/provider.md
-      - Skills: api/llm/skills.md
-    - Profiling:
-      - Data Profile: api/profiling/data_profile.md
-    - Recommendation:
-      - Autoregressive: api/recommendation/autoregressive.md
-      - Backtesting: api/recommendation/backtesting.md
-      - Explanation: api/recommendation/explanation.md
-      - Forecaster Selection: api/recommendation/forecaster_selection.md
-      - Metric Selection: api/recommendation/metric_selection.md
-      - Preprocessing: api/recommendation/preprocessing.md
-    - Rendering:
-      - Backtesting: api/rendering/backtesting.md
-      - Foundation: api/rendering/foundation.md
-      - Multi Series: api/rendering/multi_series.md
-      - Single Series: api/rendering/single_series.md
-      - Statistical: api/rendering/statistical.md
     - Schemas:
+      - Results: api/schemas/results.md
       - Plans: api/schemas/plans.md
       - Profiles: api/schemas/profiles.md
-      - Results: api/schemas/results.md
+    - CLI: api/cli.md
+
+  - Releases:
+    - Changelog: releases/releases.md
 
   - More: 
     - About skforecast-ai: more/about-skforecast-ai.md
@@ -85,6 +41,9 @@ extra_javascript:
   - javascripts/version-switcher.js
   - javascripts/mathjax.js
   - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+hooks:
+  - tools/mkdocs_hooks.py
 
 plugins:
   - mkdocstrings:
@@ -106,6 +65,9 @@ plugins:
             summary: true
             group_by_category: true
             show_category_heading: true
+  - mkdocs-typer2:
+      pretty: true
+      engine: native
   - mkdocs-jupyter:
       allow_errors: False
       execute: False
@@ -114,7 +76,7 @@ plugins:
       include_source: True
   - mike:
       alias_type: copy
-      canonical_version: latest
+      canonical_version: stable
       css_dir: css
       deploy_prefix: ''
       javascript_dir: js
@@ -148,6 +110,7 @@ theme:
   font:
     text: Open Sans
     code: Ubuntu Mono
+  logo: img/logo-skforecast.png
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: light
@@ -201,9 +164,10 @@ markdown_extensions:
 extra:
   version:
     provider: mike
+    default: stable
   analytics:
     provider: google
-    property: G-GR8X9Z9LKL
+    property: G-1L7X239QEB
   consent:
     title: Cookie consent
     description: >- 

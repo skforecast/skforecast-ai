@@ -1,4 +1,9 @@
-"""LLM provider abstraction: parse model strings and create Pydantic AI models."""
+################################################################################
+#                               llm: provider                                  #
+#                                                                              #
+# LLM provider abstraction: parse model strings and create Pydantic AI models. #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 import urllib.error
 import urllib.request

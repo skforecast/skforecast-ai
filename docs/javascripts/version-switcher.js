@@ -51,11 +51,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const link = document.getElementById('version-switch-link');
     if (!link) return;
 
-    const stableVersion = "latest";
+    const stableVersion = "stable";
     const currentPath = window.location.pathname;
     const pathParts = currentPath.split('/').filter(Boolean);
 
-    let candidateUrl = "/latest/";
+    let candidateUrl = "/stable/";
     if (pathParts.length > 1 && /^\d+\.\d+\.\d+$/.test(pathParts[0])) {
         pathParts[0] = stableVersion;
         candidateUrl = '/' + pathParts.join('/') + '/';
@@ -124,13 +124,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 window.location.href = candidateUrl;
             } else {
                 showBanner(
-                  "This page does not exist in the latest documentation version. Redirecting to the home page...", 
+                  "This page does not exist in the stable documentation version. Redirecting to the home page...", 
                   5000 // banner duration
                 );
-                setTimeout(() => window.location.href = "/latest/", 5200);  // Redirect after banner + 200ms
+                setTimeout(() => window.location.href = "/stable/", 5200);  // Redirect after banner + 200ms
             }
         }).catch(() => {
-            window.location.href = "/latest/";
+            window.location.href = "/stable/";
         });
     };
 });

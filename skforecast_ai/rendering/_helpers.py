@@ -1,8 +1,13 @@
 """Shared helpers for script rendering."""
 
+################################################################################
+#                                 Helpers                                      #
+#                                                                              #
+# Shared helpers for script rendering                                          #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from ..schemas import DataProfile, ForecastPlan
-
 
 # Mapping from pandas frequency strings to seasonal period (m)
 _FREQUENCY_TO_M: dict[str, int] = {
@@ -86,10 +91,6 @@ _METRIC_REGISTRY: dict[str, dict[str, str | bool]] = {
     },
 }
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Shared helpers
-# ─────────────────────────────────────────────────────────────────────
 
 def _get_seasonal_period(frequency: str | None) -> int | None:
     """Return seasonal period m for the given pandas frequency string."""

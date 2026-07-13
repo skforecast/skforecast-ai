@@ -73,8 +73,10 @@ docs = [
     "mkdocs==1.6.1",
     "mkdocs-jupyter==0.26.3",
     "mkdocs-material==9.7.6",
+    "mkdocs-typer2[mkdocs]==0.4.1",
     "mkdocstrings==1.0.4",
     "mkdocstrings-python==2.0.3",
+    "mkdocs-typer2==0.4.1",
     "black==26.3.1",
 ]
 

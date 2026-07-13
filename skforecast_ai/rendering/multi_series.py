@@ -1,4 +1,9 @@
-"""Script rendering for multi-series and multivariate forecasting."""
+################################################################################
+#            Rendering for multi-series and multivariate forecasting           #
+#                                                                              #
+# Script rendering for multi-series and multivariate forecasting               #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
@@ -22,10 +27,6 @@ from ._helpers import (
     _get_target_str,
 )
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Helper: forecaster creation for multi-series / multivariate
-# ─────────────────────────────────────────────────────────────────────
 
 def _emit_forecaster_creation_multi(
     lines: list[str],
@@ -88,10 +89,6 @@ def _emit_forecaster_creation_multi(
     )
     lines.append("")
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Template: multi_series
-# ─────────────────────────────────────────────────────────────────────
 
 def render_forecast_multi_series(
     plan: ForecastPlan,
@@ -327,10 +324,6 @@ def render_forecast_multi_series(
         core="\n".join(core_lines),
     )
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Template: multivariate
-# ─────────────────────────────────────────────────────────────────────
 
 def render_forecast_multivariate(
     plan: ForecastPlan,

@@ -1,8 +1,24 @@
 # CLI reference
 
-The `skforecast-ai` CLI runs the full forecasting pipeline from a terminal. Pass a CSV path or URL, specify your target column and horizon, and receive predictions, evaluation metrics, and the standalone Python script that produced them. No Python code required.s
+The `skforecast-ai` CLI runs the full forecasting pipeline from a terminal. Point it at a CSV file or URL, name your target column and horizon, and it returns predictions, evaluation metrics, and the standalone Python script that produced them.
 
 Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline documentation on any command.
+
+---
+
+## Prerequisites
+
+```bash
+pip install skforecast-ai
+```
+
+The `ask` command and LLM-assisted backtest configuration also need the optional LLM extras and an API key:
+
+```bash
+pip install "skforecast-ai[llm]"
+```
+
+See the AI assistant documentation for supported providers, API keys, and local model setup.
 
 ---
 
@@ -10,121 +26,213 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 
 | Command | Description |
 |---------|-------------|
-| `profile` | Inspect dataset and recommend forecaster/estimator |
+| `profile` | Inspect a dataset and recommend a forecaster/estimator |
 | `plan` | Generate a detailed forecasting plan |
-| `refine-plan` | Refine an existing plan by overriding specific fields |
+| `refine-plan` | Adjust an existing plan by overriding specific fields |
 | `forecast-code` | Generate a self-contained Python forecasting script |
 | `backtest-code` | Generate a self-contained Python backtesting script |
-| `forecast` | Run end-to-end forecasting (profile → plan → code → execute) |
-| `backtest` | Run backtesting evaluation (profile → plan → CV → backtest) |
+| `forecast` | Run end-to-end forecasting (profile, plan, code, execute) |
+| `backtest` | Run backtesting evaluation (profile, plan, CV, backtest) |
 | `ask` | Ask forecasting questions using an LLM |
-| `config show` | Display current configuration |
+| `config show` | Display the current configuration |
 | `config set` | Set a configuration value |
-| `config path` | Print config file location |
+| `config path` | Print the config file location |
+
+Every command takes a CSV path or an `https://` URL as its data argument.
 
 ---
 
-## Forecast examples
-
-The examples below cover the most common dataset shapes. Every command works the same way regardless of data source: swap in your own file path or URL.
-
-### Monthly series with exogenous variables
+## Quick start
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
 
-# Profile
+# Inspect the data and see the recommended model
 skforecast-ai profile "$URL" --target y --date-column fecha
 
-# Plan
-skforecast-ai plan "$URL" --target y --date-column fecha --steps 24
-
-# Plan with intervals
-skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --interval "10,90"
-
-# Generate code
-skforecast-ai forecast-code "$URL" --target y --date-column fecha --steps 24 --output forecast.py
-
-# Generate code with intervals
-skforecast-ai forecast-code "$URL" --target y --date-column fecha --steps 24 --interval "10,90" --output forecast.py
-
-# Forecast (end-to-end)
+# Forecast the next 12 steps
 skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12
-
-# Forecast with intervals + save predictions
-skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --interval "10,90" --output-predictions preds.csv
-
-# Forecast with JSON output
-skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --format json > preds.json
-
-# Override forecaster/estimator
-skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --forecaster ForecasterDirect --estimator Ridge
-```
-
-### Hourly series (high frequency)
-
-```bash
-URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/bike_sharing_dataset_clean.csv"
-
-# Profile
-skforecast-ai profile "$URL" --target users --date-column date_time
-
-# Plan
-skforecast-ai plan "$URL" --target users --date-column date_time --steps 24
-
-# Generate code
-skforecast-ai forecast-code "$URL" --target users --date-column date_time --steps 24 --output bike_forecast.py
-
-# Forecast
-skforecast-ai forecast "$URL" --target users --date-column date_time --steps 24
-
-# Forecast with intervals
-skforecast-ai forecast "$URL" --target users --date-column date_time --steps 24 --interval "10,90"
-```
-
-### Multi-series, wide format
-
-```bash
-URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/simulated_items_sales.csv"
-
-# Profile
-skforecast-ai profile "$URL" --target "item_1,item_2,item_3" --date-column date
-
-# Plan
-skforecast-ai plan "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30
-
-# Generate code
-skforecast-ai forecast-code "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30 --output multi_forecast.py
-
-# Forecast
-skforecast-ai forecast "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30 --output-predictions preds_multi.csv
-```
-
-### Multi-series, long format (local file)
-
-```bash
-# Profile
-skforecast-ai profile sales.csv --target revenue --date-column date --series-id-column store_id
-
-# Forecast
-skforecast-ai forecast sales.csv --target revenue --date-column date --series-id-column store_id --steps 30 --output-predictions preds_sales.csv
-```
-
-### Simple daily series
-
-```bash
-URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/visitas_por_dia_web_cienciadedatos.csv"
-
-# Profile
-skforecast-ai profile "$URL" --target Usuarios --date-column date
-
-# Forecast
-skforecast-ai forecast "$URL" --target Usuarios --date-column date --steps 14
 ```
 
 ---
 
-## Backtest code
+## Dataset shapes
+
+The CLI handles three data layouts. The combination of `--target`, `--date-column`, and `--series-id-column` tells it which one you have.
+
+| Layout | Flags | Example |
+|--------|-------|---------|
+| Single series | `--target` with one column | `--target y --date-column fecha` |
+| Multi-series, wide | `--target` with comma-separated columns | `--target "item_1,item_2,item_3" --date-column date` |
+| Multi-series, long | `--target` plus `--series-id-column` | `--target revenue --date-column date --series-id-column store_id` |
+
+```bash
+# Single series, monthly, with exogenous variables
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12
+
+# Single series, hourly
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/bike_sharing_dataset_clean.csv"
+skforecast-ai forecast "$URL" --target users --date-column date_time --steps 24
+
+# Multi-series, wide
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/simulated_items_sales.csv"
+skforecast-ai forecast "$URL" --target "item_1,item_2,item_3" --date-column date --steps 30
+
+# Multi-series, long (local file)
+skforecast-ai forecast sales.csv --target revenue --date-column date --series-id-column store_id --steps 30
+```
+
+---
+
+## profile
+
+Inspect a dataset and print the recommended forecaster, estimator, and key data characteristics. No horizon required.
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+skforecast-ai profile "$URL" --target y --date-column fecha
+
+# JSON output (machine-readable, used as input to `plan`)
+skforecast-ai profile "$URL" --target y --date-column fecha --format json
+```
+
+---
+
+## plan
+
+Turn a profile into a detailed forecasting plan: forecaster, estimator, lags, preprocessing, and (optionally) prediction intervals.
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24
+
+# With prediction intervals
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --interval "0.1,0.9"
+
+# Override the recommended forecaster or estimator
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 \
+  --forecaster ForecasterDirect --estimator Ridge
+
+# Save the plan as JSON for later replay
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json > plan.json
+```
+
+!!! note "Interval values are quantiles"
+    `--interval` takes two comma-separated quantiles between 0 and 1, for example `"0.1,0.9"` for an 80% interval. Percentile values such as `"10,90"` are deprecated and will stop working in a future skforecast release.
+
+---
+
+## refine-plan
+
+Adjust an existing plan without re-profiling the dataset: change the horizon, switch forecasters, tune estimator hyperparameters, or add intervals.
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+# Save a plan, then refine it
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json > plan.json
+
+# Override the forecast horizon
+skforecast-ai refine-plan --from-plan plan.json --steps 12 --format json > plan_12.json
+
+# Switch forecaster
+skforecast-ai refine-plan --from-plan plan.json --forecaster ForecasterDirect --format json
+
+# Override estimator hyperparameters
+skforecast-ai refine-plan --from-plan plan.json --estimator-kwargs '{"n_estimators": 500}' --format json
+
+# Add prediction intervals
+skforecast-ai refine-plan --from-plan plan.json --interval "0.1,0.9" --format json
+```
+
+---
+
+## Save and replay a plan
+
+A saved plan separates the modeling decision from execution, which helps with auditing, scheduling, or rerunning the same plan against updated data.
+
+!!! note
+    When `--from-plan` is used, `DATA`, `--target`, and `--steps` are optional for `forecast-code` (the values come from the bundle). `DATA` is still required for `forecast`, which needs actual data to execute.
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+# Save a plan
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json > plan.json
+
+# Generate code from the saved plan (no re-profiling)
+skforecast-ai forecast-code --from-plan plan.json --output forecast.py
+
+# Execute the saved plan against data
+skforecast-ai forecast "$URL" --from-plan plan.json
+
+# Override the interval at execution time
+skforecast-ai forecast "$URL" --from-plan plan.json --interval "0.1,0.9"
+```
+
+---
+
+## forecast-code
+
+Generate a self-contained Python script without executing it. Useful for inspection, version control, or manual runs. The output is the script itself; use `--format json` to wrap it with the profile and plan.
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+skforecast-ai forecast-code "$URL" --target y --date-column fecha --steps 24 --output forecast.py
+
+# With prediction intervals
+skforecast-ai forecast-code "$URL" --target y --date-column fecha --steps 24 \
+  --interval "0.1,0.9" --output forecast.py
+
+# From a saved plan
+skforecast-ai forecast-code --from-plan plan.json --output forecast.py
+```
+
+---
+
+## forecast
+
+Run the full pipeline end-to-end (profile, plan, generate code, execute) and report predictions, plus metrics when you evaluate. See [Your first forecast](../quick-start/first-forecast.md) for a guided walkthrough.
+
+`forecast` runs in two modes:
+
+- **Prediction mode** (default): trains on all data and forecasts the future. No metrics. When the data has exogenous columns, supply their future values with `--exog`.
+- **Evaluation mode** (`--test-size`): holds out the last part of the series as a test set and reports metrics. `--test-size` accepts an integer (last *N* observations), a float in `(0, 1)` (last fraction), or a date (the split point).
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o.csv"
+
+# Forecast the future (prediction mode)
+skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12
+
+# Evaluate the model on a held-out test set (reports metrics)
+skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --test-size 0.2
+
+# With prediction intervals and saved predictions
+skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 \
+  --interval "0.1,0.9" --output-predictions preds.csv
+
+# JSON output
+skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --format json > preds.json
+
+# Override forecaster and estimator
+skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 \
+  --forecaster ForecasterDirect --estimator Ridge
+
+# Prediction mode with exogenous data: provide future values covering the horizon
+EXOG_URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+skforecast-ai forecast "$EXOG_URL" --target y --date-column fecha --steps 12 --exog future_exog.csv
+```
+
+See [Dataset shapes](#dataset-shapes) for multi-series and long-format examples.
+
+---
+
+## backtest-code
 
 Generate a backtesting script without executing it. Useful for inspection, version control, or manual execution.
 
@@ -166,14 +274,14 @@ skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 \
 
 ---
 
-## Backtest
+## backtest
 
-Run backtesting evaluation with cross-validation. Chains profile → plan → create_cv → backtest automatically. See [Backtesting & validation](backtesting.md) for a conceptual overview and the Python API equivalent.
+Run backtesting evaluation with cross-validation. Chains profile → plan → create_cv → backtest automatically.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
 
-# Basic backtest (uses smart deterministic CV defaults)
+# Basic backtest (uses deterministic CV defaults)
 skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12
 
 # Custom CV configuration
@@ -232,65 +340,10 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 
 ---
 
-## Refine plan
-
-Iteratively adjust an existing plan without re-profiling the dataset: override the horizon, switch forecasters, change estimator hyperparameters, or add prediction intervals.
-
-```bash
-URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
-
-# Save a plan, then refine it
-skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json > plan.json
-
-# Override forecast horizon
-skforecast-ai refine-plan --from-plan plan.json --steps 12 --format json > plan_12.json
-
-# Switch forecaster
-skforecast-ai refine-plan --from-plan plan.json --forecaster ForecasterDirect --format json
-
-# Override estimator hyperparameters
-skforecast-ai refine-plan --from-plan plan.json --estimator-kwargs '{"n_estimators": 500}' --format json
-
-# Add prediction intervals
-skforecast-ai refine-plan --from-plan plan.json --interval "10,90" --format json
-
-# Pipe: plan → refine → forecast-code
-skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json -q | \
-  skforecast-ai refine-plan --from-plan - --steps 12 --forecaster ForecasterDirect --format json -q | \
-  skforecast-ai forecast-code --from-plan - --output forecast.py -q
-```
-
----
-
-## Plan save and load
-
-Save a plan to JSON and replay it later. This separates the modeling decision from execution: useful for auditing, scheduling, or running the same plan against updated data.
-
-!!! note
-    When `--from-plan` is used, `DATA` and `--target`/`--steps` are optional for `forecast-code` (values are taken from the bundle). `DATA` is still required for `forecast`, which needs actual data to execute.
-
-```bash
-URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
-
-# Save a plan for later replay
-skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json > plan.json
-
-# Generate code from a saved plan (no re-profiling needed)
-skforecast-ai forecast-code --from-plan plan.json --output forecast.py
-
-# Execute a saved plan against data
-skforecast-ai forecast "$URL" --from-plan plan.json
-
-# Override interval at execution time
-skforecast-ai forecast "$URL" --from-plan plan.json --interval "10,90"
-```
-
----
-
-## Ask
+## ask
 
 !!! note "Requires LLM extras"
-    `ask` requires an API key and the LLM extras: `pip install "skforecast-ai[llm]"`. See [Using the AI assistant](using-the-ai-assistant.md) for supported providers, API key setup, and local model options.
+    `ask` requires an API key and the LLM extras: `pip install "skforecast-ai[llm]"`. See the AI assistant documentation for supported providers, API key setup, and local model options.
 
 Query an LLM about your forecast, your data, or general forecasting strategy. The LLM can optionally receive your data profile for context, but raw data is never sent by default.
 
@@ -309,9 +362,9 @@ skforecast-ai ask "What patterns do you see?" \
 skforecast-ai ask "Recommend a forecasting approach" \
   --data h2o_exog.csv --target y --date-column fecha --steps 24 --format json
 
-# Custom endpoint (Ollama)
+# Local model via Ollama
 skforecast-ai ask "How to handle missing values?" \
-  --llm openai:llama3 --base-url http://localhost:11434/v1
+  --llm ollama:llama3
 
 # Specific skills
 skforecast-ai ask "How to set up prediction intervals?" \
@@ -372,16 +425,19 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 | `--target` | `-t` | Target column(s), comma-separated | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
 | `--date-column` | `-d` | Date/timestamp column | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
 | `--series-id-column` | `-s` | Series identifier (long-format) | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
-| `--exog-future` | | Future exog CSV | `forecast` |
+| `--exog` | | Future exogenous CSV covering the horizon (prediction mode) | `forecast` |
+| `--data` | | Dataset CSV for context | `ask` |
 
 ### Forecast configuration
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--steps` | | Forecast horizon | `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
-| `--forecaster` | | Override forecaster class | `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
-| `--estimator` | | Override estimator class | `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
-| `--interval` | | Interval quantiles, e.g. `"0.1,0.9"` | `plan`, `forecast-code`, `backtest-code`, `forecast` |
+| `--steps` | | Forecast horizon | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
+| `--test-size` | | Evaluation test set size: int (last *N* obs), float in (0,1) (fraction), or date (test-set start). Omit to forecast the future. | `forecast` |
+| `--forecaster` | | Override forecaster class | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
+| `--estimator` | | Override estimator class | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
+| `--estimator-kwargs` | | Estimator hyperparameters as a JSON string | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
+| `--interval` | | Interval quantiles, e.g. `"0.1,0.9"` | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast` |
 
 ### Cross-validation / backtest
 
@@ -399,7 +455,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
 | `--from-profile` | | Load profile JSON (file or `-` for stdin) | `plan` |
-| `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `refine-plan`, `forecast-code`, `backtest-code`, `forecast` |
+| `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
 
 ### LLM
 
@@ -417,7 +473,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
 | `--format` | | Output format | all data commands |
-| `--output` | `-o` | Write to file | `profile`, `plan`, `forecast-code`, `backtest-code` |
+| `--output` | `-o` | Write to file | `profile`, `plan`, `refine-plan`, `forecast-code`, `backtest-code` |
 | `--output-predictions` | | Save predictions CSV | `forecast`, `backtest` |
 | `--output-code` | | Save generated script | `forecast`, `backtest` |
 | `--quiet` | `-q` | Suppress spinners | all data commands |
@@ -471,8 +527,13 @@ Settings are resolved in this order (first wins):
 | `--api-key` flag | `--api-key sk-...` |
 | `SKFORECAST_AI_API_KEY` env var | `export SKFORECAST_AI_API_KEY="sk-..."` |
 | Config file | `skforecast-ai config set llm.api_key "sk-..."` |
+| `--send-data-to-llm` flag | `--send-data-to-llm` / `--no-send-data-to-llm` |
+| `SKFORECAST_AI_SEND_DATA_TO_LLM` env var | `export SKFORECAST_AI_SEND_DATA_TO_LLM=false` |
+| Config file | `skforecast-ai config set llm.send_data_to_llm false` |
 
-Providers: `openai:model`, `anthropic:model`, `google:model`, `groq:model`, `ollama:model`.
+`--send-data-to-llm` (used by `ask`) follows the same precedence and is off by default, so raw data is never sent unless you opt in. `--skills` is not resolved from config; pass it per call.
+
+Providers: `openai:model`, `anthropic:model`, `google:model`, `groq:model`, and `ollama:model`. Any other prefix is treated as an OpenAI-compatible endpoint when combined with `--base-url`.
 
 ---
 
@@ -482,6 +543,7 @@ Providers: `openai:model`, `anthropic:model`, `google:model`, `groq:model`, `oll
 |------|---------|
 | 0 | Success |
 | 1 | Error (missing file, bad column, no LLM, unreachable URL, execution failures) |
+| 2 | Invalid usage (unknown flag, missing required argument) |
 
 ---
 

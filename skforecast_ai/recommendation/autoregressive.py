@@ -1,4 +1,9 @@
-"""Lag and window feature selection rules."""
+################################################################################
+#                       Recommendations: Lags and window                       #
+#                                                                              #
+# Lag and window feature selection rules                                       #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
 
 from __future__ import annotations
 import math

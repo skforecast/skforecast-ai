@@ -1,0 +1,30 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: skforecast-ai
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Javier
+    family-names: Escobar Ortiz
+    email: javier.escobar.ortiz@gmail.com
+  - given-names: Joaquin
+    family-names: Amat Rodrigo
+    email: j.amatrodrigo@gmail.com
+url: 'https://skforecast.org/'
+abstract: >-
+  Skforecast-ai is a Python library that provides AI-assisted time series 
+  forecasting workflows built on skforecast.
+keywords:
+  - forecasting
+  - machine learning
+  - AI
+  - python
+  - time series
+doi: 10.5281/zenodo.8382787
+license: bsd-3-clause
+version: 0.1.0
+date-released: '2026-07-13'

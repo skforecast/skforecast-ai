@@ -155,14 +155,20 @@ def test_format_cell_formats_floats_and_preserves_integers(value, expected):
 
 def test_render_code_wraps_in_titled_panel():
     """
-    Test that render_code returns a Panel whose rendered output shows the
-    title and the highlighted source.
+    Test that render_code returns a Group with a titled rule header and the
+    highlighted source, with no border characters or left-padding on the
+    code line (so a terminal copy/paste of the code stays valid Python, with
+    no leading indentation and no stray box characters).
     """
     result = render_code("print('marker')", title="My code")
-    assert isinstance(result, Panel)
+    assert isinstance(result, Group)
     text = _render_to_text(result)
     assert "My code" in text
     assert "marker" in text
+    assert "│" not in text
+    assert "┃" not in text
+    code_line = next(line for line in text.splitlines() if "marker" in line)
+    assert code_line.rstrip() == "print('marker')"
 
 
 def test_render_code_returns_bare_syntax_when_title_none():
@@ -445,6 +451,31 @@ class TestDisplayMixin:
         AskResult(explanation="no code here").show_code(console=console)
         assert "No code available" in console.file.getvalue()
 
+    def test_repr_mimebundle_uses_copy_button_html_for_code(
+        self, sample_profile, sample_plan
+    ):
+        """
+        Test that auto-displaying a result with code (e.g. via bare `result`
+        in a notebook) renders the code block with the same copy-button HTML
+        `show_code` uses, instead of a plain Rich-exported panel.
+        """
+        result = CodeGenerationResult(
+            code="print('marker_code')", profile=sample_profile, plan=sample_plan
+        )
+        mimebundle = result._repr_mimebundle_(include=[], exclude=[])
+        assert "skfCopyCode" in mimebundle["text/html"]
+        assert "marker_code" in mimebundle["text/html"]
+
+    def test_repr_mimebundle_omits_copy_button_when_no_code(self):
+        """
+        Test that auto-displaying a result without code (e.g. an AskResult
+        with no generated script) falls back to the plain Rich mimebundle,
+        with no copy-button markup.
+        """
+        result = AskResult(explanation="answer")
+        mimebundle = result._repr_mimebundle_(include=[], exclude=[])
+        assert "skfCopyCode" not in mimebundle["text/html"]
+
     def test_show_explanation_prints_rendered_explanation(self):
         """
         Test that show_explanation prints the explanation text to the console.
@@ -475,6 +506,6 @@ class TestDisplayMixin:
         class Dummy(DisplayMixin):
             pass
 
-        err_msg = re.escape("Dummy must implement __rich_console__")
+        err_msg = re.escape("Dummy must implement _rich_body")
         with pytest.raises(NotImplementedError, match=err_msg):
             Console(file=io.StringIO()).print(Dummy())
