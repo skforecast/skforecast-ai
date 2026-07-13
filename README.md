@@ -1,5 +1,5 @@
 <h1 align="left">
-    <img src="docs/img/banner-landing-page-skforecast-ai.png"  style="margin-top: 0px;" alt="skforecast banner">
+    <img src="https://github.com/skforecast/skforecast-ai/blob/main/docs/img/banner-landing-page-skforecast-ai.png?raw=true"  style="margin-top: 0px;" alt="skforecast banner">
 </h1>
 
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
@@ -100,7 +100,7 @@ The returned `ForecastResult` exposes everything the pipeline produced:
 | `result.profile` | What profiling detected about your data |
 | `result.plan` | The forecaster, estimator, lags, and metrics that were chosen |
 
-👉 New here? Walk through it step by step in **[Your first forecast](docs/user-guides/first-forecast.md)**.
+👉 New here? Walk through it step by step in **[Your first forecast](https://ai.skforecast.org/stable/quick-start/first-forecast)**.
 
 
 ## 💻 Quickstart (CLI)
@@ -120,7 +120,7 @@ skforecast-ai forecast-code data.csv --target y --date-column datetime --steps 1
 
 Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline documentation on any command.
 
-👉 Full command reference in **[CLI usage](docs/user-guides/cli-usage.md)**.
+👉 Full command reference in **[CLI usage](https://ai.skforecast.org/stable/user-guides/cli-usage.html)**.
 
 
 ## 🧠 How it works
@@ -136,7 +136,7 @@ A useful mental model is that forecasting and validation are separate branches. 
 The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
 
 <p align="center">
-  <img src="docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">
+  <img src="https://raw.githubusercontent.com/skforecast/skforecast-ai/725cc112a7bfb490a096c3b6710ec9138b5c22e9/docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">
 </p>
 
 Read more in **[Introduction to agentic forecasting]**.
