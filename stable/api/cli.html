@@ -1,0 +1,2628 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="AI-powered forecasting assistant built on top of skforecast.">
+      
+      
+        <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
+      
+      
+        <link rel="canonical" href="https://github.com/skforecast/skforecast-ai/stable/api/cli.html">
+      
+      
+        <link rel="prev" href="schemas/profiles.html">
+      
+      
+        <link rel="next" href="../releases/releases.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../img/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>CLI - skforecast-AI Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CUbuntu+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Ubuntu Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-1L7X239QEB"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-1L7X239QEB",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-1L7X239QEB",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>if("undefined"!=typeof __md_analytics){var consent=__md_get("__consent");consent&&consent.analytics&&__md_analytics()}</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="light" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cli" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  <div>
+  This is documentation for an unstable development version.
+  
+    <a href="../.." id="version-switch-link">
+      <strong>Switch to latest stable version.</strong>
+    </a>
+  
+</div>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL(".."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="skforecast-AI Docs" class="md-header__button md-logo" aria-label="skforecast-AI Docs" data-md-component="logo">
+      
+  <img src="../img/logo-skforecast.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            skforecast-AI Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CLI
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="light" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/skforecast/skforecast-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../index.html" class="md-tabs__link">
+          
+  
+  
+  Home
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../quick-start/quick-start.html" class="md-tabs__link">
+          
+  
+  
+  Quick start
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../user-guides/agentic-forecasting.html" class="md-tabs__link">
+          
+  
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="assistant.html" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../releases/releases.html" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../more/about-skforecast-ai.html" class="md-tabs__link">
+          
+  
+  
+  More
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="skforecast-AI Docs" class="md-nav__button md-logo" aria-label="skforecast-AI Docs" data-md-component="logo">
+      
+  <img src="../img/logo-skforecast.png" alt="logo">
+
+    </a>
+    skforecast-AI Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/skforecast/skforecast-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Home
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to skforecast-ai
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Quick start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/quick-start.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/first-forecast.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first forecast
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/how-to-install.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How to install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guides/agentic-forecasting.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic forecasting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guides/agentic-forecasting-step-by-step.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic forecasting step by step
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guides/cli-usage.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="assistant.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schemas
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Schemas
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="schemas/results.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="schemas/plans.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plans
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="schemas/profiles.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="cli.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/releases.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    More
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    More
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../more/about-skforecast-ai.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About skforecast-ai
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../more/consulting.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Consulting & Professional services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="cli">CLI<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h1>
+<div class="typer-docs">
+<h1 id="skforecast-ai">skforecast-ai<a class="headerlink" href="#skforecast-ai" title="Permanent link">&para;</a></h1>
+<p>Deterministic forecasting assistant powered by skforecast.</p>
+<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
+<p><code>skforecast-ai [OPTIONS] COMMAND [ARGS]...</code></p>
+<h2 id="arguments">Arguments<a class="headerlink" href="#arguments" title="Permanent link">&para;</a></h2>
+<p><em>No arguments available</em></p>
+<h2 id="options">Options<a class="headerlink" href="#options" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--version</code></td>
+<td>Show version.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--install-completion</code></td>
+<td>Install completion for the current shell.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--show-completion</code></td>
+<td>Show completion for the current shell, to copy it or customize the installation.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h2 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>profile</code></td>
+<td>Profile a dataset and recommend a...</td>
+</tr>
+<tr>
+<td><code>plan</code></td>
+<td>Generate a detailed forecasting plan from...</td>
+</tr>
+<tr>
+<td><code>refine-plan</code></td>
+<td>Refine an existing forecasting plan by...</td>
+</tr>
+<tr>
+<td><code>forecast-code</code></td>
+<td>Generate a complete Python forecasting...</td>
+</tr>
+<tr>
+<td><code>backtest-code</code></td>
+<td>Generate a complete Python backtesting...</td>
+</tr>
+<tr>
+<td><code>forecast</code></td>
+<td>Run end-to-end forecasting and report...</td>
+</tr>
+<tr>
+<td><code>backtest</code></td>
+<td>Run backtesting evaluation and report...</td>
+</tr>
+<tr>
+<td><code>ask</code></td>
+<td>Ask a forecasting question using an LLM.</td>
+</tr>
+<tr>
+<td><code>config</code></td>
+<td>Manage persistent configuration.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="subcommands">Subcommands<a class="headerlink" href="#subcommands" title="Permanent link">&para;</a></h2>
+<h3 id="profile">profile<a class="headerlink" href="#profile" title="Permanent link">&para;</a></h3>
+<p>Profile a dataset and recommend a forecaster + estimator.</p>
+<h4 id="usage_1">Usage<a class="headerlink" href="#usage_1" title="Permanent link">&para;</a></h4>
+<p><code>skforecast-ai profile [OPTIONS] DATA</code></p>
+<h4 id="arguments_1">Arguments<a class="headerlink" href="#arguments_1" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DATA</code></td>
+<td>Path or URL to CSV file.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_1">Options<a class="headerlink" href="#options_1" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-t, --target TEXT</code></td>
+<td>Target column name(s), comma-separated.</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-d, --date-column TEXT</code></td>
+<td>Date/timestamp column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-s, --series-id-column TEXT</code></td>
+<td>Series identifier column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--format TEXT</code></td>
+<td>Output format: table or json.</td>
+<td>No</td>
+<td><code>table</code></td>
+</tr>
+<tr>
+<td><code>-o, --output PATH</code></td>
+<td>Write output to file.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-q, --quiet</code></td>
+<td>Suppress spinners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="plan">plan<a class="headerlink" href="#plan" title="Permanent link">&para;</a></h3>
+<p>Generate a detailed forecasting plan from a dataset.</p>
+<h4 id="usage_2">Usage<a class="headerlink" href="#usage_2" title="Permanent link">&para;</a></h4>
+<p><code>skforecast-ai plan [OPTIONS][DATA]</code></p>
+<h4 id="arguments_2">Arguments<a class="headerlink" href="#arguments_2" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DATA</code></td>
+<td>Path or URL to CSV file.</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_2">Options<a class="headerlink" href="#options_2" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-t, --target TEXT</code></td>
+<td>Target column name(s), comma-separated.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--steps INTEGER</code></td>
+<td>Forecast horizon (number of steps).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-d, --date-column TEXT</code></td>
+<td>Date/timestamp column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-s, --series-id-column TEXT</code></td>
+<td>Series identifier column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--forecaster TEXT</code></td>
+<td>Override forecaster class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator TEXT</code></td>
+<td>Override estimator class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator-kwargs TEXT</code></td>
+<td>Estimator hyperparameters as JSON string, e.g. '{"n_estimators": 200}'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--interval TEXT</code></td>
+<td>Prediction interval, e.g. '0.1,0.9'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--lags TEXT</code></td>
+<td>Explicit lags as an int or comma-separated list, e.g. '1,2,3'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--window-features TEXT</code></td>
+<td>Explicit window features as JSON array, e.g. '[{"stats": ["mean"], "window_size": 7}]'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--from-profile TEXT</code></td>
+<td>Load profile from JSON file or '-' for stdin.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--format TEXT</code></td>
+<td>Output format: table or json.</td>
+<td>No</td>
+<td><code>table</code></td>
+</tr>
+<tr>
+<td><code>-o, --output PATH</code></td>
+<td>Write output to file.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-q, --quiet</code></td>
+<td>Suppress spinners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="refine-plan">refine-plan<a class="headerlink" href="#refine-plan" title="Permanent link">&para;</a></h3>
+<p>Refine an existing forecasting plan by overriding specific fields or using LLM guidance.</p>
+<h4 id="usage_3">Usage<a class="headerlink" href="#usage_3" title="Permanent link">&para;</a></h4>
+<p><code>skforecast-ai refine-plan [OPTIONS]</code></p>
+<h4 id="arguments_3">Arguments<a class="headerlink" href="#arguments_3" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_3">Options<a class="headerlink" href="#options_3" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--from-plan TEXT</code></td>
+<td>Load plan bundle from JSON file or '-' for stdin.</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--forecaster TEXT</code></td>
+<td>Override forecaster class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator TEXT</code></td>
+<td>Override estimator class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator-kwargs TEXT</code></td>
+<td>Estimator hyperparameters as JSON string, e.g. '{"n_estimators": 200}'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--steps INTEGER</code></td>
+<td>Override forecast horizon.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--interval TEXT</code></td>
+<td>Override prediction interval, e.g. '0.1,0.9'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--lags TEXT</code></td>
+<td>Explicit lags as an int or comma-separated list, e.g. '1,2,3'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--window-features TEXT</code></td>
+<td>Explicit window features as JSON array, e.g. '[{"stats": ["mean"], "window_size": 7}]'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--prompt TEXT</code></td>
+<td>Natural language domain knowledge to guide LLM plan refinement.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--llm TEXT</code></td>
+<td>LLM provider for plan refinement.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--base-url TEXT</code></td>
+<td>Custom LLM endpoint URL.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--api-key TEXT</code></td>
+<td>API key for the LLM provider.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--format TEXT</code></td>
+<td>Output format: table or json.</td>
+<td>No</td>
+<td><code>table</code></td>
+</tr>
+<tr>
+<td><code>-o, --output PATH</code></td>
+<td>Write output to file.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-q, --quiet</code></td>
+<td>Suppress spinners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="forecast-code">forecast-code<a class="headerlink" href="#forecast-code" title="Permanent link">&para;</a></h3>
+<p>Generate a complete Python forecasting script.</p>
+<h4 id="usage_4">Usage<a class="headerlink" href="#usage_4" title="Permanent link">&para;</a></h4>
+<p><code>skforecast-ai forecast-code [OPTIONS][DATA]</code></p>
+<h4 id="arguments_4">Arguments<a class="headerlink" href="#arguments_4" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DATA</code></td>
+<td>Path or URL to CSV file.</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_4">Options<a class="headerlink" href="#options_4" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-t, --target TEXT</code></td>
+<td>Target column name(s), comma-separated.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--steps INTEGER</code></td>
+<td>Forecast horizon (number of steps).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-d, --date-column TEXT</code></td>
+<td>Date/timestamp column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-s, --series-id-column TEXT</code></td>
+<td>Series identifier column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--forecaster TEXT</code></td>
+<td>Override forecaster class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator TEXT</code></td>
+<td>Override estimator class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator-kwargs TEXT</code></td>
+<td>Estimator hyperparameters as JSON string, e.g. '{"n_estimators": 200}'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--interval TEXT</code></td>
+<td>Prediction interval, e.g. '0.1,0.9'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--lags TEXT</code></td>
+<td>Explicit lags as an int or comma-separated list, e.g. '1,2,3'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--window-features TEXT</code></td>
+<td>Explicit window features as JSON array, e.g. '[{"stats": ["mean"], "window_size": 7}]'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--from-plan TEXT</code></td>
+<td>Load plan bundle from JSON file or '-' for stdin.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--format TEXT</code></td>
+<td>Output format: code or json.</td>
+<td>No</td>
+<td><code>code</code></td>
+</tr>
+<tr>
+<td><code>-o, --output PATH</code></td>
+<td>Write output to file.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-q, --quiet</code></td>
+<td>Suppress spinners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="backtest-code">backtest-code<a class="headerlink" href="#backtest-code" title="Permanent link">&para;</a></h3>
+<p>Generate a complete Python backtesting script without executing it.</p>
+<h4 id="usage_5">Usage<a class="headerlink" href="#usage_5" title="Permanent link">&para;</a></h4>
+<p><code>skforecast-ai backtest-code [OPTIONS][DATA]</code></p>
+<h4 id="arguments_5">Arguments<a class="headerlink" href="#arguments_5" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DATA</code></td>
+<td>Path or URL to CSV file.</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_5">Options<a class="headerlink" href="#options_5" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-t, --target TEXT</code></td>
+<td>Target column name(s), comma-separated.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--steps INTEGER</code></td>
+<td>Forecast horizon (number of steps).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-d, --date-column TEXT</code></td>
+<td>Date/timestamp column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-s, --series-id-column TEXT</code></td>
+<td>Series identifier column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--forecaster TEXT</code></td>
+<td>Override forecaster class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator TEXT</code></td>
+<td>Override estimator class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator-kwargs TEXT</code></td>
+<td>Estimator hyperparameters as JSON string, e.g. '{"n_estimators": 200}'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--interval TEXT</code></td>
+<td>Prediction interval, e.g. '0.1,0.9'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--lags TEXT</code></td>
+<td>Explicit lags as an int or comma-separated list, e.g. '1,2,3'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--window-features TEXT</code></td>
+<td>Explicit window features as JSON array, e.g. '[{"stats": ["mean"], "window_size": 7}]'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--initial-train-size INTEGER</code></td>
+<td>Initial training window size.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--fold-stride INTEGER</code></td>
+<td>Fold stride (step size between folds).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--refit / --no-refit</code></td>
+<td>Whether to refit the model each fold.</td>
+<td>No</td>
+<td><code>no-refit</code></td>
+</tr>
+<tr>
+<td><code>--fixed-train-size / --expanding-train</code></td>
+<td>Fixed or expanding training window.</td>
+<td>No</td>
+<td><code>fixed-train-size</code></td>
+</tr>
+<tr>
+<td><code>--gap INTEGER</code></td>
+<td>Gap between training and test sets.</td>
+<td>No</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--allow-incomplete-fold / --no-incomplete-fold</code></td>
+<td>Allow last fold with fewer observations.</td>
+<td>No</td>
+<td><code>allow-incomplete-fold</code></td>
+</tr>
+<tr>
+<td><code>--from-plan TEXT</code></td>
+<td>Load plan bundle from JSON file or '-' for stdin.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--format TEXT</code></td>
+<td>Output format: code or json.</td>
+<td>No</td>
+<td><code>code</code></td>
+</tr>
+<tr>
+<td><code>-o, --output PATH</code></td>
+<td>Write output to file.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-q, --quiet</code></td>
+<td>Suppress spinners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="forecast">forecast<a class="headerlink" href="#forecast" title="Permanent link">&para;</a></h3>
+<p>Run end-to-end forecasting and report metrics + predictions.</p>
+<h4 id="usage_6">Usage<a class="headerlink" href="#usage_6" title="Permanent link">&para;</a></h4>
+<p><code>skforecast-ai forecast [OPTIONS] DATA</code></p>
+<h4 id="arguments_6">Arguments<a class="headerlink" href="#arguments_6" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DATA</code></td>
+<td>Path to CSV file.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_6">Options<a class="headerlink" href="#options_6" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-t, --target TEXT</code></td>
+<td>Target column name(s), comma-separated.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--steps INTEGER</code></td>
+<td>Forecast horizon (number of steps).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-d, --date-column TEXT</code></td>
+<td>Date/timestamp column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-s, --series-id-column TEXT</code></td>
+<td>Series identifier column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--forecaster TEXT</code></td>
+<td>Override forecaster class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator TEXT</code></td>
+<td>Override estimator class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator-kwargs TEXT</code></td>
+<td>Estimator hyperparameters as JSON string, e.g. '{"n_estimators": 200}'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--interval TEXT</code></td>
+<td>Prediction interval, e.g. '0.1,0.9'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--test-size TEXT</code></td>
+<td>Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). When omitted, forecasts the future.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--exog PATH</code></td>
+<td>CSV with future exogenous variables (prediction mode).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--from-plan TEXT</code></td>
+<td>Load plan bundle from JSON file or '-' for stdin.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--output-predictions PATH</code></td>
+<td>Save predictions as CSV.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--output-code PATH</code></td>
+<td>Save generated script to file.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--format TEXT</code></td>
+<td>Output format: table or json.</td>
+<td>No</td>
+<td><code>table</code></td>
+</tr>
+<tr>
+<td><code>-q, --quiet</code></td>
+<td>Suppress spinners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="backtest">backtest<a class="headerlink" href="#backtest" title="Permanent link">&para;</a></h3>
+<p>Run backtesting evaluation and report metrics + predictions.</p>
+<h4 id="usage_7">Usage<a class="headerlink" href="#usage_7" title="Permanent link">&para;</a></h4>
+<p><code>skforecast-ai backtest [OPTIONS] DATA</code></p>
+<h4 id="arguments_7">Arguments<a class="headerlink" href="#arguments_7" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DATA</code></td>
+<td>Path to CSV file.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_7">Options<a class="headerlink" href="#options_7" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-t, --target TEXT</code></td>
+<td>Target column name(s), comma-separated.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--steps INTEGER</code></td>
+<td>Forecast horizon (number of steps).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-d, --date-column TEXT</code></td>
+<td>Date/timestamp column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-s, --series-id-column TEXT</code></td>
+<td>Series identifier column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--forecaster TEXT</code></td>
+<td>Override forecaster class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator TEXT</code></td>
+<td>Override estimator class.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--estimator-kwargs TEXT</code></td>
+<td>Estimator hyperparameters as JSON string.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--interval TEXT</code></td>
+<td>Prediction interval, e.g. '0.1,0.9'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--initial-train-size INTEGER</code></td>
+<td>Initial training window size.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--fold-stride INTEGER</code></td>
+<td>Fold stride (step size between folds).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--refit / --no-refit</code></td>
+<td>Whether to refit the model each fold.</td>
+<td>No</td>
+<td><code>no-refit</code></td>
+</tr>
+<tr>
+<td><code>--fixed-train-size / --expanding-train</code></td>
+<td>Fixed or expanding training window.</td>
+<td>No</td>
+<td><code>fixed-train-size</code></td>
+</tr>
+<tr>
+<td><code>--gap INTEGER</code></td>
+<td>Gap between training and test sets.</td>
+<td>No</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--allow-incomplete-fold / --no-incomplete-fold</code></td>
+<td>Allow last fold with fewer observations.</td>
+<td>No</td>
+<td><code>allow-incomplete-fold</code></td>
+</tr>
+<tr>
+<td><code>--prompt TEXT</code></td>
+<td>Optional prompt for LLM-assisted CV configuration.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--llm TEXT</code></td>
+<td>LLM provider for CV configuration.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--base-url TEXT</code></td>
+<td>Custom LLM endpoint URL.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--api-key TEXT</code></td>
+<td>API key for the LLM provider.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--from-plan TEXT</code></td>
+<td>Load plan bundle from JSON file or '-' for stdin.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--output-predictions PATH</code></td>
+<td>Save predictions as CSV.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--output-code PATH</code></td>
+<td>Save generated script to file.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--format TEXT</code></td>
+<td>Output format: table or json.</td>
+<td>No</td>
+<td><code>table</code></td>
+</tr>
+<tr>
+<td><code>-q, --quiet</code></td>
+<td>Suppress spinners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="ask">ask<a class="headerlink" href="#ask" title="Permanent link">&para;</a></h3>
+<p>Ask a forecasting question using an LLM.</p>
+<h4 id="usage_8">Usage<a class="headerlink" href="#usage_8" title="Permanent link">&para;</a></h4>
+<p><code>skforecast-ai ask [OPTIONS] PROMPT</code></p>
+<h4 id="arguments_8">Arguments<a class="headerlink" href="#arguments_8" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PROMPT</code></td>
+<td>Natural-language question about forecasting.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_8">Options<a class="headerlink" href="#options_8" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--data PATH</code></td>
+<td>Path to CSV file for context.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-t, --target TEXT</code></td>
+<td>Target column name(s), comma-separated.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-d, --date-column TEXT</code></td>
+<td>Date/timestamp column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>-s, --series-id-column TEXT</code></td>
+<td>Series identifier column.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--steps INTEGER</code></td>
+<td>Forecast horizon (required when --data is provided).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--llm TEXT</code></td>
+<td>LLM provider, e.g. 'openai:gpt-4o-mini'.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--base-url TEXT</code></td>
+<td>Custom LLM endpoint URL.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--api-key TEXT</code></td>
+<td>API key for the LLM provider.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--send-data-to-llm / --no-send-data-to-llm</code></td>
+<td>Allow sending raw data to the LLM.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--skills TEXT</code></td>
+<td>Comma-separated skill names to include.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--format TEXT</code></td>
+<td>Output format: text or json.</td>
+<td>No</td>
+<td><code>text</code></td>
+</tr>
+<tr>
+<td><code>-q, --quiet</code></td>
+<td>Suppress spinners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="config">config<a class="headerlink" href="#config" title="Permanent link">&para;</a></h3>
+<p>Manage persistent configuration.</p>
+<h4 id="usage_9">Usage<a class="headerlink" href="#usage_9" title="Permanent link">&para;</a></h4>
+<p><code>skforecast-ai config [OPTIONS] COMMAND [ARGS]...</code></p>
+<h4 id="arguments_9">Arguments<a class="headerlink" href="#arguments_9" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_9">Options<a class="headerlink" href="#options_9" title="Permanent link">&para;</a></h4>
+<p><em>No options available</em></p>
+<h4 id="subcommands_1">Subcommands<a class="headerlink" href="#subcommands_1" title="Permanent link">&para;</a></h4>
+<h5 id="show">show<a class="headerlink" href="#show" title="Permanent link">&para;</a></h5>
+<p>Display current configuration.</p>
+<h2 id="returns">Returns<a class="headerlink" href="#returns" title="Permanent link">&para;</a></h2>
+<p>None</p>
+<h6 id="usage_10">Usage<a class="headerlink" href="#usage_10" title="Permanent link">&para;</a></h6>
+<p><code>skforecast-ai config show [OPTIONS]</code></p>
+<h6 id="arguments_10">Arguments<a class="headerlink" href="#arguments_10" title="Permanent link">&para;</a></h6>
+<p><em>No arguments available</em></p>
+<h6 id="options_10">Options<a class="headerlink" href="#options_10" title="Permanent link">&para;</a></h6>
+<p><em>No options available</em></p>
+<h5 id="set">set<a class="headerlink" href="#set" title="Permanent link">&para;</a></h5>
+<p>Set a configuration value.</p>
+<h2 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h2>
+<p>key : str
+    Config key in dotted notation (e.g. <code>'llm.provider'</code>).
+value : str
+    Value to set.</p>
+<h2 id="returns_1">Returns<a class="headerlink" href="#returns_1" title="Permanent link">&para;</a></h2>
+<p>None</p>
+<h6 id="usage_11">Usage<a class="headerlink" href="#usage_11" title="Permanent link">&para;</a></h6>
+<p><code>skforecast-ai config set [OPTIONS] KEY VALUE</code></p>
+<h6 id="arguments_11">Arguments<a class="headerlink" href="#arguments_11" title="Permanent link">&para;</a></h6>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>KEY</code></td>
+<td>Config key (e.g. 'llm.provider').</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>VALUE</code></td>
+<td>Value to set.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h6 id="options_11">Options<a class="headerlink" href="#options_11" title="Permanent link">&para;</a></h6>
+<p><em>No options available</em></p>
+<h5 id="path">path<a class="headerlink" href="#path" title="Permanent link">&para;</a></h5>
+<p>Print the config file location.</p>
+<h2 id="returns_2">Returns<a class="headerlink" href="#returns_2" title="Permanent link">&para;</a></h2>
+<p>None</p>
+<h6 id="usage_12">Usage<a class="headerlink" href="#usage_12" title="Permanent link">&para;</a></h6>
+<p><code>skforecast-ai config path [OPTIONS]</code></p>
+<h6 id="arguments_12">Arguments<a class="headerlink" href="#arguments_12" title="Permanent link">&para;</a></h6>
+<p><em>No arguments available</em></p>
+<h6 id="options_12">Options<a class="headerlink" href="#options_12" title="Permanent link">&para;</a></h6>
+<p><em>No options available</em></p>
+</div>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="schemas/profiles.html" class="md-footer__link md-footer__link--prev" aria-label="Previous: Profiles">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Profiles
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../releases/releases.html" class="md-footer__link md-footer__link--next" aria-label="Next: Changelog">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Changelog
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2024 - 2030 Joaquín Amat Rodrigo, Javier Escobar Ortiz
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://www.linkedin.com/company/skforecast/" target="_blank" rel="noopener" title="www.linkedin.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M416 32H31.9C14.3 32 0 46.5 0 64.3v383.4C0 465.5 14.3 480 31.9 480H416c17.6 0 32-14.5 32-32.3V64.3c0-17.8-14.4-32.3-32-32.3M135.4 416H69V202.2h66.5V416zM102.2 96a38.5 38.5 0 1 1 0 77 38.5 38.5 0 1 1 0-77m282.1 320h-66.4V312c0-24.8-.5-56.7-34.5-56.7-34.6 0-39.9 27-39.9 54.9V416h-66.4V202.2h63.7v29.2h.9c8.9-16.8 30.6-34.5 62.9-34.5 67.2 0 79.7 44.3 79.7 101.9z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/skforecast/skforecast-ai" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+      <div class="md-consent" data-md-component="consent" id="__consent" hidden>
+        <div class="md-consent__overlay"></div>
+        <aside class="md-consent__inner">
+          <form class="md-consent__form md-grid md-typeset" name="consent">
+            
+
+
+  
+
+
+<h4>Cookie consent</h4>
+<p>We use cookies to recognize your repeated visits and preferences, as well as to measure the effectiveness of our documentation and whether users find what they're searching for. With your consent, you're helping us to make our documentation better.</p>
+<input class="md-toggle" type="checkbox" id="__settings" >
+<div class="md-consent__settings">
+  <ul class="task-list">
+    
+    
+      
+        
+  
+  
+    
+    
+  
+  <li class="task-list-item">
+    <label class="task-list-control">
+      <input type="checkbox" name="analytics" checked>
+      <span class="task-list-indicator"></span>
+      Google Analytics
+    </label>
+  </li>
+
+      
+    
+    
+      
+        
+  
+  
+    
+    
+  
+  <li class="task-list-item">
+    <label class="task-list-control">
+      <input type="checkbox" name="github" checked>
+      <span class="task-list-indicator"></span>
+      GitHub
+    </label>
+  </li>
+
+      
+    
+    
+  </ul>
+</div>
+<div class="md-consent__controls">
+  
+    
+      <button class="md-button md-button--primary">Accept</button>
+    
+    
+    
+  
+    
+    
+    
+      <label class="md-button" for="__settings">Manage settings</label>
+    
+  
+</div>
+          </form>
+        </aside>
+      </div>
+      <script>var consent=__md_get("__consent");if(consent)for(var input of document.forms.consent.elements)input.name&&(input.checked=consent[input.name]||!1);else"file:"!==location.protocol&&setTimeout((function(){document.querySelector("[data-md-component=consent]").hidden=!1}),250);var form=document.forms.consent;for(var action of["submit","reset"])form.addEventListener(action,(function(e){if(e.preventDefault(),"reset"===e.type)for(var n of document.forms.consent.elements)n.name&&(n.checked=!1);__md_set("__consent",Object.fromEntries(Array.from(new FormData(form).keys()).map((function(e){return[e,!0]})))),location.hash="",location.reload()}))</script>
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "toc.integrate", "navigation.breadcrumbs", "content.code.copy", "content.code.annotate", "content.code.select", "content.tooltips", "search.suggest", "search.highlight", "search.share"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/version-switcher.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

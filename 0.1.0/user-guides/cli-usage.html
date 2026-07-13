@@ -1,0 +1,2681 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="AI-powered forecasting assistant built on top of skforecast.">
+      
+      
+        <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
+      
+      
+        <link rel="canonical" href="https://github.com/skforecast/skforecast-ai/stable/user-guides/cli-usage.html">
+      
+      
+        <link rel="prev" href="agentic-forecasting-step-by-step.html">
+      
+      
+        <link rel="next" href="../api/assistant.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../img/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Using the CLI - skforecast-AI Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CUbuntu+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Ubuntu Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-1L7X239QEB"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-1L7X239QEB",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-1L7X239QEB",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>if("undefined"!=typeof __md_analytics){var consent=__md_get("__consent");consent&&consent.analytics&&__md_analytics()}</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="light" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cli-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  <div>
+  This is documentation for an unstable development version.
+  
+    <a href="../.." id="version-switch-link">
+      <strong>Switch to latest stable version.</strong>
+    </a>
+  
+</div>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL(".."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="skforecast-AI Docs" class="md-header__button md-logo" aria-label="skforecast-AI Docs" data-md-component="logo">
+      
+  <img src="../img/logo-skforecast.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            skforecast-AI Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Using the CLI
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="light" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/skforecast/skforecast-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../index.html" class="md-tabs__link">
+          
+  
+  
+  Home
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../quick-start/quick-start.html" class="md-tabs__link">
+          
+  
+  
+  Quick start
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="agentic-forecasting.html" class="md-tabs__link">
+          
+  
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/assistant.html" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../releases/releases.html" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../more/about-skforecast-ai.html" class="md-tabs__link">
+          
+  
+  
+  More
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="skforecast-AI Docs" class="md-nav__button md-logo" aria-label="skforecast-AI Docs" data-md-component="logo">
+      
+  <img src="../img/logo-skforecast.png" alt="logo">
+
+    </a>
+    skforecast-AI Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/skforecast/skforecast-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Home
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to skforecast-ai
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Quick start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/quick-start.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/first-forecast.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first forecast
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/how-to-install.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How to install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="agentic-forecasting.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic forecasting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="agentic-forecasting-step-by-step.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic forecasting step by step
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the CLI
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="cli-usage.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commands-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dataset-shapes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dataset shapes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        profile
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#refine-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        refine-plan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#save-and-replay-a-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Save and replay a plan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#forecast-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        forecast-code
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#forecast" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        forecast
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backtest-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        backtest-code
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backtest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        backtest
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="backtest">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#multi-series-backtest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-series backtest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#long-format-multi-series" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Long-format multi-series
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipe-plan-backtest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipe: plan → backtest
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ask
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipe-composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipe composition
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipe composition">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flags-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Flags reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data input
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#forecast-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Forecast configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cross-validation-backtest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-validation / backtest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plan-reproducibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan / reproducibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Version
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#persistent-config-toml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent config (TOML)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#llm-resolution-precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM resolution precedence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shell-completion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shell completion
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/assistant.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schemas
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Schemas
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/schemas/results.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/schemas/plans.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plans
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/schemas/profiles.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/cli.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/releases.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    More
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    More
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../more/about-skforecast-ai.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About skforecast-ai
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../more/consulting.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Consulting & Professional services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
+<p>The <code>skforecast-ai</code> CLI runs the full forecasting pipeline from a terminal. Point it at a CSV file or URL, name your target column and horizon, and it returns predictions, evaluation metrics, and the standalone Python script that produced them.</p>
+<p>Run <code>skforecast-ai --help</code> or <code>skforecast-ai &lt;command&gt; --help</code> for inline documentation on any command.</p>
+<hr />
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>skforecast-ai
+</code></pre></div>
+<p>The <code>ask</code> command and LLM-assisted backtest configuration also need the optional LLM extras and an API key:</p>
+<div class="language-bash highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;skforecast-ai[llm]&quot;</span>
+</code></pre></div>
+<p>See the AI assistant documentation for supported providers, API keys, and local model setup.</p>
+<hr />
+<h2 id="commands-overview">Commands overview<a class="headerlink" href="#commands-overview" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>profile</code></td>
+<td>Inspect a dataset and recommend a forecaster/estimator</td>
+</tr>
+<tr>
+<td><code>plan</code></td>
+<td>Generate a detailed forecasting plan</td>
+</tr>
+<tr>
+<td><code>refine-plan</code></td>
+<td>Adjust an existing plan by overriding specific fields</td>
+</tr>
+<tr>
+<td><code>forecast-code</code></td>
+<td>Generate a self-contained Python forecasting script</td>
+</tr>
+<tr>
+<td><code>backtest-code</code></td>
+<td>Generate a self-contained Python backtesting script</td>
+</tr>
+<tr>
+<td><code>forecast</code></td>
+<td>Run end-to-end forecasting (profile, plan, code, execute)</td>
+</tr>
+<tr>
+<td><code>backtest</code></td>
+<td>Run backtesting evaluation (profile, plan, CV, backtest)</td>
+</tr>
+<tr>
+<td><code>ask</code></td>
+<td>Ask forecasting questions using an LLM</td>
+</tr>
+<tr>
+<td><code>config show</code></td>
+<td>Display the current configuration</td>
+</tr>
+<tr>
+<td><code>config set</code></td>
+<td>Set a configuration value</td>
+</tr>
+<tr>
+<td><code>config path</code></td>
+<td>Print the config file location</td>
+</tr>
+</tbody>
+</table>
+<p>Every command takes a CSV path or an <code>https://</code> URL as its data argument.</p>
+<hr />
+<h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+<span class="c1"># Inspect the data and see the recommended model</span>
+skforecast-ai<span class="w"> </span>profile<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha
+
+<span class="c1"># Forecast the next 12 steps</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span>
+</code></pre></div>
+<hr />
+<h2 id="dataset-shapes">Dataset shapes<a class="headerlink" href="#dataset-shapes" title="Permanent link">&para;</a></h2>
+<p>The CLI handles three data layouts. The combination of <code>--target</code>, <code>--date-column</code>, and <code>--series-id-column</code> tells it which one you have.</p>
+<table>
+<thead>
+<tr>
+<th>Layout</th>
+<th>Flags</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Single series</td>
+<td><code>--target</code> with one column</td>
+<td><code>--target y --date-column fecha</code></td>
+</tr>
+<tr>
+<td>Multi-series, wide</td>
+<td><code>--target</code> with comma-separated columns</td>
+<td><code>--target "item_1,item_2,item_3" --date-column date</code></td>
+</tr>
+<tr>
+<td>Multi-series, long</td>
+<td><code>--target</code> plus <code>--series-id-column</code></td>
+<td><code>--target revenue --date-column date --series-id-column store_id</code></td>
+</tr>
+</tbody>
+</table>
+<div class="language-bash highlight"><pre><span></span><code><span class="c1"># Single series, monthly, with exogenous variables</span>
+<span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span>
+
+<span class="c1"># Single series, hourly</span>
+<span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/bike_sharing_dataset_clean.csv&quot;</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>users<span class="w"> </span>--date-column<span class="w"> </span>date_time<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span>
+
+<span class="c1"># Multi-series, wide</span>
+<span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/simulated_items_sales.csv&quot;</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span><span class="s2">&quot;item_1,item_2,item_3&quot;</span><span class="w"> </span>--date-column<span class="w"> </span>date<span class="w"> </span>--steps<span class="w"> </span><span class="m">30</span>
+
+<span class="c1"># Multi-series, long (local file)</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span>sales.csv<span class="w"> </span>--target<span class="w"> </span>revenue<span class="w"> </span>--date-column<span class="w"> </span>date<span class="w"> </span>--series-id-column<span class="w"> </span>store_id<span class="w"> </span>--steps<span class="w"> </span><span class="m">30</span>
+</code></pre></div>
+<hr />
+<h2 id="profile">profile<a class="headerlink" href="#profile" title="Permanent link">&para;</a></h2>
+<p>Inspect a dataset and print the recommended forecaster, estimator, and key data characteristics. No horizon required.</p>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+skforecast-ai<span class="w"> </span>profile<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha
+
+<span class="c1"># JSON output (machine-readable, used as input to `plan`)</span>
+skforecast-ai<span class="w"> </span>profile<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--format<span class="w"> </span>json
+</code></pre></div>
+<hr />
+<h2 id="plan">plan<a class="headerlink" href="#plan" title="Permanent link">&para;</a></h2>
+<p>Turn a profile into a detailed forecasting plan: forecaster, estimator, lags, preprocessing, and (optionally) prediction intervals.</p>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span>
+
+<span class="c1"># With prediction intervals</span>
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--interval<span class="w"> </span><span class="s2">&quot;0.1,0.9&quot;</span>
+
+<span class="c1"># Override the recommended forecaster or estimator</span>
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--forecaster<span class="w"> </span>ForecasterDirect<span class="w"> </span>--estimator<span class="w"> </span>Ridge
+
+<span class="c1"># Save the plan as JSON for later replay</span>
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>&gt;<span class="w"> </span>plan.json
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Interval values are quantiles</p>
+<p><code>--interval</code> takes two comma-separated quantiles between 0 and 1, for example <code>"0.1,0.9"</code> for an 80% interval. Percentile values such as <code>"10,90"</code> are deprecated and will stop working in a future skforecast release.</p>
+</div>
+<hr />
+<h2 id="refine-plan">refine-plan<a class="headerlink" href="#refine-plan" title="Permanent link">&para;</a></h2>
+<p>Adjust an existing plan without re-profiling the dataset: change the horizon, switch forecasters, tune estimator hyperparameters, or add intervals.</p>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+<span class="c1"># Save a plan, then refine it</span>
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>&gt;<span class="w"> </span>plan.json
+
+<span class="c1"># Override the forecast horizon</span>
+skforecast-ai<span class="w"> </span>refine-plan<span class="w"> </span>--from-plan<span class="w"> </span>plan.json<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>&gt;<span class="w"> </span>plan_12.json
+
+<span class="c1"># Switch forecaster</span>
+skforecast-ai<span class="w"> </span>refine-plan<span class="w"> </span>--from-plan<span class="w"> </span>plan.json<span class="w"> </span>--forecaster<span class="w"> </span>ForecasterDirect<span class="w"> </span>--format<span class="w"> </span>json
+
+<span class="c1"># Override estimator hyperparameters</span>
+skforecast-ai<span class="w"> </span>refine-plan<span class="w"> </span>--from-plan<span class="w"> </span>plan.json<span class="w"> </span>--estimator-kwargs<span class="w"> </span><span class="s1">&#39;{&quot;n_estimators&quot;: 500}&#39;</span><span class="w"> </span>--format<span class="w"> </span>json
+
+<span class="c1"># Add prediction intervals</span>
+skforecast-ai<span class="w"> </span>refine-plan<span class="w"> </span>--from-plan<span class="w"> </span>plan.json<span class="w"> </span>--interval<span class="w"> </span><span class="s2">&quot;0.1,0.9&quot;</span><span class="w"> </span>--format<span class="w"> </span>json
+</code></pre></div>
+<hr />
+<h2 id="save-and-replay-a-plan">Save and replay a plan<a class="headerlink" href="#save-and-replay-a-plan" title="Permanent link">&para;</a></h2>
+<p>A saved plan separates the modeling decision from execution, which helps with auditing, scheduling, or rerunning the same plan against updated data.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>When <code>--from-plan</code> is used, <code>DATA</code>, <code>--target</code>, and <code>--steps</code> are optional for <code>forecast-code</code> (the values come from the bundle). <code>DATA</code> is still required for <code>forecast</code>, which needs actual data to execute.</p>
+</div>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+<span class="c1"># Save a plan</span>
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>&gt;<span class="w"> </span>plan.json
+
+<span class="c1"># Generate code from the saved plan (no re-profiling)</span>
+skforecast-ai<span class="w"> </span>forecast-code<span class="w"> </span>--from-plan<span class="w"> </span>plan.json<span class="w"> </span>--output<span class="w"> </span>forecast.py
+
+<span class="c1"># Execute the saved plan against data</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--from-plan<span class="w"> </span>plan.json
+
+<span class="c1"># Override the interval at execution time</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--from-plan<span class="w"> </span>plan.json<span class="w"> </span>--interval<span class="w"> </span><span class="s2">&quot;0.1,0.9&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="forecast-code">forecast-code<a class="headerlink" href="#forecast-code" title="Permanent link">&para;</a></h2>
+<p>Generate a self-contained Python script without executing it. Useful for inspection, version control, or manual runs. The output is the script itself; use <code>--format json</code> to wrap it with the profile and plan.</p>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+skforecast-ai<span class="w"> </span>forecast-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--output<span class="w"> </span>forecast.py
+
+<span class="c1"># With prediction intervals</span>
+skforecast-ai<span class="w"> </span>forecast-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--interval<span class="w"> </span><span class="s2">&quot;0.1,0.9&quot;</span><span class="w"> </span>--output<span class="w"> </span>forecast.py
+
+<span class="c1"># From a saved plan</span>
+skforecast-ai<span class="w"> </span>forecast-code<span class="w"> </span>--from-plan<span class="w"> </span>plan.json<span class="w"> </span>--output<span class="w"> </span>forecast.py
+</code></pre></div>
+<hr />
+<h2 id="forecast">forecast<a class="headerlink" href="#forecast" title="Permanent link">&para;</a></h2>
+<p>Run the full pipeline end-to-end (profile, plan, generate code, execute) and report predictions, plus metrics when you evaluate. See <a href="../quick-start/first-forecast.html">Your first forecast</a> for a guided walkthrough.</p>
+<p><code>forecast</code> runs in two modes:</p>
+<ul>
+<li><strong>Prediction mode</strong> (default): trains on all data and forecasts the future. No metrics. When the data has exogenous columns, supply their future values with <code>--exog</code>.</li>
+<li><strong>Evaluation mode</strong> (<code>--test-size</code>): holds out the last part of the series as a test set and reports metrics. <code>--test-size</code> accepts an integer (last <em>N</em> observations), a float in <code>(0, 1)</code> (last fraction), or a date (the split point).</li>
+</ul>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o.csv&quot;</span>
+
+<span class="c1"># Forecast the future (prediction mode)</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span>
+
+<span class="c1"># Evaluate the model on a held-out test set (reports metrics)</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--test-size<span class="w"> </span><span class="m">0</span>.2
+
+<span class="c1"># With prediction intervals and saved predictions</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--interval<span class="w"> </span><span class="s2">&quot;0.1,0.9&quot;</span><span class="w"> </span>--output-predictions<span class="w"> </span>preds.csv
+
+<span class="c1"># JSON output</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>&gt;<span class="w"> </span>preds.json
+
+<span class="c1"># Override forecaster and estimator</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--forecaster<span class="w"> </span>ForecasterDirect<span class="w"> </span>--estimator<span class="w"> </span>Ridge
+
+<span class="c1"># Prediction mode with exogenous data: provide future values covering the horizon</span>
+<span class="nv">EXOG_URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$EXOG_URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--exog<span class="w"> </span>future_exog.csv
+</code></pre></div>
+<p>See <a href="#dataset-shapes">Dataset shapes</a> for multi-series and long-format examples.</p>
+<hr />
+<h2 id="backtest-code">backtest-code<a class="headerlink" href="#backtest-code" title="Permanent link">&para;</a></h2>
+<p>Generate a backtesting script without executing it. Useful for inspection, version control, or manual execution.</p>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+<span class="c1"># Basic backtest code generation</span>
+skforecast-ai<span class="w"> </span>backtest-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span>
+
+<span class="c1"># Save to file</span>
+skforecast-ai<span class="w"> </span>backtest-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--output<span class="w"> </span>backtest_script.py
+
+<span class="c1"># Custom CV configuration</span>
+skforecast-ai<span class="w"> </span>backtest-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--initial-train-size<span class="w"> </span><span class="m">100</span><span class="w"> </span>--refit<span class="w"> </span>--expanding-train
+
+<span class="c1"># Fixed training window, no refit, with gap</span>
+skforecast-ai<span class="w"> </span>backtest-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--no-refit<span class="w"> </span>--fixed-train-size<span class="w"> </span>--gap<span class="w"> </span><span class="m">3</span>
+
+<span class="c1"># From a saved plan</span>
+skforecast-ai<span class="w"> </span>backtest-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--from-plan<span class="w"> </span>plan.json<span class="w"> </span>--output<span class="w"> </span>backtest_script.py
+
+<span class="c1"># JSON output (profile + plan + code)</span>
+skforecast-ai<span class="w"> </span>backtest-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--format<span class="w"> </span>json
+
+<span class="c1"># Pipe: plan → backtest-code</span>
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>-q<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>skforecast-ai<span class="w"> </span>backtest-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--from-plan<span class="w"> </span>-<span class="w"> </span>--output<span class="w"> </span>backtest_script.py
+
+<span class="c1"># Multi-series</span>
+<span class="nv">URL_MULTI</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/simulated_items_sales.csv&quot;</span>
+skforecast-ai<span class="w"> </span>backtest-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL_MULTI</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span><span class="s2">&quot;item_1,item_2,item_3&quot;</span><span class="w"> </span>--date-column<span class="w"> </span>date<span class="w"> </span>--steps<span class="w"> </span><span class="m">14</span>
+
+<span class="c1"># Override forecaster/estimator</span>
+skforecast-ai<span class="w"> </span>backtest-code<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--forecaster<span class="w"> </span>ForecasterDirect<span class="w"> </span>--estimator<span class="w"> </span>Ridge
+</code></pre></div>
+<hr />
+<h2 id="backtest">backtest<a class="headerlink" href="#backtest" title="Permanent link">&para;</a></h2>
+<p>Run backtesting evaluation with cross-validation. Chains profile → plan → create_cv → backtest automatically.</p>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+<span class="c1"># Basic backtest (uses deterministic CV defaults)</span>
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span>
+
+<span class="c1"># Custom CV configuration</span>
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--initial-train-size<span class="w"> </span><span class="m">100</span><span class="w"> </span>--refit<span class="w"> </span>--expanding-train
+
+<span class="c1"># Fixed training window, no refit</span>
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--no-refit<span class="w"> </span>--fixed-train-size
+
+<span class="c1"># With gap (deployment delay simulation)</span>
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--gap<span class="w"> </span><span class="m">3</span>
+
+<span class="c1"># JSON output</span>
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--format<span class="w"> </span>json
+
+<span class="c1"># Save predictions and generated code</span>
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-predictions<span class="w"> </span>backtest_preds.csv<span class="w"> </span>--output-code<span class="w"> </span>backtest_script.py
+
+<span class="c1"># From a saved plan</span>
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--from-plan<span class="w"> </span>plan.json
+
+<span class="c1"># Override forecaster/estimator</span>
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--forecaster<span class="w"> </span>ForecasterDirect<span class="w"> </span>--estimator<span class="w"> </span>Ridge
+
+<span class="c1"># LLM-assisted CV configuration (describe your deployment scenario)</span>
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--llm<span class="w"> </span>openai:gpt-4o-mini<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--prompt<span class="w"> </span><span class="s2">&quot;We retrain weekly with a 2-day data delay&quot;</span>
+</code></pre></div>
+<h3 id="multi-series-backtest">Multi-series backtest<a class="headerlink" href="#multi-series-backtest" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/simulated_items_sales.csv&quot;</span>
+
+skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span><span class="s2">&quot;item_1,item_2,item_3&quot;</span><span class="w"> </span>--date-column<span class="w"> </span>date<span class="w"> </span>--steps<span class="w"> </span><span class="m">14</span>
+</code></pre></div>
+<h3 id="long-format-multi-series">Long-format multi-series<a class="headerlink" href="#long-format-multi-series" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code>skforecast-ai<span class="w"> </span>backtest<span class="w"> </span>sales.csv<span class="w"> </span>--target<span class="w"> </span>revenue<span class="w"> </span>--date-column<span class="w"> </span>date<span class="w"> </span>--series-id-column<span class="w"> </span>store_id<span class="w"> </span>--steps<span class="w"> </span><span class="m">30</span>
+</code></pre></div>
+<h3 id="pipe-plan-backtest">Pipe: plan → backtest<a class="headerlink" href="#pipe-plan-backtest" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>-q<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>skforecast-ai<span class="w"> </span>backtest<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--from-plan<span class="w"> </span>-
+</code></pre></div>
+<hr />
+<h2 id="ask">ask<a class="headerlink" href="#ask" title="Permanent link">&para;</a></h2>
+<div class="admonition note">
+<p class="admonition-title">Requires LLM extras</p>
+<p><code>ask</code> requires an API key and the LLM extras: <code>pip install "skforecast-ai[llm]"</code>. See the AI assistant documentation for supported providers, API key setup, and local model options.</p>
+</div>
+<p>Query an LLM about your forecast, your data, or general forecasting strategy. The LLM can optionally receive your data profile for context, but raw data is never sent by default.</p>
+<div class="language-bash highlight"><pre><span></span><code><span class="c1"># Set LLM (or use --llm flag on each call)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">SKFORECAST_AI_LLM</span><span class="o">=</span><span class="s2">&quot;openai:gpt-4o-mini&quot;</span>
+
+<span class="c1"># Q&amp;A mode: general question</span>
+skforecast-ai<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;How do I choose between recursive and direct strategies?&quot;</span>
+
+<span class="c1"># Explain mode: with data context</span>
+skforecast-ai<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;What patterns do you see?&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--data<span class="w"> </span>h2o_exog.csv<span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span>
+
+<span class="c1"># JSON output</span>
+skforecast-ai<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;Recommend a forecasting approach&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--data<span class="w"> </span>h2o_exog.csv<span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--format<span class="w"> </span>json
+
+<span class="c1"># Local model via Ollama</span>
+skforecast-ai<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;How to handle missing values?&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--llm<span class="w"> </span>ollama:llama3
+
+<span class="c1"># Specific skills</span>
+skforecast-ai<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;How to set up prediction intervals?&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--skills<span class="w"> </span><span class="s2">&quot;prediction-intervals,hyperparameter-optimization&quot;</span>
+
+<span class="c1"># Send raw data to LLM (off by default for privacy)</span>
+skforecast-ai<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;Analyze this data&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--data<span class="w"> </span>h2o_exog.csv<span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--send-data-to-llm
+</code></pre></div>
+<hr />
+<h2 id="pipe-composition">Pipe composition<a class="headerlink" href="#pipe-composition" title="Permanent link">&para;</a></h2>
+<p>Commands can be chained via JSON stdin/stdout, using <code>-</code> as the source. This lets you inspect or modify intermediate results before they reach the next stage.</p>
+<div class="admonition tip">
+<p class="admonition-title">Shell compatibility</p>
+<p>Pipe chaining uses standard POSIX syntax. It works in bash, zsh, and fish. On Windows, use Git Bash or WSL; native PowerShell pipes pass objects rather than text and require different syntax.</p>
+</div>
+<div class="language-bash highlight"><pre><span></span><code><span class="nv">URL</span><span class="o">=</span><span class="s2">&quot;https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv&quot;</span>
+
+<span class="c1"># Profile → Plan</span>
+skforecast-ai<span class="w"> </span>profile<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>skforecast-ai<span class="w"> </span>plan<span class="w"> </span>--from-profile<span class="w"> </span>-<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--format<span class="w"> </span>json
+
+<span class="c1"># Profile → Plan → Generate Code</span>
+skforecast-ai<span class="w"> </span>profile<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>skforecast-ai<span class="w"> </span>plan<span class="w"> </span>--from-profile<span class="w"> </span>-<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>skforecast-ai<span class="w"> </span>forecast-code<span class="w"> </span>--from-plan<span class="w"> </span>-<span class="w"> </span>--output<span class="w"> </span>script.py
+
+<span class="c1"># Plan → Refine → Generate Code</span>
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>skforecast-ai<span class="w"> </span>refine-plan<span class="w"> </span>--from-plan<span class="w"> </span>-<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>skforecast-ai<span class="w"> </span>forecast-code<span class="w"> </span>--from-plan<span class="w"> </span>-<span class="w"> </span>--output<span class="w"> </span>script.py
+
+<span class="c1"># Plan → Forecast</span>
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--target<span class="w"> </span>y<span class="w"> </span>--date-column<span class="w"> </span>fecha<span class="w"> </span>--steps<span class="w"> </span><span class="m">12</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$URL</span><span class="s2">&quot;</span><span class="w"> </span>--from-plan<span class="w"> </span>-
+</code></pre></div>
+<h3 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>profile --format json</code> outputs a <code>ForecastingProfile</code> JSON object</li>
+<li><code>plan --format json</code> outputs a bundle: <code>{"profile": {...}, "plan": {...}}</code></li>
+<li><code>refine-plan --format json</code> outputs the same bundle format (refined plan replaces original)</li>
+<li><code>--from-profile -</code> reads a profile from stdin (or a file path)</li>
+<li><code>--from-plan -</code> reads a plan bundle from stdin (or a file path)</li>
+</ul>
+<hr />
+<h2 id="flags-reference">Flags reference<a class="headerlink" href="#flags-reference" title="Permanent link">&para;</a></h2>
+<h3 id="data-input">Data input<a class="headerlink" href="#data-input" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Short</th>
+<th>Description</th>
+<th>Commands</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--target</code></td>
+<td><code>-t</code></td>
+<td>Target column(s), comma-separated</td>
+<td><code>profile</code>, <code>plan</code>, <code>forecast-code</code>, <code>backtest-code</code>, <code>forecast</code>, <code>backtest</code>, <code>ask</code></td>
+</tr>
+<tr>
+<td><code>--date-column</code></td>
+<td><code>-d</code></td>
+<td>Date/timestamp column</td>
+<td><code>profile</code>, <code>plan</code>, <code>forecast-code</code>, <code>backtest-code</code>, <code>forecast</code>, <code>backtest</code>, <code>ask</code></td>
+</tr>
+<tr>
+<td><code>--series-id-column</code></td>
+<td><code>-s</code></td>
+<td>Series identifier (long-format)</td>
+<td><code>profile</code>, <code>plan</code>, <code>forecast-code</code>, <code>backtest-code</code>, <code>forecast</code>, <code>backtest</code>, <code>ask</code></td>
+</tr>
+<tr>
+<td><code>--exog</code></td>
+<td></td>
+<td>Future exogenous CSV covering the horizon (prediction mode)</td>
+<td><code>forecast</code></td>
+</tr>
+<tr>
+<td><code>--data</code></td>
+<td></td>
+<td>Dataset CSV for context</td>
+<td><code>ask</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="forecast-configuration">Forecast configuration<a class="headerlink" href="#forecast-configuration" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Short</th>
+<th>Description</th>
+<th>Commands</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--steps</code></td>
+<td></td>
+<td>Forecast horizon</td>
+<td><code>plan</code>, <code>refine-plan</code>, <code>forecast-code</code>, <code>backtest-code</code>, <code>forecast</code>, <code>backtest</code>, <code>ask</code></td>
+</tr>
+<tr>
+<td><code>--test-size</code></td>
+<td></td>
+<td>Evaluation test set size: int (last <em>N</em> obs), float in (0,1) (fraction), or date (test-set start). Omit to forecast the future.</td>
+<td><code>forecast</code></td>
+</tr>
+<tr>
+<td><code>--forecaster</code></td>
+<td></td>
+<td>Override forecaster class</td>
+<td><code>plan</code>, <code>refine-plan</code>, <code>forecast-code</code>, <code>backtest-code</code>, <code>forecast</code>, <code>backtest</code></td>
+</tr>
+<tr>
+<td><code>--estimator</code></td>
+<td></td>
+<td>Override estimator class</td>
+<td><code>plan</code>, <code>refine-plan</code>, <code>forecast-code</code>, <code>backtest-code</code>, <code>forecast</code>, <code>backtest</code></td>
+</tr>
+<tr>
+<td><code>--estimator-kwargs</code></td>
+<td></td>
+<td>Estimator hyperparameters as a JSON string</td>
+<td><code>plan</code>, <code>refine-plan</code>, <code>forecast-code</code>, <code>backtest-code</code>, <code>forecast</code>, <code>backtest</code></td>
+</tr>
+<tr>
+<td><code>--interval</code></td>
+<td></td>
+<td>Interval quantiles, e.g. <code>"0.1,0.9"</code></td>
+<td><code>plan</code>, <code>refine-plan</code>, <code>forecast-code</code>, <code>backtest-code</code>, <code>forecast</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="cross-validation-backtest">Cross-validation / backtest<a class="headerlink" href="#cross-validation-backtest" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Short</th>
+<th>Description</th>
+<th>Commands</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--initial-train-size</code></td>
+<td></td>
+<td>Initial training window size</td>
+<td><code>backtest</code>, <code>backtest-code</code></td>
+</tr>
+<tr>
+<td><code>--fold-stride</code></td>
+<td></td>
+<td>Step size between CV folds</td>
+<td><code>backtest</code>, <code>backtest-code</code></td>
+</tr>
+<tr>
+<td><code>--refit/--no-refit</code></td>
+<td></td>
+<td>Refit model each fold</td>
+<td><code>backtest</code>, <code>backtest-code</code></td>
+</tr>
+<tr>
+<td><code>--fixed-train-size/--expanding-train</code></td>
+<td></td>
+<td>Fixed or expanding window</td>
+<td><code>backtest</code>, <code>backtest-code</code></td>
+</tr>
+<tr>
+<td><code>--gap</code></td>
+<td></td>
+<td>Gap between train and test</td>
+<td><code>backtest</code>, <code>backtest-code</code></td>
+</tr>
+<tr>
+<td><code>--allow-incomplete-fold/--no-incomplete-fold</code></td>
+<td></td>
+<td>Allow last incomplete fold</td>
+<td><code>backtest</code>, <code>backtest-code</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="plan-reproducibility">Plan / reproducibility<a class="headerlink" href="#plan-reproducibility" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Short</th>
+<th>Description</th>
+<th>Commands</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--from-profile</code></td>
+<td></td>
+<td>Load profile JSON (file or <code>-</code> for stdin)</td>
+<td><code>plan</code></td>
+</tr>
+<tr>
+<td><code>--from-plan</code></td>
+<td></td>
+<td>Load plan bundle JSON (file or <code>-</code> for stdin)</td>
+<td><code>refine-plan</code>, <code>forecast-code</code>, <code>backtest-code</code>, <code>forecast</code>, <code>backtest</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="llm">LLM<a class="headerlink" href="#llm" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Short</th>
+<th>Description</th>
+<th>Commands</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--llm</code></td>
+<td></td>
+<td>LLM provider</td>
+<td><code>ask</code>, <code>backtest</code></td>
+</tr>
+<tr>
+<td><code>--base-url</code></td>
+<td></td>
+<td>Custom LLM endpoint</td>
+<td><code>ask</code>, <code>backtest</code></td>
+</tr>
+<tr>
+<td><code>--api-key</code></td>
+<td></td>
+<td>API key for the LLM provider</td>
+<td><code>ask</code>, <code>backtest</code></td>
+</tr>
+<tr>
+<td><code>--send-data-to-llm</code></td>
+<td></td>
+<td>Allow raw data to LLM</td>
+<td><code>ask</code></td>
+</tr>
+<tr>
+<td><code>--skills</code></td>
+<td></td>
+<td>Skill names to include</td>
+<td><code>ask</code></td>
+</tr>
+<tr>
+<td><code>--prompt</code></td>
+<td></td>
+<td>LLM prompt for CV config</td>
+<td><code>backtest</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Short</th>
+<th>Description</th>
+<th>Commands</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--format</code></td>
+<td></td>
+<td>Output format</td>
+<td>all data commands</td>
+</tr>
+<tr>
+<td><code>--output</code></td>
+<td><code>-o</code></td>
+<td>Write to file</td>
+<td><code>profile</code>, <code>plan</code>, <code>refine-plan</code>, <code>forecast-code</code>, <code>backtest-code</code></td>
+</tr>
+<tr>
+<td><code>--output-predictions</code></td>
+<td></td>
+<td>Save predictions CSV</td>
+<td><code>forecast</code>, <code>backtest</code></td>
+</tr>
+<tr>
+<td><code>--output-code</code></td>
+<td></td>
+<td>Save generated script</td>
+<td><code>forecast</code>, <code>backtest</code></td>
+</tr>
+<tr>
+<td><code>--quiet</code></td>
+<td><code>-q</code></td>
+<td>Suppress spinners</td>
+<td>all data commands</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<h3 id="version">Version<a class="headerlink" href="#version" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code>skforecast-ai<span class="w"> </span>--version
+</code></pre></div>
+<h3 id="persistent-config-toml">Persistent config (TOML)<a class="headerlink" href="#persistent-config-toml" title="Permanent link">&para;</a></h3>
+<p>Config file location: <code>~/.config/skforecast-ai/config.toml</code> (XDG-compliant).</p>
+<div class="language-bash highlight"><pre><span></span><code><span class="c1"># Show config file path</span>
+skforecast-ai<span class="w"> </span>config<span class="w"> </span>path
+
+<span class="c1"># Set values</span>
+skforecast-ai<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>llm.provider<span class="w"> </span><span class="s2">&quot;openai:gpt-4o-mini&quot;</span>
+skforecast-ai<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>llm.base_url<span class="w"> </span><span class="s2">&quot;http://localhost:11434/v1&quot;</span>
+skforecast-ai<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>llm.send_data_to_llm<span class="w"> </span><span class="nb">false</span>
+skforecast-ai<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>output.format<span class="w"> </span>table
+
+<span class="c1"># Show current config</span>
+skforecast-ai<span class="w"> </span>config<span class="w"> </span>show
+</code></pre></div>
+<p>Valid keys: <code>llm.provider</code>, <code>llm.base_url</code>, <code>llm.api_key</code>, <code>llm.send_data_to_llm</code>, <code>output.format</code>.</p>
+<h3 id="llm-resolution-precedence">LLM resolution precedence<a class="headerlink" href="#llm-resolution-precedence" title="Permanent link">&para;</a></h3>
+<p>Settings are resolved in this order (first wins):</p>
+<ol>
+<li>CLI flag (<code>--llm</code>, <code>--base-url</code>, <code>--api-key</code>)</li>
+<li>Environment variable (<code>SKFORECAST_AI_LLM</code>, <code>SKFORECAST_AI_BASE_URL</code>, <code>SKFORECAST_AI_API_KEY</code>)</li>
+<li>Config file (<code>llm.provider</code>, <code>llm.base_url</code>, <code>llm.api_key</code>)</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--llm</code> flag</td>
+<td><code>--llm openai:gpt-4o-mini</code></td>
+</tr>
+<tr>
+<td><code>SKFORECAST_AI_LLM</code> env var</td>
+<td><code>export SKFORECAST_AI_LLM="openai:gpt-4o-mini"</code></td>
+</tr>
+<tr>
+<td>Config file</td>
+<td><code>skforecast-ai config set llm.provider "openai:gpt-4o-mini"</code></td>
+</tr>
+<tr>
+<td><code>--base-url</code> flag</td>
+<td><code>--base-url http://localhost:11434/v1</code></td>
+</tr>
+<tr>
+<td><code>SKFORECAST_AI_BASE_URL</code> env var</td>
+<td><code>export SKFORECAST_AI_BASE_URL="http://localhost:11434/v1"</code></td>
+</tr>
+<tr>
+<td>Config file</td>
+<td><code>skforecast-ai config set llm.base_url "http://localhost:11434/v1"</code></td>
+</tr>
+<tr>
+<td><code>--api-key</code> flag</td>
+<td><code>--api-key sk-...</code></td>
+</tr>
+<tr>
+<td><code>SKFORECAST_AI_API_KEY</code> env var</td>
+<td><code>export SKFORECAST_AI_API_KEY="sk-..."</code></td>
+</tr>
+<tr>
+<td>Config file</td>
+<td><code>skforecast-ai config set llm.api_key "sk-..."</code></td>
+</tr>
+<tr>
+<td><code>--send-data-to-llm</code> flag</td>
+<td><code>--send-data-to-llm</code> / <code>--no-send-data-to-llm</code></td>
+</tr>
+<tr>
+<td><code>SKFORECAST_AI_SEND_DATA_TO_LLM</code> env var</td>
+<td><code>export SKFORECAST_AI_SEND_DATA_TO_LLM=false</code></td>
+</tr>
+<tr>
+<td>Config file</td>
+<td><code>skforecast-ai config set llm.send_data_to_llm false</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>--send-data-to-llm</code> (used by <code>ask</code>) follows the same precedence and is off by default, so raw data is never sent unless you opt in. <code>--skills</code> is not resolved from config; pass it per call.</p>
+<p>Providers: <code>openai:model</code>, <code>anthropic:model</code>, <code>google:model</code>, <code>groq:model</code>, and <code>ollama:model</code>. Any other prefix is treated as an OpenAI-compatible endpoint when combined with <code>--base-url</code>.</p>
+<hr />
+<h2 id="exit-codes">Exit codes<a class="headerlink" href="#exit-codes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Success</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Error (missing file, bad column, no LLM, unreachable URL, execution failures)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Invalid usage (unknown flag, missing required argument)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="shell-completion">Shell completion<a class="headerlink" href="#shell-completion" title="Permanent link">&para;</a></h2>
+<p>Typer provides built-in shell completion. To install it:</p>
+<div class="language-bash highlight"><pre><span></span><code>skforecast-ai<span class="w"> </span>--install-completion
+</code></pre></div>
+<p>This adds tab completion for commands, options, and arguments in your current shell (bash, zsh, fish, PowerShell). After installation, restart your shell or source the config file.</p>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="agentic-forecasting-step-by-step.html" class="md-footer__link md-footer__link--prev" aria-label="Previous: Agentic forecasting step by step">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Agentic forecasting step by step
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../api/assistant.html" class="md-footer__link md-footer__link--next" aria-label="Next: Assistant">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Assistant
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2024 - 2030 Joaquín Amat Rodrigo, Javier Escobar Ortiz
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://www.linkedin.com/company/skforecast/" target="_blank" rel="noopener" title="www.linkedin.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M416 32H31.9C14.3 32 0 46.5 0 64.3v383.4C0 465.5 14.3 480 31.9 480H416c17.6 0 32-14.5 32-32.3V64.3c0-17.8-14.4-32.3-32-32.3M135.4 416H69V202.2h66.5V416zM102.2 96a38.5 38.5 0 1 1 0 77 38.5 38.5 0 1 1 0-77m282.1 320h-66.4V312c0-24.8-.5-56.7-34.5-56.7-34.6 0-39.9 27-39.9 54.9V416h-66.4V202.2h63.7v29.2h.9c8.9-16.8 30.6-34.5 62.9-34.5 67.2 0 79.7 44.3 79.7 101.9z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/skforecast/skforecast-ai" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+      <div class="md-consent" data-md-component="consent" id="__consent" hidden>
+        <div class="md-consent__overlay"></div>
+        <aside class="md-consent__inner">
+          <form class="md-consent__form md-grid md-typeset" name="consent">
+            
+
+
+  
+
+
+<h4>Cookie consent</h4>
+<p>We use cookies to recognize your repeated visits and preferences, as well as to measure the effectiveness of our documentation and whether users find what they're searching for. With your consent, you're helping us to make our documentation better.</p>
+<input class="md-toggle" type="checkbox" id="__settings" >
+<div class="md-consent__settings">
+  <ul class="task-list">
+    
+    
+      
+        
+  
+  
+    
+    
+  
+  <li class="task-list-item">
+    <label class="task-list-control">
+      <input type="checkbox" name="analytics" checked>
+      <span class="task-list-indicator"></span>
+      Google Analytics
+    </label>
+  </li>
+
+      
+    
+    
+      
+        
+  
+  
+    
+    
+  
+  <li class="task-list-item">
+    <label class="task-list-control">
+      <input type="checkbox" name="github" checked>
+      <span class="task-list-indicator"></span>
+      GitHub
+    </label>
+  </li>
+
+      
+    
+    
+  </ul>
+</div>
+<div class="md-consent__controls">
+  
+    
+      <button class="md-button md-button--primary">Accept</button>
+    
+    
+    
+  
+    
+    
+    
+      <label class="md-button" for="__settings">Manage settings</label>
+    
+  
+</div>
+          </form>
+        </aside>
+      </div>
+      <script>var consent=__md_get("__consent");if(consent)for(var input of document.forms.consent.elements)input.name&&(input.checked=consent[input.name]||!1);else"file:"!==location.protocol&&setTimeout((function(){document.querySelector("[data-md-component=consent]").hidden=!1}),250);var form=document.forms.consent;for(var action of["submit","reset"])form.addEventListener(action,(function(e){if(e.preventDefault(),"reset"===e.type)for(var n of document.forms.consent.elements)n.name&&(n.checked=!1);__md_set("__consent",Object.fromEntries(Array.from(new FormData(form).keys()).map((function(e){return[e,!0]})))),location.hash="",location.reload()}))</script>
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "toc.integrate", "navigation.breadcrumbs", "content.code.copy", "content.code.annotate", "content.code.select", "content.tooltips", "search.suggest", "search.highlight", "search.share"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/version-switcher.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
