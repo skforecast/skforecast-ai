@@ -209,21 +209,27 @@ If you use `skforecast-ai` in your work, please cite the underlying `skforecast`
 **Zenodo**
 
 ```
-Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast (v0.23.0). Zenodo. https://doi.org/10.5281/zenodo.8382787
+Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast-ai (Version v0.1.0). Zenodo. https://doi.org/10.5281/zenodo.21338159
 ```
 
-**APA**:
+**APA**
+
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast (Version 0.23.0) [Computer software]. https://doi.org/10.5281/zenodo.8382787
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version v0.1.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
-**BibTeX**:
+**BibTeX**
+
 ```
-@software{skforecast,
+@software{skforecast-ai,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
-  title   = {skforecast},
-  url     = {https://skforecast.org/},
-  doi     = {10.5281/zenodo.8382787}
+  title   = {skforecast-ai},
+  version = {0.1.0},
+  month   = {7},
+  year    = {2026},
+  license = {BSD-3-Clause},
+  url     = {https://ai.skforecast.org/},
+  doi     = {10.5281/zenodo.21338159}
 }
 ```
 
