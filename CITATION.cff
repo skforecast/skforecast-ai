@@ -25,6 +25,6 @@ keywords:
   - python
   - time series
 doi: 10.5281/zenodo.8382787
-license: bsd-3-clause
+license: Apache-2.0
 version: 0.1.0
 date-released: '2026-07-13'
