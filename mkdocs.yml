@@ -19,8 +19,6 @@ nav:
     - Agentic forecasting: user-guides/agentic-forecasting.ipynb
     - Agentic forecasting step by step: user-guides/agentic-forecasting-step-by-step.ipynb
     - Using the CLI: user-guides/cli-usage.md
-  - Releases:
-    - Changelog: releases/releases.md
 
   - API Reference:
     - Assistant: api/assistant.md
@@ -29,6 +27,9 @@ nav:
       - Plans: api/schemas/plans.md
       - Profiles: api/schemas/profiles.md
     - CLI: api/cli.md
+
+  - Releases:
+    - Changelog: releases/releases.md
 
   - More: 
     - About skforecast-ai: more/about-skforecast-ai.md

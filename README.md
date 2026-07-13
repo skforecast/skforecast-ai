@@ -5,8 +5,7 @@
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
 [![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai/)
 [![Build status](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml)
-[![Project Status: Active](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
-[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/skforecast/skforecast-ai/graphs/commit-activity)
+[![Project Status: Active](https://www.repostatus.org/badges/stable/active.svg)](https://www.repostatus.org/#active)
 [![Downloads](https://static.pepy.tech/badge/skforecast-ai)](https://pepy.tech/project/skforecast-ai)
 [![Downloads](https://img.shields.io/pypi/dm/skforecast-ai?style=flat-square&color=blue&label=downloads%2Fmonth)](https://pypistats.org/packages/skforecast-ai)
 [![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE)
@@ -170,8 +169,23 @@ print(answer.explanation)
 
 ## 📚 Documentation
 
-Read more in **[Your first forecast](docs/README.md)**.
+Explore the full capabilities of **skforecast-ai** with our comprehensive documentation:
 
+:books: **https://ai.skforecast.org**
+
+| Documentation                           |     |
+|:----------------------------------------|:----|
+| :rocket: [Quick start]                  | Get started quickly with skforecast |
+| :book: [Introduction to agentic forecasting]    | Basics of forecasting concepts and methodologies |
+| :books: [API Reference]                 | Comprehensive reference for skforecast functions and classes |
+| :memo: [Releases]                       | Keep track of major updates and changes |
+| :mag: [More]                            | Discover more about skforecast and its creators |
+
+[Introduction to agentic forecasting]: https://ai.skforecast.org/stable/user-guides/agentic-forecasting.html
+[Quick start]: https://ai.skforecast.org/stable/quick-start/quick-start.html
+[API Reference]: https://ai.skforecast.org/stable/api/assistant.html
+[Releases]: https://ai.skforecast.org/stable/releases/releases.html
+[More]: https:///ai.skforecast.or/stable/more/about-skforecast.html
 
 ## 🤝 Contributing
 

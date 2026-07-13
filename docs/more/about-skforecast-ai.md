@@ -77,7 +77,7 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast [Computer software]. ht
 @software{skforecast,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast},
-  url      = {https://skforecast.org/},
+  url     = {https://skforecast.org/},
   doi     = {10.5281/zenodo.8382787}
 }
 ```
