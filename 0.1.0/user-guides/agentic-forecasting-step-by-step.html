@@ -2349,7 +2349,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p><strong>skforecast-ai</strong> is an <strong>AI forecasting assistant</strong> that pairs a deterministic engine, powered by <a href="https://skforecast.org"><strong>skforecast</strong></a>, with an <strong>LLM reasoning layer</strong>. Simply provide a time series, and the assistant automatically profiles the data, selects a model using established best practices, and evaluates its performance. It returns both the final forecast and the runnable skforecast script that produced it.</p>
-<p>This tutorial walks through the <strong>step-by-step path</strong>: the approach for users who want granular control to inspect or adjust intermediate decisions before committing to a full run. If you prefer a single-call workflow that returns results immediately, see the <a href="./agentic-forecasting-with-skforecast-ai.ipynb">fast-path tutorial</a>.</p>
+<p>This tutorial walks through the <strong>step-by-step path</strong>: the approach for users who want granular control to inspect or adjust intermediate decisions before committing to a full run. If you prefer a single-call workflow that returns results immediately, see the <a href="./agentic-forecasting-with-skforecast-ai.html">fast-path tutorial</a>.</p>
 <p>Both paths share the same deterministic engine and produce identical results and reproducible <code>skforecast</code> code. The step-by-step path gives you three additional capabilities:</p>
 <ul>
 <li><p><strong>Inspect intermediate objects</strong>: examine the <code>ForecastingProfile</code> and <code>ForecastPlan</code> before any model is trained, and confirm the assistant's recommendations make sense for your domain.</p>
@@ -2443,7 +2443,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>The following example walks through the <strong>step-by-step</strong> allowing user to understand and control what happens under the hood. If you prefer the quickest way to go from raw data to a validated forecast with minimal setup, visit the <a href="./agentic-forecasting.html">fast path tutorial</a>.</p>
+<p>The following example walks through the <strong>step-by-step</strong> allowing user to understand and control what happens under the hood. If you prefer the quickest way to go from raw data to a validated forecast with minimal setup, visit the <a href="./agentic-forecasting.html">fast-path tutorial</a>.</p>
 </div>
 </div>
 </div>
@@ -6076,7 +6076,7 @@ folds.
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [26]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-26">
@@ -6095,10 +6095,10 @@ folds.
     <span class="n">data</span>        <span class="o">=</span> <span class="n">data</span><span class="p">,</span>
     <span class="n">target</span>      <span class="o">=</span> <span class="s1">'users'</span><span class="p">,</span>
     <span class="n">date_column</span> <span class="o">=</span> <span class="s1">'date_time'</span><span class="p">,</span>
-    <span class="n">cv</span>          <span class="o">=</span> <span class="n">cv</span><span class="p">,</span>          <span class="c1"># TimeSeriesFold object</span>
-    <span class="n">interval</span>    <span class="o">=</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">],</span>  <span class="c1"># 80% prediction interval</span>
-    <span class="n">profile</span>     <span class="o">=</span> <span class="n">profile</span><span class="p">,</span>     <span class="c1"># Reuse the pre-computed profile</span>
-    <span class="n">plan</span>        <span class="o">=</span> <span class="n">plan_refined</span> <span class="c1"># Reuse the refined plan</span>
+    <span class="n">cv</span>          <span class="o">=</span> <span class="n">cv</span><span class="p">,</span>           <span class="c1"># TimeSeriesFold object</span>
+    <span class="n">interval</span>    <span class="o">=</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">],</span>   <span class="c1"># 80% prediction interval</span>
+    <span class="n">profile</span>     <span class="o">=</span> <span class="n">profile</span><span class="p">,</span>      <span class="c1"># Reuse the pre-computed profile</span>
+    <span class="n">plan</span>        <span class="o">=</span> <span class="n">plan_refined</span>  <span class="c1"># Reuse the refined plan</span>
 <span class="p">)</span>
 
 <span class="n">results_backtest</span><span class="o">.</span><span class="n">show_explanation</span><span class="p">()</span>
@@ -6111,10 +6111,10 @@ results_backtest = assistant.backtest(
     data        = data,
     target      = 'users',
     date_column = 'date_time',
-    cv          = cv,          # TimeSeriesFold object
-    interval    = [0.1, 0.9],  # 80% prediction interval
-    profile     = profile,     # Reuse the pre-computed profile
-    plan        = plan_refined # Reuse the refined plan
+    cv          = cv,           # TimeSeriesFold object
+    interval    = [0.1, 0.9],   # 80% prediction interval
+    profile     = profile,      # Reuse the pre-computed profile
+    plan        = plan_refined  # Reuse the refined plan
 )
 
 results_backtest.show_explanation()
@@ -7379,7 +7379,7 @@ answer.show_explanation()</div>
 </tbody>
 </table>
 <p>The key advantage of this path is that the <code>profile</code> and <code>plan</code> are built <strong>once</strong> and reused across both the forecast and backtest branches. This avoids redundant profiling and ensures that both branches use the same modeling configuration.</p>
-<p>For a faster alternative that runs the entire pipeline in a single call, see the <a href="./agentic-forecasting-with-skforecast-ai.ipynb">fast-path tutorial</a>. For a comprehensive overview of backtesting mechanics, see the <a href="https://skforecast.org/latest/user_guides/backtesting">skforecast backtesting user guide</a>.</p>
+<p>For a faster alternative that runs the entire pipeline in a single call, see the <a href="./agentic-forecasting-with-skforecast-ai.html">fast-path tutorial</a>. For a comprehensive overview of backtesting mechanics, see the <a href="https://skforecast.org/latest/user_guides/backtesting">skforecast backtesting user guide</a>.</p>
 </div>
 </div>
 </div>
