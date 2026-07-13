@@ -199,6 +199,6 @@ View the [citation file](https://github.com/skforecast/skforecast/blob/master/CI
 
 ## 📄 License
 
-Licensed under the Apache License 2.0 (see [LICENSE](LICENSE) for details).
+Licensed under the Apache License 2.0 (see [LICENSE](./LICENSE) for details).
 
 Built with ❤️ on top of [skforecast](https://skforecast.org).

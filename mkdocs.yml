@@ -76,7 +76,7 @@ plugins:
       include_source: True
   - mike:
       alias_type: copy
-      canonical_version: latest
+      canonical_version: stable
       css_dir: css
       deploy_prefix: ''
       javascript_dir: js
