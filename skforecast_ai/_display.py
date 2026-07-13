@@ -18,6 +18,7 @@ from rich.jupyter import JupyterMixin
 from rich.markdown import Markdown
 from rich.markup import escape
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 
@@ -98,22 +99,28 @@ def render_code(code: str, title: str | None = "Generated code") -> RenderableTy
     """
     Render Python source as syntax-highlighted code.
 
+    Deliberately avoids wrapping the code in a bordered `Panel`: any box
+    (even one without vertical bars) reserves a left-padding column, so every
+    copied line would carry a leading space and raise `IndentationError` on
+    paste. A bare `Syntax` keeps pasted code runnable as-is.
+
     Parameters
     ----------
     code : str
         Python source code to highlight.
     title : str, default 'Generated code'
-        Panel title. If `None`, the bare `Syntax` is returned without a panel.
+        Header label printed as a `Rule` above the code. If `None`, no rule
+        is printed and the bare `Syntax` is returned by itself.
 
     Returns
     -------
     renderable : rich.console.RenderableType
-        Syntax renderable, optionally wrapped in a titled panel.
+        Syntax renderable, optionally preceded by a titled rule.
     """
     syntax = Syntax(code, "python", theme=_CODE_THEME, word_wrap=True)
     if title is None:
         return syntax
-    return Panel(syntax, title=title, title_align="center", border_style=_PANEL_BORDER)
+    return Group(Rule(title, style=_PANEL_BORDER), syntax)
 
 
 # JavaScript for the notebook copy button. Defined once on `window` (guarded so

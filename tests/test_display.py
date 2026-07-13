@@ -155,14 +155,20 @@ def test_format_cell_formats_floats_and_preserves_integers(value, expected):
 
 def test_render_code_wraps_in_titled_panel():
     """
-    Test that render_code returns a Panel whose rendered output shows the
-    title and the highlighted source.
+    Test that render_code returns a Group with a titled rule header and the
+    highlighted source, with no border characters or left-padding on the
+    code line (so a terminal copy/paste of the code stays valid Python, with
+    no leading indentation and no stray box characters).
     """
     result = render_code("print('marker')", title="My code")
-    assert isinstance(result, Panel)
+    assert isinstance(result, Group)
     text = _render_to_text(result)
     assert "My code" in text
     assert "marker" in text
+    assert "│" not in text
+    assert "┃" not in text
+    code_line = next(line for line in text.splitlines() if "marker" in line)
+    assert code_line.rstrip() == "print('marker')"
 
 
 def test_render_code_returns_bare_syntax_when_title_none():
