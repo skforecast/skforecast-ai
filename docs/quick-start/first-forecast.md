@@ -2,7 +2,7 @@
 
 Get **skforecast-ai** running end to end: pass in a time series and receive predictions, evaluation metrics, and the standalone Python script that produced them.
 
-By default, the assistant runs in **deterministic mode** — no API key, network access, or configuration required. It inspects your data, picks a sensible model using transparent rules, and runs a real `skforecast` pipeline locally.
+By default, the assistant runs in **deterministic mode**: no API key, network access, or configuration required. It inspects your data, picks a sensible model using transparent rules, and runs a real `skforecast` pipeline locally.
 
 Optionally, you can attach an LLM. When you do, it acts like a senior data scientist reviewing your results: it reads every decision the pipeline made and tells you what it would change and why.
 
@@ -187,10 +187,10 @@ The LLM does not alter the forecast; the numbers are identical whether or not a 
 
 ## Under the hood
 
-The assistant follows a four-step rule-based pipeline — **profile → plan → render code → execute** — and every decision at each step is fully inspectable.
+The assistant follows a four-step rule-based pipeline (**profile → plan → render code → execute**), and every decision at each step is fully inspectable.
 
 ---
 
 ## Next steps
 
-- [**Complete worked example**](../user-guides/agentic-forecasting.ipynb): End-to-end fast-path walkthrough on a real hourly dataset — exogenous variables, prediction intervals, `refine_plan()`, backtesting, and `ask()` for interpretation.
+- [**Complete worked example**](../user-guides/agentic-forecasting.ipynb): End-to-end fast-path walkthrough on a real hourly dataset: exogenous variables, prediction intervals, `refine_plan()`, backtesting, and `ask()` for interpretation.

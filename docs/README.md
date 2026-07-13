@@ -22,11 +22,8 @@
 [![Forecasting Python](https://img.shields.io/static/v1?logo=readme&logoColor=white&label=Blog&labelColor=%23333333&message=Forecasting%20Python&color=%23ffab40)](https://cienciadedatos.net/en/forecasting-python)
 [![Skforecast Studio](https://img.shields.io/badge/Skforecast%20Studio-Launch%20App-f79939?logo=rocket)](https://studio.skforecast.org/)
 
----
 
-**An AI forecasting assistant built on a deterministic engine.** **skforecast-ai** pairs a deterministic forecasting engine built on [skforecast](https://skforecast.org) with an **LLM reasoning layer**. Give it a time series and it profiles the data, selects a model using established best practices, evaluates it, and returns the forecast along with the runnable **skforecast** script that produced it.
-
----
+**skforecast-ai** is an **AI forecasting assistant** that pairs a deterministic engine, powered by [**skforecast**](https://skforecast.org), with an **LLM reasoning layer**. Simply provide a time series, and the assistant automatically profiles the data, selects a model using established best practices, and evaluates its performance. It returns both the final forecast and the runnable skforecast script that produced it.
 
 
 ## ✨ Why skforecast-ai?
@@ -38,7 +35,6 @@
 - 💬 **LLM reasoning layer**: explains the engine's decisions in plain language, helps you improve the configuration, and lets you ask for advice. This layer is entirely optional; the core forecasting pipeline can run fully offline.
 - 🏗️ **Built on skforecast**: recursive & direct forecasters, multi-series, statistical, and foundation models (Chronos-2, TimesFM, Moirai, and more).
 
----
 
 ## 📦 Installation
 
@@ -64,7 +60,6 @@ pip install -e ".[dev]"
 ```
 </details>
 
----
 
 ## 🚀 Quickstart (Python)
 
@@ -98,7 +93,7 @@ The returned `ForecastResult` exposes everything the pipeline produced:
 
 👉 New here? Walk through it step by step in **[Your first forecast](./quick-start/first-forecast.md)**.
 
----
+
 
 ## 💻 Quickstart (CLI)
 
@@ -119,7 +114,6 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 
 👉 Full command reference in **[CLI usage](./user-guides/cli-usage.md)**.
 
----
 
 ## 🧠 How it works
 
@@ -166,14 +160,11 @@ print(answer.explanation)
 
 Read more in **[Agentic Forecasting](./user-guides/agentic-forecasting.ipynb)**.
 
----
-
 
 ## 🤝 Contributing
 
 Contributions are welcome, whether it's a bug report, a feature idea, or a pull request. Please see the [Contributing Guide](https://github.com/skforecast/skforecast-ai/blob/main/CONTRIBUTING.md) and our [Code of Conduct](https://github.com/skforecast/skforecast-ai/blob/main/CODE_OF_CONDUCT.md) to get started.
 
----
 
 ## 📖 Citation
 
@@ -206,7 +197,6 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast (Version 0.23.0) [Compu
 
 View the [citation file](https://github.com/skforecast/skforecast/blob/master/CITATION.cff).
 
----
 
 ## 📄 License
 
