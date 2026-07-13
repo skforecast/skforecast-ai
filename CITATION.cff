@@ -14,7 +14,7 @@ authors:
   - given-names: Joaquin
     family-names: Amat Rodrigo
     email: j.amatrodrigo@gmail.com
-url: 'https://skforecast.org/'
+url: 'https://ai.skforecast.org/'
 abstract: >-
   Skforecast-ai is a Python library that provides AI-assisted time series 
   forecasting workflows built on skforecast.
@@ -24,7 +24,7 @@ keywords:
   - AI
   - python
   - time series
-doi: 10.5281/zenodo.8382787
+doi: 10.5281/zenodo.21338159
 license: Apache-2.0
 version: 0.1.0
 date-released: '2026-07-13'
