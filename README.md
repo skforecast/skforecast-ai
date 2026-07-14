@@ -160,7 +160,7 @@ Explore the full capabilities of **skforecast-ai** with our comprehensive docume
 [Quick start]: https://ai.skforecast.org/stable/quick-start/quick-start.html
 [API Reference]: https://ai.skforecast.org/stable/api/assistant.html
 [Releases]: https://ai.skforecast.org/stable/releases/releases.html
-[More]: https://ai.skforecast.org/stable/more/about-skforecast.html
+[More]: https://ai.skforecast.org/stable/more/about-skforecast-ai.html
 
 ## 🤝 Contributing
 
@@ -174,13 +174,13 @@ If you use `skforecast-ai` in your work, please cite the underlying `skforecast`
 **Zenodo**
 
 ```
-Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast-ai (Version v0.1.0). Zenodo. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast-ai (Version 0.1.0). Zenodo. https://doi.org/10.5281/zenodo.21338159
 ```
 
 **APA**
 
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version v0.1.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.1.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
 **BibTeX**
@@ -192,13 +192,13 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version v0.1.0) [Co
   version = {0.1.0},
   month   = {7},
   year    = {2026},
-  license = {BSD-3-Clause},
+  license = {Apache-2.0},
   url     = {https://ai.skforecast.org/},
   doi     = {10.5281/zenodo.21338159}
 }
 ```
 
-View the [citation file](https://github.com/skforecast/skforecast/blob/master/CITATION.cff).
+View the [citation file](https://github.com/skforecast/skforecast-ai/blob/main/CITATION.cff).
 
 
 ## 📄 License

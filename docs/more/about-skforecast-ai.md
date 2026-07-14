@@ -67,18 +67,24 @@ Thank you for helping us make **skforecast-ai** better! 🎉
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21338160.svg)](https://doi.org/10.5281/zenodo.21338159)
 
-**APA**:
+**APA**
+
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast [Computer software]. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.1.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
-**BibTeX**:
+**BibTeX**
+
 ```
-@software{skforecast,
+@software{skforecast-ai,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
-  title   = {skforecast},
-  url     = {https://skforecast.org/},
-  doi     = {10.5281/zenodo.8382787}
+  title   = {skforecast-ai},
+  version = {0.1.0},
+  month   = {7},
+  year    = {2026},
+  license = {Apache-2.0},
+  url     = {https://ai.skforecast.org/},
+  doi     = {10.5281/zenodo.21338159}
 }
 ```
 
