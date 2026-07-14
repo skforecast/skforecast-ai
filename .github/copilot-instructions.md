@@ -707,5 +707,5 @@ show_datasets_info()
 ## Citation
 
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast (Version 0.23.0) [Computer software]. https://doi.org/10.5281/zenodo.8382787
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.01.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```

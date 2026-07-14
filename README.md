@@ -1,12 +1,12 @@
 <h1 align="left">
-    <img src="docs/img/banner-landing-page-skforecast-ai.png"  style="margin-top: 0px;" alt="skforecast banner">
+    <img src="https://github.com/skforecast/skforecast-ai/blob/main/docs/img/banner-landing-page-skforecast-ai.png?raw=true"  style="margin-top: 0px;" alt="skforecast banner">
 </h1>
 
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
 [![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai/)
 [![Build status](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml)
-[![Project Status: Active](https://www.repostatus.org/badges/stable/active.svg)](https://www.repostatus.org/#active)
-[![Downloads](https://static.pepy.tech/badge/skforecast-ai)](https://pepy.tech/project/skforecast-ai)
+[![Project Status: Active](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/skforecast-ai?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/skforecast-ai)
 [![Downloads](https://img.shields.io/pypi/dm/skforecast-ai?style=flat-square&color=blue&label=downloads%2Fmonth)](https://pypistats.org/packages/skforecast-ai)
 [![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE)
 [![paypal](https://img.shields.io/static/v1?style=social&amp;label=Donate&amp;message=%E2%9D%A4&amp;logo=Paypal&amp;color&amp;link=%3curl%3e)](https://www.paypal.com/donate/?hosted_button_id=D2JZSWRLTZDL6)
@@ -100,7 +100,7 @@ The returned `ForecastResult` exposes everything the pipeline produced:
 | `result.profile` | What profiling detected about your data |
 | `result.plan` | The forecaster, estimator, lags, and metrics that were chosen |
 
-👉 New here? Walk through it step by step in **[Your first forecast](docs/user-guides/first-forecast.md)**.
+👉 New here? Walk through it step by step in **[Your first forecast](https://ai.skforecast.org/stable/quick-start/first-forecast)**.
 
 
 ## 💻 Quickstart (CLI)
@@ -120,7 +120,7 @@ skforecast-ai forecast-code data.csv --target y --date-column datetime --steps 1
 
 Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline documentation on any command.
 
-👉 Full command reference in **[CLI usage](docs/user-guides/cli-usage.md)**.
+👉 Full command reference in **[CLI usage](https://ai.skforecast.org/stable/user-guides/cli-usage.html)**.
 
 
 ## 🧠 How it works
@@ -136,7 +136,7 @@ A useful mental model is that forecasting and validation are separate branches. 
 The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
 
 <p align="center">
-  <img src="docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">
+  <img src="https://raw.githubusercontent.com/skforecast/skforecast-ai/725cc112a7bfb490a096c3b6710ec9138b5c22e9/docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">
 </p>
 
 Read more in **[Introduction to agentic forecasting]**.
@@ -160,7 +160,7 @@ Explore the full capabilities of **skforecast-ai** with our comprehensive docume
 [Quick start]: https://ai.skforecast.org/stable/quick-start/quick-start.html
 [API Reference]: https://ai.skforecast.org/stable/api/assistant.html
 [Releases]: https://ai.skforecast.org/stable/releases/releases.html
-[More]: https://ai.skforecast.org/stable/more/about-skforecast.html
+[More]: https://ai.skforecast.org/stable/more/about-skforecast-ai.html
 
 ## 🤝 Contributing
 
@@ -174,25 +174,31 @@ If you use `skforecast-ai` in your work, please cite the underlying `skforecast`
 **Zenodo**
 
 ```
-Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast (v0.23.0). Zenodo. https://doi.org/10.5281/zenodo.8382787
+Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast-ai (Version 0.1.0). Zenodo. https://doi.org/10.5281/zenodo.21338159
 ```
 
-**APA**:
+**APA**
+
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast (Version 0.23.0) [Computer software]. https://doi.org/10.5281/zenodo.8382787
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.1.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
-**BibTeX**:
+**BibTeX**
+
 ```
-@software{skforecast,
+@software{skforecast-ai,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
-  title   = {skforecast},
-  url     = {https://skforecast.org/},
-  doi     = {10.5281/zenodo.8382787}
+  title   = {skforecast-ai},
+  version = {0.1.0},
+  month   = {7},
+  year    = {2026},
+  license = {Apache-2.0},
+  url     = {https://ai.skforecast.org/},
+  doi     = {10.5281/zenodo.21338159}
 }
 ```
 
-View the [citation file](https://github.com/skforecast/skforecast/blob/master/CITATION.cff).
+View the [citation file](https://github.com/skforecast/skforecast-ai/blob/main/CITATION.cff).
 
 
 ## 📄 License

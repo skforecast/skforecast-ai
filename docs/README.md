@@ -9,7 +9,7 @@
 [![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai/)
 [![Build status](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml)
 [![Project Status: Active](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
-[![Downloads](https://static.pepy.tech/badge/skforecast-ai)](https://pepy.tech/project/skforecast-ai)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/skforecast-ai?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/skforecast-ai)
 [![Downloads](https://img.shields.io/pypi/dm/skforecast-ai?style=flat-square&color=blue&label=downloads%2Fmonth)](https://pypistats.org/packages/skforecast-ai)
 [![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE)
 [![paypal](https://img.shields.io/static/v1?style=social&amp;label=Donate&amp;message=%E2%9D%A4&amp;logo=Paypal&amp;color&amp;link=%3curl%3e)](https://www.paypal.com/donate/?hosted_button_id=D2JZSWRLTZDL6)
@@ -209,25 +209,31 @@ If you use `skforecast-ai` in your work, please cite the underlying `skforecast`
 **Zenodo**
 
 ```
-Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast (v0.23.0). Zenodo. https://doi.org/10.5281/zenodo.8382787
+Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast-ai (Version 0.1.0). Zenodo. https://doi.org/10.5281/zenodo.21338159
 ```
 
-**APA**:
+**APA**
+
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast (Version 0.23.0) [Computer software]. https://doi.org/10.5281/zenodo.8382787
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.1.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
-**BibTeX**:
+**BibTeX**
+
 ```
-@software{skforecast,
+@software{skforecast-ai,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
-  title   = {skforecast},
-  url     = {https://skforecast.org/},
-  doi     = {10.5281/zenodo.8382787}
+  title   = {skforecast-ai},
+  version = {0.1.0},
+  month   = {7},
+  year    = {2026},
+  license = {Apache-2.0},
+  url     = {https://ai.skforecast.org/},
+  doi     = {10.5281/zenodo.21338159}
 }
 ```
 
-View the [citation file](https://github.com/skforecast/skforecast/blob/master/CITATION.cff).
+View the [citation file](https://github.com/skforecast/skforecast-ai/blob/main/CITATION.cff).
 
 
 ## 📄 License
