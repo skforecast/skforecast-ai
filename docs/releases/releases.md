@@ -10,6 +10,19 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-danger">Fix</span>              | Bug fix                               |
 
 
+## 0.2.0 <small>In development</small> { id="0.2.0" }
+
+
+**Added**
+
+
+**Changed**
+
+
+**Fixed**
+
+
+
 ## 0.1.0 <small>Jul 13, 2026</small> { id="0.1.0" }
 
 First public release. `skforecast-ai` wraps the [`skforecast`](https://skforecast.org/) engine in a deterministic, rule-based assistant that profiles the data, selects a model, evaluates it, and returns the forecast together with the exact, runnable script that produced it. An optional LLM layer explains the decisions without ever changing them.

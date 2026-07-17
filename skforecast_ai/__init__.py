@@ -11,7 +11,7 @@ LLM full:  https://skforecast.org/latest/llms-full.txt
 Examples:  https://skforecast.org/latest/examples/examples_english.html
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .assistant import ForecastingAssistant
 from .exceptions import ForecastExecutionError, LLMRequiredError
