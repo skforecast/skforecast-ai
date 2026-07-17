@@ -32,6 +32,15 @@ profile_multi = DataProfile(
     frequency      = "D",
 )
 
+profile_single_categorical = DataProfile(
+    n_series       = 1,
+    series_lengths = {"y": 365},
+    target         = "y",
+    target_dtype   = "categorical",
+    index_type     = "datetime",
+    frequency      = "D",
+)
+
 
 # =============================================================================
 # Tests: select_forecaster_and_candidates
@@ -50,6 +59,18 @@ def test_select_forecaster_and_candidates_output_when_single_series():
         "ForecasterFoundation",
         "ForecasterStats",
     ]
+    assert candidates[0] == preferred
+
+
+def test_select_forecaster_and_candidates_output_when_single_categorical():
+    """
+    Test that a single categorical target routes to the classifier
+    forecaster, never to a regression forecaster.
+    """
+    preferred, candidates = select_forecaster_and_candidates(profile_single_categorical)
+
+    assert preferred == "ForecasterRecursiveClassifier"
+    assert "ForecasterRecursive" not in candidates
     assert candidates[0] == preferred
 
 
@@ -81,6 +102,7 @@ def test_select_forecaster_and_candidates_output_when_multi_series():
         ("ForecasterDirectMultiVariate", "multivariate"),
         ("ForecasterStats", "statistical"),
         ("ForecasterFoundation", "foundation"),
+        ("ForecasterRecursiveClassifier", "classification"),
     ],
 )
 def test_select_task_type_from_forecaster_output(forecaster, expected_task_type):
@@ -145,3 +167,16 @@ def test_select_estimator_and_candidates_output_when_long_series():
 
     assert preferred == "LGBMRegressor"
     assert candidates == ["LGBMRegressor", "XGBRegressor", "Ridge"]
+
+
+def test_select_estimator_and_candidates_output_when_classification():
+    """
+    Test that the classification task type returns a classifier estimator,
+    never a regressor.
+    """
+    preferred, candidates = select_estimator_and_candidates("classification", n_observations=10000)
+
+    assert preferred == "RandomForestClassifier"
+    assert "RandomForestClassifier" in candidates
+    assert "LGBMRegressor" not in candidates
+    assert candidates[0] == preferred

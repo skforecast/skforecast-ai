@@ -11,8 +11,10 @@ from .fixtures_rendering import (
     plan_single_recursive_no_exog,
     plan_single_with_intervals,
     plan_single_with_window_features,
+    plan_single_classification,
     profile_single,
     profile_single_no_exog,
+    profile_single_categorical,
 )
 
 
@@ -32,6 +34,27 @@ def test_render_forecast_single_series_output_when_no_exog_structure():
     assert result.data_loading.strip() != ""
     assert result.core.strip() != ""
     assert result.full_script == result.imports + "\n" + result.data_loading + "\n" + result.core
+
+
+def test_render_forecast_single_series_output_when_classification():
+    """
+    Test that a classification plan renders a runnable classifier script:
+    correct forecaster/estimator imports, lags, categorical_features,
+    and classification metrics (no regression metrics).
+    """
+    result = render_forecast_single_series(plan_single_classification, profile_single_categorical)
+
+    assert isinstance(result, RenderedScript)
+    assert "ForecasterRecursiveClassifier" in result.imports
+    assert "RandomForestClassifier" in result.imports
+    assert "balanced_accuracy_score" in result.imports
+
+    assert "ForecasterRecursiveClassifier(" in result.core
+    assert "lags" in result.core
+    assert "categorical_features = 'auto'" in result.core
+    assert "balanced_accuracy_score(actual, predictions)" in result.core
+    assert "mean_absolute_error" not in result.core
+    assert "mean_absolute_percentage_error" not in result.core
 
 
 # =============================================================================

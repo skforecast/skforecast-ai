@@ -135,6 +135,22 @@ profile_multi_long_exog = DataProfile(
     data_path="data.csv",
 )
 
+profile_single_categorical = DataProfile(
+    data_format="single",
+    n_series=1,
+    series_lengths={"label": 100},
+    target="label",
+    target_dtype="categorical",
+    target_stats={"label": {"min": 0.0, "max": 2.0, "mean": 1.0, "std": 0.8}},
+    date_column="date",
+    index_type="datetime",
+    frequency="D",
+    frequency_is_set=False,
+    exog_columns=[],
+    categorical_exog=[],
+    data_path="data.csv",
+)
+
 
 # =============================================================================
 # ForecastPlan fixtures
@@ -183,6 +199,30 @@ plan_single_direct = ForecastPlan(
     use_exog=False,
     end_train="2023-03-12",
     explanation="Single series direct forecasting.",
+)
+
+plan_single_classification = ForecastPlan(
+    task_type="classification",
+    forecaster="ForecasterRecursiveClassifier",
+    forecaster_kwargs={
+        "lags": 7,
+        "window_features": None,
+        "calendar_features": None,
+        "categorical_features": "auto",
+        "dropna_from_series": False,
+    },
+    estimator="RandomForestClassifier",
+    estimator_kwargs={},
+    steps=7,
+    frequency="D",
+    use_exog=False,
+    end_train="2023-03-12",
+    metrics_to_compute=[
+        "balanced_accuracy_score",
+        "accuracy_score",
+        "f1_score",
+    ],
+    explanation="Single series classification forecasting.",
 )
 
 plan_single_with_intervals = ForecastPlan(

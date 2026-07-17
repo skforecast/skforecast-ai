@@ -251,6 +251,7 @@ class ForecastPlan(DisplayMixin, BaseModel):
         "multivariate",
         "statistical",
         "foundation",
+        "classification",
     ]
     forecaster: str
     forecaster_kwargs: dict[str, Any] = Field(default_factory=dict)

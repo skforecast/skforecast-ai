@@ -41,6 +41,10 @@ _ESTIMATOR_IMPORTS: dict[str, str] = {
     "CatBoostRegressor": "from catboost import CatBoostRegressor",
     "RandomForestRegressor": "from sklearn.ensemble import RandomForestRegressor",
     "HistGradientBoostingRegressor": "from sklearn.ensemble import HistGradientBoostingRegressor",
+    "RandomForestClassifier": "from sklearn.ensemble import RandomForestClassifier",
+    "LGBMClassifier": "from lightgbm import LGBMClassifier",
+    "CatBoostClassifier": "from catboost import CatBoostClassifier",
+    "HistGradientBoostingClassifier": "from sklearn.ensemble import HistGradientBoostingClassifier",
 }
 
 # Default kwargs injected into estimator constructors (silencing + reproducibility)
@@ -51,6 +55,10 @@ _ESTIMATOR_DEFAULTS: dict[str, dict[str, object]] = {
     "RandomForestRegressor": {"random_state": 123},
     "HistGradientBoostingRegressor": {"random_state": 123},
     "Ridge": {},
+    "RandomForestClassifier": {"random_state": 123},
+    "LGBMClassifier": {"random_state": 123, "verbose": -1},
+    "CatBoostClassifier": {"random_state": 123, "verbose": 0},
+    "HistGradientBoostingClassifier": {"random_state": 123},
 }
 
 
@@ -87,6 +95,27 @@ _METRIC_REGISTRY: dict[str, dict[str, str | bool]] = {
         "var": "mape",
         "label": "MAPE",
         "call": "mean_absolute_percentage_error(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
+    "balanced_accuracy_score": {
+        "import": "from sklearn.metrics import balanced_accuracy_score",
+        "var": "balanced_acc",
+        "label": "BalAcc",
+        "call": "balanced_accuracy_score(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
+    "accuracy_score": {
+        "import": "from sklearn.metrics import accuracy_score",
+        "var": "acc",
+        "label": "Acc",
+        "call": "accuracy_score(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
+    "f1_score": {
+        "import": "from sklearn.metrics import f1_score",
+        "var": "f1",
+        "label": "F1",
+        "call": "f1_score(actual, {pred_expr}, average='weighted')",
         "requires_y_train": False,
     },
 }

@@ -339,7 +339,9 @@ def derive_preprocessing_steps(
             ))
 
     # --- Target dtype ---
-    if profile.target_dtype != "numeric":
+    if profile.target_dtype != "numeric" and forecaster != "ForecasterRecursiveClassifier":
+        # A categorical target is valid for the classifier forecaster, which
+        # encodes labels internally, so no blocking encode step is needed.
         steps.append(PreprocessingStep(
             action="encode_target",
             reason=(
