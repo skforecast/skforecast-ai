@@ -259,7 +259,7 @@ class ForecastingProfile(DisplayMixin, BaseModel):
     task_type : str
         Forecasting task category implied by the selected forecaster.
         One of `'single_series'`, `'multi_series'`, `'multivariate'`,
-        `'statistical'`, `'foundation'`.
+        `'statistical'`, `'foundation'`, `'classification'`.
     forecaster : str
         Selected skforecast forecaster class name.
     forecaster_candidates : list
@@ -302,6 +302,7 @@ class ForecastingProfile(DisplayMixin, BaseModel):
         "multivariate",
         "statistical",
         "foundation",
+        "classification",
     ]
     forecaster: str
     forecaster_candidates: list[str] = Field(default_factory=list)

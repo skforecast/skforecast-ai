@@ -28,6 +28,7 @@ _RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript
     "multivariate": render_forecast_multivariate,
     "statistical": render_forecast_statistical,
     "foundation": render_forecast_foundation,
+    "classification": render_forecast_single_series,
 }
 
 

@@ -40,6 +40,7 @@ AUTOREG_FORECASTERS: set[str] = {
     "ForecasterDirect",
     "ForecasterRecursiveMultiSeries",
     "ForecasterDirectMultiVariate",
+    "ForecasterRecursiveClassifier",
 }
 
 DIRECT_FORECASTERS: set[str] = {
@@ -52,6 +53,7 @@ CATEGORICAL_FORECASTERS: set[str] = {
     "ForecasterDirect",
     "ForecasterRecursiveMultiSeries",
     "ForecasterDirectMultiVariate",
+    "ForecasterRecursiveClassifier",
 }
 
 DROPNA_FORECASTERS: set[str] = {
@@ -59,6 +61,7 @@ DROPNA_FORECASTERS: set[str] = {
     "ForecasterDirect",
     "ForecasterRecursiveMultiSeries",
     "ForecasterDirectMultiVariate",
+    "ForecasterRecursiveClassifier",
 }
 
 REQUIRES_DATETIME_FREQ: set[str] = {
@@ -68,6 +71,7 @@ REQUIRES_DATETIME_FREQ: set[str] = {
     "ForecasterDirectMultiVariate",
     "ForecasterStats",
     "ForecasterFoundation",
+    "ForecasterRecursiveClassifier",
 }
 
 TREE_BASED_ESTIMATORS: set[str] = {
@@ -78,6 +82,10 @@ TREE_BASED_ESTIMATORS: set[str] = {
     "GradientBoostingRegressor",
     "HistGradientBoostingRegressor",
     "ExtraTreesRegressor",
+    "RandomForestClassifier",
+    "LGBMClassifier",
+    "CatBoostClassifier",
+    "HistGradientBoostingClassifier",
 }
 
 NAN_TOLERANT_ESTIMATORS: set[str] = {
@@ -85,6 +93,9 @@ NAN_TOLERANT_ESTIMATORS: set[str] = {
     "CatBoostRegressor",
     "XGBRegressor",
     "HistGradientBoostingRegressor",
+    "LGBMClassifier",
+    "CatBoostClassifier",
+    "HistGradientBoostingClassifier",
 }
 
 # Rolling statistics supported by skforecast's `RollingFeatures`. Explicit

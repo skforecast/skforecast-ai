@@ -40,6 +40,16 @@ def select_forecaster_and_candidates(
             "ForecasterDirectMultiVariate"
         ]            
 
+    elif profile.target_dtype == "categorical":
+        # Single categorical target is a classification problem, not a
+        # regression one. Route to the dedicated classifier forecaster so
+        # downstream metric and estimator selection stay coherent.
+        preferred = "ForecasterRecursiveClassifier"
+        candidates = [
+            "ForecasterRecursiveClassifier",
+            "ForecasterRecursiveMultiSeries",
+        ]
+
     else:
         
         preferred = "ForecasterRecursive"
@@ -61,6 +71,7 @@ def select_task_type_from_forecaster(
     "multivariate",
     "statistical",
     "foundation",
+    "classification",
 ]:
     """
     Resolve the task type implied by a selected forecaster.
@@ -81,7 +92,8 @@ def select_task_type_from_forecaster(
         "ForecasterRecursiveMultiSeries": "multi_series",
         "ForecasterDirectMultiVariate": "multivariate",
         "ForecasterStats": "statistical",
-        "ForecasterFoundation": "foundation"
+        "ForecasterFoundation": "foundation",
+        "ForecasterRecursiveClassifier": "classification",
     }
 
     if forecaster not in mapping:
@@ -122,6 +134,14 @@ def select_estimator_and_candidates(
     
     if task_type == "foundation":
         return "Chronos-2", ["Chronos-2"]
+
+    if task_type == "classification":
+        # Tree-based classifiers handle categorical/numeric features and
+        # class imbalance well; RandomForest is a robust default.
+        return "RandomForestClassifier", [
+            "RandomForestClassifier",
+            "LGBMClassifier",
+        ]
 
     if n_observations < 250:
         return "Ridge", ["Ridge", "RandomForestRegressor", "LGBMRegressor"]

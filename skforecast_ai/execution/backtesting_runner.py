@@ -33,6 +33,7 @@ _RENDER_DISPATCH: dict[
     "multivariate": render_backtesting_multivariate,
     "statistical": render_backtesting_statistical,
     "foundation": render_backtesting_foundation,
+    "classification": render_backtesting_single_series,
 }
 
 

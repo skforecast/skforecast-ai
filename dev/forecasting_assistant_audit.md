@@ -177,7 +177,7 @@ Each is created on first use and reused for subsequent calls, avoiding redundant
 | Field | Type | Description |
 |---|---|---|
 | `data_profile` | `DataProfile` | Schema, frequency, missing values, exog columns |
-| `task_type` | `str` | `'single_series'`, `'multi_series'`, `'statistical'`, `'foundation'` |
+| `task_type` | `str` | `'single_series'`, `'multi_series'`, `'multivariate'`, `'statistical'`, `'foundation'`, `'classification'` |
 | `forecaster` | `str` | Recommended forecaster class name |
 | `forecaster_candidates` | `list[str]` | All compatible forecasters |
 | `estimator` | `str` | Recommended estimator class name |
@@ -221,7 +221,7 @@ _coerce_to_dataframe → create_data_profile
 
 | Field | Type | Description |
 |---|---|---|
-| `task_type` | `str` | Resolved task type |
+| `task_type` | `str` | Resolved task type (`'single_series'`, `'multi_series'`, `'multivariate'`, `'statistical'`, `'foundation'`, `'classification'`) |
 | `forecaster` | `str` | Resolved forecaster class name |
 | `forecaster_kwargs` | `dict` | Full constructor kwargs for the forecaster |
 | `estimator` | `str` | Resolved estimator |

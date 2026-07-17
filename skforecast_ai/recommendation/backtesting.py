@@ -155,7 +155,7 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
     task_type = plan.task_type
     steps = plan.steps
 
-    if task_type in ("single_series", "multi_series", "multivariate"):
+    if task_type in ("single_series", "multi_series", "multivariate", "classification"):
         lags = plan.forecaster_kwargs.get("lags")
         if isinstance(lags, int):
             max_lag = lags

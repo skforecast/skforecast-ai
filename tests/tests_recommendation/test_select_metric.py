@@ -73,6 +73,16 @@ profile_no_stats = DataProfile(
     target_stats   = {},
 )
 
+profile_single_categorical = DataProfile(
+    n_series       = 1,
+    series_lengths = {"y": 365},
+    target         = "y",
+    target_dtype   = "categorical",
+    index_type     = "datetime",
+    frequency      = "D",
+    target_stats   = {"y": {"min": 0.0, "max": 2.0, "mean": 1.0, "std": 0.8}},
+)
+
 
 # --- Tests for select_metric ---
 
@@ -156,6 +166,25 @@ class TestSelectMetricNoStats:
         """
         _, _, metrics = select_metric(profile_no_stats)
         assert "mean_absolute_percentage_error" in metrics
+
+
+class TestSelectMetricClassification:
+    """Tests for categorical (classification) target metric selection."""
+
+    def test_categorical_target_returns_classification_metrics(self):
+        """
+        Test that a categorical target returns balanced accuracy as the
+        primary metric and only classification metrics to compute.
+        """
+        metric, explanation, metrics = select_metric(profile_single_categorical)
+        assert metric == "balanced_accuracy_score"
+        assert "Balanced accuracy" in explanation
+        assert "mean_absolute_error" not in metrics
+        assert "mean_absolute_percentage_error" not in metrics
+        assert "mean_absolute_scaled_error" not in metrics
+        assert "balanced_accuracy_score" in metrics
+        assert "accuracy_score" in metrics
+        assert "f1_score" in metrics
 
 
 # --- Tests for _target_has_zeros_or_near_zero ---

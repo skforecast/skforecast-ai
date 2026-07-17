@@ -91,6 +91,33 @@ def test_forecast_code_with_profile_and_plan_contains_frequency():
     assert "freq" in result.code.lower() or "asfreq" in result.code
 
 
+def test_forecast_code_with_profile_and_plan_when_classification():
+    """
+    Test that forecast_code() on a categorical target produces a classifier
+    script (ForecasterRecursiveClassifier, classifier estimator, classification
+    metrics) instead of a regression forecaster with regression metrics.
+    """
+    n = 120
+    dates = pd.date_range("2020-01-01", periods=n, freq="D")
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"label": rng.integers(0, 3, n).astype(str)}, index=dates)
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df, target="label")
+    plan = assistant.plan(profile, steps=7)
+
+    result = assistant.forecast_code(
+        data=df, target="label", steps=7, profile=profile, plan=plan
+    )
+
+    assert isinstance(result, CodeGenerationResult)
+    assert plan.task_type == "classification"
+    assert "ForecasterRecursiveClassifier" in result.code
+    assert "RandomForestClassifier" in result.code
+    assert "categorical_features" in result.code
+    assert "mean_absolute_error" not in result.code
+
+
 # =============================================================================
 # Tests: forecast_code — basic output
 # =============================================================================

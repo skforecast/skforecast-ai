@@ -34,10 +34,31 @@ def select_metric(
         One-sentence justification for the recommendation.
     metrics_to_compute : list of str
         Full list of metrics to evaluate in generated code.
+
+    Notes
+    -----
+    A categorical `target_dtype` is treated as a classification task and
+    returns classification metrics (skill step 4), never regression error
+    metrics which are undefined for class labels.
     """
 
     has_zeros = _target_has_zeros_or_near_zero(data_profile)
     is_multi_series = data_profile.n_series > 1
+
+    if data_profile.target_dtype == "categorical":
+        # Classification target: regression error metrics (MAE, MAPE, MASE)
+        # are undefined for class labels. Use skill step 4 metrics.
+        metric = "balanced_accuracy_score"
+        explanation = (
+            "Balanced accuracy handles the class imbalance common in "
+            "time series classification."
+        )
+        metrics_to_compute = [
+            "balanced_accuracy_score",
+            "accuracy_score",
+            "f1_score",
+        ]
+        return metric, explanation, metrics_to_compute
 
     if is_multi_series:
         metric = "mean_absolute_scaled_error"
