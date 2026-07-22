@@ -85,5 +85,5 @@
   <path d="M32,510 h976 a12,12 0 0 1 12,12 v24 h-1000 v-24 a12,12 0 0 1 12,-12 z" fill="#8250df"/>
   <text x="36" y="533" fill="#ffffff" font-size="14" font-weight="700">LLM reasoning: available at any moment, in any workflow</text>
   <text x="36" y="568" fill="#24292f" font-size="12">Call ask() before, during or after either path. It can take a profile, a plan,</text>
-  <text x="36" y="585" fill="#24292f" font-size="12">a forecast_result, a backtest_result, or nothing at all (pure Q&amp;A).</text>
+  <text x="36" y="585" fill="#24292f" font-size="12">a result (from forecast() or backtest()), or nothing at all (pure Q&amp;A).</text>
 </svg>
