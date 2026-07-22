@@ -8,6 +8,7 @@ from .results import (
     CodeGenerationResult,
     ForecastResult,
     RenderedScript,
+    WorkflowResult,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "RenderedScript",
     "SeriesLengthInfo",
     "SeriesPacf",
+    "WorkflowResult",
 ]

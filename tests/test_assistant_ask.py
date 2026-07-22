@@ -188,7 +188,7 @@ def test_ask_output_when_precomputed_profile(monkeypatch):
 
 
 # =============================================================================
-# Tests: results mode (forecast_result provided)
+# Tests: results mode (result provided)
 # =============================================================================
 def test_ask_output_when_forecast_result_provided(monkeypatch):
     """
@@ -222,7 +222,7 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
 
     result = assistant.ask(
         prompt="Explain the predictions",
-        forecast_result=mock_forecast_result,
+        result=mock_forecast_result,
     )
 
     # Context message carries the results sections and metric values.
@@ -272,7 +272,7 @@ def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
 
     result = assistant.ask(
         prompt="Explain the intervals",
-        forecast_result=mock_forecast_result,
+        result=mock_forecast_result,
     )
 
     # Interval columns are surfaced in the context message.
@@ -347,7 +347,6 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
         code="# mock code",
         metrics=metrics,
         predictions=predictions,
-        intervals=None,
     )
 
     capture = {}
@@ -360,7 +359,7 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
 
     result = assistant.ask(
         prompt="Summarize the predictions",
-        forecast_result=mock_forecast_result,
+        result=mock_forecast_result,
     )
 
     # Large prediction tables are truncated in the context message.
@@ -370,70 +369,39 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
 
 
 # =============================================================================
-# Tests: backtest mode (backtest_result provided)
+# Tests: results mode validation and backtest results
 # =============================================================================
-def test_ask_ValueError_when_both_results_provided():
+def test_ask_TypeError_when_result_wrong_type():
     """
-    Test that ask() raises ValueError when both forecast_result and
-    backtest_result are provided (mutually exclusive).
-    """
-    assistant = ForecastingAssistant(llm="openai:fake-model")
-
-    profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=5)
-
-    predictions = pd.DataFrame({"pred": [10.0, 11.0]})
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.0]})
-
-    forecast_res = ForecastResult(
-        profile=profile, plan=plan, code="# fc",
-        metrics=metrics, predictions=predictions, intervals=None,
-    )
-    backtest_res = BacktestResult(
-        profile=profile, plan=plan, cv_config={"steps": 5},
-        metrics=metrics, predictions=predictions,
-        code="# bt", explanation="test",
-    )
-
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        assistant.ask(
-            prompt="Explain",
-            forecast_result=forecast_res,
-            backtest_result=backtest_res,
-        )
-
-
-def test_ask_TypeError_when_forecast_result_wrong_type():
-    """
-    Test that ask() raises TypeError when forecast_result is not a
-    ForecastResult object.
+    Test that ask() raises TypeError when `result` is not a
+    WorkflowResult object.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
     err_msg = re.escape(
-        "`forecast_result` must be a `ForecastResult` object, got str."
+        "`result` must be a `WorkflowResult` object, got str."
     )
     with pytest.raises(TypeError, match=err_msg):
-        assistant.ask(prompt="Explain", forecast_result="not a result")
+        assistant.ask(prompt="Explain", result="not a result")
 
 
-def test_ask_TypeError_when_backtest_result_wrong_type():
+def test_ask_TypeError_when_result_is_dict():
     """
-    Test that ask() raises TypeError when backtest_result is not a
-    BacktestResult object.
+    Test that ask() raises TypeError when `result` is a plain dict
+    rather than a WorkflowResult object.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
     err_msg = re.escape(
-        "`backtest_result` must be a `BacktestResult` object, got dict."
+        "`result` must be a `WorkflowResult` object, got dict."
     )
     with pytest.raises(TypeError, match=err_msg):
-        assistant.ask(prompt="Explain", backtest_result={"not": "a result"})
+        assistant.ask(prompt="Explain", result={"not": "a result"})
 
 
 def test_ask_output_when_backtest_result_provided(monkeypatch):
     """
-    Test that ask() in Backtest mode passes metrics, predictions, and
+    Test that ask() in Results mode passes metrics, predictions, and
     CV config to the LLM context and extracts profile/plan/code from
     the BacktestResult.
     """
@@ -472,7 +440,7 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
 
     result = assistant.ask(
         prompt="Explain the backtest results",
-        backtest_result=mock_backtest_result,
+        result=mock_backtest_result,
     )
 
     # Context message carries the backtest configuration and results.

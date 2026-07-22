@@ -83,7 +83,43 @@ class CodeGenerationResult(DisplayMixin, BaseModel):
         yield render_plan(self.plan)
 
 
-class ForecastResult(DisplayMixin, BaseModel):
+class WorkflowResult(DisplayMixin, BaseModel):
+    """
+    Base for workflow results that `ask()` can explain.
+
+    Declares the superset of optional fields that `ask()` reads from a
+    result object. Concrete workflow results (for example `ForecastResult`
+    and `BacktestResult`) inherit from this class and tighten the fields
+    they always populate. `ask()` consumes these fields structurally, so
+    adding a new workflow result requires no changes to `ask()`.
+
+    Attributes
+    ----------
+    profile : ForecastingProfile, default None
+        Profile of the input dataset and high-level modeling decisions.
+    plan : ForecastPlan, default None
+        Detailed forecasting plan that was executed.
+    code : str, default None
+        Generated Python script equivalent to the execution.
+    predictions : pandas DataFrame, default None
+        Forecasted values produced by the workflow.
+    metrics : pandas DataFrame, default None
+        Evaluation metrics produced by the workflow.
+    cv_config : dict, default None
+        Resolved cross-validation parameters, when applicable.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    profile: ForecastingProfile | None = None
+    plan: ForecastPlan | None = None
+    code: str | None = None
+    predictions: Any = None  # pd.DataFrame | None
+    metrics: Any = None  # pd.DataFrame | None
+    cv_config: dict | None = None
+
+
+class ForecastResult(WorkflowResult):
     """
     Result of the `forecast` workflow (executes the pipeline end-to-end).
 
@@ -107,8 +143,6 @@ class ForecastResult(DisplayMixin, BaseModel):
         bound columns are included alongside the point predictions.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     profile: ForecastingProfile
     plan: ForecastPlan
     code: str
@@ -125,7 +159,7 @@ class ForecastResult(DisplayMixin, BaseModel):
         yield render_dataframe(self.predictions, title="Predictions")
 
 
-class BacktestResult(DisplayMixin, BaseModel):
+class BacktestResult(WorkflowResult):
     """
     Result of the `backtest` workflow.
 
@@ -147,8 +181,6 @@ class BacktestResult(DisplayMixin, BaseModel):
         Human-readable explanation of the backtesting configuration
         and results summary.
     """
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     profile: ForecastingProfile
     plan: ForecastPlan

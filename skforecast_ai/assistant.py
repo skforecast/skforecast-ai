@@ -50,6 +50,7 @@ from .schemas import (
     ForecastingProfile,
     ForecastPlan,
     ForecastResult,
+    WorkflowResult,
 )
 from ._utils import (
     _count_cv_folds,
@@ -1534,8 +1535,7 @@ class ForecastingAssistant:
         series_id_column: str | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
-        forecast_result: ForecastResult | None = None,
-        backtest_result: BacktestResult | None = None,
+        result: WorkflowResult | None = None,
         steps: int | None = None,
         skills: list[str] | None = None,
         include_reference: bool = False,
@@ -1543,19 +1543,16 @@ class ForecastingAssistant:
         """
         Ask a forecasting question or explain a pre-computed plan.
 
-        Operates in four modes:
+        Operates in three modes:
 
-        - Q&A mode (no data, no profile, no forecast_result, no
-          backtest_result): the LLM answers general forecasting or
-          skforecast questions using its skills.
+        - Q&A mode (no data, no profile, no result): the LLM answers
+          general forecasting or skforecast questions using its skills.
         - Explain mode (data or profile provided): deterministic
           profiling runs first, then the LLM explains the result.
-        - Results mode (forecast_result provided): the LLM explains
-          forecast predictions (including any interval columns) and
-          metrics from a completed `forecast()` run.
-        - Backtest mode (backtest_result provided): the LLM explains
-          backtesting metrics, predictions, and CV configuration from a
-          completed `backtest()` run.
+        - Results mode (`result` provided): the LLM explains a completed
+          workflow result (for example a `ForecastResult` or
+          `BacktestResult`), receiving its predictions, metrics, and any
+          cross-validation configuration in context.
 
         Parameters
         ----------
@@ -1579,17 +1576,13 @@ class ForecastingAssistant:
             Pre-computed profile. If provided, profiling is skipped.
         plan : ForecastPlan, default None
             Pre-computed plan. If provided, plan generation is skipped.
-        forecast_result : ForecastResult, default None
-            Result from a previous `forecast()` call. When provided,
-            the LLM receives predictions (including any interval
-            columns) and metrics in context so it can explain the
-            forecast results. Extracts `profile` and `plan` from the
-            result unless explicitly provided.
-        backtest_result : BacktestResult, default None
-            Result from a previous `backtest()` call. When provided,
-            the LLM receives backtesting metrics, predictions, and
-            CV configuration in context. Mutually exclusive with
-            `forecast_result`.
+        result : WorkflowResult, default None
+            Result from a previous workflow call (for example
+            `forecast()` or `backtest()`). When provided, the LLM
+            receives the result's predictions, metrics, and any
+            cross-validation configuration in context so it can explain
+            the outcome. Extracts `profile` and `plan` from the result
+            unless explicitly provided.
         steps : int, default None
             Forecast horizon used when generating a plan from data.
             Required when `data` or `profile` is provided
@@ -1618,43 +1611,22 @@ class ForecastingAssistant:
         if self.llm is None:
             raise LLMRequiredError("ask")
 
-        if forecast_result is not None and backtest_result is not None:
-            raise ValueError(
-                "`forecast_result` and `backtest_result` are mutually "
-                "exclusive — provide one or the other, not both."
-            )
-
-        if forecast_result is not None and not isinstance(
-            forecast_result, ForecastResult
-        ):
+        if result is not None and not isinstance(result, WorkflowResult):
             raise TypeError(
-                f"`forecast_result` must be a `ForecastResult` object, got "
-                f"{type(forecast_result).__name__}."
+                f"`result` must be a `WorkflowResult` object, got "
+                f"{type(result).__name__}."
             )
 
-        if backtest_result is not None and not isinstance(
-            backtest_result, BacktestResult
-        ):
-            raise TypeError(
-                f"`backtest_result` must be a `BacktestResult` object, got "
-                f"{type(backtest_result).__name__}."
-            )
-
-        # --- Extract from forecast_result if provided ---
+        # --- Extract context from result if provided ---
         predictions = None
         metrics = None
         cv_config = None
-        if forecast_result is not None:
-            profile = profile or forecast_result.profile
-            plan = plan or forecast_result.plan
-            predictions = forecast_result.predictions
-            metrics = forecast_result.metrics
-        elif backtest_result is not None:
-            profile = profile or backtest_result.profile
-            plan = plan or backtest_result.plan
-            predictions = backtest_result.predictions
-            metrics = backtest_result.metrics
-            cv_config = backtest_result.cv_config
+        if result is not None:
+            profile = profile or result.profile
+            plan = plan or result.plan
+            predictions = result.predictions
+            metrics = result.metrics
+            cv_config = result.cv_config
 
         # --- Deterministic stage: compute profile/plan if needed ---
         if data is not None and profile is None:
@@ -1674,10 +1646,8 @@ class ForecastingAssistant:
             plan = self.plan(profile, steps=steps)
 
         # --- Generate deterministic code from plan ---
-        if forecast_result is not None:
-            generated_code = forecast_result.code
-        elif backtest_result is not None:
-            generated_code = backtest_result.code
+        if result is not None:
+            generated_code = result.code
         elif plan is not None and profile is not None:
             generated_code = render_forecast_script(
                 profile=profile.data_profile, plan=plan
@@ -1693,9 +1663,7 @@ class ForecastingAssistant:
         # In results mode, always send prediction data so the LLM can
         # discuss specific values. Otherwise respect the user setting.
         send_data = (
-            True
-            if forecast_result is not None or backtest_result is not None
-            else self.send_data_to_llm
+            True if result is not None else self.send_data_to_llm
         )
         context = build_context_message(
             profile, plan,

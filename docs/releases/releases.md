@@ -18,6 +18,8 @@ All significant changes to this project are documented in this release file.
 
 **Changed**
 
++ <span class="badge text-bg-api-change">API Change</span> [`ForecastingAssistant.ask()`][assistant] now accepts a single `result` parameter (a `WorkflowResult`, such as a `ForecastResult` or `BacktestResult`) in place of the previous `forecast_result` and `backtest_result` parameters. Update calls from `ask(forecast_result=...)` / `ask(backtest_result=...)` to `ask(result=...)`.
+
 
 **Fixed**
 

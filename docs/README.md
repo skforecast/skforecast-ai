@@ -190,7 +190,7 @@ The `ask()` method is available in both workflows. It can explain a profile, pla
   <!-- ask() banner -->
   <div style="box-sizing:border-box; margin-top:16px; border:1px solid #8250df; border-radius:12px; overflow:hidden;">
     <div style="box-sizing:border-box; background:#8250df; color:#ffffff; padding:10px 16px; font-size:15px; font-weight:700;">LLM reasoning: available at any moment, in any workflow</div>
-    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. It can take a <code>profile</code>, a <code>plan</code>, a <code>forecast_result</code>, a <code>backtest_result</code>, or nothing at all (pure Q&amp;A).</div>
+    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. It can take a <code>profile</code>, a <code>plan</code>, a <code>result</code> (from <code>forecast()</code> or <code>backtest()</code>), or nothing at all (pure Q&amp;A).</div>
   </div>
 </div>
 

@@ -27,6 +27,7 @@ from .schemas import (
     PreprocessingStep,
     ForecastResult,
     SeriesPacf,
+    WorkflowResult,
 )
 
 __all__ = [
@@ -44,5 +45,6 @@ __all__ = [
     "PreprocessingStep",
     "ForecastResult",
     "SeriesPacf",
+    "WorkflowResult",
     "__version__",
 ]
