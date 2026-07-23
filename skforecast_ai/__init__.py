@@ -19,6 +19,7 @@ from .llm.skills import ALL_SKILLS
 from .schemas import (
     AskResult,
     BacktestResult,
+    ComparisonResult,
     DataProfile,
     ForecastingProfile,
     ForecastPlan,
@@ -34,6 +35,7 @@ __all__ = [
     "ALL_SKILLS",
     "AskResult",
     "BacktestResult",
+    "ComparisonResult",
     "DataProfile",
     "ForecastExecutionError",
     "ForecastingProfile",

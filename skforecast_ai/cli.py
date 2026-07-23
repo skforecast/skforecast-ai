@@ -1143,7 +1143,24 @@ def _backtest_result_to_json(result) -> str:
     json_str : str
         JSON string representation of the result.
     """
-    data = {
+    return json.dumps(_backtest_result_to_dict(result), indent=2, default=str)
+
+
+def _backtest_result_to_dict(result) -> dict:
+    """
+    Build a JSON-serializable dict from a BacktestResult.
+
+    Parameters
+    ----------
+    result : BacktestResult
+        Backtest result to serialize.
+
+    Returns
+    -------
+    data : dict
+        Dictionary with DataFrame fields converted to records.
+    """
+    return {
         "profile": result.profile.model_dump(mode="json"),
         "plan": result.plan.model_dump(mode="json"),
         "cv_config": result.cv_config,
@@ -1152,7 +1169,6 @@ def _backtest_result_to_json(result) -> str:
         "predictions": result.predictions.reset_index().to_dict(orient="records"),
         "explanation": result.explanation,
     }
-    return json.dumps(data, indent=2, default=str)
 
 
 @app.command()
@@ -1300,6 +1316,210 @@ def backtest(
             print(json_str)
         else:
             _render_backtest_results(result)
+
+
+def _parse_forecasters(value: str | None) -> list[tuple[str, dict]] | None:
+    """
+    Parse the `--forecasters` JSON string into a list of (name, config).
+
+    Accepts a JSON array of two-element `[name, config]` pairs, or a JSON
+    object mapping each name to its config dict.
+
+    Parameters
+    ----------
+    value : str, None
+        Raw `--forecasters` JSON value. None selects the auto-built set.
+
+    Returns
+    -------
+    forecasters : list of tuple of (str, dict), None
+        Parsed configurations, or None when input is None.
+    """
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as e:
+        raise typer.BadParameter(f"Invalid --forecasters JSON: {e}") from e
+
+    if isinstance(parsed, dict):
+        return [(str(name), config) for name, config in parsed.items()]
+    if isinstance(parsed, list):
+        forecasters: list[tuple[str, dict]] = []
+        for entry in parsed:
+            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                raise typer.BadParameter(
+                    "Each --forecasters entry must be a [name, config] pair."
+                )
+            name, config = entry
+            forecasters.append((str(name), config))
+        return forecasters
+    raise typer.BadParameter(
+        "--forecasters must be a JSON array of [name, config] pairs or an "
+        "object mapping names to configs."
+    )
+
+
+def _render_comparison_results(result) -> None:
+    """
+    Print Rich tables summarizing the comparison leaderboard.
+
+    Parameters
+    ----------
+    result : ComparisonResult
+        Comparison result containing the ranked results and CV config.
+
+    Returns
+    -------
+    None
+    """
+    console.print(render_explanation(result.explanation))
+    console.print()
+    console.print(render_dataframe(result.results, title="Comparison Results"))
+    console.print()
+    console.print(render_cv_config(result.cv_config))
+
+
+def _comparison_result_to_json(result) -> str:
+    """
+    Serialize ComparisonResult to JSON with DataFrame fields as records.
+
+    Parameters
+    ----------
+    result : ComparisonResult
+        Comparison result to serialize.
+
+    Returns
+    -------
+    json_str : str
+        JSON string representation of the result.
+    """
+    data = {
+        "profile": result.profile.model_dump(mode="json"),
+        "cv_config": result.cv_config,
+        "ranking_metric": result.ranking_metric,
+        "results": result.results.to_dict(orient="records"),
+        "best_forecaster": (
+            None
+            if result.best_forecaster is None
+            else _backtest_result_to_dict(result.best_forecaster)
+        ),
+        "detailed_results": [
+            _backtest_result_to_dict(bt) for bt in result.detailed_results
+        ],
+        "explanation": result.explanation,
+    }
+    return json.dumps(data, indent=2, default=str)
+
+
+@app.command()
+def compare(
+    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
+    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
+    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
+    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
+    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
+    forecasters: Annotated[str | None, typer.Option("--forecasters", help="Candidate configs as JSON array of [name, config] pairs. When omitted, candidates are built from the profile.")] = None,
+    metric: Annotated[str | None, typer.Option("--metric", help="Metric(s) to compute, comma-separated. The first ranks the table.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
+    initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
+    fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
+    refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
+    fixed_train_size: Annotated[bool, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window.")] = True,
+    gap: Annotated[int, typer.Option("--gap", help="Gap between training and test sets.")] = 0,
+    allow_incomplete_fold: Annotated[bool, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations.")] = True,
+    from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
+    output_code: Annotated[Path | None, typer.Option("--output-code", help="Save the winning configuration's script to file.")] = None,
+    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+) -> None:
+    """Compare several forecasters and report a ranked leaderboard."""
+    with _error_handler():
+        assistant = ForecastingAssistant()
+        parsed_interval = _parse_interval(interval)
+        parsed_forecasters = _parse_forecasters(forecasters)
+        parsed_metric: str | list[str] | None = None
+        if metric is not None:
+            metric_list = [m.strip() for m in metric.split(",") if m.strip()]
+            parsed_metric = metric_list[0] if len(metric_list) == 1 else metric_list
+
+        if from_profile is not None:
+            profile_data = _read_json_input(from_profile)
+            prof = ForecastingProfile.model_validate(profile_data)
+            parsed_target = prof.data_profile.target
+            resolved_date_column = prof.data_profile.date_column
+            resolved_series_id = prof.data_profile.series_id_column
+        else:
+            if target is None:
+                console.print(
+                    "[red]Error:[/red] --target is required unless "
+                    "--from-profile is provided."
+                )
+                raise typer.Exit(code=1)
+            parsed_target = _parse_target(target)
+            resolved_date_column = date_column
+            resolved_series_id = series_id_column
+            prof = None
+
+        if steps is None:
+            console.print("[red]Error:[/red] --steps is required.")
+            raise typer.Exit(code=1)
+
+        with _spinner("Comparing forecasters...", quiet):
+            if prof is None:
+                prof = assistant.profile(
+                    data=data,
+                    target=parsed_target,
+                    date_column=resolved_date_column,
+                    series_id_column=resolved_series_id,
+                )
+
+            # A baseline plan derived from the profile default gives a
+            # shared cross-validation strategy; compare() re-plans each
+            # candidate with the same cv.steps.
+            baseline_plan = assistant.plan(profile=prof, steps=steps)
+
+            cv_kwargs = {}
+            if initial_train_size is not None:
+                cv_kwargs["initial_train_size"] = initial_train_size
+            if fold_stride is not None:
+                cv_kwargs["fold_stride"] = fold_stride
+            if refit:
+                cv_kwargs["refit"] = refit
+            if not fixed_train_size:
+                cv_kwargs["fixed_train_size"] = fixed_train_size
+            if gap != 0:
+                cv_kwargs["gap"] = gap
+            if not allow_incomplete_fold:
+                cv_kwargs["allow_incomplete_fold"] = allow_incomplete_fold
+
+            cv, _ = assistant.create_cv(
+                profile=prof,
+                plan=baseline_plan,
+                **cv_kwargs,
+            )
+
+            result = assistant.compare(
+                data=data,
+                cv=cv,
+                target=parsed_target,
+                date_column=resolved_date_column,
+                series_id_column=resolved_series_id,
+                forecasters=parsed_forecasters,
+                metric=parsed_metric,
+                interval=parsed_interval,
+                profile=prof,
+                show_progress=(not quiet and format != "json"),
+            )
+
+        if output_code is not None and result.best_forecaster is not None:
+            output_code.write_text(result.best_forecaster.code)
+            console.print(f"[green]Code written to:[/green] {output_code}")
+
+        if format == "json":
+            print(_comparison_result_to_json(result))
+        else:
+            _render_comparison_results(result)
 
 
 @app.command()

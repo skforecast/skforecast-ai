@@ -15,6 +15,8 @@ All significant changes to this project are documented in this release file.
 
 **Added**
 
++ <span class="badge text-bg-feature">Feature</span> [`ForecastingAssistant.compare()`][assistant] backtests several forecaster/estimator configurations with the same cross-validation strategy and returns a metric-ranked `ComparisonResult` leaderboard, along with the winning configuration as a reusable `BacktestResult`. A matching `compare` CLI command reports the leaderboard and supports `--forecasters`, `--metric`, `--from-profile`, and `--output-code`.
+
 
 **Changed**
 

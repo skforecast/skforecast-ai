@@ -7,10 +7,11 @@
 from __future__ import annotations
 import warnings
 from pathlib import Path
+from typing import Any
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 from ._constants import MAX_FEATURE_FRACTION
-from .exceptions import LLMRequiredError
+from .exceptions import ForecastExecutionError, LLMRequiredError
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
 from .execution.forecast_runner import render_forecast_script
@@ -47,6 +48,7 @@ from .schemas import (
     AskResult,
     BacktestResult,
     CodeGenerationResult,
+    ComparisonResult,
     ForecastingProfile,
     ForecastPlan,
     ForecastResult,
@@ -1526,6 +1528,219 @@ class ForecastingAssistant:
             explanation = result["explanation"],
         )
 
+    def compare(
+        self,
+        data: pd.Series | pd.DataFrame | str | Path,
+        cv: TimeSeriesFold,
+        target: str | list[str] | None = None,
+        date_column: str | None = None,
+        series_id_column: str | None = None,
+        forecasters: list[tuple[str, dict]] | None = None,
+        metric: str | list[str] | None = None,
+        interval: list[float] | None = None,
+        profile: ForecastingProfile | None = None,
+        show_progress: bool = True,
+    ) -> ComparisonResult:
+        """
+        Compare several forecaster configurations on the same data.
+
+        Backtests each candidate configuration with the **same**
+        cross-validation strategy and returns a metric-ranked leaderboard
+        plus the winning configuration as a reusable `BacktestResult`.
+
+        The dataset is profiled once and the profile is shared across all
+        candidates; only the plan varies per candidate. Each candidate is
+        evaluated through the same `plan()` + `backtest()` path, so every
+        row carries a reproducible `code`. Ranking is a pure ascending sort
+        of the metric column (all default metrics are error metrics where
+        lower is better); the LLM never influences the outcome.
+
+        Parameters
+        ----------
+        data : pandas Series, pandas DataFrame, str, Path
+            Input dataset, a single series, or path to a CSV file. When a
+            pandas Series is passed, the target is derived from its name.
+        cv : TimeSeriesFold
+            Cross-validation strategy applied identically to every
+            candidate. The `steps` value is inferred from `cv.steps`.
+        target : str, list of str, default None
+            Name of the column(s) to forecast. Optional only when `data`
+            is a pandas Series (the Series name is used instead). For
+            wide-format multi-series, pass a list of column names.
+        date_column : str, default None
+            Name of the column containing timestamps. When None, the index
+            of `data` is assumed to be a DatetimeIndex.
+        series_id_column : str, default None
+            Name of the column identifying individual series (long-format
+            multi-series input).
+        forecasters : list of tuple of (str, dict), default None
+            Configurations to compare. Each entry is a `(name, config)`
+            tuple, where `name` labels the row in the results table and
+            `config` holds the forecaster/estimator settings. The `config`
+            dict accepts the same override keys understood by `plan()`:
+            `'forecaster'`, `'estimator'`, `'estimator_kwargs'`, `'lags'`,
+            and `'window_features'`. When None, the set is built
+            automatically from `profile.forecaster_candidates`.
+        metric : str, list of str, default None
+            Metric(s) computed per candidate. When a list is passed, the
+            first metric is used to rank the table. When None, the plan
+            default metric (and its metric panel) is used.
+        interval : list of float, default None
+            Prediction interval quantiles as a two-element list
+            `[lower, upper]` computed for every candidate. When None, no
+            prediction intervals are computed.
+        profile : ForecastingProfile, default None
+            Pre-computed profile to skip profiling and guarantee a shared
+            profile across candidates.
+        show_progress : bool, default True
+            Whether to display a progress bar across candidates.
+
+        Returns
+        -------
+        result : ComparisonResult
+            Shared profile, resolved cv configuration, ranked `results`
+            table, per-candidate `detailed_results`, the top-ranked
+            `best_forecaster`, the `ranking_metric`, and an explanation.
+
+        Notes
+        -----
+        If a candidate fails to run, its row records the error and it is
+        sorted last, so one bad configuration never aborts the whole
+        comparison. Ties keep input order, so the table is deterministic.
+
+        The winning configuration is a full `BacktestResult` carrying both
+        a `profile` and a `plan`, which can be fed directly into
+        `forecast()`, `backtest()`, or `forecast_code()`.
+        """
+
+        data_df, target = _resolve_data_and_target(data, target)
+
+        if profile is None:
+            profile = self.profile(
+                data             = data_df,
+                target           = target,
+                date_column      = date_column,
+                series_id_column = series_id_column,
+            )
+
+        candidates = self._resolve_compare_candidates(forecasters, profile)
+
+        # Resolve the ranking metric and the metric columns once, so the
+        # table is consistent across candidates regardless of which ones
+        # succeed. When `metric` is None the deterministic plan default is
+        # used; otherwise the requested metrics override the plan panel.
+        if metric is None:
+            metric_override = None
+            ranking_metric, _, metric_columns = select_metric(
+                profile.data_profile
+            )
+        else:
+            metric_override = [metric] if isinstance(metric, str) else list(metric)
+            if not metric_override:
+                raise ValueError("`metric` must not be an empty list.")
+            ranking_metric = metric_override[0]
+            metric_columns = metric_override
+
+        steps = cv.steps
+        cv_config = {
+            "steps": cv.steps,
+            "initial_train_size": cv.initial_train_size,
+            "refit": cv.refit,
+            "fixed_train_size": cv.fixed_train_size,
+            "gap": cv.gap,
+            "fold_stride": cv.fold_stride,
+            "differentiation": cv.differentiation,
+        }
+
+        iterator: Any = candidates
+        if show_progress:
+            from tqdm.auto import tqdm
+
+            iterator = tqdm(candidates, desc="Comparing forecasters")
+
+        rows: list[tuple[dict, float]] = []
+        detailed: list[tuple[str, BacktestResult, float]] = []
+        any_error = False
+
+        for name, config in iterator:
+            row: dict[str, Any] = {
+                "name": name,
+                "forecaster": config.get("forecaster") or profile.forecaster,
+                "estimator": config.get("estimator"),
+                "error": None,
+            }
+            for col in metric_columns:
+                row[col] = float("nan")
+            ranking_value = float("nan")
+
+            try:
+                cand_plan = self.plan(
+                    profile          = profile,
+                    steps            = steps,
+                    forecaster       = config.get("forecaster"),
+                    estimator        = config.get("estimator"),
+                    estimator_kwargs = config.get("estimator_kwargs"),
+                    lags             = config.get("lags"),
+                    window_features  = config.get("window_features"),
+                    interval         = interval,
+                )
+                if metric_override is not None:
+                    cand_plan.metrics_to_compute = list(metric_override)
+                    cand_plan.metric = metric_override[0]
+
+                row["forecaster"] = cand_plan.forecaster
+                row["estimator"] = cand_plan.estimator
+
+                bt = self.backtest(
+                    data             = data_df,
+                    cv               = cv,
+                    target           = target,
+                    date_column      = date_column,
+                    series_id_column = series_id_column,
+                    profile          = profile,
+                    plan             = cand_plan,
+                    show_progress    = False,
+                )
+                agg = self._aggregate_metrics(bt.metrics)
+                for col in metric_columns:
+                    row[col] = agg.get(col, float("nan"))
+                ranking_value = agg.get(ranking_metric, float("nan"))
+                detailed.append((name, bt, ranking_value))
+            except Exception as exc:
+                any_error = True
+                row["error"] = self._summarize_error(exc)
+
+            rows.append((row, ranking_value))
+
+        results = self._build_comparison_table(
+            rows           = rows,
+            metric_columns = metric_columns,
+            any_error      = any_error,
+        )
+
+        # Order the detailed results and pick the winner using the same
+        # ascending-with-NaN-last, stable ordering as the results table.
+        detailed_sorted = sorted(detailed, key=self._compare_sort_key)
+        detailed_results = [bt for _, bt, _ in detailed_sorted]
+        best_forecaster = detailed_results[0] if detailed_results else None
+
+        explanation = self._build_comparison_explanation(
+            n_candidates   = len(candidates),
+            detailed       = detailed_sorted,
+            ranking_metric = ranking_metric,
+            any_error      = any_error,
+        )
+
+        return ComparisonResult(
+            profile          = profile,
+            cv_config        = cv_config,
+            results          = results,
+            detailed_results = detailed_results,
+            best_forecaster  = best_forecaster,
+            ranking_metric   = ranking_metric,
+            explanation      = explanation,
+        )
+
     def ask(
         self,
         prompt: str,
@@ -1833,6 +2048,266 @@ class ForecastingAssistant:
                 )
 
         return profile, plan
+
+    @staticmethod
+    def _resolve_compare_candidates(
+        forecasters: list[tuple[str, dict]] | None,
+        profile: ForecastingProfile,
+    ) -> list[tuple[str, dict]]:
+        """
+        Resolve the candidate configurations for `compare()`.
+
+        When `forecasters` is None, the candidates are derived from
+        `profile.forecaster_candidates`, each labelled by its forecaster
+        class name. Otherwise the user-supplied `(name, config)` tuples
+        are validated.
+
+        Parameters
+        ----------
+        forecasters : list of tuple of (str, dict), None
+            User-supplied configurations, or None to auto-build.
+        profile : ForecastingProfile
+            Shared profile used to derive the auto candidates.
+
+        Returns
+        -------
+        candidates : list of tuple of (str, dict)
+            Validated `(name, config)` tuples.
+        """
+
+        allowed_keys = {
+            "forecaster",
+            "estimator",
+            "estimator_kwargs",
+            "lags",
+            "window_features",
+        }
+
+        if forecasters is None:
+            if not profile.forecaster_candidates:
+                raise ValueError(
+                    "Profile has no forecaster candidates to compare. "
+                    "Pass an explicit `forecasters` list."
+                )
+            return [
+                (fc, {"forecaster": fc})
+                for fc in profile.forecaster_candidates
+            ]
+
+        if not forecasters:
+            raise ValueError("`forecasters` must not be an empty list.")
+
+        candidates: list[tuple[str, dict]] = []
+        for entry in forecasters:
+            if not isinstance(entry, (tuple, list)) or len(entry) != 2:
+                raise ValueError(
+                    "Each entry in `forecasters` must be a (name, config) "
+                    f"tuple, got {entry!r}."
+                )
+            name, config = entry
+            if not isinstance(config, dict):
+                raise TypeError(
+                    f"Configuration for '{name}' must be a dict, got "
+                    f"{type(config).__name__}."
+                )
+            invalid_keys = set(config) - allowed_keys
+            if invalid_keys:
+                raise ValueError(
+                    f"Invalid config keys for '{name}': "
+                    f"{sorted(invalid_keys)}. Allowed keys: "
+                    f"{sorted(allowed_keys)}."
+                )
+            candidates.append((str(name), config))
+
+        return candidates
+
+    @staticmethod
+    def _aggregate_metrics(metrics: pd.DataFrame | None) -> dict[str, Any]:
+        """
+        Reduce a backtest metrics DataFrame to one scalar per metric.
+
+        For single-series tasks the single row is used directly. For
+        multi-series tasks the skforecast `'average'` aggregate row is
+        used, falling back to the first row when it is absent.
+
+        Parameters
+        ----------
+        metrics : pandas DataFrame, None
+            Backtest metrics returned by skforecast.
+
+        Returns
+        -------
+        aggregated : dict
+            Mapping of metric name to a scalar value.
+        """
+
+        if metrics is None or len(metrics) == 0:
+            return {}
+        if "levels" in metrics.columns:
+            average = metrics[metrics["levels"] == "average"]
+            row = average.iloc[0] if not average.empty else metrics.iloc[0]
+            return {c: row[c] for c in metrics.columns if c != "levels"}
+        row = metrics.iloc[0]
+        return {c: row[c] for c in metrics.columns}
+
+    @staticmethod
+    def _compare_sort_key(item: tuple[Any, Any, Any]) -> tuple[bool, float]:
+        """
+        Sort key placing NaN ranking values last while keeping order.
+
+        Parameters
+        ----------
+        item : tuple
+            A `(name, value, ...)` tuple whose third element is the
+            ranking value.
+
+        Returns
+        -------
+        key : tuple of (bool, float)
+            `(is_nan, value)` so NaN entries sort last and finite values
+            sort ascending.
+        """
+
+        value = item[2]
+        is_nan = bool(pd.isna(value))
+        return (is_nan, 0.0 if is_nan else float(value))
+
+    @staticmethod
+    def _summarize_error(exc: Exception, max_length: int = 200) -> str:
+        """
+        Build a concise one-line error summary for the results table.
+
+        A `ForecastExecutionError` wraps the generated code and full
+        traceback; it is unwrapped to its `original_error` root cause so
+        the table records the underlying reason (for example
+        `"ImportError: cannot import name 'Ridge'"`) rather than the
+        verbose execution-context message. The full generated code and
+        traceback remain available on the raised exception for debugging.
+
+        Parameters
+        ----------
+        exc : Exception
+            Exception raised while evaluating a candidate.
+        max_length : int, default 200
+            Maximum length of the returned summary. Longer messages are
+            truncated with a trailing ellipsis.
+
+        Returns
+        -------
+        summary : str
+            Single-line `"ErrorType: message"` summary.
+        """
+
+        root = (
+            exc.original_error
+            if isinstance(exc, ForecastExecutionError)
+            else exc
+        )
+        lines = [line.strip() for line in str(root).splitlines() if line.strip()]
+        first_line = lines[0] if lines else ""
+        summary = (
+            f"{type(root).__name__}: {first_line}"
+            if first_line
+            else type(root).__name__
+        )
+        if len(summary) > max_length:
+            summary = summary[: max_length - 3].rstrip() + "..."
+        return summary
+
+    def _build_comparison_table(
+        self,
+        rows: list[tuple[dict, float]],
+        metric_columns: list[str],
+        any_error: bool,
+    ) -> pd.DataFrame:
+        """
+        Assemble and rank the `compare()` results table.
+
+        Parameters
+        ----------
+        rows : list of tuple of (dict, float)
+            Per-candidate `(row, ranking_value)` pairs.
+        metric_columns : list of str
+            Metric column names, in display order.
+        any_error : bool
+            Whether at least one candidate failed (controls the `'error'`
+            column).
+
+        Returns
+        -------
+        results : pandas DataFrame
+            Ranked table sorted best to worst by the ranking value, with a
+            leading `'rank'` column.
+        """
+
+        results = pd.DataFrame([row for row, _ in rows])
+        results["_rank_value"] = [value for _, value in rows]
+        results = results.sort_values(
+            "_rank_value",
+            ascending    = True,
+            na_position  = "last",
+            kind         = "stable",
+        ).reset_index(drop=True)
+        results.insert(0, "rank", range(1, len(results) + 1))
+
+        ordered = ["rank", "name", "forecaster", "estimator", *metric_columns]
+        if any_error:
+            ordered.append("error")
+        return results[ordered]
+
+    @staticmethod
+    def _build_comparison_explanation(
+        n_candidates: int,
+        detailed: list[tuple[str, BacktestResult, float]],
+        ranking_metric: str,
+        any_error: bool,
+    ) -> str:
+        """
+        Build the deterministic `compare()` summary explanation.
+
+        Parameters
+        ----------
+        n_candidates : int
+            Total number of candidates evaluated.
+        detailed : list of tuple of (str, BacktestResult, float)
+            Successful candidates ordered best to worst.
+        ranking_metric : str
+            Metric used to rank the table.
+        any_error : bool
+            Whether at least one candidate failed.
+
+        Returns
+        -------
+        explanation : str
+            Human-readable summary of the comparison.
+        """
+
+        if not detailed:
+            return (
+                f"Compared {n_candidates} forecaster configuration(s) using "
+                f"{ranking_metric}; all candidates failed to run. See the "
+                f"'error' column in the results table for details."
+            )
+
+        best_name, best_result, best_value = detailed[0]
+        label = best_result.plan.forecaster
+        if best_result.plan.estimator:
+            label += f" / {best_result.plan.estimator}"
+
+        parts = [
+            f"Compared {n_candidates} forecaster configuration(s) using "
+            f"{ranking_metric} (lower is better) with a shared "
+            f"cross-validation strategy.",
+            f"Best configuration: '{best_name}' ({label}) with "
+            f"{ranking_metric} = {best_value:.4f}.",
+        ]
+        if any_error:
+            n_failed = n_candidates - len(detailed)
+            parts.append(
+                f"{n_failed} configuration(s) failed to run and are ranked "
+                f"last."
+            )
+        return " ".join(parts)
 
     def _resolve_model(self):
         """

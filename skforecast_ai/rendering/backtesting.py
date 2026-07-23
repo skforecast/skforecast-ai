@@ -52,6 +52,7 @@ def _emit_cv_configuration(
         cv_kwargs.append(("allow_incomplete_fold", "False"))
     if cv.differentiation is not None:
         cv_kwargs.append(("differentiation", str(cv.differentiation)))
+    cv_kwargs.append(("verbose", "False"))
 
     _emit_aligned_kwargs(lines, "cv = TimeSeriesFold(", cv_kwargs)
     lines.append("")

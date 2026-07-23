@@ -227,3 +227,54 @@ class AskResult(DisplayMixin, BaseModel):
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
         yield render_explanation(self.explanation, title="Assistant Response")
+
+
+class ComparisonResult(DisplayMixin, BaseModel):
+    """
+    Result of the `compare` workflow (ranks several forecasters).
+
+    Backtests several forecaster/estimator configurations with the same
+    cross-validation strategy and returns a metric-ranked leaderboard
+    plus the winning configuration as a reusable `BacktestResult`.
+
+    Attributes
+    ----------
+    profile : ForecastingProfile
+        Shared profile used for every candidate.
+    cv_config : dict
+        Resolved `TimeSeriesFold` parameters applied identically to
+        every candidate.
+    results : pandas DataFrame
+        Ranked comparison table, one row per candidate sorted best to
+        worst by `ranking_metric`. Columns are
+        `['rank', 'name', 'forecaster', 'estimator', <metric columns...>]`,
+        plus an `'error'` column when at least one candidate failed.
+    detailed_results : list of BacktestResult
+        Full `BacktestResult` for every candidate that ran successfully,
+        ordered best to worst. Failed candidates are omitted here and
+        appear only as error rows in `results`.
+    best_forecaster : BacktestResult, default None
+        Top-ranked candidate. `None` only when every candidate failed.
+    ranking_metric : str
+        Name of the metric used to sort `results`.
+    explanation : str
+        Human-readable summary of the comparison.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    profile: ForecastingProfile
+    cv_config: dict
+    results: Any  # pd.DataFrame
+    detailed_results: list[BacktestResult]
+    best_forecaster: BacktestResult | None = None
+    ranking_metric: str
+    explanation: str
+
+    def _rich_body(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_explanation(self.explanation)
+        yield render_dataframe(self.results, title="Comparison Results")
+        yield render_cv_config(self.cv_config)
+        yield render_profile(self.profile)

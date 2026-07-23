@@ -33,6 +33,7 @@ See the AI assistant documentation for supported providers, API keys, and local 
 | `backtest-code` | Generate a self-contained Python backtesting script |
 | `forecast` | Run end-to-end forecasting (profile, plan, code, execute) |
 | `backtest` | Run backtesting evaluation (profile, plan, CV, backtest) |
+| `compare` | Compare several forecasters and report a ranked leaderboard |
 | `ask` | Ask forecasting questions using an LLM |
 | `config show` | Display the current configuration |
 | `config set` | Set a configuration value |
@@ -336,6 +337,47 @@ URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/
 
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format json -q | \
   skforecast-ai backtest "$URL" --from-plan -
+```
+
+---
+
+## compare
+
+Compare several forecaster configurations with the same cross-validation strategy and report a metric-ranked leaderboard. Chains profile → plan → create_cv → backtest for each candidate. When `--forecasters` is omitted, the candidates are built automatically from the profile.
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+# Auto-built candidates from the profile
+skforecast-ai compare "$URL" --target y --date-column fecha --steps 12
+
+# Explicit candidate configurations (JSON array of [name, config] pairs)
+skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 \
+  --forecasters '[["rec", {"forecaster": "ForecasterRecursive"}], ["dir", {"forecaster": "ForecasterDirect", "estimator": "Ridge", "lags": [1, 2, 3, 12]}]]'
+
+# Rank by a specific metric (first entry ranks the table)
+skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 \
+  --metric "mean_absolute_scaled_error,mean_absolute_error"
+
+# Custom CV configuration
+skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 \
+  --initial-train-size 100 --refit --expanding-train
+
+# Save the winning configuration's script
+skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 \
+  --output-code best_script.py
+
+# JSON output (full serialized ComparisonResult)
+skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 --format json
+```
+
+### Pipe: profile → compare
+
+```bash
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
+
+skforecast-ai profile "$URL" --target y --date-column fecha --format json -q | \
+  skforecast-ai compare "$URL" --from-profile - --steps 12
 ```
 
 ---
