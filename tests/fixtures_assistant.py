@@ -150,3 +150,107 @@ def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None
         return _FakeAgent()
 
     monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+
+
+def make_comparison_result(assistant, *, with_failure=False):
+    """
+    Build a lightweight `ComparisonResult` without running backtests.
+
+    Assembles two `BacktestResult` objects with hardcoded metrics so the
+    leaderboard, ranking, and failure sections are deterministic and the
+    fixture stays fast.
+
+    Parameters
+    ----------
+    assistant : ForecastingAssistant
+        Assistant used to build the shared profile and the candidate plans.
+    with_failure : bool, default False
+        Whether to include one failed candidate in `failures` and in the
+        leaderboard's `'error'` column.
+
+    Returns
+    -------
+    comparison : ComparisonResult
+        Comparison with `'winner'` ranked first and `'runner_up'` second.
+    """
+    from skforecast_ai.schemas import (
+        BacktestResult,
+        CandidateFailure,
+        ComparisonResult,
+    )
+
+    profile = assistant.profile(
+        data=df_single, target="sales", date_column="date"
+    )
+    cv_config = {
+        "steps": 5,
+        "initial_train_size": 70,
+        "refit": False,
+        "fixed_train_size": True,
+        "gap": 0,
+    }
+
+    def _backtest(forecaster, estimator, mae, code):
+        plan = assistant.plan(profile, steps=5, forecaster=forecaster,
+                              estimator=estimator)
+        return BacktestResult(
+            profile     = profile,
+            plan        = plan,
+            cv_config   = cv_config,
+            metrics     = pd.DataFrame({"MAE": [mae]}),
+            predictions = pd.DataFrame({"pred": [1.0, 2.0, 3.0, 4.0, 5.0]}),
+            code        = code,
+            explanation = f"Backtest of {forecaster}.",
+        )
+
+    winner = _backtest(
+        "ForecasterRecursive", "Ridge", 1.5, "# winner code"
+    )
+    runner_up = _backtest(
+        "ForecasterDirect", "Ridge", 2.5, "# runner up code"
+    )
+
+    rows = [
+        {
+            "rank": 1,
+            "name": "winner",
+            "forecaster": "ForecasterRecursive",
+            "estimator": "Ridge",
+            "MAE": 1.5,
+        },
+        {
+            "rank": 2,
+            "name": "runner_up",
+            "forecaster": "ForecasterDirect",
+            "estimator": "Ridge",
+            "MAE": 2.5,
+        },
+    ]
+    failures = {}
+    if with_failure:
+        failures["broken"] = CandidateFailure(
+            error_type     = "ImportError",
+            message        = "No module named 'lightgbm'",
+            traceback      = "Traceback (most recent call last):\n  SECRET_FRAME",
+            generated_code = "# broken code",
+        )
+        for row in rows:
+            row["error"] = None
+        rows.append({
+            "rank": 3,
+            "name": "broken",
+            "forecaster": "ForecasterRecursive",
+            "estimator": "LGBMRegressor",
+            "MAE": float("nan"),
+            "error": "ImportError: No module named 'lightgbm'",
+        })
+
+    return ComparisonResult(
+        profile        = profile,
+        cv_config      = cv_config,
+        results        = pd.DataFrame(rows),
+        candidates     = {"winner": winner, "runner_up": runner_up},
+        failures       = failures,
+        ranking_metric = "MAE",
+        explanation    = "Compared 2 configurations, ranked ascending by MAE.",
+    )

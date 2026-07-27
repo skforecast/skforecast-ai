@@ -343,7 +343,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 
 ## compare
 
-Compare several forecaster configurations with the same cross-validation strategy and report a metric-ranked leaderboard. Chains profile → plan → create_cv → backtest for each candidate. When `--forecasters` is omitted, the candidates are built automatically from the profile.
+Compare several forecaster configurations with the same cross-validation strategy and report a metric-ranked leaderboard. Chains profile → plan → create_cv → backtest for each candidate. When `--candidates` is omitted, the candidates are built automatically from the profile.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -353,7 +353,7 @@ skforecast-ai compare "$URL" --target y --date-column fecha --steps 12
 
 # Explicit candidate configurations (JSON array of [name, config] pairs)
 skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 \
-  --forecasters '[["rec", {"forecaster": "ForecasterRecursive"}], ["dir", {"forecaster": "ForecasterDirect", "estimator": "Ridge", "lags": [1, 2, 3, 12]}]]'
+  --candidates '[["rec", {"forecaster": "ForecasterRecursive"}], ["dir", {"forecaster": "ForecasterDirect", "estimator": "Ridge", "lags": [1, 2, 3, 12]}]]'
 
 # Rank by a specific metric (first entry ranks the table)
 skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 \

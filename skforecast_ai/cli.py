@@ -36,7 +36,11 @@ from .config import (
     load_config,
     set_config_value,
 )
-from .exceptions import ForecastExecutionError, LLMRequiredError
+from .exceptions import (
+    AllCandidatesFailedError,
+    ForecastExecutionError,
+    LLMRequiredError,
+)
 from .schemas.plans import ForecastPlan
 from .schemas.profiles import ForecastingProfile
 
@@ -504,6 +508,9 @@ def _error_handler():
         console.print(
             "[dim]Tip: use --output-code to save the generated script for debugging.[/dim]"
         )
+        raise typer.Exit(code=1)
+    except AllCandidatesFailedError as e:
+        console.print(f"[red]Comparison Error:[/red] {e}")
         raise typer.Exit(code=1)
     except ValidationError as e:
         n = e.error_count()
@@ -1318,9 +1325,9 @@ def backtest(
             _render_backtest_results(result)
 
 
-def _parse_forecasters(value: str | None) -> list[tuple[str, dict]] | None:
+def _parse_candidates(value: str | None) -> list[tuple[str, dict]] | None:
     """
-    Parse the `--forecasters` JSON string into a list of (name, config).
+    Parse the `--candidates` JSON string into a list of (name, config).
 
     Accepts a JSON array of two-element `[name, config]` pairs, or a JSON
     object mapping each name to its config dict.
@@ -1328,11 +1335,11 @@ def _parse_forecasters(value: str | None) -> list[tuple[str, dict]] | None:
     Parameters
     ----------
     value : str, None
-        Raw `--forecasters` JSON value. None selects the auto-built set.
+        Raw `--candidates` JSON value. None selects the auto-built set.
 
     Returns
     -------
-    forecasters : list of tuple of (str, dict), None
+    candidates : list of tuple of (str, dict), None
         Parsed configurations, or None when input is None.
     """
     if value is None:
@@ -1340,22 +1347,22 @@ def _parse_forecasters(value: str | None) -> list[tuple[str, dict]] | None:
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError as e:
-        raise typer.BadParameter(f"Invalid --forecasters JSON: {e}") from e
+        raise typer.BadParameter(f"Invalid --candidates JSON: {e}") from e
 
     if isinstance(parsed, dict):
         return [(str(name), config) for name, config in parsed.items()]
     if isinstance(parsed, list):
-        forecasters: list[tuple[str, dict]] = []
+        candidates: list[tuple[str, dict]] = []
         for entry in parsed:
             if not isinstance(entry, (list, tuple)) or len(entry) != 2:
                 raise typer.BadParameter(
-                    "Each --forecasters entry must be a [name, config] pair."
+                    "Each --candidates entry must be a [name, config] pair."
                 )
             name, config = entry
-            forecasters.append((str(name), config))
-        return forecasters
+            candidates.append((str(name), config))
+        return candidates
     raise typer.BadParameter(
-        "--forecasters must be a JSON array of [name, config] pairs or an "
+        "--candidates must be a JSON array of [name, config] pairs or an "
         "object mapping names to configs."
     )
 
@@ -1399,14 +1406,15 @@ def _comparison_result_to_json(result) -> str:
         "cv_config": result.cv_config,
         "ranking_metric": result.ranking_metric,
         "results": result.results.to_dict(orient="records"),
-        "best_forecaster": (
-            None
-            if result.best_forecaster is None
-            else _backtest_result_to_dict(result.best_forecaster)
-        ),
-        "detailed_results": [
-            _backtest_result_to_dict(bt) for bt in result.detailed_results
-        ],
+        "best_name": result.best_name,
+        "candidates": {
+            name: _backtest_result_to_dict(bt)
+            for name, bt in result.candidates.items()
+        },
+        "failures": {
+            name: failure.model_dump(mode="json")
+            for name, failure in result.failures.items()
+        },
         "explanation": result.explanation,
     }
     return json.dumps(data, indent=2, default=str)
@@ -1419,7 +1427,7 @@ def compare(
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
     date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
     series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
-    forecasters: Annotated[str | None, typer.Option("--forecasters", help="Candidate configs as JSON array of [name, config] pairs. When omitted, candidates are built from the profile.")] = None,
+    candidates: Annotated[str | None, typer.Option("--candidates", help="Candidate configs as JSON array of [name, config] pairs. When omitted, candidates are built from the profile.")] = None,
     metric: Annotated[str | None, typer.Option("--metric", help="Metric(s) to compute, comma-separated. The first ranks the table.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
     initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
@@ -1437,7 +1445,7 @@ def compare(
     with _error_handler():
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
-        parsed_forecasters = _parse_forecasters(forecasters)
+        parsed_candidates = _parse_candidates(candidates)
         parsed_metric: str | list[str] | None = None
         if metric is not None:
             metric_list = [m.strip() for m in metric.split(",") if m.strip()]
@@ -1505,15 +1513,15 @@ def compare(
                 target=parsed_target,
                 date_column=resolved_date_column,
                 series_id_column=resolved_series_id,
-                forecasters=parsed_forecasters,
+                candidates=parsed_candidates,
                 metric=parsed_metric,
                 interval=parsed_interval,
                 profile=prof,
                 show_progress=(not quiet and format != "json"),
             )
 
-        if output_code is not None and result.best_forecaster is not None:
-            output_code.write_text(result.best_forecaster.code)
+        if output_code is not None:
+            output_code.write_text(result.best_candidate.code)
             console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":

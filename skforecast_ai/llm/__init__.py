@@ -1,6 +1,6 @@
 """LLM provider abstraction for skforecast-ai."""
 
-from .context import build_context_message
+from .context import build_comparison_context, build_context_message
 from .provider import create_model, ensure_ollama_reachable, parse_model_string
 from .skills import (
     ALL_SKILLS,
@@ -12,6 +12,7 @@ from .skills import (
 
 __all__ = [
     "ALL_SKILLS",
+    "build_comparison_context",
     "build_context_message",
     "create_model",
     "ensure_ollama_reachable",

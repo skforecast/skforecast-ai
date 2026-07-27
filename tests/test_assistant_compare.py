@@ -1,15 +1,21 @@
 # Unit test compare ForecastingAssistant
 
 import ast
+import json
+import re
 
 import numpy as np
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import (
+    AllCandidatesFailedError,
     BacktestResult,
+    CandidateFailedWarning,
+    CandidateFailure,
     ComparisonResult,
     ForecastingAssistant,
 )
@@ -20,7 +26,7 @@ assistant = ForecastingAssistant()
 
 
 # Two lightweight, backend-free candidate configurations reused across tests.
-_LIGHT_FORECASTERS = [
+_LIGHT_CANDIDATES = [
     ("recursive_default", {"forecaster": "ForecasterRecursive"}),
     (
         "direct_ridge",
@@ -44,21 +50,21 @@ def _single_cv():
 def test_resolve_compare_candidates_auto_from_profile():
     """
     Test that candidates are built from `profile.forecaster_candidates`
-    when `forecasters` is None, each labelled by its forecaster name.
+    when `candidates` is None, each labelled by its forecaster name.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
 
-    candidates = assistant._resolve_compare_candidates(None, profile)
+    resolved = assistant._resolve_compare_candidates(None, profile)
 
-    names = [name for name, _ in candidates]
+    names = [name for name, _ in resolved]
     assert names == profile.forecaster_candidates
-    for name, config in candidates:
+    for name, config in resolved:
         assert config == {"forecaster": name}
 
 
 def test_resolve_compare_candidates_ValueError_when_empty_list():
     """
-    Test that an empty explicit `forecasters` list raises ValueError.
+    Test that an empty explicit `candidates` list raises ValueError.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
 
@@ -66,8 +72,27 @@ def test_resolve_compare_candidates_ValueError_when_empty_list():
         assistant._resolve_compare_candidates([], profile)
 
 
+def test_resolve_compare_candidates_ValueError_when_duplicate_names():
+    """
+    Test that repeated candidate names raise ValueError, since the names
+    key the `candidates` and `failures` mappings of the result.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    candidates = [
+        ("dup", {"forecaster": "ForecasterRecursive"}),
+        ("dup", {"forecaster": "ForecasterDirect"}),
+        ("unique", {"forecaster": "ForecasterDirect"}),
+    ]
+
+    err_msg = re.escape(
+        "Candidate names must be unique, found duplicates: ['dup']."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant._resolve_compare_candidates(candidates, profile)
+
+
 @pytest.mark.parametrize(
-    "forecasters, err_type, err_match",
+    "candidates, err_type, err_match",
     [
         (
             [("bad", {"unknown_key": 1})],
@@ -88,15 +113,15 @@ def test_resolve_compare_candidates_ValueError_when_empty_list():
     ids=lambda v: f"{v}",
 )
 def test_resolve_compare_candidates_raises_on_invalid_entry(
-    forecasters, err_type, err_match
+    candidates, err_type, err_match
 ):
     """
-    Test that malformed `forecasters` entries raise the expected error.
+    Test that malformed `candidates` entries raise the expected error.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
 
     with pytest.raises(err_type, match=err_match):
-        assistant._resolve_compare_candidates(forecasters, profile)
+        assistant._resolve_compare_candidates(candidates, profile)
 
 
 # =============================================================================
@@ -142,12 +167,13 @@ def test_aggregate_metrics_empty_frame_returns_empty_dict():
 
 
 # =============================================================================
-# Tests: error summary (private helper)
+# Tests: candidate failure snapshot
 # =============================================================================
-def test_summarize_error_unwraps_execution_error_to_root_cause():
+def test_candidate_failure_unwraps_execution_error_to_root_cause():
     """
-    Test that `_summarize_error` unwraps a ForecastExecutionError to a
-    concise single-line summary of its root cause.
+    Test that `CandidateFailure.from_exception` unwraps a
+    ForecastExecutionError to its root cause and keeps the generated code
+    and the pre-formatted execution traceback.
     """
     from skforecast_ai.exceptions import ForecastExecutionError
 
@@ -158,36 +184,62 @@ def test_summarize_error_unwraps_execution_error_to_root_cause():
         execution_traceback="Traceback ...\n  line 1\n  line 2",
     )
 
-    summary = assistant._summarize_error(exc)
+    failure = CandidateFailure.from_exception(exc)
 
-    assert summary == "ImportError: cannot import name 'Ridge'"
-    assert "\n" not in summary
-    assert "Error executing generated forecasting code" not in summary
+    assert failure.error_type == "ImportError"
+    assert failure.message == "cannot import name 'Ridge'"
+    assert failure.traceback == "Traceback ...\n  line 1\n  line 2"
+    assert failure.generated_code == "import Ridge"
+    assert failure.summary() == "ImportError: cannot import name 'Ridge'"
 
 
-def test_summarize_error_plain_exception_first_line_only():
+def test_candidate_failure_from_plain_exception_formats_traceback():
     """
-    Test that `_summarize_error` keeps only the first line of a plain
-    exception message.
+    Test that `CandidateFailure.from_exception` formats the traceback of a
+    plain exception and leaves `generated_code` as None.
     """
-    exc = ValueError("bad value\nextra detail line")
+    try:
+        raise ValueError("bad value\nextra detail line")
+    except ValueError as exc:
+        failure = CandidateFailure.from_exception(exc)
 
-    summary = assistant._summarize_error(exc)
+    assert failure.error_type == "ValueError"
+    assert failure.generated_code is None
+    assert "ValueError: bad value" in failure.traceback
+    assert "Traceback (most recent call last)" in failure.traceback
+    # The summary keeps only the first line of a multi-line message.
+    assert failure.summary() == "ValueError: bad value"
 
-    assert summary == "ValueError: bad value"
 
-
-def test_summarize_error_truncates_long_messages():
+def test_candidate_failure_summary_truncates_long_messages():
     """
-    Test that `_summarize_error` truncates overly long messages with a
-    trailing ellipsis.
+    Test that `CandidateFailure.summary` truncates overly long messages
+    with a trailing ellipsis.
     """
-    exc = ValueError("x" * 500)
+    failure = CandidateFailure(
+        error_type="ValueError", message="x" * 500, traceback="tb"
+    )
 
-    summary = assistant._summarize_error(exc, max_length=50)
+    summary = failure.summary(max_length=50)
 
     assert len(summary) == 50
     assert summary.endswith("...")
+
+
+def test_candidate_failure_does_not_retain_exception_frames():
+    """
+    Test that a `CandidateFailure` holds only plain data, so it cannot
+    keep the execution namespace of a failed candidate alive.
+    """
+    try:
+        raise ValueError("boom")
+    except ValueError as exc:
+        failure = CandidateFailure.from_exception(exc)
+
+    assert all(
+        isinstance(value, (str, type(None)))
+        for value in failure.model_dump().values()
+    )
 
 
 # =============================================================================
@@ -203,7 +255,7 @@ def test_compare_ValueError_when_metric_is_empty_list():
             cv=_single_cv(),
             target="sales",
             date_column="date",
-            forecasters=_LIGHT_FORECASTERS,
+            candidates=_LIGHT_CANDIDATES,
             metric=[],
             show_progress=False,
         )
@@ -222,7 +274,7 @@ def test_compare_output_when_single_series():
         cv=_single_cv(),
         target="sales",
         date_column="date",
-        forecasters=_LIGHT_FORECASTERS,
+        candidates=_LIGHT_CANDIDATES,
         show_progress=False,
     )
 
@@ -253,23 +305,83 @@ def test_compare_output_when_single_series():
     ranking_values = result.results["mean_absolute_error"].to_numpy()
     assert np.all(np.diff(ranking_values) >= 0)
 
-    # Detailed results align with successful candidates and are ordered
-    assert len(result.detailed_results) == 2
-    assert all(isinstance(bt, BacktestResult) for bt in result.detailed_results)
+    # Candidates map every successful name to its BacktestResult, best first
+    assert list(result.candidates) == list(result.results["name"])
+    assert all(
+        isinstance(bt, BacktestResult) for bt in result.candidates.values()
+    )
 
     # Winner is the top-ranked candidate and is reusable
-    best = result.best_forecaster
+    best = result.best_candidate
     assert isinstance(best, BacktestResult)
-    assert best is result.detailed_results[0]
+    assert result.best_name == result.results["name"].iloc[0]
+    assert best is result.candidates[result.best_name]
     assert best.profile is not None
     assert best.plan is not None
     ast.parse(best.code)
 
 
-def test_compare_output_when_forecasters_none_auto_candidates():
+def test_compare_explanation_content_when_single_series():
+    """
+    Test that the compare() explanation reports the candidate count, the
+    ranking rule, the shared CV strategy, and the margin over the
+    runner-up.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        show_progress=False,
+    )
+
+    explanation = result.explanation
+    best_name = result.results["name"].iloc[0]
+    runner_name = result.results["name"].iloc[1]
+    best_value = result.results["mean_absolute_error"].iloc[0]
+    runner_value = result.results["mean_absolute_error"].iloc[1]
+    expected_margin = 100 * (runner_value - best_value) / abs(runner_value)
+
+    assert "Compared 2 configurations, ranked ascending by " in explanation
+    assert "mean_absolute_error." in explanation
+    assert "pooled across series" not in explanation
+    assert "Shared cross-validation strategy: " in explanation
+    assert "5-step horizon" in explanation
+    assert f"Best: '{best_name}' (" in explanation
+    assert f"= {best_value:.4f}" in explanation
+    assert (
+        f"{expected_margin:.1f}% ahead of '{runner_name}' ({runner_value:.4f})."
+        in explanation
+    )
+    assert "failed to run" not in explanation
+
+
+def test_compare_explanation_reports_pooled_metric_when_multi_series():
+    """
+    Test that the compare() explanation flags the ranking metric as
+    pooled across series for multi-series tasks.
+    """
+    result = assistant.compare(
+        data=df_multi_wide,
+        cv=TimeSeriesFold(steps=5, initial_train_size=70, verbose=False),
+        target=["series_a", "series_b"],
+        date_column="date",
+        candidates=[
+            ("multi_default", {"forecaster": "ForecasterRecursiveMultiSeries"})
+        ],
+        show_progress=False,
+    )
+
+    assert "Compared 1 configuration, ranked ascending by " in result.explanation
+    assert "pooled across series." in result.explanation
+    assert "ahead of" not in result.explanation
+
+
+def test_compare_output_when_candidates_none_auto_candidates():
     """
     Test that compare() auto-builds candidates from the profile when
-    `forecasters` is None, running each derived forecaster.
+    `candidates` is None, running each derived forecaster.
     """
     profile = assistant.profile(
         data=df_no_exog, target="sales", date_column="date"
@@ -283,7 +395,7 @@ def test_compare_output_when_forecasters_none_auto_candidates():
         cv=_single_cv(),
         target="sales",
         date_column="date",
-        forecasters=None,
+        candidates=None,
         profile=profile,
         show_progress=False,
     )
@@ -292,7 +404,7 @@ def test_compare_output_when_forecasters_none_auto_candidates():
         "ForecasterRecursive",
         "ForecasterDirect",
     }
-    assert len(result.detailed_results) == 2
+    assert list(result.candidates) == list(result.results["name"])
 
 
 # =============================================================================
@@ -308,7 +420,7 @@ def test_compare_output_when_metric_str_override():
         cv=_single_cv(),
         target="sales",
         date_column="date",
-        forecasters=_LIGHT_FORECASTERS,
+        candidates=_LIGHT_CANDIDATES,
         metric="mean_absolute_scaled_error",
         show_progress=False,
     )
@@ -333,7 +445,7 @@ def test_compare_output_when_metric_list_ranks_by_first():
         cv=_single_cv(),
         target="sales",
         date_column="date",
-        forecasters=_LIGHT_FORECASTERS,
+        candidates=_LIGHT_CANDIDATES,
         metric=["mean_squared_error", "mean_absolute_error"],
         show_progress=False,
     )
@@ -363,12 +475,12 @@ def test_compare_propagates_interval_to_candidates():
         cv=_single_cv(),
         target="sales",
         date_column="date",
-        forecasters=_LIGHT_FORECASTERS,
+        candidates=_LIGHT_CANDIDATES,
         interval=[0.1, 0.9],
         show_progress=False,
     )
 
-    for bt in result.detailed_results:
+    for bt in result.candidates.values():
         assert bt.plan.interval == [0.1, 0.9]
         assert bt.plan.interval_method == "bootstrapping"
 
@@ -383,7 +495,7 @@ def test_compare_output_when_multi_series_wide():
         cv=_single_cv(),
         target=["series_a", "series_b"],
         date_column="date",
-        forecasters=[
+        candidates=[
             ("multiseries", {"forecaster": "ForecasterRecursiveMultiSeries"})
         ],
         show_progress=False,
@@ -391,7 +503,7 @@ def test_compare_output_when_multi_series_wide():
 
     assert isinstance(result, ComparisonResult)
     assert list(result.results["rank"]) == [1]
-    assert result.best_forecaster is not None
+    assert result.best_candidate is not None
     # The ranking value comes from the single-scalar aggregate, so it is
     # finite even though the raw metrics frame has multiple level rows.
     ranking_value = result.results[result.ranking_metric].iloc[0]
@@ -406,19 +518,20 @@ def test_compare_records_error_and_sorts_failed_candidate_last():
     Test that a failing candidate records its error, is ranked last, and
     does not abort the comparison of the remaining candidates.
     """
-    forecasters = [
+    candidates = [
         ("good", {"forecaster": "ForecasterRecursive"}),
         ("bad", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"}),
     ]
 
-    result = assistant.compare(
-        data=df_single,
-        cv=_single_cv(),
-        target="sales",
-        date_column="date",
-        forecasters=forecasters,
-        show_progress=False,
-    )
+    with pytest.warns(CandidateFailedWarning, match="Candidate 'bad' failed"):
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=candidates,
+            show_progress=False,
+        )
 
     # The "error" column is present because one candidate failed
     assert "error" in result.results.columns
@@ -439,37 +552,183 @@ def test_compare_records_error_and_sorts_failed_candidate_last():
     # The failed row still reflects the requested estimator.
     assert bad_row["estimator"] == "NotAReal"
 
-    # Only the successful candidate has a detailed result
-    assert len(result.detailed_results) == 1
-    assert result.best_forecaster.plan.forecaster == "ForecasterRecursive"
-    assert "1 configuration(s) failed" in result.explanation
+    # Only the successful candidate is present in `candidates`
+    assert list(result.candidates) == ["good"]
+    assert result.best_name == "good"
+    assert result.best_candidate.plan.forecaster == "ForecasterRecursive"
+    assert "1 configuration failed to run and is ranked last." in result.explanation
 
 
-def test_compare_best_forecaster_none_when_all_candidates_fail():
+def test_compare_keeps_failure_snapshot_in_failures():
     """
-    Test that best_forecaster is None and the explanation flags the total
-    failure when every candidate fails to run.
+    Test that a failed candidate is recorded in `failures` as a
+    CandidateFailure carrying the root cause, the full traceback and the
+    generated code that failed.
+    """
+    candidates = [
+        ("good", {"forecaster": "ForecasterRecursive"}),
+        ("bad", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"}),
+    ]
+
+    with pytest.warns(CandidateFailedWarning):
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=candidates,
+            show_progress=False,
+        )
+
+    assert list(result.failures) == ["bad"]
+    failure = result.failures["bad"]
+    assert isinstance(failure, CandidateFailure)
+    assert "NotAReal" in failure.message
+    assert "Traceback (most recent call last)" in failure.traceback
+    assert failure.generated_code is not None
+    # The recorded summary matches the 'error' column of the results table.
+    bad_row = result.results[result.results["name"] == "bad"].iloc[0]
+    assert bad_row["error"] == failure.summary()
+
+
+def test_compare_failures_is_serializable():
+    """
+    Test that `failures` holds plain data, so a ComparisonResult stays
+    JSON-serializable and does not pin the execution namespace of a
+    failed candidate.
+    """
+    candidates = [
+        ("good", {"forecaster": "ForecasterRecursive"}),
+        ("bad", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"}),
+    ]
+
+    with pytest.warns(CandidateFailedWarning):
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=candidates,
+            show_progress=False,
+        )
+
+    dumped = {
+        name: failure.model_dump(mode="json")
+        for name, failure in result.failures.items()
+    }
+
+    assert json.loads(json.dumps(dumped))["bad"]["error_type"]
+
+
+def test_compare_failures_empty_when_all_candidates_succeed():
+    """
+    Test that `failures` is an empty dict and no `'error'` column is added
+    when every candidate runs successfully.
     """
     result = assistant.compare(
         data=df_single,
         cv=_single_cv(),
         target="sales",
         date_column="date",
-        forecasters=[
-            ("bad", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"})
-        ],
+        candidates=_LIGHT_CANDIDATES,
         show_progress=False,
     )
 
-    assert result.best_forecaster is None
-    assert result.detailed_results == []
-    assert "all candidates failed" in result.explanation
+    assert result.failures == {}
+    assert "error" not in result.results.columns
+
+
+def test_compare_candidates_and_failures_partition_names():
+    """
+    Test that `candidates` and `failures` partition the candidate names:
+    every requested name appears in exactly one of the two mappings.
+    """
+    candidates = [
+        ("good", {"forecaster": "ForecasterRecursive"}),
+        ("bad", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"}),
+    ]
+
+    with pytest.warns(CandidateFailedWarning):
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=candidates,
+            show_progress=False,
+        )
+
+    assert set(result.candidates) == {"good"}
+    assert set(result.failures) == {"bad"}
+    assert set(result.candidates) & set(result.failures) == set()
+    assert set(result.candidates) | set(result.failures) == {"good", "bad"}
+    assert set(result.results["name"]) == {"good", "bad"}
+
+
+def test_ComparisonResult_ValidationError_when_candidates_empty():
+    """
+    Test that a ComparisonResult cannot be built with an empty
+    `candidates` mapping, so `best_name` and `best_candidate` are always
+    resolvable.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        show_progress=False,
+    )
+
+    fields = {
+        "profile": result.profile,
+        "cv_config": result.cv_config,
+        "results": result.results,
+        "candidates": {},
+        "failures": result.failures,
+        "ranking_metric": result.ranking_metric,
+        "explanation": result.explanation,
+    }
+
+    with pytest.raises(ValidationError, match="candidates"):
+        ComparisonResult(**fields)
+
+
+def test_compare_AllCandidatesFailedError_when_all_candidates_fail():
+    """
+    Test that compare() raises AllCandidatesFailedError, carrying every
+    candidate failure, when no candidate runs successfully.
+    """
+    candidates = [
+        ("bad_1", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"}),
+        ("bad_2", {"forecaster": "ForecasterDirect", "estimator": "AlsoNotReal"}),
+    ]
+
+    with pytest.warns(CandidateFailedWarning):
+        with pytest.raises(
+            AllCandidatesFailedError,
+            match="All 2 candidate configuration\\(s\\) failed to run",
+        ) as excinfo:
+            assistant.compare(
+                data=df_single,
+                cv=_single_cv(),
+                target="sales",
+                date_column="date",
+                candidates=candidates,
+                show_progress=False,
+            )
+
+    failures = excinfo.value.failures
+    assert list(failures) == ["bad_1", "bad_2"]
+    assert all(isinstance(f, CandidateFailure) for f in failures.values())
+    assert "bad_1" in str(excinfo.value)
+    assert "NotAReal" in str(excinfo.value)
 
 
 # =============================================================================
 # Tests: reuse of the winning configuration
 # =============================================================================
-def test_compare_best_forecaster_reusable_in_backtest():
+def test_compare_best_candidate_reusable_in_backtest():
     """
     Test that the winning configuration's profile and plan can be fed back
     into backtest() to reproduce a result.
@@ -479,11 +738,11 @@ def test_compare_best_forecaster_reusable_in_backtest():
         cv=_single_cv(),
         target="sales",
         date_column="date",
-        forecasters=_LIGHT_FORECASTERS,
+        candidates=_LIGHT_CANDIDATES,
         show_progress=False,
     )
 
-    best = result.best_forecaster
+    best = result.best_candidate
     reused = assistant.backtest(
         data=df_single,
         cv=_single_cv(),

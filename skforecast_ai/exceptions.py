@@ -5,6 +5,12 @@
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
 
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .schemas.results import CandidateFailure
+
 
 class LLMRequiredError(Exception):
     """
@@ -66,3 +72,50 @@ class ForecastExecutionError(Exception):
             f"  {error_type}: {error_msg}"
         )
         super().__init__(message)
+
+
+class AllCandidatesFailedError(Exception):
+    """
+    Raised by `compare()` when every candidate configuration fails.
+
+    A comparison with zero successful candidates has no leaderboard and
+    no winner, so it is reported as a failure instead of returning a
+    winner-less result.
+
+    Parameters
+    ----------
+    failures : dict
+        Mapping of candidate name to the `CandidateFailure` describing
+        why it failed, in the order the candidates were evaluated.
+
+    Attributes
+    ----------
+    failures : dict
+        Mapping of candidate name to its `CandidateFailure`.
+    """
+
+    def __init__(self, failures: dict[str, CandidateFailure]) -> None:
+        self.failures = failures
+
+        details = "\n".join(
+            f"  - {name}: {failure.summary()}"
+            for name, failure in failures.items()
+        )
+        message = (
+            f"All {len(failures)} candidate configuration(s) failed to run, "
+            f"so there is no ranking to report.\n\n"
+            f"{details}\n\n"
+            f"Inspect a failure with `exc.failures['<name>'].traceback` or "
+            f"`exc.failures['<name>'].generated_code`."
+        )
+        super().__init__(message)
+
+
+class CandidateFailedWarning(UserWarning):
+    """
+    Warned by `compare()` when an individual candidate fails.
+
+    The comparison continues with the remaining candidates; the failure
+    is recorded in the `'error'` column of the results table and a
+    `CandidateFailure` is kept in `ComparisonResult.failures`.
+    """

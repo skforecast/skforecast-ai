@@ -8,7 +8,7 @@
 from __future__ import annotations
 from typing import Any, Literal
 from .._utils import _display_n_observations
-from ..schemas import ForecastingProfile, ForecastPlan
+from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
 
 _MAX_ROWS_FULL = 30
 
@@ -206,5 +206,85 @@ def build_context_message(
                 parts.append(_serialize_dataframe(predictions))
             else:
                 parts.append(_summarize_dataframe(predictions))
+
+    return "\n".join(parts)
+
+
+def build_comparison_context(result: ComparisonResult) -> str:
+    """
+    Serialize a forecaster comparison into a context block for the LLM.
+
+    Emits the shared dataset profile, the ranked leaderboard, the shared
+    cross-validation strategy, one line per failed candidate, and the
+    winning candidate's plan.
+
+    The payload is deliberately compact. Each of the shared sections is
+    stated once rather than repeated per candidate, and the non-winning
+    candidates' plans, code, metrics, and predictions are omitted: the
+    leaderboard already carries the per-candidate numbers a ranking
+    question needs. The context therefore stays roughly constant as the
+    number of candidates grows. Full tracebacks are omitted too, since
+    they are verbose and can expose local filesystem paths.
+
+    There is no `send_data` toggle here, unlike `build_context_message`.
+    That flag gates row-level predictions, and a comparison renders none:
+    the leaderboard holds aggregated metrics only.
+
+    Parameters
+    ----------
+    result : ComparisonResult
+        Completed comparison to describe.
+
+    Returns
+    -------
+    context : str
+        Plain-text context block.
+    """
+
+    parts: list[str] = []
+
+    # The profile is shared by construction, so it is stated once here
+    # instead of being repeated inside every candidate's own block.
+    parts.append(build_context_message(profile=result.profile))
+
+    n_candidates = len(result.candidates) + len(result.failures)
+    parts.append("")
+    parts.append("## Forecaster Comparison")
+    parts.append(f"- Candidates evaluated: {n_candidates}")
+    parts.append(f"- Ranking metric: {result.ranking_metric}")
+    parts.append(f"- Winner: {result.best_name}")
+    parts.append(
+        f"The ranking is a deterministic ascending sort of the "
+        f"{result.ranking_metric} column (lower is better). Do not re-rank "
+        f"the candidates or recompute the table."
+    )
+
+    parts.append("")
+    parts.append("### Leaderboard")
+    parts.append(_serialize_dataframe(result.results))
+
+    if result.failures:
+        parts.append("")
+        parts.append("### Failed Candidates")
+        for name, failure in result.failures.items():
+            parts.append(f"- {name}: {failure.summary()}")
+
+    parts.append("")
+    parts.append("### Shared Cross-Validation Strategy")
+    parts.append("Applied identically to every candidate.")
+    for key, value in result.cv_config.items():
+        parts.append(f"- {key}: {value}")
+
+    parts.append("")
+    parts.append("### Deterministic Summary")
+    parts.append(result.explanation)
+
+    parts.append("")
+    parts.append(f"## Winning Candidate: {result.best_name}")
+    parts.append(
+        "Only the winning configuration is detailed below. The other "
+        "candidates are represented by their leaderboard rows."
+    )
+    parts.append(build_context_message(plan=result.best_candidate.plan))
 
     return "\n".join(parts)

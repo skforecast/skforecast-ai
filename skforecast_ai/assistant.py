@@ -8,10 +8,15 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 from typing import Any
+import numpy as np
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 from ._constants import MAX_FEATURE_FRACTION
-from .exceptions import ForecastExecutionError, LLMRequiredError
+from .exceptions import (
+    AllCandidatesFailedError,
+    CandidateFailedWarning,
+    LLMRequiredError,
+)
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
 from .execution.forecast_runner import render_forecast_script
@@ -47,12 +52,13 @@ from .recommendation import (
 from .schemas import (
     AskResult,
     BacktestResult,
+    CandidateFailure,
     CodeGenerationResult,
     ComparisonResult,
+    ExplainableResult,
     ForecastingProfile,
     ForecastPlan,
     ForecastResult,
-    WorkflowResult,
 )
 from ._utils import (
     _count_cv_folds,
@@ -65,6 +71,7 @@ from ._utils import (
     _validate_task_input,
     _validate_window_features,
     _warn_if_plan_overrides_ignored,
+    _warn_if_result_inputs_ignored,
 )
 
 
@@ -94,8 +101,12 @@ class ForecastingAssistant:
         `OPENAI_API_KEY`, `GOOGLE_API_KEY`). Use this for notebook
         workflows or multi-tenant scenarios.
     send_data_to_llm : bool, default False
-        Whether raw data may be sent to the LLM. When False, only
-        metadata (schema, summary stats) is shared with the LLM.
+        Whether raw values from the dataset supplied to a method (for
+        example via `data`) may be sent to the LLM. When False, only
+        metadata (schema, summary stats) is shared with the LLM. This
+        governs input data only: a result passed to `ask()` carries its
+        own predictions, which are always included so the LLM can
+        discuss specific forecast values.
 
     Attributes
     ----------
@@ -788,7 +799,13 @@ class ForecastingAssistant:
         Returns
         -------
         result : CodeGenerationResult
-            Forecasting profile, plan, and generated code.
+            Generated forecasting script and the decisions behind it.
+            Contains the following attributes:
+
+            - profile: profile of the input dataset and high-level
+            modeling decisions.
+            - plan: detailed forecasting plan.
+            - code: generated Python script.
         """
 
         _warn_if_plan_overrides_ignored(
@@ -981,12 +998,18 @@ class ForecastingAssistant:
         Returns
         -------
         result : ForecastResult
-            Forecasting profile, plan, generated code, predictions, and
-            evaluation metrics. Metrics are only computed in evaluation
-            mode (`test_size` is set); in prediction mode
-            `result.metrics` is None. When prediction intervals are
-            requested, the interval columns are included in
-            `result.predictions`.
+            Executed forecast and the decisions behind it. Contains the
+            following attributes:
+
+            - profile: profile of the input dataset and high-level
+            modeling decisions.
+            - plan: detailed forecasting plan that was executed.
+            - code: generated Python script equivalent to the execution.
+            - predictions: forecasted values for the requested steps,
+            including the interval columns when `interval` is set.
+            - metrics: evaluation metrics, one row per series. None in
+            prediction mode (`test_size=None`), where there is no ground
+            truth to evaluate against.
 
         Notes
         -----
@@ -1333,7 +1356,13 @@ class ForecastingAssistant:
         Returns
         -------
         result : CodeGenerationResult
-            Forecasting profile, plan, and generated backtesting code.
+            Generated backtesting script and the decisions behind it.
+            Contains the following attributes:
+
+            - profile: profile of the input dataset and high-level
+            modeling decisions.
+            - plan: detailed forecasting plan.
+            - code: generated Python backtesting script.
 
         Notes
         -----
@@ -1447,8 +1476,18 @@ class ForecastingAssistant:
         Returns
         -------
         result : BacktestResult
-            Backtesting profile, plan, metrics, predictions, code, and
-            explanation.
+            Backtesting outcome and the decisions behind it. Contains the
+            following attributes:
+
+            - profile: profile of the input dataset and high-level
+            modeling decisions.
+            - plan: detailed forecasting plan that was executed.
+            - cv_config: resolved `TimeSeriesFold` parameters.
+            - metrics: backtesting metric values returned by skforecast.
+            - predictions: full backtest predictions across all folds.
+            - code: generated Python script reproducing the workflow.
+            - explanation: human-readable summary of the configuration
+            and results.
 
         Notes
         -----
@@ -1535,7 +1574,7 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        forecasters: list[tuple[str, dict]] | None = None,
+        candidates: list[tuple[str, dict]] | None = None,
         metric: str | list[str] | None = None,
         interval: list[float] | None = None,
         profile: ForecastingProfile | None = None,
@@ -1573,14 +1612,15 @@ class ForecastingAssistant:
         series_id_column : str, default None
             Name of the column identifying individual series (long-format
             multi-series input).
-        forecasters : list of tuple of (str, dict), default None
+        candidates : list of tuple of (str, dict), default None
             Configurations to compare. Each entry is a `(name, config)`
             tuple, where `name` labels the row in the results table and
             `config` holds the forecaster/estimator settings. The `config`
             dict accepts the same override keys understood by `plan()`:
             `'forecaster'`, `'estimator'`, `'estimator_kwargs'`, `'lags'`,
-            and `'window_features'`. When None, the set is built
-            automatically from `profile.forecaster_candidates`.
+            and `'window_features'`. Names must be unique. When None, the
+            set is built automatically from
+            `profile.forecaster_candidates`.
         metric : str, list of str, default None
             Metric(s) computed per candidate. When a list is passed, the
             first metric is used to rank the table. When None, the plan
@@ -1598,19 +1638,51 @@ class ForecastingAssistant:
         Returns
         -------
         result : ComparisonResult
-            Shared profile, resolved cv configuration, ranked `results`
-            table, per-candidate `detailed_results`, the top-ranked
-            `best_forecaster`, the `ranking_metric`, and an explanation.
+            Ranked comparison of the candidate configurations. Contains
+            the following attributes:
+
+            - profile: shared profile used for every candidate.
+            - cv_config: resolved `TimeSeriesFold` parameters applied
+            identically to every candidate.
+            - results: ranked comparison table, one row per candidate
+            sorted best to worst by `ranking_metric`.
+            - candidates: mapping of candidate name to the full
+            `BacktestResult` of every candidate that ran successfully,
+            ordered best to worst.
+            - failures: mapping of candidate name to a `CandidateFailure`
+            describing why it failed. Empty when all candidates succeed.
+            - ranking_metric: name of the metric used to sort `results`.
+            - explanation: human-readable summary of the comparison.
+            - best_name: name of the top-ranked candidate.
+            - best_candidate: top-ranked candidate as a `BacktestResult`.
+
+        Raises
+        ------
+        AllCandidatesFailedError
+            If every candidate fails to run. The individual failures are
+            available on the `failures` attribute of the raised error.
+        ValueError
+            If `metric` is an empty list, or if `candidates` is empty,
+            contains a malformed entry, or repeats a name.
+
+        Warns
+        -----
+        CandidateFailedWarning
+            Once per failed candidate.
 
         Notes
         -----
-        If a candidate fails to run, its row records the error and it is
-        sorted last, so one bad configuration never aborts the whole
-        comparison. Ties keep input order, so the table is deterministic.
+        If a candidate fails to run, a `CandidateFailedWarning` is issued,
+        its row records the error and is sorted last, and a
+        `CandidateFailure` carrying the full traceback and the generated
+        code is kept in `failures`. One bad configuration therefore never
+        aborts the whole comparison. Ties keep input order, so the table
+        is deterministic.
 
-        The winning configuration is a full `BacktestResult` carrying both
-        a `profile` and a `plan`, which can be fed directly into
-        `forecast()`, `backtest()`, or `forecast_code()`.
+        The winning configuration, `best_candidate`, is a full
+        `BacktestResult` carrying both a `profile` and a `plan`, which can
+        be fed directly into `forecast()`, `backtest()`, or
+        `forecast_code()`.
         """
 
         data_df, target = _resolve_data_and_target(data, target)
@@ -1623,7 +1695,7 @@ class ForecastingAssistant:
                 series_id_column = series_id_column,
             )
 
-        candidates = self._resolve_compare_candidates(forecasters, profile)
+        candidate_configs = self._resolve_compare_candidates(candidates, profile)
 
         # Resolve the ranking metric and the metric columns once, so the
         # table is consistent across candidates regardless of which ones
@@ -1652,15 +1724,30 @@ class ForecastingAssistant:
             "differentiation": cv.differentiation,
         }
 
-        iterator: Any = candidates
+        # Human-readable description of the shared CV strategy. The folds
+        # are counted before any candidate runs, on the untouched `cv`.
+        span_index_length = profile.data_profile.span_index_length
+        n_folds = _count_cv_folds(
+                      cv             = cv,
+                      n_observations = span_index_length,
+                      start_date     = profile.data_profile.start_date,
+                      frequency      = profile.data_profile.frequency,
+                  )
+        cv_explanation = build_cv_explanation(
+                             cv_params      = cv_config,
+                             n_observations = span_index_length,
+                             n_folds        = n_folds,
+                         )
+
+        iterator: Any = candidate_configs
         if show_progress:
             from tqdm.auto import tqdm
 
-            iterator = tqdm(candidates, desc="Comparing forecasters")
+            iterator = tqdm(candidate_configs, desc="Comparing forecasters")
 
         rows: list[tuple[dict, float]] = []
-        detailed: list[tuple[str, BacktestResult, float]] = []
-        any_error = False
+        ranked: list[tuple[str, BacktestResult, float]] = []
+        failures: dict[str, CandidateFailure] = {}
 
         for name, config in iterator:
             row: dict[str, Any] = {
@@ -1705,40 +1792,52 @@ class ForecastingAssistant:
                 for col in metric_columns:
                     row[col] = agg.get(col, float("nan"))
                 ranking_value = agg.get(ranking_metric, float("nan"))
-                detailed.append((name, bt, ranking_value))
+                ranked.append((name, bt, ranking_value))
             except Exception as exc:
-                any_error = True
-                row["error"] = self._summarize_error(exc)
+                failure = CandidateFailure.from_exception(exc)
+                failures[name] = failure
+                row["error"] = failure.summary()
+                warnings.warn(
+                    f"Candidate '{name}' failed and is ranked last: "
+                    f"{failure.summary()}. The full traceback is available in "
+                    f"`ComparisonResult.failures['{name}'].traceback`.",
+                    CandidateFailedWarning,
+                    stacklevel=2,
+                )
 
             rows.append((row, ranking_value))
 
         results = self._build_comparison_table(
             rows           = rows,
             metric_columns = metric_columns,
-            any_error      = any_error,
+            any_error      = bool(failures),
         )
 
-        # Order the detailed results and pick the winner using the same
-        # ascending-with-NaN-last, stable ordering as the results table.
-        detailed_sorted = sorted(detailed, key=self._compare_sort_key)
-        detailed_results = [bt for _, bt, _ in detailed_sorted]
-        best_forecaster = detailed_results[0] if detailed_results else None
+        # Order the successful candidates using the same
+        # ascending-with-NaN-last, stable ordering as the results table, so
+        # the mapping iterates best to worst and its first entry is the
+        # winner reported by `best_name` / `best_candidate`.
+        ranked_sorted = sorted(ranked, key=self._compare_sort_key)
+        if not ranked_sorted:
+            raise AllCandidatesFailedError(failures)
+        candidate_results = {name: bt for name, bt, _ in ranked_sorted}
 
         explanation = self._build_comparison_explanation(
-            n_candidates   = len(candidates),
-            detailed       = detailed_sorted,
+            n_candidates   = len(candidate_configs),
+            ranked         = ranked_sorted,
             ranking_metric = ranking_metric,
-            any_error      = any_error,
+            any_error      = bool(failures),
+            cv_explanation = cv_explanation,
         )
 
         return ComparisonResult(
-            profile          = profile,
-            cv_config        = cv_config,
-            results          = results,
-            detailed_results = detailed_results,
-            best_forecaster  = best_forecaster,
-            ranking_metric   = ranking_metric,
-            explanation      = explanation,
+            profile        = profile,
+            cv_config      = cv_config,
+            results        = results,
+            candidates     = candidate_results,
+            failures       = failures,
+            ranking_metric = ranking_metric,
+            explanation    = explanation,
         )
 
     def ask(
@@ -1750,7 +1849,7 @@ class ForecastingAssistant:
         series_id_column: str | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
-        result: WorkflowResult | None = None,
+        result: ExplainableResult | None = None,
         steps: int | None = None,
         skills: list[str] | None = None,
         include_reference: bool = False,
@@ -1758,16 +1857,22 @@ class ForecastingAssistant:
         """
         Ask a forecasting question or explain a pre-computed plan.
 
-        Operates in three modes:
+        Operates in three mutually exclusive modes:
 
         - Q&A mode (no data, no profile, no result): the LLM answers
           general forecasting or skforecast questions using its skills.
         - Explain mode (data or profile provided): deterministic
           profiling runs first, then the LLM explains the result.
         - Results mode (`result` provided): the LLM explains a completed
-          workflow result (for example a `ForecastResult` or
-          `BacktestResult`), receiving its predictions, metrics, and any
-          cross-validation configuration in context.
+          workflow result (for example a `ForecastResult`,
+          `BacktestResult`, or `ComparisonResult`). Each result renders
+          its own context block, so the LLM receives what is relevant to
+          that kind of result.
+
+        Results mode takes precedence: when `result` is provided it is the
+        single source of truth, so `data`, `target`, `date_column`,
+        `series_id_column`, `profile`, `plan`, and `steps` are ignored
+        with an `IgnoredArgumentWarning`.
 
         Parameters
         ----------
@@ -1791,17 +1896,26 @@ class ForecastingAssistant:
             Pre-computed profile. If provided, profiling is skipped.
         plan : ForecastPlan, default None
             Pre-computed plan. If provided, plan generation is skipped.
-        result : WorkflowResult, default None
+        result : ExplainableResult, default None
             Result from a previous workflow call (for example
-            `forecast()` or `backtest()`). When provided, the LLM
-            receives the result's predictions, metrics, and any
-            cross-validation configuration in context so it can explain
-            the outcome. Extracts `profile` and `plan` from the result
-            unless explicitly provided.
+            `forecast()`, `backtest()`, or `compare()`). When provided,
+            the result renders its own context block for the LLM:
+            a single run contributes its predictions, metrics, and any
+            cross-validation configuration, while a `ComparisonResult`
+            contributes its leaderboard, shared cross-validation
+            strategy, and the winning candidate's plan. The returned
+            `profile`, `plan`, and `code` are the result's own; for a
+            `ComparisonResult` these are the shared profile and the
+            winning candidate's plan and code. A result's own predicted
+            values are always sent to the LLM, regardless of
+            `send_data_to_llm`, since a question about a result cannot be
+            answered from summary statistics alone. The dataset the
+            result was produced from is never sent.
         steps : int, default None
             Forecast horizon used when generating a plan from data.
             Required when `data` or `profile` is provided
-            without a pre-computed `plan`.
+            without a pre-computed `plan`. Ignored when `result` is
+            provided.
         skills : list of str, default None
             List of skill names to include in the agent system prompt.
             If None, skills are selected automatically based on the
@@ -1814,8 +1928,30 @@ class ForecastingAssistant:
         Returns
         -------
         result : AskResult
-            Response with optional forecaster profile, plan, generated code,
-            and LLM-generated explanation.
+            LLM response and any deterministic artifacts computed first.
+            Contains the following attributes:
+
+            - profile: profile of the input dataset, when data was
+            provided.
+            - plan: detailed forecasting plan, when one was produced.
+            - code: generated Python script, when one was produced.
+            - explanation: LLM-generated explanation or response.
+
+        Raises
+        ------
+        LLMRequiredError
+            If no LLM was configured at init time.
+        TypeError
+            If `result` is not an `ExplainableResult`.
+        ValueError
+            If `data` or `profile` is provided without a pre-computed
+            `plan` and `steps` is None.
+
+        Warns
+        -----
+        IgnoredArgumentWarning
+            If `result` is provided together with any deterministic input
+            it supersedes.
 
         Notes
         -----
@@ -1826,67 +1962,70 @@ class ForecastingAssistant:
         if self.llm is None:
             raise LLMRequiredError("ask")
 
-        if result is not None and not isinstance(result, WorkflowResult):
+        if result is not None and not isinstance(result, ExplainableResult):
             raise TypeError(
-                f"`result` must be a `WorkflowResult` object, got "
-                f"{type(result).__name__}."
+                f"`result` must be an `ExplainableResult` (for example "
+                f"`ForecastResult`, `BacktestResult`, or `ComparisonResult`), "
+                f"got {type(result).__name__}."
             )
 
-        # --- Extract context from result if provided ---
-        predictions = None
-        metrics = None
-        cv_config = None
+        # --- Deterministic stage ---
+        # Results mode and explain mode are exclusive branches, so the
+        # profile, plan, code, and context always describe one single
+        # state. A result is the sole source of truth: it already carries
+        # the profile and plan it was produced with, and it renders its
+        # own context block, so `ask()` never needs to know the shape of a
+        # particular result.
         if result is not None:
-            profile = profile or result.profile
-            plan = plan or result.plan
-            predictions = result.predictions
-            metrics = result.metrics
-            cv_config = result.cv_config
-
-        # --- Deterministic stage: compute profile/plan if needed ---
-        if data is not None and profile is None:
-            profile = self.profile(
+            _warn_if_result_inputs_ignored(
                 data             = data,
                 target           = target,
                 date_column      = date_column,
                 series_id_column = series_id_column,
+                profile          = profile,
+                plan             = plan,
+                steps            = steps,
             )
-        if profile is not None and plan is None:
-            if steps is None:
-                raise ValueError(
-                    "`steps` is required when `data` or "
-                    "`profile` is provided without a "
-                    "pre-computed `plan`."
-                )
-            plan = self.plan(profile, steps=steps)
-
-        # --- Generate deterministic code from plan ---
-        if result is not None:
-            generated_code = result.code
-        elif plan is not None and profile is not None:
-            generated_code = render_forecast_script(
-                profile=profile.data_profile, plan=plan
-            ).full_script
+            # In results mode, raw data is always sent so the LLM can
+            # discuss specific values.
+            result_context = result.to_llm_context(send_data=True)
+            profile        = result_context.profile
+            plan           = result_context.plan
+            generated_code = result_context.code
+            context        = result_context.text
         else:
-            generated_code = None
+            if data is not None and profile is None:
+                profile = self.profile(
+                    data             = data,
+                    target           = target,
+                    date_column      = date_column,
+                    series_id_column = series_id_column,
+                )
+            if profile is not None and plan is None:
+                if steps is None:
+                    raise ValueError(
+                        "`steps` is required when `data` or "
+                        "`profile` is provided without a "
+                        "pre-computed `plan`."
+                    )
+                plan = self.plan(profile, steps=steps)
+
+            if plan is not None and profile is not None:
+                generated_code = render_forecast_script(
+                    profile=profile.data_profile, plan=plan
+                ).full_script
+            else:
+                generated_code = None
+
+            context = build_context_message(
+                profile, plan, send_data=self.send_data_to_llm
+            )
 
         # --- Pre-flight check for Ollama ---
-        if self.llm is not None and self.llm.startswith("ollama:"):
+        if self.llm.startswith("ollama:"):
             ensure_ollama_reachable(self.base_url)
 
         # --- Build user message with context ---
-        # In results mode, always send prediction data so the LLM can
-        # discuss specific values. Otherwise respect the user setting.
-        send_data = (
-            True if result is not None else self.send_data_to_llm
-        )
-        context = build_context_message(
-            profile, plan,
-            predictions=predictions,
-            metrics=metrics,
-            cv_config=cv_config,
-            send_data=send_data,
-        )
         user_message = (
             f"{context}\n\n## Question\n\n{prompt}" if context else prompt
         )
@@ -1924,17 +2063,13 @@ class ForecastingAssistant:
         )
 
         try:
-            result = _run_agent_sync(
+            agent_result = _run_agent_sync(
                 agent,
                 user_message,
                 deps=deps,
                 model_settings=model_settings,
             )
-            explanation = result.output
-
-            # Strip code blocks in Explain/Results mode (validated code exists)
-            if generated_code is not None:
-                explanation = _strip_code_blocks(explanation)
+            explanation = agent_result.output
         except Exception as exc:
             warnings.warn(
                 f"LLM call failed ({exc}), returning deterministic result.",
@@ -1945,6 +2080,12 @@ class ForecastingAssistant:
                 explanation = f"[LLM unavailable] {plan.explanation}"
             else:
                 explanation = f"[LLM unavailable] {exc}"
+        else:
+            # Strip code blocks in Explain/Results mode (validated code
+            # exists). Kept out of the `try` so a post-processing failure
+            # is not reported as a failed LLM call.
+            if generated_code is not None:
+                explanation = _strip_code_blocks(explanation)
 
         return AskResult(
             profile     = profile,
@@ -2051,27 +2192,28 @@ class ForecastingAssistant:
 
     @staticmethod
     def _resolve_compare_candidates(
-        forecasters: list[tuple[str, dict]] | None,
+        candidates: list[tuple[str, dict]] | None,
         profile: ForecastingProfile,
     ) -> list[tuple[str, dict]]:
         """
         Resolve the candidate configurations for `compare()`.
 
-        When `forecasters` is None, the candidates are derived from
+        When `candidates` is None, the candidates are derived from
         `profile.forecaster_candidates`, each labelled by its forecaster
         class name. Otherwise the user-supplied `(name, config)` tuples
-        are validated.
+        are validated. Names must be unique in both cases, since they key
+        the `candidates` and `failures` mappings of the result.
 
         Parameters
         ----------
-        forecasters : list of tuple of (str, dict), None
+        candidates : list of tuple of (str, dict), None
             User-supplied configurations, or None to auto-build.
         profile : ForecastingProfile
             Shared profile used to derive the auto candidates.
 
         Returns
         -------
-        candidates : list of tuple of (str, dict)
+        resolved : list of tuple of (str, dict)
             Validated `(name, config)` tuples.
         """
 
@@ -2083,43 +2225,51 @@ class ForecastingAssistant:
             "window_features",
         }
 
-        if forecasters is None:
+        resolved: list[tuple[str, dict]] = []
+        if candidates is None:
             if not profile.forecaster_candidates:
                 raise ValueError(
                     "Profile has no forecaster candidates to compare. "
-                    "Pass an explicit `forecasters` list."
+                    "Pass an explicit `candidates` list."
                 )
-            return [
+            resolved = [
                 (fc, {"forecaster": fc})
                 for fc in profile.forecaster_candidates
             ]
+        else:
+            if not candidates:
+                raise ValueError("`candidates` must not be an empty list.")
 
-        if not forecasters:
-            raise ValueError("`forecasters` must not be an empty list.")
+            for entry in candidates:
+                if not isinstance(entry, (tuple, list)) or len(entry) != 2:
+                    raise ValueError(
+                        "Each entry in `candidates` must be a (name, config) "
+                        f"tuple, got {entry!r}."
+                    )
+                name, config = entry
+                if not isinstance(config, dict):
+                    raise TypeError(
+                        f"Configuration for '{name}' must be a dict, got "
+                        f"{type(config).__name__}."
+                    )
+                invalid_keys = set(config) - allowed_keys
+                if invalid_keys:
+                    raise ValueError(
+                        f"Invalid config keys for '{name}': "
+                        f"{sorted(invalid_keys)}. Allowed keys: "
+                        f"{sorted(allowed_keys)}."
+                    )
+                resolved.append((str(name), config))
 
-        candidates: list[tuple[str, dict]] = []
-        for entry in forecasters:
-            if not isinstance(entry, (tuple, list)) or len(entry) != 2:
-                raise ValueError(
-                    "Each entry in `forecasters` must be a (name, config) "
-                    f"tuple, got {entry!r}."
-                )
-            name, config = entry
-            if not isinstance(config, dict):
-                raise TypeError(
-                    f"Configuration for '{name}' must be a dict, got "
-                    f"{type(config).__name__}."
-                )
-            invalid_keys = set(config) - allowed_keys
-            if invalid_keys:
-                raise ValueError(
-                    f"Invalid config keys for '{name}': "
-                    f"{sorted(invalid_keys)}. Allowed keys: "
-                    f"{sorted(allowed_keys)}."
-                )
-            candidates.append((str(name), config))
+        names = [name for name, _ in resolved]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(
+                f"Candidate names must be unique, found duplicates: "
+                f"{duplicates}."
+            )
 
-        return candidates
+        return resolved
 
     @staticmethod
     def _aggregate_metrics(metrics: pd.DataFrame | None) -> dict[str, Any]:
@@ -2158,8 +2308,8 @@ class ForecastingAssistant:
         Parameters
         ----------
         item : tuple
-            A `(name, value, ...)` tuple whose third element is the
-            ranking value.
+            A `(name, backtest, ranking_value)` tuple whose third element
+            is the ranking value.
 
         Returns
         -------
@@ -2171,48 +2321,6 @@ class ForecastingAssistant:
         value = item[2]
         is_nan = bool(pd.isna(value))
         return (is_nan, 0.0 if is_nan else float(value))
-
-    @staticmethod
-    def _summarize_error(exc: Exception, max_length: int = 200) -> str:
-        """
-        Build a concise one-line error summary for the results table.
-
-        A `ForecastExecutionError` wraps the generated code and full
-        traceback; it is unwrapped to its `original_error` root cause so
-        the table records the underlying reason (for example
-        `"ImportError: cannot import name 'Ridge'"`) rather than the
-        verbose execution-context message. The full generated code and
-        traceback remain available on the raised exception for debugging.
-
-        Parameters
-        ----------
-        exc : Exception
-            Exception raised while evaluating a candidate.
-        max_length : int, default 200
-            Maximum length of the returned summary. Longer messages are
-            truncated with a trailing ellipsis.
-
-        Returns
-        -------
-        summary : str
-            Single-line `"ErrorType: message"` summary.
-        """
-
-        root = (
-            exc.original_error
-            if isinstance(exc, ForecastExecutionError)
-            else exc
-        )
-        lines = [line.strip() for line in str(root).splitlines() if line.strip()]
-        first_line = lines[0] if lines else ""
-        summary = (
-            f"{type(root).__name__}: {first_line}"
-            if first_line
-            else type(root).__name__
-        )
-        if len(summary) > max_length:
-            summary = summary[: max_length - 3].rstrip() + "..."
-        return summary
 
     def _build_comparison_table(
         self,
@@ -2258,9 +2366,10 @@ class ForecastingAssistant:
     @staticmethod
     def _build_comparison_explanation(
         n_candidates: int,
-        detailed: list[tuple[str, BacktestResult, float]],
+        ranked: list[tuple[str, BacktestResult, float]],
         ranking_metric: str,
         any_error: bool,
+        cv_explanation: str,
     ) -> str:
         """
         Build the deterministic `compare()` summary explanation.
@@ -2269,12 +2378,15 @@ class ForecastingAssistant:
         ----------
         n_candidates : int
             Total number of candidates evaluated.
-        detailed : list of tuple of (str, BacktestResult, float)
-            Successful candidates ordered best to worst.
+        ranked : list of tuple of (str, BacktestResult, float)
+            Successful candidates ordered best to worst. Never empty: a
+            comparison with no successful candidate raises instead.
         ranking_metric : str
             Metric used to rank the table.
         any_error : bool
             Whether at least one candidate failed.
+        cv_explanation : str
+            Description of the shared cross-validation strategy.
 
         Returns
         -------
@@ -2282,31 +2394,56 @@ class ForecastingAssistant:
             Human-readable summary of the comparison.
         """
 
-        if not detailed:
-            return (
-                f"Compared {n_candidates} forecaster configuration(s) using "
-                f"{ranking_metric}; all candidates failed to run. See the "
-                f"'error' column in the results table for details."
-            )
-
-        best_name, best_result, best_value = detailed[0]
+        best_name, best_result, best_value = ranked[0]
         label = best_result.plan.forecaster
         if best_result.plan.estimator:
             label += f" / {best_result.plan.estimator}"
 
+        metrics = best_result.metrics
+        pooled = (
+            metrics is not None
+            and "levels" in metrics.columns
+            and bool((metrics["levels"] == "average").any())
+        )
+        metric_desc = ranking_metric
+        if pooled:
+            metric_desc += " pooled across series"
+
+        noun = "configuration" if n_candidates == 1 else "configurations"
+        best_sentence = f"Best: '{best_name}' ({label}) = {best_value:.4f}"
+        if len(ranked) > 1:
+            # The runner-up is only quoted when its value is usable: the
+            # table sorts NaN last, so a non-finite runner-up carries no
+            # information about the margin.
+            runner_name, _, runner_value = ranked[1]
+            if np.isfinite(runner_value):
+                if np.isfinite(best_value) and runner_value != 0:
+                    margin = 100 * (runner_value - best_value) / abs(runner_value)
+                    best_sentence += (
+                        f", {margin:.1f}% ahead of '{runner_name}' "
+                        f"({runner_value:.4f})"
+                    )
+                else:
+                    best_sentence += (
+                        f", ahead of '{runner_name}' ({runner_value:.4f})"
+                    )
+        best_sentence += "."
+
         parts = [
-            f"Compared {n_candidates} forecaster configuration(s) using "
-            f"{ranking_metric} (lower is better) with a shared "
-            f"cross-validation strategy.",
-            f"Best configuration: '{best_name}' ({label}) with "
-            f"{ranking_metric} = {best_value:.4f}.",
+            f"Compared {n_candidates} {noun}, ranked ascending by "
+            f"{metric_desc}.",
+            f"Shared cross-validation strategy: {cv_explanation}",
+            best_sentence,
         ]
         if any_error:
-            n_failed = n_candidates - len(detailed)
-            parts.append(
-                f"{n_failed} configuration(s) failed to run and are ranked "
-                f"last."
-            )
+            n_failed = n_candidates - len(ranked)
+            if n_failed == 1:
+                parts.append("1 configuration failed to run and is ranked last.")
+            else:
+                parts.append(
+                    f"{n_failed} configurations failed to run and are ranked "
+                    f"last."
+                )
         return " ".join(parts)
 
     def _resolve_model(self):

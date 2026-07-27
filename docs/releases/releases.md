@@ -15,15 +15,17 @@ All significant changes to this project are documented in this release file.
 
 **Added**
 
-+ <span class="badge text-bg-feature">Feature</span> [`ForecastingAssistant.compare()`][assistant] backtests several forecaster/estimator configurations with the same cross-validation strategy and returns a metric-ranked `ComparisonResult` leaderboard, along with the winning configuration as a reusable `BacktestResult`. A matching `compare` CLI command reports the leaderboard and supports `--forecasters`, `--metric`, `--from-profile`, and `--output-code`.
++ <span class="badge text-bg-feature">Feature</span> [`ForecastingAssistant.compare()`][assistant] backtests several forecaster/estimator configurations with the same cross-validation strategy and returns a metric-ranked `ComparisonResult` leaderboard. Each successful candidate is available in `candidates`, a name-keyed mapping of `BacktestResult` ordered best to worst, and the winning configuration is exposed as `best_name` / `best_candidate` for direct reuse. A matching `compare` CLI command reports the leaderboard and supports `--candidates`, `--metric`, `--from-profile`, and `--output-code`.
 
 
 **Changed**
 
-+ <span class="badge text-bg-api-change">API Change</span> [`ForecastingAssistant.ask()`][assistant] now accepts a single `result` parameter (a `WorkflowResult`, such as a `ForecastResult` or `BacktestResult`) in place of the previous `forecast_result` and `backtest_result` parameters. Update calls from `ask(forecast_result=...)` / `ask(backtest_result=...)` to `ask(result=...)`.
++ <span class="badge text-bg-api-change">API Change</span> [`ForecastingAssistant.ask()`][assistant] now accepts a single `result` parameter in place of the previous `forecast_result` and `backtest_result` parameters. Update calls from `ask(forecast_result=...)` / `ask(backtest_result=...)` to `ask(result=...)`. Any `ExplainableResult` is accepted, including `ForecastResult`, `BacktestResult`, and `ComparisonResult`.
 
 
 **Fixed**
+
++ <span class="badge text-bg-api-change">API Change</span> [`ForecastingAssistant.ask()`][assistant] now treats a supplied `result` as the single source of truth. Previously an explicit `profile` or `plan` took precedence over the result's own while the context and code still came from the result, so the returned artifacts could describe different states. `data`, `target`, `date_column`, `series_id_column`, `profile`, `plan`, and `steps` are now ignored with an `IgnoredArgumentWarning` when `result` is provided.
 
 
 
