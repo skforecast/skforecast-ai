@@ -96,6 +96,13 @@ def test_backtest_output_when_single_series():
     assert result.cv_config["initial_train_size"] == cv.initial_train_size
     assert result.cv_config["refit"] == cv.refit
 
+    # The fold count is resolved here so consumers, including the LLM, never
+    # have to re-derive it from the training size and the horizon.
+    y = df_single.set_index("date")["sales"].asfreq(
+        profile.data_profile.frequency
+    )
+    assert result.cv_config["n_folds"] == len(cv.split(X=y))
+
 
 # =============================================================================
 # Tests: auto profile/plan generation

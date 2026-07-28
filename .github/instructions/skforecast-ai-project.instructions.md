@@ -52,6 +52,8 @@ skforecast-ai/
 │   └── fixtures_*.py               # Shared fixtures
 └── tools/
     └── sync_skforecast_assets.py   # Pulls pinned llms-base.txt
+    └── measure_skill_tokens.py     # Keeps skill token estimates in sync
+    └── update_golden_llm_contexts.py  # Regenerates tests/tests_llm/golden/
 ```
 
 - **PyPI name**: `skforecast-ai` (hyphen). **Importable**: `skforecast_ai` (underscore).

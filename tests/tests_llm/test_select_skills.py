@@ -361,6 +361,29 @@ def test_worst_case_all_skills_estimate():
     )
 
 
+def test_skill_inventory_matches_the_skills_directory():
+    """
+    Test that `ALL_SKILLS` and `_SKILL_TOKEN_ESTIMATES` describe exactly
+    the skills present on disk.
+
+    `tools/sync_skforecast_assets.py` refreshes `skills/` by deleting the
+    directory and rewriting it from the pinned skforecast release, so a
+    renamed or newly added skill upstream leaves both constants stale. A
+    removed skill then raises `FileNotFoundError` at request time, and an
+    added one is simply never selectable. Run
+    `python tools/measure_skill_tokens.py --update` after syncing.
+    """
+    from skforecast_ai.llm.skills import ALL_SKILLS, _SKILLS_DIR
+
+    on_disk = {
+        path.name for path in _SKILLS_DIR.iterdir()
+        if path.is_dir() and (path / "SKILL.md").exists()
+    }
+
+    assert set(ALL_SKILLS) == on_disk
+    assert set(_SKILL_TOKEN_ESTIMATES) == on_disk
+
+
 # ---------------------------------------------------------------------------
 # Logging: skill selection logs at debug level
 # ---------------------------------------------------------------------------

@@ -1,0 +1,41 @@
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 24%]
+........................................................................ [ 33%]
+........................................................................ [ 41%]
+........................................................................ [ 49%]
+........................................................................ [ 57%]
+........................................................................ [ 66%]
+........................................................................ [ 74%]
+........................................................................ [ 82%]
+........................................................................ [ 91%]
+........................................................................ [ 99%]
+.....                                                                    [100%]
+=============================== warnings summary ===============================
+tests/test_assistant_profile.py::test_profile_output_when_data_has_missing_values
+  /Users/javier.escobar/code/github/skforecast-ai/skforecast_ai/recommendation/autoregressive.py:222: MissingValuesWarning: Interleaved NaN/inf detected. Falling back to pairwise deletion (slower). Lags with fewer than 2 valid pairs will be NaN.
+  You can suppress this warning using: warnings.simplefilter('ignore', category=MissingValuesWarning)
+    pacf_values = pacf(values, nlags=effective_n_lags)
+
+tests/test_cli_pipe.py::TestForecastFromPlan::test_forecast_from_plan_file
+  /opt/homebrew/Caskroom/miniconda/base/envs/skforecast_ai_py13/lib/python3.13/site-packages/skforecast/preprocessing/_preprocessing.py:2297: IgnoredArgumentWarning: The number of bins has been reduced from 10 to 8 due to duplicated edges caused by repeated predicted values.
+  You can suppress this warning using: warnings.simplefilter('ignore', category=IgnoredArgumentWarning)
+    warnings.warn(
+
+tests/tests_execution/test_run_backtest.py::test_run_backtest_multi_series_returns_predictions
+tests/tests_execution/test_run_backtest.py::test_run_backtest_multi_series_metrics_per_level
+tests/tests_execution/test_run_forecast.py::test_run_forecast_multi_series_returns_predictions
+  /opt/homebrew/Caskroom/miniconda/base/envs/skforecast_ai_py13/lib/python3.13/site-packages/skforecast/recursive/_forecaster_recursive_multiseries.py:527: DataTransformationWarning: When using a linear model, it is recommended to use a transformer_series to ensure all series are in the same scale. You can use, for example, a `StandardScaler` from sklearn.preprocessing.
+  You can suppress this warning using: warnings.simplefilter('ignore', category=DataTransformationWarning)
+    warnings.warn(
+
+tests/tests_execution/test_run_forecast.py: 13 warnings
+  /opt/homebrew/Caskroom/miniconda/base/envs/skforecast_ai_py13/lib/python3.13/site-packages/skforecast/stats/arima/_arima_base.py:2542: UserWarning: Possible convergence problem. Try to increase 'maxiter' or change the optimization method.
+    warnings.warn(
+
+tests/tests_llm/test_llm_agent.py::test_agent_returns_str
+  /opt/homebrew/Caskroom/miniconda/base/envs/skforecast_ai_py13/lib/python3.13/site-packages/pydantic_graph/_utils.py:53: DeprecationWarning: There is no current event loop
+    event_loop = asyncio.get_event_loop()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+869 passed, 19 warnings in 18.81s

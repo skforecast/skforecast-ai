@@ -188,6 +188,7 @@ def make_comparison_result(assistant, *, with_failure=False):
         "refit": False,
         "fixed_train_size": True,
         "gap": 0,
+        "n_folds": 6,
     }
 
     def _backtest(forecaster, estimator, mae, code):

@@ -12,7 +12,7 @@ from pydantic_ai import Agent, RunContext
 from .._constants import MAX_FEATURE_FRACTION
 from ..schemas import CVParams, ForecastingProfile, ForecastPlan, PlanOverrides
 from .prompts import _CV_ROLE_PROMPT, _STATIC_ROLE_PROMPT, _PLAN_REFINEMENT_ROLE_PROMPT
-from .skills import load_llms_reference, load_skill, select_skills
+from .skills import load_llms_reference, load_skill
 
 logger = logging.getLogger(__name__)
 
@@ -24,25 +24,27 @@ class AskDeps:
 
     Carries all per-call context needed by dynamic instructions.
 
+    Skill selection happens in `ForecastingAssistant.ask`, which needs the
+    resolved list anyway to budget the prompt. The agent therefore takes
+    the list as given rather than re-running the selection, so there is
+    one place where the answer can change.
+
     Attributes
     ----------
     profile : ForecastingProfile, None
         The profiled dataset/forecaster info. None in Q&A mode.
     plan : ForecastPlan, None
         The generated forecast plan. None in Q&A mode.
-    question : str
-        The user's natural-language question.
+    skills : list of str
+        Resolved skill names to load. An empty list loads no skills.
     include_reference : bool
         Whether to append the API reference to instructions.
-    skills_override : list of str, None
-        Explicit skill list. When set, bypasses dynamic selection.
     """
 
     profile: ForecastingProfile | None
     plan: ForecastPlan | None
-    question: str
+    skills: list[str]
     include_reference: bool = False
-    skills_override: list[str] | None = None
 
 
 def create_forecasting_agent(
@@ -53,10 +55,10 @@ def create_forecasting_agent(
 
     The agent uses pydantic-ai's `instructions` mechanism:
 
-    - **Static instructions** (constructor): The role prompt (~200 tokens).
-    Auto-sorted first by pydantic-ai for prompt-cache optimization.
-    - **Dynamic instructions** (decorator): Skills and optional reference,
-    selected per-call based on `AskDeps`.
+    - **Static instructions** (constructor): The role prompt. Auto-sorted
+    first by pydantic-ai for prompt-cache optimization.
+    - **Dynamic instructions** (decorator): The skills resolved by the
+    caller and carried on `AskDeps`, plus the optional API reference.
 
     The agent is a lightweight natural-language layer. It does NOT make
     forecasting decisions or call tools. All recommendations come from
@@ -84,24 +86,9 @@ def create_forecasting_agent(
 
     @agent.instructions
     def _dynamic_skills_and_reference(ctx: RunContext[AskDeps]) -> str:
-        """Select and load skills + optional reference based on deps."""
+        """Load the resolved skills + optional reference from deps."""
         deps = ctx.deps
-
-        # Resolve skill list
-        if deps.skills_override is not None:
-            skill_names = deps.skills_override
-            logger.debug("Using skills_override: %s", skill_names)
-        else:
-            task_type = (
-                deps.profile.task_type
-                if deps.profile is not None
-                else None
-            )
-            skill_names = select_skills(
-                task_type=task_type,
-                question=deps.question,
-            )
-            logger.debug("Dynamic skill selection: %s", skill_names)
+        skill_names = deps.skills
 
         # Build skills content
         parts: list[str] = []
@@ -126,8 +113,9 @@ def create_forecasting_agent(
             parts.append(
                 "---\n"
                 "REMINDER: Do NOT output code blocks. The user already has a "
-                "validated script in `result.code`. Focus on explaining the "
-                "strategy, parameters, and results in plain language."
+                "validated script in `result.code`. Explain the strategy, "
+                "parameters, and results in plain language, using only values "
+                "present in `<forecast_context>`."
             )
 
         total_chars = sum(len(p) for p in parts)
@@ -247,6 +235,8 @@ def create_cv_agent(
             "CV agent dynamic instructions: ~%d tokens",
             total_chars // 4,
         )
+
+        return "\n".join(parts)
 
     return agent
 

@@ -14,6 +14,37 @@ from typing import Literal, get_args
 # the deterministic PACF-based selection.
 MAX_FEATURE_FRACTION = 0.33
 
+# ---------------------------------------------------------------------------
+# LLM context rendering limits
+# ---------------------------------------------------------------------------
+
+# A DataFrame with at most this many rows is sent to the LLM in full.
+# Beyond it, only the head and tail are sent plus a per-column summary.
+MAX_CONTEXT_DATAFRAME_ROWS = 30
+
+# Rows kept at each end when a DataFrame exceeds the cap above.
+CONTEXT_HEAD_TAIL_ROWS = 5
+
+# Leaderboard rows kept when a comparison has many candidates. The table
+# is already sorted by the ranking metric, so the top rows are the ones a
+# ranking question needs; the tail carries no extra information.
+MAX_LEADERBOARD_ROWS = 15
+
+# ---------------------------------------------------------------------------
+# Prompt budgeting
+# ---------------------------------------------------------------------------
+
+# Context window assumed for local Ollama models. Hosted providers expose
+# provider-specific windows, so no budget is imposed for them.
+OLLAMA_MAX_CONTEXT_TOKENS = 32768
+
+# Tokens held back for the model's own answer when budgeting the prompt.
+RESERVED_RESPONSE_TOKENS = 2048
+
+# Ceiling for the static role prompt. It is paid on every call and is not
+# trimmable, so it must not grow into the budget reserved for skills.
+MAX_STATIC_PROMPT_TOKENS = 1200
+
 MULTI_SERIES_FORECASTERS: set[str] = {
     "ForecasterRecursiveMultiSeries",
 }

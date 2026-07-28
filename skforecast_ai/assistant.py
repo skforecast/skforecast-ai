@@ -11,10 +11,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
-from ._constants import MAX_FEATURE_FRACTION
+from ._constants import (
+    MAX_FEATURE_FRACTION,
+    OLLAMA_MAX_CONTEXT_TOKENS,
+    RESERVED_RESPONSE_TOKENS,
+)
 from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
+    DataSentToLLMWarning,
     LLMRequiredError,
 )
 from .execution import run_backtest, run_forecast
@@ -22,8 +27,10 @@ from .execution.backtesting_runner import render_backtesting_script
 from .execution.forecast_runner import render_forecast_script
 from .llm import (
     build_context_message,
+    compute_skill_token_budget,
     create_model,
     ensure_ollama_reachable,
+    estimate_context_tokens,
     estimate_prompt_tokens,
     select_skills,
 )
@@ -1482,7 +1489,8 @@ class ForecastingAssistant:
             - profile: profile of the input dataset and high-level
             modeling decisions.
             - plan: detailed forecasting plan that was executed.
-            - cv_config: resolved `TimeSeriesFold` parameters.
+            - cv_config: resolved `TimeSeriesFold` parameters plus the
+            resulting `n_folds`.
             - metrics: backtesting metric values returned by skforecast.
             - predictions: full backtest predictions across all folds.
             - code: generated Python script reproducing the workflow.
@@ -1532,7 +1540,10 @@ class ForecastingAssistant:
                       frequency      = profile.data_profile.frequency,
                   )
 
-        # Extract cv_config after split
+        # Extract cv_config after split. `n_folds` is stored alongside the
+        # `TimeSeriesFold` parameters because it is the fact a reader (or the
+        # LLM) actually needs; leaving it out forced it to be re-derived from
+        # the prediction row count.
         cv_config = {
             "steps": cv.steps,
             "initial_train_size": cv.initial_train_size,
@@ -1541,6 +1552,7 @@ class ForecastingAssistant:
             "gap": cv.gap,
             "fold_stride": cv.fold_stride,
             "differentiation": cv.differentiation,
+            "n_folds": n_folds,
         }
         cv_explanation = build_cv_explanation(
                              cv_params      = cv_config,
@@ -1642,7 +1654,8 @@ class ForecastingAssistant:
             the following attributes:
 
             - profile: shared profile used for every candidate.
-            - cv_config: resolved `TimeSeriesFold` parameters applied
+            - cv_config: resolved `TimeSeriesFold` parameters plus the
+            resulting `n_folds`, applied
             identically to every candidate.
             - results: ranked comparison table, one row per candidate
             sorted best to worst by `ranking_metric`.
@@ -1714,15 +1727,6 @@ class ForecastingAssistant:
             metric_columns = metric_override
 
         steps = cv.steps
-        cv_config = {
-            "steps": cv.steps,
-            "initial_train_size": cv.initial_train_size,
-            "refit": cv.refit,
-            "fixed_train_size": cv.fixed_train_size,
-            "gap": cv.gap,
-            "fold_stride": cv.fold_stride,
-            "differentiation": cv.differentiation,
-        }
 
         # Human-readable description of the shared CV strategy. The folds
         # are counted before any candidate runs, on the untouched `cv`.
@@ -1733,6 +1737,16 @@ class ForecastingAssistant:
                       start_date     = profile.data_profile.start_date,
                       frequency      = profile.data_profile.frequency,
                   )
+        cv_config = {
+            "steps": cv.steps,
+            "initial_train_size": cv.initial_train_size,
+            "refit": cv.refit,
+            "fixed_train_size": cv.fixed_train_size,
+            "gap": cv.gap,
+            "fold_stride": cv.fold_stride,
+            "differentiation": cv.differentiation,
+            "n_folds": n_folds,
+        }
         cv_explanation = build_cv_explanation(
                              cv_params      = cv_config,
                              n_observations = span_index_length,
@@ -1909,8 +1923,9 @@ class ForecastingAssistant:
             winning candidate's plan and code. A result's own predicted
             values are always sent to the LLM, regardless of
             `send_data_to_llm`, since a question about a result cannot be
-            answered from summary statistics alone. The dataset the
-            result was produced from is never sent.
+            answered from summary statistics alone. The input data is not
+            sent: a result holds only the model's output, never the data
+            it was fitted on.
         steps : int, default None
             Forecast horizon used when generating a plan from data.
             Required when `data` or `profile` is provided
@@ -1952,6 +1967,9 @@ class ForecastingAssistant:
         IgnoredArgumentWarning
             If `result` is provided together with any deterministic input
             it supersedes.
+        DataSentToLLMWarning
+            If `result` is provided while `send_data_to_llm` is False.
+            Results mode always sends the result's predicted values.
 
         Notes
         -----
@@ -1987,7 +2005,21 @@ class ForecastingAssistant:
                 steps            = steps,
             )
             # In results mode, raw data is always sent so the LLM can
-            # discuss specific values.
+            # discuss specific values. This overrides `send_data_to_llm`,
+            # so say so: a user who set it to False for privacy reasons
+            # would otherwise ship predicted values without being told.
+            if not self.send_data_to_llm:
+                warnings.warn(
+                    "`send_data_to_llm=False` does not apply to `result`: the "
+                    "predicted values it carries are sent to the LLM, because "
+                    "a question about a result cannot be answered from "
+                    "summary statistics alone. Your input data is not sent: a "
+                    "result holds only the model's output, never the data it "
+                    "was fitted on. To keep predictions local, ask without "
+                    "`result`.",
+                    DataSentToLLMWarning,
+                    stacklevel=2,
+                )
             result_context = result.to_llm_context(send_data=True)
             profile        = result_context.profile
             plan           = result_context.plan
@@ -2026,8 +2058,12 @@ class ForecastingAssistant:
             ensure_ollama_reachable(self.base_url)
 
         # --- Build user message with context ---
+        # The question is delimited so it cannot be mistaken for part of
+        # the deterministic context block that precedes it.
         user_message = (
-            f"{context}\n\n## Question\n\n{prompt}" if context else prompt
+            f"{context}\n\n<question>\n{prompt}\n</question>"
+            if context
+            else prompt
         )
 
         # --- Dynamic skill selection when not explicitly provided ---
@@ -2038,9 +2074,22 @@ class ForecastingAssistant:
                 if profile is not None
                 else None
             )
+            # Budget the skills against the space the context block has
+            # already taken. Only local models expose a context window
+            # known up front; hosted windows are provider specific and
+            # generally far larger, so no budget is imposed for them and
+            # the full selection is sent.
+            token_budget = None
+            if self.llm.startswith("ollama:"):
+                token_budget = compute_skill_token_budget(
+                    max_context_tokens = OLLAMA_MAX_CONTEXT_TOKENS,
+                    context_tokens     = estimate_context_tokens(user_message),
+                    include_reference  = include_reference,
+                )
             resolved_skills = select_skills(
-                task_type=task_type,
-                question=prompt,
+                task_type    = task_type,
+                question     = prompt,
+                token_budget = token_budget,
             )
 
         # --- LLM call ---
@@ -2048,11 +2097,10 @@ class ForecastingAssistant:
 
         agent = self._resolve_agent()
         deps = AskDeps(
-            profile=profile,
-            plan=plan,
-            question=prompt,
-            include_reference=include_reference,
-            skills_override=resolved_skills,
+            profile           = profile,
+            plan              = plan,
+            skills            = resolved_skills,
+            include_reference = include_reference,
         )
 
         estimated_tokens = estimate_prompt_tokens(
@@ -2805,9 +2853,9 @@ class ForecastingAssistant:
 
         Uses the pre-computed token estimate for system prompt content
         plus the user message length to determine the appropriate
-        `num_ctx`. Clamps between 4096 and 32768. Warns when the
-        prompt approaches the hard maximum. Returns None for non-Ollama
-        providers.
+        `num_ctx`. Clamps between 4096 and `OLLAMA_MAX_CONTEXT_TOKENS`.
+        Warns when the prompt approaches the hard maximum. Returns None
+        for non-Ollama providers.
 
         Parameters
         ----------
@@ -2826,12 +2874,16 @@ class ForecastingAssistant:
 
         user_tokens = len(user_message) // 4
         estimated_tokens = estimated_prompt_tokens + user_tokens
-        num_ctx = max(4096, min(estimated_tokens + 2048, 32768))
+        requested_ctx = estimated_tokens + RESERVED_RESPONSE_TOKENS
+        num_ctx = max(4096, min(requested_ctx, OLLAMA_MAX_CONTEXT_TOKENS))
 
-        if estimated_tokens > 30000:
+        # The clamp is what causes truncation: the prompt plus the space
+        # reserved for the answer no longer fits the window.
+        if requested_ctx > OLLAMA_MAX_CONTEXT_TOKENS:
             warnings.warn(
-                f"Estimated prompt size (~{estimated_tokens} tokens) approaches "
-                f"the Ollama context limit (32768). Output may be truncated. "
+                f"Estimated prompt size (~{estimated_tokens} tokens) exceeds "
+                f"the Ollama context limit ({OLLAMA_MAX_CONTEXT_TOKENS}) once "
+                f"room for the answer is reserved. Output may be truncated. "
                 f"Consider using `skills=[]` or `include_reference=False`.",
                 UserWarning,
                 stacklevel=3,

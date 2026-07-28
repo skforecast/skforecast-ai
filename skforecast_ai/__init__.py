@@ -17,6 +17,7 @@ from .assistant import ForecastingAssistant
 from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
+    DataSentToLLMWarning,
     ForecastExecutionError,
     LLMRequiredError,
 )
@@ -48,6 +49,7 @@ __all__ = [
     "CandidateFailure",
     "ComparisonResult",
     "DataProfile",
+    "DataSentToLLMWarning",
     "ExplainableResult",
     "ForecastExecutionError",
     "ForecastingProfile",

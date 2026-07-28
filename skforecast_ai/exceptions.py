@@ -119,3 +119,18 @@ class CandidateFailedWarning(UserWarning):
     is recorded in the `'error'` column of the results table and a
     `CandidateFailure` is kept in `ComparisonResult.failures`.
     """
+
+
+class DataSentToLLMWarning(UserWarning):
+    """
+    Warned when data values are sent to the LLM against `send_data_to_llm`.
+
+    `ask(result=...)` always sends the predicted values a result carries,
+    because a question about a result cannot be answered from summary
+    statistics alone. That override is silent otherwise, so a user who set
+    `send_data_to_llm=False` for privacy reasons would still ship values
+    off the machine without being told.
+
+    The input data is not sent: a result holds only the model's output,
+    never the data it was fitted on.
+    """

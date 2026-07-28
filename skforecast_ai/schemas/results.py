@@ -206,25 +206,45 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
         -------
         context : LLMContext
             Context block covering the profile, plan, cross-validation
-            configuration, metrics, and predictions of this run.
+            configuration, deterministic summary, metrics, and predictions
+            of this run.
         """
 
         # Deferred import: `llm.context` imports from this package, so a
         # module-level import here would be circular.
-        from ..llm.context import build_context_message
+        from ..llm.context import (
+            join_sections,
+            render_cv_section,
+            render_dataset_section,
+            render_deterministic_summary_section,
+            render_metrics_section,
+            render_plan_section,
+            render_predictions_section,
+            render_profile_decision_section,
+        )
 
-        # Only runs that were cross-validated carry a `cv_config` field.
+        # Only runs that were cross-validated carry these fields. Sending
+        # the deterministic explanation matters: it already states facts
+        # such as the fold count, which the LLM would otherwise try to
+        # re-derive from the truncated prediction table.
         cv_config = getattr(self, "cv_config", None)
+        explanation = getattr(self, "explanation", None)
 
         return LLMContext(
-            text    = build_context_message(
-                          self.profile,
-                          self.plan,
-                          predictions = self.predictions,
-                          metrics     = self.metrics,
-                          cv_config   = cv_config,
-                          send_data   = send_data,
-                      ),
+            text    = join_sections([
+                          render_dataset_section(self.profile),
+                          render_profile_decision_section(self.profile),
+                          render_plan_section(self.plan),
+                          render_cv_section(cv_config),
+                          render_deterministic_summary_section(explanation),
+                          render_metrics_section(
+                              self.metrics,
+                              has_predictions = self.predictions is not None,
+                          ),
+                          render_predictions_section(
+                              self.predictions, send_data=send_data
+                          ),
+                      ]),
             profile = self.profile,
             plan    = self.plan,
             code    = self.code,
@@ -276,7 +296,8 @@ class BacktestResult(SingleRunResult):
     plan : ForecastPlan
         Detailed forecasting plan that was executed.
     cv_config : dict
-        Resolved `TimeSeriesFold` parameters for traceability.
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`,
+        for traceability.
     metrics : pandas DataFrame
         Backtesting metric values returned by skforecast.
     predictions : pandas DataFrame
@@ -442,7 +463,8 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     profile : ForecastingProfile
         Shared profile used for every candidate.
     cv_config : dict
-        Resolved `TimeSeriesFold` parameters applied identically to
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`,
+        applied identically to
         every candidate.
     results : pandas DataFrame
         Ranked comparison table, one row per candidate sorted best to

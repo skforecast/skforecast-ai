@@ -1,0 +1,37 @@
+<forecast_context>
+<dataset>
+- Observations: 100
+- Series: 2
+- Frequency: D
+- Target: value
+- Exogenous columns: none
+</dataset>
+<profile_decision>
+The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursiveMultiSeries) is recommended. Data: 200 observations, 'D' frequency. Alternative forecasters: ['ForecasterDirectMultiVariate']. Estimator: Ridge. A linear model is preferred because the dataset is small (200 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+</profile_decision>
+<forecast_plan>
+- Steps: 3
+- Estimator: Ridge
+- Lags: [1, 2, 3, 4, 5, 7]
+- Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 7}, {'stats': ['mean'], 'window_size': 21}]
+- Primary metric: mean_absolute_scaled_error
+- Plan: ForecasterRecursiveMultiSeries + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). NaN rows kept (NaN-tolerant estimator). MASE is scale-independent, enabling fair comparison across differently-scaled series.
+
+Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
+</forecast_plan>
+<evaluation_metrics>
+ series  MAE   MSE  MASE
+store_a  2.5  9.25   0.8
+store_b  3.5 16.50   1.2
+</evaluation_metrics>
+<predictions>
+Total rows: 6 (all shown below).
+              level       pred
+2023-04-11  store_a  1000.0000
+2023-04-12  store_a  1111.1111
+2023-04-13  store_a  1250.0000
+2023-04-11  store_b  1500.0000
+2023-04-12  store_b  1750.0000
+2023-04-13  store_b  2000.0000
+</predictions>
+</forecast_context>

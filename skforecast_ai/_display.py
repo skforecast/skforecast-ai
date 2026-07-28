@@ -354,7 +354,7 @@ def render_cv_config(cv_config: dict) -> Table:
     Parameters
     ----------
     cv_config : dict
-        Resolved `TimeSeriesFold` parameters.
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`.
 
     Returns
     -------
