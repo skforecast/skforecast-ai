@@ -20,6 +20,7 @@ from .exceptions import (
     DataSentToLLMWarning,
     ForecastExecutionError,
     LLMRequiredError,
+    UnrecommendedForecasterWarning,
 )
 from .llm.skills import ALL_SKILLS
 from .schemas import (
@@ -63,5 +64,6 @@ __all__ = [
     "ForecastResult",
     "SeriesPacf",
     "SingleRunResult",
+    "UnrecommendedForecasterWarning",
     "__version__",
 ]

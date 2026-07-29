@@ -5,7 +5,9 @@ from skforecast_ai.schemas import RenderedScript
 
 from .fixtures_rendering import (
     plan_statistical,
+    plan_statistical_exog,
     plan_statistical_with_intervals,
+    profile_single_mixed_exog,
     profile_single_no_exog,
 )
 
@@ -158,3 +160,33 @@ def test_render_forecast_statistical_output_when_intervals_requested():
         "# and call predict() on the desired horizon.\n"
     )
     assert result.full_script == expected
+
+
+# =============================================================================
+# Tests: render_forecast_statistical - categorical exog exclusion
+# =============================================================================
+def test_render_forecast_statistical_output_when_categorical_exog():
+    """
+    Test that render_forecast_statistical keeps only the numeric
+    exogenous columns and documents the exclusion of the categorical
+    ones, which statistical models cannot handle.
+    """
+    result = render_forecast_statistical(
+        plan_statistical_exog, profile_single_mixed_exog
+    )
+
+    assert isinstance(result, RenderedScript)
+
+    script = result.full_script
+    expected_exog_block = (
+        "# Categorical exog excluded (holiday): statistical models only "
+        "accept numeric exogenous variables\n"
+        "exog_features = ['temp']\n"
+    )
+    expected_fit = (
+        "forecaster.fit(y=data_train['sales'], exog=data_train[exog_features])"
+    )
+
+    assert expected_exog_block in script
+    assert expected_fit in script
+    assert "'holiday'" not in script

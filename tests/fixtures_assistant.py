@@ -27,6 +27,17 @@ df_no_exog = pd.DataFrame(
     }
 )
 
+# --- Single series with hourly frequency (200 observations) ---
+_n_obs_hourly = 200
+_dates_hourly = pd.date_range("2023-01-01", periods=_n_obs_hourly, freq="h")
+
+df_hourly = pd.DataFrame(
+    {
+        "date": _dates_hourly,
+        "sales": np.arange(_n_obs_hourly, dtype=float),
+    }
+)
+
 # --- Short series fixture (25 daily observations) ---
 _n_obs_short = 25
 _dates_short = pd.date_range("2023-01-01", periods=_n_obs_short, freq="D")

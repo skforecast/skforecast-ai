@@ -17,9 +17,11 @@ from .fixtures_rendering import (
     plan_multivariate,
     plan_single_recursive_no_exog,
     plan_statistical,
+    plan_statistical_exog,
     profile_multi_long,
     profile_multi_wide,
     profile_multi_wide_exog,
+    profile_single_mixed_exog,
     profile_single_no_exog,
 )
 
@@ -256,6 +258,30 @@ def test_render_backtesting_statistical_output_when_auto_arima():
         "print(predictions.head())"
     )
     assert result.full_script == expected
+
+
+def test_render_backtesting_statistical_output_when_categorical_exog():
+    """
+    Test that render_backtesting_statistical passes only the numeric
+    exogenous columns to backtesting_stats and documents the exclusion
+    of the categorical ones.
+    """
+    result = render_backtesting_statistical(
+        plan_statistical_exog, profile_single_mixed_exog, cv_basic
+    )
+
+    assert isinstance(result, RenderedScript)
+
+    script = result.full_script
+    expected_exog_block = (
+        "# Categorical exog excluded (holiday): statistical models only "
+        "accept numeric exogenous variables\n"
+        "exog_features = ['temp']\n"
+    )
+
+    assert expected_exog_block in script
+    assert "exog              = data[exog_features]," in script
+    assert "'holiday'" not in script
 
 
 # =============================================================================

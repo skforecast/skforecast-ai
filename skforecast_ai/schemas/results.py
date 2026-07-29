@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 import traceback
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 from .._display import (
     DisplayMixin,
@@ -312,10 +312,12 @@ class BacktestResult(SingleRunResult):
     cv_config: dict
     explanation: str
 
+    _explanation_title: ClassVar[str] = "Backtest Explanation"
+
     def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield render_explanation(self.explanation)
+        yield render_explanation(self.explanation, title="Backtest Explanation")
         yield render_cv_config(self.cv_config)
         yield render_metrics(self.metrics, title="Backtest Metrics")
         yield render_dataframe(self.predictions, title="Backtest Predictions")
@@ -344,6 +346,8 @@ class AskResult(DisplayMixin, BaseModel):
     plan: ForecastPlan | None = None
     code: str | None = None
     explanation: str
+
+    _explanation_title: ClassVar[str] = "Assistant Response"
 
     def _rich_body(
         self, console: Console, options: ConsoleOptions
@@ -514,6 +518,8 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     ranking_metric: str
     explanation: str
 
+    _explanation_title: ClassVar[str] = "Comparison Explanation"
+
     @property
     def best_name(self) -> str:
         """Return the name of the top-ranked candidate."""
@@ -568,5 +574,5 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield render_explanation(self.explanation)
+        yield render_explanation(self.explanation, title="Comparison Explanation")
         yield render_dataframe(self.results, title="Comparison Results")

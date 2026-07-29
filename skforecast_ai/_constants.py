@@ -66,6 +66,46 @@ STATS_FORECASTERS: set[str] = {
     "ForecasterStats",
 }
 
+# Forecasting task category implied by each supported forecaster
+FORECASTER_TASK_TYPES: dict[str, str] = {
+    "ForecasterRecursive": "single_series",
+    "ForecasterDirect": "single_series",
+    "ForecasterRecursiveMultiSeries": "multi_series",
+    "ForecasterDirectMultiVariate": "multivariate",
+    "ForecasterStats": "statistical",
+    "ForecasterFoundation": "foundation",
+}
+
+# Mapping from pandas frequency strings to seasonal period (m)
+FREQUENCY_TO_SEASONAL_PERIOD: dict[str, int] = {
+    "min": 60,
+    "5min": 288,
+    "10min": 144,
+    "15min": 96,
+    "30min": 48,
+    "h": 24,
+    "2h": 12,
+    "4h": 6,
+    "6h": 4,
+    "D": 7,
+    "2D": 7,
+    "B": 5,
+    "W": 52,
+    "W-SUN": 52,
+    "W-MON": 52,
+    "MS": 12,
+    "ME": 12,
+    "QS": 4,
+    "QE": 4,
+    "YS": 1,
+    "YE": 1,
+}
+
+# Seasonal period from which the Auto-ARIMA search becomes impractical.
+# Its cost grows with both the seasonal period and the series length, so
+# ForecasterStats is not recommended automatically at or above this value.
+MAX_STATS_SEASONAL_PERIOD = 24
+
 AUTOREG_FORECASTERS: set[str] = {
     "ForecasterRecursive",
     "ForecasterDirect",

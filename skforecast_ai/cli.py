@@ -1380,7 +1380,7 @@ def _render_comparison_results(result) -> None:
     -------
     None
     """
-    console.print(render_explanation(result.explanation))
+    console.print(render_explanation(result.explanation, title="Comparison Explanation"))
     console.print()
     console.print(render_dataframe(result.results, title="Comparison Results"))
     console.print()
@@ -1592,4 +1592,4 @@ def ask(
                 output_data["code"] = result.code
             print(json.dumps(output_data, indent=2, default=str))
         else:
-            console.print(render_explanation(result.explanation, title="Explanation"))
+            console.print(render_explanation(result.explanation, title="Assistant Response"))

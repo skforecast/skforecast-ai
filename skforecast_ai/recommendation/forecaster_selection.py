@@ -6,7 +6,40 @@
 
 from __future__ import annotations
 from typing import Literal
+from .._constants import (
+    FORECASTER_TASK_TYPES,
+    FREQUENCY_TO_SEASONAL_PERIOD,
+    MAX_STATS_SEASONAL_PERIOD,
+)
 from ..schemas import DataProfile
+
+
+def _auto_arima_is_practical(frequency: str | None) -> bool:
+    """
+    Check whether an Auto-ARIMA search is affordable for a frequency.
+
+    The search fits many seasonal state-space models, and its cost grows
+    with the seasonal period, so high-frequency data (hourly or finer,
+    weekly) makes it impractical.
+
+    Parameters
+    ----------
+    frequency : str, default None
+        Inferred pandas frequency string.
+
+    Returns
+    -------
+    is_practical : bool
+        `False` when the seasonal period implied by `frequency` reaches
+        `MAX_STATS_SEASONAL_PERIOD`, `True` otherwise (including unknown
+        frequencies).
+    """
+    if frequency is None:
+        return True
+
+    m = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
+
+    return m is None or m < MAX_STATS_SEASONAL_PERIOD
 
 
 def select_forecaster_and_candidates(
@@ -30,6 +63,10 @@ def select_forecaster_and_candidates(
     Notes
     -----
     Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md`.
+
+    `ForecasterStats` is only offered as a candidate when the seasonal
+    period implied by the frequency keeps the Auto-ARIMA search
+    affordable. It can still be selected explicitly in `plan()`.
     """
     
     if profile.n_series > 1:
@@ -47,8 +84,9 @@ def select_forecaster_and_candidates(
             "ForecasterRecursive",
             "ForecasterDirect",
             "ForecasterFoundation",
-            "ForecasterStats",
         ]
+        if _auto_arima_is_practical(profile.frequency):
+            candidates.append("ForecasterStats")
 
     return preferred, candidates
 
@@ -75,19 +113,10 @@ def select_task_type_from_forecaster(
     task_type : str
         Forecasting task category associated with `forecaster`.
     """
-    mapping = {
-        "ForecasterRecursive": "single_series",
-        "ForecasterDirect": "single_series",
-        "ForecasterRecursiveMultiSeries": "multi_series",
-        "ForecasterDirectMultiVariate": "multivariate",
-        "ForecasterStats": "statistical",
-        "ForecasterFoundation": "foundation"
-    }
-
-    if forecaster not in mapping:
+    if forecaster not in FORECASTER_TASK_TYPES:
         raise ValueError(f"Unknown forecaster '{forecaster}'.")
 
-    return mapping[forecaster]
+    return FORECASTER_TASK_TYPES[forecaster]
 
 
 def select_estimator_and_candidates(

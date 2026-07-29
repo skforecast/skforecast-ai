@@ -5,9 +5,10 @@ import re
 import pytest
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.exceptions import UnrecommendedForecasterWarning
 from skforecast_ai.schemas import ForecastPlan
 
-from tests.fixtures_assistant import df_single, df_multi_long, df_no_exog
+from tests.fixtures_assistant import df_single, df_multi_long, df_no_exog, df_hourly
 
 
 # =============================================================================
@@ -26,6 +27,27 @@ def test_plan_ValueError_when_forecaster_not_in_candidates():
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.plan(profile, steps=10, forecaster="ForecasterRnn")
+
+
+def test_plan_UnrecommendedForecasterWarning_when_forecaster_not_recommended():
+    """
+    Test that plan() warns, but still uses the requested forecaster, when
+    it is supported yet not among the profile candidates. ForecasterStats
+    is excluded from the candidates for hourly data because Auto-ARIMA
+    with a seasonal period of 24 is impractically slow.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly, target="sales", date_column="date")
+
+    assert "ForecasterStats" not in profile.forecaster_candidates
+
+    warn_msg = re.escape(
+        "Forecaster 'ForecasterStats' is not among the recommended candidates"
+    )
+    with pytest.warns(UnrecommendedForecasterWarning, match=warn_msg):
+        plan = assistant.plan(profile, steps=10, forecaster="ForecasterStats")
+
+    assert plan.forecaster == "ForecasterStats"
 
 
 # =============================================================================

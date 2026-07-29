@@ -134,3 +134,14 @@ class DataSentToLLMWarning(UserWarning):
     The input data is not sent: a result holds only the model's output,
     never the data it was fitted on.
     """
+
+
+class UnrecommendedForecasterWarning(UserWarning):
+    """
+    Warned by `plan()` when the requested forecaster is not recommended.
+
+    The forecaster is supported and is used as requested, but it was left
+    out of `ForecastingProfile.forecaster_candidates` for this dataset,
+    typically because it is expected to be very slow or to perform poorly
+    (for example, Auto-ARIMA on high-frequency data).
+    """

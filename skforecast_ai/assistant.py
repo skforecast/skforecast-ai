@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
+    FORECASTER_TASK_TYPES,
     MAX_FEATURE_FRACTION,
     OLLAMA_MAX_CONTEXT_TOKENS,
     RESERVED_RESPONSE_TOKENS,
@@ -21,6 +22,7 @@ from .exceptions import (
     CandidateFailedWarning,
     DataSentToLLMWarning,
     LLMRequiredError,
+    UnrecommendedForecasterWarning,
 )
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
@@ -304,7 +306,10 @@ class ForecastingAssistant:
             None, no prediction intervals are computed.
         forecaster : str, default None
             Explicit forecaster class name to override the profile
-            recommendation. Must be in `profile.forecaster_candidates`.
+            recommendation. When it is not in
+            `profile.forecaster_candidates` but is a supported
+            forecaster, it is used anyway and an
+            `UnrecommendedForecasterWarning` is issued.
         estimator : str, default None
             Explicit estimator class name to override the profile
             recommendation (e.g. `'HistGradientBoostingRegressor'`).
@@ -340,10 +345,18 @@ class ForecastingAssistant:
         fc = profile.forecaster
         if forecaster is not None:
             if forecaster not in profile.forecaster_candidates:
-                raise ValueError(
-                    f"Forecaster '{forecaster}' is not compatible with this "
-                    f"profile. Available candidates: "
-                    f"{profile.forecaster_candidates}."
+                if forecaster not in FORECASTER_TASK_TYPES:
+                    raise ValueError(
+                        f"Forecaster '{forecaster}' is not compatible with this "
+                        f"profile. Available candidates: "
+                        f"{profile.forecaster_candidates}."
+                    )
+                warnings.warn(
+                    f"Forecaster '{forecaster}' is not among the recommended "
+                    f"candidates for this profile "
+                    f"({profile.forecaster_candidates}), but it is used as "
+                    f"requested. It may be slow or perform poorly on this data.",
+                    UnrecommendedForecasterWarning,
                 )
             fc = forecaster
 

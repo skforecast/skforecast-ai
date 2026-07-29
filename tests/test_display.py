@@ -8,7 +8,6 @@ import pandas as pd
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
-from rich.table import Table
 from rich.console import Group
 
 from skforecast_ai._display import (

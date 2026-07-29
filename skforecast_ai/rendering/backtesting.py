@@ -19,12 +19,16 @@ from ._helpers import (
     _emit_preprocessing_steps,
     _emit_transformer_exog,
     _emit_window_features,
+    _get_numeric_exog,
     _get_target_str,
 )
 from .foundation import _emit_forecaster_creation_foundation
 from .multi_series import _emit_forecaster_creation_multi
 from .single_series import _emit_forecaster_creation_single
-from .statistical import _emit_forecaster_creation_statistical
+from .statistical import (
+    _emit_exog_features_statistical,
+    _emit_forecaster_creation_statistical,
+)
 
 
 def _emit_cv_configuration(
@@ -553,11 +557,11 @@ def _emit_backtesting_call_statistical(
     """Append backtesting_stats call for ForecasterStats."""
 
     target = _get_target_str(profile)
-    exog_columns = profile.exog_columns
+    exog_columns = _get_numeric_exog(profile)
 
     lines.append("# Run backtesting")
     if plan.use_exog and exog_columns:
-        lines.append(f"exog_features = {repr(exog_columns)}")
+        _emit_exog_features_statistical(lines, profile)
         lines.append("")
 
     bt_kwargs: list[tuple[str, str]] = []

@@ -69,6 +69,42 @@ def test_select_forecaster_and_candidates_output_when_multi_series():
     assert candidates[0] == preferred
 
 
+@pytest.mark.parametrize(
+    "frequency, expected",
+    [
+        ("h", False),
+        ("15min", False),
+        ("30min", False),
+        ("W", False),
+        ("D", True),
+        ("MS", True),
+        ("QS", True),
+        (None, True),
+        ("unknown_freq", True),
+    ],
+    ids = lambda v: f"frequency: {v}",
+)
+def test_select_forecaster_and_candidates_stats_gated_by_frequency(
+    frequency, expected
+):
+    """
+    Test that ForecasterStats is only offered as automatic candidate when
+    the seasonal period implied by the frequency keeps Auto-ARIMA
+    practical (seasonal period below 24).
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 1000},
+        target         = "y",
+        index_type     = "datetime",
+        frequency      = frequency,
+    )
+
+    _, candidates = select_forecaster_and_candidates(profile)
+
+    assert ("ForecasterStats" in candidates) is expected
+
+
 # =============================================================================
 # Tests: select_task_type_from_forecaster
 # =============================================================================

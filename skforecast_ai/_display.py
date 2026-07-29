@@ -10,7 +10,7 @@ import base64
 import html
 import io
 from numbers import Number
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 import pandas as pd
 from rich import get_console
 from rich.console import Console, Group
@@ -425,7 +425,7 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
         _SPACER,
         rec_table,
         _SPACER,
-        render_explanation(profile.explanation, title="Explanation"),
+        render_explanation(profile.explanation, title="Profile Explanation"),
     )
 
 
@@ -536,7 +536,14 @@ class DisplayMixin(JupyterMixin):
       IDE variable inspectors, and test-failure diffs rely on `repr()`
       being cheap and safe, and generally don't render ANSI color codes.
     - `show`: explicit printing to a `rich.console.Console`.
+
+    Subclasses can set `_explanation_title` to control the panel title used
+    by `show_explanation`, so it matches the title used in their full
+    display. Pydantic models must annotate it as `ClassVar[str]`, otherwise
+    pydantic turns the underscore-prefixed attribute into a private attribute.
     """
+
+    _explanation_title: ClassVar[str] = "Explanation"
 
     def _rich_body(
         self, console: Console, options: ConsoleOptions
@@ -652,6 +659,8 @@ class DisplayMixin(JupyterMixin):
         None
         """
         if hasattr(self, "explanation") and self.explanation is not None:
-            (console or _default_console()).print(render_explanation(self.explanation))
+            (console or _default_console()).print(
+                render_explanation(self.explanation, title=self._explanation_title)
+            )
         else:
             (console or _default_console()).print("No explanation available to display.")

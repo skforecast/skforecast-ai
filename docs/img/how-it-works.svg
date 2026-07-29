@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 620" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
-  <rect x="0" y="0" width="1040" height="620" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 880" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="1040" height="880" fill="#ffffff"/>
 
   <!-- ===================== FAST PATH CARD ===================== -->
   <rect x="20" y="20" width="440" height="470" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
@@ -80,10 +80,48 @@
   <text x="881" y="454" text-anchor="middle" fill="#57606a" font-size="14">&#8595;</text>
   <text x="881" y="470" text-anchor="middle" fill="#24292f" font-size="10">metrics + predictions + code</text>
 
+  <!-- ===================== COMPARE() BANNER ===================== -->
+  <rect x="20" y="510" width="1000" height="240" rx="12" fill="#fff4ed" stroke="#bc4c00"/>
+  <path d="M32,510 h976 a12,12 0 0 1 12,12 v28 h-1000 v-28 a12,12 0 0 1 12,-12 z" fill="#bc4c00"/>
+  <text x="36" y="536" fill="#ffffff" font-size="14" font-weight="700">Model selection: which forecaster should you use?</text>
+
+  <text x="36" y="574" fill="#24292f" font-size="12">compare() answers the question every forecasting project starts with: Among several reasonable models, which one actually</text>
+  <text x="36" y="591" fill="#24292f" font-size="12">performs best on my data? Every candidate is evaluated using the same data and cross-validation strategy. Therefore, the</text>
+  <text x="36" y="608" fill="#24292f" font-size="12">differences you see come from the models, not from the setup.</text>
+
+  <!-- Candidates -->
+  <rect x="36" y="618" width="271" height="100" rx="8" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="171" y="639" text-anchor="middle" fill="#24292f" font-size="12" font-weight="600">Candidates</text>
+  <text x="171" y="656" text-anchor="middle" fill="#57606a" font-size="10">A handful of configurations worth testing:</text>
+  <text x="171" y="669" text-anchor="middle" fill="#57606a" font-size="10">different forecasters, estimators, lags or</text>
+  <text x="171" y="682" text-anchor="middle" fill="#57606a" font-size="10">window features. Supply your own, or let the</text>
+  <text x="171" y="695" text-anchor="middle" fill="#57606a" font-size="10">data profile propose them.</text>
+
+  <text x="331" y="675" text-anchor="middle" fill="#57606a" font-size="18">&#8594;</text>
+
+  <!-- compare() -->
+  <rect x="355" y="618" width="329" height="100" rx="8" fill="#ffe0cc" stroke="#bc4c00"/>
+  <text x="519" y="640" text-anchor="middle" fill="#24292f" font-size="13" font-weight="700">compare()</text>
+  <text x="519" y="659" text-anchor="middle" fill="#57606a" font-size="10">Runs a full backtest for each candidate under</text>
+  <text x="519" y="672" text-anchor="middle" fill="#57606a" font-size="10">identical conditions, and scores them with the</text>
+  <text x="519" y="685" text-anchor="middle" fill="#57606a" font-size="10">metrics you care about.</text>
+
+  <text x="708" y="675" text-anchor="middle" fill="#57606a" font-size="18">&#8594;</text>
+
+  <!-- A ranked answer -->
+  <rect x="733" y="618" width="271" height="100" rx="8" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="868" y="639" text-anchor="middle" fill="#24292f" font-size="12" font-weight="600">A ranked answer</text>
+  <text x="868" y="656" text-anchor="middle" fill="#57606a" font-size="10">A leaderboard sorted best to worst, the</text>
+  <text x="868" y="669" text-anchor="middle" fill="#57606a" font-size="10">reproducible code behind every row, and the</text>
+  <text x="868" y="682" text-anchor="middle" fill="#57606a" font-size="10">winner ready to be used for forecasting or</text>
+  <text x="868" y="695" text-anchor="middle" fill="#57606a" font-size="10">further tuning.</text>
+
+  <text x="520" y="739" text-anchor="middle" fill="#57606a" font-size="11">The ranking is a plain sort of the metric column: fully deterministic and auditable. The LLM plays no part in choosing the winner.</text>
+
   <!-- ===================== ASK() BANNER ===================== -->
-  <rect x="20" y="510" width="1000" height="90" rx="12" fill="#faf5ff" stroke="#8250df"/>
-  <path d="M32,510 h976 a12,12 0 0 1 12,12 v24 h-1000 v-24 a12,12 0 0 1 12,-12 z" fill="#8250df"/>
-  <text x="36" y="533" fill="#ffffff" font-size="14" font-weight="700">LLM reasoning: available at any moment, in any workflow</text>
-  <text x="36" y="568" fill="#24292f" font-size="12">Call ask() before, during or after either path. It can take a profile, a plan,</text>
-  <text x="36" y="585" fill="#24292f" font-size="12">a result (from forecast() or backtest()), or nothing at all (pure Q&amp;A).</text>
+  <rect x="20" y="770" width="1000" height="90" rx="12" fill="#faf5ff" stroke="#8250df"/>
+  <path d="M32,770 h976 a12,12 0 0 1 12,12 v24 h-1000 v-24 a12,12 0 0 1 12,-12 z" fill="#8250df"/>
+  <text x="36" y="793" fill="#ffffff" font-size="14" font-weight="700">LLM reasoning: available at any moment, in any workflow</text>
+  <text x="36" y="828" fill="#24292f" font-size="12">Call ask() before, during or after either path. It can take a profile, a plan, a result</text>
+  <text x="36" y="845" fill="#24292f" font-size="12">(from forecast(), backtest() or compare()), or nothing at all (pure Q&amp;A).</text>
 </svg>
