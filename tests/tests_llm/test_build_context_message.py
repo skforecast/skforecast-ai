@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from skforecast_ai.llm.context import (
     build_context_message,
@@ -17,10 +16,12 @@ from skforecast_ai.llm.context import (
 
 def test_serialize_dataframe_small():
     """
-    Test that a small DataFrame (<= 30 rows) is serialized in full.
+    Test that a small DataFrame (<= 30 rows) is serialized in full and
+    reports its true row count.
     """
     df = pd.DataFrame({"pred": [1.0, 2.0, 3.0]})
     result = _serialize_dataframe(df)
+    assert "Total rows: 3 (all shown below)." in result
     assert "1.0" in result
     assert "2.0" in result
     assert "3.0" in result
@@ -39,6 +40,22 @@ def test_serialize_dataframe_large_truncated():
     assert "Per-column summary" in result
 
 
+def test_serialize_dataframe_truncated_states_row_count_and_forbids_trends():
+    """
+    Test that the truncated output reports the true row count and warns
+    against inferring trends from the head/tail sample, so a first-row to
+    last-row comparison is not reported as a progression across the
+    horizon.
+    """
+    df = pd.DataFrame({"pred": np.arange(50, dtype=float)})
+    result = _serialize_dataframe(df)
+
+    assert "Total rows: 50." in result
+    assert "the 40 interior rows were not provided" in result
+    assert "Do not describe trends, growth, or progression" in result
+    assert "do not compare an early row against a late row" in result
+
+
 def test_serialize_dataframe_truncated_summary_is_per_column():
     """
     Test that the truncated summary reports statistics per column instead of
@@ -54,11 +71,27 @@ def test_serialize_dataframe_truncated_summary_is_per_column():
     result = _serialize_dataframe(df)
 
     # Each column reports its own statistics.
-    assert "pred: min=0, max=39, mean=19.5" in result
-    assert "lower_bound: min=-5, max=34, mean=14.5" in result
-    assert "upper_bound: min=5, max=44, mean=24.5" in result
+    assert "pred: min=0.0, max=39.0, mean=19.5" in result
+    assert "lower_bound: min=-5.0, max=34.0, mean=14.5" in result
+    assert "upper_bound: min=5.0, max=44.0, mean=24.5" in result
     # The blended cross-column line must not be produced.
     assert "Summary: min=" not in result
+
+
+def test_serialize_dataframe_summary_reports_exact_values():
+    """
+    Test that the per-column summary reports exact minima and maxima.
+
+    The prompt states that everything inside `<forecast_context>` is
+    authoritative and forbids the model from computing new numbers, so a
+    rounded figure labelled `max` is a fabricated value originating in our
+    own deterministic code. With a four-significant-digit format the true
+    maximum of 1097.5 was reported as 1098.
+    """
+    df = pd.DataFrame({"pred": np.arange(40, dtype=float) * 2.5 + 1000.0})
+    result = _serialize_dataframe(df)
+
+    assert "pred: min=1000.0, max=1097.5, mean=1048.75" in result
 
 
 def test_serialize_dataframe_exactly_30_rows():
@@ -95,11 +128,10 @@ def test_build_context_message_with_predictions_and_metrics():
         predictions=predictions, metrics=metrics, send_data=True
     )
 
-    assert "## Forecast Results" in result
-    assert "### Evaluation Metrics" in result
+    assert "<evaluation_metrics>" in result
     assert "MAE" in result
     assert "1.5" in result
-    assert "### Predictions" in result
+    assert "<predictions>" in result
     assert "10.0" in result
 
 
@@ -118,11 +150,10 @@ def test_build_context_message_with_intervals():
     result = build_context_message(
         predictions=predictions,
         metrics=metrics,
-        verbosity="standard",
         send_data=True,
     )
 
-    assert "### Predictions" in result
+    assert "<predictions>" in result
     assert "lower_bound" in result
     assert "8.0" in result
     assert "12.0" in result
@@ -149,7 +180,7 @@ def test_build_context_message_plan_includes_interval_method_and_metric():
 
     result = build_context_message(plan=plan)
 
-    assert "## Forecast Plan" in result
+    assert "<forecast_plan>" in result
     assert "Prediction interval: [0.1, 0.9] (80% coverage)" in result
     assert "Interval method: bootstrapping" in result
     assert "Primary metric: mean_absolute_error" in result
@@ -188,10 +219,9 @@ def test_build_context_message_predictions_without_metrics_notes_prediction_mode
         predictions=predictions, metrics=None, send_data=True
     )
 
-    assert "## Forecast Results" in result
-    assert "### Evaluation Metrics" not in result
-    assert "no evaluation metrics were computed" in result
-    assert "### Predictions" in result
+    assert "<evaluation_metrics>" in result
+    assert "No evaluation metrics were computed" in result
+    assert "<predictions>" in result
 
 
 def test_build_context_message_empty_when_no_args():
@@ -211,9 +241,10 @@ def test_build_context_message_results_only_no_profile():
 
     result = build_context_message(predictions=predictions, metrics=metrics)
 
-    assert "## Forecast Results" in result
-    assert "## Dataset" not in result
-    assert "## Forecast Plan" not in result
+    assert "<evaluation_metrics>" in result
+    assert "<predictions>" in result
+    assert "<dataset>" not in result
+    assert "<forecast_plan>" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +274,7 @@ def test_build_context_message_send_data_false_excludes_raw_rows():
     assert "MAE" in result
     assert "1.5" in result
     # Predictions section uses summary format
-    assert "### Predictions" in result
+    assert "<predictions>" in result
     assert "Shape: 3 rows x 3 columns" in result
     # Row-level tabular format should not appear
     assert "0  10.5" not in result
@@ -325,28 +356,104 @@ def test_summarize_dataframe_includes_index_range():
 
 def test_build_context_message_cv_config_section():
     """
-    Test that build_context_message renders a 'Backtesting Configuration'
-    section when cv_config is provided.
+    Test that build_context_message renders a cross-validation section
+    when cv_config is provided.
     """
     cv_config = {
         "steps": 12,
         "initial_train_size": 100,
         "refit": False,
         "fixed_train_size": True,
+        "n_folds": 8,
     }
     result = build_context_message(cv_config=cv_config)
 
-    assert "## Backtesting Configuration" in result
+    assert "<cross_validation>" in result
     assert "- steps: 12" in result
     assert "- initial_train_size: 100" in result
     assert "- refit: False" in result
     assert "- fixed_train_size: True" in result
+    assert "- n_folds: 8" in result
 
 
 def test_build_context_message_no_cv_config_no_section():
     """
-    Test that build_context_message does NOT render the backtesting section
-    when cv_config is None.
+    Test that build_context_message does NOT render the cross-validation
+    section when cv_config is None.
     """
     result = build_context_message()
-    assert "Backtesting Configuration" not in result
+    assert "cross_validation" not in result
+
+
+# ---------------------------------------------------------------------------
+# deterministic_summary section
+# ---------------------------------------------------------------------------
+
+def test_build_context_message_renders_deterministic_summary():
+    """
+    Test that a supplied deterministic explanation is rendered in its own
+    section, so the LLM does not have to re-derive facts (such as the
+    fold count) that were already computed.
+    """
+    result = build_context_message(
+        explanation="No refit, 36-step horizon, 82 folds."
+    )
+
+    assert "<deterministic_summary>" in result
+    assert "No refit, 36-step horizon, 82 folds." in result
+
+
+def test_build_context_message_no_deterministic_summary_no_section():
+    """
+    Test that no deterministic summary section is rendered when no
+    explanation is supplied.
+    """
+    result = build_context_message(metrics=pd.DataFrame({"MAE": [1.0]}))
+    assert "deterministic_summary" not in result
+
+
+# ---------------------------------------------------------------------------
+# Tagged context block
+# ---------------------------------------------------------------------------
+
+def test_build_context_message_wraps_sections_in_forecast_context():
+    """
+    Test that every rendered section sits inside a single balanced
+    <forecast_context> block, so the deterministic payload cannot be
+    confused with the skills or with the answer the LLM produces.
+    """
+    predictions = pd.DataFrame({"pred": [1.0, 2.0]})
+    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.0]})
+
+    result = build_context_message(
+        predictions = predictions,
+        metrics     = metrics,
+        cv_config   = {"steps": 2},
+        explanation = "Summary.",
+        send_data   = True,
+    )
+
+    assert result.startswith("<forecast_context>")
+    assert result.endswith("</forecast_context>")
+    assert result.count("<forecast_context>") == 1
+    assert result.count("</forecast_context>") == 1
+
+    for tag in ["cross_validation", "deterministic_summary",
+                "evaluation_metrics", "predictions"]:
+        assert result.count(f"<{tag}>") == 1
+        assert result.count(f"</{tag}>") == 1
+
+
+def test_build_context_message_no_markdown_headings():
+    """
+    Test that the context block emits no markdown headings. Headings would
+    collide with the skills and with the expected answer format.
+    """
+    predictions = pd.DataFrame({"pred": [1.0, 2.0]})
+    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.0]})
+
+    result = build_context_message(
+        predictions=predictions, metrics=metrics, send_data=True
+    )
+
+    assert "##" not in result

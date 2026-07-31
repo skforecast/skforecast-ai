@@ -176,7 +176,7 @@ result = assistant.forecast(
 
 answer = assistant.ask(
     prompt = "Why was this estimator chosen, and what could improve accuracy?",
-    forecast_result=result,
+    result=result,
 )
 answer
 ```

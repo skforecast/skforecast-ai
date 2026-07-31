@@ -8,31 +8,7 @@
 ################################################################################
 
 from ..schemas import DataProfile, ForecastPlan
-
-# Mapping from pandas frequency strings to seasonal period (m)
-_FREQUENCY_TO_M: dict[str, int] = {
-    "min": 60,
-    "5min": 288,
-    "10min": 144,
-    "15min": 96,
-    "30min": 48,
-    "h": 24,
-    "2h": 12,
-    "4h": 6,
-    "6h": 4,
-    "D": 7,
-    "2D": 7,
-    "B": 5,
-    "W": 52,
-    "W-SUN": 52,
-    "W-MON": 52,
-    "MS": 12,
-    "ME": 12,
-    "QS": 4,
-    "QE": 4,
-    "YS": 1,
-    "YE": 1,
-}
+from .._constants import FREQUENCY_TO_SEASONAL_PERIOD
 
 _ESTIMATOR_IMPORTS: dict[str, str] = {
     "LGBMRegressor": "from lightgbm import LGBMRegressor",
@@ -96,7 +72,7 @@ def _get_seasonal_period(frequency: str | None) -> int | None:
     """Return seasonal period m for the given pandas frequency string."""
     if frequency is None:
         return None
-    return _FREQUENCY_TO_M.get(frequency)
+    return FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
 
 
 def _get_interval_repr(plan: ForecastPlan) -> str:

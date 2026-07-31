@@ -17,7 +17,7 @@ from skforecast.exceptions import IgnoredArgumentWarning
 
 from ._constants import ALLOWED_WINDOW_STATS, MAX_FEATURE_FRACTION
 from .profiling.data_profile import _try_parse_first_date_column
-from .schemas import DataProfile, ForecastPlan
+from .schemas import DataProfile, ForecastingProfile, ForecastPlan
 
 _CODE_BLOCK_RE = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
 _CODE_BLOCK_REPLACEMENT = "(See `result.code` for the validated implementation.)"
@@ -196,7 +196,9 @@ def _count_cv_folds(
 
     The `window_size` of `cv` is unset here (no forecaster attached yet),
     so skforecast emits an `IgnoredArgumentWarning` about the last window.
-    It is irrelevant for counting folds and is suppressed.
+    It is irrelevant for counting folds and is suppressed. The `verbose`
+    setting of `cv` is also temporarily disabled so a user-supplied
+    splitter does not print its fold report, and restored on exit.
 
     Parameters
     ----------
@@ -226,9 +228,17 @@ def _count_cv_folds(
     else:
         index = pd.RangeIndex(n_observations)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
-        folds = cv.split(X=index, as_pandas=False)
+    # `cv` may be user-supplied with `verbose=True`, in which case `split`
+    # prints a full fold report. Counting folds is an internal diagnostic,
+    # so silence it and restore the original setting afterwards.
+    original_verbose = cv.verbose
+    cv.verbose = False
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
+            folds = cv.split(X=index, as_pandas=False)
+    finally:
+        cv.verbose = original_verbose
 
     return len(folds)
 
@@ -393,6 +403,71 @@ def _warn_if_plan_overrides_ignored(
             f"A pre-built `plan` was provided, so the following argument(s) "
             f"are ignored: {ignored}. To change these, refine the plan with "
             f"`refine_plan()` before calling.",
+            IgnoredArgumentWarning,
+        )
+
+
+def _warn_if_result_inputs_ignored(
+    data: pd.Series | pd.DataFrame | str | Path | None,
+    target: str | list[str] | None,
+    date_column: str | None,
+    series_id_column: str | None,
+    profile: ForecastingProfile | None,
+    plan: ForecastPlan | None,
+    steps: int | None,
+) -> None:
+    """
+    Warn when deterministic inputs are ignored due to a supplied result.
+
+    When a `result` is passed to `ask()`, the result is the single source
+    of truth: it already carries the profile, the plan, and the generated
+    code it was produced with, and it renders its own LLM context. Every
+    argument that only feeds the deterministic profiling and planning
+    stage is therefore dropped. This emits an `IgnoredArgumentWarning`
+    naming each dropped argument, so the caller is never left believing
+    that a profile or plan they passed shaped the answer.
+
+    Parameters
+    ----------
+    data : pandas Series, pandas DataFrame, str, Path, None
+        Dataset that would be profiled.
+    target : str, list of str, None
+        Target column(s) used for profiling.
+    date_column : str, None
+        Timestamp column used for profiling.
+    series_id_column : str, None
+        Series identifier column used for profiling.
+    profile : ForecastingProfile, None
+        Profile that would replace the result's own profile.
+    plan : ForecastPlan, None
+        Plan that would replace the result's own plan.
+    steps : int, None
+        Forecast horizon used to build a plan.
+
+    Returns
+    -------
+    None
+    """
+
+    ignored = [
+        name
+        for name, value in (
+            ("data", data),
+            ("target", target),
+            ("date_column", date_column),
+            ("series_id_column", series_id_column),
+            ("profile", profile),
+            ("plan", plan),
+            ("steps", steps),
+        )
+        if value is not None
+    ]
+    if ignored:
+        warnings.warn(
+            f"A `result` was provided, so the following argument(s) are "
+            f"ignored: {ignored}. The result already carries the profile, "
+            f"plan, and code it was produced with. To ask about a different "
+            f"profile or plan, call `ask()` without `result`.",
             IgnoredArgumentWarning,
         )
 

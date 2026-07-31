@@ -1,0 +1,50 @@
+<forecast_context>
+<dataset>
+- Observations: 100
+- Series: 1
+- Frequency: D
+- Target: sales
+- Exogenous columns: none
+</dataset>
+<profile_decision>
+A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 observations, 'D' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation', 'ForecasterStats']. Estimator: Ridge. A linear model is preferred because the dataset is small (100 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+</profile_decision>
+<comparison_overview>
+- Candidates evaluated: 2
+- Ranking metric: MAE
+- Winner: candidate_01
+The ranking is a deterministic ascending sort of the MAE column (lower is better). Do not re-rank the candidates or recompute the table.
+</comparison_overview>
+<leaderboard>
+Candidates listed: 2 (all shown below).
+   rank          name           forecaster estimator  MAE
+0     1  candidate_01  ForecasterRecursive     Ridge  1.5
+1     2  candidate_02  ForecasterRecursive     Ridge  2.5
+</leaderboard>
+<cross_validation>
+Applied identically to every candidate.
+- steps: 5
+- initial_train_size: 70
+- refit: False
+- fixed_train_size: True
+- gap: 0
+- n_folds: 6
+</cross_validation>
+<deterministic_summary>
+Compared 2 configurations, ranked ascending by MAE.
+</deterministic_summary>
+<winning_candidate>
+Name: candidate_01
+Only the winning configuration is detailed below. The other candidates are represented by their leaderboard rows.
+<forecast_plan>
+- Steps: 5
+- Estimator: Ridge
+- Lags: [1, 2, 3, 4, 5, 7]
+- Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 7}, {'stats': ['mean'], 'window_size': 21}]
+- Primary metric: mean_absolute_error
+- Plan: ForecasterRecursive + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). NaN rows kept (NaN-tolerant estimator). MAE is interpretable, robust to outliers, and works at any scale.
+
+Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
+</forecast_plan>
+</winning_candidate>
+</forecast_context>

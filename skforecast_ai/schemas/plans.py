@@ -6,7 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field
 from .._constants import WindowStat
 from .._display import DisplayMixin, render_plan
@@ -244,6 +244,8 @@ class ForecastPlan(DisplayMixin, BaseModel):
     explanation : str
         Explanation of the plan-level decisions.
     """
+
+    _explanation_title: ClassVar[str] = "Plan Explanation"
 
     task_type: Literal[
         "single_series",

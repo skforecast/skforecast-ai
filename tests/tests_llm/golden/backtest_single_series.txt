@@ -1,0 +1,56 @@
+<forecast_context>
+<dataset>
+- Observations: 100
+- Series: 1
+- Frequency: D
+- Target: sales
+- Exogenous columns: none
+</dataset>
+<profile_decision>
+A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 observations, 'D' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation', 'ForecasterStats']. Estimator: Ridge. A linear model is preferred because the dataset is small (100 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+</profile_decision>
+<forecast_plan>
+- Steps: 5
+- Estimator: Ridge
+- Lags: [1, 2, 3, 4, 5, 7]
+- Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 7}, {'stats': ['mean'], 'window_size': 21}]
+- Primary metric: mean_absolute_error
+- Plan: ForecasterRecursive + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). NaN rows kept (NaN-tolerant estimator). MAE is interpretable, robust to outliers, and works at any scale.
+
+Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
+</forecast_plan>
+<cross_validation>
+- steps: 5
+- initial_train_size: 70
+- refit: False
+- fixed_train_size: True
+- gap: 0
+- n_folds: 6
+</cross_validation>
+<deterministic_summary>
+Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting.
+</deterministic_summary>
+<evaluation_metrics>
+series  MAE  MSE  MASE
+ sales  2.5 9.25   0.8
+</evaluation_metrics>
+<predictions>
+Total rows: 40. Only the first 5 and last 5 rows are shown; the 30 interior rows were not provided. Do not describe trends, growth, or progression across the horizon from these rows, and do not compare an early row against a late row as if they were adjacent. Use the per-column summary below for any statement about the full set of rows.
+
+              pred
+2023-03-02  1000.0
+2023-03-03  1002.5
+2023-03-04  1005.0
+2023-03-05  1007.5
+2023-03-06  1010.0
+... (30 rows omitted) ...
+2023-04-06  1087.5
+2023-04-07  1090.0
+2023-04-08  1092.5
+2023-04-09  1095.0
+2023-04-10  1097.5
+
+Per-column summary (all rows):
+  pred: min=1000.0, max=1097.5, mean=1048.75
+</predictions>
+</forecast_context>

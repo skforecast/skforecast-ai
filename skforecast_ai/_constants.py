@@ -14,6 +14,37 @@ from typing import Literal, get_args
 # the deterministic PACF-based selection.
 MAX_FEATURE_FRACTION = 0.33
 
+# ---------------------------------------------------------------------------
+# LLM context rendering limits
+# ---------------------------------------------------------------------------
+
+# A DataFrame with at most this many rows is sent to the LLM in full.
+# Beyond it, only the head and tail are sent plus a per-column summary.
+MAX_CONTEXT_DATAFRAME_ROWS = 30
+
+# Rows kept at each end when a DataFrame exceeds the cap above.
+CONTEXT_HEAD_TAIL_ROWS = 5
+
+# Leaderboard rows kept when a comparison has many candidates. The table
+# is already sorted by the ranking metric, so the top rows are the ones a
+# ranking question needs; the tail carries no extra information.
+MAX_LEADERBOARD_ROWS = 15
+
+# ---------------------------------------------------------------------------
+# Prompt budgeting
+# ---------------------------------------------------------------------------
+
+# Context window assumed for local Ollama models. Hosted providers expose
+# provider-specific windows, so no budget is imposed for them.
+OLLAMA_MAX_CONTEXT_TOKENS = 32768
+
+# Tokens held back for the model's own answer when budgeting the prompt.
+RESERVED_RESPONSE_TOKENS = 2048
+
+# Ceiling for the static role prompt. It is paid on every call and is not
+# trimmable, so it must not grow into the budget reserved for skills.
+MAX_STATIC_PROMPT_TOKENS = 1200
+
 MULTI_SERIES_FORECASTERS: set[str] = {
     "ForecasterRecursiveMultiSeries",
 }
@@ -34,6 +65,46 @@ FOUNDATION_FORECASTERS: set[str] = {
 STATS_FORECASTERS: set[str] = {
     "ForecasterStats",
 }
+
+# Forecasting task category implied by each supported forecaster
+FORECASTER_TASK_TYPES: dict[str, str] = {
+    "ForecasterRecursive": "single_series",
+    "ForecasterDirect": "single_series",
+    "ForecasterRecursiveMultiSeries": "multi_series",
+    "ForecasterDirectMultiVariate": "multivariate",
+    "ForecasterStats": "statistical",
+    "ForecasterFoundation": "foundation",
+}
+
+# Mapping from pandas frequency strings to seasonal period (m)
+FREQUENCY_TO_SEASONAL_PERIOD: dict[str, int] = {
+    "min": 60,
+    "5min": 288,
+    "10min": 144,
+    "15min": 96,
+    "30min": 48,
+    "h": 24,
+    "2h": 12,
+    "4h": 6,
+    "6h": 4,
+    "D": 7,
+    "2D": 7,
+    "B": 5,
+    "W": 52,
+    "W-SUN": 52,
+    "W-MON": 52,
+    "MS": 12,
+    "ME": 12,
+    "QS": 4,
+    "QE": 4,
+    "YS": 1,
+    "YE": 1,
+}
+
+# Seasonal period from which the Auto-ARIMA search becomes impractical.
+# Its cost grows with both the seasonal period and the series length, so
+# ForecasterStats is not recommended automatically at or above this value.
+MAX_STATS_SEASONAL_PERIOD = 24
 
 AUTOREG_FORECASTERS: set[str] = {
     "ForecasterRecursive",

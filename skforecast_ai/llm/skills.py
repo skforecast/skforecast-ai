@@ -10,6 +10,8 @@ import logging
 import re
 from functools import lru_cache
 from pathlib import Path
+from .._constants import RESERVED_RESPONSE_TOKENS
+from .prompts import _STATIC_ROLE_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +111,13 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
 }
 
 _REFERENCE_TOKEN_ESTIMATE = 7746  # llms-base.txt measured size
-_STATIC_PROMPT_TOKEN_ESTIMATE = 200
+
+# Derived from the prompt rather than hardcoded. A hardcoded figure has to
+# be re-measured by hand after every prompt edit, and silently understates
+# the budget until someone does. `MAX_STATIC_PROMPT_TOKENS` is the ceiling
+# that keeps the role prompt from crowding out the skills, and is asserted
+# in the test suite.
+_STATIC_PROMPT_TOKEN_ESTIMATE = len(_STATIC_ROLE_PROMPT) // 4
 
 
 @lru_cache(maxsize=None)
@@ -287,3 +295,69 @@ def estimate_prompt_tokens(
     if include_reference:
         total += _REFERENCE_TOKEN_ESTIMATE
     return total
+
+
+def estimate_context_tokens(text: str) -> int:
+    """
+    Estimate the token cost of a rendered context block or user message.
+
+    Uses the same four-characters-per-token approximation as the measured
+    skill estimates, so the two are comparable when budgeting.
+
+    Parameters
+    ----------
+    text : str
+        Rendered text.
+
+    Returns
+    -------
+    tokens : int
+        Estimated token count.
+    """
+
+    return len(text) // 4
+
+
+def compute_skill_token_budget(
+    max_context_tokens: int,
+    context_tokens: int,
+    include_reference: bool = False,
+) -> int:
+    """
+    Compute how many tokens are left for skill content.
+
+    The static role prompt, the rendered context, the optional API
+    reference, and the space reserved for the model's answer are all
+    fixed costs: none of them can be trimmed at selection time. Whatever
+    remains of the context window is what `select_skills` may spend.
+
+    Without this, the cheap static half of the prompt is budgeted while
+    the dynamic half is not, and a large context silently pushes the
+    total past the window.
+
+    Parameters
+    ----------
+    max_context_tokens : int
+        Size of the model's context window.
+    context_tokens : int
+        Estimated tokens already spent on the user message, including the
+        rendered context block. See `estimate_context_tokens`.
+    include_reference : bool, default False
+        Whether the API reference will be included.
+
+    Returns
+    -------
+    budget : int
+        Tokens available for skills. Zero when the fixed costs already
+        exceed the window.
+    """
+
+    spent = (
+        _STATIC_PROMPT_TOKEN_ESTIMATE
+        + context_tokens
+        + RESERVED_RESPONSE_TOKENS
+    )
+    if include_reference:
+        spent += _REFERENCE_TOKEN_ESTIMATE
+
+    return max(0, max_context_tokens - spent)

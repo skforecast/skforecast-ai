@@ -857,3 +857,144 @@ class TestBacktest:
         assert "Backtest Metrics" in result.output
         assert "series_a" in result.output
         assert "series_b" in result.output
+
+
+# ---------------------------------------------------------------------------
+# _parse_candidates helper
+# ---------------------------------------------------------------------------
+
+
+class TestParseCandidates:
+    """Tests for the `_parse_candidates` CLI helper."""
+
+    def test_parse_candidates_output_when_none(self):
+        from skforecast_ai.cli import _parse_candidates
+
+        assert _parse_candidates(None) is None
+
+    def test_parse_candidates_output_when_array_of_pairs(self):
+        from skforecast_ai.cli import _parse_candidates
+
+        parsed = _parse_candidates(
+            '[["rec", {"forecaster": "ForecasterRecursive"}]]'
+        )
+        assert parsed == [("rec", {"forecaster": "ForecasterRecursive"})]
+
+    def test_parse_candidates_output_when_object_mapping(self):
+        from skforecast_ai.cli import _parse_candidates
+
+        parsed = _parse_candidates(
+            '{"rec": {"forecaster": "ForecasterRecursive"}}'
+        )
+        assert parsed == [("rec", {"forecaster": "ForecasterRecursive"})]
+
+    def test_parse_candidates_BadParameter_when_invalid_json(self):
+        from skforecast_ai.cli import _parse_candidates
+
+        with pytest.raises(typer.BadParameter):
+            _parse_candidates("{not json}")
+
+    def test_parse_candidates_BadParameter_when_entry_not_pair(self):
+        from skforecast_ai.cli import _parse_candidates
+
+        with pytest.raises(typer.BadParameter, match="name, config"):
+            _parse_candidates('[["only_one"]]')
+
+
+# ---------------------------------------------------------------------------
+# compare command
+# ---------------------------------------------------------------------------
+
+
+class TestCompare:
+    """Tests for the `compare` CLI command."""
+
+    _candidates = (
+        '[["rec", {"forecaster": "ForecasterRecursive"}], '
+        '["dir", {"forecaster": "ForecasterDirect", "estimator": "Ridge", '
+        '"lags": [1, 2, 3]}]]'
+    )
+
+    def test_compare_basic(self, tmp_path):
+        """
+        Compare command prints the leaderboard and CV configuration.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["compare", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--initial-train-size", "70",
+             "--candidates", self._candidates, "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Comparison Results" in result.output
+        assert "Cross-Validation Configuration" in result.output
+
+    def test_compare_json_format(self, tmp_path):
+        """
+        Compare --format json outputs valid JSON with expected keys.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["compare", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--initial-train-size", "70",
+             "--candidates", self._candidates,
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert "results" in data
+        assert "cv_config" in data
+        assert "ranking_metric" in data
+        assert "candidates" in data
+        assert "best_name" in data
+        assert "failures" in data
+        assert "explanation" in data
+        assert len(data["results"]) == 2
+        assert data["best_name"] in data["candidates"]
+
+    def test_compare_output_code_writes_winning_script(self, tmp_path):
+        """
+        Compare --output-code writes the winning configuration's script.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        code_path = tmp_path / "best.py"
+        result = runner.invoke(
+            app,
+            ["compare", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--initial-train-size", "70",
+             "--candidates", self._candidates,
+             "--output-code", str(code_path), "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        assert code_path.exists()
+        ast.parse(code_path.read_text())
+
+    def test_compare_missing_steps(self, tmp_path):
+        """
+        Compare without --steps shows an error.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["compare", csv_path, "--target", "sales", "--date-column", "date"],
+        )
+        assert result.exit_code == 1
+
+    def test_compare_metric_override(self, tmp_path):
+        """
+        Compare --metric restricts the ranking to the requested metric.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["compare", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--initial-train-size", "70",
+             "--candidates", self._candidates,
+             "--metric", "mean_absolute_scaled_error",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ranking_metric"] == "mean_absolute_scaled_error"

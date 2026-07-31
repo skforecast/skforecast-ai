@@ -6,7 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
-from typing import Literal
+from typing import ClassVar, Literal
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .._display import DisplayMixin, render_profile
@@ -294,6 +294,8 @@ class ForecastingProfile(DisplayMixin, BaseModel):
         Human-readable explanation of why this forecaster + estimator
         combination was chosen.
     """
+
+    _explanation_title: ClassVar[str] = "Profile Explanation"
 
     data_profile: DataProfile
     task_type: Literal[
