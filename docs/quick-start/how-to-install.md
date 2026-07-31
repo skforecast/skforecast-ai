@@ -18,7 +18,7 @@ pip install skforecast-ai
 Specific version:
 
 ```bash
-pip install skforecast-ai==0.1.0
+pip install skforecast-ai==0.2.0
 ```
 
 Latest (unstable):

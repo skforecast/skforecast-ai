@@ -328,6 +328,19 @@ plan_statistical = ForecastPlan(
     explanation="Auto-ARIMA statistical forecasting.",
 )
 
+plan_statistical_exog = ForecastPlan(
+    task_type="statistical",
+    forecaster="ForecasterStats",
+    forecaster_kwargs={},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=True,
+    end_train="2023-03-12",
+    explanation="Auto-ARIMA statistical forecasting with exogenous variables.",
+)
+
 plan_statistical_with_intervals = ForecastPlan(
     task_type="statistical",
     forecaster="ForecasterStats",

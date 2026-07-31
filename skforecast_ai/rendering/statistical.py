@@ -18,9 +18,40 @@ from ._helpers import (
     _emit_preprocessing_steps,
     _emit_production_note,
     _get_interval_repr,
+    _get_numeric_exog,
     _get_seasonal_period,
     _get_target_str,
 )
+
+
+def _emit_exog_features_statistical(
+    lines: list[str],
+    profile: DataProfile,
+) -> None:
+    """
+    Append the `exog_features` assignment used by ForecasterStats.
+
+    Statistical models (ARIMA, SARIMAX, ETS) only accept numeric
+    exogenous variables, so categorical columns are excluded and the
+    exclusion is documented in the generated code.
+
+    Parameters
+    ----------
+    lines : list of str
+        Code lines to append to (modified in place).
+    profile : DataProfile
+        Profiled dataset metadata.
+
+    Returns
+    -------
+    None
+    """
+    if profile.categorical_exog:
+        lines.append(
+            f"# Categorical exog excluded ({', '.join(profile.categorical_exog)}): "
+            f"statistical models only accept numeric exogenous variables"
+        )
+    lines.append(f"exog_features = {repr(_get_numeric_exog(profile))}")
 
 
 def _emit_forecaster_creation_statistical(
@@ -52,7 +83,7 @@ def render_forecast_statistical(
     """Render code for ForecasterStats (Auto-ARIMA)."""
 
     target = _get_target_str(profile)
-    exog_columns = profile.exog_columns
+    exog_columns = _get_numeric_exog(profile)
 
     import_lines: list[str] = []
     loading_lines: list[str] = []
@@ -84,7 +115,7 @@ def render_forecast_statistical(
         core_lines.append("data_train = data.loc[:end_train]")
         core_lines.append("data_test  = data.loc[data.index > end_train]")
         if use_exog:
-            core_lines.append(f"exog_features = {repr(exog_columns)}")
+            _emit_exog_features_statistical(core_lines, profile)
         core_lines.append("")
         core_lines.append("print(")
         core_lines.append(
@@ -100,7 +131,7 @@ def render_forecast_statistical(
         core_lines.append(")")
         core_lines.append("")
     elif use_exog:
-        core_lines.append(f"exog_features = {repr(exog_columns)}")
+        _emit_exog_features_statistical(core_lines, profile)
         core_lines.append("")
 
     # --- Create forecaster ---

@@ -12,6 +12,8 @@
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/skforecast-ai?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/skforecast-ai)
 [![Downloads](https://img.shields.io/pypi/dm/skforecast-ai?style=flat-square&color=blue&label=downloads%2Fmonth)](https://pypistats.org/packages/skforecast-ai)
 [![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE)
+[![Build status](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml)
+[![codecov](https://codecov.io/gh/skforecast/skforecast-ai/branch/main/graph/badge.svg)](https://codecov.io/gh/skforecast/skforecast-ai)
 [![paypal](https://img.shields.io/static/v1?style=social&amp;label=Donate&amp;message=%E2%9D%A4&amp;logo=Paypal&amp;color&amp;link=%3curl%3e)](https://www.paypal.com/donate/?hosted_button_id=D2JZSWRLTZDL6)
 [![buymeacoffee](https://img.shields.io/badge/-Buy_me_a%C2%A0coffee-gray?logo=buy-me-a-coffee)](https://www.buymeacoffee.com/skforecast)
 ![GitHub Sponsors](https://img.shields.io/github/sponsors/joaquinamatrodrigo?logo=github&label=Github%20sponsors&link=https%3A%2F%2Fgithub.com%2Fsponsors%2FJoaquinAmatRodrigo)
@@ -190,7 +192,7 @@ The `ask()` method is available in both workflows. It can explain a profile, pla
   <!-- ask() banner -->
   <div style="box-sizing:border-box; margin-top:16px; border:1px solid #8250df; border-radius:12px; overflow:hidden;">
     <div style="box-sizing:border-box; background:#8250df; color:#ffffff; padding:10px 16px; font-size:15px; font-weight:700;">LLM reasoning: available at any moment, in any workflow</div>
-    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. It can take a <code>profile</code>, a <code>plan</code>, a <code>forecast_result</code>, a <code>backtest_result</code>, or nothing at all (pure Q&amp;A).</div>
+    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. It can take a <code>profile</code>, a <code>plan</code>, a <code>result</code> (from <code>forecast()</code> or <code>backtest()</code>), or nothing at all (pure Q&amp;A).</div>
   </div>
 </div>
 
@@ -209,13 +211,13 @@ If you use `skforecast-ai` in your work, please cite the underlying `skforecast`
 **Zenodo**
 
 ```
-Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast-ai (Version 0.1.0). Zenodo. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast-ai (Version 0.2.0). Zenodo. https://doi.org/10.5281/zenodo.21338159
 ```
 
 **APA**
 
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.1.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.2.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
 **BibTeX**
@@ -224,7 +226,7 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.1.0) [Com
 @software{skforecast-ai,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast-ai},
-  version = {0.1.0},
+  version = {0.2.0},
   month   = {7},
   year    = {2026},
   license = {Apache-2.0},

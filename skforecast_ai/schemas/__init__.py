@@ -5,23 +5,33 @@ from .profiles import DataProfile, ForecastingProfile, SeriesLengthInfo, SeriesP
 from .results import (
     AskResult,
     BacktestResult,
+    CandidateFailure,
     CodeGenerationResult,
+    ComparisonResult,
+    ExplainableResult,
     ForecastResult,
+    LLMContext,
     RenderedScript,
+    SingleRunResult,
 )
 
 __all__ = [
     "AskResult",
     "BacktestResult",
+    "CandidateFailure",
     "CodeGenerationResult",
+    "ComparisonResult",
     "CVParams",
     "DataProfile",
+    "ExplainableResult",
     "ForecastingProfile",
     "ForecastPlan",
     "ForecastResult",
+    "LLMContext",
     "PlanOverrides",
     "PreprocessingStep",
     "RenderedScript",
     "SeriesLengthInfo",
     "SeriesPacf",
+    "SingleRunResult",
 ]

@@ -126,12 +126,58 @@ def test_agent_returns_str():
     deps = AskDeps(
         profile=None,
         plan=None,
-        question="What is skforecast?",
+        skills=["choosing-a-forecaster"],
         include_reference=False,
-        skills_override=["choosing-a-forecaster"],
     )
     result = agent.run_sync("What is skforecast?", deps=deps)
     assert isinstance(result.output, str)
+
+
+def test_AskDeps_TypeError_when_skills_not_provided():
+    """
+    Test that `AskDeps` cannot be built without a skill list. Selection
+    lives in `ask()`, which needs the resolved list to budget the prompt;
+    letting the agent fall back to its own selection would give two
+    places where the answer can change.
+    """
+    pytest.importorskip("pydantic_ai")
+
+    from skforecast_ai.llm.agent import AskDeps
+
+    with pytest.raises(TypeError):
+        AskDeps(profile=None, plan=None)
+
+
+def test_agent_loads_the_skills_carried_by_deps():
+    """
+    Test that the dynamic instructions load exactly the skills listed on
+    `AskDeps`, with no re-selection based on the question.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai.llm.agent import AskDeps, create_forecasting_agent
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        return ModelResponse(parts=[TextPart(content="ok")])
+
+    agent = create_forecasting_agent(FunctionModel(respond))
+    deps = AskDeps(
+        profile = None,
+        plan    = None,
+        skills  = ["drift-detection"],
+    )
+    # The question mentions intervals, which the keyword router would map
+    # to `prediction-intervals`. It must not be loaded.
+    agent.run_sync("How do I build prediction intervals?", deps=deps)
+
+    instructions = captured["instructions"]
+    assert "### drift-detection" in instructions
+    assert "### prediction-intervals" not in instructions
 
 
 def test_agent_has_no_tools():
@@ -186,3 +232,55 @@ def test_plan_refinement_agent_injects_max_allowed_budget():
 
     # 100 observations -> budget is int(100 * 0.33) = 33.
     assert "Max allowed lag / window size (hard limit): 33" in captured["instructions"]
+
+
+def test_cv_agent_injects_dataset_context():
+    """
+    Test that the CV agent's dynamic instructions reach the model. The
+    builder used to assemble the context and never return it, so the agent
+    ran with no observation count, no frequency, no minimum training size,
+    and no backtesting skill, leaving its own rules unenforceable.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai.llm.agent import CVDeps, create_cv_agent
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        tool_name = info.output_tools[0].name
+        return ModelResponse(
+            parts=[ToolCallPart(
+                tool_name=tool_name,
+                args={
+                    "initial_train_size": 60,
+                    "reasoning": "Leaves room for several folds.",
+                },
+            )]
+        )
+
+    agent = create_cv_agent(FunctionModel(respond))
+    deps = CVDeps(
+        n_observations = 100,
+        frequency      = "D",
+        steps          = 10,
+        task_type      = "single_series",
+        lags           = [1, 2, 3, 24],
+    )
+    agent.run_sync("Retrain weekly.", deps=deps)
+
+    instructions = captured["instructions"]
+    assert "- Total observations: 100" in instructions
+    assert "- Frequency: D" in instructions
+    assert "- Forecast horizon (steps): 10" in instructions
+    assert "- Task type: single_series" in instructions
+    # max_lag is 24, so the minimum viable training size is 2 * 24.
+    assert "- Minimum viable initial_train_size: 48" in instructions
+    # 100 - 2 * 10 observations still leave room for two folds.
+    assert "Maximum initial_train_size for" in instructions
+    assert "80" in instructions
+    # The backtesting-configuration skill is appended as a reference.
+    assert "## Reference" in instructions

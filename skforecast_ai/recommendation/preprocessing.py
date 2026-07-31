@@ -371,18 +371,35 @@ def derive_preprocessing_steps(
 
     # --- Categorical exogenous variables ---
     if profile.categorical_exog:
-        steps.append(PreprocessingStep(
-            action="handle_categorical_exog",
-            reason=(
-                f"Categorical exogenous variables detected: "
-                f"{profile.categorical_exog}. These are handled "
-                f"automatically by skforecast (categorical_features='auto')."
-            ),
-            code_snippet=(
-                "# skforecast handles categorical variables automatically\n"
-                "# with categorical_features='auto' (default)."
-            ),
-            blocking=False,
-        ))
+        if forecaster == "ForecasterStats":
+            steps.append(PreprocessingStep(
+                action="handle_categorical_exog",
+                reason=(
+                    f"Categorical exogenous variables detected: "
+                    f"{profile.categorical_exog}. Statistical models only "
+                    f"accept numeric exogenous variables, so these columns "
+                    f"are excluded. Encode them manually to include them."
+                ),
+                code_snippet=(
+                    "# Categorical exog is excluded from the statistical model.\n"
+                    "# To include it, encode it as numeric first, e.g.:\n"
+                    "# data = pd.get_dummies(data, columns=[...], dtype=float)"
+                ),
+                blocking=False,
+            ))
+        else:
+            steps.append(PreprocessingStep(
+                action="handle_categorical_exog",
+                reason=(
+                    f"Categorical exogenous variables detected: "
+                    f"{profile.categorical_exog}. These are handled "
+                    f"automatically by skforecast (categorical_features='auto')."
+                ),
+                code_snippet=(
+                    "# skforecast handles categorical variables automatically\n"
+                    "# with categorical_features='auto' (default)."
+                ),
+                blocking=False,
+            ))
 
     return steps

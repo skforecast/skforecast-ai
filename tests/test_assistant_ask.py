@@ -1,15 +1,22 @@
 # Unit test ask ForecastingAssistant
 
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast_ai import ForecastingAssistant, LLMRequiredError
+from skforecast.exceptions import IgnoredArgumentWarning
+
+from skforecast_ai import (
+    DataSentToLLMWarning,
+    ForecastingAssistant,
+    LLMRequiredError,
+)
 from skforecast_ai.schemas import AskResult, ForecastResult, BacktestResult
 
-from tests.fixtures_assistant import df_single, patch_agent
+from tests.fixtures_assistant import df_single, make_comparison_result, patch_agent
 
 
 # =============================================================================
@@ -125,9 +132,9 @@ def test_ask_explain_mode_output_when_data_provided(monkeypatch):
     )
 
     # Context message carries the dataset, plan, and question sections.
-    assert "## Dataset" in capture["message"]
-    assert "## Forecast Plan" in capture["message"]
-    assert "## Question" in capture["message"]
+    assert "<dataset>" in capture["message"]
+    assert "<forecast_plan>" in capture["message"]
+    assert "<question>\nExplain this plan\n</question>" in capture["message"]
 
     assert isinstance(result, AskResult)
     assert result.profile is not None
@@ -188,8 +195,45 @@ def test_ask_output_when_precomputed_profile(monkeypatch):
 
 
 # =============================================================================
-# Tests: results mode (forecast_result provided)
+# Tests: results mode (result provided)
 # =============================================================================
+def test_ask_DataSentToLLMWarning_when_send_data_to_llm_is_false(monkeypatch):
+    """
+    Test that overriding `send_data_to_llm=False` in results mode is
+    announced. The override is deliberate, but a user who disabled data
+    sharing for privacy reasons would otherwise ship predicted values off
+    the machine without being told.
+    """
+    assistant = ForecastingAssistant(
+        llm="openai:fake-model", send_data_to_llm=False
+    )
+    comparison = make_comparison_result(assistant)
+    patch_agent(monkeypatch, assistant, output="ForecasterRecursive won.")
+
+    err_msg = re.escape(
+        "`send_data_to_llm=False` does not apply to `result`: the predicted "
+        "values it carries are sent to the LLM"
+    )
+    with pytest.warns(DataSentToLLMWarning, match=err_msg):
+        assistant.ask(prompt="Why did it win?", result=comparison)
+
+
+def test_ask_no_DataSentToLLMWarning_when_send_data_to_llm_is_true(monkeypatch):
+    """
+    Test that the override warning is silent when data sharing is already
+    enabled, since nothing is being overridden.
+    """
+    assistant = ForecastingAssistant(
+        llm="openai:fake-model", send_data_to_llm=True
+    )
+    comparison = make_comparison_result(assistant)
+    patch_agent(monkeypatch, assistant, output="ForecasterRecursive won.")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DataSentToLLMWarning)
+        assistant.ask(prompt="Why did it win?", result=comparison)
+
+
 def test_ask_output_when_forecast_result_provided(monkeypatch):
     """
     Test that ask() in Results mode passes predictions and metrics to the
@@ -222,13 +266,12 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
 
     result = assistant.ask(
         prompt="Explain the predictions",
-        forecast_result=mock_forecast_result,
+        result=mock_forecast_result,
     )
 
     # Context message carries the results sections and metric values.
-    assert "## Forecast Results" in capture["message"]
-    assert "Predictions" in capture["message"]
-    assert "Evaluation Metrics" in capture["message"]
+    assert "<predictions>" in capture["message"]
+    assert "<evaluation_metrics>" in capture["message"]
     assert "MAE" in capture["message"]
 
     assert result.profile is profile
@@ -272,7 +315,7 @@ def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
 
     result = assistant.ask(
         prompt="Explain the intervals",
-        forecast_result=mock_forecast_result,
+        result=mock_forecast_result,
     )
 
     # Interval columns are surfaced in the context message.
@@ -347,7 +390,6 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
         code="# mock code",
         metrics=metrics,
         predictions=predictions,
-        intervals=None,
     )
 
     capture = {}
@@ -360,7 +402,7 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
 
     result = assistant.ask(
         prompt="Summarize the predictions",
-        forecast_result=mock_forecast_result,
+        result=mock_forecast_result,
     )
 
     # Large prediction tables are truncated in the context message.
@@ -370,70 +412,171 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
 
 
 # =============================================================================
-# Tests: backtest mode (backtest_result provided)
+# Tests: results mode validation and backtest results
 # =============================================================================
-def test_ask_ValueError_when_both_results_provided():
+def test_ask_TypeError_when_result_wrong_type():
     """
-    Test that ask() raises ValueError when both forecast_result and
-    backtest_result are provided (mutually exclusive).
+    Test that ask() raises TypeError when `result` is not an
+    `ExplainableResult`.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
 
-    profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=5)
-
-    predictions = pd.DataFrame({"pred": [10.0, 11.0]})
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.0]})
-
-    forecast_res = ForecastResult(
-        profile=profile, plan=plan, code="# fc",
-        metrics=metrics, predictions=predictions, intervals=None,
+    err_msg = re.escape(
+        "`result` must be an `ExplainableResult` (for example "
+        "`ForecastResult`, `BacktestResult`, or `ComparisonResult`), "
+        "got str."
     )
-    backtest_res = BacktestResult(
-        profile=profile, plan=plan, cv_config={"steps": 5},
-        metrics=metrics, predictions=predictions,
-        code="# bt", explanation="test",
+    with pytest.raises(TypeError, match=err_msg):
+        assistant.ask(prompt="Explain", result="not a result")
+
+
+def test_ask_TypeError_when_result_is_dict():
+    """
+    Test that ask() raises TypeError when `result` is a plain dict
+    rather than an `ExplainableResult`.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    err_msg = re.escape(
+        "`result` must be an `ExplainableResult` (for example "
+        "`ForecastResult`, `BacktestResult`, or `ComparisonResult`), "
+        "got dict."
+    )
+    with pytest.raises(TypeError, match=err_msg):
+        assistant.ask(prompt="Explain", result={"not": "a result"})
+
+
+def test_ask_output_when_comparison_result_provided(monkeypatch):
+    """
+    Test that ask() accepts a ComparisonResult and echoes back the shared
+    profile plus the winning candidate's plan and code.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    comparison = make_comparison_result(assistant)
+
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output="ForecasterRecursive won on MAE.",
     )
 
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        assistant.ask(
-            prompt="Explain",
-            forecast_result=forecast_res,
-            backtest_result=backtest_res,
+    result = assistant.ask(prompt="Why did it win?", result=comparison)
+
+    assert isinstance(result, AskResult)
+    assert result.profile is comparison.profile
+    assert result.plan is comparison.best_candidate.plan
+    assert result.code == comparison.best_candidate.code
+    assert result.explanation == "ForecasterRecursive won on MAE."
+
+
+def test_ask_context_when_comparison_result_provided(monkeypatch):
+    """
+    Test that ask() sends the leaderboard, ranking metric, and winning
+    candidate of a ComparisonResult to the LLM.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    comparison = make_comparison_result(assistant, with_failure=True)
+
+    capture = {}
+    patch_agent(
+        monkeypatch,
+        assistant,
+        output="ForecasterRecursive won on MAE.",
+        capture=capture,
+    )
+
+    assistant.ask(prompt="Why did it win?", result=comparison)
+
+    message = capture["message"]
+    assert "<leaderboard>" in message
+    assert "- Ranking metric: MAE" in message
+    assert "runner_up" in message
+    assert "- broken: ImportError: No module named 'lightgbm'" in message
+    assert "<winning_candidate>" in message
+    assert "Name: winner" in message
+    assert "<question>\nWhy did it win?\n</question>" in message
+    assert message.index("</forecast_context>") < message.index("<question>")
+
+
+# =============================================================================
+# Tests: results mode supersedes the deterministic inputs
+# =============================================================================
+def test_ask_IgnoredArgumentWarning_when_result_and_plan_provided(monkeypatch):
+    """
+    Test that a `plan` passed together with a `result` is ignored with an
+    IgnoredArgumentWarning, and that the returned plan and code are the
+    result's own so they cannot describe different states.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    comparison = make_comparison_result(assistant)
+    other_plan = assistant.plan(
+        comparison.profile, steps=99, forecaster="ForecasterDirect"
+    )
+
+    patch_agent(monkeypatch, assistant, output="Explanation.")
+
+    warn_msg = re.escape(
+        "A `result` was provided, so the following argument(s) are "
+        "ignored: ['plan']."
+    )
+    with pytest.warns(IgnoredArgumentWarning, match=warn_msg):
+        result = assistant.ask(
+            prompt="Why did it win?", result=comparison, plan=other_plan
         )
 
+    assert result.plan is comparison.best_candidate.plan
+    assert result.plan is not other_plan
+    assert result.code == comparison.best_candidate.code
 
-def test_ask_TypeError_when_forecast_result_wrong_type():
+
+def test_ask_IgnoredArgumentWarning_when_result_and_data_provided(monkeypatch):
     """
-    Test that ask() raises TypeError when forecast_result is not a
-    ForecastResult object.
-    """
-    assistant = ForecastingAssistant(llm="openai:fake-model")
-
-    err_msg = re.escape(
-        "`forecast_result` must be a `ForecastResult` object, got str."
-    )
-    with pytest.raises(TypeError, match=err_msg):
-        assistant.ask(prompt="Explain", forecast_result="not a result")
-
-
-def test_ask_TypeError_when_backtest_result_wrong_type():
-    """
-    Test that ask() raises TypeError when backtest_result is not a
-    BacktestResult object.
+    Test that every deterministic input passed together with a `result`
+    is named in the IgnoredArgumentWarning, and that no profiling runs.
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
+    comparison = make_comparison_result(assistant)
 
-    err_msg = re.escape(
-        "`backtest_result` must be a `BacktestResult` object, got dict."
+    patch_agent(monkeypatch, assistant, output="Explanation.")
+
+    warn_msg = re.escape(
+        "A `result` was provided, so the following argument(s) are "
+        "ignored: ['data', 'target', 'date_column', 'steps']."
     )
-    with pytest.raises(TypeError, match=err_msg):
-        assistant.ask(prompt="Explain", backtest_result={"not": "a result"})
+    with pytest.warns(IgnoredArgumentWarning, match=warn_msg):
+        result = assistant.ask(
+            prompt      = "Why did it win?",
+            result      = comparison,
+            data        = df_single,
+            target      = "sales",
+            date_column = "date",
+            steps       = 7,
+        )
+
+    assert result.profile is comparison.profile
+    assert result.plan is comparison.best_candidate.plan
+
+
+def test_ask_no_warning_when_result_provided_alone(monkeypatch):
+    """
+    Test that a result passed on its own does not warn, since nothing is
+    superseded.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    comparison = make_comparison_result(assistant)
+
+    patch_agent(monkeypatch, assistant, output="Explanation.")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", IgnoredArgumentWarning)
+        result = assistant.ask(prompt="Why did it win?", result=comparison)
+
+    assert isinstance(result, AskResult)
 
 
 def test_ask_output_when_backtest_result_provided(monkeypatch):
     """
-    Test that ask() in Backtest mode passes metrics, predictions, and
+    Test that ask() in Results mode passes metrics, predictions, and
     CV config to the LLM context and extracts profile/plan/code from
     the BacktestResult.
     """
@@ -451,6 +594,7 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
         "initial_train_size": 80,
         "refit": False,
         "fixed_train_size": True,
+        "n_folds": 4,
     }
     mock_backtest_result = BacktestResult(
         profile=profile,
@@ -472,14 +616,20 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
 
     result = assistant.ask(
         prompt="Explain the backtest results",
-        backtest_result=mock_backtest_result,
+        result=mock_backtest_result,
     )
 
     # Context message carries the backtest configuration and results.
-    assert "## Backtesting Configuration" in capture["message"]
+    assert "<cross_validation>" in capture["message"]
     assert "initial_train_size" in capture["message"]
-    assert "## Forecast Results" in capture["message"]
+    assert "- n_folds: 4" in capture["message"]
+    assert "<evaluation_metrics>" in capture["message"]
     assert "MAE" in capture["message"]
+
+    # The deterministic explanation is forwarded so the LLM does not have
+    # to re-derive facts that were already computed.
+    assert "<deterministic_summary>" in capture["message"]
+    assert "Backtest explanation" in capture["message"]
 
     assert result.profile is profile
     assert result.plan is plan
