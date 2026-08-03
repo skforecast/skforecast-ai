@@ -24,7 +24,7 @@ from skforecast_ai._display import (
     DisplayMixin,
 )
 from skforecast_ai.schemas.profiles import ForecastingProfile, DataProfile
-from skforecast_ai.schemas.plans import ForecastPlan
+from skforecast_ai.schemas.plans import ForecastPlan, PreprocessingStep
 from skforecast_ai.schemas.results import (
     CodeGenerationResult,
     AskResult,
@@ -286,6 +286,68 @@ def test_render_profile_includes_profile_recommendation_and_explanation(sample_p
     assert "Sample explanation" in text
 
 
+def test_render_profile_summarizes_missing_target_and_exog(sample_profile):
+    """
+    Test that render_profile condenses missing target and exogenous values
+    into a single row instead of printing the raw mappings.
+    """
+    profile = sample_profile.model_copy(
+        update={
+            "data_profile": sample_profile.data_profile.model_copy(
+                update={
+                    "missing_target": {"target_col": 4},
+                    "missing_exog": {"exog1": 2},
+                }
+            )
+        }
+    )
+    text = _render_to_text(render_profile(profile))
+
+    assert "Missing values" in text
+    assert "target: 4 in 'target_col'" in text
+    assert "exog: 2 in 'exog1'" in text
+    assert "{'target_col': 4}" not in text
+
+
+def test_render_profile_marks_categorical_exog(sample_profile):
+    """
+    Test that render_profile flags which exogenous columns are categorical.
+    """
+    profile = sample_profile.model_copy(
+        update={
+            "data_profile": sample_profile.data_profile.model_copy(
+                update={
+                    "exog_columns": ["exog1", "exog2"],
+                    "categorical_exog": ["exog2"],
+                }
+            )
+        }
+    )
+    text = _render_to_text(render_profile(profile))
+
+    assert "categorical: exog2" in text
+
+
+def test_render_profile_shows_warnings_panel_only_when_present(sample_profile):
+    """
+    Test that render_profile renders the data warnings panel when the profile
+    raised warnings and omits it entirely otherwise.
+    """
+    assert "Data Warnings" not in _render_to_text(render_profile(sample_profile))
+
+    profile = sample_profile.model_copy(
+        update={
+            "data_profile": sample_profile.data_profile.model_copy(
+                update={"warnings": ["Short series: only 30 observations."]}
+            )
+        }
+    )
+    text = _render_to_text(render_profile(profile))
+
+    assert "Data Warnings" in text
+    assert "Short series" in text
+
+
 def test_render_plan_includes_fields_and_explanation(sample_plan):
     """
     Test that render_plan returns a Group whose rendered output shows the plan
@@ -299,13 +361,13 @@ def test_render_plan_includes_fields_and_explanation(sample_plan):
     assert "Sample explanation" in text
 
 
-def test_render_plan_shows_na_when_estimator_missing(sample_plan):
+def test_render_plan_shows_none_when_estimator_missing(sample_plan):
     """
-    Test that render_plan renders 'N/A' for the estimator when it is None.
+    Test that render_plan renders 'None' for the estimator when it is None.
     """
     plan = sample_plan.model_copy(update={"estimator": None})
     text = _render_to_text(render_plan(plan))
-    assert "N/A" in text
+    assert "None" in text
 
 
 def test_render_plan_shows_calendar_features_row(sample_plan):
@@ -367,6 +429,80 @@ def test_render_plan_no_llm_marker_without_refined_fields(sample_plan):
     )
     text = _render_to_text(render_plan(plan))
     assert "LLM-suggested" not in text
+
+
+@pytest.mark.parametrize(
+    "task_type",
+    ["statistical", "foundation"],
+    ids=lambda task_type: f"task_type: {task_type}",
+)
+def test_render_plan_omits_autoreg_rows_for_non_ml_task_types(sample_plan, task_type):
+    """
+    Test that render_plan omits the lags, window features and calendar
+    features rows for task types whose forecasters do not use them.
+    """
+    plan = sample_plan.model_copy(update={"task_type": task_type})
+    text = _render_to_text(render_plan(plan))
+    assert "Task type" in text
+    assert task_type in text
+    assert "Lags" not in text
+    assert "Window features" not in text
+    assert "Calendar features" not in text
+
+
+def test_render_plan_omits_interval_method_when_no_interval(sample_plan):
+    """
+    Test that render_plan hides the interval method row when no prediction
+    interval is requested, and shows it otherwise.
+    """
+    plan = sample_plan.model_copy(
+        update={"interval": None, "interval_method": None}
+    )
+    assert "Interval method" not in _render_to_text(render_plan(plan))
+
+    plan = sample_plan.model_copy(update={"interval_method": "bootstrapping"})
+    assert "Interval method" in _render_to_text(render_plan(plan))
+
+
+def test_render_plan_renders_preprocessing_steps_table(sample_plan):
+    """
+    Test that render_plan renders a dedicated preprocessing table listing each
+    step and its reason.
+    """
+    plan = sample_plan.model_copy(
+        update={
+            "preprocessing_steps": [
+                PreprocessingStep(
+                    action="asfreq",
+                    reason="Index has no frequency",
+                    code_snippet="data.asfreq('D')",
+                ),
+                PreprocessingStep(
+                    action="handle_categorical_exog",
+                    reason="Categorical exog detected",
+                    code_snippet="",
+                    blocking=False,
+                ),
+            ]
+        }
+    )
+    text = _render_to_text(render_plan(plan))
+    assert "Preprocessing Steps" in text
+    assert "2 steps" in text
+    assert "asfreq" in text
+    assert "Index has no frequency" in text
+    assert "handle_categorical_exog" in text
+    assert "Categorical exog detected" in text
+
+
+def test_render_plan_no_preprocessing_table_when_no_steps(sample_plan):
+    """
+    Test that render_plan reports 'none' and renders no preprocessing table
+    when the plan has no preprocessing steps.
+    """
+    text = _render_to_text(render_plan(sample_plan))
+    assert "Preprocessing Steps" not in text
+    assert "Preprocessing" in text
 
 
 class TestDisplayMixin:

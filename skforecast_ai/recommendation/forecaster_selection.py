@@ -144,6 +144,12 @@ def select_estimator_and_candidates(
     Notes
     -----
     Source: `skforecast_ai/skills/forecasting-single-series/SKILL.md`.
+
+    Foundation tasks always resolve to `'Chronos-2'`. It is the only
+    foundation backend wired into skforecast-ai, and the generated code
+    loads `autogluon/chronos-2-small`. The other backends supported by
+    skforecast (TimesFM, Moirai, TabICL, TabPFN-TS, T0) are reachable
+    only by overriding `estimator_kwargs['model_id']` in the plan.
     """
 
     if task_type == "statistical":

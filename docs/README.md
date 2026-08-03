@@ -126,9 +126,9 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 
 + **The Step-by-Step Path:** Use this when you want granular control to inspect or adjust intermediate decisions. You can manually create a profile, build a plan, optionally refine it with the LLM, define a validation strategy, evaluate the model, and then generate the forecast.
 
-A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data.
+A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data. You can also use `compare()` to evaluate several candidate configurations under the same cross-validation strategy and obtain a ranked leaderboard, so the best configuration is chosen from measured performance rather than intuition.
 
-The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
+The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, comparison result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
 
 <div style="box-sizing:border-box; margin:16px 0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:#24292f; max-width:100%;">
   <div style="box-sizing:border-box; display:flex; gap:20px; flex-wrap:wrap; align-items:stretch;">
@@ -189,12 +189,38 @@ The `ask()` method is available in both workflows. It can explain a profile, pla
     </div>
 </div>
 
+</div>
+
+  <!-- compare() banner -->
+  <div style="box-sizing:border-box; margin-top:16px; border:1px solid #bc4c00; border-radius:12px; overflow:hidden;">
+    <div style="box-sizing:border-box; background:#bc4c00; color:#ffffff; padding:10px 16px; font-size:15px; font-weight:700;">Model selection: which forecaster should you use?</div>
+    <div style="box-sizing:border-box; padding:12px 16px; background:#fff4ed; font-size:13px;">
+      <p style="margin:0 0 12px 0;"><code>compare()</code> answers the question every forecasting project starts with: <b>Among several reasonable models, which one actually performs best on my data?</b> Every candidate is evaluated using the same data and cross-validation strategy. Therefore, the differences you see come from the models, not from the setup.</p>
+      <table style="width:100%; border:0; border-collapse:collapse; table-layout:fixed; background:transparent; box-shadow:none; margin:0;">
+        <tbody style="border:0; background:transparent;">
+        <tr style="border:0; background:transparent;">
+          <td style="width:28%; border:0; background:transparent; vertical-align:middle; padding:0;">
+            <div style="box-sizing:border-box; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px 12px; text-align:center; font-size:13px;"><span style="font-weight:600;">Candidates</span><br><span style="font-size:12px; color:#57606a;">A handful of configurations worth testing: different forecasters, estimators, lags or window features. Supply your own, or let the data profile propose them.</span></div>
+          </td>
+          <td style="width:5%; border:0; background:transparent; vertical-align:middle; text-align:center; color:#57606a; font-size:18px; padding:0;">&#8594;</td>
+          <td style="width:34%; border:0; background:transparent; vertical-align:middle; padding:0;">
+            <div style="box-sizing:border-box; background:#ffe0cc; border:1px solid #bc4c00; border-radius:8px; padding:10px 12px; text-align:center; font-size:13px;"><span style="font-weight:700;">compare()</span><br><span style="font-size:12px; color:#57606a;">Runs a full backtest for each candidate under identical conditions, and scores them with the metrics you care about.</span></div>
+          </td>
+          <td style="width:5%; border:0; background:transparent; vertical-align:middle; text-align:center; color:#57606a; font-size:18px; padding:0;">&#8594;</td>
+          <td style="width:28%; border:0; background:transparent; vertical-align:middle; padding:0;">
+            <div style="box-sizing:border-box; background:#ffffff; border:1px solid #d0d7de; border-radius:8px; padding:10px 12px; text-align:center; font-size:13px;"><span style="font-weight:600;">A ranked answer</span><br><span style="font-size:12px; color:#57606a;">A leaderboard sorted best to worst, the reproducible code behind every row, and the winner ready to be used for forecasting or further tuning.</span></div>
+          </td>
+        </tr>
+        </tbody>
+      </table>
+      <p style="margin:12px 0 0 0; font-size:12px; color:#57606a; text-align:center;">The ranking is a plain sort of the metric column: fully deterministic and auditable. The LLM plays no part in choosing the winner.</p>
+    </div>
   </div>
 
   <!-- ask() banner -->
   <div style="box-sizing:border-box; margin-top:16px; border:1px solid #8250df; border-radius:12px; overflow:hidden;">
     <div style="box-sizing:border-box; background:#8250df; color:#ffffff; padding:10px 16px; font-size:15px; font-weight:700;">LLM reasoning: available at any moment, in any workflow</div>
-    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. It can take a <code>profile</code>, a <code>plan</code>, a <code>result</code> (from <code>forecast()</code> or <code>backtest()</code>), or nothing at all (pure Q&amp;A).</div>
+    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. It can take a <code>profile</code>, a <code>plan</code>, a <code>result</code> (from <code>forecast()</code>, <code>backtest()</code> or <code>compare()</code>), or nothing at all (pure Q&amp;A).</div>
   </div>
 </div>
 
@@ -229,7 +255,7 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.2.0) [Com
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast-ai},
   version = {0.2.0},
-  month   = {7},
+  month   = {8},
   year    = {2026},
   license = {Apache-2.0},
   url     = {https://ai.skforecast.org/},

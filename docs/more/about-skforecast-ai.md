@@ -80,7 +80,7 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.2.0) [Com
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast-ai},
   version = {0.2.0},
-  month   = {7},
+  month   = {8},
   year    = {2026},
   license = {Apache-2.0},
   url     = {https://ai.skforecast.org/},

@@ -130,7 +130,7 @@ class ForecastingAssistant:
 
     Notes
     -----
-    Three workflows are available:
+    Four workflows are available:
 
     Fast path: call a single method that handles everything internally:
 
@@ -161,6 +161,13 @@ class ForecastingAssistant:
     it (accepts pre-computed `profile` and `plan`).
     - `backtest()` runs backtesting using the CV strategy and returns
     metrics, predictions, and reproducible code.
+
+    Comparison path: evaluate several configurations side by side:
+
+    - `compare()` backtests a set of candidate configurations with the
+    same cross-validation strategy and returns a metric-ranked
+    leaderboard plus the winning configuration as a reusable
+    `BacktestResult`.
 
     `ask()` is an LLM-powered method (requires `llm` to be configured)
     available in any workflow to explain results, answer forecasting
@@ -484,6 +491,7 @@ class ForecastingAssistant:
             use_exog           = use_exog,
             metric_explanation = metric_explanation,
             calendar_features  = calendar_features,
+            task_type          = task_type,
         )
 
         return ForecastPlan(

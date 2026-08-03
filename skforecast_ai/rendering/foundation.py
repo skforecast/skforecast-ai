@@ -25,7 +25,13 @@ def _emit_forecaster_creation_foundation(
     lines: list[str],
     plan: ForecastPlan,
 ) -> None:
-    """Append FoundationModel + ForecasterFoundation construction code."""
+    """
+    Append FoundationModel + ForecasterFoundation construction code.
+
+    Defaults to Chronos-2, the only foundation backend wired into
+    skforecast-ai. Another backend supported by skforecast is used only
+    when `plan.estimator_kwargs` overrides `model_id`.
+    """
 
     foundation_defaults = {
         "model_id": "autogluon/chronos-2-small",
@@ -50,7 +56,7 @@ def render_forecast_foundation(
     plan: ForecastPlan,
     profile: DataProfile,
 ) -> RenderedScript:
-    """Render code for ForecasterFoundation (Chronos-2, TimesFM, Moirai, TabICL)."""
+    """Render code for ForecasterFoundation (Chronos-2 unless overridden)."""
 
     target = _get_target_str(profile)
     exog_columns = profile.exog_columns
