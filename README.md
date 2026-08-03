@@ -129,7 +129,7 @@ A useful mental model is that forecasting and validation are separate branches. 
 The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, comparison result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/skforecast/skforecast-ai/725cc112a7bfb490a096c3b6710ec9138b5c22e9/docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">
+  <img src="https://raw.githubusercontent.com/skforecast/skforecast-ai/refs/heads/main/docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">
 </p>
 
 Read more in **[Introduction to agentic forecasting]**.
