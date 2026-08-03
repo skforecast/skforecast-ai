@@ -2432,7 +2432,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p><strong>skforecast-ai</strong> is an <strong>AI forecasting assistant</strong> that pairs a deterministic engine, powered by <a href="https://skforecast.org"><strong>skforecast</strong></a>, with an <strong>LLM reasoning layer</strong>. Simply provide a time series, and the assistant automatically profiles the data, selects a model using established best practices, and evaluates its performance. It returns both the final forecast and the runnable skforecast script that produced it.</p>
-<p>This tutorial walks through the <strong>step-by-step path</strong>: the approach for users who want granular control to inspect or adjust intermediate decisions before committing to a full run. If you prefer a single-call workflow that returns results immediately, see the <a href="./agentic-forecasting-with-skforecast-ai.html">fast-path tutorial</a>.</p>
+<p>This tutorial walks through the <strong>step-by-step path</strong>: the approach for users who want granular control to inspect or adjust intermediate decisions before committing to a full run. If you prefer a single-call workflow that returns results immediately, see the <a href="./agentic-forecasting.html">fast-path tutorial</a>.</p>
 <p>Both paths share the same deterministic engine and produce identical results and reproducible <code>skforecast</code> code. The step-by-step path gives you three additional capabilities:</p>
 <ul>
 <li><p><strong>Inspect intermediate objects</strong>: examine the <code>ForecastingProfile</code> and <code>ForecastPlan</code> before any model is trained, and confirm the assistant's recommendations make sense for your domain.</p>
@@ -8399,7 +8399,7 @@ answer.show_explanation()</div>
 </tbody>
 </table>
 <p>The key advantage of this path is that the <code>profile</code> and <code>plan</code> are built <strong>once</strong> and reused across both the forecast and backtest branches. This avoids redundant profiling and ensures that both branches use the same modeling configuration. The same profile can also be handed to <code>compare()</code>, so every candidate is ranked against the very same data profile.</p>
-<p>For a faster alternative that runs the entire pipeline in a single call, see the <a href="./agentic-forecasting-with-skforecast-ai.html">fast-path tutorial</a>. For a comprehensive overview of backtesting mechanics, see the <a href="https://skforecast.org/latest/user_guides/backtesting">skforecast backtesting user guide</a>.</p>
+<p>For a faster alternative that runs the entire pipeline in a single call, see the <a href="./agentic-forecasting.html">fast-path tutorial</a>. For a comprehensive overview of backtesting mechanics, see the <a href="https://skforecast.org/latest/user_guides/backtesting">skforecast backtesting user guide</a>.</p>
 </div>
 </div>
 </div>
