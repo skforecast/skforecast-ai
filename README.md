@@ -124,9 +124,9 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 
 + **The Step-by-Step Path:** Use this when you want granular control to inspect or adjust intermediate decisions. You can manually create a profile, build a plan, optionally refine it with the LLM, define a validation strategy, evaluate the model, and then generate the forecast.
 
-A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data.
+A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data. You can also use `compare()` to evaluate several candidate configurations under the same cross-validation strategy and obtain a ranked leaderboard, so the best configuration is chosen from measured performance rather than intuition.
 
-The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
+The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, comparison result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/skforecast/skforecast-ai/725cc112a7bfb490a096c3b6710ec9138b5c22e9/docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">
@@ -183,7 +183,7 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.2.0) [Com
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast-ai},
   version = {0.2.0},
-  month   = {7},
+  month   = {8},
   year    = {2026},
   license = {Apache-2.0},
   url     = {https://ai.skforecast.org/},
