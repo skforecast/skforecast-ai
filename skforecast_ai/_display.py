@@ -38,6 +38,10 @@ _TABLE_KWARGS = {"show_lines": True}
 _SPACER = ""
 MAX_WIDTH = 90
 
+# Task types whose forecasters take lags, window features and calendar
+# features. Statistical and foundation models have none of them.
+_AUTOREG_TASK_TYPES = ("single_series", "multi_series", "multivariate")
+
 
 def _default_console() -> Console:
     """A fresh `Console`, capped at `MAX_WIDTH` only when running in Jupyter.
@@ -78,6 +82,20 @@ def _format_metric(value: Any) -> str:
     if isinstance(value, Number) and not isinstance(value, bool):
         return f"{value:.4f}"
     return escape(str(value))
+
+
+def _format_missing(missing: dict[str, int]) -> str | None:
+    """Summarise a missing-value mapping, or None when there is none.
+
+    Avoids leaking the raw dict repr into a table cell, which becomes
+    unreadable as soon as more than a couple of columns or series are hit.
+    """
+    if not missing:
+        return None
+    if len(missing) == 1:
+        name, count = next(iter(missing.items()))
+        return f"{count:,} in '{name}'"
+    return f"{sum(missing.values()):,} across {len(missing)} columns"
 
 
 def _format_cell(value: Any) -> str:
@@ -373,6 +391,10 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     """
     Render a `ForecastingProfile` as a group of tables and an explanation panel.
 
+    Absent values render as a dimmed `None`. A missing frequency is
+    highlighted instead, as it blocks the rest of the workflow. Profiling
+    warnings are shown only when the dataset raised any.
+
     Parameters
     ----------
     profile : ForecastingProfile
@@ -381,8 +403,9 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     Returns
     -------
     renderable : rich.console.RenderableType
-        Group containing the dataset profile table, recommendation table, and
-        the explanation panel.
+        Group containing the dataset profile table, the warnings panel (only
+        when the profile raised warnings), the recommendation table, and the
+        explanation panel.
     """
     # Must stay local: _utils imports schemas, which imports .._display at
     # module level (DisplayMixin). Hoisting this would reintroduce that cycle.
@@ -396,14 +419,49 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     table.add_row("Format", _format_value(dp.data_format))
     table.add_row("Series", _format_value(dp.n_series))
     table.add_row("Observations", _format_value(_display_n_observations(dp)))
-    table.add_row("Frequency", _format_value(dp.frequency or "not detected"))
+    table.add_row(
+        "Frequency",
+        _format_value(dp.frequency) if dp.frequency else "[bold yellow]not detected[/]",
+    )
     table.add_row("Target", _format_value(dp.target))
-    table.add_row("Exog columns", _format_value(", ".join(dp.exog_columns) if dp.exog_columns else "none"))
 
-    missing_val = _format_value(dp.missing_target if dp.missing_target else "none")
-    if dp.missing_target:
-        missing_val = f"[bold yellow]{missing_val}[/bold yellow]"
-    table.add_row("Missing target", missing_val)
+    if dp.exog_columns:
+        exog_value = escape(", ".join(dp.exog_columns))
+        if dp.categorical_exog:
+            categorical = escape(", ".join(dp.categorical_exog))
+            exog_value += f"  [dim](categorical: {categorical})[/]"
+    else:
+        exog_value = _format_value(None)
+    table.add_row("Exog columns", exog_value)
+
+    missing = [
+        f"{label}: {summary}"
+        for label, summary in (
+            ("target", _format_missing(dp.missing_target)),
+            ("exog", _format_missing(dp.missing_exog)),
+        )
+        if summary is not None
+    ]
+    table.add_row(
+        "Missing values",
+        f"[bold yellow]{escape('; '.join(missing))}[/]"
+        if missing
+        else _format_value(None),
+    )
+
+    renderables: list[RenderableType] = [table]
+    if dp.warnings:
+        renderables += [
+            _SPACER,
+            Panel(
+                "\n".join(f"\u2022 {escape(w)}" for w in dp.warnings),
+                title="Data Warnings",
+                title_align="center",
+                border_style="yellow",
+                padding=(0, 2),
+                expand=True,
+            ),
+        ]
 
     rec_table = Table(title="Recommendation", **_TABLE_KWARGS)
     rec_table.add_column("Property")
@@ -412,26 +470,32 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     rec_table.add_row("Forecaster", _format_value(profile.forecaster))
     rec_table.add_row(
         "Forecaster candidates",
-        _format_value(", ".join(profile.forecaster_candidates) if profile.forecaster_candidates else "none"),
+        _format_value(", ".join(profile.forecaster_candidates) or None),
     )
-    rec_table.add_row("Estimator", _format_value(profile.estimator or "N/A"))
+    rec_table.add_row("Estimator", _format_value(profile.estimator))
     rec_table.add_row(
         "Estimator candidates",
-        _format_value(", ".join(profile.estimator_candidates) if profile.estimator_candidates else "none"),
+        _format_value(", ".join(profile.estimator_candidates) or None),
     )
 
-    return Group(
-        table,
+    renderables += [
         _SPACER,
         rec_table,
         _SPACER,
         render_explanation(profile.explanation, title="Profile Explanation"),
-    )
+    ]
+
+    return Group(*renderables)
 
 
 def render_plan(plan: ForecastPlan) -> RenderableType:
     """
     Render a `ForecastPlan` as a table plus an explanation panel.
+
+    Rows that do not apply to the plan's task type are omitted rather than
+    rendered as `'N/A'`: autoregressive features only exist for the
+    machine-learning task types, and the interval method only exists once an
+    interval is requested. Absent values render as a dimmed `None`.
 
     Parameters
     ----------
@@ -441,62 +505,76 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
     Returns
     -------
     renderable : rich.console.RenderableType
-        Group containing the plan table and the explanation panel.
+        Group containing the plan table, the preprocessing table (only when
+        the plan has preprocessing steps) and the explanation panel.
     """
     table = Table(title="Forecast Plan", **_TABLE_KWARGS)
     table.add_column("Property")
     table.add_column("Value")
+    table.add_row("Task type", _format_value(plan.task_type))
     table.add_row("Forecaster", _format_value(plan.forecaster))
-    table.add_row("Estimator", _format_value(plan.estimator or "N/A"))
+    table.add_row("Estimator", _format_value(plan.estimator))
     table.add_row("Steps", _format_value(plan.steps))
-    table.add_row("Frequency", _format_value(plan.frequency or "not set"))
-
-    refined = set(plan.llm_refined_fields)
-    llm_tag = "  [magenta](LLM-suggested)[/]"
-
-    lags = plan.forecaster_kwargs.get("lags")
-    lags_value = _format_value(lags if lags is not None else "N/A")
-    if "lags" in refined:
-        lags_value += llm_tag
-    table.add_row("Lags", lags_value)
-
-    window_features = plan.forecaster_kwargs.get("window_features")
-    window_value = _format_value(
-        window_features if window_features is not None else "N/A"
+    table.add_row(
+        "Frequency",
+        _format_value(plan.frequency)
+        if plan.frequency
+        else "[bold yellow]not detected[/]",
     )
-    if "window_features" in refined:
-        window_value += llm_tag
-    table.add_row("Window features", window_value)
 
-    calendar_features = plan.forecaster_kwargs.get("calendar_features")
-    if isinstance(calendar_features, dict) and calendar_features.get("features"):
-        features = calendar_features["features"]
-        encoding = calendar_features.get("encoding") or "raw ordinal"
-        calendar_value = _format_value(f"{features} ({encoding} encoding)")
-    else:
-        calendar_value = _format_value("none")
-    table.add_row("Calendar features", calendar_value)
+    if plan.task_type in _AUTOREG_TASK_TYPES:
+        refined = set(plan.llm_refined_fields)
+        llm_tag = "  [magenta](LLM-suggested)[/]"
+
+        lags_value = _format_value(plan.forecaster_kwargs.get("lags"))
+        if "lags" in refined:
+            lags_value += llm_tag
+        table.add_row("Lags", lags_value)
+
+        window_value = _format_value(plan.forecaster_kwargs.get("window_features"))
+        if "window_features" in refined:
+            window_value += llm_tag
+        table.add_row("Window features", window_value)
+
+        calendar_features = plan.forecaster_kwargs.get("calendar_features")
+        if isinstance(calendar_features, dict) and calendar_features.get("features"):
+            features = calendar_features["features"]
+            encoding = calendar_features.get("encoding") or "raw ordinal"
+            calendar_value = _format_value(f"{features} ({encoding} encoding)")
+        else:
+            calendar_value = _format_value(None)
+        table.add_row("Calendar features", calendar_value)
 
     table.add_row("Use exog", _format_value(plan.use_exog))
-    table.add_row("Interval", _format_value(plan.interval if plan.interval else "none"))
-    table.add_row("Interval method", _format_value(plan.interval_method or "N/A"))
+    table.add_row("Interval", _format_value(plan.interval or None))
+    if plan.interval:
+        table.add_row("Interval method", _format_value(plan.interval_method))
     table.add_row("Primary metric", _format_value(plan.metric))
 
-    if plan.preprocessing_steps:
-        steps_str = "\n".join(
-            f"  - {escape(str(s.action))}: {escape(str(s.reason))}"
-            + ("" if s.blocking else " [dim](optional)[/]")
-            for s in plan.preprocessing_steps
-        )
-        table.add_row("Preprocessing", steps_str)
-    else:
-        table.add_row("Preprocessing", _format_value("none"))
+    n_steps = len(plan.preprocessing_steps)
+    table.add_row(
+        "Preprocessing",
+        _format_value(f"{n_steps} step{'s' if n_steps != 1 else ''}" if n_steps else None),
+    )
 
-    return Group(
-        table,
+    renderables: list[RenderableType] = [table]
+    if plan.preprocessing_steps:
+        steps_table = Table(title="Preprocessing Steps", **_TABLE_KWARGS)
+        steps_table.add_column("Step")
+        steps_table.add_column("Reason")
+        for step in plan.preprocessing_steps:
+            steps_table.add_row(
+                _format_value(step.action),
+                _format_value(step.reason),
+            )
+        renderables += [_SPACER, steps_table]
+
+    renderables += [
         _SPACER,
         render_explanation(plan.explanation, title="Plan Explanation"),
-    )
+    ]
+
+    return Group(*renderables)
 
 
 class _BodyOnly(JupyterMixin):

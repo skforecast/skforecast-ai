@@ -271,7 +271,9 @@ def render_plan_section(plan: ForecastPlan | None) -> str:
         parts.append(f"- Primary metric: {plan.metric}")
     if plan.preprocessing_steps:
         for step in plan.preprocessing_steps:
-            prefix = "[required]" if step.blocking else "[recommended]"
+            prefix = (
+                "[in generated code]" if step.blocking else "[informational]"
+            )
             parts.append(f"  - {prefix} {step.reason}")
     parts.append(f"- {plan.explanation}")
     parts.append("")

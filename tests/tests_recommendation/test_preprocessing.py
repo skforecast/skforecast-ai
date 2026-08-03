@@ -1,5 +1,7 @@
 # Unit test derive_preprocessing_steps recommendation/preprocessing
 
+import pytest
+
 from skforecast_ai.recommendation import derive_preprocessing_steps
 from skforecast_ai.schemas import DataProfile, PreprocessingStep
 
@@ -179,6 +181,54 @@ def test_derive_steps_includes_handle_categorical_exog_when_categorical():
     steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
     actions = [s.action for s in steps]
     assert "handle_categorical_exog" in actions
+
+
+@pytest.mark.parametrize(
+    "forecaster, expected, not_expected",
+    [
+        (
+            "ForecasterRecursive",
+            "categorical_features='auto'",
+            "Chronos-2 consumes categorical covariates",
+        ),
+        (
+            "ForecasterFoundation",
+            "Chronos-2 consumes categorical covariates",
+            "categorical_features='auto'",
+        ),
+        (
+            "ForecasterStats",
+            "only accept numeric exogenous variables",
+            "categorical_features='auto'",
+        ),
+    ],
+    ids=lambda dt: f"forecaster, expected, not_expected: {dt}",
+)
+def test_derive_steps_handle_categorical_exog_reason_per_forecaster(
+    forecaster, expected, not_expected
+):
+    """
+    Test that the handle_categorical_exog reason matches the mechanism the
+    forecaster actually offers. Only the ML forecasters take a
+    `categorical_features` argument.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["holiday"],
+        categorical_exog=["holiday"],
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(profile, forecaster)
+    reason = next(
+        s.reason for s in steps if s.action == "handle_categorical_exog"
+    )
+
+    assert expected in reason
+    assert not_expected not in reason
 
 
 def test_derive_steps_handle_gaps_is_non_blocking():

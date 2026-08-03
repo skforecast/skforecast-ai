@@ -20,6 +20,7 @@ def build_plan_explanation(
     use_exog: bool,
     metric_explanation: str | None = None,
     calendar_features: dict | None = None,
+    task_type: str | None = None,
 ) -> str:
     """
     Compose a sentence-by-sentence summary of the plan configuration.
@@ -49,6 +50,9 @@ def build_plan_explanation(
     calendar_features : dict, default None
         Calendar feature configuration with keys `'features'` and
         `'encoding'`. None when no calendar features are used.
+    task_type : str, default None
+        Forecasting task category. Used to state why `'foundation'` and
+        `'statistical'` plans carry no lag or window features.
 
     Returns
     -------
@@ -64,6 +68,16 @@ def build_plan_explanation(
 
     if lags is not None:
         parts.append(f"Lags: {lags}.")
+    elif task_type == "foundation":
+        parts.append(
+            "No lag or window features: the foundation model forecasts "
+            "directly from the raw context window."
+        )
+    elif task_type == "statistical":
+        parts.append(
+            "No lag or window features: the statistical model estimates its "
+            "own autoregressive and seasonal structure."
+        )
 
     if window_features is not None:
         descriptions: list[str] = []

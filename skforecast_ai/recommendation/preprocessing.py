@@ -291,8 +291,9 @@ def derive_preprocessing_steps(
     Returns
     -------
     steps : list of PreprocessingStep
-        Ordered preprocessing steps. Blocking steps must be applied for
-        the forecaster to work; non-blocking steps are recommended.
+        Ordered preprocessing steps. Blocking steps are emitted into the
+        generated script; non-blocking steps are informational and only
+        describe how the forecaster or the data already handles the issue.
     """
     steps: list[PreprocessingStep] = []
 
@@ -371,14 +372,17 @@ def derive_preprocessing_steps(
 
     # --- Categorical exogenous variables ---
     if profile.categorical_exog:
+        detected = (
+            f"Categorical exogenous variables detected: "
+            f"{profile.categorical_exog}."
+        )
         if forecaster == "ForecasterStats":
             steps.append(PreprocessingStep(
                 action="handle_categorical_exog",
                 reason=(
-                    f"Categorical exogenous variables detected: "
-                    f"{profile.categorical_exog}. Statistical models only "
-                    f"accept numeric exogenous variables, so these columns "
-                    f"are excluded. Encode them manually to include them."
+                    f"{detected} Statistical models only accept numeric "
+                    f"exogenous variables, so these columns are excluded. "
+                    f"Encode them manually to include them."
                 ),
                 code_snippet=(
                     "# Categorical exog is excluded from the statistical model.\n"
@@ -387,17 +391,30 @@ def derive_preprocessing_steps(
                 ),
                 blocking=False,
             ))
-        else:
+        elif forecaster in CATEGORICAL_FORECASTERS:
             steps.append(PreprocessingStep(
                 action="handle_categorical_exog",
                 reason=(
-                    f"Categorical exogenous variables detected: "
-                    f"{profile.categorical_exog}. These are handled "
-                    f"automatically by skforecast (categorical_features='auto')."
+                    f"{detected} These are handled automatically by "
+                    f"skforecast (categorical_features='auto')."
                 ),
                 code_snippet=(
                     "# skforecast handles categorical variables automatically\n"
                     "# with categorical_features='auto' (default)."
+                ),
+                blocking=False,
+            ))
+        else:
+            steps.append(PreprocessingStep(
+                action="handle_categorical_exog",
+                reason=(
+                    f"{detected} Chronos-2 consumes categorical covariates "
+                    f"natively, so no encoding is needed."
+                ),
+                code_snippet=(
+                    "# Chronos-2 consumes categorical covariates natively.\n"
+                    "# Encode them manually only when model_id is overridden\n"
+                    "# with a backend that requires numeric covariates."
                 ),
                 blocking=False,
             ))

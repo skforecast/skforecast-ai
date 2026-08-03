@@ -111,8 +111,9 @@ class PreprocessingStep(BaseModel):
         Python code template that implements this step. May contain
         format placeholders (e.g. `{frequency}`, `{date_column}`).
     blocking : bool, default True
-        Whether skforecast will fail without this step. Non-blocking
-        steps are recommended but optional.
+        Whether skforecast will fail without this step. Blocking steps
+        are emitted into the generated script; non-blocking steps are
+        informational and never emitted.
     """
 
     action: str
@@ -202,11 +203,15 @@ class ForecastPlan(DisplayMixin, BaseModel):
         `steps`, `encoding`, `dropna_from_series`). Can be unpacked
         directly into the constructor alongside `estimator`.
     estimator : str, default None
-        Name of the scikit-learn compatible estimator.
+        Name of the scikit-learn compatible estimator. For `'foundation'`
+        plans this is always `'Chronos-2'`, the only foundation backend
+        wired into skforecast-ai.
     estimator_kwargs : dict, default {}
         Keyword arguments for the estimator constructor (e.g.
         `n_estimators`, `learning_rate`). Merged on top of built-in
-        defaults (`random_state`, silencing flags).
+        defaults (`random_state`, silencing flags). For `'foundation'`
+        plans, use `model_id` to load a backend other than
+        `autogluon/chronos-2-small`.
     steps : int
         Number of steps ahead to predict. Must be greater than 0.
     frequency : str, default None

@@ -484,6 +484,7 @@ class ForecastingAssistant:
             use_exog           = use_exog,
             metric_explanation = metric_explanation,
             calendar_features  = calendar_features,
+            task_type          = task_type,
         )
 
         return ForecastPlan(
