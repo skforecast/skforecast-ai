@@ -11,6 +11,7 @@ from skforecast_ai._utils import (
     _run_agent_sync,
     _series_span_length,
     _display_n_observations,
+    _validate_lags,
     _validate_task_input,
     _validate_window_features,
 )
@@ -412,3 +413,41 @@ def test_validate_window_features_raises_when_invalid(window_features, match):
     """
     with pytest.raises(ValueError, match=match):
         _validate_window_features(window_features)
+
+
+# =============================================================================
+# _validate_lags
+# =============================================================================
+@pytest.mark.parametrize(
+    "lags",
+    [None, 7, [1, 2, 7], [1]],
+    ids=lambda lags: f"lags: {lags}",
+)
+def test_validate_lags_passes_when_valid(lags):
+    """
+    Test that valid lags (None, a positive int, or a list of positive ints)
+    pass validation without raising.
+    """
+    assert _validate_lags(lags) is None
+
+
+@pytest.mark.parametrize(
+    "lags, match",
+    [
+        (0, "must be a positive int"),
+        (-3, "must be a positive int"),
+        (True, "positive int"),
+        ([-1, 2], "must be a positive int"),
+        ([1, 0], "must be a positive int"),
+        ([True], "must be a positive int"),
+        ([1.0], "must be a positive int"),
+        ("7", "must be a positive int or a list"),
+    ],
+)
+def test_validate_lags_raises_when_invalid(lags, match):
+    """
+    Test that non-positive lags (scalar or list element), booleans, non-int
+    elements, and unsupported types raise ValueError.
+    """
+    with pytest.raises(ValueError, match=match):
+        _validate_lags(lags)

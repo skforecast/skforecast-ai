@@ -663,3 +663,165 @@ def test_create_cv_deterministic_when_no_prompt_and_llm_configured():
     assert isinstance(cv, TimeSeriesFold)
     assert cv.steps == 5
     assert "Initial training up to" in explanation
+
+
+# =============================================================================
+# Tests: _build_and_validate_cv (shared build + validate helper)
+# =============================================================================
+def _cv_defaults(**overrides):
+    """Build a minimal resolved-defaults dict for _build_and_validate_cv."""
+    defaults = dict(
+        steps=3,
+        initial_train_size=50,
+        refit=True,
+        fixed_train_size=False,
+        gap=0,
+        fold_stride=None,
+        skip_folds=None,
+        allow_incomplete_fold=True,
+        differentiation=None,
+    )
+    defaults.update(overrides)
+    return defaults
+
+
+def test_build_and_validate_cv_date_string_without_datetime_index_raises():
+    """
+    Test that a date-string initial_train_size raises a clear ValueError when
+    the dataset has no datetime index (start_date/frequency are None).
+    """
+    defaults = _cv_defaults(initial_train_size="2020-06-01")
+    with pytest.raises(ValueError, match="requires a datetime index"):
+        ForecastingAssistant._build_and_validate_cv(
+            defaults, n_observations=100, start_date=None, frequency=None
+        )
+
+
+def test_build_and_validate_cv_unparseable_date_with_index_raises():
+    """
+    Test that an unparseable date-string initial_train_size raises when a
+    datetime index is available (the parse is actually attempted).
+    """
+    defaults = _cv_defaults(initial_train_size="not-a-real-date")
+    with pytest.raises(Exception):
+        ForecastingAssistant._build_and_validate_cv(
+            defaults, n_observations=100, start_date="2020-01-01", frequency="D"
+        )
+
+
+def test_build_and_validate_cv_too_few_folds_raises():
+    """Test that a configuration producing < 2 folds raises ValueError."""
+    defaults = _cv_defaults(initial_train_size=97)
+    with pytest.raises(ValueError, match="At least 2 are required"):
+        ForecastingAssistant._build_and_validate_cv(defaults, n_observations=100)
+
+
+def test_build_and_validate_cv_valid_returns_cv_and_folds():
+    """Test that a valid configuration returns the splitter and fold count."""
+    defaults = _cv_defaults(initial_train_size=50)
+    cv, n_folds = ForecastingAssistant._build_and_validate_cv(
+        defaults, n_observations=100
+    )
+    assert isinstance(cv, TimeSeriesFold)
+    assert n_folds >= 2
+
+
+# =============================================================================
+# Tests: LLM date-string self-correction inside the retry loop
+# =============================================================================
+def test_create_cv_llm_unparseable_date_retry_then_success(monkeypatch):
+    """
+    Test that an unparseable date-string initial_train_size from the LLM is
+    caught inside the retry loop (not later in create_cv) and drives a retry
+    that then succeeds, instead of raising a DateParseError.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    bad_params = CVParams(
+        initial_train_size="not-a-date",
+        refit=True,
+        fixed_train_size=False,
+        gap=0,
+        fold_stride=None,
+        skip_folds=None,
+        allow_incomplete_fold=True,
+        reasoning="Bad date.",
+    )
+    good_params = CVParams(
+        initial_train_size=50,
+        refit=True,
+        fixed_train_size=False,
+        gap=0,
+        fold_stride=None,
+        skip_folds=None,
+        allow_incomplete_fold=True,
+        reasoning="Fixed after retry.",
+    )
+
+    call_count = {"n": 0}
+
+    class _FakeResult:
+        def __init__(self, params):
+            self.output = params
+
+    class _FakeAgent:
+        async def run(self, msg, **kw):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return _FakeResult(bad_params)
+            return _FakeResult(good_params)
+
+    monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
+    monkeypatch.setattr(
+        assistant, "_resolve_model", lambda self_=None: "fake-model-string"
+    )
+
+    cv, _ = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+
+    assert cv.initial_train_size == 50
+    assert call_count["n"] == 2
+
+
+def test_create_cv_llm_unparseable_date_all_retries_fallback(monkeypatch):
+    """
+    Test that a persistently unparseable date-string initial_train_size
+    degrades to deterministic defaults with a UserWarning, instead of raising
+    a DateParseError out of create_cv().
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    bad_params = CVParams(
+        initial_train_size="not-a-date",
+        refit=True,
+        fixed_train_size=False,
+        gap=0,
+        fold_stride=None,
+        skip_folds=None,
+        allow_incomplete_fold=True,
+        reasoning="Always bad date.",
+    )
+
+    class _FakeResult:
+        output = bad_params
+
+    class _FakeAgent:
+        async def run(self, msg, **kw):
+            return _FakeResult()
+
+    monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
+    monkeypatch.setattr(
+        assistant, "_resolve_model", lambda self_=None: "fake-model-string"
+    )
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cv, _ = assistant.create_cv(profile, plan, prompt="Bad scenario")
+
+    assert isinstance(cv, TimeSeriesFold)
+    assert cv.steps == 5
+    llm_warnings = [x for x in w if "LLM CV configuration failed" in str(x.message)]
+    assert len(llm_warnings) == 1

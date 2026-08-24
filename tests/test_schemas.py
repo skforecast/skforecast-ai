@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from skforecast_ai.schemas import DataProfile, ForecastPlan
+from skforecast_ai.schemas.plans import PlanOverrides, WindowFeature
 
 
 def test_data_profile_invalid_index_type():
@@ -50,6 +51,39 @@ def test_forecast_plan_invalid_steps_zero():
             steps=0,
             explanation="Test.",
         )
+
+
+@pytest.mark.parametrize("window_size", [0, -3])
+def test_window_feature_rejects_non_positive_window_size(window_size):
+    """
+    Test WindowFeature raises ValidationError when window_size is not > 0,
+    so pydantic-ai blocks the value before it reaches the forecaster.
+    """
+    with pytest.raises(ValidationError, match=re.escape("window_size")):
+        WindowFeature(stats=["mean"], window_size=window_size)
+
+
+def test_window_feature_accepts_positive_window_size():
+    """Test WindowFeature builds with a positive window_size."""
+    wf = WindowFeature(stats=["mean"], window_size=7)
+    assert wf.window_size == 7
+
+
+@pytest.mark.parametrize("lags", [0, -1, [-1], [1, 0], [True], True])
+def test_plan_overrides_rejects_non_positive_lags(lags):
+    """
+    Test PlanOverrides raises ValidationError for non-positive lags (scalar
+    or any list element) and for booleans.
+    """
+    with pytest.raises(ValidationError, match="positive"):
+        PlanOverrides(lags=lags, reasoning="x")
+
+
+@pytest.mark.parametrize("lags", [None, 7, [1, 2, 7]])
+def test_plan_overrides_accepts_valid_lags(lags):
+    """Test PlanOverrides builds with None, a positive int, or positive ints."""
+    overrides = PlanOverrides(lags=lags, reasoning="x")
+    assert overrides.lags == lags
 
 
 def test_data_profile_minimal():

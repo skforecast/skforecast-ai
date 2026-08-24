@@ -76,6 +76,7 @@ from ._utils import (
     _run_agent_sync,
     _strip_code_blocks,
     _validate_forecast_mode,
+    _validate_lags,
     _validate_max_window_size,
     _validate_task_input,
     _validate_window_features,
@@ -402,6 +403,9 @@ class ForecastingAssistant:
             if window_features is not None:
                 _validate_window_features(window_features)
 
+            if lags is not None:
+                _validate_lags(lags)
+
             if lags is not None or window_features is not None:
                 _validate_max_window_size(
                     lags              = lags,
@@ -615,6 +619,8 @@ class ForecastingAssistant:
                 explicit_window_features = overrides.get("window_features")
                 if explicit_window_features is not None:
                     _validate_window_features(explicit_window_features)
+                if explicit_lags is not None:
+                    _validate_lags(explicit_lags)
                 if explicit_lags is not None or explicit_window_features is not None:
                     _validate_max_window_size(
                         lags              = explicit_lags,
@@ -1262,45 +1268,18 @@ class ForecastingAssistant:
             if value is not None:
                 defaults[key] = value
 
-        # Handle initial_train_size type conversion
-        its = defaults["initial_train_size"]
-        if isinstance(its, float):
-            if not (0 < its < 1):
-                raise ValueError(
-                    f"initial_train_size as float must satisfy "
-                    f"0 < value < 1, got {its}."
-                )
-            defaults["initial_train_size"] = int(its * span_index_length)
-
-        # Instantiate TimeSeriesFold
-        cv = TimeSeriesFold(
-            steps                 = defaults["steps"],
-            initial_train_size    = defaults["initial_train_size"],
-            refit                 = defaults["refit"],
-            fixed_train_size      = defaults["fixed_train_size"],
-            gap                   = defaults["gap"],
-            fold_stride           = defaults["fold_stride"],
-            skip_folds            = defaults["skip_folds"],
-            allow_incomplete_fold = defaults["allow_incomplete_fold"],
-            differentiation       = defaults.get("differentiation"),
-            verbose               = False,
-        )
-
-        # Validate fold count. A date-based initial_train_size needs a
-        # DatetimeIndex so `cv.split` can locate the split date; integer or
-        # fractional sizes are validated against a plain RangeIndex.
-        n_folds = _count_cv_folds(
-                      cv             = cv,
-                      n_observations = span_index_length,
-                      start_date     = profile.data_profile.start_date,
-                      frequency      = profile.data_profile.frequency,
-                  )
-        if n_folds < 2:
-            raise ValueError(
-                f"The resolved CV configuration produces only "
-                f"{n_folds} fold(s). At least 2 are required. "
-                f"Resolved parameters: {defaults}."
-            )
+        # Build and validate the fold splitter in one place. A date-based
+        # initial_train_size needs a DatetimeIndex so `cv.split` can locate the
+        # split date; integer or fractional sizes are validated against a plain
+        # RangeIndex. This shares the exact validation path used inside
+        # `_configure_cv_with_llm`'s retry loop, so an LLM suggestion that
+        # passes there cannot fail here.
+        cv, n_folds = self._build_and_validate_cv(
+                          defaults       = defaults,
+                          n_observations = span_index_length,
+                          start_date     = profile.data_profile.start_date,
+                          frequency      = profile.data_profile.frequency,
+                      )
 
         # Build explanation
         reasoning = defaults.pop("_reasoning", None)
@@ -2683,15 +2662,24 @@ class ForecastingAssistant:
                 else None
             )
 
-            # Pre-validate against the same data budget `plan()` enforces, so
-            # an infeasible suggestion drives a retry with concrete feedback
-            # instead of silently falling back to the deterministic plan.
-            max_span = _max_window_size(llm_overrides.lags, window_features)
-            if max_span > max_allowed:
-                last_error = (
-                    f"lags/window_features span up to {max_span} "
-                    f"observations, exceeding the maximum of {max_allowed}."
-                )
+            # Pre-validate with the same checks `plan()` applies downstream, so
+            # a malformed or infeasible suggestion drives a retry with concrete
+            # feedback instead of slipping through to crash `plan()` (which has
+            # no fallback) or silently falling back to the deterministic plan.
+            # Structural checks (`_validate_window_features`/`_validate_lags`)
+            # and the data-budget check all raise `ValueError`; map any of them
+            # to the retry ladder.
+            try:
+                _validate_window_features(window_features)
+                _validate_lags(llm_overrides.lags)
+                max_span = _max_window_size(llm_overrides.lags, window_features)
+                if max_span > max_allowed:
+                    raise ValueError(
+                        f"lags/window_features span up to {max_span} "
+                        f"observations, exceeding the maximum of {max_allowed}."
+                    )
+            except ValueError as exc:
+                last_error = str(exc)
                 if attempt < max_retries:
                     continue
                 warnings.warn(
@@ -2786,8 +2774,16 @@ class ForecastingAssistant:
                     "_reasoning": cv_params.reasoning,
                 }
 
-                # Validate: check that we can produce ≥2 folds
-                self._validate_cv_defaults(defaults, n_observations)
+                # Validate via the same build+count path create_cv() uses, so
+                # anything that passes here cannot crash the downstream
+                # consumer. A date string is parsed against a real DatetimeIndex
+                # (unparseable/unusable dates raise and drive a retry).
+                self._build_and_validate_cv(
+                    defaults       = defaults,
+                    n_observations = n_observations,
+                    start_date     = profile.data_profile.start_date,
+                    frequency      = profile.data_profile.frequency,
+                )
 
                 return defaults
 
@@ -2811,12 +2807,28 @@ class ForecastingAssistant:
         return derive_cv_defaults(profile=profile, plan=plan)  # pragma: no cover
 
     @staticmethod
-    def _validate_cv_defaults(defaults: dict, n_observations: int) -> None:
+    def _build_and_validate_cv(
+        defaults: dict,
+        n_observations: int,
+        start_date: str | None = None,
+        frequency: str | None = None,
+    ) -> tuple[TimeSeriesFold, int]:
         """
-        Validate that CV defaults can produce at least 2 folds.
+        Build the CV fold splitter and validate it produces at least 2 folds.
 
-        A `ValueError` is raised when the configuration cannot produce
-        at least 2 folds.
+        Resolves `initial_train_size` (converting a fraction to an absolute
+        count), builds the `TimeSeriesFold`, counts the folds it produces over
+        the dataset and checks at least two are available. This is the single
+        validation path shared by `create_cv` (which uses the returned
+        splitter) and `_configure_cv_with_llm` (which uses it to validate the
+        LLM's suggestion inside its retry loop), so the two cannot drift.
+
+        A date-string `initial_train_size` needs a `DatetimeIndex` to be
+        located, which requires `start_date` and `frequency`. When both are
+        available the string is validated against a real index (an unparseable
+        or out-of-range date raises naturally); when either is missing the
+        dataset has no datetime index and a date string cannot be used, so a
+        `ValueError` is raised.
 
         Parameters
         ----------
@@ -2824,47 +2836,69 @@ class ForecastingAssistant:
             Resolved CV parameters dict with keys `'steps'`,
             `'initial_train_size'`, `'refit'`, `'fixed_train_size'`,
             `'gap'`, `'fold_stride'`, `'skip_folds'`,
-            `'allow_incomplete_fold'`, and `'differentiation'`.
+            `'allow_incomplete_fold'`, and `'differentiation'`. A fractional
+            `initial_train_size` is converted to an absolute count in place.
         n_observations : int
             Total number of observations in the dataset.
+        start_date : str, default None
+            First date of the dataset, required to validate a date-string
+            `initial_train_size`.
+        frequency : str, default None
+            Index frequency, required to validate a date-string
+            `initial_train_size`.
 
         Returns
         -------
-        None
+        cv : TimeSeriesFold
+            The validated fold splitter.
+        n_folds : int
+            Number of folds the configuration produces.
         """
-
         its = defaults["initial_train_size"]
-        if isinstance(its, str):
-            # Cannot validate date-based initial_train_size without data
-            return
+
+        if isinstance(its, str) and (start_date is None or frequency is None):
+            raise ValueError(
+                f"date-based initial_train_size {its!r} requires a datetime "
+                f"index, but this dataset has none. Use an integer number of "
+                f"observations or a fraction in (0, 1)."
+            )
 
         if isinstance(its, float):
             if not (0 < its < 1):
                 raise ValueError(
-                    f"initial_train_size as float must be in (0, 1), got {its}."
+                    f"initial_train_size as float must satisfy "
+                    f"0 < value < 1, got {its}."
                 )
             its = int(its * n_observations)
             defaults["initial_train_size"] = its
 
         cv = TimeSeriesFold(
-            steps=defaults["steps"],
-            initial_train_size=its,
-            refit=defaults["refit"],
-            fixed_train_size=defaults["fixed_train_size"],
-            gap=defaults["gap"],
-            fold_stride=defaults.get("fold_stride"),
-            skip_folds=defaults.get("skip_folds"),
-            allow_incomplete_fold=defaults.get("allow_incomplete_fold", True),
-            differentiation=defaults.get("differentiation"),
-            verbose=False,
+            steps                 = defaults["steps"],
+            initial_train_size    = its,
+            refit                 = defaults["refit"],
+            fixed_train_size      = defaults["fixed_train_size"],
+            gap                   = defaults["gap"],
+            fold_stride           = defaults.get("fold_stride"),
+            skip_folds            = defaults.get("skip_folds"),
+            allow_incomplete_fold = defaults.get("allow_incomplete_fold", True),
+            differentiation       = defaults.get("differentiation"),
+            verbose               = False,
         )
 
-        n_folds = _count_cv_folds(cv=cv, n_observations=n_observations)
+        n_folds = _count_cv_folds(
+                      cv             = cv,
+                      n_observations = n_observations,
+                      start_date     = start_date,
+                      frequency      = frequency,
+                  )
         if n_folds < 2:
             raise ValueError(
-                f"Configuration produces only {n_folds} fold(s). "
-                f"At least 2 required. Parameters: {defaults}."
+                f"The resolved CV configuration produces only "
+                f"{n_folds} fold(s). At least 2 are required. "
+                f"Resolved parameters: {defaults}."
             )
+
+        return cv, n_folds
 
     def _build_ollama_settings(
         self, estimated_prompt_tokens: int, user_message: str

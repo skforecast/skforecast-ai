@@ -180,6 +180,60 @@ def _validate_window_features(window_features: list[dict] | None) -> None:
             )
 
 
+def _validate_lags(lags: int | list[int] | None) -> None:
+    """
+    Validate an explicit `lags` override.
+
+    `lags` must be a positive int (interpreted as consecutive lags
+    ``1..lags``) or a list of positive ints. A `bool` is rejected explicitly
+    because it subclasses `int`. A `ValueError` is raised on the first
+    violation. This mirrors the positivity skforecast itself requires, so a
+    bad value fails with a clear message at the skforecast-ai boundary instead
+    of a cryptic error deep inside forecaster construction.
+
+    Parameters
+    ----------
+    lags : int, list of int, None
+        Explicit lags override. When None, no validation is performed.
+
+    Returns
+    -------
+    None
+    """
+    if lags is None:
+        return
+
+    # `bool` is a subclass of `int`; reject it explicitly.
+    if isinstance(lags, bool):
+        raise ValueError(
+            f"`lags` must be a positive int or a list of positive ints, "
+            f"got {lags!r}."
+        )
+
+    if isinstance(lags, int):
+        if lags < 1:
+            raise ValueError(
+                f"`lags` as an int must be a positive int, got {lags}."
+            )
+        return
+
+    if not isinstance(lags, list):
+        raise ValueError(
+            f"`lags` must be a positive int or a list of positive ints, "
+            f"got {type(lags).__name__}."
+        )
+
+    for i, lag in enumerate(lags):
+        if not isinstance(lag, int) or isinstance(lag, bool):
+            raise ValueError(
+                f"`lags[{i}]` must be a positive int, got {lag!r}."
+            )
+        if lag < 1:
+            raise ValueError(
+                f"`lags[{i}]` must be a positive int, got {lag}."
+            )
+
+
 def _count_cv_folds(
     cv: TimeSeriesFold,
     n_observations: int,

@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 from typing import Any, ClassVar, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from .._constants import WindowStat
 from .._display import DisplayMixin, render_plan
 
@@ -48,8 +48,11 @@ class CVParams(BaseModel):
 
     initial_train_size: int | float | str = Field(
         description=(
-            "Number of observations (int), fraction of total data "
-            "(float in (0,1)), or date string for the initial training set."
+            "Size of the initial training set, as one of: an int number of "
+            "observations; a float fraction of total data in (0, 1); or a "
+            "date string in strict ISO 8601 format 'YYYY-MM-DD HH:MM:SS' "
+            "(e.g. '2012-08-31 23:59:00'). A date string is only valid when "
+            "the series has a datetime index."
         ),
     )
     refit: bool | int = Field(
@@ -146,10 +149,11 @@ class WindowFeature(BaseModel):
         ),
     )
     window_size: int = Field(
+        gt=0,
         description=(
-            "Rolling window length in observations, e.g. 7. Scalar only: it "
-            "is applied to every statistic in `stats`. Use one entry per "
-            "window size to combine several sizes."
+            "Rolling window length in observations, e.g. 7. Must be a "
+            "positive int. Scalar only: it is applied to every statistic in "
+            "`stats`. Use one entry per window size to combine several sizes."
         ),
     )
 
@@ -179,6 +183,33 @@ class PlanOverrides(BaseModel):
     reasoning: str = Field(
         description="Explanation of why these specific features (lags and window features) were chosen based on the user's prompt and time series context.",
     )
+
+    @field_validator("lags", mode="before")
+    @classmethod
+    def _lags_must_be_positive(cls, value):
+        """
+        Reject non-positive lags (scalar or any list element) and booleans
+        before pydantic coerces them. Runs in "before" mode because pydantic
+        would otherwise coerce ``True`` to ``1`` and hide the bool. Other type
+        errors are deferred to pydantic's normal validation.
+        """
+        if value is None:
+            return value
+        # `bool` is a subclass of `int`; reject it explicitly.
+        if isinstance(value, bool):
+            raise ValueError(f"lags must be a positive int, got {value!r}.")
+        if isinstance(value, int):
+            if value < 1:
+                raise ValueError(f"lags as an int must be positive, got {value}.")
+            return value
+        if isinstance(value, list):
+            for lag in value:
+                if isinstance(lag, bool) or (isinstance(lag, int) and lag < 1):
+                    raise ValueError(
+                        f"every lag must be a positive int, got {lag!r}."
+                    )
+            return value
+        return value
 
 
 class ForecastPlan(DisplayMixin, BaseModel):
