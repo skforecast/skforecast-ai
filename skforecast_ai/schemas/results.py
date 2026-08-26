@@ -340,12 +340,18 @@ class AskResult(DisplayMixin, BaseModel):
         Generated Python script, if the agent produced one.
     explanation : str
         LLM-generated explanation or response.
+    skills : list of str, default []
+        Names of the skill documents sent to the model, after any
+        trimming to fit the context budget. Recorded because the budget
+        depends on the profile and context size at call time, so the
+        selection cannot be re-derived from the question alone.
     """
 
     profile: ForecastingProfile | None = None
     plan: ForecastPlan | None = None
     code: str | None = None
     explanation: str
+    skills: list[str] = Field(default_factory=list)
 
     _explanation_title: ClassVar[str] = "Assistant Response"
 

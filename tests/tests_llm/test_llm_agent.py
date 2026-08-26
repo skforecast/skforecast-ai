@@ -176,8 +176,82 @@ def test_agent_loads_the_skills_carried_by_deps():
     agent.run_sync("How do I build prediction intervals?", deps=deps)
 
     instructions = captured["instructions"]
-    assert "### drift-detection" in instructions
-    assert "### prediction-intervals" not in instructions
+    assert '<skill name="drift-detection">' in instructions
+    assert '<skill name="prediction-intervals">' not in instructions
+
+
+def test_agent_wraps_the_skills_in_a_tagged_documentation_block():
+    """
+    Test that skills are delimited and introduced by the provenance
+    preamble.
+
+    Skills are generic library documentation whose snippets carry example
+    values such as `initial_train_size=365`. Injected untagged, they sit
+    next to the user's validated context with nothing marking which is
+    which, and the role prompt forbids reporting values it does not
+    supply.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai.llm.agent import AskDeps, create_forecasting_agent
+    from skforecast_ai.llm.skills import skforecast_docs_version
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        return ModelResponse(parts=[TextPart(content="ok")])
+
+    agent = create_forecasting_agent(FunctionModel(respond))
+    deps = AskDeps(
+        profile           = None,
+        plan              = None,
+        skills            = ["drift-detection", "backtesting-configuration"],
+        include_reference = True,
+    )
+    agent.run_sync("How do I detect drift?", deps=deps)
+
+    # The role prompt mentions the tag inline, backtick-quoted, so match
+    # the delimiter as it is actually emitted: alone on its own line.
+    instructions = captured["instructions"]
+    assert instructions.count("<skforecast_documentation>\n") == 1
+    assert instructions.count("\n</skforecast_documentation>") == 1
+    assert instructions.count("<skill name=") == 2
+    assert instructions.count("</skill>") == 2
+    assert "<api_reference>" in instructions
+    assert f"skforecast {skforecast_docs_version()}" in instructions
+
+    # The block must close before the role prompt's grounding rules stop
+    # applying to whatever follows.
+    assert instructions.index("</skill>") < instructions.index(
+        "</skforecast_documentation>"
+    )
+
+
+def test_agent_omits_the_documentation_block_when_no_skills():
+    """
+    Test that no empty documentation block is emitted when the caller
+    passes `skills=[]` to keep the prompt small.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai.llm.agent import AskDeps, create_forecasting_agent
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        return ModelResponse(parts=[TextPart(content="ok")])
+
+    agent = create_forecasting_agent(FunctionModel(respond))
+    deps = AskDeps(profile=None, plan=None, skills=[])
+    agent.run_sync("What is skforecast?", deps=deps)
+
+    assert "<skforecast_documentation>\n" not in captured["instructions"]
 
 
 def test_agent_has_no_tools():

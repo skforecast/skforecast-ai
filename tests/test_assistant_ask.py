@@ -106,6 +106,51 @@ def test_ask_qa_mode_preserves_code_blocks(monkeypatch):
     assert result.code is None
 
 
+def test_ask_records_the_auto_routed_skills(monkeypatch):
+    """
+    Test that the skills chosen by the router are reported on the
+    result, so a poor answer can be traced back to a routing miss.
+    """
+    from skforecast_ai.llm.skills import select_skills
+
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    patch_agent(monkeypatch, assistant, output="answer")
+
+    prompt = "How do I detect drift in my deployed model?"
+    result = assistant.ask(prompt=prompt)
+
+    assert result.skills == select_skills(task_type=None, question=prompt)
+    assert result.skills
+
+
+def test_ask_records_the_skills_when_given_explicitly(monkeypatch):
+    """
+    Test that a caller-supplied skill list is reported unchanged, since
+    it bypasses the router.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    patch_agent(monkeypatch, assistant, output="answer")
+
+    result = assistant.ask(
+        prompt="What is skforecast?", skills=["backtesting-configuration"]
+    )
+
+    assert result.skills == ["backtesting-configuration"]
+
+
+def test_ask_records_no_skills_when_selection_is_empty(monkeypatch):
+    """
+    Test that an explicit empty selection is preserved rather than
+    reported as a routed one.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    patch_agent(monkeypatch, assistant, output="answer")
+
+    result = assistant.ask(prompt="What is skforecast?", skills=[])
+
+    assert result.skills == []
+
+
 # =============================================================================
 # Tests: explain mode (data provided)
 # =============================================================================

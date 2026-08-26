@@ -11,8 +11,13 @@ from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from .._constants import MAX_FEATURE_FRACTION
 from ..schemas import CVParams, ForecastingProfile, ForecastPlan, PlanOverrides
-from .prompts import _CV_ROLE_PROMPT, _STATIC_ROLE_PROMPT, _PLAN_REFINEMENT_ROLE_PROMPT
-from .skills import load_llms_reference, load_skill
+from .prompts import (
+    _CV_ROLE_PROMPT,
+    _DOCUMENTATION_PREAMBLE,
+    _PLAN_REFINEMENT_ROLE_PROMPT,
+    _STATIC_ROLE_PROMPT,
+)
+from .skills import load_llms_reference, load_skill, skforecast_docs_version
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +99,9 @@ def create_forecasting_agent(
         parts: list[str] = []
         for name in skill_names:
             try:
-                parts.append(f"### {name}\n\n{load_skill(name)}")
+                parts.append(
+                    f'<skill name="{name}">\n{load_skill(name)}\n</skill>'
+                )
             except FileNotFoundError:
                 logger.warning("Skill '%s' not found, skipping.", name)
                 continue
@@ -103,10 +110,22 @@ def create_forecasting_agent(
         if deps.include_reference:
             try:
                 ref = load_llms_reference()
-                parts.append(f"## Skforecast API Reference\n\n{ref}")
+                parts.append(f"<api_reference>\n{ref}\n</api_reference>")
                 logger.debug("API reference included.")
             except FileNotFoundError:
                 logger.warning("API reference file not found, skipping.")
+
+        # Tagged so the model can tell library documentation apart from the
+        # user's validated context, which the role prompt governs separately.
+        if parts:
+            preamble = _DOCUMENTATION_PREAMBLE.format(
+                version=skforecast_docs_version()
+            )
+            body = "\n\n".join(parts)
+            parts = [
+                f"<skforecast_documentation>\n{preamble}\n\n{body}\n"
+                f"</skforecast_documentation>"
+            ]
 
         # Conditional no-code reinforcement (Explain/Results mode only)
         if deps.plan is not None:

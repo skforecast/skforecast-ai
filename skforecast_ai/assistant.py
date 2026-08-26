@@ -1972,6 +1972,8 @@ class ForecastingAssistant:
             - plan: detailed forecasting plan, when one was produced.
             - code: generated Python script, when one was produced.
             - explanation: LLM-generated explanation or response.
+            - skills: names of the skill documents sent to the model,
+            after trimming to fit the context budget.
 
         Raises
         ------
@@ -2161,6 +2163,7 @@ class ForecastingAssistant:
             plan        = plan,
             code        = generated_code,
             explanation = explanation,
+            skills      = list(resolved_skills),
         )
 
     # --------------------------------------------------------------- private
