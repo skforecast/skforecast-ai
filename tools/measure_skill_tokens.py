@@ -9,6 +9,7 @@ Usage
 -----
     python tools/measure_skill_tokens.py           # Print estimates
     python tools/measure_skill_tokens.py --update  # Update skills.py in-place
+    python tools/measure_skill_tokens.py --report  # Markdown size breakdown
 """
 
 from __future__ import annotations
@@ -50,6 +51,34 @@ def measure_reference() -> int:
         print(f"WARNING: {ref_file} not found", file=sys.stderr)
         return 0
     return len(ref_file.read_text(encoding="utf-8")) // CHARS_PER_TOKEN
+
+
+def format_report(reference: int) -> str:
+    """Format a markdown breakdown of where the skill tokens are spent."""
+    rows: list[tuple[int, int, int, str]] = []
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        if not (skill_dir.is_dir() and (skill_dir / "SKILL.md").exists()):
+            continue
+        body = len((skill_dir / "SKILL.md").read_text(encoding="utf-8")) // CHARS_PER_TOKEN
+        total = measure_skill(skill_dir)
+        rows.append((total, body, total - body, skill_dir.name))
+
+    rows.sort(reverse=True)
+    total_all = sum(row[0] for row in rows)
+    total_refs = sum(row[2] for row in rows)
+
+    lines = [
+        "## Skill token budget",
+        "",
+        f"{len(rows)} skills, {total_all} tokens "
+        f"({total_refs} in `references/`), reference file {reference} tokens.",
+        "",
+        "| Skill | Total | SKILL.md | references/ |",
+        "|---|---:|---:|---:|",
+    ]
+    lines += [f"| {name} | {total} | {body} | {refs} |" for total, body, refs, name in rows]
+
+    return "\n".join(lines)
 
 
 def collect_estimates() -> tuple[dict[str, int], int]:
@@ -160,6 +189,11 @@ def main() -> None:
         action="store_true",
         help="Check that skills.py constants are up-to-date (CI mode).",
     )
+    group.add_argument(
+        "--report",
+        action="store_true",
+        help="Print a markdown breakdown of the skill token budget.",
+    )
     args = parser.parse_args()
 
     skills, reference = collect_estimates()
@@ -169,6 +203,8 @@ def main() -> None:
             print("✓ Token estimates are up-to-date.")
         else:
             sys.exit(1)
+    elif args.report:
+        print(format_report(reference))
     elif args.update:
         if update_skills_file(skills, reference):
             print(f"✓ Updated {SKILLS_MODULE}")

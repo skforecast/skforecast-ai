@@ -2,7 +2,13 @@
 
 import pytest
 
+from skforecast_ai._constants import (
+    MAX_SKILL_TOKENS,
+    OLLAMA_MAX_CONTEXT_TOKENS,
+    RESERVED_RESPONSE_TOKENS,
+)
 from skforecast_ai.llm.skills import (
+    compute_skill_token_budget,
     estimate_prompt_tokens,
     select_skills,
     _REFERENCE_TOKEN_ESTIMATE,
@@ -53,6 +59,12 @@ def test_select_skills_base_routing(task_type, expected):
         ("How to use Chronos model?", "foundation-forecasting"),
         ("Fit an ARIMA model", "statistical-models"),
         ("I need drift detection", "drift-detection"),
+        ("Give me a naive baseline", "baseline-forecasting"),
+        ("Does my model beat a seasonal naive?", "baseline-forecasting"),
+        ("How do I use ForecasterEquivalentDate?", "baseline-forecasting"),
+        ("I want to benchmark my forecaster", "baseline-forecasting"),
+        ("What parameters does backtesting_forecaster take?", "complete-api-reference"),
+        ("Show me the signature of TimeSeriesFold", "complete-api-reference"),
         ("I get a traceback error", "troubleshooting-common-errors"),
     ],
     ids=lambda v: v[:40] if isinstance(v, str) else v,
@@ -104,8 +116,9 @@ def test_select_skills_trims_to_budget():
         question="How to add prediction intervals and hyperparameter tuning?",
         token_budget=5000,
     )
-    # Budget of 5000 fits choosing-a-forecaster (2702) +
-    # forecasting-single-series (1223) = 3925, but not prediction-intervals (3203)
+    # Budget of 5000 fits choosing-a-forecaster (2829) +
+    # forecasting-single-series (1505) = 4334, but not the next skill by
+    # priority, hyperparameter-optimization (5765).
     assert "choosing-a-forecaster" in result
     assert "forecasting-single-series" in result
     assert "prediction-intervals" not in result
@@ -158,6 +171,24 @@ def test_select_skills_no_troubleshooting_on_common_words():
         question="What is the prediction error metric?",
     )
     assert "troubleshooting-common-errors" not in result2
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "What hyperparameters should I tune?",
+        "Which parameters did you use for the model?",
+    ],
+    ids=lambda v: v[:40],
+)
+def test_select_skills_no_api_reference_on_parameter_talk(question):
+    """
+    Test that questions merely mentioning parameters do NOT pull in the
+    API reference. It is the most expensive skill in the inventory, so it
+    is reserved for questions asking for an actual signature.
+    """
+    result = select_skills(task_type="single_series", question=question)
+    assert "complete-api-reference" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +257,21 @@ def test_select_skills_foundation_task_type_unchanged():
     )
     assert "foundation-forecasting" in result
     assert "forecasting-multiple-series" not in result
+
+
+def test_select_skills_foundation_keeps_hyperparameter_optimization():
+    """
+    Test that foundation-forecasting does NOT suppress
+    hyperparameter-optimization: that skill documents
+    `bayesian_search_foundation`, the only way to tune a zero-shot
+    forecaster.
+    """
+    result = select_skills(
+        task_type="foundation",
+        question="How do I tune context_length with a bayesian search?",
+    )
+    assert "foundation-forecasting" in result
+    assert "hyperparameter-optimization" in result
 
 
 # ---------------------------------------------------------------------------
@@ -297,68 +343,107 @@ def test_estimate_prompt_tokens_empty_skills():
 
 
 # ---------------------------------------------------------------------------
-# Integration: prompt fits within Ollama 8K context
+# Integration: the budgeted selection fits the Ollama window
 # ---------------------------------------------------------------------------
 
-def test_prompt_fits_8k_for_minimal_ollama_case():
+@pytest.mark.parametrize(
+    "task_type",
+    ["single_series", "multi_series", "multivariate", "statistical",
+     "foundation", None],
+    ids=lambda v: f"task_type={v}",
+)
+@pytest.mark.parametrize("include_reference", [False, True], ids=["no_ref", "ref"])
+def test_budgeted_selection_fits_the_ollama_window(task_type, include_reference):
     """
-    Test that for any single task_type with a short question and no
-    reference, the estimated prompt tokens stay well within the 8K
-    Ollama context limit (leaving 30% for generation headroom = 5,734
-    tokens available for prompt).
+    Test that the budgeted selection never overflows the local context
+    window, which is the guarantee the assistant relies on: skills grow
+    with every upstream sync, so only the budgeted path can be trusted to
+    keep the prompt inside the window.
     """
-    task_types = [
-        "single_series",
-        "multi_series",
-        "multivariate",
-        "statistical",
-        "foundation",
-        None,
-    ]
-    max_prompt_budget = 5734  # 70% of 8192
-
-    for task_type in task_types:
-        skills = select_skills(
-            task_type=task_type,
-            question="Explain this plan",
-        )
-        tokens = estimate_prompt_tokens(skills=skills, include_reference=False)
-        assert tokens <= max_prompt_budget, (
-            f"task_type={task_type!r} uses {tokens} tokens "
-            f"(max allowed: {max_prompt_budget}). Skills: {skills}"
-        )
-
-
-def test_prompt_with_reference_fits_32k():
-    """
-    Test that even with the API reference included, the estimated prompt
-    tokens fit within a 32K Ollama context (22,937 token prompt budget).
-    """
+    context_tokens = 4_000
+    budget = compute_skill_token_budget(
+        max_context_tokens = OLLAMA_MAX_CONTEXT_TOKENS,
+        context_tokens     = context_tokens,
+        include_reference  = include_reference,
+    )
     skills = select_skills(
-        task_type="single_series",
-        question="How to add prediction intervals and hyperparameter tuning?",
-    )
-    tokens = estimate_prompt_tokens(skills=skills, include_reference=True)
-    max_prompt_budget = 22_937  # 70% of 32768
-    assert tokens <= max_prompt_budget, (
-        f"Prompt with reference uses {tokens} tokens "
-        f"(max allowed: {max_prompt_budget}). Skills: {skills}"
+        task_type    = task_type,
+        question     = "Explain this plan and how to tune and backtest it",
+        token_budget = budget,
     )
 
+    total = (
+        estimate_prompt_tokens(skills=skills, include_reference=include_reference)
+        + context_tokens
+        + RESERVED_RESPONSE_TOKENS
+    )
+    assert total <= OLLAMA_MAX_CONTEXT_TOKENS, (
+        f"task_type={task_type!r} uses {total} tokens "
+        f"(window: {OLLAMA_MAX_CONTEXT_TOKENS}). Skills: {skills}"
+    )
+    assert skills, "A modest context must still leave room for one skill"
 
-def test_worst_case_all_skills_estimate():
+
+# A question that trips every keyword pattern at once, which is the largest
+# selection the routing table can produce.
+ALL_TOPICS_QUESTION = (
+    "lags acf backtest refit hyperparameter optuna prediction interval quantile "
+    "metric mase rolling window features select_features rfecv drift monitor "
+    "naive baseline traceback debug what parameters does it take signature api"
+)
+
+
+@pytest.mark.parametrize(
+    "task_type",
+    ["single_series", "multi_series", "multivariate", "statistical",
+     "foundation", None],
+    ids=lambda v: f"task_type={v}",
+)
+def test_worst_reachable_selection_fits_the_smallest_window(task_type):
     """
-    Test that loading ALL skills (worst case) plus reference stays under
-    128K context models (89,600 token prompt budget).
-    """
-    from skforecast_ai.llm.skills import ALL_SKILLS
+    Test that the largest selection the routing table can produce still
+    leaves room for the answer in the smallest supported window.
 
-    tokens = estimate_prompt_tokens(skills=ALL_SKILLS, include_reference=True)
-    max_prompt_budget = 89_600  # 70% of 128K
-    assert tokens <= max_prompt_budget, (
-        f"All skills + reference = {tokens} tokens "
-        f"(max allowed: {max_prompt_budget})"
+    Asserting a ceiling on the whole inventory would test a combination
+    `select_skills` never returns, and would go red on any upstream sync
+    that merely writes more documentation. This asserts what the caller
+    can actually be served.
+    """
+    skills = select_skills(task_type=task_type, question=ALL_TOPICS_QUESTION)
+
+    skill_tokens = sum(_SKILL_TOKEN_ESTIMATES[s] for s in skills)
+    assert skill_tokens <= MAX_SKILL_TOKENS, (
+        f"task_type={task_type!r} selects {skill_tokens} tokens of skills "
+        f"(cap: {MAX_SKILL_TOKENS}). Skills: {skills}"
     )
+
+    total = (
+        estimate_prompt_tokens(skills=skills, include_reference=True)
+        + RESERVED_RESPONSE_TOKENS
+    )
+    assert total <= OLLAMA_MAX_CONTEXT_TOKENS, (
+        f"task_type={task_type!r} needs {total} tokens "
+        f"(window: {OLLAMA_MAX_CONTEXT_TOKENS}). Skills: {skills}"
+    )
+
+
+def test_select_skills_applies_the_cap_without_an_explicit_budget():
+    """
+    Test that `MAX_SKILL_TOKENS` is enforced even when no budget is passed.
+
+    Only local models expose a context window up front, so a hosted model
+    is called with `token_budget=None`; without the cap a question that
+    matches many topics would be sent unbounded.
+    """
+    uncapped = select_skills(
+        task_type="single_series", question=ALL_TOPICS_QUESTION
+    )
+
+    assert sum(_SKILL_TOKEN_ESTIMATES[s] for s in uncapped) <= MAX_SKILL_TOKENS
+    assert uncapped[0] == "choosing-a-forecaster"
+    # The question matches every pattern, so the cap must have dropped the
+    # lowest-priority matches.
+    assert "complete-api-reference" not in uncapped
 
 
 def test_skill_inventory_matches_the_skills_directory():
@@ -382,6 +467,58 @@ def test_skill_inventory_matches_the_skills_directory():
 
     assert set(ALL_SKILLS) == on_disk
     assert set(_SKILL_TOKEN_ESTIMATES) == on_disk
+
+
+def test_skill_inventory_follows_the_upstream_order():
+    """
+    Test that `ALL_SKILLS` holds each skill exactly once, in the canonical
+    order published upstream as `SKILL_ORDER`.
+
+    The order is the routing priority used to trim a selection to budget,
+    so an upstream reordering that set comparison would not catch must
+    still be reviewed deliberately.
+    """
+    from skforecast_ai.llm.skills import ALL_SKILLS
+
+    assert ALL_SKILLS == [
+        "choosing-a-forecaster",
+        "autocorrelation-and-lag-selection",
+        "feature-engineering",
+        "forecasting-single-series",
+        "forecasting-multiple-series",
+        "foundation-forecasting",
+        "baseline-forecasting",
+        "metric-selection",
+        "backtesting-configuration",
+        "hyperparameter-optimization",
+        "feature-selection",
+        "prediction-intervals",
+        "statistical-models",
+        "deep-learning-forecasting",
+        "drift-detection",
+        "troubleshooting-common-errors",
+        "complete-api-reference",
+    ]
+    assert len(set(ALL_SKILLS)) == len(ALL_SKILLS)
+
+
+def test_select_skills_output_follows_the_inventory_order():
+    """
+    Test that a selection is returned in `ALL_SKILLS` order regardless of
+    the order the keyword patterns matched in.
+    """
+    from skforecast_ai.llm.skills import ALL_SKILLS
+
+    result = select_skills(
+        task_type="single_series",
+        question=(
+            "Which metric should I use to check the model beats a naive "
+            "baseline, and how do I tune it and get prediction intervals?"
+        ),
+    )
+
+    assert result == sorted(result, key=ALL_SKILLS.index)
+    assert "baseline-forecasting" in result
 
 
 # ---------------------------------------------------------------------------

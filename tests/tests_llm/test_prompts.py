@@ -7,6 +7,7 @@ import pytest
 from skforecast_ai._constants import MAX_STATIC_PROMPT_TOKENS
 from skforecast_ai.llm.prompts import (
     _CV_ROLE_PROMPT,
+    _DOCUMENTATION_PREAMBLE,
     _PLAN_REFINEMENT_ROLE_PROMPT,
     _STATIC_ROLE_PROMPT,
 )
@@ -133,10 +134,13 @@ def test_static_role_prompt_omits_superseded_wording(superseded):
 def test_static_prompt_token_estimate_is_derived_from_the_prompt():
     """
     Test that the estimate used to size the Ollama context window is
-    computed from the prompt rather than hardcoded, so it cannot drift
-    from the prompt it describes when the prompt is edited.
+    computed from the prompts rather than hardcoded, so it cannot drift
+    from the text it describes when that text is edited. Both the role
+    prompt and the documentation preamble are paid on every call.
     """
-    assert _STATIC_PROMPT_TOKEN_ESTIMATE == len(_STATIC_ROLE_PROMPT) // 4
+    assert _STATIC_PROMPT_TOKEN_ESTIMATE == (
+        len(_STATIC_ROLE_PROMPT) + len(_DOCUMENTATION_PREAMBLE)
+    ) // 4
 
 
 def test_static_role_prompt_within_ceiling():

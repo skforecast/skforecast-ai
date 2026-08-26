@@ -10,8 +10,8 @@ import logging
 import re
 from functools import lru_cache
 from pathlib import Path
-from .._constants import RESERVED_RESPONSE_TOKENS
-from .prompts import _STATIC_ROLE_PROMPT
+from .._constants import MAX_SKILL_TOKENS, RESERVED_RESPONSE_TOKENS
+from .prompts import _DOCUMENTATION_PREAMBLE, _STATIC_ROLE_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -19,24 +19,32 @@ _PACKAGE_DIR = Path(__file__).resolve().parent.parent
 _SKILLS_DIR = _PACKAGE_DIR / "skills"
 _RESOURCES_DIR = _PACKAGE_DIR / "resources"
 
+# Mirrors the canonical `SKILL_ORDER` published upstream by skforecast: the
+# order is the routing priority, so budget trimming drops the least
+# foundational skills first.
 ALL_SKILLS = [
-    "autocorrelation-and-lag-selection",
-    "backtesting-configuration",
     "choosing-a-forecaster",
-    "complete-api-reference",
-    "deep-learning-forecasting",
-    "drift-detection",
+    "autocorrelation-and-lag-selection",
     "feature-engineering",
-    "feature-selection",
-    "forecasting-multiple-series",
     "forecasting-single-series",
+    "forecasting-multiple-series",
     "foundation-forecasting",
-    "hyperparameter-optimization",
+    "baseline-forecasting",
     "metric-selection",
+    "backtesting-configuration",
+    "hyperparameter-optimization",
+    "feature-selection",
     "prediction-intervals",
     "statistical-models",
+    "deep-learning-forecasting",
+    "drift-detection",
     "troubleshooting-common-errors",
+    "complete-api-reference",
 ]
+
+_SKILL_PRIORITY: dict[str, int] = {
+    name: position for position, name in enumerate(ALL_SKILLS)
+}
 
 _TASK_TYPE_SKILLS: dict[str | None, list[str]] = {
     "single_series": ["choosing-a-forecaster", "forecasting-single-series"],
@@ -59,6 +67,10 @@ _KEYWORD_SKILLS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"chronos|timesfm|moirai|foundation|zero.shot|tabicl|pre.?trained|ForecasterFoundation", re.I), "foundation-forecasting"),
     (re.compile(r"arima|sarimax|\bets\b|\barar\b|\bstatistical\b|exponential.smoothing|seasonal.order|ForecasterStats", re.I), "statistical-models"),
     (re.compile(r"drift|monitor|deploy|production|distribution.shift|out.of.range|RangeDrift|PopulationDrift", re.I), "drift-detection"),
+    (re.compile(r"\bbaselines?\b|\bnaive\b|seasonal.naive|\bbenchmark|equivalent.date|ForecasterEquivalentDate|grid_search_equivalent_date", re.I), "baseline-forecasting"),
+    # Signature-shaped questions only: the skill is the most expensive one and
+    # the workflow skills already carry idiomatic usage.
+    (re.compile(r"\bapi\b|\bsignatures?\b|\bkwargs\b|\bparameters?\s+(of|for|does|to)\b|\barguments?\s+(of|for|does|to)\b|\bdefault\s+value", re.I), "complete-api-reference"),
     (re.compile(r"traceback|\bdebug\b|troubleshoot|exception|\bfails?\b|not.working|TypeError|ValueError|KeyError|IndexError", re.I), "troubleshooting-common-errors"),
 ]
 
@@ -73,7 +85,6 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
         "forecasting-multiple-series",
         "feature-engineering",
         "feature-selection",
-        "hyperparameter-optimization",
         "prediction-intervals",
     },
     "deep-learning-forecasting": {
@@ -92,32 +103,60 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
 
 # Measured token estimates (chars / 4) for each skill (SKILL.md + references/).
 _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
-    "autocorrelation-and-lag-selection": 2038,
-    "backtesting-configuration": 1818,
-    "choosing-a-forecaster": 2719,
-    "complete-api-reference": 11452,
-    "deep-learning-forecasting": 4103,
-    "drift-detection": 1246,
-    "feature-engineering": 10823,
-    "feature-selection": 1406,
-    "forecasting-multiple-series": 1762,
-    "forecasting-single-series": 1476,
-    "foundation-forecasting": 4305,
-    "hyperparameter-optimization": 3553,
-    "metric-selection": 4986,
-    "prediction-intervals": 4403,
-    "statistical-models": 3979,
-    "troubleshooting-common-errors": 2195,
+    "autocorrelation-and-lag-selection": 2035,
+    "backtesting-configuration": 1822,
+    "baseline-forecasting": 1929,
+    "choosing-a-forecaster": 2829,
+    "complete-api-reference": 12527,
+    "deep-learning-forecasting": 4175,
+    "drift-detection": 1249,
+    "feature-engineering": 10937,
+    "feature-selection": 1534,
+    "forecasting-multiple-series": 1766,
+    "forecasting-single-series": 1505,
+    "foundation-forecasting": 7107,
+    "hyperparameter-optimization": 5765,
+    "metric-selection": 5747,
+    "prediction-intervals": 4484,
+    "statistical-models": 4056,
+    "troubleshooting-common-errors": 2559,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 7746  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 7952  # llms-base.txt measured size
 
 # Derived from the prompt rather than hardcoded. A hardcoded figure has to
 # be re-measured by hand after every prompt edit, and silently understates
 # the budget until someone does. `MAX_STATIC_PROMPT_TOKENS` is the ceiling
 # that keeps the role prompt from crowding out the skills, and is asserted
 # in the test suite.
-_STATIC_PROMPT_TOKEN_ESTIMATE = len(_STATIC_ROLE_PROMPT) // 4
+_STATIC_PROMPT_TOKEN_ESTIMATE = (
+    len(_STATIC_ROLE_PROMPT) + len(_DOCUMENTATION_PREAMBLE)
+) // 4
+
+_DOCS_VERSION_PATTERN = re.compile(r"^- Version:\s*(\S+)", re.M)
+
+
+@lru_cache(maxsize=1)
+def skforecast_docs_version() -> str:
+    """
+    Read the skforecast version the bundled documentation describes.
+
+    Taken from `llms-base.txt` because the sync tool rewrites that file on
+    every asset update, so the version cannot drift from the skills the
+    way a hardcoded string does.
+
+    Returns
+    -------
+    version : str
+        Version string, for example `'0.24.0'`, or `'(bundled version)'`
+        when the reference file is missing or carries no version line.
+    """
+    try:
+        match = _DOCS_VERSION_PATTERN.search(load_llms_reference())
+    except FileNotFoundError:
+        return "(bundled version)"
+
+    return match.group(1) if match else "(bundled version)"
 
 
 @lru_cache(maxsize=None)
@@ -198,6 +237,9 @@ def select_skills(
     2. **Keyword augmentation**: scan the user question for topic
        keywords and append matching skills.
 
+    The result is ordered by `ALL_SKILLS`, so a trimmed selection keeps
+    the most foundational skills.
+
     Parameters
     ----------
     task_type : str, None
@@ -207,9 +249,10 @@ def select_skills(
     question : str
         The user's natural-language question.
     token_budget : int, None, default None
-        Maximum tokens available for skill content. If None, no budget
-        limit is applied. When set, skills are included in order until
-        the budget is exhausted.
+        Maximum tokens available for skill content. If None, only the
+        provider-independent `MAX_SKILL_TOKENS` ceiling applies. When set,
+        the stricter of the two is used and skills are included in order
+        until it is exhausted.
 
     Returns
     -------
@@ -233,17 +276,23 @@ def select_skills(
     if suppressed:
         selected = [s for s in selected if s not in suppressed]
 
-    if token_budget is not None:
-        before_trim = list(selected)
-        selected = _trim_to_budget(selected, token_budget)
-        if len(selected) < len(before_trim):
-            dropped = [s for s in before_trim if s not in selected]
-            logger.info(
-                "Skills trimmed to budget (%d tokens): kept %s, dropped %s",
-                token_budget,
-                selected,
-                dropped,
-            )
+    selected.sort(key=lambda s: _SKILL_PRIORITY.get(s, len(_SKILL_PRIORITY)))
+
+    budget = (
+        MAX_SKILL_TOKENS
+        if token_budget is None
+        else min(token_budget, MAX_SKILL_TOKENS)
+    )
+    before_trim = list(selected)
+    selected = _trim_to_budget(selected, budget)
+    if len(selected) < len(before_trim):
+        dropped = [s for s in before_trim if s not in selected]
+        logger.info(
+            "Skills trimmed to budget (%d tokens): kept %s, dropped %s",
+            budget,
+            selected,
+            dropped,
+        )
 
     logger.debug(
         "select_skills(task_type=%r) -> base=%s, augmented=%s, final=%s",
@@ -257,7 +306,7 @@ def select_skills(
 
 
 def _trim_to_budget(skills: list[str], budget: int) -> list[str]:
-    """Keep skills in order until the token budget is exhausted."""
+    """Keep skills, already ordered by priority, until the budget is exhausted."""
     result: list[str] = []
     used = 0
     for skill in skills:
