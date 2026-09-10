@@ -19,6 +19,7 @@ from skforecast_ai.llm.context import (
     render_plan_section,
     render_predictions_section,
     render_profile_decision_section,
+    render_script_section,
     render_winning_candidate_section,
 )
 
@@ -28,6 +29,13 @@ assistant = ForecastingAssistant()
 
 profile = assistant.profile(data=df_single, target="sales", date_column="date")
 plan = assistant.plan(profile, steps=5)
+profile_categorical = assistant.profile(
+    data=df_single.assign(
+        weather=np.where(np.arange(len(df_single)) % 2 == 0, "clear", "rain")
+    ),
+    target="sales",
+    date_column="date",
+)
 
 # `11.5` is an interior value: not the minimum, the maximum, or the mean,
 # so it can only reach the context through a row-level rendering.
@@ -103,6 +111,74 @@ def test_render_dataset_section_reports_exog_and_missing_values():
     assert "- Target: sales" in section
     assert "- Exogenous columns: promo" in section
     assert "Missing in target" not in section
+
+
+def test_render_dataset_section_reports_range_scale_and_quality():
+    """
+    Test that the dataset section states the date range, the target
+    scale, that there are no missing values, and that no irregularities
+    were detected, so the model can judge metrics and answer data
+    questions without guessing.
+    """
+    section = render_dataset_section(profile)
+    dp = profile.data_profile
+    start = dp.series_lengths["sales"].start
+    end = dp.series_lengths["sales"].end
+
+    assert f"- Date range: {start} to {end}" in section
+    assert "- Target statistics: min" in section
+    assert "- Missing values: none" in section
+    assert "- Index irregularities: none detected" in section
+
+
+def test_render_dataset_section_reports_categorical_exog():
+    """
+    Test that categorical exogenous columns are named, since statistical
+    models cannot use them and the plan treats them specially.
+    """
+    section = render_dataset_section(profile_categorical)
+
+    assert "- Categorical exogenous columns: weather" in section
+
+
+def test_render_profile_decision_section_reports_temporal_structure():
+    """
+    Test that the profile decision carries the significant lags and the
+    suggested window and calendar features, so a profile can be explained
+    before any plan exists.
+    """
+    section = render_profile_decision_section(profile)
+    first_lag = profile.series_pacf[0].lags[0]
+
+    assert section.startswith("<profile_decision>\n" + profile.explanation)
+    assert f"- Significant lags (partial autocorrelation, strongest first): {first_lag}" in section
+    assert "- Suggested window features: mean(window=" in section
+
+
+def test_render_script_section_describes_the_script_contract():
+    """
+    Test that the script section states the mode, the files the script
+    reads, what it defines and which packages it imports, all taken from
+    the code, without reproducing the code.
+    """
+    code = (
+        "import pandas as pd\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "data = pd.read_csv('sales.csv')\n"
+        "exog_future = pd.read_csv('exog_future.csv')\n"
+        "predictions = None\n"
+    )
+
+    section = render_script_section(plan, code)
+
+    assert "<script>" in section
+    assert "- Mode: prediction: trains on all the data" in section
+    assert "- Files read: sales.csv, exog_future.csv" in section
+    assert "- Packages imported: pandas, skforecast" in section
+    assert "- Length: 5 lines" in section
+    assert "ForecasterRecursive" not in section
+    assert render_script_section(None, code) == ""
+    assert render_script_section(plan, None) == ""
 
 
 def test_render_cv_section_prepends_note_when_provided():

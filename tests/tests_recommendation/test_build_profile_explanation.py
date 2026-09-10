@@ -101,3 +101,28 @@ def test_build_profile_explanation_counts_categorical_exog():
     )
 
     assert "3 exogenous variables (2 categorical) available as predictors." in explanation
+
+
+def test_build_profile_explanation_states_pooled_count_when_multi_series():
+    """
+    Test that a multi-series profile reports the observation count as
+    pooled across series, so it is not mistaken for the length of one
+    series.
+    """
+    explanation = _build_profile_explanation(
+        task_type             = "multi_series",
+        forecaster            = "ForecasterRecursiveMultiSeries",
+        forecaster_candidates = ["ForecasterRecursiveMultiSeries"],
+        estimator             = "Ridge",
+        estimator_candidates  = ["Ridge"],
+        data_profile          = _make_profile(
+            n_series=2,
+            series_lengths={
+                "a": {"start": "2023-01-01", "end": "2023-04-10", "length": 100},
+                "b": {"start": "2023-01-01", "end": "2023-04-10", "length": 100},
+            },
+            target=["a", "b"],
+        ),
+    )
+
+    assert "Data: 200 observations pooled across 2 series, 'D' frequency." in explanation

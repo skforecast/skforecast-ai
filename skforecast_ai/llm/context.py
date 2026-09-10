@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import re
 from typing import Any
 from .._constants import (
     CONTEXT_HEAD_TAIL_ROWS,
@@ -13,6 +14,25 @@ from .._constants import (
     MAX_LEADERBOARD_ROWS,
 )
 from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
+
+
+# Per-series lines in the dataset and profile sections are capped so a
+# wide multi-series dataset cannot crowd the prompt.
+MAX_STATS_SERIES = 5
+MAX_PACF_LAGS = 15
+
+
+def _fmt(value: float) -> str:
+    """Format a statistic with four significant digits."""
+    return f"{value:.4g}"
+
+
+def _limited(items, limit: int):
+    """Yield at most `limit` items."""
+    for position, item in enumerate(items):
+        if position >= limit:
+            return
+        yield item
 
 
 def _tag(name: str, body: str) -> str:
@@ -125,7 +145,11 @@ def _serialize_dataframe(
         f"rows."
     )
 
-    numeric_cols = df.select_dtypes(include="number")
+    # `fold` is an identifier, not a measurement: the mean fold index is
+    # noise that would be quoted back as if it described the predictions.
+    numeric_cols = df.select_dtypes(include="number").drop(
+        columns="fold", errors="ignore"
+    )
     stats = ""
     if not numeric_cols.empty:
         # Report per-column statistics rather than a single blended value.
@@ -143,6 +167,25 @@ def _serialize_dataframe(
                 f"  {col}: min={col_data.min()}, "
                 f"max={col_data.max()}, mean={col_data.mean()}"
             )
+        # A multi-series frame pools every series into the summary above,
+        # so a question about one series ("what is the average forecast for
+        # item_2") has no answer. Break `pred` down by level, capped like
+        # the per-series target statistics of the dataset section.
+        if "level" in df.columns and "pred" in numeric_cols.columns:
+            levels = list(dict.fromkeys(df["level"]))
+            if len(levels) > 1:
+                shown = levels[:MAX_STATS_SERIES]
+                suffix = (
+                    "" if len(levels) <= MAX_STATS_SERIES
+                    else f" (first {MAX_STATS_SERIES} of {len(levels)} levels)"
+                )
+                lines.append(f"Per-level summary of pred (all rows){suffix}:")
+                for level in shown:
+                    level_pred = df.loc[df["level"] == level, "pred"]
+                    lines.append(
+                        f"  {level}: min={level_pred.min()}, "
+                        f"max={level_pred.max()}, mean={level_pred.mean()}"
+                    )
         stats = "\n" + "\n".join(lines)
 
     return (
@@ -195,13 +238,62 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
         f"- Observations: {dp.n_observations_display}",
         f"- Series: {dp.n_series}",
         f"- Frequency: {dp.frequency or 'unknown'}",
+    ]
+    if dp.n_series > 1:
+        # The profile explanation sizes the estimator on the pooled count;
+        # state it here so the two numbers are not read as a contradiction.
+        parts.insert(
+            1, f"- Observations pooled across series: {dp.n_total_observations}"
+        )
+
+    # Date range of the union index, so questions about the period covered
+    # (and metrics that depend on it) can be answered without the data.
+    starts = [info.start for info in dp.series_lengths.values() if info.start]
+    ends = [info.end for info in dp.series_lengths.values() if info.end]
+    if starts and ends:
+        parts.append(f"- Date range: {min(starts)} to {max(ends)}")
+
+    parts += [
         f"- Target: {dp.target}",
         f"- Exogenous columns: {exog}",
     ]
+    if dp.categorical_exog:
+        parts.append(
+            f"- Categorical exogenous columns: {', '.join(dp.categorical_exog)}"
+        )
+
+    # Scale of the target. Needed to judge MAPE (unreliable near zero) and
+    # to put MAE and MSE in perspective, both rules the role prompt sets.
+    for series, stats in _limited(dp.target_stats.items(), MAX_STATS_SERIES):
+        if not stats:
+            continue
+        label = "Target statistics" if len(dp.target_stats) == 1 else f"Target statistics ({series})"
+        parts.append(
+            f"- {label}: min {_fmt(stats['min'])}, max {_fmt(stats['max'])}, "
+            f"mean {_fmt(stats['mean'])}, std {_fmt(stats['std'])}"
+        )
+
+    # Missing values are stated even when there are none: "not mentioned"
+    # and "none" are different answers to the user.
     if dp.missing_target:
         parts.append(f"- Missing in target: {dp.missing_target}")
     if dp.missing_exog:
         parts.append(f"- Missing in exog: {dp.missing_exog}")
+    if not dp.missing_target and not dp.missing_exog:
+        parts.append("- Missing values: none")
+
+    irregularities = []
+    if dp.has_gaps:
+        irregularities.append("gaps in the index")
+    if dp.has_duplicate_timestamps:
+        irregularities.append("duplicate timestamps")
+    if not dp.index_is_monotonic:
+        irregularities.append("index not sorted")
+    parts.append(
+        f"- Index irregularities: {', '.join(irregularities) if irregularities else 'none detected'}"
+    )
+    for warning in dp.warnings:
+        parts.append(f"- Data warning: {warning}")
 
     return _tag("dataset", "\n".join(parts))
 
@@ -227,7 +319,31 @@ def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
     if profile is None:
         return ""
 
-    return _tag("profile_decision", profile.explanation)
+    parts = [profile.explanation]
+
+    # The temporal structure the profiler found. It is what the plan's
+    # lags and features are derived from, so a question about the profile
+    # alone (before any plan exists) can still be answered.
+    for pacf in _limited(profile.series_pacf, MAX_STATS_SERIES):
+        if not pacf.lags:
+            continue
+        lags = ", ".join(str(lag) for lag in pacf.lags[:MAX_PACF_LAGS])
+        suffix = "" if len(pacf.lags) <= MAX_PACF_LAGS else f" (first {MAX_PACF_LAGS} of {len(pacf.lags)})"
+        label = "Significant lags" if len(profile.series_pacf) == 1 else f"Significant lags for {pacf.series_id}"
+        parts.append(f"- {label} (partial autocorrelation, strongest first): {lags}{suffix}")
+    if profile.window_features:
+        rendered = ", ".join(
+            f"{stat}(window={wf['window_size']})"
+            for wf in profile.window_features
+            for stat in wf["stats"]
+        )
+        parts.append(f"- Suggested window features: {rendered}")
+    if profile.calendar_features:
+        parts.append(
+            f"- Suggested calendar features: {', '.join(profile.calendar_features)}"
+        )
+
+    return _tag("profile_decision", "\n".join(parts))
 
 
 def render_plan_section(plan: ForecastPlan | None) -> str:
@@ -282,6 +398,65 @@ def render_plan_section(plan: ForecastPlan | None) -> str:
     )
 
     return _tag("forecast_plan", "\n".join(parts))
+
+
+def render_script_section(plan: ForecastPlan | None, code: str | None) -> str:
+    """
+    Render the `<script>` section describing a generated script.
+
+    The script itself is never sent (the user already holds it, and the
+    role prompt forbids code in the answer). What the model needs to
+    explain it is its contract: the mode it runs in, the files it reads,
+    the variables it defines and the packages it imports, all read from
+    the code string so they cannot drift from it.
+
+    Parameters
+    ----------
+    plan : ForecastPlan, None
+        Plan the script was rendered from. None renders nothing.
+    code : str, None
+        Generated script. None renders nothing.
+
+    Returns
+    -------
+    section : str
+        Tagged section, or an empty string when there is no script.
+    """
+
+    if plan is None or code is None:
+        return ""
+
+    if plan.end_train is not None:
+        mode = (
+            f"evaluation: trains up to {plan.end_train}, predicts the "
+            f"following {plan.steps} steps and scores them against the "
+            f"held-out observations"
+        )
+        outputs = "predictions, plus the evaluation metrics printed at the end"
+    else:
+        mode = (
+            f"prediction: trains on all the data and forecasts the next "
+            f"{plan.steps} steps"
+        )
+        outputs = "predictions (no metrics: there is no ground truth yet)"
+
+    files = re.findall(r"read_csv\((['\"])(.*?)\1", code)
+    packages = sorted({
+        match.group(1)
+        for match in re.finditer(r"^(?:import|from)\s+([A-Za-z_][\w]*)", code, re.M)
+    })
+
+    parts = [
+        f"- Mode: {mode}",
+        f"- Files read: {', '.join(path for _, path in files) if files else 'none'}",
+        f"- Variables defined: {outputs}",
+        f"- Packages imported: {', '.join(packages) if packages else 'none'}",
+        f"- Length: {len(code.splitlines())} lines",
+        "The script is available to the user as `result.code`; describe it "
+        "from this summary and the plan, do not reproduce it.",
+    ]
+
+    return _tag("script", "\n".join(parts))
 
 
 def render_cv_section(cv_config: dict | None, note: str | None = None) -> str:
@@ -423,7 +598,9 @@ def render_comparison_overview_section(result: ComparisonResult) -> str:
         (
             f"The ranking is a deterministic ascending sort of the "
             f"{result.ranking_metric} column (lower is better). Do not "
-            f"re-rank the candidates or recompute the table."
+            f"re-rank the candidates or recompute the table, and do not "
+            f"suggest reasons for the ranking beyond the metric values: the "
+            f"leaderboard reports what happened, not why."
         ),
     ]
 

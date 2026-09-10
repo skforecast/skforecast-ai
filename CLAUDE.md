@@ -47,6 +47,8 @@ skforecast_ai/
   skills/, resources/ synced from skforecast (do not edit by hand)
   cli.py              Typer CLI mirroring the Python API
 tests/                mirrors the package: tests_<subpackage>/, fixtures_*.py
+tools/                maintenance scripts; ask_context_reports/ keeps one
+                      reviewed ask() evaluation per release and dataset
 dev/plan_de_accion.md work log and pending tasks
 ```
 
@@ -64,6 +66,7 @@ pytest -n auto                                   # full suite
 pytest tests/test_assistant_ask.py -q            # one file
 ruff check skforecast_ai tests                   # lint (must be clean; CI runs it)
 python tools/update_golden_llm_contexts.py       # regenerate LLM context goldens
+python tools/ask_context_check.py --dry-run      # ask() contexts, no LLM call
 PYTHONPATH=. mkdocs build -q -d /tmp/site        # docs build check
 ```
 
@@ -119,5 +122,10 @@ Follow `.github/instructions/testing.instructions.md`. In short:
 - Any user-visible change (API, CLI output, generated scripts, warnings)
   gets an entry in `docs/releases/releases.md` under the unreleased version.
 - Record decisions and pending work in `dev/plan_de_accion.md`.
+- A change to `llm/context.py`, `llm/prompts.py` or the rendered
+  explanations needs a run of `tools/ask_context_check.py` against a real
+  model before the release (it costs money, so the user launches it), and
+  the reviewed report is saved as described in
+  `tools/ask_context_reports/README.md`.
 - `.github/copilot-instructions.md` and `skforecast_ai/skills/` are synced
   from the skforecast repository; do not edit them here.

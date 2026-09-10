@@ -9,12 +9,35 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 import pandas as pd
+from .._constants import FORECASTER_TASK_TYPES
 from ..schemas import (
     CANDIDATE_CONFIG_KEYS,
     BacktestResult,
     CandidateConfig,
     ForecastingProfile,
 )
+
+
+# Forecasters whose backtest metrics measure the same thing can be ranked
+# together. Every single-target family scores one series. A multi-series
+# forecaster is scored on the average across all the series it predicts.
+# A multivariate forecaster predicts one series only (skforecast:
+# `ForecasterDirectMultiVariate.level`, "Name of the time series to be
+# predicted"), so its metrics describe a different quantity and it is never
+# ranked against the other two families.
+_COMPARISON_FAMILY: dict[str, str] = {
+    "single_series": "single-target",
+    "statistical": "single-target",
+    "foundation": "single-target",
+    "multi_series": "multi-series",
+    "multivariate": "multivariate",
+}
+
+
+def _comparison_family(forecaster: str) -> str | None:
+    """Family a forecaster's metrics belong to; None for an unknown forecaster."""
+    task_type = FORECASTER_TASK_TYPES.get(forecaster)
+    return _COMPARISON_FAMILY.get(task_type) if task_type else None
 
 
 def resolve_compare_candidates(
@@ -24,11 +47,16 @@ def resolve_compare_candidates(
     """
     Resolve the candidate configurations for `ForecastingAssistant.compare()`.
 
-    When `candidates` is None, the candidates are derived from
-    `profile.forecaster_candidates`, each labelled by its forecaster
-    class name. Otherwise the user-supplied `(name, config)` tuples
-    are validated. Names must be unique in both cases, since they key
-    the `candidates` and `failures` mappings of the result.
+    When `candidates` is None, the candidates are derived from the
+    forecaster candidates of the profile that belong to the same family as
+    the recommended forecaster, each labelled by its class name. When that
+    leaves a single forecaster (multi-series data, where the multivariate
+    alternative is not comparable), its estimator candidates are compared
+    instead, labelled `'<forecaster>+<estimator>'`. Otherwise the
+    user-supplied `(name, config)` tuples are validated: keys, unique
+    names, and a single forecaster family, since a multivariate forecaster
+    scores one series while a multi-series one scores the average across
+    all of them.
 
     Parameters
     ----------
@@ -47,15 +75,24 @@ def resolve_compare_candidates(
 
     resolved: list[tuple[str, CandidateConfig]] = []
     if candidates is None:
-        if not profile.forecaster_candidates:
+        family = _comparison_family(profile.forecaster)
+        forecasters = [
+            fc for fc in profile.forecaster_candidates
+            if _comparison_family(fc) == family
+        ]
+        if not forecasters:
             raise ValueError(
                 "Profile has no forecaster candidates to compare. "
                 "Pass an explicit `candidates` list."
             )
-        resolved = [
-            (fc, {"forecaster": fc})
-            for fc in profile.forecaster_candidates
-        ]
+        if len(forecasters) == 1 and len(profile.estimator_candidates) > 1:
+            forecaster = forecasters[0]
+            resolved = [
+                (f"{forecaster}+{estimator}", {"forecaster": forecaster, "estimator": estimator})
+                for estimator in profile.estimator_candidates
+            ]
+        else:
+            resolved = [(fc, {"forecaster": fc}) for fc in forecasters]
     else:
         if not candidates:
             raise ValueError("`candidates` must not be an empty list.")
@@ -80,6 +117,20 @@ def resolve_compare_candidates(
                     f"{sorted(allowed_keys)}."
                 )
             resolved.append((str(name), config))
+
+    families: dict[str, list[str]] = {}
+    for name, config in resolved:
+        family = _comparison_family(config.get("forecaster") or profile.forecaster)
+        if family is not None:
+            families.setdefault(family, []).append(name)
+    if len(families) > 1:
+        listed = "; ".join(f"{family}: {names}" for family, names in families.items())
+        raise ValueError(
+            f"Candidates mix forecaster families whose metrics are not "
+            f"comparable ({listed}). A multivariate forecaster is scored on "
+            f"the single series it predicts, a multi-series forecaster on the "
+            f"average across all series. Compare each family in its own call."
+        )
 
     names = [name for name, _ in resolved]
     duplicates = sorted({name for name in names if names.count(name) > 1})

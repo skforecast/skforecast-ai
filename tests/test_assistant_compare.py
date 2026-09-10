@@ -802,3 +802,54 @@ def test_compare_output_when_cv_result_given():
     )
 
     assert result.cv_config == cv_result.cv_config
+
+
+def test_compare_ValueError_when_multi_series_and_multivariate_are_mixed():
+    """
+    Test that a comparison mixing a multi-series candidate (scored on the
+    average across series) with a multivariate one (scored on the single
+    series it predicts) is rejected, since the ranking column would not
+    measure the same thing for both.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    with pytest.raises(ValueError, match="mix forecaster families"):
+        assistant.compare(
+            data=df_multi_wide,
+            cv=cv,
+            profile=profile,
+            candidates=[
+                ("multi", {"forecaster": "ForecasterRecursiveMultiSeries"}),
+                ("multivariate", {"forecaster": "ForecasterDirectMultiVariate"}),
+            ],
+            show_progress=False,
+        )
+
+
+def test_resolve_compare_candidates_auto_when_multi_series_varies_the_estimator():
+    """
+    Test that the automatic candidates of a multi-series profile keep the
+    multi-series forecaster only (the multivariate alternative is not
+    comparable) and vary its estimator across the profile's estimator
+    candidates, so the comparison still has more than one row.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+    assert "ForecasterDirectMultiVariate" in profile.forecaster_candidates
+
+    resolved = resolve_compare_candidates(None, profile)
+
+    assert [name for name, _ in resolved] == [
+        f"ForecasterRecursiveMultiSeries+{estimator}"
+        for estimator in profile.estimator_candidates
+    ]
+    assert all(
+        config == {"forecaster": "ForecasterRecursiveMultiSeries", "estimator": estimator}
+        for (_, config), estimator in zip(resolved, profile.estimator_candidates)
+    )

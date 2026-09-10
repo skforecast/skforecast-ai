@@ -83,7 +83,7 @@ def test_static_role_prompt_documents_context_tags():
     Test that the static role prompt names the tags the context block
     emits, so the model knows which content is authoritative.
     """
-    for tag in ["<forecast_context>", "<dataset>", "<forecast_plan>",
+    for tag in ["<forecast_context>", "<dataset>", "<forecast_plan>", "<script>",
                 "<cross_validation>", "<deterministic_summary>",
                 "<evaluation_metrics>", "<predictions>", "<leaderboard>",
                 "<question>"]:

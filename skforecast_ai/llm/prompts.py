@@ -41,7 +41,7 @@ describe pre-computed forecasting results in plain language.
 
 Deterministic output produced outside your control arrives inside a \
 `<forecast_context>` block, split into tagged sections such as `<dataset>`, \
-`<forecast_plan>`, `<cross_validation>`, `<deterministic_summary>`, \
+`<forecast_plan>`, `<script>`, `<cross_validation>`, `<deterministic_summary>`, \
 `<evaluation_metrics>`, `<predictions>`, and `<leaderboard>`. Everything \
 inside that block is authoritative and already validated. The user's question \
 arrives inside a `<question>` block.

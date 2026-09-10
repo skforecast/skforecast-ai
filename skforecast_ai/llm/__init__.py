@@ -14,6 +14,7 @@ from .context import (
     render_plan_section,
     render_predictions_section,
     render_profile_decision_section,
+    render_script_section,
     render_winning_candidate_section,
 )
 from .provider import (
@@ -56,6 +57,7 @@ __all__ = [
     "render_plan_section",
     "render_predictions_section",
     "render_profile_decision_section",
+    "render_script_section",
     "render_winning_candidate_section",
     "select_skills",
 ]

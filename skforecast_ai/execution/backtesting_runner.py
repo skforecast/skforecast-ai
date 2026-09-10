@@ -20,6 +20,7 @@ from ..rendering.backtesting import (
     render_backtesting_statistical,
 )
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from .comparison import aggregate_metrics
 from ._exec import exec_rendered
 
 _RENDER_DISPATCH: dict[
@@ -188,18 +189,20 @@ def _build_backtest_explanation(
         Combined CV + results explanation.
     """
 
-    # Build metric summary
-    summary_parts: list[str] = []
-    if metrics is not None and not metrics.empty:
-        for col in metrics.columns:
-            if col in ("levels", "level"):
-                continue
-            val = metrics[col].mean()
-            if isinstance(val, float):
-                summary_parts.append(f"{col}: {val:.4f}")
+    # One scalar per metric. For multi-series backtests skforecast appends
+    # aggregate rows (`average`, `weighted_average`, `pooling`); averaging
+    # the whole column would blend them with the per-series rows into a
+    # number that matches no row, so the `average` row is used instead.
+    summary_parts = [
+        f"{name}: {value:.4f}"
+        for name, value in aggregate_metrics(metrics).items()
+        if isinstance(value, float)
+    ]
 
     if summary_parts:
         metrics_str = ", ".join(summary_parts)
-        return f"{cv_explanation} Results: {metrics_str}."
+        multi_series = metrics is not None and "levels" in metrics.columns
+        label = "Results (average across series)" if multi_series else "Results"
+        return f"{cv_explanation} {label}: {metrics_str}."
 
     return cv_explanation

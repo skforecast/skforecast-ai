@@ -672,6 +672,89 @@ job periódico (`nbclient`) para detectar desviaciones entre docs y API;
 requiere decidir qué hacer con las celdas que necesitan LLM.
 
 
+## Fase 5: contexto del LLM
+
+Herramienta: `tools/ask_context_check.py` ejecuta el flujo determinista sobre
+`bike_sharing` o `items_sales`, pasa por `ask()` ocho tipos de contexto con
+preguntas "grounded" y "probe", y escribe un informe con el contexto exacto,
+las respuestas, una lista de comprobación y los campos de los objetos que el
+contexto no envía. `--dry-run` no llama al LLM; `--extra-context` permite
+probar hechos adicionales antes de tocar la librería. Los informes
+intermedios de esta fase (contexto original, experimento con contexto
+extra, contexto enriquecido) se borraron; quedan los finales en
+`tools/ask_context_reports/`.
+
+Resultado con `google:gemini-3.5-flash` (2026-09-10): el modelo respeta las
+reglas (no inventa números, declina los probes, MASE contra el naive, no
+re-rankea) y el límite estaba en el contexto: con el `<dataset>` original
+(150 tokens) no podía decir si había valores ausentes ni matizar un MAPE de
+108 % porque no sabía que el target tiene mínimo 1. Cambios en
+`llm/context.py`:
+
+- `<dataset>`: rango de fechas, estadísticas del target, exógenas
+  categóricas, valores ausentes (también cuando son cero), irregularidades
+  del índice y avisos del perfilado.
+- `<profile_decision>`: lags PACF significativos (hasta 15) y features de
+  ventana y calendario sugeridas, para explicar un profile sin plan.
+- `<script>` nuevo para `CodeGenerationResult`: modo, ficheros leídos,
+  variables definidas, paquetes importados, longitud. El script no se envía.
+- `<comparison_overview>`: pide no sugerir causas del ranking (el modelo lo
+  hacía con hedging).
+
+Verificado con la tercera pasada sin `--extra-context`: valores ausentes
+respondidos, estacionalidad diaria y semanal inferida de los lags con
+cautela, MAPE matizado por el mínimo del target, ficheros del script
+identificados, y ninguna especulación causal en la comparación. Los 11
+golden se regeneraron. Queda sin hacer, anotado: métrica por fold en el
+backtest (unos 300 tokens) para responder "cómo evolucionó el error".
+
+Pasada multi-serie (`items_sales`, tres series en formato ancho,
+`run4_multi`): el modelo trata bien las métricas por serie y la fila
+`average`, y declina lo que no está. Destapó tres cosas de la librería:
+
+- `_build_backtest_explanation` promediaba todas las filas de la tabla de
+  métricas, incluidas `average`, `weighted_average` y `pooling`, y daba
+  0.9612 donde la fila `average` dice 0.9617. Corregido: usa
+  `aggregate_metrics` (la fila `average`) y lo etiqueta.
+- `<dataset>` decía "Observations: 1097" y la explicación del profile
+  "3291 observations": el primero es la longitud del índice y el segundo el
+  total agrupado. Ahora ambos textos dicen "pooled across N series" donde
+  corresponde.
+- `compare()` con candidatos automáticos en multi-serie enfrenta
+  `ForecasterRecursiveMultiSeries` (puntuado con la media de las series)
+  con `ForecasterDirectMultiVariate` (puntuado solo sobre el primer target).
+  El leaderboard mostraba 0.73 frente a 0.96 y "23.8 % ahead" sin avisar.
+  Decisión del autor: no deben compararse (son técnicas distintas;
+  `ForecasterDirectMultiVariate.level` es "la serie a predecir", una sola).
+  `compare()` lanza `ValueError` si `candidates` mezcla familias, los
+  candidatos automáticos se quedan en la familia del forecaster
+  recomendado, y en multi-serie, donde eso deja un único forecaster, se
+  comparan sus estimadores candidatos (`Forecaster+Estimator`).
+- Segunda pasada multi-serie (`tools/ask_context_reports/0.3.0_items_sales.md`,
+  Gemini 3.5 Flash, dataset `items_sales`): todas las respuestas quedan
+  ancladas al contexto (MASE contra el baseline, sin causas del ranking,
+  sin tendencia entre folds, RMSE y estacionalidad declarados como no
+  disponibles). Huecos corregidos en `llm/context.py`: el resumen por
+  columna de `<predictions>` omite `fold` (un identificador cuya media
+  se citaba como dato) y añade un resumen de `pred` por serie (hasta
+  `MAX_STATS_SERIES`), con el que el modelo ya responde "cuál es la
+  previsión media de item_2" en lugar de "no disponible". Verificado con
+  una llamada real. Pendiente y no implementado: métricas por fold.
+- La evaluación pasa a ser una herramienta de pre-release:
+  `tools/ask_context_check.py`, con un informe revisado por release y
+  dataset en `tools/ask_context_reports/` (README con criterios de
+  aceptación y registro). Los informes intermedios de esta sesión se han
+  borrado; se conservan `0.3.0_items_sales.md` y `0.3.0_bike_sharing.md`,
+  generados con el código final. Las instrucciones de `AGENTS.md` y
+  `CLAUDE.md` piden pasarla cuando cambien `llm/context.py`,
+  `llm/prompts.py` o las explicaciones renderizadas.
+
+Punto 2 (métrica por fold) no implementado: exige un campo nuevo en
+`BacktestResult` (`fold_metrics`) calculado en el runner, porque el
+resultado no guarda los valores reales con los que comparar; se deja como
+propuesta con ese diseño.
+
+
 ## Registro
 
 Todo el trabajo se hizo en la rama `0.3.x` con el entorno conda
@@ -710,6 +793,7 @@ Todo el trabajo se hizo en la rama `0.3.x` con el entorno conda
 | 3.5 | hecha, sin commit | 2026-09-10 |
 | 3.6 | hecha, sin commit | 2026-09-10 |
 | 4.1 a 4.9 | hechas, sin commit | 2026-09-10 |
+| 5 (contexto LLM) | hecha, sin commit | 2026-09-10 |
 
 ### Notas de la Fase 1 (2026-09-09)
 

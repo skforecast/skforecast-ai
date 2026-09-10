@@ -140,15 +140,23 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
 
         # Deferred import: `llm.context` imports from this package, so a
         # module-level import here would be circular.
-        from ..llm.context import build_context_message
+        from ..llm.context import (
+            join_sections,
+            render_dataset_section,
+            render_plan_section,
+            render_profile_decision_section,
+            render_script_section,
+        )
 
-        # With no predictions, metrics, or cross-validation to report, the
-        # single-run composition reduces to the dataset, profile decision,
-        # and plan sections.
+        # The script itself is not sent; its contract (mode, files, outputs,
+        # packages) is, so "what do I need to run it" has an answer.
         return LLMContext(
-            text                = build_context_message(
-                                      profile=self.profile, plan=self.plan
-                                  ),
+            text                = join_sections([
+                                      render_dataset_section(self.profile),
+                                      render_profile_decision_section(self.profile),
+                                      render_plan_section(self.plan),
+                                      render_script_section(self.plan, self.code),
+                                  ]),
             profile             = self.profile,
             plan                = self.plan,
             code                = self.code,

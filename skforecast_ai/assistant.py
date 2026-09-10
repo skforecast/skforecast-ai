@@ -1670,8 +1670,14 @@ class ForecastingAssistant:
             dict accepts the same override keys understood by `plan()`:
             `'forecaster'`, `'estimator'`, `'estimator_kwargs'`, `'lags'`,
             and `'window_features'` (see `CandidateConfig`). Names must be
-            unique. When None, the set is built automatically from
-            `profile.forecaster_candidates`.
+            unique, and every candidate must belong to the same forecaster
+            family: a multivariate forecaster is scored on the single series
+            it predicts, a multi-series forecaster on the average across all
+            series, so the two are never ranked together. When None, the
+            set is built from the profile's forecaster candidates of the
+            same family as the recommended forecaster; when that leaves a
+            single forecaster (multi-series data), its estimator candidates
+            are compared instead.
         metric : str, list of str, default None
             Metric(s) computed per candidate. When a list is passed, the
             first metric is used to rank the table. When None, the plan
@@ -1715,7 +1721,9 @@ class ForecastingAssistant:
             available on the `failures` attribute of the raised error.
         ValueError
             If `metric` is an empty list, or if `candidates` is empty,
-            contains a malformed entry, or repeats a name.
+            contains a malformed entry, repeats a name, or mixes forecaster
+            families whose metrics are not comparable (multi-series with
+            multivariate).
 
         Warns
         -----
