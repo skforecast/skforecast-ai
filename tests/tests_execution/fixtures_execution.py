@@ -270,7 +270,7 @@ plan_single_predict_no_exog = ForecastPlan(
 # Future exogenous variables covering the forecast horizon for the single
 # series fixture (the 10 days following the last training observation).
 _future_dates_single = pd.date_range(
-    _dates[-1] + pd.Timedelta(days=1), periods=10, freq="D"
+    _dates[-1] + pd.Timedelta(1, unit="D"), periods=10, freq="D"
 )
 df_single_future_exog = pd.DataFrame(
     {"promo": _rng.normal(50, 10, len(_future_dates_single))},

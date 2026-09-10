@@ -17,7 +17,7 @@ from .fixtures_rendering import (
 
 
 # =============================================================================
-# Tests: render_forecast_single_series — structure
+# Tests: render_forecast_single_series: structure
 # =============================================================================
 def test_render_forecast_single_series_output_when_no_exog_structure():
     """
@@ -35,7 +35,7 @@ def test_render_forecast_single_series_output_when_no_exog_structure():
 
 
 # =============================================================================
-# Tests: render_forecast_single_series — full script comparison
+# Tests: render_forecast_single_series: full script comparison
 # =============================================================================
 def test_render_forecast_single_series_output_when_no_exog():
     """
@@ -411,7 +411,7 @@ def test_render_forecast_single_series_output_when_direct_strategy():
 
 
 # =============================================================================
-# Tests: Prediction mode — no train/test split when plan.end_train is None
+# Tests: Prediction mode: no train/test split when plan.end_train is None
 # =============================================================================
 def test_render_forecast_single_series_output_when_prediction_mode():
     """

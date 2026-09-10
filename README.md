@@ -126,7 +126,7 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 
 A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data. You can also use `compare()` to evaluate several candidate configurations under the same cross-validation strategy and obtain a ranked leaderboard, so the best configuration is chosen from measured performance rather than intuition.
 
-The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, comparison result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
+The `ask()` method is available in both workflows. Pass it the object to explain as `context` (a profile, optionally with a plan, a generated script, a cross-validation strategy, a forecast, backtest or comparison result) or nothing to ask a general forecasting question. It never executes the workflow or modifies your parameters.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/skforecast/skforecast-ai/refs/heads/main/docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">

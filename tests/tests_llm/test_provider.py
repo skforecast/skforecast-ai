@@ -2,6 +2,7 @@
 
 import re
 
+
 import pytest
 
 from skforecast_ai.llm.provider import (
@@ -198,3 +199,120 @@ def test_create_model_output_when_unknown_provider_with_api_key():
     )
     assert isinstance(result, OpenAIChatModel)
     assert result.model_name == "my-model"
+
+
+# =============================================================================
+# Tests: ensure_ollama_reachable
+# =============================================================================
+def test_ensure_ollama_reachable_output_when_server_answers(monkeypatch):
+    """
+    Test that a reachable Ollama server passes silently and that the
+    `/v1` suffix of the OpenAI-compatible base URL is stripped before
+    the health check.
+    """
+    import urllib.request
+
+    from skforecast_ai.llm.provider import ensure_ollama_reachable
+
+    seen = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        return _Response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    ensure_ollama_reachable("http://localhost:11434/v1")
+
+    assert seen["url"] == "http://localhost:11434"
+
+
+def test_ensure_ollama_reachable_ConnectionError_when_server_is_down(monkeypatch):
+    """
+    Test that a server that does not answer is reported as
+    ConnectionError with the URL and the hint to start Ollama.
+    """
+    import urllib.error
+    import urllib.request
+
+    from skforecast_ai.llm.provider import ensure_ollama_reachable
+
+    def _fake_urlopen(req, timeout=None):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    with pytest.raises(ConnectionError, match="ollama serve"):
+        ensure_ollama_reachable()
+
+
+# =============================================================================
+# Tests: build_ollama_settings
+# =============================================================================
+def test_build_ollama_settings_output_when_cloud_provider():
+    """
+    Test that no model settings are built for a hosted provider.
+    """
+    from skforecast_ai.llm.provider import build_ollama_settings
+
+    assert build_ollama_settings("openai:gpt-4o-mini", 1000, "hi") is None
+    assert build_ollama_settings(None, 1000, "hi") is None
+
+
+def test_build_ollama_settings_sizes_the_context_window():
+    """
+    Test that the Ollama context window covers the prompt, the message
+    and the reserved answer, with a floor of 4096 tokens.
+    """
+    from skforecast_ai._constants import RESERVED_RESPONSE_TOKENS
+    from skforecast_ai.llm.provider import build_ollama_settings
+
+    small = build_ollama_settings("ollama:qwen2.5:7b-instruct", 100, "hi")
+    assert small["extra_body"]["options"]["num_ctx"] == 4096
+
+    message = "x" * 4000  # about 1000 tokens
+    large = build_ollama_settings("ollama:qwen2.5:7b-instruct", 6000, message)
+    assert large["extra_body"]["options"]["num_ctx"] == (
+        6000 + 1000 + RESERVED_RESPONSE_TOKENS
+    )
+    assert large["extra_body"]["keep_alive"] == "10m"
+
+
+def test_build_ollama_settings_warns_and_clamps_when_prompt_exceeds_window():
+    """
+    Test that a prompt larger than the Ollama window is clamped to the
+    maximum and reported with a warning that suggests trimming skills.
+    """
+    from skforecast_ai._constants import OLLAMA_MAX_CONTEXT_TOKENS
+    from skforecast_ai.llm.provider import build_ollama_settings
+
+    with pytest.warns(UserWarning, match="skills=\\[\\]"):
+        settings = build_ollama_settings(
+            "ollama:qwen2.5:7b-instruct", OLLAMA_MAX_CONTEXT_TOKENS, "hi"
+        )
+
+    assert settings["extra_body"]["options"]["num_ctx"] == OLLAMA_MAX_CONTEXT_TOKENS
+
+
+def test_create_model_output_when_openai_with_api_key_and_base_url():
+    """
+    Test that an OpenAI provider string with an explicit api_key and
+    base_url is built as an OpenAI chat model pointing at that endpoint.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    result = create_model(
+        "openai:gpt-4o-mini", api_key="test-key", base_url="http://proxy.local/v1"
+    )
+
+    assert isinstance(result, OpenAIChatModel)
+    assert result.model_name == "gpt-4o-mini"
+    assert "proxy.local" in str(result.base_url)

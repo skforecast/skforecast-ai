@@ -47,6 +47,7 @@ dependencies = [
     "typer>=0.22",
     "rich>=13.9",
     "tomli>=2.0; python_version < '3.11'",
+    "typing-extensions>=4.12; python_version < '3.12'",
     "statsmodels>=0.13, <0.15",
 ]
 
@@ -83,12 +84,8 @@ test = [
     "pytest>=9",
     "pytest-cov>=7",
     "pytest-xdist>=3.8",
-
-    "pydantic-ai>=2,<3",
     "pydantic-ai[groq]>=2,<3",
-    
     "lightgbm>=4.0,<5.0",
-    "statsmodels>=0.13, <0.15",
 ]
 
 dev = [
@@ -123,4 +120,21 @@ docstring-code-format = false
 testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+# Every warning is a failure unless a test expects it with `pytest.warns`
+# or it is listed here with its reason. This is how a deprecation in
+# pandas, NumPy, pydantic or skforecast shows up the day it appears.
+filterwarnings = [
+    "error",
+    # pydantic-graph asks for the current event loop on old-style sync runs;
+    # upstream issue, harmless for the agents run through run_agent_sync.
+    "ignore:There is no current event loop:DeprecationWarning",
+    # skforecast reports binning adjustments of the bootstrapped intervals
+    # inside the executed scripts; it depends on the data, not on this code.
+    "ignore:The number of bins has been reduced:skforecast.exceptions.IgnoredArgumentWarning",
+    # statsmodels convergence notice from Auto-ARIMA fits on short fixtures.
+    "ignore:Possible convergence problem:UserWarning",
+    # skforecast suggests a transformer_series for linear multi-series models;
+    # the plan decides that deliberately.
+    "ignore::skforecast.exceptions.DataTransformationWarning",
 ]

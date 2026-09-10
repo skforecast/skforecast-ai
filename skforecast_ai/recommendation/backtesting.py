@@ -6,8 +6,11 @@
 ################################################################################
 
 from __future__ import annotations
+import warnings
 import pandas as pd
-from ..schemas import ForecastingProfile, ForecastPlan
+from skforecast.exceptions import IgnoredArgumentWarning
+from skforecast.model_selection import TimeSeriesFold
+from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
 
 
 def derive_cv_defaults(
@@ -130,6 +133,131 @@ def build_cv_explanation(
         parts.append(f"differentiation order {differentiation}")
 
     return ", ".join(parts) + "."
+
+
+def count_cv_folds(
+    cv: TimeSeriesFold,
+    n_observations: int,
+    start_date: str | None = None,
+    frequency: str | None = None,
+) -> int:
+    """
+    Count the folds a cross-validation splitter produces over a dataset.
+
+    Builds a throwaway index of the given length and runs `cv.split` to
+    count the resulting folds. A date-based `initial_train_size` needs a
+    DatetimeIndex so `cv.split` can locate the split date; integer or
+    fractional sizes are counted against a plain RangeIndex.
+
+    The `window_size` of `cv` is unset here (no forecaster attached yet),
+    so skforecast emits an `IgnoredArgumentWarning` about the last window.
+    It is irrelevant for counting folds and is suppressed. The `verbose`
+    setting of `cv` is also temporarily disabled so a user-supplied
+    splitter does not print its fold report, and restored on exit.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter.
+    n_observations : int
+        Number of observations spanned by the dataset.
+    start_date : str, default None
+        First date of the dataset, used to build a DatetimeIndex when
+        `cv.initial_train_size` is a date string. Required in that case.
+    frequency : str, default None
+        Index frequency, used together with `start_date` to build the
+        DatetimeIndex. Required when `cv.initial_train_size` is a date
+        string.
+
+    Returns
+    -------
+    n_folds : int
+        Number of folds produced by the configuration.
+    """
+    if isinstance(cv.initial_train_size, str):
+        index = pd.date_range(
+                    start   = start_date,
+                    periods = n_observations,
+                    freq    = frequency,
+                )
+    else:
+        index = pd.RangeIndex(n_observations)
+
+    # `cv` may be user-supplied with `verbose=True`, in which case `split`
+    # prints a full fold report. Counting folds is an internal diagnostic,
+    # so silence it and restore the original setting afterwards.
+    original_verbose = cv.verbose
+    cv.verbose = False
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
+            folds = cv.split(X=index, as_pandas=False)
+    finally:
+        cv.verbose = original_verbose
+
+    return len(folds)
+
+
+
+def resolve_cv_config(
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> tuple[dict, str]:
+    """
+    Describe a cross-validation splitter as applied to a profiled dataset.
+
+    Counts the folds `cv` produces over the dataset span and returns the
+    `TimeSeriesFold` parameters together with that count, plus the
+    human-readable explanation built from them. `n_folds` is stored next
+    to the parameters because it is the fact a reader (or the LLM)
+    actually needs; without it the count had to be re-derived from the
+    prediction row count.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter.
+    data_profile : DataProfile
+        Profile of the dataset the splitter is applied to.
+
+    Returns
+    -------
+    cv_config : dict
+        Resolved `TimeSeriesFold` parameters (`steps`,
+        `initial_train_size`, `refit`, `fixed_train_size`, `gap`,
+        `fold_stride`, `skip_folds`, `allow_incomplete_fold`,
+        `differentiation`) plus `n_folds`.
+    explanation : str
+        Multi-sentence description of the strategy, see
+        `build_cv_explanation`.
+    """
+
+    span_index_length = data_profile.span_index_length
+    n_folds = count_cv_folds(
+                  cv             = cv,
+                  n_observations = span_index_length,
+                  start_date     = data_profile.start_date,
+                  frequency      = data_profile.frequency,
+              )
+    cv_config = {
+        "steps": cv.steps,
+        "initial_train_size": cv.initial_train_size,
+        "refit": cv.refit,
+        "fixed_train_size": cv.fixed_train_size,
+        "gap": cv.gap,
+        "fold_stride": cv.fold_stride,
+        "skip_folds": cv.skip_folds,
+        "allow_incomplete_fold": cv.allow_incomplete_fold,
+        "differentiation": cv.differentiation,
+        "n_folds": n_folds,
+    }
+    explanation = build_cv_explanation(
+                      cv_params      = cv_config,
+                      n_observations = span_index_length,
+                      n_folds        = n_folds,
+                  )
+
+    return cv_config, explanation
 
 
 def _compute_min_train_size(plan: ForecastPlan) -> int:

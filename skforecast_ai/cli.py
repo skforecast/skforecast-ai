@@ -39,10 +39,40 @@ from .config import (
 from .exceptions import (
     AllCandidatesFailedError,
     ForecastExecutionError,
+    LLMCallError,
     LLMRequiredError,
 )
 from .schemas.plans import ForecastPlan
 from .schemas.profiles import ForecastingProfile
+
+
+# Option declarations shared by several commands. Each alias carries the
+# type, flags and help text once; commands whose help differs keep their
+# own declaration.
+TargetOption = Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")]
+DateColumnOption = Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")]
+SeriesIdColumnOption = Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")]
+StepsOption = Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")]
+ForecasterOption = Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")]
+EstimatorOption = Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")]
+EstimatorKwargsOption = Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")]
+IntervalOption = Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")]
+LagsOption = Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")]
+WindowFeaturesOption = Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")]
+FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
+FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
+InitialTrainSizeOption = Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")]
+FoldStrideOption = Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")]
+RefitOption = Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")]
+FixedTrainSizeOption = Annotated[bool, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window.")]
+GapOption = Annotated[int, typer.Option("--gap", help="Gap between training and test sets.")]
+AllowIncompleteFoldOption = Annotated[bool, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations.")]
+BaseUrlOption = Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")]
+ApiKeyOption = Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")]
+OutputOption = Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")]
+OutputPredictionsOption = Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")]
+QuietOption = Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")]
+TableFormatOption = Annotated[str, typer.Option("--format", help="Output format: table or json.")]
 
 
 def _version_callback(value: bool) -> None:
@@ -503,6 +533,9 @@ def _error_handler():
             "Set the SKFORECAST_AI_LLM environment variable or use the --llm flag."
         )
         raise typer.Exit(code=1)
+    except LLMCallError as e:
+        console.print(f"[red]LLM Error:[/red] {e}")
+        raise typer.Exit(code=1)
     except ForecastExecutionError as e:
         console.print(f"[red]Execution Error:[/red] {e}")
         console.print(
@@ -519,7 +552,7 @@ def _error_handler():
             for err in e.errors()[:3]
         )
         console.print(
-            f"[red]Error:[/red] Invalid input data — {n} validation error(s): {details}"
+            f"[red]Error:[/red] Invalid input data: {n} validation error(s): {details}"
         )
         console.print(
             "[dim]Tip: use --format json with the source command to produce valid input.[/dim]"
@@ -566,11 +599,11 @@ def _render_plan_panel(plan) -> None:
 def profile(
     data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
     target: Annotated[str, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")],
-    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
-    output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+    date_column: DateColumnOption = None,
+    series_id_column: SeriesIdColumnOption = None,
+    format: TableFormatOption = "table",
+    output: OutputOption = None,
+    quiet: QuietOption = False,
 ) -> None:
     """Profile a dataset and recommend a forecaster + estimator."""
     with _error_handler():
@@ -651,20 +684,20 @@ def _parse_window_features(wf_str: str | None) -> list[dict] | None:
 @app.command()
 def plan(
     data: Annotated[str | None, typer.Argument(help="Path or URL to CSV file.")] = None,
-    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
-    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
-    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
-    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
-    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
-    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
-    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
-    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
-    from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
-    output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+    target: TargetOption = None,
+    steps: StepsOption = None,
+    date_column: DateColumnOption = None,
+    series_id_column: SeriesIdColumnOption = None,
+    forecaster: ForecasterOption = None,
+    estimator: EstimatorOption = None,
+    estimator_kwargs: EstimatorKwargsOption = None,
+    interval: IntervalOption = None,
+    lags: LagsOption = None,
+    window_features: WindowFeaturesOption = None,
+    from_profile: FromProfileOption = None,
+    format: TableFormatOption = "table",
+    output: OutputOption = None,
+    quiet: QuietOption = False,
 ) -> None:
     """Generate a detailed forecasting plan from a dataset."""
     with _error_handler():
@@ -717,20 +750,20 @@ def plan(
 @app.command(name="refine-plan")
 def refine_plan(
     from_plan: Annotated[str, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")],
-    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
-    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
-    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
+    forecaster: ForecasterOption = None,
+    estimator: EstimatorOption = None,
+    estimator_kwargs: EstimatorKwargsOption = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Override forecast horizon.")] = None,
     interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '0.1,0.9'.")] = None,
-    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
-    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
+    lags: LagsOption = None,
+    window_features: WindowFeaturesOption = None,
     prompt: Annotated[str | None, typer.Option("--prompt", help="Natural language domain knowledge to guide LLM plan refinement.")] = None,
     llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for plan refinement.")] = None,
-    base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
-    api_key: Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")] = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
-    output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+    base_url: BaseUrlOption = None,
+    api_key: ApiKeyOption = None,
+    format: TableFormatOption = "table",
+    output: OutputOption = None,
+    quiet: QuietOption = False,
 ) -> None:
     """Refine an existing forecasting plan by overriding specific fields or using LLM guidance."""
     with _error_handler():
@@ -788,20 +821,20 @@ def refine_plan(
 @app.command(name="forecast-code")
 def forecast_code(
     data: Annotated[str | None, typer.Argument(help="Path or URL to CSV file.")] = None,
-    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
-    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
-    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
-    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
-    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
-    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
-    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
-    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
-    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
+    target: TargetOption = None,
+    steps: StepsOption = None,
+    date_column: DateColumnOption = None,
+    series_id_column: SeriesIdColumnOption = None,
+    forecaster: ForecasterOption = None,
+    estimator: EstimatorOption = None,
+    estimator_kwargs: EstimatorKwargsOption = None,
+    interval: IntervalOption = None,
+    lags: LagsOption = None,
+    window_features: WindowFeaturesOption = None,
+    from_plan: FromPlanOption = None,
     format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
-    output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+    output: OutputOption = None,
+    quiet: QuietOption = False,
 ) -> None:
     """Generate a complete Python forecasting script."""
     with _error_handler():
@@ -852,26 +885,26 @@ def forecast_code(
 @app.command(name="backtest-code")
 def backtest_code(
     data: Annotated[str | None, typer.Argument(help="Path or URL to CSV file.")] = None,
-    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
-    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
-    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
-    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
-    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
-    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
-    lags: Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3'.")] = None,
-    window_features: Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]'.")] = None,
-    initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
-    fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
-    refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
-    fixed_train_size: Annotated[bool, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window.")] = True,
-    gap: Annotated[int, typer.Option("--gap", help="Gap between training and test sets.")] = 0,
-    allow_incomplete_fold: Annotated[bool, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations.")] = True,
-    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
+    target: TargetOption = None,
+    steps: StepsOption = None,
+    date_column: DateColumnOption = None,
+    series_id_column: SeriesIdColumnOption = None,
+    forecaster: ForecasterOption = None,
+    estimator: EstimatorOption = None,
+    estimator_kwargs: EstimatorKwargsOption = None,
+    interval: IntervalOption = None,
+    lags: LagsOption = None,
+    window_features: WindowFeaturesOption = None,
+    initial_train_size: InitialTrainSizeOption = None,
+    fold_stride: FoldStrideOption = None,
+    refit: RefitOption = False,
+    fixed_train_size: FixedTrainSizeOption = True,
+    gap: GapOption = 0,
+    allow_incomplete_fold: AllowIncompleteFoldOption = True,
+    from_plan: FromPlanOption = None,
     format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
-    output: Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")] = None,
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+    output: OutputOption = None,
+    quiet: QuietOption = False,
 ) -> None:
     """Generate a complete Python backtesting script without executing it."""
     with _error_handler():
@@ -882,9 +915,9 @@ def backtest_code(
             prof = ForecastingProfile.model_validate(bundle["profile"])
             plan_obj = ForecastPlan.model_validate(bundle["plan"])
             resolved_steps = plan_obj.steps
-            resolved_target = prof.data_profile.target
-            resolved_date_column = prof.data_profile.date_column
-            resolved_series_id = prof.data_profile.series_id_column
+            resolved_target = _parse_target(target) if target else None
+            resolved_date_column = date_column
+            resolved_series_id = series_id_column
         else:
             if data is None or target is None or steps is None:
                 console.print(
@@ -942,11 +975,11 @@ def backtest_code(
             if not allow_incomplete_fold:
                 cv_kwargs["allow_incomplete_fold"] = allow_incomplete_fold
 
-            cv, _ = assistant.create_cv(
+            cv = assistant.create_cv(
                 profile=prof,
                 plan=plan_obj,
                 **cv_kwargs,
-            )
+            ).cv
 
             # Generate code
             result = assistant.backtest_code(
@@ -989,52 +1022,44 @@ def _render_forecast_results(result) -> None:
     console.print(render_dataframe(result.predictions, title="Predictions"))
 
 
-def _forecast_result_to_json(result) -> str:
+def _result_to_json(result) -> str:
     """
-    Serialize ForecastResult to JSON with DataFrame fields as records.
+    Serialize any workflow result to JSON.
+
+    Relies on the results' own JSON serialization: DataFrame fields become
+    lists of row records with the index as a leading column.
 
     Parameters
     ----------
-    result : ForecastResult
-        Forecast result to serialize.
+    result : ForecastResult, BacktestResult, ComparisonResult, AskResult
+        Result to serialize.
 
     Returns
     -------
     json_str : str
         JSON string representation of the result.
     """
-    data = {
-        "profile": result.profile.model_dump(mode="json"),
-        "plan": result.plan.model_dump(mode="json"),
-        "code": result.code,
-        "metrics": (
-            result.metrics.to_dict(orient="records")
-            if result.metrics is not None
-            else None
-        ),
-        "predictions": result.predictions.reset_index().to_dict(orient="records"),
-    }
-    return json.dumps(data, indent=2, default=str)
+    return json.dumps(result.model_dump(mode="json"), indent=2, default=str)
 
 
 @app.command()
 def forecast(
     data: Annotated[str, typer.Argument(help="Path to CSV file.")],
-    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
-    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
-    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
-    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
-    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
-    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
+    target: TargetOption = None,
+    steps: StepsOption = None,
+    date_column: DateColumnOption = None,
+    series_id_column: SeriesIdColumnOption = None,
+    forecaster: ForecasterOption = None,
+    estimator: EstimatorOption = None,
+    estimator_kwargs: EstimatorKwargsOption = None,
+    interval: IntervalOption = None,
     test_size: Annotated[str | None, typer.Option("--test-size", help="Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). When omitted, forecasts the future.")] = None,
     exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous variables (prediction mode).")] = None,
-    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
-    output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,
+    from_plan: FromPlanOption = None,
+    output_predictions: OutputPredictionsOption = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+    format: TableFormatOption = "table",
+    quiet: QuietOption = False,
 ) -> None:
     """Run end-to-end forecasting and report metrics + predictions."""
     with _error_handler():
@@ -1070,10 +1095,11 @@ def forecast(
 
             with _spinner("Running forecast from plan...", quiet):
                 result = assistant.forecast(
-                    data=data, target=prof.data_profile.target,
+                    data=data,
+                    target=_parse_target(target) if target else None,
                     steps=plan_obj.steps,
-                    date_column=prof.data_profile.date_column,
-                    series_id_column=prof.data_profile.series_id_column,
+                    date_column=date_column,
+                    series_id_column=series_id_column,
                     test_size=parsed_test_size,
                     exog=exog_df,
                     profile=prof, plan=plan_obj,
@@ -1110,7 +1136,7 @@ def forecast(
             console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
-            json_str = _forecast_result_to_json(result)
+            json_str = _result_to_json(result)
             print(json_str)
         else:
             _render_forecast_results(result)
@@ -1136,74 +1162,32 @@ def _render_backtest_results(result) -> None:
     console.print(render_dataframe(result.predictions, title="Backtest Predictions"))
 
 
-def _backtest_result_to_json(result) -> str:
-    """
-    Serialize BacktestResult to JSON with DataFrame fields as records.
-
-    Parameters
-    ----------
-    result : BacktestResult
-        Backtest result to serialize.
-
-    Returns
-    -------
-    json_str : str
-        JSON string representation of the result.
-    """
-    return json.dumps(_backtest_result_to_dict(result), indent=2, default=str)
-
-
-def _backtest_result_to_dict(result) -> dict:
-    """
-    Build a JSON-serializable dict from a BacktestResult.
-
-    Parameters
-    ----------
-    result : BacktestResult
-        Backtest result to serialize.
-
-    Returns
-    -------
-    data : dict
-        Dictionary with DataFrame fields converted to records.
-    """
-    return {
-        "profile": result.profile.model_dump(mode="json"),
-        "plan": result.plan.model_dump(mode="json"),
-        "cv_config": result.cv_config,
-        "code": result.code,
-        "metrics": result.metrics.to_dict(orient="records"),
-        "predictions": result.predictions.reset_index().to_dict(orient="records"),
-        "explanation": result.explanation,
-    }
-
-
 @app.command()
 def backtest(
     data: Annotated[str, typer.Argument(help="Path to CSV file.")],
-    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
-    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
-    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
-    forecaster: Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")] = None,
-    estimator: Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")] = None,
+    target: TargetOption = None,
+    steps: StepsOption = None,
+    date_column: DateColumnOption = None,
+    series_id_column: SeriesIdColumnOption = None,
+    forecaster: ForecasterOption = None,
+    estimator: EstimatorOption = None,
     estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
-    initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
-    fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
-    refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
-    fixed_train_size: Annotated[bool, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window.")] = True,
-    gap: Annotated[int, typer.Option("--gap", help="Gap between training and test sets.")] = 0,
-    allow_incomplete_fold: Annotated[bool, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations.")] = True,
+    interval: IntervalOption = None,
+    initial_train_size: InitialTrainSizeOption = None,
+    fold_stride: FoldStrideOption = None,
+    refit: RefitOption = False,
+    fixed_train_size: FixedTrainSizeOption = True,
+    gap: GapOption = 0,
+    allow_incomplete_fold: AllowIncompleteFoldOption = True,
     prompt: Annotated[str | None, typer.Option("--prompt", help="Optional prompt for LLM-assisted CV configuration.")] = None,
     llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for CV configuration.")] = None,
-    base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
-    api_key: Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")] = None,
-    from_plan: Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")] = None,
-    output_predictions: Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")] = None,
+    base_url: BaseUrlOption = None,
+    api_key: ApiKeyOption = None,
+    from_plan: FromPlanOption = None,
+    output_predictions: OutputPredictionsOption = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+    format: TableFormatOption = "table",
+    quiet: QuietOption = False,
 ) -> None:
     """Run backtesting evaluation and report metrics + predictions."""
     with _error_handler():
@@ -1223,10 +1207,10 @@ def backtest(
             bundle = _read_json_input(from_plan)
             prof = ForecastingProfile.model_validate(bundle["profile"])
             plan_obj = ForecastPlan.model_validate(bundle["plan"])
-            parsed_target = prof.data_profile.target
+            parsed_target = _parse_target(target) if target else None
             resolved_steps = plan_obj.steps
-            resolved_date_column = prof.data_profile.date_column
-            resolved_series_id = prof.data_profile.series_id_column
+            resolved_date_column = date_column
+            resolved_series_id = series_id_column
         else:
             if target is None or steps is None:
                 console.print(
@@ -1291,12 +1275,12 @@ def backtest(
             if not allow_incomplete_fold:
                 cv_kwargs["allow_incomplete_fold"] = allow_incomplete_fold
 
-            cv, _ = assistant.create_cv(
+            cv = assistant.create_cv(
                 profile=prof,
                 plan=plan_obj,
                 prompt=prompt,
                 **cv_kwargs,
-            )
+            ).cv
 
             # Run backtest
             result = assistant.backtest(
@@ -1319,7 +1303,7 @@ def backtest(
             console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
-            json_str = _backtest_result_to_json(result)
+            json_str = _result_to_json(result)
             print(json_str)
         else:
             _render_backtest_results(result)
@@ -1387,59 +1371,26 @@ def _render_comparison_results(result) -> None:
     console.print(render_cv_config(result.cv_config))
 
 
-def _comparison_result_to_json(result) -> str:
-    """
-    Serialize ComparisonResult to JSON with DataFrame fields as records.
-
-    Parameters
-    ----------
-    result : ComparisonResult
-        Comparison result to serialize.
-
-    Returns
-    -------
-    json_str : str
-        JSON string representation of the result.
-    """
-    data = {
-        "profile": result.profile.model_dump(mode="json"),
-        "cv_config": result.cv_config,
-        "ranking_metric": result.ranking_metric,
-        "results": result.results.to_dict(orient="records"),
-        "best_name": result.best_name,
-        "candidates": {
-            name: _backtest_result_to_dict(bt)
-            for name, bt in result.candidates.items()
-        },
-        "failures": {
-            name: failure.model_dump(mode="json")
-            for name, failure in result.failures.items()
-        },
-        "explanation": result.explanation,
-    }
-    return json.dumps(data, indent=2, default=str)
-
-
 @app.command()
 def compare(
     data: Annotated[str, typer.Argument(help="Path to CSV file.")],
-    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
-    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")] = None,
-    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
+    target: TargetOption = None,
+    steps: StepsOption = None,
+    date_column: DateColumnOption = None,
+    series_id_column: SeriesIdColumnOption = None,
     candidates: Annotated[str | None, typer.Option("--candidates", help="Candidate configs as JSON array of [name, config] pairs. When omitted, candidates are built from the profile.")] = None,
     metric: Annotated[str | None, typer.Option("--metric", help="Metric(s) to compute, comma-separated. The first ranks the table.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")] = None,
-    initial_train_size: Annotated[int | None, typer.Option("--initial-train-size", help="Initial training window size.")] = None,
-    fold_stride: Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")] = None,
-    refit: Annotated[bool, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold.")] = False,
-    fixed_train_size: Annotated[bool, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window.")] = True,
-    gap: Annotated[int, typer.Option("--gap", help="Gap between training and test sets.")] = 0,
-    allow_incomplete_fold: Annotated[bool, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations.")] = True,
-    from_profile: Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")] = None,
+    interval: IntervalOption = None,
+    initial_train_size: InitialTrainSizeOption = None,
+    fold_stride: FoldStrideOption = None,
+    refit: RefitOption = False,
+    fixed_train_size: FixedTrainSizeOption = True,
+    gap: GapOption = 0,
+    allow_incomplete_fold: AllowIncompleteFoldOption = True,
+    from_profile: FromProfileOption = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save the winning configuration's script to file.")] = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: table or json.")] = "table",
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+    format: TableFormatOption = "table",
+    quiet: QuietOption = False,
 ) -> None:
     """Compare several forecasters and report a ranked leaderboard."""
     with _error_handler():
@@ -1454,9 +1405,9 @@ def compare(
         if from_profile is not None:
             profile_data = _read_json_input(from_profile)
             prof = ForecastingProfile.model_validate(profile_data)
-            parsed_target = prof.data_profile.target
-            resolved_date_column = prof.data_profile.date_column
-            resolved_series_id = prof.data_profile.series_id_column
+            parsed_target = _parse_target(target) if target else None
+            resolved_date_column = date_column
+            resolved_series_id = series_id_column
         else:
             if target is None:
                 console.print(
@@ -1501,11 +1452,11 @@ def compare(
             if not allow_incomplete_fold:
                 cv_kwargs["allow_incomplete_fold"] = allow_incomplete_fold
 
-            cv, _ = assistant.create_cv(
+            cv = assistant.create_cv(
                 profile=prof,
                 plan=baseline_plan,
                 **cv_kwargs,
-            )
+            ).cv
 
             result = assistant.compare(
                 data=data,
@@ -1525,7 +1476,7 @@ def compare(
             console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
-            print(_comparison_result_to_json(result))
+            print(_result_to_json(result))
         else:
             _render_comparison_results(result)
 
@@ -1534,17 +1485,19 @@ def compare(
 def ask(
     prompt: Annotated[str, typer.Argument(help="Natural-language question about forecasting.")],
     data: Annotated[Path | None, typer.Option("--data", help="Path to CSV file for context.")] = None,
-    target: Annotated[str | None, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")] = None,
-    date_column: Annotated[str | None, typer.Option("--date-column", "-d", help="Date/timestamp column.")] = None,
-    series_id_column: Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")] = None,
-    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon (required when --data is provided).")] = None,
+    target: TargetOption = None,
+    date_column: DateColumnOption = None,
+    series_id_column: SeriesIdColumnOption = None,
+    steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon. With --data, also builds a plan so the question is answered about the plan.")] = None,
+    from_profile: FromProfileOption = None,
+    from_plan: FromPlanOption = None,
     llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-4o-mini'.")] = None,
-    base_url: Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")] = None,
-    api_key: Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")] = None,
+    base_url: BaseUrlOption = None,
+    api_key: ApiKeyOption = None,
     send_data_to_llm: Annotated[bool | None, typer.Option("--send-data-to-llm/--no-send-data-to-llm", help="Allow sending raw data to the LLM.")] = None,
     skills: Annotated[str | None, typer.Option("--skills", help="Comma-separated skill names to include.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: text or json.")] = "text",
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")] = False,
+    quiet: QuietOption = False,
 ) -> None:
     """Ask a forecasting question using an LLM."""
     with _error_handler():
@@ -1566,30 +1519,43 @@ def ask(
             send_data_to_llm=send_data_value,
         )
 
-        parsed_target = _parse_target(target) if target else None
         parsed_skills = [s.strip() for s in skills.split(",")] if skills else None
 
-        data_path = str(data) if data is not None else None
+        # Resolve what the question is about: a saved bundle, a saved
+        # profile, or a dataset profiled (and optionally planned) here.
+        # Nothing is computed inside ask() itself.
+        context = None
+        if from_plan is not None:
+            bundle = _read_json_input(from_plan)
+            prof = ForecastingProfile.model_validate(bundle["profile"])
+            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            context = assistant.forecast_code(profile=prof, plan=plan_obj)
+        elif from_profile is not None:
+            context = ForecastingProfile.model_validate(_read_json_input(from_profile))
+        elif data is not None:
+            if target is None:
+                console.print(
+                    "[red]Error:[/red] --target is required with --data."
+                )
+                raise typer.Exit(code=1)
+            with _spinner("Profiling...", quiet):
+                prof = assistant.profile(
+                    data=str(data), target=_parse_target(target),
+                    date_column=date_column, series_id_column=series_id_column,
+                )
+            context = prof
+            if steps is not None:
+                plan_obj = assistant.plan(profile=prof, steps=steps)
+                context = assistant.forecast_code(profile=prof, plan=plan_obj)
 
         with _spinner("Thinking...", quiet):
             result = assistant.ask(
                 prompt=prompt,
-                data=data_path,
-                target=parsed_target,
-                date_column=date_column,
-                series_id_column=series_id_column,
-                steps=steps,
+                context=context,
                 skills=parsed_skills,
             )
 
         if format == "json":
-            output_data = {"explanation": result.explanation}
-            if result.profile is not None:
-                output_data["profile"] = result.profile.model_dump(mode="json")
-            if result.plan is not None:
-                output_data["plan"] = result.plan.model_dump(mode="json")
-            if result.code is not None:
-                output_data["code"] = result.code
-            print(json.dumps(output_data, indent=2, default=str))
+            print(_result_to_json(result))
         else:
             console.print(render_explanation(result.explanation, title="Assistant Response"))

@@ -8,7 +8,7 @@ import pytest
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
-from skforecast_ai.schemas import CVParams
+from skforecast_ai.schemas import CVParams, CVResult
 from tests.fixtures_assistant import df_single, df_multi_long, df_short
 
 
@@ -55,8 +55,9 @@ def test_create_cv_ValueError_when_fewer_than_2_folds():
 # =============================================================================
 def test_create_cv_output_when_single_series_defaults():
     """
-    Test that create_cv() returns a tuple of (TimeSeriesFold, str) with
-    correct types for a single-series profile.
+    Test that create_cv() returns a CVResult carrying the splitter, the
+    resolved configuration, the snippet and the explanation, plus the
+    profile and plan it was derived from.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -64,10 +65,95 @@ def test_create_cv_output_when_single_series_defaults():
 
     result = assistant.create_cv(profile, plan)
 
-    assert isinstance(result, tuple)
-    assert len(result) == 2
-    assert isinstance(result[0], TimeSeriesFold)
-    assert isinstance(result[1], str)
+    assert isinstance(result, CVResult)
+    assert isinstance(result.cv, TimeSeriesFold)
+    assert isinstance(result.explanation, str)
+    assert result.profile is profile
+    assert result.plan is plan
+
+
+def test_create_cv_cv_config_matches_splitter_and_counts_folds():
+    """
+    Test that `cv_config` mirrors every TimeSeriesFold parameter,
+    including `skip_folds` and `allow_incomplete_fold`, and reports the
+    fold count the splitter actually produces.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    result = assistant.create_cv(
+        profile, plan, initial_train_size=60, refit=False,
+        allow_incomplete_fold=False,
+    )
+
+    cv = result.cv
+    assert result.cv_config == {
+        "steps": 10,
+        "initial_train_size": cv.initial_train_size,
+        "refit": False,
+        "fixed_train_size": cv.fixed_train_size,
+        "gap": 0,
+        "fold_stride": 10,
+        "skip_folds": None,
+        "allow_incomplete_fold": False,
+        "differentiation": None,
+        "n_folds": 4,
+    }
+    assert "4 folds" in result.explanation
+
+
+def test_create_cv_code_builds_the_same_splitter():
+    """
+    Test that the `code` snippet is a standalone construction of the
+    splitter: executing it yields a TimeSeriesFold with the same
+    parameters as `result.cv`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    result = assistant.create_cv(profile, plan, initial_train_size=60, refit=False)
+
+    namespace: dict = {}
+    exec(result.code, namespace)  # noqa: S102
+    rebuilt = namespace["cv"]
+
+    assert result.code.startswith("from skforecast.model_selection import TimeSeriesFold")
+    assert rebuilt.steps == result.cv.steps
+    assert rebuilt.initial_train_size == result.cv.initial_train_size
+    assert rebuilt.refit == result.cv.refit
+
+
+def test_create_cv_TypeError_when_result_is_unpacked():
+    """
+    Test that unpacking the result as the former `(cv, explanation)` tuple
+    fails with a message that points to the new attributes. A pydantic
+    model would otherwise iterate over its fields and fail with a puzzling
+    "too many values to unpack".
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.raises(TypeError, match=re.escape("Use `result.cv`")):
+        cv, explanation = assistant.create_cv(profile, plan)
+
+
+def test_create_cv_display_shows_explanation_and_configuration():
+    """
+    Test that rendering the result to text shows the explanation panel
+    and the configuration table with the fold count.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    text = str(assistant.create_cv(profile, plan, initial_train_size=60))
+
+    assert "Cross-Validation Explanation" in text
+    assert "Cross-Validation Configuration" in text
+    assert "n_folds" in text
 
 
 def test_create_cv_output_when_default_initial_train_size():
@@ -79,7 +165,7 @@ def test_create_cv_output_when_default_initial_train_size():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
 
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     # 70% of 100 daily observations starting 2023-01-01 → position 70 → date at
     # index 69 = 2023-01-01 + 69 days = 2023-03-11
@@ -94,7 +180,7 @@ def test_create_cv_output_when_steps_from_plan():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=7)
 
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     assert cv.steps == 7
 
@@ -112,7 +198,8 @@ def test_create_cv_output_when_multi_series_defaults():
     )
     plan = assistant.plan(profile, steps=5)
 
-    cv, explanation = assistant.create_cv(profile, plan)
+    cv_result = assistant.create_cv(profile, plan)
+    cv, explanation = cv_result.cv, cv_result.explanation
 
     assert isinstance(cv, TimeSeriesFold)
     assert cv.steps == 5
@@ -130,7 +217,7 @@ def test_create_cv_output_when_initial_train_size_int_override():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    cv, _ = assistant.create_cv(profile, plan, initial_train_size=50)
+    cv = assistant.create_cv(profile, plan, initial_train_size=50).cv
 
     assert cv.initial_train_size == 50
 
@@ -144,7 +231,7 @@ def test_create_cv_output_when_initial_train_size_float_override():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    cv, _ = assistant.create_cv(profile, plan, initial_train_size=0.5)
+    cv = assistant.create_cv(profile, plan, initial_train_size=0.5).cv
 
     # 50% of 100 observations = 50
     assert cv.initial_train_size == 50
@@ -159,9 +246,10 @@ def test_create_cv_output_when_initial_train_size_str_date():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    cv, explanation = assistant.create_cv(
+    cv_result = assistant.create_cv(
         profile, plan, initial_train_size="2023-03-01"
     )
+    cv = cv_result.cv
 
     assert isinstance(cv, TimeSeriesFold)
     assert cv.initial_train_size == "2023-03-01"
@@ -191,7 +279,7 @@ def test_create_cv_output_when_refit_override():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    cv, _ = assistant.create_cv(profile, plan, refit=3)
+    cv = assistant.create_cv(profile, plan, refit=3).cv
 
     assert cv.refit == 3
 
@@ -204,7 +292,7 @@ def test_create_cv_output_when_fixed_train_size_override():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    cv, _ = assistant.create_cv(profile, plan, fixed_train_size=True)
+    cv = assistant.create_cv(profile, plan, fixed_train_size=True).cv
 
     assert cv.fixed_train_size is True
 
@@ -217,7 +305,7 @@ def test_create_cv_output_when_gap_override():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    cv, _ = assistant.create_cv(profile, plan, gap=2)
+    cv = assistant.create_cv(profile, plan, gap=2).cv
 
     assert cv.gap == 2
 
@@ -239,7 +327,7 @@ def test_create_cv_output_when_floor_by_lags_int():
     # Override lags in the plan to force a specific floor
     plan.forecaster_kwargs["lags"] = 20  # floor = 20 + 1 = 21
 
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     # With 25 obs, 70% = 17. Floor = 21 (> 17). Ceiling = 25 - 2*1 = 23.
     # So initial_train_size = 21. Date at index 20 = 2023-01-21.
@@ -257,7 +345,7 @@ def test_create_cv_output_when_floor_by_lags_list():
 
     plan.forecaster_kwargs["lags"] = [1, 5, 22]  # floor = 22 + 1 = 23
 
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     # With 25 obs, 70% = 17. Floor = 23 (> 17). Ceiling = 25 - 2*1 = 23.
     # Both constraints give 23. Date at index 22 = 2023-01-23.
@@ -274,7 +362,7 @@ def test_create_cv_output_when_statistical_floor():
         profile, steps=10, forecaster="ForecasterStats"
     )
 
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     # floor = 2*10 = 20, 70% of 100 = 70. 70 > 20, so 70 is used.
     # ceiling = 100 - 2*10 = 80. So initial_train_size = 70.
@@ -292,7 +380,7 @@ def test_create_cv_output_when_differentiation_set():
     plan = assistant.plan(profile, steps=5)
     plan.forecaster_kwargs["differentiation"] = 1
 
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     assert cv.differentiation == 1
 
@@ -313,7 +401,7 @@ def test_create_cv_output_when_floor_by_window_features():
         {"stats": ["mean"], "window_size": 60}
     ]
 
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     # Floor = effective_window + steps = 60 + 5 = 65.
     # 70% of 100 = 70. max(70, 65) = 70. Ceiling = 100 - 10 = 90.
@@ -332,7 +420,7 @@ def test_create_cv_explanation_contains_key_params():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
 
-    _, explanation = assistant.create_cv(profile, plan)
+    explanation = assistant.create_cv(profile, plan).explanation
 
     assert "10-step horizon" in explanation
     assert "Initial training up to" in explanation
@@ -393,9 +481,10 @@ def test_create_cv_llm_success(monkeypatch):
 
     monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
 
-    cv, explanation = assistant.create_cv(
+    cv_result = assistant.create_cv(
         profile, plan, prompt="I retrain weekly"
     )
+    cv, explanation = cv_result.cv, cv_result.explanation
 
     assert isinstance(cv, TimeSeriesFold)
     assert cv.initial_train_size == 50
@@ -439,9 +528,9 @@ def test_create_cv_llm_kwargs_override_llm(monkeypatch):
     monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
 
     # Override refit and gap
-    cv, _ = assistant.create_cv(
+    cv = assistant.create_cv(
         profile, plan, prompt="I retrain weekly", refit=3, gap=1
-    )
+    ).cv
 
     assert cv.refit == 3
     assert cv.gap == 1
@@ -471,7 +560,7 @@ def test_create_cv_prompt_ignored_when_all_params_explicit(monkeypatch):
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        cv, _ = assistant.create_cv(
+        cv = assistant.create_cv(
             profile,
             plan,
             prompt="I retrain weekly",
@@ -482,7 +571,7 @@ def test_create_cv_prompt_ignored_when_all_params_explicit(monkeypatch):
             gap=0,
             skip_folds=1,
             allow_incomplete_fold=True,
-        )
+        ).cv
 
     assert isinstance(cv, TimeSeriesFold)
     assert cv.initial_train_size == 50
@@ -549,7 +638,7 @@ def test_create_cv_llm_retry_then_success(monkeypatch):
 
     monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
 
-    cv, _ = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+    cv = assistant.create_cv(profile, plan, prompt="Forecast ahead").cv
 
     assert cv.initial_train_size == 50
     assert call_count["n"] == 2
@@ -593,7 +682,7 @@ def test_create_cv_llm_all_retries_fail_deterministic_fallback(monkeypatch):
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        cv, _ = assistant.create_cv(profile, plan, prompt="Bad scenario")
+        cv = assistant.create_cv(profile, plan, prompt="Bad scenario").cv
 
     # Should have fallen back to deterministic defaults
     assert isinstance(cv, TimeSeriesFold)
@@ -639,9 +728,9 @@ def test_create_cv_llm_explanation_includes_reasoning(monkeypatch):
 
     monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
 
-    _, explanation = assistant.create_cv(
+    explanation = assistant.create_cv(
         profile, plan, prompt="Use expanding window"
-    )
+    ).explanation
 
     assert "concept drift" in explanation
 
@@ -658,7 +747,8 @@ def test_create_cv_deterministic_when_no_prompt_and_llm_configured():
     # No prompt → deterministic path. _cv_agent is never called.
     # If it were called, it would fail because no mock is set up and
     # _resolve_model would fail for "openai:fake-model" without env var.
-    cv, explanation = assistant.create_cv(profile, plan)
+    cv_result = assistant.create_cv(profile, plan)
+    cv, explanation = cv_result.cv, cv_result.explanation
 
     assert isinstance(cv, TimeSeriesFold)
     assert cv.steps == 5

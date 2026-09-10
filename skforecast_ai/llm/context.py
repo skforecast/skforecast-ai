@@ -12,7 +12,6 @@ from .._constants import (
     MAX_CONTEXT_DATAFRAME_ROWS,
     MAX_LEADERBOARD_ROWS,
 )
-from .._utils import _display_n_observations
 from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
 
 
@@ -193,7 +192,7 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
     dp = profile.data_profile
     exog = ", ".join(dp.exog_columns) if dp.exog_columns else "none"
     parts = [
-        f"- Observations: {_display_n_observations(dp)}",
+        f"- Observations: {dp.n_observations_display}",
         f"- Series: {dp.n_series}",
         f"- Frequency: {dp.frequency or 'unknown'}",
         f"- Target: {dp.target}",

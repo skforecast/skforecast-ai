@@ -57,3 +57,29 @@ def test_build_plan_explanation_no_missing_lags_note_when_lags_present(task_type
 
     assert "Lags: [1, 2, 3]." in explanation
     assert "No lag or window features:" not in explanation
+
+
+@pytest.mark.parametrize(
+    "dropna_from_series, expected",
+    [
+        (True, "NaN rows will be dropped before fitting."),
+        (False, "NaN rows kept (NaN-tolerant estimator)."),
+    ],
+    ids=["dropna", "keep NaN"],
+)
+def test_build_plan_explanation_states_nan_handling(dropna_from_series, expected):
+    """
+    Test that build_plan_explanation states how NaN rows are handled for
+    both values of `dropna_from_series`.
+    """
+    explanation = build_plan_explanation(
+        forecaster         = "ForecasterRecursive",
+        estimator          = "LGBMRegressor",
+        lags               = [1, 2, 3],
+        window_features    = None,
+        interval_method    = None,
+        dropna_from_series = dropna_from_series,
+        use_exog           = False,
+    )
+
+    assert expected in explanation

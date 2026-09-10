@@ -1,5 +1,6 @@
 # Unit test forecast ForecastingAssistant
 
+import re
 import warnings
 
 import numpy as np
@@ -241,6 +242,30 @@ def test_forecast_IgnoredArgumentWarning_when_interval_passed_with_plan():
         )
 
 
+def test_forecast_IgnoredArgumentWarning_when_lags_passed_with_plan():
+    """
+    Test that forecast() warns with IgnoredArgumentWarning naming `lags`
+    when a lag override is passed alongside a pre-built plan. Lags only
+    feed the planning stage, which is skipped, so they would otherwise be
+    dropped silently.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    with pytest.warns(IgnoredArgumentWarning, match="lags"):
+        assistant.forecast(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=5,
+            lags=[1, 2],
+            test_size=0.2,
+            profile=profile,
+            plan=plan,
+        )
+
+
 def test_forecast_no_override_warning_when_plan_without_overrides():
     """
     Test that forecast() does not emit the plan-override warning when a
@@ -435,3 +460,80 @@ def test_forecast_ValueError_when_exog_with_prebuilt_evaluation_plan():
             profile=profile,
             plan=plan,
         )
+
+
+def test_forecast_output_when_profile_given_without_target():
+    """
+    Test that a supplied profile makes `target` and `date_column`
+    optional: they are taken from the profile, which is what the executed
+    script is rendered from anyway.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.forecast(
+        data=df_single, steps=5, test_size=5, profile=profile, plan=plan
+    )
+
+    assert result.profile is profile
+    assert len(result.predictions) == 5
+
+
+def test_forecast_ValueError_when_target_conflicts_with_profile():
+    """
+    Test that a target different from the one recorded in the supplied
+    profile raises ValueError. Previously it was ignored and the script
+    used the profile's target regardless.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(ValueError, match="does not match the target recorded"):
+        assistant.forecast(
+            data=df_single, target="temperature", steps=5, test_size=5,
+            profile=profile,
+        )
+
+
+def test_forecast_output_when_plan_given_without_steps():
+    """
+    Test that a supplied plan makes `steps` optional: the horizon is
+    taken from the plan, which is what the executed script uses anyway.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=7)
+
+    result = assistant.forecast(
+        data=df_single, test_size=7, profile=profile, plan=plan
+    )
+
+    assert len(result.predictions) == 7
+
+
+def test_forecast_ValueError_when_steps_conflicts_with_plan():
+    """
+    Test that a `steps` different from `plan.steps` raises ValueError,
+    mirroring the `cv.steps` check of backtest(). Previously the argument
+    was ignored and the script predicted `plan.steps` regardless.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=7)
+
+    with pytest.raises(ValueError, match=re.escape("`steps` (3) does not match `plan.steps` (7)")):
+        assistant.forecast(
+            data=df_single, steps=3, test_size=7, profile=profile, plan=plan
+        )
+
+
+def test_forecast_ValueError_when_neither_steps_nor_plan():
+    """
+    Test that omitting `steps` without a plan raises a clear ValueError
+    instead of failing inside plan validation.
+    """
+    assistant = ForecastingAssistant()
+
+    with pytest.raises(ValueError, match="`steps` is required when `plan` is not provided"):
+        assistant.forecast(data=df_single, target="sales", date_column="date")

@@ -1,0 +1,12 @@
+<forecast_context>
+<dataset>
+- Observations: 100
+- Series: 1
+- Frequency: D
+- Target: sales
+- Exogenous columns: none
+</dataset>
+<profile_decision>
+A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 observations, 'D' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation', 'ForecasterStats']. Estimator: Ridge. A linear model is preferred because the dataset is small (100 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+</profile_decision>
+</forecast_context>

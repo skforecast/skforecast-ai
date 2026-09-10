@@ -16,7 +16,12 @@ from .context import (
     render_profile_decision_section,
     render_winning_candidate_section,
 )
-from .provider import create_model, ensure_ollama_reachable, parse_model_string
+from .provider import (
+    build_ollama_settings,
+    create_model,
+    ensure_ollama_reachable,
+    parse_model_string,
+)
 from .skills import (
     ALL_SKILLS,
     compute_skill_token_budget,
@@ -31,6 +36,7 @@ __all__ = [
     "ALL_SKILLS",
     "build_comparison_context",
     "build_context_message",
+    "build_ollama_settings",
     "compute_skill_token_budget",
     "create_model",
     "ensure_ollama_reachable",

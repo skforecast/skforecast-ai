@@ -7,15 +7,11 @@
 ################################################################################
 
 from __future__ import annotations
-import io
 import re
-import traceback
-from contextlib import redirect_stdout
 from typing import Any, Callable
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 
-from ..exceptions import ForecastExecutionError
 from ..rendering.backtesting import (
     render_backtesting_foundation,
     render_backtesting_multi_series,
@@ -24,6 +20,7 @@ from ..rendering.backtesting import (
     render_backtesting_statistical,
 )
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ._exec import exec_rendered
 
 _RENDER_DISPATCH: dict[
     str, Callable[[ForecastPlan, DataProfile, Any], RenderedScript]
@@ -155,9 +152,10 @@ def _exec_rendered_code(
         code.
     """
     code_to_exec = rendered.executable
-    namespace: dict[str, Any] = {"data": data.copy()}
 
-    # Patch show_progress value in the rendered code
+    # The rendered script always shows `show_progress = True`, so the value
+    # is patched only in the code that runs, never in the code returned to
+    # the user.
     if not show_progress:
         code_to_exec = re.sub(
             r"show_progress\s*=\s*True",
@@ -165,22 +163,7 @@ def _exec_rendered_code(
             code_to_exec,
         )
 
-    compiled = compile(code_to_exec, "<backtesting>", "exec")
-
-    # Capture stdout (print statements in the generated code)
-    stdout_capture = io.StringIO()
-    try:
-        with redirect_stdout(stdout_capture):
-            exec(compiled, namespace)  # noqa: S102
-    except Exception as e:
-        tb = traceback.format_exc()
-        raise ForecastExecutionError(
-            original_error=e,
-            generated_code=code_to_exec,
-            execution_traceback=tb,
-        ) from e
-
-    return namespace
+    return exec_rendered(code_to_exec, {"data": data.copy()}, "<backtesting>")
 
 
 def _build_backtest_explanation(
@@ -217,6 +200,6 @@ def _build_backtest_explanation(
 
     if summary_parts:
         metrics_str = ", ".join(summary_parts)
-        return f"{cv_explanation} Results — {metrics_str}."
+        return f"{cv_explanation} Results: {metrics_str}."
 
     return cv_explanation

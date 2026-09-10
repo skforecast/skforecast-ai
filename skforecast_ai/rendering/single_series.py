@@ -8,18 +8,15 @@
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
-    _emit_calendar_features,
-    _emit_data_loading,
     _emit_end_train,
+    _emit_feature_setup,
     _emit_future_exog_index_setup,
     _emit_future_exog_loading,
     _emit_imports_single_series,
-    _emit_index_setup,
+    _emit_loading_and_index,
     _emit_metrics_section,
     _emit_preprocessing_steps,
     _emit_production_note,
-    _emit_transformer_exog,
-    _emit_window_features,
     _format_lags,
     _get_estimator_constructor,
     _get_interval_repr,
@@ -89,10 +86,6 @@ def render_forecast_single_series(
 
     target = _get_target_str(profile)
 
-    kwargs = plan.forecaster_kwargs
-    transformer_exog = kwargs.get("transformer_exog")
-    window_features = kwargs.get("window_features")
-
     import_lines: list[str] = []
     loading_lines: list[str] = []
     core_lines: list[str] = []
@@ -109,14 +102,10 @@ def render_forecast_single_series(
         include_metrics=evaluate,
     )
 
-    # --- Load data ---
-    _emit_data_loading(loading_lines, profile)
+    # --- Load data and index setup ---
+    _emit_loading_and_index(loading_lines, core_lines, profile)
     if not evaluate and use_exog:
         _emit_future_exog_loading(loading_lines, profile)
-
-    # --- Index setup (runs in both standalone and exec modes) ---
-    _emit_index_setup(core_lines, profile)
-    if not evaluate and use_exog:
         _emit_future_exog_index_setup(core_lines, profile)
 
     # --- Preprocessing steps ---
@@ -148,19 +137,8 @@ def render_forecast_single_series(
         core_lines.append(f"exog_features = {repr(exog_columns)}")
         core_lines.append("")
 
-    # --- Window features ---
-    if window_features:
-        _emit_window_features(core_lines, window_features)
-        core_lines.append("")
-
-    # --- Calendar features ---
-    if kwargs.get("calendar_features"):
-        _emit_calendar_features(core_lines, kwargs["calendar_features"])
-        core_lines.append("")
-
-    # --- Transformer exog ---
-    if transformer_exog and use_exog:
-        _emit_transformer_exog(core_lines, transformer_exog, profile)
+    # --- Window features, calendar features and exog transformer ---
+    _emit_feature_setup(core_lines, plan, profile, use_exog=use_exog)
 
     # --- Create forecaster ---
     _emit_forecaster_creation_single(core_lines, plan, profile)

@@ -9,17 +9,15 @@ from .fixtures_execution import (
     cv_multi,
     cv_single,
     plan_multi,
-    plan_short,
     plan_single,
     plan_statistical,
     profile_multi,
-    profile_short,
     profile_single,
     profile_single_no_exog,
 )
 
 
-# Tests: render_backtesting_script — error handling
+# Tests: render_backtesting_script: error handling
 
 
 def test_render_backtesting_script_ValueError_when_unsupported_task_type():
@@ -45,7 +43,7 @@ def test_render_backtesting_script_ValueError_when_unsupported_task_type():
         )
 
 
-# Tests: render_backtesting_script — single series output structure
+# Tests: render_backtesting_script: single series output structure
 
 
 def test_render_backtesting_script_single_series_returns_RenderedScript():
@@ -58,6 +56,9 @@ def test_render_backtesting_script_single_series_returns_RenderedScript():
     )
 
     assert isinstance(rendered, RenderedScript)
+    assert "TimeSeriesFold" in rendered.imports
+    assert "cv = TimeSeriesFold(" in rendered.core
+    assert "backtesting_forecaster(" in rendered.core
 
 
 def test_render_backtesting_script_single_series_imports_contain_skforecast():
@@ -97,7 +98,7 @@ def test_render_backtesting_script_single_series_executable_excludes_data_loadin
     assert "read_csv" not in rendered.executable
 
 
-# Tests: render_backtesting_script — multi series
+# Tests: render_backtesting_script: multi series
 
 
 def test_render_backtesting_script_multi_series_contains_multiseries_call():
@@ -112,7 +113,7 @@ def test_render_backtesting_script_multi_series_contains_multiseries_call():
     assert "backtesting_forecaster_multiseries" in rendered.core
 
 
-# Tests: render_backtesting_script — statistical
+# Tests: render_backtesting_script: statistical
 
 
 def test_render_backtesting_script_statistical_contains_stats_call():
@@ -127,7 +128,7 @@ def test_render_backtesting_script_statistical_contains_stats_call():
     assert "backtesting_stats" in rendered.core
 
 
-# Tests: render_backtesting_script — dispatch coverage
+# Tests: render_backtesting_script: dispatch coverage
 
 
 @pytest.mark.parametrize(

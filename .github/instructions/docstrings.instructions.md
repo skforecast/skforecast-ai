@@ -1,6 +1,6 @@
 ---
 description: 'Use when writing, updating, or reviewing docstrings in skforecast source code. Covers NumPy-style format, section order, parameter/return formatting, type annotations, deprecation notices, version tags, and cross-reference conventions.'
-applyTo: 'skforecast/**/*.py'
+applyTo: 'skforecast_ai/**/*.py'
 ---
 # Skforecast Docstring Guidelines
 

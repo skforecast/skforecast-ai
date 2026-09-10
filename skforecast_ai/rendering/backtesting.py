@@ -9,16 +9,16 @@ from typing import Any
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
-    _emit_calendar_features,
-    _emit_data_loading,
+    _emit_feature_setup,
     _emit_imports_foundation,
     _emit_imports_multi_series,
     _emit_imports_single_series,
     _emit_imports_statistical,
-    _emit_index_setup,
+    _emit_loading_and_index,
+    _emit_pivot_to_wide,
     _emit_preprocessing_steps,
-    _emit_transformer_exog,
-    _emit_window_features,
+    _emit_reshape_exog_long_to_dict,
+    _emit_reshape_series_long_to_dict,
     _get_numeric_exog,
     _get_target_str,
 )
@@ -139,10 +139,6 @@ def render_backtesting_single_series(
 ) -> RenderedScript:
     """Render backtesting code for ForecasterRecursive or ForecasterDirect."""
 
-    kwargs = plan.forecaster_kwargs
-    transformer_exog = kwargs.get("transformer_exog")
-    window_features = kwargs.get("window_features")
-
     import_lines: list[str] = []
     loading_lines: list[str] = []
     core_lines: list[str] = []
@@ -155,28 +151,19 @@ def render_backtesting_single_series(
         include_backtesting=True,
     )
 
-    # --- Load data ---
-    _emit_data_loading(loading_lines, profile)
-
-    # --- Index setup ---
-    _emit_index_setup(core_lines, profile)
+    # --- Load data and index setup ---
+    _emit_loading_and_index(loading_lines, core_lines, profile)
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)
 
-    # --- Window features ---
-    if window_features and isinstance(window_features, list):
-        _emit_window_features(core_lines, window_features)
-        core_lines.append("")
-
-    # --- Calendar features ---
-    if kwargs.get("calendar_features"):
-        _emit_calendar_features(core_lines, kwargs["calendar_features"])
-        core_lines.append("")
-
-    # --- Transformer exog ---
-    if transformer_exog and plan.use_exog and profile.exog_columns:
-        _emit_transformer_exog(core_lines, transformer_exog, profile)
+    # --- Window features, calendar features and exog transformer ---
+    _emit_feature_setup(
+        core_lines,
+        plan,
+        profile,
+        use_exog=bool(plan.use_exog and profile.exog_columns),
+    )
 
     # --- Create forecaster ---
     _emit_forecaster_creation_single(core_lines, plan, profile)
@@ -201,10 +188,6 @@ def render_backtesting_multi_series(
 ) -> RenderedScript:
     """Render backtesting code for ForecasterRecursiveMultiSeries."""
 
-    kwargs = plan.forecaster_kwargs
-    transformer_exog = kwargs.get("transformer_exog")
-    window_features = kwargs.get("window_features")
-
     is_wide = profile.data_format == "wide"
     exog_columns = profile.exog_columns
     use_exog = plan.use_exog and bool(exog_columns)
@@ -221,17 +204,10 @@ def render_backtesting_multi_series(
         include_backtesting=True,
     )
 
-    # --- Load data ---
-    if is_wide:
-        _emit_data_loading(loading_lines, profile)
-    else:
-        _emit_data_loading(loading_lines, profile, long_format=True)
-
-    # --- Index setup ---
-    if is_wide:
-        _emit_index_setup(core_lines, profile)
-    else:
-        _emit_index_setup(core_lines, profile, long_format=True)
+    # --- Load data and index setup ---
+    _emit_loading_and_index(
+        loading_lines, core_lines, profile, long_format=not is_wide
+    )
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)
@@ -243,20 +219,14 @@ def render_backtesting_multi_series(
         else:
             series_expr = f"data[[{repr(profile.target)}]]"
     else:
-        series_id = profile.series_id_column or "series_id"
-        date_col = profile.date_column or "datetime"
-        target = _get_target_str(profile)
-        core_lines.append(
-            "# Reshape to dict format"
-            " (required for backtesting multi-series)"
+        _emit_reshape_series_long_to_dict(
+            core_lines,
+            profile,
+            comment=(
+                "# Reshape to dict format"
+                " (required for backtesting multi-series)"
+            ),
         )
-        core_lines.append("series_dict = reshape_series_long_to_dict(")
-        core_lines.append("    data      = data,")
-        core_lines.append(f"    series_id = {repr(series_id)},")
-        core_lines.append(f"    index     = {repr(date_col)},")
-        core_lines.append(f"    values    = {repr(target)},")
-        core_lines.append(f"    freq      = {repr(profile.frequency)},")
-        core_lines.append(")")
         core_lines.append("")
         series_expr = "series_dict"
 
@@ -268,29 +238,14 @@ def render_backtesting_multi_series(
             core_lines.append("")
             exog_expr = "data[exog_features]"
         else:
-            exog_select_cols = [series_id, date_col] + list(exog_columns)
-            core_lines.append("exog_dict = reshape_exog_long_to_dict(")
-            core_lines.append(f"    data      = data[{repr(exog_select_cols)}],")
-            core_lines.append(f"    series_id = {repr(series_id)},")
-            core_lines.append(f"    index     = {repr(date_col)},")
-            core_lines.append(f"    freq      = {repr(profile.frequency)},")
-            core_lines.append(")")
+            _emit_reshape_exog_long_to_dict(
+                core_lines, profile, var="exog_dict", data_expr="data"
+            )
             core_lines.append("")
             exog_expr = "exog_dict"
 
-    # --- Window features ---
-    if window_features and isinstance(window_features, list):
-        _emit_window_features(core_lines, window_features)
-        core_lines.append("")
-
-    # --- Calendar features ---
-    if kwargs.get("calendar_features"):
-        _emit_calendar_features(core_lines, kwargs["calendar_features"])
-        core_lines.append("")
-
-    # --- Transformer exog ---
-    if transformer_exog and use_exog:
-        _emit_transformer_exog(core_lines, transformer_exog, profile)
+    # --- Window features, calendar features and exog transformer ---
+    _emit_feature_setup(core_lines, plan, profile, use_exog=use_exog)
 
     # --- Create forecaster ---
     _emit_forecaster_creation_multi(
@@ -323,10 +278,6 @@ def render_backtesting_multivariate(
 ) -> RenderedScript:
     """Render backtesting code for ForecasterDirectMultiVariate."""
 
-    kwargs = plan.forecaster_kwargs
-    transformer_exog = kwargs.get("transformer_exog")
-    window_features = kwargs.get("window_features")
-
     is_wide = profile.data_format == "wide"
     exog_columns = profile.exog_columns
     use_exog = plan.use_exog and bool(exog_columns)
@@ -343,36 +294,15 @@ def render_backtesting_multivariate(
         include_backtesting=True,
     )
 
-    # --- Load data ---
-    if is_wide:
-        _emit_data_loading(loading_lines, profile)
-    else:
-        _emit_data_loading(loading_lines, profile, long_format=True)
-
-    # --- Index setup ---
-    if is_wide:
-        _emit_index_setup(core_lines, profile)
-    else:
-        _emit_index_setup(core_lines, profile, long_format=True)
+    # --- Load data and index setup ---
+    _emit_loading_and_index(
+        loading_lines, core_lines, profile, long_format=not is_wide
+    )
 
     # --- Preprocessing / pivot ---
     _emit_preprocessing_steps(core_lines, plan, profile)
     if not is_wide:
-        series_id = profile.series_id_column or "series_id"
-        date_col = profile.date_column or "datetime"
-        target = _get_target_str(profile)
-        core_lines.append("# Pivot to wide format (columns = series)")
-        core_lines.append("series = data.pivot_table(")
-        core_lines.append(
-            f"    index={repr(date_col)}, columns={repr(series_id)},"
-            f" values={repr(target)}"
-        )
-        core_lines.append(")")
-        core_lines.append("series.index.name = None")
-        core_lines.append("series.columns.name = None")
-        if profile.frequency:
-            core_lines.append(f"series = series.asfreq('{profile.frequency}')")
-        core_lines.append("")
+        _emit_pivot_to_wide(core_lines, profile)
 
     # --- Series expression ---
     if is_wide:
@@ -390,19 +320,8 @@ def render_backtesting_multivariate(
         core_lines.append("")
         exog_expr = "data[exog_features]"
 
-    # --- Window features ---
-    if window_features and isinstance(window_features, list):
-        _emit_window_features(core_lines, window_features)
-        core_lines.append("")
-
-    # --- Calendar features ---
-    if kwargs.get("calendar_features"):
-        _emit_calendar_features(core_lines, kwargs["calendar_features"])
-        core_lines.append("")
-
-    # --- Transformer exog ---
-    if transformer_exog and use_exog:
-        _emit_transformer_exog(core_lines, transformer_exog, profile)
+    # --- Window features, calendar features and exog transformer ---
+    _emit_feature_setup(core_lines, plan, profile, use_exog=use_exog)
 
     # --- Create forecaster ---
     _emit_forecaster_creation_multi(
@@ -499,11 +418,8 @@ def render_backtesting_foundation(
     # --- Imports ---
     _emit_imports_foundation(import_lines, plan, include_backtesting=True)
 
-    # --- Load data ---
-    _emit_data_loading(loading_lines, profile)
-
-    # --- Index setup ---
-    _emit_index_setup(core_lines, profile)
+    # --- Load data and index setup ---
+    _emit_loading_and_index(loading_lines, core_lines, profile)
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)
@@ -601,11 +517,8 @@ def render_backtesting_statistical(
     # --- Imports ---
     _emit_imports_statistical(import_lines, plan, include_backtesting=True)
 
-    # --- Load data ---
-    _emit_data_loading(loading_lines, profile)
-
-    # --- Index setup ---
-    _emit_index_setup(core_lines, profile)
+    # --- Load data and index setup ---
+    _emit_loading_and_index(loading_lines, core_lines, profile)
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)

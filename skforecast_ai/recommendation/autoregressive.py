@@ -661,7 +661,7 @@ def finalize_lags(
     the chosen forecaster shares lags across series:
 
     - single-series (one series): that series' lags.
-    - multi_series (global model): consensus — lags ranked by how many
+    - multi_series (global model): consensus, lags ranked by how many
       series they appear in, ties broken by summed `|PACF|`.
     - multivariate: union of the top-n `|PACF|` lags of each series.
 

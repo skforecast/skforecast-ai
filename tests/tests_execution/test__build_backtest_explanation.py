@@ -5,7 +5,7 @@ import pandas as pd
 from skforecast_ai.execution.backtesting_runner import _build_backtest_explanation
 
 
-# Tests: _build_backtest_explanation — metric formatting
+# Tests: _build_backtest_explanation: metric formatting
 
 
 def test_build_backtest_explanation_includes_cv_and_metrics():

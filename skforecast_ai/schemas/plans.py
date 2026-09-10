@@ -6,8 +6,14 @@
 ################################################################################
 
 from __future__ import annotations
+import sys
 from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field
+
+if sys.version_info >= (3, 12):
+    from typing import TypedDict
+else:
+    from typing_extensions import TypedDict
 from .._constants import WindowStat
 from .._display import DisplayMixin, render_plan
 
@@ -179,6 +185,84 @@ class PlanOverrides(BaseModel):
     reasoning: str = Field(
         description="Explanation of why these specific features (lags and window features) were chosen based on the user's prompt and time series context.",
     )
+
+
+class RefinePlanOverrides(TypedDict, total=False):
+    """
+    Keyword overrides accepted by `ForecastingAssistant.refine_plan()`.
+
+    Every key is optional, and what matters is whether a key is present:
+    an omitted key keeps the value of the plan being refined, while a key
+    passed as None asks for the deterministic default. The dictionary is
+    a typing aid (editors autocomplete the keys and type checkers reject
+    unknown ones); `refine_plan()` validates the keys at run time as well.
+
+    Attributes
+    ----------
+    forecaster : str
+        Forecaster class name, e.g. `'ForecasterDirect'`.
+    estimator : str
+        Estimator class name, e.g. `'Ridge'`.
+    estimator_kwargs : dict, None
+        Keyword arguments for the estimator constructor. None resets them
+        to the built-in defaults.
+    steps : int
+        Forecast horizon.
+    interval : list of float, None
+        Prediction interval quantiles as `[lower, upper]`. None removes
+        the prediction intervals.
+    lags : int, list of int, None
+        Lag configuration. None re-runs the PACF-based selection.
+    window_features : list of dict, None
+        Rolling window features, one dict with `'stats'` and
+        `'window_size'` per window size. None re-runs the deterministic
+        selection.
+    """
+
+    forecaster: str
+    estimator: str
+    estimator_kwargs: dict[str, Any] | None
+    steps: int
+    interval: list[float] | None
+    lags: int | list[int] | None
+    window_features: list[dict[str, list[str] | int]] | None
+
+
+class CandidateConfig(TypedDict, total=False):
+    """
+    Configuration of one candidate in `ForecastingAssistant.compare()`.
+
+    The keys mirror the overrides `plan()` accepts for a candidate. Every
+    key is optional; an omitted key keeps the profile recommendation. The
+    dictionary is a typing aid; `compare()` validates the keys at run time
+    as well.
+
+    Attributes
+    ----------
+    forecaster : str
+        Forecaster class name, e.g. `'ForecasterRecursive'`.
+    estimator : str
+        Estimator class name, e.g. `'LGBMRegressor'`.
+    estimator_kwargs : dict, None
+        Keyword arguments for the estimator constructor.
+    lags : int, list of int, None
+        Lag configuration. None uses the PACF-based selection.
+    window_features : list of dict, None
+        Rolling window features, one dict with `'stats'` and
+        `'window_size'` per window size.
+    """
+
+    forecaster: str
+    estimator: str
+    estimator_kwargs: dict[str, Any] | None
+    lags: int | list[int] | None
+    window_features: list[dict[str, list[str] | int]] | None
+
+
+# Keys validated at run time, taken from the typed dictionaries so the two
+# never drift apart.
+REFINE_PLAN_OVERRIDE_KEYS: frozenset[str] = frozenset(RefinePlanOverrides.__annotations__)
+CANDIDATE_CONFIG_KEYS: frozenset[str] = frozenset(CandidateConfig.__annotations__)
 
 
 class ForecastPlan(DisplayMixin, BaseModel):

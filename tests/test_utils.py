@@ -1,5 +1,6 @@
 # Unit test _utils
 
+import re
 from pathlib import Path
 
 import pytest
@@ -8,13 +9,14 @@ import pandas as pd
 from skforecast_ai._utils import (
     _strip_code_blocks,
     _resolve_data_and_target,
-    _run_agent_sync,
-    _series_span_length,
-    _display_n_observations,
+    _resolve_inputs_with_profile,
     _validate_task_input,
     _validate_window_features,
 )
+from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import DataProfile
+
+from tests.fixtures_assistant import df_single, series_single
 
 
 # =============================================================================
@@ -201,76 +203,118 @@ def test_resolve_data_and_target_parses_date_column(tmp_path):
 
 
 # =============================================================================
-# _run_agent_sync
+# _resolve_inputs_with_profile
 # =============================================================================
-def test_run_agent_sync_output_and_forwards_args():
+profile_single = ForecastingAssistant().profile(
+    data=df_single, target="sales", date_column="date"
+)
+
+
+def test_resolve_inputs_with_profile_delegates_when_no_profile():
     """
-    Test that _run_agent_sync awaits agent.run, forwards args/kwargs, and
-    returns the awaited value.
+    Test that without a profile the inputs are resolved as before, so a
+    DataFrame still requires an explicit target.
     """
-    received = {}
+    data, target, date_column, series_id_column = _resolve_inputs_with_profile(
+        df_single, "sales", "date", None, profile=None
+    )
+    assert target == "sales"
+    assert date_column == "date"
+    assert series_id_column is None
+    assert data is df_single
 
-    class _FakeAgent:
-        async def run(self, *args, **kwargs):
-            received["args"] = args
-            received["kwargs"] = kwargs
-            return "result"
-
-    result = _run_agent_sync(_FakeAgent(), "a", "b", deps="d", model_settings="s")
-
-    assert result == "result"
-    assert received["args"] == ("a", "b")
-    assert received["kwargs"] == {"deps": "d", "model_settings": "s"}
+    with pytest.raises(ValueError, match="`target` is required"):
+        _resolve_inputs_with_profile(df_single, None, None, None, profile=None)
 
 
-def test_run_agent_sync_runs_on_shared_background_loop():
+def test_resolve_inputs_with_profile_fills_missing_values_from_profile():
     """
-    Test that agent.run executes on the shared background loop (a daemon
-    thread), not the caller's thread, and that the same loop is reused
-    across calls.
+    Test that target, date_column and series_id_column default to the
+    values recorded in the profile when they are not given.
     """
-    import threading
+    _, target, date_column, series_id_column = _resolve_inputs_with_profile(
+        df_single, None, None, None, profile=profile_single
+    )
 
-    seen = {}
-
-    class _FakeAgent:
-        async def run(self, *args, **kwargs):
-            loop = __import__("asyncio").get_running_loop()
-            seen.setdefault("loops", []).append(id(loop))
-            seen.setdefault("threads", []).append(
-                threading.current_thread().ident
-            )
-            return "ok"
-
-    agent = _FakeAgent()
-    _run_agent_sync(agent, "first")
-    _run_agent_sync(agent, "second")
-
-    # Executed off the caller (main) thread
-    assert seen["threads"][0] != threading.current_thread().ident
-    # Same background loop reused across calls
-    assert seen["loops"][0] == seen["loops"][1]
+    assert target == "sales"
+    assert date_column == "date"
+    assert series_id_column is None
 
 
-def test_run_agent_sync_propagates_exceptions():
+def test_resolve_inputs_with_profile_accepts_matching_values():
     """
-    Test that an exception raised inside agent.run propagates to the
-    synchronous caller.
+    Test that explicit values equal to the recorded ones are accepted.
     """
+    _, target, date_column, _ = _resolve_inputs_with_profile(
+        df_single, "sales", "date", None, profile=profile_single
+    )
 
-    class _FakeAgent:
-        async def run(self, *args, **kwargs):
-            raise ValueError("boom")
+    assert target == "sales"
+    assert date_column == "date"
 
-    with pytest.raises(ValueError, match="boom"):
-        _run_agent_sync(_FakeAgent(), "msg")
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"target": "other"}, "`target` 'other' does not match the target"),
+        ({"date_column": "other"}, "`date_column` 'other' does not match"),
+        ({"series_id_column": "id"}, "`series_id_column` 'id' does not match"),
+    ],
+    ids=["target", "date_column", "series_id_column"],
+)
+def test_resolve_inputs_with_profile_raises_when_value_conflicts(kwargs, match):
+    """
+    Test that a value different from the one recorded in the profile
+    raises ValueError instead of being silently ignored.
+    """
+    args = {"target": None, "date_column": None, "series_id_column": None}
+    args.update(kwargs)
+
+    with pytest.raises(ValueError, match=match):
+        _resolve_inputs_with_profile(
+            df_single,
+            args["target"],
+            args["date_column"],
+            args["series_id_column"],
+            profile=profile_single,
+        )
+
+
+def test_resolve_inputs_with_profile_raises_when_columns_missing_in_data():
+    """
+    Test that data lacking a column the profile was built from fails
+    early with a readable message, rather than inside the executed script.
+    """
+    with pytest.raises(ValueError, match=re.escape("column(s) ['sales']")):
+        _resolve_inputs_with_profile(
+            df_single.drop(columns=["sales"]), None, None, None,
+            profile=profile_single,
+        )
+
+
+def test_resolve_inputs_with_profile_output_when_series_input():
+    """
+    Test that a pandas Series takes its target from its name and that a
+    name different from the profile's target is rejected.
+    """
+    profile = ForecastingAssistant().profile(data=series_single)
+
+    _, target, _, _ = _resolve_inputs_with_profile(
+        series_single, None, None, None, profile=profile
+    )
+    assert target == "sales"
+
+    with pytest.raises(ValueError, match="does not match the target"):
+        _resolve_inputs_with_profile(
+            series_single.rename("other"), None, None, None, profile=profile
+        )
 
 
 # =============================================================================
 # Task-aware observation-count helpers
 # =============================================================================
 def _make_profile(series_lengths, frequency="D", n_series=None):
-    """Build a minimal DataProfile for observation-count helper tests."""
+    """Build a minimal DataProfile for task input validation tests."""
     return DataProfile(
         n_series=n_series if n_series is not None else len(series_lengths),
         series_lengths=series_lengths,
@@ -278,51 +322,6 @@ def _make_profile(series_lengths, frequency="D", n_series=None):
         index_type="datetime",
         frequency=frequency,
     )
-
-
-def test_series_span_length_output_when_dates_available():
-    """
-    Test _series_span_length spans from the earliest start to the latest
-    end across all series at the profiled frequency.
-    """
-    profile = _make_profile({
-        "A": {"start": "2023-01-01", "end": "2023-04-10", "length": 100},
-        "B": {"start": "2023-02-01", "end": "2023-03-01", "length": 29},
-    })
-    # 2023-01-01 .. 2023-04-10 inclusive at daily frequency
-    assert _series_span_length(profile) == 100
-
-
-def test_series_span_length_output_when_no_frequency_falls_back_to_max():
-    """
-    Test _series_span_length falls back to the longest series length when
-    no frequency is available.
-    """
-    profile = _make_profile(
-        {"A": {"length": 100}, "B": {"length": 60}}, frequency=None
-    )
-    assert _series_span_length(profile) == 100
-
-
-def test_display_n_observations_output_when_single_series_uses_length():
-    """
-    Test _display_n_observations returns the single series length.
-    """
-    profile = _make_profile(
-        {"value": {"start": "2023-01-01", "end": "2023-04-10", "length": 100}}
-    )
-    assert _display_n_observations(profile) == 100
-
-
-def test_display_n_observations_output_when_multi_series_uses_span():
-    """
-    Test _display_n_observations returns the union span for multi-series.
-    """
-    profile = _make_profile({
-        "A": {"start": "2023-01-01", "end": "2023-04-10", "length": 100},
-        "B": {"start": "2023-02-01", "end": "2023-03-01", "length": 29},
-    })
-    assert _display_n_observations(profile) == 100
 
 
 @pytest.mark.parametrize(

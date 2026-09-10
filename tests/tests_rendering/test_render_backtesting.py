@@ -27,7 +27,7 @@ from .fixtures_rendering import (
 
 
 # =============================================================================
-# Tests: render_backtesting_single_series — full script comparison
+# Tests: render_backtesting_single_series: full script comparison
 # =============================================================================
 def test_render_backtesting_single_series_output_when_no_exog():
     """
@@ -86,7 +86,7 @@ def test_render_backtesting_single_series_output_when_no_exog():
 
 
 # =============================================================================
-# Tests: render_backtesting_multi_series — full script comparison
+# Tests: render_backtesting_multi_series: full script comparison
 # =============================================================================
 def test_render_backtesting_multi_series_output_when_wide_format():
     """
@@ -144,7 +144,7 @@ def test_render_backtesting_multi_series_output_when_wide_format():
 
 
 # =============================================================================
-# Tests: render_backtesting_multivariate — full script comparison
+# Tests: render_backtesting_multivariate: full script comparison
 # =============================================================================
 def test_render_backtesting_multivariate_output_when_wide_format():
     """
@@ -204,7 +204,7 @@ def test_render_backtesting_multivariate_output_when_wide_format():
 
 
 # =============================================================================
-# Tests: render_backtesting_statistical — full script comparison
+# Tests: render_backtesting_statistical: full script comparison
 # =============================================================================
 def test_render_backtesting_statistical_output_when_auto_arima():
     """
@@ -285,7 +285,7 @@ def test_render_backtesting_statistical_output_when_categorical_exog():
 
 
 # =============================================================================
-# Tests: render_backtesting_foundation — full script comparison
+# Tests: render_backtesting_foundation: full script comparison
 # =============================================================================
 def test_render_backtesting_foundation_output_when_chronos():
     """
@@ -343,7 +343,7 @@ def test_render_backtesting_foundation_output_when_chronos():
 
 
 # =============================================================================
-# Tests: render_backtesting_multi_series — long format
+# Tests: render_backtesting_multi_series: long format
 # =============================================================================
 def test_render_backtesting_multi_series_output_when_long_format():
     """
@@ -407,7 +407,7 @@ def test_render_backtesting_multi_series_output_when_long_format():
 
 
 # =============================================================================
-# Tests: render_backtesting_multi_series — exog enabled
+# Tests: render_backtesting_multi_series: exog enabled
 # =============================================================================
 def test_render_backtesting_multi_series_output_when_wide_format_with_exog():
     """
@@ -480,3 +480,5 @@ def test_render_backtesting_single_series_output_when_no_end_train_needed():
         plan_single_recursive_no_exog, profile_single_no_exog, cv_basic
     )
     assert isinstance(result, RenderedScript)
+    assert "end_train" not in result.core
+    assert "cv = TimeSeriesFold(" in result.core

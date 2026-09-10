@@ -1,6 +1,15 @@
 """Pydantic schemas for skforecast-ai data contracts."""
 
-from .plans import CVParams, ForecastPlan, PreprocessingStep, PlanOverrides
+from .plans import (
+    CANDIDATE_CONFIG_KEYS,
+    REFINE_PLAN_OVERRIDE_KEYS,
+    CandidateConfig,
+    CVParams,
+    ForecastPlan,
+    PlanOverrides,
+    PreprocessingStep,
+    RefinePlanOverrides,
+)
 from .profiles import DataProfile, ForecastingProfile, SeriesLengthInfo, SeriesPacf
 from .results import (
     AskResult,
@@ -8,6 +17,7 @@ from .results import (
     CandidateFailure,
     CodeGenerationResult,
     ComparisonResult,
+    CVResult,
     ExplainableResult,
     ForecastResult,
     LLMContext,
@@ -16,12 +26,16 @@ from .results import (
 )
 
 __all__ = [
+    "CANDIDATE_CONFIG_KEYS",
+    "REFINE_PLAN_OVERRIDE_KEYS",
     "AskResult",
     "BacktestResult",
+    "CandidateConfig",
     "CandidateFailure",
     "CodeGenerationResult",
     "ComparisonResult",
     "CVParams",
+    "CVResult",
     "DataProfile",
     "ExplainableResult",
     "ForecastingProfile",
@@ -30,6 +44,7 @@ __all__ = [
     "LLMContext",
     "PlanOverrides",
     "PreprocessingStep",
+    "RefinePlanOverrides",
     "RenderedScript",
     "SeriesLengthInfo",
     "SeriesPacf",

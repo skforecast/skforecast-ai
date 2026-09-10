@@ -2,6 +2,8 @@
 
 import numpy as np
 import pandas as pd
+import re
+
 import pytest
 
 from skforecast.exceptions import IgnoredArgumentWarning
@@ -92,7 +94,7 @@ def test_forecast_code_with_profile_and_plan_contains_frequency():
 
 
 # =============================================================================
-# Tests: forecast_code — basic output
+# Tests: forecast_code: basic output
 # =============================================================================
 def test_forecast_code_output_when_single_series():
     """
@@ -274,3 +276,66 @@ def test_forecast_code_IgnoredArgumentWarning_when_interval_passed_with_plan():
             profile=profile,
             plan=plan,
         )
+
+
+def test_forecast_code_IgnoredArgumentWarning_when_window_features_passed_with_plan():
+    """
+    Test that forecast_code() warns with IgnoredArgumentWarning naming
+    `window_features` when a window features override is passed alongside
+    a pre-built plan, because the planning stage that consumes it is
+    skipped.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.warns(IgnoredArgumentWarning, match="window_features"):
+        assistant.forecast_code(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=10,
+            window_features=[{"stats": ["mean"], "window_size": 3}],
+            profile=profile,
+            plan=plan,
+        )
+
+
+def test_forecast_code_ValueError_when_data_conflicts_with_profile():
+    """
+    Test that forecast_code() checks supplied data against the supplied
+    profile, so a dataset lacking the profile's target is reported before
+    any script is rendered.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    with pytest.raises(ValueError, match=re.escape("column(s) ['sales']")):
+        assistant.forecast_code(
+            data=df_single.drop(columns=["sales"]), profile=profile, plan=plan
+        )
+
+
+def test_forecast_code_ValueError_when_steps_conflicts_with_plan():
+    """
+    Test that forecast_code() rejects a `steps` different from
+    `plan.steps`, like forecast() does.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=7)
+
+    with pytest.raises(ValueError, match="does not match `plan.steps`"):
+        assistant.forecast_code(steps=3, profile=profile, plan=plan)
+
+
+def test_forecast_code_ValueError_when_neither_steps_nor_plan():
+    """
+    Test that forecast_code() without `steps` and without a plan raises a
+    clear ValueError.
+    """
+    assistant = ForecastingAssistant()
+
+    with pytest.raises(ValueError, match="`steps` is required"):
+        assistant.forecast_code(data=df_single, target="sales", date_column="date")

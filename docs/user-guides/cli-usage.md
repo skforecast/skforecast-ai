@@ -387,7 +387,7 @@ skforecast-ai profile "$URL" --target y --date-column fecha --format json -q | \
 !!! note "Requires LLM extras"
     `ask` requires an API key and the LLM extras: `pip install "skforecast-ai[llm]"`. See the AI assistant documentation for supported providers, API key setup, and local model options.
 
-Query an LLM about your forecast, your data, or general forecasting strategy. The LLM can optionally receive your data profile for context, but raw data is never sent by default.
+Query an LLM about your data, a saved profile or plan, or general forecasting strategy. With `--data` the dataset is profiled first and the profile is what the LLM explains; add `--steps` to build a plan and have the question answered about the plan too. `--from-profile` and `--from-plan` explain a saved profile or plan bundle without any data. Raw data is never sent by default.
 
 ```bash
 # Set LLM (or use --llm flag on each call)
@@ -396,9 +396,16 @@ export SKFORECAST_AI_LLM="openai:gpt-4o-mini"
 # Q&A mode: general question
 skforecast-ai ask "How do I choose between recursive and direct strategies?"
 
-# Explain mode: with data context
+# Explain the profile of a dataset
+skforecast-ai ask "Why this forecaster?" \
+  --data h2o_exog.csv --target y --date-column fecha
+
+# Explain the plan built for it (adds --steps)
 skforecast-ai ask "What patterns do you see?" \
   --data h2o_exog.csv --target y --date-column fecha --steps 24
+
+# Explain a saved profile or plan bundle
+skforecast-ai ask "Why these lags?" --from-plan plan.json
 
 # JSON output
 skforecast-ai ask "Recommend a forecasting approach" \
@@ -496,8 +503,8 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--from-profile` | | Load profile JSON (file or `-` for stdin) | `plan` |
-| `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
+| `--from-profile` | | Load profile JSON (file or `-` for stdin) | `plan`, `ask` |
+| `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
 
 ### LLM
 

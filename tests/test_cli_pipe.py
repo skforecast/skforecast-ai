@@ -434,6 +434,82 @@ class TestForecastFromPlan:
         assert "required" in result.output.lower()
 
 
+class TestBacktestCode:
+    """Tests for the backtest-code command."""
+
+    def test_backtest_code_from_data(self, tmp_path):
+        """
+        backtest-code with DATA renders a backtesting script that loads
+        the given CSV and calls backtesting_forecaster.
+        """
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+
+        result = runner.invoke(app, [
+            "backtest-code", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "5",
+            "--initial-train-size", "60", "--quiet",
+        ])
+
+        assert result.exit_code == 0, result.output
+        assert "backtesting_forecaster(" in result.output
+        assert "cv = TimeSeriesFold(" in result.output
+        assert "initial_train_size = 60" in result.output
+
+    def test_backtest_code_from_plan(self, tmp_path):
+        """
+        backtest-code --from-plan uses the saved profile and plan, so the
+        script embeds the plan's forecaster without re-planning.
+        """
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales", "--date-column", "date",
+            "--steps", "5", "--forecaster", "ForecasterDirect",
+            "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.output)
+
+        result = runner.invoke(app, [
+            "backtest-code", str(csv_file), "--from-plan", str(plan_file),
+            "--quiet",
+        ])
+
+        assert result.exit_code == 0, result.output
+        assert "ForecasterDirect(" in result.output
+        assert "backtesting_forecaster(" in result.output
+
+    def test_backtest_code_writes_output_file(self, tmp_path):
+        """
+        backtest-code --output writes the script to a file that parses as
+        Python, and --format json wraps it with the profile and plan.
+        """
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+        script_file = tmp_path / "backtest.py"
+
+        result = runner.invoke(app, [
+            "backtest-code", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "5",
+            "--output", str(script_file), "--quiet",
+        ])
+        assert result.exit_code == 0, result.output
+        import ast
+        ast.parse(script_file.read_text())
+
+        as_json = runner.invoke(app, [
+            "backtest-code", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "5",
+            "--format", "json", "--quiet",
+        ])
+        assert as_json.exit_code == 0, as_json.output
+        data = json.loads(as_json.output)
+        assert {"profile", "plan", "code"} <= set(data)
+        assert "backtesting_forecaster(" in data["code"]
+
+
 class TestBacktestFromPlan:
     """Tests for the backtest command with --from-plan."""
 

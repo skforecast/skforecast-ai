@@ -13,7 +13,7 @@ from .fixtures_rendering import (
 
 
 # =============================================================================
-# Tests: render_forecast_statistical — full script comparison
+# Tests: render_forecast_statistical: full script comparison
 # =============================================================================
 def test_render_forecast_statistical_output_when_daily_frequency():
     """

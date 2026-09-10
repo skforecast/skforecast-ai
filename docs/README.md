@@ -128,7 +128,7 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 
 A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data. You can also use `compare()` to evaluate several candidate configurations under the same cross-validation strategy and obtain a ranked leaderboard, so the best configuration is chosen from measured performance rather than intuition.
 
-The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, comparison result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
+The `ask()` method is available in both workflows. Pass it the object to explain as `context` (a profile, optionally with a plan, a generated script, a cross-validation strategy, a forecast, backtest or comparison result) or nothing to ask a general forecasting question. It never executes the workflow or modifies your parameters.
 
 <div style="box-sizing:border-box; margin:16px 0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:#24292f; max-width:100%;">
   <div style="box-sizing:border-box; display:flex; gap:20px; flex-wrap:wrap; align-items:stretch;">
@@ -220,7 +220,7 @@ The `ask()` method is available in both workflows. It can explain a profile, pla
   <!-- ask() banner -->
   <div style="box-sizing:border-box; margin-top:16px; border:1px solid #8250df; border-radius:12px; overflow:hidden;">
     <div style="box-sizing:border-box; background:#8250df; color:#ffffff; padding:10px 16px; font-size:15px; font-weight:700;">LLM reasoning: available at any moment, in any workflow</div>
-    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. It can take a <code>profile</code>, a <code>plan</code>, a <code>result</code> (from <code>forecast()</code>, <code>backtest()</code> or <code>compare()</code>), or nothing at all (pure Q&amp;A).</div>
+    <div style="box-sizing:border-box; padding:12px 16px; background:#faf5ff; font-size:13px;">Call <code>ask()</code> before, during or after either path. Its <code>context</code> can be a <code>profile</code> (optionally with a <code>plan</code>), a generated script, a <code>CVResult</code>, a result from <code>forecast()</code>, <code>backtest()</code> or <code>compare()</code>, or nothing at all (pure Q&amp;A).</div>
   </div>
 </div>
 
