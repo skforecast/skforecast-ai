@@ -66,9 +66,9 @@ The `forecast()` method is the fastest way to generate predictions. In a single 
 | Attribute | Type | Description |
 |---|---|---|
 | `predictions` | DataFrame | Forecasted values for the requested steps. When intervals (or quantiles) are requested, the bound columns are included alongside the point predictions. |
-| `metrics` | DataFrame, None | Evaluation metrics (`MAE`, `MSE`, `MASE`), one row per series. `None` in prediction mode, where there is no ground truth to score against. |
+| `metrics` | DataFrame, None | Evaluation metrics (`MAE`, `MSE`, `MASE`, `MAPE`), one row per series. `None` in prediction mode, where there is no ground truth to score against. |
 | `code` | str | The exact standalone **skforecast** script that produced the forecast, deterministic and ready to run on its own. |
-| `profile` | `ForecastingProfile` | The data profile behind the forecast: metadata, summary statistics, detected frequency and seasonality, and the high-level modeling decisions. |
+| `profile` | `ForecastingProfile` | The data profile behind the forecast: metadata, summary statistics, detected frequency, significant lags, and the high-level modeling decisions. |
 | `plan` | `ForecastPlan` | The detailed configuration that was executed: forecaster, estimator, lags, window features, preprocessing, and interval settings. |
 
 Displaying the object in a notebook renders a rich summary of all of the above; the raw script is also available through `results.show_code()`.
@@ -105,7 +105,7 @@ results = assistant.forecast(
              test_size   = 12,   # hold out the last 12 observations as a test set
          )
 
-# Now metrics are available: MAE, MSE, MASE per series
+# Now metrics are available: MAE, MSE, MASE, MAPE per series
 results.metrics
 ```
 
@@ -143,21 +143,25 @@ If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`), the a
 
 !!! warning "Your data stays private"
     By default, enabling an LLM does **not** send your time-series data to the model provider.
-    The assistant passes only summary statistics, detected frequency,
-    seasonality flags and the forecaster configuration, never the raw observations.
-    To explicitly allow it, pass `send_data_to_llm=True`.
-    
+    The assistant passes only a summary of the dataset (frequency, date range, target
+    statistics, missing values, significant lags) and the forecaster configuration, never
+    the raw observations. Results are the exception: when you pass a `ForecastResult` as
+    `context`, its predictions and metrics are sent, because the question is about them,
+    and a `DataSentToLLMWarning` reminds you of it while `send_data_to_llm=False`. Pass
+    `send_data_to_llm=True` to acknowledge it and silence the warning.
 
 Use `ask()` to query it:
 
 ```python
+import os
+
 # Initialize the assistant
 # ------------------------
-LLM_MODEL = "google:gemini-3-flash-preview"
+LLM_MODEL = "google:gemini-3.5-flash"
 api_key = os.getenv("GOOGLE_API_KEY")
 
 assistant = ForecastingAssistant(
-    llm=LLM_MODEL, api_key=api_key, send_data_to_llm=False
+    llm=LLM_MODEL, api_key=api_key, send_data_to_llm=True
 )
 
 # Using aws bedrock

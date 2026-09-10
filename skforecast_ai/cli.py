@@ -122,6 +122,8 @@ def main(
 
 
 console = Console()
+# Status messages go to stderr so `--format json` stays parseable on stdout.
+err_console = Console(stderr=True)
 config_app = typer.Typer(help="Manage persistent configuration.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 
@@ -404,6 +406,8 @@ def _collect_plan_overrides(
     estimator: str | None,
     estimator_kwargs: dict | None,
     interval: list[float] | None,
+    lags: int | list[int] | None = None,
+    window_features: list[dict] | None = None,
 ) -> dict:
     """
     Build a dict of non-None plan overrides for `refine_plan`.
@@ -423,6 +427,10 @@ def _collect_plan_overrides(
         Estimator keyword arguments override.
     interval : list of float, None
         Prediction interval override.
+    lags : int, list of int, default None
+        Lags override.
+    window_features : list of dict, default None
+        Window features override.
 
     Returns
     -------
@@ -438,6 +446,10 @@ def _collect_plan_overrides(
         overrides["estimator_kwargs"] = estimator_kwargs
     if interval is not None:
         overrides["interval"] = interval
+    if lags is not None:
+        overrides["lags"] = lags
+    if window_features is not None:
+        overrides["window_features"] = window_features
     return overrides
 
 
@@ -839,11 +851,31 @@ def forecast_code(
     """Generate a complete Python forecasting script."""
     with _error_handler():
         assistant = ForecastingAssistant()
+        parsed_interval = _parse_interval(interval)
+        parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
 
         if from_plan is not None:
             bundle = _read_json_input(from_plan)
             prof = ForecastingProfile.model_validate(bundle["profile"])
             plan_obj = ForecastPlan.model_validate(bundle["plan"])
+
+            # Overrides supplied alongside --from-plan are applied on top of
+            # the saved plan through refine_plan, as `forecast` does, instead
+            # of being dropped silently.
+            plan_overrides = _collect_plan_overrides(
+                forecaster=forecaster,
+                estimator=estimator,
+                estimator_kwargs=parsed_estimator_kwargs,
+                interval=parsed_interval,
+                lags=parsed_lags,
+                window_features=parsed_window_features,
+            )
+            if plan_overrides:
+                plan_obj = assistant.refine_plan(
+                    profile=prof, plan=plan_obj, **plan_overrides
+                )
             result = assistant.forecast_code(
                 data=None, target=None, steps=plan_obj.steps,
                 profile=prof, plan=plan_obj,
@@ -856,10 +888,6 @@ def forecast_code(
                 )
                 raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
-            parsed_interval = _parse_interval(interval)
-            parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
-            parsed_lags = _parse_lags(lags)
-            parsed_window_features = _parse_window_features(window_features)
 
             with _spinner("Generating code...", quiet):
                 result = assistant.forecast_code(
@@ -877,7 +905,7 @@ def forecast_code(
         else:
             if output is not None:
                 output.write_text(result.code)
-                console.print(f"[green]Code written to:[/green] {output}")
+                err_console.print(f"[green]Code written to:[/green] {output}")
             else:
                 console.print(render_code(result.code, title=None))
 
@@ -959,6 +987,21 @@ def backtest_code(
                     lags=parsed_lags,
                     window_features=parsed_window_features,
                 )
+            else:
+                # Overrides supplied alongside --from-plan are applied on top
+                # of the saved plan, as `backtest` does.
+                plan_overrides = _collect_plan_overrides(
+                    forecaster=forecaster,
+                    estimator=estimator,
+                    estimator_kwargs=parsed_estimator_kwargs,
+                    interval=parsed_interval,
+                    lags=parsed_lags,
+                    window_features=parsed_window_features,
+                )
+                if plan_overrides:
+                    plan_obj = assistant.refine_plan(
+                        profile=prof, plan=plan_obj, **plan_overrides
+                    )
 
             # Generate CV
             cv_kwargs = {}
@@ -982,8 +1025,10 @@ def backtest_code(
             ).cv
 
             # Generate code
+            # Without DATA the script is rendered from the saved profile,
+            # which records the path the data was profiled from.
             result = assistant.backtest_code(
-                data=data or "data.csv",
+                data=data,
                 target=resolved_target,
                 cv=cv,
                 date_column=resolved_date_column,
@@ -998,7 +1043,7 @@ def backtest_code(
         else:
             if output is not None:
                 output.write_text(result.code)
-                console.print(f"[green]Code written to:[/green] {output}")
+                err_console.print(f"[green]Code written to:[/green] {output}")
             else:
                 console.print(render_code(result.code, title=None))
 
@@ -1129,11 +1174,11 @@ def forecast(
 
         if output_predictions is not None:
             result.predictions.to_csv(output_predictions)
-            console.print(f"[green]Predictions written to:[/green] {output_predictions}")
+            err_console.print(f"[green]Predictions written to:[/green] {output_predictions}")
 
         if output_code is not None:
             output_code.write_text(result.code)
-            console.print(f"[green]Code written to:[/green] {output_code}")
+            err_console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
             json_str = _result_to_json(result)
@@ -1296,11 +1341,11 @@ def backtest(
 
         if output_predictions is not None:
             result.predictions.to_csv(output_predictions)
-            console.print(f"[green]Predictions written to:[/green] {output_predictions}")
+            err_console.print(f"[green]Predictions written to:[/green] {output_predictions}")
 
         if output_code is not None:
             output_code.write_text(result.code)
-            console.print(f"[green]Code written to:[/green] {output_code}")
+            err_console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
             json_str = _result_to_json(result)
@@ -1473,7 +1518,7 @@ def compare(
 
         if output_code is not None:
             output_code.write_text(result.best_candidate.code)
-            console.print(f"[green]Code written to:[/green] {output_code}")
+            err_console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
             print(_result_to_json(result))

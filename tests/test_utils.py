@@ -7,6 +7,7 @@ import pytest
 import pandas as pd
 
 from skforecast_ai._utils import (
+    _apply_interval_to_plan,
     _strip_code_blocks,
     _resolve_data_and_target,
     _resolve_inputs_with_profile,
@@ -411,3 +412,24 @@ def test_validate_window_features_raises_when_invalid(window_features, match):
     """
     with pytest.raises(ValueError, match=match):
         _validate_window_features(window_features)
+
+
+def test_apply_interval_to_plan_uses_native_method_for_foundation_plan():
+    """
+    Test that applying an interval to a foundation plan without intervals
+    selects the native interval method, extends the explanation, and leaves
+    the original plan untouched, while a plan that already predicts the
+    same interval is returned as is.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+    assert plan.interval is None
+
+    updated = _apply_interval_to_plan(plan, [0.1, 0.9])
+
+    assert updated.interval == [0.1, 0.9]
+    assert updated.interval_method == "native"
+    assert updated.explanation == f"{plan.explanation} Prediction intervals via native."
+    assert plan.interval is None
+    assert _apply_interval_to_plan(updated, [0.1, 0.9]) is updated

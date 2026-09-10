@@ -90,10 +90,12 @@ from ._utils import (
     _strip_code_blocks,
     _unwrap_cv,
     _validate_forecast_mode,
+    resolve_interval_method,
     _validate_max_window_size,
     _validate_task_input,
     _validate_window_features,
-    _warn_if_plan_overrides_ignored,
+    _apply_interval_to_plan,
+    _check_plan_overrides,
 )
 
 
@@ -480,12 +482,7 @@ class ForecastingAssistant:
             dropna_from_series = dropna_from_series
         )
 
-        interval_method = None
-        if interval is not None:
-            if task_type in {"statistical", "foundation"}:
-                interval_method = "native"
-            else:
-                interval_method = "bootstrapping"
+        interval_method = resolve_interval_method(task_type, interval)
 
         use_exog = check_exog_usage(data_profile.exog_columns)
 
@@ -822,7 +819,9 @@ class ForecastingAssistant:
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
-            None, no prediction intervals are computed.
+            None, no prediction intervals are computed. With a pre-built
+            `plan`, a value replaces `plan.interval` and None keeps the
+            intervals of the plan.
         test_size : int, float, str, pandas Timestamp, default None
             Size or start of the test set, selecting the evaluation or
             prediction mode described above.
@@ -873,7 +872,10 @@ class ForecastingAssistant:
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. If None, a plan is
             generated from the profile. Requires `profile` to also be
-            provided.
+            provided. `forecaster`, `estimator`, `estimator_kwargs`,
+            `lags` and `window_features` are fixed by the plan: a value
+            equal to the plan's is accepted and a different one raises
+            `ValueError`, pointing to `refine_plan()`.
 
         Returns
         -------
@@ -998,7 +1000,9 @@ class ForecastingAssistant:
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
-            None, no prediction intervals are computed.
+            None, no prediction intervals are computed. With a pre-built
+            `plan`, a value replaces `plan.interval` and None keeps the
+            intervals of the plan.
         test_size : int, float, str, pandas Timestamp, default None
             Size or start of the test set, selecting the evaluation or
             prediction mode described above.
@@ -1049,7 +1053,10 @@ class ForecastingAssistant:
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. If None, a plan is
             generated from the profile. Requires `profile` to also be
-            provided.
+            provided. `forecaster`, `estimator`, `estimator_kwargs`,
+            `lags` and `window_features` are fixed by the plan: a value
+            equal to the plan's is accepted and a different one raises
+            `ValueError`, pointing to `refine_plan()`.
 
         Returns
         -------
@@ -1328,7 +1335,7 @@ class ForecastingAssistant:
 
     def backtest_code(
         self,
-        data: pd.Series | pd.DataFrame | str | Path,
+        data: pd.Series | pd.DataFrame | str | Path | None,
         cv: TimeSeriesFold | CVResult,
         target: str | list[str] | None = None,
         date_column: str | None = None,
@@ -1349,9 +1356,12 @@ class ForecastingAssistant:
 
         Parameters
         ----------
-        data : pandas Series, pandas DataFrame, str, Path
+        data : pandas Series, pandas DataFrame, str, Path, None
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            None is accepted when `profile` and `plan` are given: the
+            script is rendered from the profile and loads the data path
+            recorded in it.
         cv : TimeSeriesFold, CVResult
             Time series cross-validation fold splitter (output of
             `create_cv()` or user-constructed) [1]_.
@@ -1378,7 +1388,9 @@ class ForecastingAssistant:
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
-            None, no prediction intervals are computed.
+            None, no prediction intervals are computed. With a pre-built
+            `plan`, a value replaces `plan.interval` and None keeps the
+            intervals of the plan.
         forecaster : str, default None
             Explicit forecaster class name to use instead of the
             recommended one (e.g. `'ForecasterRecursive'`,
@@ -1399,7 +1411,10 @@ class ForecastingAssistant:
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling.
         plan : ForecastPlan, default None
-            Pre-computed plan to skip planning.
+            Pre-computed plan to skip planning. `forecaster`, `estimator`
+            and `estimator_kwargs` are fixed by the plan: a value equal
+            to the plan's is accepted and a different one raises
+            `ValueError`, pointing to `refine_plan()`.
 
         Returns
         -------
@@ -1506,7 +1521,9 @@ class ForecastingAssistant:
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
-            None, no prediction intervals are computed.
+            None, no prediction intervals are computed. With a pre-built
+            `plan`, a value replaces `plan.interval` and None keeps the
+            intervals of the plan.
         forecaster : str, default None
             Explicit forecaster class name to use instead of the
             recommended one (e.g. `'ForecasterRecursive'`,
@@ -1527,7 +1544,10 @@ class ForecastingAssistant:
         profile : ForecastingProfile, default None
             Pre-computed profile to skip profiling.
         plan : ForecastPlan, default None
-            Pre-computed plan to skip planning.
+            Pre-computed plan to skip planning. `forecaster`, `estimator`
+            and `estimator_kwargs` are fixed by the plan: a value equal
+            to the plan's is accepted and a different one raises
+            `ValueError`, pointing to `refine_plan()`.
         show_progress : bool, default True
             Whether to display a progress bar during backtesting.
 
@@ -2176,8 +2196,8 @@ class ForecastingAssistant:
         Resolve profile and plan for the forecasting workflows.
 
         Shared preparation logic used by both `forecast_code()` and
-        `forecast()`. Warns about plan overrides ignored because a plan
-        was supplied, profiles the data when no profile is given,
+        `forecast()`. Rejects plan-shaping overrides that contradict a
+        supplied plan, profiles the data when no profile is given,
         validates the evaluation or prediction mode, builds the plan when
         none is given, and stamps the `end_train` split boundary derived
         from `test_size` onto the plan.
@@ -2231,12 +2251,11 @@ class ForecastingAssistant:
             Resolved plan, carrying `end_train` when `test_size` is set.
         """
 
-        _warn_if_plan_overrides_ignored(
+        _check_plan_overrides(
             plan             = plan,
             forecaster       = forecaster,
             estimator        = estimator,
             estimator_kwargs = estimator_kwargs,
-            interval         = interval,
             lags             = lags,
             window_features  = window_features,
         )
@@ -2289,6 +2308,8 @@ class ForecastingAssistant:
                 lags             = lags,
                 window_features  = window_features,
             )
+        elif interval is not None:
+            plan = _apply_interval_to_plan(plan, interval)
 
         # `test_size` is a forecast-only concept, so the split boundary is
         # resolved here rather than in the shared `plan()` method. It is
@@ -2306,7 +2327,7 @@ class ForecastingAssistant:
 
     def _prepare_backtest(
         self,
-        data: pd.Series | pd.DataFrame | str | Path,
+        data: pd.Series | pd.DataFrame | str | Path | None,
         cv: TimeSeriesFold,
         target: str | list[str] | None,
         date_column: str | None,
@@ -2328,8 +2349,9 @@ class ForecastingAssistant:
 
         Parameters
         ----------
-        data : pandas Series, pandas DataFrame, str, Path
-            Input dataset, a single series, or path to a CSV file.
+        data : pandas Series, pandas DataFrame, str, Path, None
+            Input dataset, a single series, or path to a CSV file. None
+            only when `profile` is given, for rendering without data.
         cv : TimeSeriesFold
             Cross-validation fold splitter.
         target : str, list of str, None
@@ -2360,19 +2382,21 @@ class ForecastingAssistant:
             Resolved plan.
         """
 
-        _warn_if_plan_overrides_ignored(
+        _check_plan_overrides(
             plan             = plan,
             forecaster       = forecaster,
             estimator        = estimator,
             estimator_kwargs = estimator_kwargs,
-            interval         = interval,
         )
 
-        data_df, target, date_column, series_id_column = (
-            _resolve_inputs_with_profile(
-                data, target, date_column, series_id_column, profile
+        if data is None and profile is None:
+            raise ValueError("`data` is required when `profile` is not provided.")
+        if data is not None:
+            _, target, date_column, series_id_column = (
+                _resolve_inputs_with_profile(
+                    data, target, date_column, series_id_column, profile
+                )
             )
-        )
         steps = cv.steps
 
         if profile is None:
@@ -2403,6 +2427,8 @@ class ForecastingAssistant:
                     f"ForecasterDirect and ForecasterDirectMultiVariate "
                     f"model architectures depend on steps."
                 )
+            if interval is not None:
+                plan = _apply_interval_to_plan(plan, interval)
 
         return profile, plan
 

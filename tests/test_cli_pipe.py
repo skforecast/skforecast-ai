@@ -314,6 +314,27 @@ class TestGenerateCodeFromPlan:
         assert "plan" in output
         assert "profile" in output
 
+    def test_render_forecast_code_applies_overrides_to_saved_plan(self, tmp_path):
+        """
+        forecast-code --from-plan applies the modeling flags given alongside
+        the bundle on top of the saved plan, as `forecast` does, instead of
+        dropping them: the estimator is switched and the interval added.
+        """
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(MOCK_BUNDLE))
+
+        result = runner.invoke(app, [
+            "forecast-code", "--from-plan", str(plan_file),
+            "--estimator", "Ridge", "--interval", "0.1,0.9",
+            "--format", "json", "--quiet",
+        ])
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.stdout)
+        assert output["plan"]["estimator"] == "Ridge"
+        assert output["plan"]["interval"] == [0.1, 0.9]
+        assert "Ridge(" in output["code"]
+        assert "predict_interval" in output["code"]
+
     def test_forecast_code_without_data_or_from_plan_errors(self):
         """forecast-code without DATA or --from-plan exits with error."""
         result = runner.invoke(app, [
@@ -480,6 +501,60 @@ class TestBacktestCode:
         assert result.exit_code == 0, result.output
         assert "ForecasterDirect(" in result.output
         assert "backtesting_forecaster(" in result.output
+
+    def test_backtest_code_from_plan_without_data(self, tmp_path):
+        """
+        backtest-code --from-plan renders the script without DATA: the
+        saved profile records the path the data was profiled from, and the
+        script loads it from there.
+        """
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales", "--date-column", "date",
+            "--steps", "5", "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.stdout)
+
+        result = runner.invoke(app, [
+            "backtest-code", "--from-plan", str(plan_file),
+            "--format", "json", "--quiet",
+        ])
+
+        assert result.exit_code == 0, result.output
+        code = json.loads(result.stdout)["code"]
+        assert "backtesting_forecaster(" in code
+        assert f"pd.read_csv({str(csv_file)!r}" in code
+
+    def test_backtest_code_from_plan_applies_overrides(self, tmp_path):
+        """
+        backtest-code --from-plan applies the modeling flags given alongside
+        the bundle on top of the saved plan, so an interval added at render
+        time reaches the script.
+        """
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales", "--date-column", "date",
+            "--steps", "5", "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.stdout)
+
+        result = runner.invoke(app, [
+            "backtest-code", "--from-plan", str(plan_file),
+            "--interval", "0.1,0.9", "--estimator", "Ridge",
+            "--format", "json", "--quiet",
+        ])
+
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.stdout)
+        assert output["plan"]["interval"] == [0.1, 0.9]
+        assert output["plan"]["estimator"] == "Ridge"
+        assert "interval" in output["code"]
 
     def test_backtest_code_writes_output_file(self, tmp_path):
         """

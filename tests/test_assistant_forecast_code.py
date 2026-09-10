@@ -6,7 +6,6 @@ import re
 
 import pytest
 
-from skforecast.exceptions import IgnoredArgumentWarning
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import CodeGenerationResult
@@ -255,47 +254,69 @@ def test_forecast_code_ValueError_when_exog_without_exog_data():
 
 
 # =============================================================================
-# Tests: ignored plan-override warning
+# Tests: plan overrides
 # =============================================================================
-def test_forecast_code_IgnoredArgumentWarning_when_interval_passed_with_plan():
+def test_forecast_code_output_when_interval_passed_with_plan():
     """
-    Test that forecast_code() warns with IgnoredArgumentWarning when an
-    interval override is passed alongside a pre-built plan, because the
-    planning stage (which consumes interval) is skipped.
-    """
-    assistant = ForecastingAssistant()
-    profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=10)
-
-    with pytest.warns(IgnoredArgumentWarning, match="pre-built `plan`"):
-        assistant.forecast_code(
-            data=df_single,
-            target="sales",
-            steps=10,
-            interval=[0.1, 0.9],
-            profile=profile,
-            plan=plan,
-        )
-
-
-def test_forecast_code_IgnoredArgumentWarning_when_window_features_passed_with_plan():
-    """
-    Test that forecast_code() warns with IgnoredArgumentWarning naming
-    `window_features` when a window features override is passed alongside
-    a pre-built plan, because the planning stage that consumes it is
-    skipped.
+    Test that an `interval` passed alongside a pre-built plan replaces the
+    plan's interval in the rendered script, so the script predicts the
+    requested bounds.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
 
-    with pytest.warns(IgnoredArgumentWarning, match="window_features"):
+    result = assistant.forecast_code(
+        data=df_single,
+        target="sales",
+        steps=10,
+        interval=[0.1, 0.9],
+        profile=profile,
+        plan=plan,
+    )
+
+    assert result.plan.interval == [0.1, 0.9]
+    assert "predict_interval" in result.code
+
+
+def test_forecast_code_ValueError_when_window_features_differ_from_plan():
+    """
+    Test that forecast_code() rejects a `window_features` override that
+    differs from the window features of the pre-built plan, naming the
+    argument, because the planning stage that consumes it is skipped.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.raises(ValueError, match=re.escape("['window_features']")):
         assistant.forecast_code(
             data=df_single,
             target="sales",
             date_column="date",
             steps=10,
             window_features=[{"stats": ["mean"], "window_size": 3}],
+            profile=profile,
+            plan=plan,
+        )
+
+
+def test_forecast_code_ValueError_when_estimator_differs_from_plan():
+    """
+    Test that forecast_code() rejects an `estimator` override that differs
+    from the estimator of the pre-built plan, and that the message points
+    to `refine_plan()`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, estimator="Ridge")
+
+    with pytest.raises(ValueError, match=re.escape("refine_plan()")):
+        assistant.forecast_code(
+            data=df_single,
+            target="sales",
+            steps=10,
+            estimator="LGBMRegressor",
             profile=profile,
             plan=plan,
         )

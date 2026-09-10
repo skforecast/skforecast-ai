@@ -1040,6 +1040,27 @@ class TestCompare:
         assert code_path.exists()
         ast.parse(code_path.read_text())
 
+    def test_compare_output_code_keeps_json_stdout_parseable(self, tmp_path):
+        """
+        Compare --output-code with --format json writes the confirmation
+        message to stderr, so stdout is the JSON document alone and can be
+        piped to another command.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        code_path = tmp_path / "best.py"
+        result = runner.invoke(
+            app,
+            ["compare", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--initial-train-size", "70",
+             "--candidates", self._candidates,
+             "--output-code", str(code_path), "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["best_name"] in payload["candidates"]
+        assert "Code written to" in result.stderr
+        assert "Code written to" not in result.stdout
+
     def test_compare_missing_steps(self, tmp_path):
         """
         Compare without --steps shows an error.

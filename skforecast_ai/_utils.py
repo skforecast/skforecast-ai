@@ -10,7 +10,6 @@ import re
 import warnings
 from pathlib import Path
 import pandas as pd
-from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import ALLOWED_WINDOW_STATS, MAX_FEATURE_FRACTION
@@ -232,43 +231,49 @@ def _strip_code_blocks(text: str) -> str:
     return _CODE_BLOCK_RE.sub(_CODE_BLOCK_REPLACEMENT, text)
 
 
-def _warn_if_plan_overrides_ignored(
+def _normalize_lags(lags: int | list[int] | None) -> list[int] | None:
+    """Express a lag specification as the sorted list of lags it denotes."""
+    if lags is None:
+        return None
+    if isinstance(lags, int):
+        return list(range(1, lags + 1))
+    return sorted(int(lag) for lag in lags)
+
+
+def _check_plan_overrides(
     plan: ForecastPlan | None,
     forecaster: str | None,
     estimator: str | None,
     estimator_kwargs: dict | None,
-    interval: list[float] | None,
     lags: int | list[int] | None = None,
     window_features: list[dict] | None = None,
 ) -> None:
     """
-    Warn when plan-shaping arguments are ignored due to a supplied plan.
+    Reject plan-shaping arguments that contradict a supplied plan.
 
-    When a pre-built `plan` is passed to `forecast()` or `forecast_code()`,
-    the planning stage is skipped, so any argument that only feeds that
-    stage is silently dropped. This emits an `IgnoredArgumentWarning`
-    instead, pointing the caller to `refine_plan()`.
+    A pre-built `plan` already fixes the forecaster, the estimator and
+    its keyword arguments, the lags and the window features, and the
+    planning stage that would consume these arguments is skipped. An
+    argument equal to what the plan holds is redundant and accepted; a
+    different value would be silently dropped, so it is rejected and the
+    caller is pointed to `refine_plan()`. Mirrors the `steps` check of
+    the forecasting workflows.
 
     Parameters
     ----------
     plan : ForecastPlan, None
         Pre-built plan supplied by the caller. When None, nothing is
-        warned because the planning stage runs normally.
+        checked because the planning stage runs normally.
     forecaster : str, None
-        Forecaster override that would be ignored.
+        Forecaster override.
     estimator : str, None
-        Estimator override that would be ignored.
+        Estimator override.
     estimator_kwargs : dict, None
-        Estimator keyword arguments that would be ignored.
-    interval : list of float, None
-        Prediction interval override that would be ignored.
+        Estimator keyword arguments override.
     lags : int, list of int, default None
-        Lag override that would be ignored. Only `forecast()` and
-        `forecast_code()` accept it, so backtesting callers leave it None.
+        Lag override. An integer denotes lags 1 to `lags`.
     window_features : list of dict, default None
-        Window features override that would be ignored. Only `forecast()`
-        and `forecast_code()` accept it, so backtesting callers leave it
-        None.
+        Window features override.
 
     Returns
     -------
@@ -276,25 +281,88 @@ def _warn_if_plan_overrides_ignored(
     """
     if plan is None:
         return
-    ignored = [
+    kwargs = plan.forecaster_kwargs
+    conflicts = [
         name
-        for name, value in (
-            ("forecaster", forecaster),
-            ("estimator", estimator),
-            ("estimator_kwargs", estimator_kwargs),
-            ("interval", interval),
-            ("lags", lags),
-            ("window_features", window_features),
+        for name, value, plan_value in (
+            ("forecaster", forecaster, plan.forecaster),
+            ("estimator", estimator, plan.estimator),
+            ("estimator_kwargs", estimator_kwargs, plan.estimator_kwargs),
+            ("lags", _normalize_lags(lags), _normalize_lags(kwargs.get("lags"))),
+            ("window_features", window_features, kwargs.get("window_features")),
         )
-        if value is not None
+        if value is not None and value != plan_value
     ]
-    if ignored:
-        warnings.warn(
-            f"A pre-built `plan` was provided, so the following argument(s) "
-            f"are ignored: {ignored}. To change these, refine the plan with "
-            f"`refine_plan()` before calling.",
-            IgnoredArgumentWarning,
+    if conflicts:
+        raise ValueError(
+            f"A pre-built `plan` was provided and the following argument(s) "
+            f"differ from what it holds: {conflicts}. Omit them to use the "
+            f"plan as is, or refine the plan with `refine_plan()` first."
         )
+
+
+def resolve_interval_method(task_type: str, interval: list[float] | None) -> str | None:
+    """
+    Select the prediction interval method for a task type.
+
+    Parameters
+    ----------
+    task_type : str
+        Task type of the plan (`'single_series'`, `'statistical'`, ...).
+    interval : list of float, None
+        Prediction interval quantiles. None means no intervals.
+
+    Returns
+    -------
+    interval_method : str, None
+        `'native'` for statistical and foundation forecasters, which
+        produce their own intervals, `'bootstrapping'` otherwise, and
+        None when `interval` is None.
+    """
+    if interval is None:
+        return None
+    if task_type in {"statistical", "foundation"}:
+        return "native"
+    return "bootstrapping"
+
+
+def _apply_interval_to_plan(plan: ForecastPlan, interval: list[float]) -> ForecastPlan:
+    """
+    Return a copy of `plan` that predicts the given interval.
+
+    The interval is a prediction-time option, like `predict_interval()`
+    in skforecast, not a modeling decision: changing it touches neither
+    the forecaster nor its features, so a pre-built plan is updated in
+    place of asking the caller to refine it. The interval method follows
+    the same rule `plan()` applies.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Pre-built plan.
+    interval : list of float
+        Prediction interval quantiles as `[lower, upper]`.
+
+    Returns
+    -------
+    plan : ForecastPlan
+        The same plan when it already predicts `interval`, otherwise a
+        copy with `interval`, `interval_method` and the explanation
+        updated.
+    """
+    if plan.interval == interval:
+        return plan
+    interval_method = resolve_interval_method(plan.task_type, interval)
+    explanation = plan.explanation
+    if "Prediction intervals via" not in explanation:
+        explanation = f"{explanation} Prediction intervals via {interval_method}."
+    return plan.model_copy(
+        update={
+            "interval": interval,
+            "interval_method": interval_method,
+            "explanation": explanation,
+        }
+    )
 
 
 def _validate_forecast_mode(

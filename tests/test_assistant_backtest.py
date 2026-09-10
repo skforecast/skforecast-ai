@@ -186,3 +186,48 @@ def test_backtest_output_when_cv_result_given():
 
     assert result.cv_config == cv_result.cv_config
     assert len(result.predictions) > 0
+
+
+def test_backtest_output_when_interval_passed_with_plan():
+    """
+    Test that an `interval` passed alongside a pre-built plan without
+    intervals is applied to the backtest: the executed plan carries it and
+    the predictions include the bounds.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    result = assistant.backtest(
+        data=df_single,
+        cv=cv,
+        interval=[0.1, 0.9],
+        profile=profile,
+        plan=plan,
+        show_progress=False,
+    )
+
+    assert result.plan.interval == [0.1, 0.9]
+    assert {"lower_bound", "upper_bound"} <= set(result.predictions.columns)
+
+
+def test_backtest_ValueError_when_estimator_differs_from_plan():
+    """
+    Test that backtest() rejects an `estimator` override that differs from
+    the estimator of the pre-built plan instead of silently ignoring it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, estimator="Ridge")
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    with pytest.raises(ValueError, match=re.escape("['estimator']")):
+        assistant.backtest(
+            data=df_single,
+            cv=cv,
+            estimator="LGBMRegressor",
+            profile=profile,
+            plan=plan,
+            show_progress=False,
+        )

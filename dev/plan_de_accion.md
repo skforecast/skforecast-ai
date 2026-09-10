@@ -748,6 +748,26 @@ Pasada multi-serie (`items_sales`, tres series en formato ancho,
   generados con el código final. Las instrucciones de `AGENTS.md` y
   `CLAUDE.md` piden pasarla cuando cambien `llm/context.py`,
   `llm/prompts.py` o las explicaciones renderizadas.
+- Argumentos junto a un `plan` prefabricado (decisión del autor tras la
+  revisión de los notebooks): `interval` es una opción de predicción, como
+  `predict_interval()` en skforecast, así que sobrescribe el intervalo del
+  plan (`_apply_interval_to_plan`, con `interval_method` por la misma regla
+  que `plan()`); `None` conserva el del plan. `forecaster`, `estimator`,
+  `estimator_kwargs`, `lags` y `window_features` son el plan: un valor igual
+  se acepta y uno distinto lanza `ValueError` (`_check_plan_overrides`),
+  igual que `steps`. Antes cualquier valor emitía `IgnoredArgumentWarning`,
+  también cuando coincidía, y el forecast final de los notebooks con el
+  plan ganador de `compare()` salía sin los intervalos que anunciaba.
+- Revisión de `docs/user-guides/cli-usage.md` contra `--help` y ejecución
+  real de los ejemplos: flags sin documentar (`--lags`, `--window-features`,
+  modo LLM de `refine-plan`), tabla de referencia incompleta, `bedrock`
+  ausente y `--send-data-to-llm` descrito como si enviase datos. Tres
+  fallos de la CLI detectados al ejecutar: `backtest-code --from-plan` sin
+  `DATA` fallaba (ahora `backtest_code()` acepta `data=None` con perfil y
+  plan), `forecast-code` y `backtest-code` ignoraban los flags dados junto
+  a `--from-plan` (ahora refinan el plan como `forecast` y `backtest`), y
+  los mensajes de `--output-code` y `--output-predictions` iban a stdout y
+  rompían `--format json` (ahora a stderr).
 
 Punto 2 (métrica por fold) no implementado: exige un campo nuevo en
 `BacktestResult` (`fold_metrics`) calculado en el runner, porque el

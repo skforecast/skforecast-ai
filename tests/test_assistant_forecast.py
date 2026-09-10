@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast.exceptions import IgnoredArgumentWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
 
@@ -217,20 +216,49 @@ def test_forecast_metrics_are_finite():
 
 
 # =============================================================================
-# Tests: ignored plan-override warning
+# Tests: plan overrides
 # =============================================================================
-def test_forecast_IgnoredArgumentWarning_when_interval_passed_with_plan():
+def test_forecast_output_when_interval_passed_with_plan_without_intervals():
     """
-    Test that forecast() warns with IgnoredArgumentWarning when an interval
-    override is passed alongside a pre-built plan, because the planning
-    stage (which consumes interval) is skipped.
+    Test that an `interval` passed alongside a pre-built plan that has no
+    intervals is applied: the interval is a prediction-time option, so the
+    executed plan carries it and the predictions include the bounds.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
+    assert plan.interval is None
 
-    with pytest.warns(IgnoredArgumentWarning, match="pre-built `plan`"):
-        assistant.forecast(
+    result = assistant.forecast(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        steps=5,
+        interval=[0.1, 0.9],
+        test_size=0.2,
+        profile=profile,
+        plan=plan,
+    )
+
+    assert result.plan.interval == [0.1, 0.9]
+    assert result.plan.interval_method == "bootstrapping"
+    assert result.plan.explanation.endswith("Prediction intervals via bootstrapping.")
+    assert {"lower_bound", "upper_bound"} <= set(result.predictions.columns)
+    assert plan.interval is None
+
+
+def test_forecast_no_warning_when_interval_matches_plan():
+    """
+    Test that an `interval` equal to the one the pre-built plan already
+    holds is accepted silently and the plan is used unchanged.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, interval=[0.1, 0.9])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = assistant.forecast(
             data=df_single,
             target="sales",
             date_column="date",
@@ -241,19 +269,21 @@ def test_forecast_IgnoredArgumentWarning_when_interval_passed_with_plan():
             plan=plan,
         )
 
+    assert result.plan.interval == [0.1, 0.9]
+    assert result.plan.explanation == plan.explanation
 
-def test_forecast_IgnoredArgumentWarning_when_lags_passed_with_plan():
+
+def test_forecast_ValueError_when_lags_differ_from_plan():
     """
-    Test that forecast() warns with IgnoredArgumentWarning naming `lags`
-    when a lag override is passed alongside a pre-built plan. Lags only
-    feed the planning stage, which is skipped, so they would otherwise be
-    dropped silently.
+    Test that forecast() rejects a `lags` override that differs from the
+    lags of the pre-built plan, since the planning stage that would apply
+    it is skipped and the value would otherwise be dropped silently.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    with pytest.warns(IgnoredArgumentWarning, match="lags"):
+    with pytest.raises(ValueError, match=re.escape("['lags']")):
         assistant.forecast(
             data=df_single,
             target="sales",
@@ -264,6 +294,29 @@ def test_forecast_IgnoredArgumentWarning_when_lags_passed_with_plan():
             profile=profile,
             plan=plan,
         )
+
+
+def test_forecast_output_when_lags_match_plan():
+    """
+    Test that a `lags` override equal to the lags of the pre-built plan is
+    accepted, also when given as the integer form of the same lag list.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, lags=3)
+
+    result = assistant.forecast(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        steps=5,
+        lags=[1, 2, 3],
+        test_size=0.2,
+        profile=profile,
+        plan=plan,
+    )
+
+    assert result.plan.forecaster_kwargs["lags"] == 3
 
 
 def test_forecast_no_override_warning_when_plan_without_overrides():

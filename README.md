@@ -68,27 +68,26 @@ pip install -e ".[dev]"
 From raw data to a validated forecast, and the code behind it, in a few lines:
 
 ```python
-import pandas as pd
 from skforecast_ai import ForecastingAssistant
 from skforecast.datasets import load_demo_dataset
 
 data = load_demo_dataset(verbose=False)
 assistant = ForecastingAssistant()
-result = assistant.forecast(data=data, target="y", steps=12)
+result = assistant.forecast(data=data, target="y", steps=12, test_size=12)
 
-print(result.predictions)   # forecast for the next 12 steps
-print(result.metrics)       # evaluation metrics: MAE, MSE, MASE
+print(result.predictions)   # predictions for the 12 held-out observations
+print(result.metrics)       # evaluation metrics: MAE, MSE, MASE, MAPE
 print(result.code)          # the exact skforecast script that produced this result
 ```
 
-That single `forecast()` call profiled the data, chose a forecaster and estimator, generated a `skforecast` script, and executed it. `result.code` is the script that ran.
+That single `forecast()` call profiled the data, chose a forecaster and estimator, generated a `skforecast` script, and executed it on a train/test split. `result.code` is the script that ran. Drop `test_size` to train on all the data and forecast the next 12 steps (then `result.metrics` is `None`, since there is nothing to score against).
 
 The returned `ForecastResult` exposes everything the pipeline produced:
 
 | Attribute | What it holds |
 | --- | --- |
 | `result.predictions` | Forecast for the requested horizon (includes interval columns when `interval` is requested) |
-| `result.metrics` | Backtest evaluation metrics (MAE, MSE, MASE) |
+| `result.metrics` | Evaluation metrics on the held-out test set (MAE, MSE, MASE, MAPE); `None` in prediction mode |
 | `result.code` | The runnable `skforecast` script that produced the result |
 | `result.profile` | What profiling detected about your data |
 | `result.plan` | The forecaster, estimator, lags, and metrics that were chosen |

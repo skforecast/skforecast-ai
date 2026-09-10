@@ -12,13 +12,13 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 pip install skforecast-ai
 ```
 
-The `ask` command and LLM-assisted backtest configuration also need the optional LLM extras and an API key:
+The `ask` command, `refine-plan --prompt` and `backtest --prompt` also need the optional LLM extras and an API key:
 
 ```bash
 pip install "skforecast-ai[llm]"
 ```
 
-See the AI assistant documentation for supported providers, API keys, and local model setup.
+See [How to install](../quick-start/how-to-install.md) for the provider-specific extras and [LLM resolution precedence](#llm-resolution-precedence) below for where the provider, endpoint and API key are read from.
 
 ---
 
@@ -39,7 +39,7 @@ See the AI assistant documentation for supported providers, API keys, and local 
 | `config set` | Set a configuration value |
 | `config path` | Print the config file location |
 
-Every command takes a CSV path or an `https://` URL as its data argument.
+Data commands take a CSV path or an `https://` URL as their data argument. `refine-plan` works on a saved plan instead, and `ask` receives an optional dataset through `--data`.
 
 ---
 
@@ -117,8 +117,15 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --interval "
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 \
   --forecaster ForecasterDirect --estimator Ridge
 
+# Explicit lags and window features instead of the automatic selection
+skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 \
+  --lags "1,2,3,12" --window-features '[{"stats": ["mean"], "window_size": 12}]'
+
 # Save the plan as JSON for later replay
 skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format json > plan.json
+
+# From a saved profile (DATA and --target come from it)
+skforecast-ai plan --from-profile profile.json --steps 24
 ```
 
 !!! note "Interval values are quantiles"
@@ -128,7 +135,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 24 --format jso
 
 ## refine-plan
 
-Adjust an existing plan without re-profiling the dataset: change the horizon, switch forecasters, tune estimator hyperparameters, or add intervals.
+Adjust an existing plan without re-profiling the dataset: change the horizon, switch forecasters, tune estimator hyperparameters, set lags or window features, or add intervals. With `--prompt`, the LLM proposes lags and window features from the domain knowledge you describe (requires the LLM extras and a provider, see [ask](#ask)).
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -147,6 +154,14 @@ skforecast-ai refine-plan --from-plan plan.json --estimator-kwargs '{"n_estimato
 
 # Add prediction intervals
 skforecast-ai refine-plan --from-plan plan.json --interval "0.1,0.9" --format json
+
+# Set lags and window features explicitly
+skforecast-ai refine-plan --from-plan plan.json --lags "1,2,3,12" \
+  --window-features '[{"stats": ["mean", "std"], "window_size": 12}]' --format json
+
+# Let the LLM propose lags and window features from domain knowledge
+skforecast-ai refine-plan --from-plan plan.json --llm openai:gpt-4o-mini \
+  --prompt "Monthly sales with a yearly cycle and a strong December peak" --format json
 ```
 
 ---
@@ -156,7 +171,7 @@ skforecast-ai refine-plan --from-plan plan.json --interval "0.1,0.9" --format js
 A saved plan separates the modeling decision from execution, which helps with auditing, scheduling, or rerunning the same plan against updated data.
 
 !!! note
-    When `--from-plan` is used, `DATA`, `--target`, and `--steps` are optional for `forecast-code` (the values come from the bundle). `DATA` is still required for `forecast`, which needs actual data to execute.
+    When `--from-plan` is used, `DATA`, `--target`, and `--steps` are optional for `forecast-code` and `backtest-code` (the values come from the bundle), and `--from-profile` makes `DATA` and `--target` optional for `plan`. `DATA` is still required for `forecast`, `backtest` and `compare`, which need actual data to execute.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -170,7 +185,8 @@ skforecast-ai forecast-code --from-plan plan.json --output forecast.py
 # Execute the saved plan against data
 skforecast-ai forecast "$URL" --from-plan plan.json
 
-# Override the interval at execution time
+# Override the interval at execution time: any modeling flag given alongside
+# --from-plan is applied on top of the saved plan, as refine-plan would
 skforecast-ai forecast "$URL" --from-plan plan.json --interval "0.1,0.9"
 ```
 
@@ -205,10 +221,7 @@ Run the full pipeline end-to-end (profile, plan, generate code, execute) and rep
 - **Evaluation mode** (`--test-size`): holds out the last part of the series as a test set and reports metrics. `--test-size` accepts an integer (last *N* observations), a float in `(0, 1)` (last fraction), or a date (the split point).
 
 ```bash
-URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o.csv"
-
-# Forecast the future (prediction mode)
-skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12
+URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
 
 # Evaluate the model on a held-out test set (reports metrics)
 skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --test-size 0.2
@@ -225,8 +238,7 @@ skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 \
   --forecaster ForecasterDirect --estimator Ridge
 
 # Prediction mode with exogenous data: provide future values covering the horizon
-EXOG_URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
-skforecast-ai forecast "$EXOG_URL" --target y --date-column fecha --steps 12 --exog future_exog.csv
+skforecast-ai forecast "$URL" --target y --date-column fecha --steps 12 --exog future_exog.csv
 ```
 
 See [Dataset shapes](#dataset-shapes) for multi-series and long-format examples.
@@ -254,8 +266,8 @@ skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 \
 skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 \
   --no-refit --fixed-train-size --gap 3
 
-# From a saved plan
-skforecast-ai backtest-code "$URL" --from-plan plan.json --output backtest_script.py
+# From a saved plan (DATA is optional: the script loads the path recorded in the profile)
+skforecast-ai backtest-code --from-plan plan.json --output backtest_script.py
 
 # JSON output (profile + plan + code)
 skforecast-ai backtest-code "$URL" --target y --date-column fecha --steps 12 --format json
@@ -387,7 +399,9 @@ skforecast-ai profile "$URL" --target y --date-column fecha --format json -q | \
 !!! note "Requires LLM extras"
     `ask` requires an API key and the LLM extras: `pip install "skforecast-ai[llm]"`. See the AI assistant documentation for supported providers, API key setup, and local model options.
 
-Query an LLM about your data, a saved profile or plan, or general forecasting strategy. With `--data` the dataset is profiled first and the profile is what the LLM explains; add `--steps` to build a plan and have the question answered about the plan too. `--from-profile` and `--from-plan` explain a saved profile or plan bundle without any data. Raw data is never sent by default.
+Query an LLM about your data, a saved profile or plan, or general forecasting strategy. With `--data` the dataset is profiled first and the profile is what the LLM explains; add `--steps` to build a plan and have the question answered about the plan and the script generated from it. `--from-profile` explains a saved profile and `--from-plan` explains a saved plan bundle together with its generated script, without any data.
+
+The LLM receives a summary of the dataset (frequency, date range, target statistics, missing values, significant lags), the modeling decisions and the generated script. The observations themselves are never sent by the CLI: none of the objects `ask` works with carry them, so `--send-data-to-llm` has no effect on what leaves your machine.
 
 ```bash
 # Set LLM (or use --llm flag on each call)
@@ -404,7 +418,10 @@ skforecast-ai ask "Why this forecaster?" \
 skforecast-ai ask "What patterns do you see?" \
   --data h2o_exog.csv --target y --date-column fecha --steps 24
 
-# Explain a saved profile or plan bundle
+# Explain a saved profile
+skforecast-ai ask "Why this forecaster?" --from-profile profile.json
+
+# Explain a saved plan bundle and the script generated from it
 skforecast-ai ask "Why these lags?" --from-plan plan.json
 
 # JSON output
@@ -418,10 +435,6 @@ skforecast-ai ask "How to handle missing values?" \
 # Specific skills
 skforecast-ai ask "How to set up prediction intervals?" \
   --skills "prediction-intervals,hyperparameter-optimization"
-
-# Send raw data to LLM (off by default for privacy)
-skforecast-ai ask "Analyze this data" \
-  --data h2o_exog.csv --target y --date-column fecha --steps 24 --send-data-to-llm
 ```
 
 ---
@@ -471,9 +484,9 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--target` | `-t` | Target column(s), comma-separated | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
-| `--date-column` | `-d` | Date/timestamp column | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
-| `--series-id-column` | `-s` | Series identifier (long-format) | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
+| `--target` | `-t` | Target column(s), comma-separated | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `compare`, `ask` |
+| `--date-column` | `-d` | Date/timestamp column | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `compare`, `ask` |
+| `--series-id-column` | `-s` | Series identifier (long-format) | `profile`, `plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `compare`, `ask` |
 | `--exog` | | Future exogenous CSV covering the horizon (prediction mode) | `forecast` |
 | `--data` | | Dataset CSV for context | `ask` |
 
@@ -481,50 +494,54 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--steps` | | Forecast horizon | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
+| `--steps` | | Forecast horizon | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `compare`, `ask` |
 | `--test-size` | | Evaluation test set size: int (last *N* obs), float in (0,1) (fraction), or date (test-set start). Omit to forecast the future. | `forecast` |
 | `--forecaster` | | Override forecaster class | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
 | `--estimator` | | Override estimator class | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
 | `--estimator-kwargs` | | Estimator hyperparameters as a JSON string | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
-| `--interval` | | Interval quantiles, e.g. `"0.1,0.9"` | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast` |
+| `--interval` | | Interval quantiles, e.g. `"0.1,0.9"`. With `--from-plan`, replaces the interval of the plan | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `compare` |
+| `--lags` | | Explicit lags: an int or a comma-separated list, e.g. `"1,2,3,12"` | `plan`, `refine-plan`, `forecast-code`, `backtest-code` |
+| `--window-features` | | Window features as a JSON array, e.g. `'[{"stats": ["mean"], "window_size": 7}]'` | `plan`, `refine-plan`, `forecast-code`, `backtest-code` |
+| `--candidates` | | Candidate configurations as a JSON array of `[name, config]` pairs | `compare` |
+| `--metric` | | Metric(s) to compute, comma-separated; the first ranks the leaderboard | `compare` |
 
 ### Cross-validation / backtest
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--initial-train-size` | | Initial training window size | `backtest`, `backtest-code` |
-| `--fold-stride` | | Step size between CV folds | `backtest`, `backtest-code` |
-| `--refit/--no-refit` | | Refit model each fold | `backtest`, `backtest-code` |
-| `--fixed-train-size/--expanding-train` | | Fixed or expanding window | `backtest`, `backtest-code` |
-| `--gap` | | Gap between train and test | `backtest`, `backtest-code` |
-| `--allow-incomplete-fold/--no-incomplete-fold` | | Allow last incomplete fold | `backtest`, `backtest-code` |
+| `--initial-train-size` | | Initial training window size | `backtest`, `backtest-code`, `compare` |
+| `--fold-stride` | | Step size between CV folds | `backtest`, `backtest-code`, `compare` |
+| `--refit/--no-refit` | | Refit model each fold | `backtest`, `backtest-code`, `compare` |
+| `--fixed-train-size/--expanding-train` | | Fixed or expanding window | `backtest`, `backtest-code`, `compare` |
+| `--gap` | | Gap between train and test | `backtest`, `backtest-code`, `compare` |
+| `--allow-incomplete-fold/--no-incomplete-fold` | | Allow last incomplete fold | `backtest`, `backtest-code`, `compare` |
 
 ### Plan / reproducibility
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--from-profile` | | Load profile JSON (file or `-` for stdin) | `plan`, `ask` |
+| `--from-profile` | | Load profile JSON (file or `-` for stdin) | `plan`, `compare`, `ask` |
 | `--from-plan` | | Load plan bundle JSON (file or `-` for stdin) | `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `ask` |
 
 ### LLM
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--llm` | | LLM provider | `ask`, `backtest` |
-| `--base-url` | | Custom LLM endpoint | `ask`, `backtest` |
-| `--api-key` | | API key for the LLM provider | `ask`, `backtest` |
-| `--send-data-to-llm` | | Allow raw data to LLM | `ask` |
+| `--llm` | | LLM provider | `ask`, `refine-plan`, `backtest` |
+| `--base-url` | | Custom LLM endpoint (AWS region for `bedrock`) | `ask`, `refine-plan`, `backtest` |
+| `--api-key` | | API key for the LLM provider | `ask`, `refine-plan`, `backtest` |
+| `--send-data-to-llm` | | Accepted for parity with the Python API; the CLI never sends observations | `ask` |
 | `--skills` | | Skill names to include | `ask` |
-| `--prompt` | | LLM prompt for CV config | `backtest` |
+| `--prompt` | | Natural-language guidance for the LLM: domain knowledge for lags and window features, or the deployment scenario for the CV strategy | `refine-plan`, `backtest` |
 
 ### Output
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--format` | | Output format | all data commands |
+| `--format` | | Output format: `table` or `json` (`code` or `json` for `forecast-code` and `backtest-code`, `text` or `json` for `ask`) | all data commands |
 | `--output` | `-o` | Write to file | `profile`, `plan`, `refine-plan`, `forecast-code`, `backtest-code` |
 | `--output-predictions` | | Save predictions CSV | `forecast`, `backtest` |
-| `--output-code` | | Save generated script | `forecast`, `backtest` |
+| `--output-code` | | Save generated script (the winner's for `compare`) | `forecast`, `backtest`, `compare` |
 | `--quiet` | `-q` | Suppress spinners | all data commands |
 
 ---
@@ -580,9 +597,9 @@ Settings are resolved in this order (first wins):
 | `SKFORECAST_AI_SEND_DATA_TO_LLM` env var | `export SKFORECAST_AI_SEND_DATA_TO_LLM=false` |
 | Config file | `skforecast-ai config set llm.send_data_to_llm false` |
 
-`--send-data-to-llm` (used by `ask`) follows the same precedence and is off by default, so raw data is never sent unless you opt in. `--skills` is not resolved from config; pass it per call.
+`--send-data-to-llm` follows the same precedence and is off by default. It mirrors the Python API, where it governs the `DataSentToLLMWarning` of `ask()` on results; the CLI `ask` command never sends observations, whatever its value. `--skills` is not resolved from config; pass it per call.
 
-Providers: `openai:model`, `anthropic:model`, `google:model`, `groq:model`, and `ollama:model`. Any other prefix is treated as an OpenAI-compatible endpoint when combined with `--base-url`.
+Providers: `openai:model`, `anthropic:model`, `google:model`, `groq:model`, `bedrock:model` (with `--base-url` as the AWS region, e.g. `--base-url eu-west-1`) and `ollama:model`. Any other prefix is treated as an OpenAI-compatible endpoint when combined with `--base-url`.
 
 ---
 
