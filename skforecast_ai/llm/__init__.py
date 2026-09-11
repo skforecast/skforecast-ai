@@ -17,7 +17,9 @@ from .context import (
     render_script_section,
     render_winning_candidate_section,
 )
+from .diagnostics import check_llm_config
 from .provider import (
+    PROVIDER_ENV_VARS,
     build_ollama_settings,
     create_model,
     ensure_ollama_reachable,
@@ -35,9 +37,11 @@ from .skills import (
 
 __all__ = [
     "ALL_SKILLS",
+    "PROVIDER_ENV_VARS",
     "build_comparison_context",
     "build_context_message",
     "build_ollama_settings",
+    "check_llm_config",
     "compute_skill_token_budget",
     "create_model",
     "ensure_ollama_reachable",

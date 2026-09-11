@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
     from .schemas.plans import ForecastPlan
     from .schemas.profiles import ForecastingProfile
+    from .schemas.results import LLMCheckResult
 
 _CODE_THEME = "monokai"
 _PANEL_BORDER = "color(214)"
@@ -384,6 +385,79 @@ def render_cv_config(cv_config: dict) -> Table:
     table.add_column("Value", justify="right")
     for key, value in cv_config.items():
         table.add_row(escape(str(key)), _format_value(value))
+    return table
+
+
+def render_llm_check(result: LLMCheckResult) -> Table:
+    """
+    Render an `LLMCheckResult` as a two-column Rich table.
+
+    Credential values never appear: only the name of the environment
+    variable and whether it is set.
+
+    Parameters
+    ----------
+    result : LLMCheckResult
+        Outcome of `ForecastingAssistant.check_llm()`.
+
+    Returns
+    -------
+    table : rich.table.Table
+        Two-column check/value table.
+    """
+    table = Table(title="LLM Configuration Check", **_TABLE_KWARGS)
+    table.add_column("Check")
+    table.add_column("Value")
+
+    status = "[green]ok[/green]" if result.ok else "[red]not ok[/red]"
+    table.add_row("Status", status)
+    table.add_row("Provider", _format_value(result.provider))
+    table.add_row("Model", _format_value(result.model_name))
+
+    if result.credential_source == "api_key":
+        credentials = "explicit api_key"
+    elif result.credential_source == "env_var":
+        state = "set" if result.env_var_set else "not set"
+        credentials = f"{result.env_var} ({state})"
+    elif result.credential_source == "aws_credential_chain":
+        credentials = "AWS credential chain"
+        if result.env_var_set:
+            credentials += " (AWS variables set)"
+    elif result.credential_source == "none":
+        credentials = "none required"
+    else:
+        credentials = "resolved by pydantic-ai at call time"
+    if result.credential_note:
+        credentials += f"\n[dim]{escape(result.credential_note)}[/dim]"
+    table.add_row("Credentials", credentials)
+
+    base_url = _format_value(result.base_url)
+    if result.base_url_note:
+        base_url += f"\n[dim]{escape(result.base_url_note)}[/dim]"
+    table.add_row("Base URL", base_url)
+
+    if result.dependencies_ok:
+        dependencies = "[green]installed[/green]"
+    else:
+        missing = ", ".join(escape(m) for m in result.missing_dependencies)
+        dependencies = f"[red]missing: {missing}[/red]"
+    table.add_row("Dependencies", dependencies)
+
+    if result.reachable is not None:
+        reachable = "[green]yes[/green]" if result.reachable else "[red]no[/red]"
+        table.add_row("Ollama reachable", reachable)
+
+    if result.call_ok is None:
+        call = "[dim]skipped[/dim]"
+    elif result.call_ok:
+        call = "[green]ok[/green]"
+    else:
+        call = "[red]failed[/red]"
+    table.add_row("Test call", call)
+
+    if result.error:
+        table.add_row("Error", f"[red]{escape(result.error)}[/red]")
+
     return table
 
 

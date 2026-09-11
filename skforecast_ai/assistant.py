@@ -45,6 +45,7 @@ from .llm import (
     estimate_prompt_tokens,
     select_skills,
 )
+from .llm.diagnostics import check_llm_config
 from .llm.refinement import configure_cv_with_llm, refine_features_with_llm
 from .llm.runtime import run_agent_sync
 from .profiling import create_data_profile, resolve_end_train
@@ -83,6 +84,7 @@ from .schemas import (
     ForecastingProfile,
     ForecastPlan,
     ForecastResult,
+    LLMCheckResult,
     RefinePlanOverrides,
 )
 from ._utils import (
@@ -127,12 +129,13 @@ class ForecastingAssistant:
         `OPENAI_API_KEY`, `GOOGLE_API_KEY`). Use this for notebook
         workflows or multi-tenant scenarios.
     send_data_to_llm : bool, default False
-        Whether raw values from the dataset supplied to a method (for
-        example via `data`) may be sent to the LLM. When False, only
-        metadata (schema, summary stats) is shared with the LLM. This
-        governs input data only: a result passed to `ask()` carries its
-        own predictions, which are always included so the LLM can
-        discuss specific forecast values.
+        Acknowledges that the values a result owns (its predictions and
+        metrics) are sent to the LLM when the result is passed to
+        `ask()` as `context`. When False, `ask()` still sends them but
+        emits `DataSentToLLMWarning`; when True the warning is silenced.
+        The input data is never sent in either mode: profiles carry
+        summary statistics only, and a result holds the model's output,
+        not the data it was fitted on.
 
     Attributes
     ----------
@@ -143,7 +146,7 @@ class ForecastingAssistant:
     api_key : str, None
         Explicit API key or None (resolve from environment).
     send_data_to_llm : bool
-        Whether raw data may be sent to the LLM.
+        Whether sending result values to the LLM has been acknowledged.
 
     Notes
     -----
@@ -190,6 +193,9 @@ class ForecastingAssistant:
     available in any workflow. Pass it the object to explain as `context`
     (a profile, a generated script, a cross-validation strategy, or a
     result), or nothing to ask a general forecasting question.
+
+    `check_llm()` reports how the LLM configuration resolves (provider,
+    credentials, endpoint, installed extras) before any workflow runs.
 
     """
 
@@ -2150,6 +2156,93 @@ class ForecastingAssistant:
             explanation = explanation,
             skills      = list(resolved_skills),
         )
+
+    def check_llm(self, test_call: bool = False) -> LLMCheckResult:
+        """
+        Check whether the configured LLM can be used, and report why not.
+
+        Runs the static checks of `check_llm_config()` on the assistant's
+        `llm`, `base_url` and `api_key`: the provider string is parsed,
+        the credential source is identified (explicit `api_key`, the
+        provider environment variable read by pydantic-ai, the AWS
+        credential chain, or none for Ollama) and whether the variable is
+        set, `base_url` is interpreted as the provider does (endpoint,
+        Ollama server, AWS region, or ignored), the required modules are
+        probed and, for Ollama, the server is contacted. With
+        `test_call=True` and every static check passed, a one-line
+        prompt is sent to the model through the same agent `ask()` uses,
+        without skills, reference or data. Nothing is raised on a failed
+        check: the result reports it. Credential values never appear in
+        the result.
+
+        Parameters
+        ----------
+        test_call : bool, default False
+            Whether to send a minimal prompt to the model once the static
+            checks pass. Costs one small request.
+
+        Returns
+        -------
+        result : LLMCheckResult
+            Outcome of every check. Contains the following attributes:
+
+            - llm: provider string as given.
+            - provider: provider prefix, None when the string is invalid.
+            - model_name: model name, None when the string is invalid.
+            - credential_source: `'api_key'`, `'env_var'`,
+            `'aws_credential_chain'`, `'none'` or `'unknown'`.
+            - env_var: environment variable the provider reads, if any.
+            - env_var_set: whether it is set, None when not consulted.
+            - credential_note: description of the credential resolution.
+            - base_url: effective endpoint after provider defaults.
+            - base_url_note: what `base_url` means for the provider.
+            - dependencies_ok: whether the required modules are installed.
+            - missing_dependencies: modules not installed, with the extra
+            that installs them.
+            - reachable: for Ollama, whether the server answered.
+            - call_ok: whether the test call succeeded, None if skipped.
+            - error: first failure found, None when all checks passed.
+            - ok: True when no check failed.
+
+        Raises
+        ------
+        LLMRequiredError
+            If no LLM was configured at init time.
+        """
+
+        if self.llm is None:
+            raise LLMRequiredError("check_llm")
+
+        result = check_llm_config(
+            llm      = self.llm,
+            base_url = self.base_url,
+            api_key  = self.api_key,
+        )
+
+        if not test_call or not result.ok:
+            return result
+
+        message = "Reply with the single word OK."
+        try:
+            from .llm import AskDeps
+
+            agent = self._resolve_agent()
+            deps = AskDeps(
+                profile           = None,
+                plan              = None,
+                skills            = [],
+                include_reference = False,
+            )
+            model_settings = build_ollama_settings(
+                self.llm, estimate_prompt_tokens([], False), message
+            )
+            run_agent_sync(agent, message, deps=deps, model_settings=model_settings)
+        except Exception as exc:
+            return result.model_copy(
+                update={"call_ok": False, "error": str(LLMCallError(self.llm, exc))}
+            )
+
+        return result.model_copy(update={"call_ok": True})
 
     # --------------------------------------------------------------- private
     def _prepare_forecast(

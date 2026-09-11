@@ -8,6 +8,28 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-enhancement">Enhancement</span> | Improvement in existing functionality |
 | <span class="badge text-bg-api-change">API Change</span>   | Changes in the API                    |
 | <span class="badge text-bg-danger">Fix</span>              | Bug fix                               |
+| <span class="badge text-bg-docs">Docs</span>               | Documentation improvement             |
+
+
+## 0.3.1 <small>Sep 11, 2026</small> { id="0.3.1" }
+
+
+**Added**
+
++ <span class="badge text-bg-feature">Feature</span> [<code>ForecastingAssistant.check_llm()</code>][assistant] and the `check-llm` CLI command report how the LLM configuration resolves before any workflow runs: provider and model, where the credentials come from and whether the environment variable is set, what `base_url` means for the provider, whether the extras are installed and, for Ollama, whether the server answers. With `test_call=True` (`--test-call`) a one-line prompt is sent to the model. The result is an [`LLMCheckResult`][results] with an `ok` field; the CLI exits with code 1 when a check fails. Credential values are never shown.
+
++ <span class="badge text-bg-enhancement">Enhancement</span> New user guide [Configuring the LLM][llm-config]: model strings, credentials per provider, the meaning of `base_url`, local models with Ollama, OpenAI-compatible endpoints, what is sent to the LLM, and troubleshooting. The quick start, the installation page, the CLI reference and the notebooks link to it, and the examples use the same set of model names throughout.
+
++ <span class="badge text-bg-docs">Docs</span> New API page for the exceptions and warnings the package exports, a user guide on the skills `ask()` sends to the LLM (which exist, how they are selected, how to pick them with `skills=` and `--skills`, and how they follow the Agent Skills standard), and an "Under the hood" section in the first forecast guide showing `profile()`, `plan()`, `forecast_code()` and `forecast()` chained step by step.
+
++ <span class="badge text-bg-enhancement">Enhancement</span> `tools/sync_skforecast_assets.py` reports the skills added, removed or re-described by a sync (also in `--check`, instead of two bare hashes) and gains `--inventory` to print the local skill table. The skills table in the user guide is checked against `ALL_SKILLS` by the test suite.
+
+
+**Fixed**
+
++ <span class="badge text-bg-danger">Fix</span> `base_url` is honoured for `openai:` and for any prefix that is not built in when no `api_key` is given: the assistant builds an OpenAI-compatible client at that endpoint (local servers accept the placeholder key pydantic-ai sends when `OPENAI_API_KEY` is unset). Previously the endpoint was silently dropped and the bare provider string went to pydantic-ai.
+
++ <span class="badge text-bg-danger">Fix</span> The docstring of `send_data_to_llm` described the flag as permission to send raw input data. Input data is never sent; the flag acknowledges that the predictions and metrics of a result passed to `ask()` are sent, and silences `DataSentToLLMWarning`. The docstring now says so.
 
 
 ## 0.3.0 <small>Sep 11, 2026</small> { id="0.3.0" }
@@ -94,6 +116,7 @@ First public release. `skforecast-ai` wraps the [`skforecast`](https://skforecas
 [assistant]: ../api/assistant.md
 [cli]: ../api/cli.md
 [config]: ../user-guides/cli-usage.md#configuration
+[llm-config]: ../user-guides/llm-configuration.md
 
 <!-- schemas -->
 [results]: ../api/schemas/results.md

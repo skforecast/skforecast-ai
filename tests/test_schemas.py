@@ -365,6 +365,23 @@ def test_comparison_result_json_includes_best_name():
     assert dumped["best_name"] in dumped["candidates"]
 
 
+def test_llm_check_result_json_includes_ok():
+    """
+    Test that `ok` is part of the JSON dump of an LLMCheckResult as a
+    computed field, and that it reflects the failed checks.
+    """
+    from skforecast_ai.schemas import LLMCheckResult
+
+    passing = LLMCheckResult(llm="openai:gpt-5.5", provider="openai",
+                             model_name="gpt-5.5", credential_source="env_var",
+                             env_var="OPENAI_API_KEY", env_var_set=True)
+    failing = passing.model_copy(update={"env_var_set": False})
+
+    assert passing.model_dump(mode="json")["ok"] is True
+    assert failing.model_dump(mode="json")["ok"] is False
+    assert json.loads(failing.model_dump_json())["ok"] is False
+
+
 def test_cv_result_json_serializes_fold_parameters():
     """
     Test that the `TimeSeriesFold` of a CVResult serializes as its

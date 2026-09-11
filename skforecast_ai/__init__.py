@@ -4,14 +4,14 @@ Works with any scikit-learn compatible estimator (LightGBM, XGBoost, CatBoost,
 Keras, etc.), statistical models (ARIMA, SARIMAX, ETS, ARAR), and zero-shot
 foundation models.
 
-Docs:      https://skforecast.org
+Docs:      https://ai.skforecast.org
 Source:    https://github.com/skforecast/skforecast-ai
 LLM ref:   https://skforecast.org/latest/llms.txt
 LLM full:  https://skforecast.org/latest/llms-full.txt
 Examples:  https://skforecast.org/latest/examples/examples_english.html
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from .assistant import ForecastingAssistant
 from .exceptions import (
@@ -34,6 +34,7 @@ from .schemas import (
     ExplainableResult,
     ForecastingProfile,
     ForecastPlan,
+    LLMCheckResult,
     LLMContext,
     RenderedScript,
     CodeGenerationResult,
@@ -59,6 +60,7 @@ __all__ = [
     "ForecastingProfile",
     "ForecastingAssistant",
     "ForecastPlan",
+    "LLMCheckResult",
     "LLMContext",
     "RenderedScript",
     "CodeGenerationResult",

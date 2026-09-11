@@ -33,14 +33,14 @@ from skforecast_ai import ForecastingAssistant
 assistant = ForecastingAssistant()
 ```
 
-With no arguments, the assistant runs the full forecasting pipeline. To add an AI reasoning layer on top, see the AI assistant section below.
+With no arguments, the assistant runs the full forecasting pipeline. To add an AI reasoning layer on top, see the [AI reasoning layer](#ai-reasoning-layer) section below and [Configuring the LLM](../user-guides/llm-configuration.md).
 
 ## Run the forecast
 
 Call `forecast()` with the data, the name of the target column, the date column, and how many steps ahead you want. Here we predict the next 12 months.
 
 ```python
-results = assistant.forecast(
+result = assistant.forecast(
              data        = data,
              target      = "y",
              date_column = "date",
@@ -71,21 +71,21 @@ The `forecast()` method is the fastest way to generate predictions. In a single 
 | `profile` | `ForecastingProfile` | The data profile behind the forecast: metadata, summary statistics, detected frequency, significant lags, and the high-level modeling decisions. |
 | `plan` | `ForecastPlan` | The detailed configuration that was executed: forecaster, estimator, lags, window features, preprocessing, and interval settings. |
 
-Displaying the object in a notebook renders a rich summary of all of the above; the raw script is also available through `results.show_code()`.
+Displaying the object in a notebook renders a rich summary of all of the above; the raw script is also available through `result.show_code()`.
 
 ```python
 # Forecasted values for the next 12 steps (the future)
-results.predictions.head()
+result.predictions.head()
 ```
 
 ```python
 # The standalone Python script that was executed
-results.show_code()
+result.show_code()
 ```
 
 ```python
-# Full results object
-results
+# Full result object
+result
 ```
 
 
@@ -97,7 +97,7 @@ results
 To measure how well the model performs before trusting the forecast, pass `test_size`. The assistant then splits your series, trains on the earlier portion, predicts the held-out tail, and reports metrics:
 
 ```python
-results = assistant.forecast(
+result = assistant.forecast(
              data        = data,
              target      = "y",
              date_column = "date",
@@ -106,7 +106,7 @@ results = assistant.forecast(
          )
 
 # Now metrics are available: MAE, MSE, MASE, MAPE per series
-results.metrics
+result.metrics
 ```
 
 `test_size` accepts three forms:
@@ -139,7 +139,7 @@ print(result.predictions.head())
 
 ## AI reasoning layer
 
-If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`), the assistant gains an AI reasoning layer: it reads `result.profile` and `result.plan` and advises you on what it would change and why.
+If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`) and a provider configured (see [Configuring the LLM](../user-guides/llm-configuration.md)), the assistant gains an AI reasoning layer: it reads `result.profile` and `result.plan` and advises you on what it would change and why.
 
 !!! warning "Your data stays private"
     By default, enabling an LLM does **not** send your time-series data to the model provider.
@@ -148,7 +148,9 @@ If you have the LLM extras installed (`pip install "skforecast-ai[llm]"`), the a
     the raw observations. Results are the exception: when you pass a `ForecastResult` as
     `context`, its predictions and metrics are sent, because the question is about them,
     and a `DataSentToLLMWarning` reminds you of it while `send_data_to_llm=False`. Pass
-    `send_data_to_llm=True` to acknowledge it and silence the warning.
+    `send_data_to_llm=True` to acknowledge it and silence the warning. See
+    [What is sent to the LLM](../user-guides/llm-configuration.md#what-is-sent-to-the-llm)
+    for the full list.
 
 Use `ask()` to query it:
 
@@ -187,11 +189,24 @@ answer
 
 The LLM does not alter the forecast; the numbers are identical whether or not a model is configured.
 
+Each `ask()` call briefs the model with a set of **skills**, curated documents about the skforecast topics the question touches, selected from the context and the wording of the prompt. See [Skills: how the LLM is briefed](../user-guides/skills.md) for the list and how to choose them yourself.
+
 ---
 
 ## Under the hood
 
-The assistant follows a four-step rule-based pipeline (**profile → plan → render code → execute**), and every decision at each step is fully inspectable.
+`forecast()` is a shortcut for a four-step, rule-based pipeline: **profile → plan → render code → execute**. Each step is a public method that returns an inspectable object, so you can stop at any point, review or change a decision, and hand the objects to the next step. No LLM is involved in any of them.
+
+```python
+profile = assistant.profile(data=data, target="y", date_column="date")   # 1. inspect the data, choose forecaster and estimator
+plan    = assistant.plan(profile=profile, steps=12)                       # 2. lags, window features, preprocessing, metrics
+script  = assistant.forecast_code(data=data, profile=profile, plan=plan)  # 3. render the standalone skforecast script, nothing runs
+result  = assistant.forecast(data=data, profile=profile, plan=plan)       # 4. execute exactly that script
+
+result.code == script.code   # True
+```
+
+Every object renders itself in a notebook, serializes to JSON and can be passed to `ask()` as `context` for an explanation. The [step by step guide](../user-guides/agentic-forecasting-step-by-step.ipynb) shows what each one looks like on an hourly dataset, together with `refine_plan()`, backtesting and `compare()`.
 
 ---
 

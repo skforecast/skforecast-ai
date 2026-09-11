@@ -25,6 +25,7 @@ from ._display import (
     render_cv_config,
     render_dataframe,
     render_explanation,
+    render_llm_check,
     render_metrics,
     render_plan,
     render_profile,
@@ -1648,7 +1649,7 @@ def ask(
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon. With --data, also builds a plan so the question is answered about the plan.")] = None,
     from_profile: FromProfileOption = None,
     from_plan: FromPlanOption = None,
-    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-4o-mini'.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
     api_key: ApiKeyOption = None,
     send_data_to_llm: Annotated[bool | None, typer.Option("--send-data-to-llm/--no-send-data-to-llm", help="Allow sending raw data to the LLM.")] = None,
@@ -1716,3 +1717,39 @@ def ask(
             print(_result_to_json(result))
         else:
             console.print(render_explanation(result.explanation, title="Assistant Response"))
+
+
+@app.command(name="check-llm")
+def check_llm(
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-5.5'.")] = None,
+    base_url: BaseUrlOption = None,
+    api_key: ApiKeyOption = None,
+    test_call: Annotated[bool, typer.Option("--test-call", help="Send a one-line prompt to the model once the static checks pass.")] = False,
+    format: TableFormatOption = "table",
+    quiet: QuietOption = False,
+) -> None:
+    """Check how the LLM configuration resolves and whether it can be used."""
+    with _error_handler():
+        llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
+        base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
+        api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
+
+        if llm_value is None:
+            raise LLMRequiredError(method_name="check_llm")
+
+        assistant = ForecastingAssistant(
+            llm=llm_value,
+            base_url=base_url_value,
+            api_key=api_key_value,
+        )
+
+        with _spinner("Checking the LLM configuration...", quiet):
+            result = assistant.check_llm(test_call=test_call)
+
+        if format == "json":
+            print(_result_to_json(result))
+        else:
+            console.print(render_llm_check(result))
+
+        if not result.ok:
+            raise typer.Exit(code=1)

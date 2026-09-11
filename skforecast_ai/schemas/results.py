@@ -7,13 +7,14 @@
 
 from __future__ import annotations
 import traceback
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from .._display import (
     DisplayMixin,
     render_cv_config,
     render_dataframe,
     render_explanation,
+    render_llm_check,
     render_metrics,
     render_plan,
     render_profile,
@@ -475,6 +476,96 @@ class AskResult(DisplayMixin, BaseModel):
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
         yield render_explanation(self.explanation, title="Assistant Response")
+
+
+class LLMCheckResult(DisplayMixin, BaseModel):
+    """
+    Outcome of `ForecastingAssistant.check_llm()`.
+
+    Reports how the LLM configuration resolves before any workflow runs:
+    which provider and model the string names, where the credentials
+    come from, what `base_url` means for that provider, whether the
+    optional dependencies are installed and, for Ollama, whether the
+    server answers. Credential values are never stored, so the result
+    can be printed or serialized safely.
+
+    Attributes
+    ----------
+    llm : str
+        Provider string as given, in the format `'provider:model_name'`.
+    provider : str, None
+        Provider prefix, None when the string could not be parsed.
+    model_name : str, None
+        Model name, None when the string could not be parsed.
+    credential_source : str
+        Where credentials come from: `'api_key'` (explicit argument),
+        `'env_var'` (the provider environment variable read by
+        pydantic-ai), `'aws_credential_chain'` (Bedrock), `'none'`
+        (Ollama, no credentials needed) or `'unknown'` (a prefix that is
+        not built in, resolved by pydantic-ai at call time).
+    env_var : str, None
+        Name of the environment variable that would be read, when the
+        provider has one.
+    env_var_set : bool, None
+        Whether that variable is set. None when it is not consulted
+        (explicit `api_key`, Ollama, unknown provider) or, for Bedrock,
+        when no AWS variable is set and the credential chain may still
+        succeed through a profile or an instance role.
+    credential_note : str, None
+        Plain-language description of the credential resolution.
+    base_url : str, None
+        Endpoint that will be used, after applying the provider default
+        (Ollama) or dropping a value the provider ignores.
+    base_url_note : str, None
+        What `base_url` means for this provider, or why it was dropped.
+    dependencies_ok : bool
+        Whether every module the provider needs is importable.
+    missing_dependencies : list of str
+        Modules that are not importable, with the extra that installs them.
+    reachable : bool, None
+        For Ollama, whether the server answered. None for other providers.
+    call_ok : bool, None
+        Whether the round-trip call of `test_call=True` succeeded. None
+        when no call was attempted.
+    error : str, None
+        First failure found, None when every check passed.
+    ok : bool
+        True when no check failed (computed).
+    """
+
+    llm: str
+    provider: str | None = None
+    model_name: str | None = None
+    credential_source: Literal[
+        "api_key", "env_var", "aws_credential_chain", "none", "unknown"
+    ] = "unknown"
+    env_var: str | None = None
+    env_var_set: bool | None = None
+    credential_note: str | None = None
+    base_url: str | None = None
+    base_url_note: str | None = None
+    dependencies_ok: bool = True
+    missing_dependencies: list[str] = Field(default_factory=list)
+    reachable: bool | None = None
+    call_ok: bool | None = None
+    error: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def ok(self) -> bool:
+        """Return True when no check failed."""
+        return (
+            self.error is None
+            and self.dependencies_ok
+            and self.env_var_set is not False
+            and self.reachable is not False
+            and self.call_ok is not False
+        )
+
+    def _rich_body(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_llm_check(self)
 
 
 class CandidateFailure(BaseModel):

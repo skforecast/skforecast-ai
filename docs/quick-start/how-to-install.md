@@ -18,7 +18,7 @@ pip install skforecast-ai
 Specific version:
 
 ```bash
-pip install skforecast-ai==0.3.0
+pip install skforecast-ai==0.3.1
 ```
 
 Latest (unstable):
@@ -41,55 +41,41 @@ The following dependencies are installed with the default installation:
 
 ## **Optional dependencies**
 
-To install the full version with all optional dependencies:
-
-```bash
-pip install skforecast-ai[full]
-```
-
-For specific use cases, you can install these dependencies as needed:
+The core installation runs the whole deterministic pipeline offline. The extras below only add the LLM reasoning layer (`ask()`, and the LLM-guided variants of `refine_plan()` and `create_cv()`).
 
 ### LLM
 
-Enables the LLM-powered forecasting assistant features.
+Installs [pydantic-ai](https://ai.pydantic.dev/), the only LLM abstraction used by `skforecast-ai`. This is enough for most providers: OpenAI, Anthropic, Google, Groq, Ollama, and any OpenAI-compatible endpoint reached through `base_url`.
 
 ```bash
-pip install skforecast-ai[llm]
+pip install "skforecast-ai[llm]"
 ```
 
 + pydantic-ai>=2, <3
 
-
-### Groq
-
-Adds support for Groq models through `pydantic-ai`.
-
-```bash
-pip install skforecast-ai[groq]
-```
-
-+ pydantic-ai[groq]>=2, <3
-
+Credentials are read from the provider's environment variable (for example `OPENAI_API_KEY` or `GOOGLE_API_KEY`) or passed explicitly with `api_key`. See [Configuring the LLM](../user-guides/llm-configuration.md) for the provider strings, the credentials of each provider and local models.
 
 ### Bedrock
 
-Adds support for Amazon Bedrock models through `pydantic-ai`.
+Amazon Bedrock needs `boto3` on top of the LLM extra, so it has its own extra:
 
 ```bash
-pip install skforecast-ai[bedrock]
+pip install "skforecast-ai[bedrock]"
 ```
 
 + pydantic-ai[bedrock]>=2, <3
 + boto3>=1.34
 
-
 ### All providers
 
-Installs every supported LLM provider (Groq and Bedrock).
+Installs the LLM extra plus every provider-specific dependency (currently Bedrock). `full` is an alias of `all`.
 
 ```bash
-pip install skforecast-ai[all]
+pip install "skforecast-ai[all]"
 ```
 
 + pydantic-ai[bedrock,groq]>=2, <3
 + boto3>=1.34
+
+!!! note "Groq"
+    The `groq` extra (`pip install "skforecast-ai[groq]"`) is kept for backwards compatibility. Groq support is already included in the `llm` extra.
