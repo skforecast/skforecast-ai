@@ -50,6 +50,57 @@ def test_plan_UnrecommendedForecasterWarning_when_forecaster_not_recommended():
     assert plan.forecaster == "ForecasterStats"
 
 
+@pytest.mark.parametrize(
+    "lags, match",
+    [
+        (0, "must be positive integers"),
+        ([], "must not be an empty list"),
+        ([0, 1], "must be positive integers"),
+        (True, "must be an int or a list of ints"),
+        ([1.5], "must contain ints only"),
+        ([1, "3"], "must contain ints only"),
+        ([2, 2], "must not contain duplicates"),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_plan_ValueError_when_lags_invalid(lags, match):
+    """
+    Test that plan() rejects an explicit lags override that skforecast
+    would either reject later or accept silently (an empty list trains
+    without lags, duplicates produce repeated features) with a ValueError
+    raised before the plan is built.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(ValueError, match=match):
+        assistant.plan(profile, steps=10, lags=lags)
+
+
+def test_plan_ValueError_when_window_features_duplicate_pairs():
+    """
+    Test that plan() rejects explicit window_features that pair the same
+    statistic with the same window size in two entries, which
+    RollingFeatures would reject when the generated script runs.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "`window_features` contains duplicate (stat, window_size) pairs: "
+        "[('mean', 7)]. Merge the entries or change the window size."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile,
+            steps=10,
+            window_features=[
+                {"stats": ["mean"], "window_size": 7},
+                {"stats": ["mean", "std"], "window_size": 7},
+            ],
+        )
+
+
 # =============================================================================
 # Tests: basic output
 # =============================================================================

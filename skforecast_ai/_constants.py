@@ -41,6 +41,13 @@ OLLAMA_MAX_CONTEXT_TOKENS = 32768
 # Tokens held back for the model's own answer when budgeting the prompt.
 RESERVED_RESPONSE_TOKENS = 2048
 
+# Ceiling on the skill content of a single request, applied whatever the
+# provider. Hosted context windows are not known up front, so without it a
+# question matching many topics is sent unbounded and fails at the provider.
+# Sized so that the skills, the API reference, the role prompt and the reserved
+# answer still fit a 32k window.
+MAX_SKILL_TOKENS = 20_000
+
 # Ceiling for the static role prompt. It is paid on every call and is not
 # trimmable, so it must not grow into the budget reserved for skills.
 MAX_STATIC_PROMPT_TOKENS = 1200

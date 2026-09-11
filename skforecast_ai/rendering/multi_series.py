@@ -8,19 +8,19 @@
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
-    _emit_calendar_features,
-    _emit_data_loading,
     _emit_end_train,
+    _emit_feature_setup,
     _emit_future_exog_index_setup,
     _emit_future_exog_loading,
     _emit_imports_multi_series,
-    _emit_index_setup,
+    _emit_loading_and_index,
     _emit_metrics_section,
     _emit_metrics_section_multiseries,
+    _emit_pivot_to_wide,
     _emit_preprocessing_steps,
     _emit_production_note,
-    _emit_transformer_exog,
-    _emit_window_features,
+    _emit_reshape_exog_long_to_dict,
+    _emit_reshape_series_long_to_dict,
     _format_lags,
     _get_estimator_constructor,
     _get_interval_repr,
@@ -96,13 +96,7 @@ def render_forecast_multi_series(
 ) -> RenderedScript:
     """Render code for ForecasterRecursiveMultiSeries."""
 
-    kwargs = plan.forecaster_kwargs
-    transformer_exog = kwargs.get("transformer_exog")
-    window_features = kwargs.get("window_features")
-
     is_wide = profile.data_format == "wide"
-    series_id = profile.series_id_column or "series_id"
-    date_col = profile.date_column or "datetime"
 
     import_lines: list[str] = []
     loading_lines: list[str] = []
@@ -119,21 +113,14 @@ def render_forecast_multi_series(
         include_metrics=evaluate,
     )
 
-    # --- Load data ---
-    if is_wide:
-        _emit_data_loading(loading_lines, profile)
-    else:
-        _emit_data_loading(loading_lines, profile, long_format=True)
+    # --- Load data and index setup ---
+    _emit_loading_and_index(
+        loading_lines, core_lines, profile, long_format=not is_wide
+    )
     if not evaluate and use_exog_load:
         _emit_future_exog_loading(loading_lines, profile)
-
-    # --- Index setup (runs in both standalone and exec modes) ---
-    if is_wide:
-        _emit_index_setup(core_lines, profile)
-    else:
-        _emit_index_setup(core_lines, profile, long_format=True)
-    if not evaluate and is_wide and use_exog_load:
-        _emit_future_exog_index_setup(core_lines, profile)
+        if is_wide:
+            _emit_future_exog_index_setup(core_lines, profile)
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)
@@ -154,18 +141,14 @@ def render_forecast_multi_series(
                 "series_dict = data.to_dict('series')"
             )
     else:
-        target = _get_target_str(profile)
-        core_lines.append(
-            "# Reshape to dict format"
-            " (optimal for ForecasterRecursiveMultiSeries)"
+        _emit_reshape_series_long_to_dict(
+            core_lines,
+            profile,
+            comment=(
+                "# Reshape to dict format"
+                " (optimal for ForecasterRecursiveMultiSeries)"
+            ),
         )
-        core_lines.append("series_dict = reshape_series_long_to_dict(")
-        core_lines.append("    data      = data,")
-        core_lines.append(f"    series_id = {repr(series_id)},")
-        core_lines.append(f"    index     = {repr(date_col)},")
-        core_lines.append(f"    values    = {repr(target)},")
-        core_lines.append(f"    freq      = {repr(profile.frequency)},")
-        core_lines.append(")")
     core_lines.append("")
 
     # --- Exog setup (multi-series) ---
@@ -179,14 +162,9 @@ def render_forecast_multi_series(
         else:
             exog_train_var = "exog_dict_train"
             exog_test_var = "exog_dict_test"
-            exog_select_cols = [series_id, date_col] + list(exog_columns)
-            exog_select_repr = repr(exog_select_cols)
-            core_lines.append("exog_dict = reshape_exog_long_to_dict(")
-            core_lines.append(f"    data      = data[{exog_select_repr}],")
-            core_lines.append(f"    series_id = {repr(series_id)},")
-            core_lines.append(f"    index     = {repr(date_col)},")
-            core_lines.append(f"    freq      = {repr(profile.frequency)},")
-            core_lines.append(")")
+            _emit_reshape_exog_long_to_dict(
+                core_lines, profile, var="exog_dict", data_expr="data"
+            )
         core_lines.append("")
 
     # --- Train/test split (evaluation mode) ---
@@ -217,31 +195,18 @@ def render_forecast_multi_series(
     elif plan.use_exog and exog_columns and not is_wide:
         # Prediction mode, long format: reshape the future exogenous
         # variables into the dict format the forecaster expects.
-        exog_select_cols = [series_id, date_col] + list(exog_columns)
         core_lines.append(
             "# Reshape future exogenous variables to dict format"
         )
-        core_lines.append("exog_future_dict = reshape_exog_long_to_dict(")
-        core_lines.append(f"    data      = exog_future[{repr(exog_select_cols)}],")
-        core_lines.append(f"    series_id = {repr(series_id)},")
-        core_lines.append(f"    index     = {repr(date_col)},")
-        core_lines.append(f"    freq      = {repr(profile.frequency)},")
-        core_lines.append(")")
+        _emit_reshape_exog_long_to_dict(
+            core_lines, profile, var="exog_future_dict", data_expr="exog_future"
+        )
         core_lines.append("")
 
-    # --- Window features ---
-    if window_features:
-        _emit_window_features(core_lines, window_features)
-        core_lines.append("")
-
-    # --- Calendar features ---
-    if kwargs.get("calendar_features"):
-        _emit_calendar_features(core_lines, kwargs["calendar_features"])
-        core_lines.append("")
-
-    # --- Transformer exog ---
-    if transformer_exog and plan.use_exog and exog_columns:
-        _emit_transformer_exog(core_lines, transformer_exog, profile)
+    # --- Window features, calendar features and exog transformer ---
+    _emit_feature_setup(
+        core_lines, plan, profile, use_exog=bool(plan.use_exog and exog_columns)
+    )
 
     # --- Create forecaster ---
     _emit_forecaster_creation_multi(
@@ -331,13 +296,7 @@ def render_forecast_multivariate(
 ) -> RenderedScript:
     """Render code for ForecasterDirectMultiVariate."""
 
-    kwargs = plan.forecaster_kwargs
-    transformer_exog = kwargs.get("transformer_exog")
-    window_features = kwargs.get("window_features")
-
     is_wide = profile.data_format == "wide"
-    series_id = profile.series_id_column or "series_id"
-    date_col = profile.date_column or "datetime"
     target = _get_target_str(profile)
 
     import_lines: list[str] = []
@@ -355,39 +314,19 @@ def render_forecast_multivariate(
         include_metrics=evaluate,
     )
 
-    # --- Load data ---
-    if is_wide:
-        _emit_data_loading(loading_lines, profile)
-    else:
-        _emit_data_loading(loading_lines, profile, long_format=True)
+    # --- Load data and index setup ---
+    _emit_loading_and_index(
+        loading_lines, core_lines, profile, long_format=not is_wide
+    )
     if not evaluate and use_exog_load:
         _emit_future_exog_loading(loading_lines, profile)
-
-    # --- Index setup (runs in both standalone and exec modes) ---
-    if is_wide:
-        _emit_index_setup(core_lines, profile)
-    else:
-        _emit_index_setup(core_lines, profile, long_format=True)
-    if not evaluate and is_wide and use_exog_load:
-        _emit_future_exog_index_setup(core_lines, profile)
+        if is_wide:
+            _emit_future_exog_index_setup(core_lines, profile)
 
     # --- Preprocessing / pivot ---
-    if is_wide:
-        _emit_preprocessing_steps(core_lines, plan, profile)
-    else:
-        _emit_preprocessing_steps(core_lines, plan, profile)
-        core_lines.append("# Pivot to wide format (columns = series)")
-        core_lines.append("series = data.pivot_table(")
-        core_lines.append(
-            f"    index={repr(date_col)}, columns={repr(series_id)},"
-            f" values={repr(target)}"
-        )
-        core_lines.append(")")
-        core_lines.append("series.index.name = None")
-        core_lines.append("series.columns.name = None")
-        if profile.frequency:
-            core_lines.append(f"series = series.asfreq('{profile.frequency}')")
-        core_lines.append("")
+    _emit_preprocessing_steps(core_lines, plan, profile)
+    if not is_wide:
+        _emit_pivot_to_wide(core_lines, profile)
 
     # --- Exog ---
     exog_columns = profile.exog_columns
@@ -416,19 +355,8 @@ def render_forecast_multivariate(
         if use_exog or isinstance(profile.target, list):
             core_lines.append("")
 
-    # --- Window features ---
-    if window_features:
-        _emit_window_features(core_lines, window_features)
-        core_lines.append("")
-
-    # --- Calendar features ---
-    if kwargs.get("calendar_features"):
-        _emit_calendar_features(core_lines, kwargs["calendar_features"])
-        core_lines.append("")
-
-    # --- Transformer exog ---
-    if transformer_exog and use_exog:
-        _emit_transformer_exog(core_lines, transformer_exog, profile)
+    # --- Window features, calendar features and exog transformer ---
+    _emit_feature_setup(core_lines, plan, profile, use_exog=use_exog)
 
     # --- Create forecaster ---
     _emit_forecaster_creation_multi(

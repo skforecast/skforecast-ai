@@ -2,9 +2,10 @@
 
 import numpy as np
 import pandas as pd
+import re
+
 import pytest
 
-from skforecast.exceptions import IgnoredArgumentWarning
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import CodeGenerationResult
@@ -92,7 +93,7 @@ def test_forecast_code_with_profile_and_plan_contains_frequency():
 
 
 # =============================================================================
-# Tests: forecast_code — basic output
+# Tests: forecast_code: basic output
 # =============================================================================
 def test_forecast_code_output_when_single_series():
     """
@@ -253,24 +254,109 @@ def test_forecast_code_ValueError_when_exog_without_exog_data():
 
 
 # =============================================================================
-# Tests: ignored plan-override warning
+# Tests: plan overrides
 # =============================================================================
-def test_forecast_code_IgnoredArgumentWarning_when_interval_passed_with_plan():
+def test_forecast_code_output_when_interval_passed_with_plan():
     """
-    Test that forecast_code() warns with IgnoredArgumentWarning when an
-    interval override is passed alongside a pre-built plan, because the
-    planning stage (which consumes interval) is skipped.
+    Test that an `interval` passed alongside a pre-built plan replaces the
+    plan's interval in the rendered script, so the script predicts the
+    requested bounds.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
 
-    with pytest.warns(IgnoredArgumentWarning, match="pre-built `plan`"):
+    result = assistant.forecast_code(
+        data=df_single,
+        target="sales",
+        steps=10,
+        interval=[0.1, 0.9],
+        profile=profile,
+        plan=plan,
+    )
+
+    assert result.plan.interval == [0.1, 0.9]
+    assert "predict_interval" in result.code
+
+
+def test_forecast_code_ValueError_when_window_features_differ_from_plan():
+    """
+    Test that forecast_code() rejects a `window_features` override that
+    differs from the window features of the pre-built plan, naming the
+    argument, because the planning stage that consumes it is skipped.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.raises(ValueError, match=re.escape("['window_features']")):
+        assistant.forecast_code(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=10,
+            window_features=[{"stats": ["mean"], "window_size": 3}],
+            profile=profile,
+            plan=plan,
+        )
+
+
+def test_forecast_code_ValueError_when_estimator_differs_from_plan():
+    """
+    Test that forecast_code() rejects an `estimator` override that differs
+    from the estimator of the pre-built plan, and that the message points
+    to `refine_plan()`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, estimator="Ridge")
+
+    with pytest.raises(ValueError, match=re.escape("refine_plan()")):
         assistant.forecast_code(
             data=df_single,
             target="sales",
             steps=10,
-            interval=[0.1, 0.9],
+            estimator="LGBMRegressor",
             profile=profile,
             plan=plan,
         )
+
+
+def test_forecast_code_ValueError_when_data_conflicts_with_profile():
+    """
+    Test that forecast_code() checks supplied data against the supplied
+    profile, so a dataset lacking the profile's target is reported before
+    any script is rendered.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    with pytest.raises(ValueError, match=re.escape("column(s) ['sales']")):
+        assistant.forecast_code(
+            data=df_single.drop(columns=["sales"]), profile=profile, plan=plan
+        )
+
+
+def test_forecast_code_ValueError_when_steps_conflicts_with_plan():
+    """
+    Test that forecast_code() rejects a `steps` different from
+    `plan.steps`, like forecast() does.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=7)
+
+    with pytest.raises(ValueError, match="does not match `plan.steps`"):
+        assistant.forecast_code(steps=3, profile=profile, plan=plan)
+
+
+def test_forecast_code_ValueError_when_neither_steps_nor_plan():
+    """
+    Test that forecast_code() without `steps` and without a plan raises a
+    clear ValueError.
+    """
+    assistant = ForecastingAssistant()
+
+    with pytest.raises(ValueError, match="`steps` is required"):
+        assistant.forecast_code(data=df_single, target="sales", date_column="date")

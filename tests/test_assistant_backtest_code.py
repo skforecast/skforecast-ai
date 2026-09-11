@@ -48,7 +48,7 @@ def test_backtest_code_output_when_single_series():
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     result = assistant.backtest_code(
         data=df_single,
@@ -81,7 +81,7 @@ def test_backtest_code_output_when_multi_series():
         series_id_column="series_id",
     )
     plan = assistant.plan(profile, steps=5)
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     result = assistant.backtest_code(
         data=df_multi_long,
@@ -158,3 +158,21 @@ def test_backtest_code_contains_cv_configuration():
 
     assert "initial_train_size" in result.code
     assert "refit" in result.code
+
+
+def test_backtest_code_output_when_cv_result_given():
+    """
+    Test that backtest_code() accepts a CVResult and embeds the same
+    TimeSeriesFold construction in the generated script.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+
+    result = assistant.backtest_code(
+        data=df_single, cv=cv_result, profile=profile, plan=plan
+    )
+
+    assert "cv = TimeSeriesFold(" in result.code
+    assert "initial_train_size = 60" in result.code

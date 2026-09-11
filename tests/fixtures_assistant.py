@@ -112,6 +112,9 @@ series_unnamed = pd.Series(
     index=_dates,
 )
 
+# --- Single series without a date column (RangeIndex, no frequency) ---
+df_range_index = df_single.drop(columns=["date"]).reset_index(drop=True)
+
 
 def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None):
     """

@@ -11,8 +11,13 @@ from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from .._constants import MAX_FEATURE_FRACTION
 from ..schemas import CVParams, ForecastingProfile, ForecastPlan, PlanOverrides
-from .prompts import _CV_ROLE_PROMPT, _STATIC_ROLE_PROMPT, _PLAN_REFINEMENT_ROLE_PROMPT
-from .skills import load_llms_reference, load_skill
+from .prompts import (
+    _CV_ROLE_PROMPT,
+    _DOCUMENTATION_PREAMBLE,
+    _PLAN_REFINEMENT_ROLE_PROMPT,
+    _STATIC_ROLE_PROMPT,
+)
+from .skills import load_llms_reference, load_skill, skforecast_docs_version
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +99,9 @@ def create_forecasting_agent(
         parts: list[str] = []
         for name in skill_names:
             try:
-                parts.append(f"### {name}\n\n{load_skill(name)}")
+                parts.append(
+                    f'<skill name="{name}">\n{load_skill(name)}\n</skill>'
+                )
             except FileNotFoundError:
                 logger.warning("Skill '%s' not found, skipping.", name)
                 continue
@@ -103,10 +110,22 @@ def create_forecasting_agent(
         if deps.include_reference:
             try:
                 ref = load_llms_reference()
-                parts.append(f"## Skforecast API Reference\n\n{ref}")
+                parts.append(f"<api_reference>\n{ref}\n</api_reference>")
                 logger.debug("API reference included.")
             except FileNotFoundError:
                 logger.warning("API reference file not found, skipping.")
+
+        # Tagged so the model can tell library documentation apart from the
+        # user's validated context, which the role prompt governs separately.
+        if parts:
+            preamble = _DOCUMENTATION_PREAMBLE.format(
+                version=skforecast_docs_version()
+            )
+            body = "\n\n".join(parts)
+            parts = [
+                f"<skforecast_documentation>\n{preamble}\n\n{body}\n"
+                f"</skforecast_documentation>"
+            ]
 
         # Conditional no-code reinforcement (Explain/Results mode only)
         if deps.plan is not None:
@@ -153,6 +172,12 @@ class CVDeps:
     lags : int, list, None
         Lag structure from the plan. Used to communicate minimum
         training size constraints.
+    start_date : str, default None
+        First date of the series. Together with `end_date` it grounds a
+        date-based `initial_train_size`; None when the dataset has no
+        datetime index with a known frequency.
+    end_date : str, default None
+        Last date of the series, see `start_date`.
     """
 
     n_observations: int
@@ -160,6 +185,8 @@ class CVDeps:
     steps: int
     task_type: str
     lags: int | list | None = None
+    start_date: str | None = None
+    end_date: str | None = None
 
 
 def create_cv_agent(
@@ -201,6 +228,19 @@ def create_cv_agent(
         parts.append("## Dataset Context")
         parts.append(f"- Total observations: {deps.n_observations}")
         parts.append(f"- Frequency: {deps.frequency or 'unknown'}")
+        # A date-based initial_train_size is only usable when the split
+        # date can be located on the real index, so state the range or
+        # rule dates out explicitly.
+        if deps.start_date is not None and deps.end_date is not None:
+            parts.append(
+                f"- Date range: {deps.start_date} to {deps.end_date} (a date "
+                f"initial_train_size must fall strictly inside it)"
+            )
+        else:
+            parts.append(
+                "- Index: no datetime frequency; initial_train_size must be "
+                "an integer"
+            )
         parts.append(f"- Forecast horizon (steps): {deps.steps}")
         parts.append(f"- Task type: {deps.task_type}")
         if deps.lags is not None:

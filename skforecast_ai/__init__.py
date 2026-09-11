@@ -11,7 +11,7 @@ LLM full:  https://skforecast.org/latest/llms-full.txt
 Examples:  https://skforecast.org/latest/examples/examples_english.html
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .assistant import ForecastingAssistant
 from .exceptions import (
@@ -19,6 +19,7 @@ from .exceptions import (
     CandidateFailedWarning,
     DataSentToLLMWarning,
     ForecastExecutionError,
+    LLMCallError,
     LLMRequiredError,
     UnrecommendedForecasterWarning,
 )
@@ -28,6 +29,7 @@ from .schemas import (
     BacktestResult,
     CandidateFailure,
     ComparisonResult,
+    CVResult,
     DataProfile,
     ExplainableResult,
     ForecastingProfile,
@@ -49,6 +51,7 @@ __all__ = [
     "CandidateFailedWarning",
     "CandidateFailure",
     "ComparisonResult",
+    "CVResult",
     "DataProfile",
     "DataSentToLLMWarning",
     "ExplainableResult",
@@ -59,6 +62,7 @@ __all__ = [
     "LLMContext",
     "RenderedScript",
     "CodeGenerationResult",
+    "LLMCallError",
     "LLMRequiredError",
     "PreprocessingStep",
     "ForecastResult",

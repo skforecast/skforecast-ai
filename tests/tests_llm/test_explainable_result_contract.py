@@ -19,7 +19,9 @@ from skforecast_ai.schemas import (
 from tests.fixtures_llm import (
     ROW_LEVEL_MARKER,
     make_backtest_result,
+    make_code_generation_result,
     make_comparison_result,
+    make_cv_result,
     make_forecast_result,
     make_single_run_result,
     predictions_single,
@@ -34,7 +36,13 @@ RESULT_BUILDERS = {
     "ForecastResult":  make_forecast_result,
     "BacktestResult":  make_backtest_result,
     "ComparisonResult": make_comparison_result,
+    "CodeGenerationResult": make_code_generation_result,
+    "CVResult": make_cv_result,
+    "ForecastingProfile": lambda: profile_single,
 }
+
+# Contexts explained before any plan exists: they echo no plan and no code.
+PLAN_LESS = {"ForecastingProfile"}
 
 # Results that carry row-level predictions and therefore have to honour
 # `send_data`. A comparison renders aggregated leaderboard metrics only,
@@ -56,6 +64,7 @@ KNOWN_TAGS = {
     "dataset",
     "profile_decision",
     "forecast_plan",
+    "script",
     "cross_validation",
     "deterministic_summary",
     "evaluation_metrics",
@@ -140,8 +149,12 @@ def test_to_llm_context_returns_populated_context(name):
     assert isinstance(context, LLMContext)
     assert context.text.strip()
     assert isinstance(context.profile, ForecastingProfile)
-    assert isinstance(context.plan, ForecastPlan)
-    assert isinstance(context.code, str)
+    if name in PLAN_LESS:
+        assert context.plan is None
+        assert context.code is None
+    else:
+        assert isinstance(context.plan, ForecastPlan)
+        assert isinstance(context.code, str)
 
 
 @pytest.mark.parametrize(
@@ -205,6 +218,30 @@ def test_to_llm_context_includes_row_level_values_when_send_data_is_True(name):
     context = ROW_LEVEL_BUILDERS[name]().to_llm_context(send_data=True)
 
     assert ROW_LEVEL_MARKER in context.text
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("ForecastResult", True),
+        ("BacktestResult", True),
+        ("ComparisonResult", True),
+        ("CodeGenerationResult", False),
+        ("CVResult", False),
+        ("ForecastingProfile", False),
+    ],
+    ids=lambda dt: f"result, sends_result_values: {dt}"
+)
+def test_to_llm_context_reports_whether_result_values_are_sent(name, expected):
+    """
+    Test that each result declares whether its context ships values the
+    result owns. `ask()` relies on the flag to warn only about data that
+    is actually sent: a generated script holds no predictions or metrics,
+    so it must not trigger the privacy warning.
+    """
+    context = RESULT_BUILDERS[name]().to_llm_context(send_data=True)
+
+    assert context.sends_result_values is expected
 
 
 def test_to_llm_context_ignores_send_data_for_a_comparison():

@@ -5,7 +5,7 @@ import pandas as pd
 from skforecast_ai.execution.backtesting_runner import _build_backtest_explanation
 
 
-# Tests: _build_backtest_explanation — metric formatting
+# Tests: _build_backtest_explanation: metric formatting
 
 
 def test_build_backtest_explanation_includes_cv_and_metrics():
@@ -73,3 +73,21 @@ def test_build_backtest_explanation_skips_level_columns():
     assert "levels" not in result.split("Results")[1]
     assert "mean_absolute_error" in result
     assert "0.5678" in result
+
+
+def test_build_backtest_explanation_uses_average_row_when_multi_series():
+    """
+    Test that a multi-series metrics frame is summarised with its
+    `average` row, not with the mean of every row: skforecast appends
+    `average`, `weighted_average` and `pooling` rows, and averaging them
+    together with the per-series rows produces a number that matches no
+    row of the table.
+    """
+    metrics = pd.DataFrame({
+        "levels": ["a", "b", "average", "weighted_average", "pooling"],
+        "mean_absolute_error": [1.0, 3.0, 2.0, 2.0, 2.1],
+    })
+
+    result = _build_backtest_explanation(cv_explanation="CV.", metrics=metrics)
+
+    assert result == "CV. Results (average across series): mean_absolute_error: 2.0000."

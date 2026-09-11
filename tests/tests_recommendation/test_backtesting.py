@@ -70,6 +70,20 @@ def test_compute_min_train_size_output_when_window_features_list_sizes():
     assert _compute_min_train_size(plan) == 24
 
 
+def test_compute_min_train_size_output_when_lags_empty_list():
+    """
+    Test that a hand-built plan holding an empty lags list is treated as
+    having no lags (2 * steps) instead of raising from `max()`.
+    """
+    plan = _make_plan(
+        "single_series",
+        steps=10,
+        forecaster_kwargs={"lags": [], "window_features": None},
+    )
+
+    assert _compute_min_train_size(plan) == 20
+
+
 def test_compute_min_train_size_output_when_no_lags_or_window_features():
     """
     Test that with no lags and no window features the effective window

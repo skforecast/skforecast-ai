@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skforecast-ai"
-version = "0.2.0"
+version = "0.3.0"
 description = "AI-powered forecasting assistant built on top of skforecast."
 readme = "README.md"
 authors = [
@@ -43,10 +43,11 @@ requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.10",
     "pandas>=2.1",
-    "skforecast>=0.23",
+    "skforecast>=0.25",
     "typer>=0.22",
     "rich>=13.9",
     "tomli>=2.0; python_version < '3.11'",
+    "typing-extensions>=4.12; python_version < '3.12'",
     "statsmodels>=0.13, <0.15",
 ]
 
@@ -72,24 +73,19 @@ docs = [
     "mike==2.1.3",
     "mkdocs==1.6.1",
     "mkdocs-jupyter==0.26.3",
-    "mkdocs-material==9.7.6",
+    "mkdocs-material==9.7.7",
+    "mkdocstrings==1.0.6",
+    "mkdocstrings-python==2.0.8",
+    "black==26.5.1",
     "mkdocs-typer2[mkdocs]==0.4.1",
-    "mkdocstrings==1.0.4",
-    "mkdocstrings-python==2.0.3",
-    "mkdocs-typer2==0.4.1",
-    "black==26.3.1",
 ]
 
 test = [
     "pytest>=9",
     "pytest-cov>=7",
     "pytest-xdist>=3.8",
-
-    "pydantic-ai>=2,<3",
     "pydantic-ai[groq]>=2,<3",
-    
     "lightgbm>=4.0,<5.0",
-    "statsmodels>=0.13, <0.15",
 ]
 
 dev = [
@@ -124,4 +120,25 @@ docstring-code-format = false
 testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+# Every warning is a failure unless a test expects it with `pytest.warns`
+# or it is listed here with its reason. This is how a deprecation in
+# pandas, NumPy, pydantic or skforecast shows up the day it appears.
+filterwarnings = [
+    "error",
+    # pydantic-graph asks for the current event loop on old-style sync runs;
+    # upstream issue, harmless for the agents run through run_agent_sync.
+    "ignore:There is no current event loop:DeprecationWarning",
+    # skforecast reports binning adjustments of the bootstrapped intervals
+    # inside the executed scripts; it depends on the data, not on this code.
+    "ignore:The number of bins has been reduced:skforecast.exceptions.IgnoredArgumentWarning",
+    # statsmodels convergence notice from Auto-ARIMA fits on short fixtures.
+    "ignore:Possible convergence problem:UserWarning",
+    # skforecast suggests a transformer_series for linear multi-series models;
+    # the plan decides that deliberately.
+    "ignore::skforecast.exceptions.DataTransformationWarning",
+    # google-genai (pulled in by pydantic-ai's GoogleModel) touches the private
+    # typing._UnionGenericAlias at import time, which Python 3.14 deprecates.
+    # Upstream package, nothing to fix here.
+    "ignore:'_UnionGenericAlias' is deprecated:DeprecationWarning",
 ]

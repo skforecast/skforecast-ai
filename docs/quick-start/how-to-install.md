@@ -18,7 +18,7 @@ pip install skforecast-ai
 Specific version:
 
 ```bash
-pip install skforecast-ai==0.2.0
+pip install skforecast-ai==0.3.0
 ```
 
 Latest (unstable):
@@ -31,10 +31,11 @@ The following dependencies are installed with the default installation:
 
 + pydantic>=2.10
 + pandas>=2.1
-+ skforecast>=0.23
++ skforecast>=0.25
 + typer>=0.22
 + rich>=13.9
 + tomli>=2.0 (only for Python < 3.11)
++ typing-extensions>=4.12 (only for Python < 3.12)
 + statsmodels>=0.13, <0.15
 
 

@@ -12,6 +12,20 @@ model = FoundationModel(
 )
 ```
 
+## Contents
+
+- ChronosAdapter — Amazon Chronos-2
+- TimesFM25Adapter — Google TimesFM 2.5
+- TimesFM3Adapter — Google TimesFM 3.0
+- MoiraiAdapter — Salesforce Moirai-2
+- TabICLAdapter — Soda-INRIA TabICL
+- TabPFNAdapter — Prior Labs TabPFN-TS
+- T0Adapter — The Forecasting Company T0
+- TSICLAdapter — EDF Lab TS-ICL
+- NoriAdapter — Synthefy Nori
+- Tunable parameters and model reload cost
+- Common behavior
+
 ## ChronosAdapter — Amazon Chronos-2
 
 - **`model_id` prefix**: `autogluon/chronos`
@@ -28,21 +42,45 @@ model = FoundationModel(
 | `torch_dtype`    | object  | `None`   | Torch dtype for `from_pretrained` (e.g. `torch.bfloat16`).                     |
 | `cross_learning` | bool    | `False`  | If `True`, shares information across series in multi-series batches.           |
 
-## TimesFMAdapter — Google TimesFM 2.5
+## TimesFM25Adapter — Google TimesFM 2.5
 
-- **`model_id` prefix**: `google/timesfm`
-- **`allow_exog`**: `False`
+- **`model_id` prefix**: `google/timesfm-2.5`
+- **`allow_exog`**: `False` (exog is ignored)
+- **`supports_past_only_covariates`**: `False`
+- **`supports_heterogeneous_covariates`**: `True` (exog ignored, so every batch is homogeneous)
 - **Supported quantiles**: `[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]`
+- **Point forecast**: mean (in practice equal to quantile `0.5`)
 
 | Parameter                | Type | Default | Description                                                         |
 |--------------------------|------|---------|---------------------------------------------------------------------|
-| `model_id`               | str  | —       | HuggingFace model ID (e.g. `google/timesfm-2.5-200m-pytorch`).      |
-| `model`                  | obj  | `None`  | Pre-loaded & compiled TimesFM model. If `None`, loaded lazily.      |
-| `context_length`         | int  | `512`   | Max historical observations kept as context.                        |
-| `max_horizon`            | int  | `512`   | Max forecast horizon. `predict(steps=...)` must be ≤ this.          |
+| `model_id`               | str  | —       | HuggingFace model ID (e.g. `google/timesfm-2.5-200m-pytorch`). Must start with `google/timesfm-2.5`; any other id raises `ValueError`. |
+| `model`                  | obj  | `None`  | Pre-loaded, already-compiled model. If `None`, loaded lazily. |
+| `context_length`         | int  | `512`   | Max historical observations kept as context. |
+| `max_horizon`            | int  | `512`   | Max forecast horizon. `predict(steps=...)` must be ≤ this. |
 | `forecast_config_kwargs` | dict | `None`  | Extra kwargs forwarded to `timesfm.ForecastConfig` at compile time. |
 
-The model is compiled lazily for the exact requested `steps` (up to `max_horizon`) to avoid unnecessary decode iterations.
+The model is compiled lazily for the exact requested `steps` (up to `max_horizon`) to avoid unnecessary decode iterations. TimesFM 2.5 weights have no non-commercial restriction, so no `LicenseWarning` is raised.
+
+## TimesFM3Adapter — Google TimesFM 3.0
+
+- **`model_id` prefix**: `google/timesfm-3.0`
+- **`allow_exog`**: `True` (past-only and known-future covariates; must be numeric, encode categoricals as numbers)
+- **`supports_past_only_covariates`**: `True`
+- **`supports_heterogeneous_covariates`**: `False` (`predict_batch` stacks the covariate arrays of the batch, so `FoundationModel` calls it once per group of series with the same exog columns)
+- **Supported quantiles**: `[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]`
+- **Point forecast**: median (quantile `0.5`)
+
+| Parameter                | Type | Default | Description                                                         |
+|--------------------------|------|---------|---------------------------------------------------------------------|
+| `model_id`               | str  | —       | HuggingFace model ID (e.g. `google/timesfm-3.0-pytorch`). Must start with `google/timesfm-3.0`; any other id raises `ValueError`. |
+| `model`                  | obj  | `None`  | Pre-loaded `TimesFM3Forecaster`. If `None`, loaded lazily. |
+| `context_length`         | int  | `2048`  | Max historical observations kept as context (TimesFM 3.0 supports up to roughly 15,360). |
+| `device`                 | str  | `'auto'` | Device placement: `'auto'` (CUDA > MPS > CPU), `'cuda'`, `'mps'`, `'cpu'`. |
+| `predict_kwargs`         | dict | `None`  | Extra kwargs forwarded to `predict_batch` (e.g. `use_znorm`, `make_positive`). |
+
+There is no compile step and no horizon ceiling. For each series, columns present in its future `exog` become known-future covariates spanning `context + horizon`; columns present only in its `context_exog` become past-only covariates. Each series is forwarded with its own columns: series with the same set of past-only and known-future columns share one `predict_batch` call, series with different columns are forecast in separate calls, so a series' forecast never depends on the exog of the other series in the batch (`predict(levels=[x])` equals `predict()` filtered to `x`). Covariates must be numeric; encode categoricals as numbers before passing them.
+
+**Non-commercial license**: TimesFM 3.0 weights are released under a non-commercial license; loading them raises a `LicenseWarning` naming the license and a link to the model card.
 
 ## MoiraiAdapter — Salesforce Moirai-2
 
@@ -95,7 +133,7 @@ The model is compiled lazily for the exact requested `steps` (up to `max_horizo
 - **Quantiles**: any value in `(0, 1)` (native levels `0.1, 0.25, 0.5, 0.75, 0.9`; other levels are produced by inference-time interpolation)
 
 | Parameter        | Type   | Default  | Description                                                                |
-|------------------|--------|----------|----------------------------------------------------------------------------|
+|------------------|--------|----------|------------------------------------------------------------------------------|
 | `model_id`       | str    | —        | HuggingFace model ID (e.g. `theforecastingcompany/t0-alpha`).             |
 | `model`          | obj    | `None`   | Pre-loaded `T0Forecaster`. If `None`, loaded lazily on first `predict`.    |
 | `context_length` | int    | `8192`   | Max historical observations kept as context.                               |
@@ -104,6 +142,70 @@ The model is compiled lazily for the exact requested `steps` (up to `max_horizo
 
 Point forecasts use the median (quantile `0.5`). Covariates must be numeric; encode categoricals as numbers before passing them. A series with no future exog is forecast without covariates.
 
+**Gated checkpoints**: `theforecastingcompany/t0*` repos are gated on the Hugging Face Hub. Before first use, log in at the model page (e.g. `https://huggingface.co/theforecastingcompany/t0-alpha`) to accept its license, then authenticate locally (`hf auth login` or the `HF_TOKEN` environment variable). Skipping this step surfaces as a confusing `TypeError` about missing `T0Forecaster` constructor arguments rather than an authentication error.
+
+## TSICLAdapter — EDF Lab TS-ICL
+
+- **`model_id` prefix**: `taharnbl/TS-ICL`. Used only for adapter resolution; the checkpoint is always downloaded from the `taharnbl/TS-ICL` Hugging Face repository, controlled by `checkpoint_version`.
+- **`allow_exog`**: `True` (past and future covariates, mirroring `ChronosAdapter`'s `past_covariates`/`future_covariates` format)
+- **Quantiles**: subset of a 0.01 grid in `[0.01, 0.99]` (e.g. `0.05`, `0.5`, `0.37`); other levels raise a `ValueError`
+
+| Parameter              | Type | Default            | Description                                                                |
+|------------------------|------|--------------------|------------------------------------------------------------------------------|
+| `model_id`             | str  | —                  | Model ID (e.g. `taharnbl/TS-ICL`). Used only for adapter resolution.        |
+| `model`                | obj  | `None`             | Pre-instantiated `TSICL` model. If `None`, created lazily on first `predict`.|
+| `checkpoint_version`   | str  | `'tsicl-v1.ckpt'`  | Checkpoint filename downloaded from the `taharnbl/TS-ICL` Hugging Face repo. |
+| `context_length`       | int  | `4096`             | Max historical observations kept as context.                                |
+| `device`               | str  | `'auto'`           | Device placement: `'auto'` (CUDA > MPS > CPU), `'cuda'`, `'mps'`, `'cpu'`. Verified empirically: the installed `tsicl` version currently falls back to CPU internally whenever CUDA is unavailable, regardless of the requested device, so `'mps'` has no effect on Apple Silicon. |
+| `allow_auto_download`  | bool | `True`             | Whether to allow automatic download of the checkpoint from Hugging Face Hub. |
+
+Covariates must be numeric; encode categoricals as numbers before passing them.
+
+## NoriAdapter — Synthefy Nori
+
+- **`model_id` prefix**: `Synthefy/Nori`
+- **`allow_exog`**: `True` (known-future covariates; columns present in both the historical context and the forecast horizon are used as features, covariates without future values are ignored)
+- **Quantiles**: any value in `(0, 1)`
+
+| Parameter                | Type | Default  | Description                                                                                       |
+|--------------------------|------|----------|-----------------------------------------------------------------------------------------------------|
+| `model_id`               | str  | —        | Model ID (e.g. `Synthefy/Nori`). Used only for adapter resolution.                                 |
+| `model`                  | obj  | `None`   | Pre-instantiated `NoriRegressor`. If `None`, created lazily on first `predict`.                    |
+| `context_length`         | int  | `4096`   | Max historical observations kept as context.                                                        |
+| `point_estimate`         | str  | `'mean'` | Point forecast method: `'mean'`, `'median'` or `'mode'`.                                            |
+| `add_calendar_features`  | bool | `True`   | Add calendar features (month, day, day-of-week, day-of-year, quarter, hour) for `DatetimeIndex` series. Ignored for `RangeIndex`. |
+| `n_fourier_terms`        | int  | `2`      | Number of Fourier (sin/cos) seasonal harmonics on the yearly/weekly cycles (or the running index for `RangeIndex` series). `0` disables them. |
+| `nori_config`            | dict | `None`   | Extra kwargs forwarded to `NoriRegressor` at instantiation (e.g. `model_path`, `device`, `token`, `augmentations`). |
+
+Nori frames forecasting as tabular in-context regression rather than a native sequence model: each series is featurized (running index, calendar features, Fourier terms, and known-future covariates) before being handed to `NoriRegressor`. Covariates must be numeric; encode categoricals as numbers before passing them.
+
+## Tunable Parameters and Model Reload Cost
+
+The parameters that can be changed after construction (via `set_params`, and therefore searched with `bayesian_search_foundation`) are exactly the keys returned by each adapter's `get_params()`. Any other key raises `ValueError`. Note that `model` / `pipeline` / `module` are constructor-only and are **not** settable.
+
+Being accepted is not the same as being worth searching. Most adapters expose runtime settings that cannot improve accuracy: `device`, `device_map`, `torch_dtype`, `mode` (local vs cloud inference), `show_progress`, `allow_auto_download`, and `max_horizon` (a ceiling only, the TimesFM model is recompiled for the requested `steps` regardless). Keep these fixed. `model_id` (and `checkpoint_version` on TS-ICL) does change accuracy, but it selects a different pre-trained model, so compare those with separate searches instead of mixing them into one search space.
+
+| Adapter | Accepted by `set_params` (`get_params()` keys) | Worth searching | Changing these forces a model reload |
+|---------|-----------------------------------------------|-----------------|--------------------------------------|
+| ChronosAdapter | `model_id`, `cross_learning`, `context_length`, `device_map`, `torch_dtype`, `predict_kwargs` | `context_length`, `cross_learning`, (`predict_kwargs`) | `model_id`, `device_map`, `torch_dtype` |
+| TimesFM25Adapter | `model_id`, `context_length`, `max_horizon`, `forecast_config_kwargs` | `context_length`, (`forecast_config_kwargs`) | **all of them** |
+| TimesFM3Adapter | `model_id`, `context_length`, `device`, `predict_kwargs` | `context_length`, (`predict_kwargs`) | `model_id`, `device` |
+| MoiraiAdapter | `model_id`, `context_length`, `device` | `context_length` | **all of them** |
+| TabICLAdapter | `model_id`, `context_length`, `point_estimate`, `tabicl_config`, `temporal_features`, `show_progress` | `context_length`, `point_estimate`, `temporal_features`, (`tabicl_config`) | all except `show_progress` |
+| TabPFNAdapter | `model_id`, `context_length`, `mode`, `point_estimate`, `tabpfn_model_config`, `temporal_features`, `show_progress` | `context_length`, `point_estimate`, `temporal_features`, (`tabpfn_model_config`) | all except `show_progress` |
+| T0Adapter | `model_id`, `context_length`, `device_map`, `torch_dtype` | `context_length` | `model_id`, `device_map`, `torch_dtype` |
+| TSICLAdapter | `model_id`, `checkpoint_version`, `context_length`, `device`, `allow_auto_download` | `context_length` | `checkpoint_version`, `allow_auto_download` (`device` only clears the cached resolved device) |
+| NoriAdapter | `model_id`, `context_length`, `point_estimate`, `add_calendar_features`, `n_fourier_terms`, `nori_config` | `context_length`, `point_estimate`, `add_calendar_features`, `n_fourier_terms`, (`nori_config`) | `model_id`, `nori_config` |
+
+Parameters in parentheses are backend passthrough dicts: they can hold quality-relevant settings but are awkward to search, so treat them as advanced.
+
+Two consequences that matter when tuning:
+
+- **`context_length` is not uniformly cheap.** It reloads the model on TimesFM 2.5 (but **not** TimesFM 3.0), Moirai-2, TabICL and TabPFN-TS; it is free on Chronos-2, TimesFM 3.0, T0, TS-ICL and Nori.
+- **Reset only on change.** All foundation adapters compare the old and new values first (via the shared `set_params` helper), so re-sampling an identical value never triggers a reload. A reload happens only when a reload-triggering key is set to a genuinely new value, for example sampling a different `context_length` on TimesFM 2.5, Moirai-2, TabICL or TabPFN-TS.
+
+`model_id` forces a reload on every adapter except `TSICLAdapter`, where the checkpoint is selected by `checkpoint_version` instead.
+
 ## Common Behavior
 
 All adapters implement the same minimal interface:
@@ -111,5 +213,16 @@ All adapters implement the same minimal interface:
 - `fit(series, exog=None)` — stores context and metadata; no training.
 - `predict(steps, context, context_exog, exog, quantiles)` — returns a   `dict[str, np.ndarray]` of shape `(steps, n_quantiles)` keyed by series name.
 - `get_params()` / `set_params(**kwargs)` — sklearn-style parameter access.
+- `allow_exog` / `supports_past_only_covariates` / `supports_heterogeneous_covariates` / `supports_nan_in_series` — class attributes read by `FoundationModel` to decide how exog and NaN are handled. When `supports_heterogeneous_covariates` is `False` (Chronos-2, TS-ICL, TabICL, TimesFM 3.0), `FoundationModel.predict` groups the series by their (past-only, future) exog columns and calls `adapter.predict` once per group; adapters never receive a batch with mixed covariate columns. When `supports_nan_in_series` is `False`, a context with NaN raises `ValueError` before the adapter is called (all current adapters accept NaN; Nori drops the NaN rows itself).
 
-Backend libraries (`chronos-forecasting`, `timesfm`, `uni2ts`, `tabicl`, `tabpfn-time-series`, `tfc-t0`) are imported **lazily** inside the adapter method that needs them, so only the backend for the adapter you actually use needs to be installed.
+### Exog column validation at predict time
+
+`FoundationModel.predict` (and therefore `ForecasterFoundation.predict`, `predict_interval`, `predict_quantiles`) validates, per series, the columns of the future `exog` against the historical exog used as context (the one stored by `fit`, or `context_exog` when `context` is given). The check is skipped on the internal backtesting path, where both come from the same DataFrame. On every path, before the adapter is called, the historical exog of each series is reindexed to the index of its context and the future `exog` to the forecast horizon; missing timestamps are filled with NaN and reported with a `MissingValuesWarning`. No columns are ever added: a series only carries its own exog columns.
+
+| Situation (per series)                                  | Adapters with `supports_past_only_covariates=True` (Chronos-2, TS-ICL, TimesFM 3.0) | Adapters with `supports_past_only_covariates=False` (TabICL, TabPFN-TS, T0, Nori) |
+|---------------------------------------------------------|---------------------------------------------------------------|---------------------------------------------------------------|
+| Future `exog` column with no historical values          | `ValueError`                                                  | `ValueError`                                                  |
+| Historical column with no future values (`exog=None` or a subset of columns) | Used as a past-only covariate, no warning        | Ignored, `IgnoredArgumentWarning` listing the columns and series |
+| Same columns on both sides (any order)                  | OK                                                            | OK                                                            |
+
+Backend libraries (`chronos-forecasting`, `timesfm`, `uni2ts`, `tabicl`, `tabpfn-time-series`, `tfc-t0`, `synthefy-nori`, `tsicl`) are imported **lazily** inside the adapter method that needs them, so only the backend for the adapter you actually use needs to be installed.

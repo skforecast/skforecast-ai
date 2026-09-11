@@ -649,9 +649,9 @@ def _resolve_start_date(
     if date_col is not None and date_col in data.columns:
         first_dates = data.groupby(series_id_column)[date_col].min()
     elif isinstance(data.index, pd.DatetimeIndex):
-        first_dates = data.groupby(series_id_column).apply(
-            lambda g: g.index.min()
-        )
+        first_dates = data.index.to_series().groupby(
+            data[series_id_column].to_numpy()
+        ).min()
     else:
         return datetime_index[0]
 
@@ -1001,7 +1001,7 @@ def detect_gaps(
     This function requires a known `frequency` to compare actual vs
     expected timestamps. When `pd.infer_freq` returns None (often
     because the gaps themselves prevent inference), this function
-    returns False — meaning "gaps not detected", not "no gaps exist".
+    returns False, meaning "gaps not detected", not "no gaps exist".
     In such cases, a separate warning about uninferable frequency is
     emitted by the profiler.
     """
@@ -1077,7 +1077,7 @@ def _check_frequency_is_set(
     Check whether the index already has a frequency attribute set.
 
     When the datetime source is a regular column (not the index),
-    the constructed DatetimeIndex will never have `.freq` set —
+    the constructed DatetimeIndex will never have `.freq` set;
     this correctly indicates that `asfreq()` is still needed.
 
     Parameters
@@ -1205,7 +1205,7 @@ def resolve_end_train(
     # bool is a subclass of int; reject it explicitly to avoid silent misuse.
     if isinstance(test_size, bool):
         raise TypeError(
-            f"`test_size` must be an int, float, str or Timestamp, not bool."
+            "`test_size` must be an int, float, str or Timestamp, not bool."
         )
 
     if isinstance(test_size, int):

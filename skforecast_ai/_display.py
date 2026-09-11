@@ -407,10 +407,6 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
         when the profile raised warnings), the recommendation table, and the
         explanation panel.
     """
-    # Must stay local: _utils imports schemas, which imports .._display at
-    # module level (DisplayMixin). Hoisting this would reintroduce that cycle.
-    from ._utils import _display_n_observations
-
     dp = profile.data_profile
 
     table = Table(title="Dataset Profile", **_TABLE_KWARGS)
@@ -418,7 +414,7 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     table.add_column("Value")
     table.add_row("Format", _format_value(dp.data_format))
     table.add_row("Series", _format_value(dp.n_series))
-    table.add_row("Observations", _format_value(_display_n_observations(dp)))
+    table.add_row("Observations", _format_value(dp.n_observations_display))
     table.add_row(
         "Frequency",
         _format_value(dp.frequency) if dp.frequency else "[bold yellow]not detected[/]",

@@ -176,8 +176,82 @@ def test_agent_loads_the_skills_carried_by_deps():
     agent.run_sync("How do I build prediction intervals?", deps=deps)
 
     instructions = captured["instructions"]
-    assert "### drift-detection" in instructions
-    assert "### prediction-intervals" not in instructions
+    assert '<skill name="drift-detection">' in instructions
+    assert '<skill name="prediction-intervals">' not in instructions
+
+
+def test_agent_wraps_the_skills_in_a_tagged_documentation_block():
+    """
+    Test that skills are delimited and introduced by the provenance
+    preamble.
+
+    Skills are generic library documentation whose snippets carry example
+    values such as `initial_train_size=365`. Injected untagged, they sit
+    next to the user's validated context with nothing marking which is
+    which, and the role prompt forbids reporting values it does not
+    supply.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai.llm.agent import AskDeps, create_forecasting_agent
+    from skforecast_ai.llm.skills import skforecast_docs_version
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        return ModelResponse(parts=[TextPart(content="ok")])
+
+    agent = create_forecasting_agent(FunctionModel(respond))
+    deps = AskDeps(
+        profile           = None,
+        plan              = None,
+        skills            = ["drift-detection", "backtesting-configuration"],
+        include_reference = True,
+    )
+    agent.run_sync("How do I detect drift?", deps=deps)
+
+    # The role prompt mentions the tag inline, backtick-quoted, so match
+    # the delimiter as it is actually emitted: alone on its own line.
+    instructions = captured["instructions"]
+    assert instructions.count("<skforecast_documentation>\n") == 1
+    assert instructions.count("\n</skforecast_documentation>") == 1
+    assert instructions.count("<skill name=") == 2
+    assert instructions.count("</skill>") == 2
+    assert "<api_reference>" in instructions
+    assert f"skforecast {skforecast_docs_version()}" in instructions
+
+    # The block must close before the role prompt's grounding rules stop
+    # applying to whatever follows.
+    assert instructions.index("</skill>") < instructions.index(
+        "</skforecast_documentation>"
+    )
+
+
+def test_agent_omits_the_documentation_block_when_no_skills():
+    """
+    Test that no empty documentation block is emitted when the caller
+    passes `skills=[]` to keep the prompt small.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai.llm.agent import AskDeps, create_forecasting_agent
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        return ModelResponse(parts=[TextPart(content="ok")])
+
+    agent = create_forecasting_agent(FunctionModel(respond))
+    deps = AskDeps(profile=None, plan=None, skills=[])
+    agent.run_sync("What is skforecast?", deps=deps)
+
+    assert "<skforecast_documentation>\n" not in captured["instructions"]
 
 
 def test_agent_has_no_tools():
@@ -269,12 +343,19 @@ def test_cv_agent_injects_dataset_context():
         steps          = 10,
         task_type      = "single_series",
         lags           = [1, 2, 3, 24],
+        start_date     = "2023-01-01",
+        end_date       = "2023-04-10",
     )
     agent.run_sync("Retrain weekly.", deps=deps)
 
     instructions = captured["instructions"]
     assert "- Total observations: 100" in instructions
     assert "- Frequency: D" in instructions
+    # The date range grounds a date-based initial_train_size.
+    assert (
+        "- Date range: 2023-01-01 to 2023-04-10 (a date initial_train_size "
+        "must fall strictly inside it)"
+    ) in instructions
     assert "- Forecast horizon (steps): 10" in instructions
     assert "- Task type: single_series" in instructions
     # max_lag is 24, so the minimum viable training size is 2 * 24.
@@ -284,3 +365,96 @@ def test_cv_agent_injects_dataset_context():
     assert "80" in instructions
     # The backtesting-configuration skill is appended as a reference.
     assert "## Reference" in instructions
+
+
+def test_cv_agent_context_states_integer_only_when_no_date_range():
+    """
+    Test that, without a date range, the CV agent's instructions rule out
+    a date-based initial_train_size explicitly, matching the check
+    `count_cv_folds` applies to datasets without a datetime frequency.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai.llm.agent import CVDeps, create_cv_agent
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        tool_name = info.output_tools[0].name
+        return ModelResponse(
+            parts=[ToolCallPart(
+                tool_name=tool_name,
+                args={"initial_train_size": 60, "reasoning": "Integer size."},
+            )]
+        )
+
+    agent = create_cv_agent(FunctionModel(respond))
+    deps = CVDeps(
+        n_observations = 100,
+        frequency      = None,
+        steps          = 10,
+        task_type      = "single_series",
+    )
+    agent.run_sync("Retrain weekly.", deps=deps)
+
+    instructions = captured["instructions"]
+    assert "- Frequency: unknown" in instructions
+    assert (
+        "- Index: no datetime frequency; initial_train_size must be an integer"
+    ) in instructions
+    assert "- Date range:" not in instructions
+
+
+def test_plan_refinement_agent_reasks_model_when_lags_invalid():
+    """
+    Test that an invalid lags suggestion fails PlanOverrides validation and
+    pydantic-ai re-asks the model with the concrete error, so the retry
+    happens before the refinement loop sees the output. Pins the contract
+    the schema constraints rely on.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, RetryPromptPart, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai import ForecastingAssistant
+    from skforecast_ai.llm.agent import PlanRefinementDeps, create_plan_refinement_agent
+
+    from tests.fixtures_assistant import df_single
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    calls = []
+
+    def respond(messages, info):
+        calls.append(messages)
+        tool_name = info.output_tools[0].name
+        if len(calls) == 1:
+            args = {"lags": [0, 7], "window_features": None, "reasoning": "bad"}
+        else:
+            args = {"lags": [1, 7], "window_features": None, "reasoning": "ok"}
+        return ModelResponse(parts=[ToolCallPart(tool_name=tool_name, args=args)])
+
+    agent = create_plan_refinement_agent(FunctionModel(respond))
+    deps = PlanRefinementDeps(profile=profile, plan=plan, prompt="weekly seasonality")
+    result = agent.run_sync("weekly seasonality", deps=deps)
+
+    assert result.output.lags == [1, 7]
+    assert len(calls) == 2
+    retry_parts = [
+        part for message in calls[1] for part in message.parts
+        if isinstance(part, RetryPromptPart)
+    ]
+    assert len(retry_parts) == 1
+    assert retry_parts[0].content == [
+        {
+            "type": "value_error",
+            "loc": ("lags",),
+            "msg": "Value error, `lags` must be positive integers (>= 1), got [0, 7].",
+            "input": [0, 7],
+        }
+    ]

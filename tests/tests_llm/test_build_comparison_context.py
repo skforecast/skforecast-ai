@@ -49,7 +49,8 @@ def test_build_comparison_context_guardrail_against_re_ranking():
     assert (
         "The ranking is a deterministic ascending sort of the MAE column "
         "(lower is better). Do not re-rank the candidates or recompute the "
-        "table." in context
+        "table, and do not suggest reasons for the ranking beyond the metric "
+        "values: the leaderboard reports what happened, not why." in context
     )
 
 

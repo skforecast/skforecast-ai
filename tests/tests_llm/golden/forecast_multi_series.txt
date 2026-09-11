@@ -1,13 +1,23 @@
 <forecast_context>
 <dataset>
 - Observations: 100
+- Observations pooled across series: 200
 - Series: 2
 - Frequency: D
+- Date range: 2023-01-01 to 2023-04-10
 - Target: value
 - Exogenous columns: none
+- Target statistics (store_a): min 0, max 99, mean 49.5, std 29.01
+- Target statistics (store_b): min 50, max 149, mean 99.5, std 29.01
+- Missing values: none
+- Index irregularities: none detected
 </dataset>
 <profile_decision>
-The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursiveMultiSeries) is recommended. Data: 200 observations, 'D' frequency. Alternative forecasters: ['ForecasterDirectMultiVariate']. Estimator: Ridge. A linear model is preferred because the dataset is small (200 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursiveMultiSeries) is recommended. Data: 200 observations pooled across 2 series, 'D' frequency. Alternative forecasters: ['ForecasterDirectMultiVariate']. Estimator: Ridge. A linear model is preferred because the dataset is small (200 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+- Significant lags for store_a (partial autocorrelation, strongest first): 1
+- Significant lags for store_b (partial autocorrelation, strongest first): 1
+- Suggested window features: mean(window=3), std(window=3), mean(window=7), mean(window=21)
+- Suggested calendar features: day_of_week, weekend, month
 </profile_decision>
 <forecast_plan>
 - Steps: 3

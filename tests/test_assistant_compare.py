@@ -11,6 +11,11 @@ from pydantic import ValidationError
 
 from skforecast.model_selection import TimeSeriesFold
 
+from skforecast_ai.execution.comparison import (
+    aggregate_metrics,
+    resolve_compare_candidates,
+)
+
 from skforecast_ai import (
     AllCandidatesFailedError,
     BacktestResult,
@@ -54,7 +59,7 @@ def test_resolve_compare_candidates_auto_from_profile():
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
 
-    resolved = assistant._resolve_compare_candidates(None, profile)
+    resolved = resolve_compare_candidates(None, profile)
 
     names = [name for name, _ in resolved]
     assert names == profile.forecaster_candidates
@@ -69,7 +74,7 @@ def test_resolve_compare_candidates_ValueError_when_empty_list():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
 
     with pytest.raises(ValueError, match="must not be an empty list"):
-        assistant._resolve_compare_candidates([], profile)
+        resolve_compare_candidates([], profile)
 
 
 def test_resolve_compare_candidates_ValueError_when_duplicate_names():
@@ -88,7 +93,7 @@ def test_resolve_compare_candidates_ValueError_when_duplicate_names():
         "Candidate names must be unique, found duplicates: ['dup']."
     )
     with pytest.raises(ValueError, match=err_msg):
-        assistant._resolve_compare_candidates(candidates, profile)
+        resolve_compare_candidates(candidates, profile)
 
 
 @pytest.mark.parametrize(
@@ -121,7 +126,7 @@ def test_resolve_compare_candidates_raises_on_invalid_entry(
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
 
     with pytest.raises(err_type, match=err_match):
-        assistant._resolve_compare_candidates(candidates, profile)
+        resolve_compare_candidates(candidates, profile)
 
 
 # =============================================================================
@@ -129,19 +134,19 @@ def test_resolve_compare_candidates_raises_on_invalid_entry(
 # =============================================================================
 def test_aggregate_metrics_single_series_uses_single_row():
     """
-    Test that `_aggregate_metrics` returns the single row's values for a
+    Test that `aggregate_metrics` returns the single row's values for a
     single-series metrics frame.
     """
     metrics = pd.DataFrame({"mean_absolute_error": [0.5], "mean_squared_error": [0.25]})
 
-    agg = assistant._aggregate_metrics(metrics)
+    agg = aggregate_metrics(metrics)
 
     assert agg == {"mean_absolute_error": 0.5, "mean_squared_error": 0.25}
 
 
 def test_aggregate_metrics_multi_series_uses_average_row():
     """
-    Test that `_aggregate_metrics` selects the `'average'` aggregate row
+    Test that `aggregate_metrics` selects the `'average'` aggregate row
     for a multi-series metrics frame and drops the `'levels'` column.
     """
     metrics = pd.DataFrame(
@@ -151,7 +156,7 @@ def test_aggregate_metrics_multi_series_uses_average_row():
         }
     )
 
-    agg = assistant._aggregate_metrics(metrics)
+    agg = aggregate_metrics(metrics)
 
     assert "levels" not in agg
     assert agg == {"mean_absolute_error": 0.3}
@@ -159,11 +164,11 @@ def test_aggregate_metrics_multi_series_uses_average_row():
 
 def test_aggregate_metrics_empty_frame_returns_empty_dict():
     """
-    Test that `_aggregate_metrics` returns an empty dict for None or an
+    Test that `aggregate_metrics` returns an empty dict for None or an
     empty frame.
     """
-    assert assistant._aggregate_metrics(None) == {}
-    assert assistant._aggregate_metrics(pd.DataFrame()) == {}
+    assert aggregate_metrics(None) == {}
+    assert aggregate_metrics(pd.DataFrame()) == {}
 
 
 # =============================================================================
@@ -755,3 +760,96 @@ def test_compare_best_candidate_reusable_in_backtest():
 
     assert isinstance(reused, BacktestResult)
     assert reused.plan.forecaster == best.plan.forecaster
+
+
+def test_compare_output_when_profile_given_without_target():
+    """
+    Test that a supplied profile makes `target` and `date_column`
+    optional for compare(), taking them from the profile.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+
+    result = assistant.compare(
+        data=df_no_exog,
+        cv=cv,
+        candidates=[("recursive", {"forecaster": "ForecasterRecursive"})],
+        profile=profile,
+        show_progress=False,
+    )
+
+    assert result.profile is profile
+    assert result.best_name == "recursive"
+
+
+def test_compare_output_when_cv_result_given():
+    """
+    Test that compare() accepts a CVResult and applies its splitter to
+    every candidate.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+
+    result = assistant.compare(
+        data=df_no_exog,
+        cv=cv_result,
+        candidates=[("recursive", {"forecaster": "ForecasterRecursive"})],
+        profile=profile,
+        show_progress=False,
+    )
+
+    assert result.cv_config == cv_result.cv_config
+
+
+def test_compare_ValueError_when_multi_series_and_multivariate_are_mixed():
+    """
+    Test that a comparison mixing a multi-series candidate (scored on the
+    average across series) with a multivariate one (scored on the single
+    series it predicts) is rejected, since the ranking column would not
+    measure the same thing for both.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    with pytest.raises(ValueError, match="mix forecaster families"):
+        assistant.compare(
+            data=df_multi_wide,
+            cv=cv,
+            profile=profile,
+            candidates=[
+                ("multi", {"forecaster": "ForecasterRecursiveMultiSeries"}),
+                ("multivariate", {"forecaster": "ForecasterDirectMultiVariate"}),
+            ],
+            show_progress=False,
+        )
+
+
+def test_resolve_compare_candidates_auto_when_multi_series_varies_the_estimator():
+    """
+    Test that the automatic candidates of a multi-series profile keep the
+    multi-series forecaster only (the multivariate alternative is not
+    comparable) and vary its estimator across the profile's estimator
+    candidates, so the comparison still has more than one row.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+    assert "ForecasterDirectMultiVariate" in profile.forecaster_candidates
+
+    resolved = resolve_compare_candidates(None, profile)
+
+    assert [name for name, _ in resolved] == [
+        f"ForecasterRecursiveMultiSeries+{estimator}"
+        for estimator in profile.estimator_candidates
+    ]
+    assert all(
+        config == {"forecaster": "ForecasterRecursiveMultiSeries", "estimator": estimator}
+        for (_, config), estimator in zip(resolved, profile.estimator_candidates)
+    )

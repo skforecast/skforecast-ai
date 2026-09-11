@@ -29,3 +29,6 @@ jobs:
 
       - name: Check AI assets (llms-base.txt + skills) are up-to-date
         run: python3 tools/sync_skforecast_assets.py --check --branch auto
+
+      - name: Report the skill token budget
+        run: python3 tools/measure_skill_tokens.py --report >> "$GITHUB_STEP_SUMMARY"

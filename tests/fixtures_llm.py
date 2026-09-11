@@ -7,7 +7,9 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import (
     BacktestResult,
     CandidateFailure,
+    CodeGenerationResult,
     ComparisonResult,
+    CVResult,
     ForecastResult,
     SingleRunResult,
 )
@@ -153,6 +155,46 @@ def make_single_run_result() -> SingleRunResult:
         code        = code_single,
         predictions = predictions_single,
         metrics     = metrics_single,
+    )
+
+
+def make_code_generation_result() -> CodeGenerationResult:
+    """
+    Build a generated-script result.
+
+    Returns
+    -------
+    result : CodeGenerationResult
+        Result carrying a profile, plan, and code but no predictions.
+    """
+
+    return CodeGenerationResult(
+        profile = profile_single,
+        plan    = plan_single,
+        code    = code_single,
+    )
+
+
+def make_cv_result() -> CVResult:
+    """
+    Build a cross-validation strategy result without calling create_cv().
+
+    Returns
+    -------
+    result : CVResult
+        Strategy carrying a profile, plan, splitter, configuration, code
+        and explanation, but no predictions or metrics.
+    """
+
+    from skforecast.model_selection import TimeSeriesFold
+
+    return CVResult(
+        profile     = profile_single,
+        plan        = plan_single,
+        cv          = TimeSeriesFold(steps=5, initial_train_size=60, refit=False),
+        cv_config   = {"steps": 5, "initial_train_size": 60, "refit": False, "n_folds": 8},
+        code        = "cv = TimeSeriesFold(steps=5, initial_train_size=60)\n",
+        explanation = "Using 60 observations for initial training, 8 folds.",
     )
 
 
@@ -315,6 +357,9 @@ def make_comparison_result(*, n_candidates: int = 2, with_failure: bool = False)
 # `python tools/update_golden_llm_contexts.py` after an intentional change.
 # ---------------------------------------------------------------------------
 GOLDEN_SCENARIOS = {
+    "profile_only": lambda: profile_single,
+    "code_generation_result": make_code_generation_result,
+    "cv_strategy": make_cv_result,
     "forecast_single_series_no_intervals": lambda: make_forecast_result(),
     "forecast_single_series_with_intervals": lambda: make_forecast_result(
         profile     = profile_exog,

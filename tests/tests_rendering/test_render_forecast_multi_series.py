@@ -15,7 +15,7 @@ from .fixtures_rendering import (
 
 
 # =============================================================================
-# Tests: render_forecast_multi_series — full script comparison
+# Tests: render_forecast_multi_series: full script comparison
 # =============================================================================
 def test_render_forecast_multi_series_output_when_wide_format():
     """
@@ -165,7 +165,7 @@ def test_render_forecast_multi_series_output_when_long_format():
 
 
 # =============================================================================
-# Tests: render_forecast_multivariate — full script comparison
+# Tests: render_forecast_multivariate: full script comparison
 # =============================================================================
 def test_render_forecast_multivariate_output_when_wide_format():
     """
@@ -234,7 +234,7 @@ def test_render_forecast_multivariate_output_when_wide_format():
 
 
 # =============================================================================
-# Tests: render_forecast_multi_series — exog enabled
+# Tests: render_forecast_multi_series: exog enabled
 # =============================================================================
 def test_render_forecast_multi_series_output_when_wide_format_with_exog():
     """

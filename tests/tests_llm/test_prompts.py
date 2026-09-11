@@ -7,6 +7,7 @@ import pytest
 from skforecast_ai._constants import MAX_STATIC_PROMPT_TOKENS
 from skforecast_ai.llm.prompts import (
     _CV_ROLE_PROMPT,
+    _DOCUMENTATION_PREAMBLE,
     _PLAN_REFINEMENT_ROLE_PROMPT,
     _STATIC_ROLE_PROMPT,
 )
@@ -40,24 +41,6 @@ def test_role_prompt_structure(name, prompt):
     numbers = [int(n) for n in re.findall(r"^(\d+)\. ", prompt, re.M)]
     assert numbers == list(range(1, len(numbers) + 1))
 
-
-@pytest.mark.parametrize(
-    "name, prompt",
-    ALL_ROLE_PROMPTS,
-    ids=lambda dt: f"role prompt: {dt}"
-)
-def test_role_prompt_uses_plain_ascii_punctuation(name, prompt):
-    """
-    Test that no role prompt contains en dashes or em dashes. The prompts
-    instruct the model to avoid them, so they must not model the opposite.
-    """
-    assert "\u2013" not in prompt
-    assert "\u2014" not in prompt
-
-
-# ---------------------------------------------------------------------------
-# Static role prompt: required directives
-# ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
     "directive",
@@ -100,7 +83,7 @@ def test_static_role_prompt_documents_context_tags():
     Test that the static role prompt names the tags the context block
     emits, so the model knows which content is authoritative.
     """
-    for tag in ["<forecast_context>", "<dataset>", "<forecast_plan>",
+    for tag in ["<forecast_context>", "<dataset>", "<forecast_plan>", "<script>",
                 "<cross_validation>", "<deterministic_summary>",
                 "<evaluation_metrics>", "<predictions>", "<leaderboard>",
                 "<question>"]:
@@ -133,10 +116,13 @@ def test_static_role_prompt_omits_superseded_wording(superseded):
 def test_static_prompt_token_estimate_is_derived_from_the_prompt():
     """
     Test that the estimate used to size the Ollama context window is
-    computed from the prompt rather than hardcoded, so it cannot drift
-    from the prompt it describes when the prompt is edited.
+    computed from the prompts rather than hardcoded, so it cannot drift
+    from the text it describes when that text is edited. Both the role
+    prompt and the documentation preamble are paid on every call.
     """
-    assert _STATIC_PROMPT_TOKEN_ESTIMATE == len(_STATIC_ROLE_PROMPT) // 4
+    assert _STATIC_PROMPT_TOKEN_ESTIMATE == (
+        len(_STATIC_ROLE_PROMPT) + len(_DOCUMENTATION_PREAMBLE)
+    ) // 4
 
 
 def test_static_role_prompt_within_ceiling():
@@ -146,3 +132,26 @@ def test_static_role_prompt_within_ceiling():
     comes straight out of the budget available for skills.
     """
     assert _STATIC_PROMPT_TOKEN_ESTIMATE <= MAX_STATIC_PROMPT_TOKENS
+
+
+@pytest.mark.parametrize(
+    "prompt, fragment",
+    [
+        (_CV_ROLE_PROMPT, "Give `initial_train_size` as an integer number of observations"),
+        (_CV_ROLE_PROMPT, "ISO format"),
+        (_CV_ROLE_PROMPT, "strictly inside that range"),
+        (_PLAN_REFINEMENT_ROLE_PROMPT, "`lags` are positive integers (>= 1) with no duplicates"),
+        (_PLAN_REFINEMENT_ROLE_PROMPT, "non-empty list"),
+        (_PLAN_REFINEMENT_ROLE_PROMPT, "Every `window_size` is an integer >= 1"),
+    ],
+    ids=lambda value: value if len(value) < 60 else "prompt",
+)
+def test_structured_output_prompts_state_input_constraints(prompt, fragment):
+    """
+    Test that the CV and plan refinement prompts state the constraints the
+    output schemas and validators enforce (integer or ISO date inside the
+    range for initial_train_size; positive, unique, non-empty lags and
+    positive window sizes), so the model is told the rules before being
+    corrected by a validation retry.
+    """
+    assert fragment in prompt

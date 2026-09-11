@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from skforecast_ai.llm.context import (
+    MAX_STATS_SERIES,
     build_context_message,
     _serialize_dataframe,
     _summarize_dataframe,
@@ -92,6 +93,64 @@ def test_serialize_dataframe_summary_reports_exact_values():
     result = _serialize_dataframe(df)
 
     assert "pred: min=1000.0, max=1097.5, mean=1048.75" in result
+
+
+def test_serialize_dataframe_summary_omits_fold_column():
+    """
+    Test that the per-column summary of a truncated backtest frame skips
+    the `fold` column: it is an identifier, and its mean fold index is
+    noise that would be quoted back as a fact about the predictions.
+    """
+    df = pd.DataFrame({
+        "fold": np.repeat(np.arange(10), 5),
+        "pred": np.arange(50, dtype=float),
+    })
+    result = _serialize_dataframe(df)
+    assert "Per-column summary" in result
+    assert "  pred: min=0.0, max=49.0, mean=24.5" in result
+    assert "  fold:" not in result
+
+
+def test_serialize_dataframe_summary_breaks_pred_down_by_level():
+    """
+    Test that a truncated multi-series frame adds a per-level summary of
+    `pred`, so a question about one series can be answered from the
+    context instead of from the pooled min, max and mean.
+    """
+    df = pd.DataFrame({
+        "level": ["a"] * 20 + ["b"] * 20,
+        "pred": np.concatenate([np.arange(20, dtype=float), np.arange(100, 120, dtype=float)]),
+        "lower_bound": np.zeros(40),
+    })
+    result = _serialize_dataframe(df)
+    assert "  pred: min=0.0, max=119.0, mean=59.5" in result
+    assert "Per-level summary of pred (all rows):" in result
+    assert "  a: min=0.0, max=19.0, mean=9.5" in result
+    assert "  b: min=100.0, max=119.0, mean=109.5" in result
+    assert "Per-level summary of lower_bound" not in result
+
+
+def test_serialize_dataframe_summary_caps_levels():
+    """
+    Test that the per-level summary of `pred` lists at most
+    `MAX_STATS_SERIES` levels and states how many were left out, and that
+    a single-level frame gets no per-level summary at all.
+    """
+    n_levels = MAX_STATS_SERIES + 2
+    df = pd.DataFrame({
+        "level": [f"s{i}" for i in range(n_levels) for _ in range(10)],
+        "pred": np.arange(10 * n_levels, dtype=float),
+    })
+    result = _serialize_dataframe(df)
+    assert (
+        f"Per-level summary of pred (all rows) "
+        f"(first {MAX_STATS_SERIES} of {n_levels} levels):"
+    ) in result
+    assert f"  s{MAX_STATS_SERIES - 1}:" in result
+    assert f"  s{MAX_STATS_SERIES}:" not in result
+
+    single = pd.DataFrame({"level": ["a"] * 40, "pred": np.arange(40, dtype=float)})
+    assert "Per-level summary" not in _serialize_dataframe(single)
 
 
 def test_serialize_dataframe_exactly_30_rows():

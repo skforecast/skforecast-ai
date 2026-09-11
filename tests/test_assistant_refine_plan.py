@@ -44,6 +44,20 @@ def test_refine_plan_ValueError_when_lags_exceed_data_budget():
         assistant.refine_plan(profile, plan, lags=50)
 
 
+def test_refine_plan_ValueError_when_lags_duplicated():
+    """
+    Test that an explicit lags override with duplicated values raises
+    ValueError before the plan is rebuilt.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    err_msg = re.escape("`lags` must not contain duplicates, got [2, 2].")
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.refine_plan(profile, plan, lags=[2, 2])
+
+
 def test_refine_plan_output_when_lags_within_budget():
     """
     Test that an explicit lag override within the data budget is applied.
@@ -233,3 +247,68 @@ def test_refine_plan_preserves_custom_forecaster_when_other_fields_refined():
     assert refined.forecaster == "ForecasterDirect"
     assert refined.steps == 24
     assert refined.interval == [0.05, 0.95]
+
+
+def test_refine_plan_output_resets_end_train():
+    """
+    Test that refine_plan() does not carry the `end_train` split boundary
+    over to the refined plan. The boundary was derived from the original
+    horizon and test size, so keeping it would make a refined plan run in
+    evaluation mode (and fail when the new horizon exceeds the test set)
+    instead of forecasting the future.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10).model_copy(
+        update={"end_train": "2023-03-01"}
+    )
+
+    refined = assistant.refine_plan(profile, plan, steps=5)
+
+    assert refined.end_train is None
+    assert refined.steps == 5
+
+
+def test_refine_plan_output_preserves_llm_refined_fields_when_not_overridden():
+    """
+    Test that an LLM mark on the original plan survives a deterministic
+    refinement of an unrelated field, since the marked value itself is
+    carried over from `plan.forecaster_kwargs`, and that the mark is
+    dropped once the field is overridden explicitly.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10).model_copy(
+        update={"llm_refined_fields": ["lags"]}
+    )
+
+    refined_unrelated = assistant.refine_plan(
+        profile, plan, estimator_kwargs={"n_estimators": 50}
+    )
+    refined_lags = assistant.refine_plan(profile, plan, lags=[1, 2])
+
+    assert refined_unrelated.llm_refined_fields == ["lags"]
+    assert refined_unrelated.forecaster_kwargs["lags"] == plan.forecaster_kwargs["lags"]
+    assert refined_lags.llm_refined_fields == []
+
+
+def test_refine_plan_output_drops_llm_mark_when_value_is_not_carried_over():
+    """
+    Test that an LLM mark is dropped when the refinement switches to a
+    forecaster family that has no lags, and stays dropped when a later
+    refinement switches back and re-derives the lags deterministically.
+    Otherwise PACF-derived lags would be displayed as LLM-suggested.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10).model_copy(
+        update={"llm_refined_fields": ["lags"]}
+    )
+
+    statistical = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
+    recursive = assistant.refine_plan(
+        profile, statistical, forecaster="ForecasterRecursive"
+    )
+
+    assert statistical.llm_refined_fields == []
+    assert recursive.llm_refined_fields == []

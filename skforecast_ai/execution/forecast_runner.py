@@ -8,12 +8,8 @@
 
 from __future__ import annotations
 from typing import Any, Callable
-import io
-import traceback
-from contextlib import redirect_stdout
 import pandas as pd
 
-from ..exceptions import ForecastExecutionError
 from ..rendering._helpers import _METRIC_REGISTRY
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 
@@ -21,6 +17,7 @@ from ..rendering.single_series import render_forecast_single_series
 from ..rendering.multi_series import render_forecast_multi_series, render_forecast_multivariate
 from ..rendering.statistical import render_forecast_statistical
 from ..rendering.foundation import render_forecast_foundation
+from ._exec import exec_rendered
 
 _RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript]] = {
     "single_series": render_forecast_single_series,
@@ -191,24 +188,8 @@ def _exec_rendered_code(
     namespace : dict
         Executed namespace containing all variables produced by the code.
     """
-    code_to_exec = rendered.executable
     namespace: dict[str, Any] = {"data": data.copy()}
     if exog is not None:
         namespace["exog_future"] = exog.copy()
 
-    compiled = compile(code_to_exec, "<forecast>", "exec")
-
-    # Capture stdout (print statements in the generated code)
-    stdout_capture = io.StringIO()
-    try:
-        with redirect_stdout(stdout_capture):
-            exec(compiled, namespace)  # noqa: S102
-    except Exception as e:
-        tb = traceback.format_exc()
-        raise ForecastExecutionError(
-            original_error=e,
-            generated_code=code_to_exec,
-            execution_traceback=tb,
-        ) from e
-
-    return namespace
+    return exec_rendered(rendered.executable, namespace, "<forecast>")

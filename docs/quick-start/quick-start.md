@@ -10,7 +10,7 @@ Install **skforecast-ai** and verify the setup works. For a step-by-step walkthr
 
 === "Core"
 
-    Core library — no API key needed, runs entirely offline:
+    Core library, no API key needed, runs entirely offline:
 
     ```bash
     pip install skforecast-ai
@@ -49,7 +49,7 @@ assistant = ForecastingAssistant(llm=None)
 result = assistant.forecast(data=data, target="y", steps=12, test_size=12)
 
 print(result.predictions)   # forecast for the held-out test window
-print(result.metrics)       # evaluation metrics: MAE, MSE, MASE
+print(result.metrics)       # evaluation metrics: MAE, MSE, MASE, MAPE
 print(result.code)          # the skforecast script that produced this result
 ```
 

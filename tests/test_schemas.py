@@ -1,11 +1,35 @@
 # Unit test schemas skforecast_ai
 
+import json
 import re
 
+import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from skforecast_ai.schemas import DataProfile, ForecastPlan
+from skforecast_ai.schemas import (
+    CandidateConfig,
+    DataProfile,
+    ForecastPlan,
+    RefinePlanOverrides,
+)
+from skforecast_ai.schemas.plans import CVParams, PlanOverrides, WindowFeature
+
+from tests.fixtures_llm import (
+    make_backtest_result,
+    make_code_generation_result,
+    make_comparison_result,
+    make_cv_result,
+    make_forecast_result,
+)
+
+RESULT_BUILDERS = {
+    "ForecastResult":       make_forecast_result,
+    "BacktestResult":       make_backtest_result,
+    "ComparisonResult":     make_comparison_result,
+    "CodeGenerationResult": make_code_generation_result,
+    "CVResult":             make_cv_result,
+}
 
 
 def test_data_profile_invalid_index_type():
@@ -147,6 +171,40 @@ def test_data_profile_observation_counts_fallback_without_frequency():
     assert profile.n_total_observations == 240
 
 
+def test_data_profile_n_observations_display_when_single_series_uses_length():
+    """
+    Test n_observations_display returns the single series length.
+    """
+    profile = DataProfile(
+        n_series=1,
+        series_lengths={
+            "value": {"start": "2023-01-01", "end": "2023-04-10", "length": 100}
+        },
+        target="value",
+        index_type="datetime",
+        frequency="D",
+    )
+    assert profile.n_observations_display == 100
+
+
+def test_data_profile_n_observations_display_when_multi_series_uses_span():
+    """
+    Test n_observations_display returns the union span for multi-series
+    data, not the pooled total nor the longest series.
+    """
+    profile = DataProfile(
+        n_series=2,
+        series_lengths={
+            "A": {"start": "2023-01-01", "end": "2023-04-10", "length": 60},
+            "B": {"start": "2023-02-01", "end": "2023-03-01", "length": 29},
+        },
+        target="value",
+        index_type="datetime",
+        frequency="D",
+    )
+    assert profile.n_observations_display == 100
+
+
 def test_forecast_plan_minimal():
     """
     Test ForecastPlan can be created with only required fields and defaults
@@ -205,3 +263,227 @@ def test_forecast_plan_json_roundtrip():
     json_str = plan.model_dump_json()
     restored = ForecastPlan.model_validate_json(json_str)
     assert restored == plan
+
+
+def test_refine_plan_overrides_keys_are_all_optional():
+    """
+    Test that the typed override dictionary declares every key optional
+    and lists exactly the keys refine_plan() accepts. The run-time
+    validation reads the same set, so an editor and the method can never
+    disagree on the accepted names.
+    """
+    assert RefinePlanOverrides.__required_keys__ == frozenset()
+    assert RefinePlanOverrides.__optional_keys__ == {
+        "forecaster", "estimator", "estimator_kwargs", "steps", "interval",
+        "lags", "window_features",
+    }
+
+
+def test_candidate_config_keys_are_all_optional():
+    """
+    Test that the candidate configuration dictionary declares every key
+    optional and matches the keys compare() accepts: the refine_plan()
+    keys without `steps` and `interval`, which are shared by every
+    candidate.
+    """
+    assert CandidateConfig.__required_keys__ == frozenset()
+    assert CandidateConfig.__optional_keys__ == (
+        RefinePlanOverrides.__optional_keys__ - {"steps", "interval"}
+    )
+
+
+# =============================================================================
+# Tests: results serialize to JSON
+# =============================================================================
+@pytest.mark.parametrize(
+    "name",
+    sorted(RESULT_BUILDERS),
+    ids=lambda dt: f"result: {dt}"
+)
+def test_result_model_dump_json_round_trips_through_json(name):
+    """
+    Test that every result serializes with `model_dump_json()` and
+    `model_dump(mode="json")` into something the standard JSON encoder
+    accepts, so results can be saved or sent like profiles and plans.
+    """
+    result = RESULT_BUILDERS[name]()
+
+    dumped = result.model_dump(mode="json")
+    text = result.model_dump_json()
+
+    assert isinstance(json.loads(text), dict)
+    json.dumps(dumped)
+    assert dumped["profile"]["forecaster"] == result.profile.forecaster
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(RESULT_BUILDERS),
+    ids=lambda dt: f"result: {dt}"
+)
+def test_result_model_dump_keeps_live_objects(name):
+    """
+    Test that `model_dump()` in Python mode is unchanged: DataFrame
+    fields stay DataFrames, so callers that inspect the dump keep working.
+    """
+    result = RESULT_BUILDERS[name]()
+
+    dumped = result.model_dump()
+
+    for field in ("predictions", "metrics", "results"):
+        if field in dumped and dumped[field] is not None:
+            assert isinstance(dumped[field], pd.DataFrame)
+    if "cv" in dumped:
+        assert dumped["cv"] is result.cv
+
+
+def test_forecast_result_json_frames_are_records_with_index():
+    """
+    Test that DataFrame fields serialize as row records with the index as
+    a leading column, the layout the CLI has always emitted.
+    """
+    result = make_forecast_result()
+
+    dumped = result.model_dump(mode="json")
+
+    assert dumped["predictions"][0]["pred"] == result.predictions["pred"].iloc[0]
+    assert "index" in dumped["predictions"][0]
+    assert dumped["metrics"][0]["MAE"] == result.metrics["MAE"].iloc[0]
+
+
+def test_comparison_result_json_includes_best_name():
+    """
+    Test that `best_name` is part of the JSON dump as a computed field
+    while the winning candidate is not serialized twice.
+    """
+    result = make_comparison_result()
+
+    dumped = result.model_dump(mode="json")
+
+    assert dumped["best_name"] == result.best_name
+    assert "best_candidate" not in dumped
+    assert dumped["best_name"] in dumped["candidates"]
+
+
+def test_cv_result_json_serializes_fold_parameters():
+    """
+    Test that the `TimeSeriesFold` of a CVResult serializes as its
+    constructor parameters.
+    """
+    result = make_cv_result()
+
+    dumped = result.model_dump(mode="json")
+
+    assert dumped["cv"]["steps"] == result.cv.steps
+    assert dumped["cv"]["initial_train_size"] == result.cv.initial_train_size
+    assert dumped["cv"]["refit"] is result.cv.refit
+
+
+@pytest.mark.parametrize(
+    "lags, match",
+    [
+        (0, "must be positive integers"),
+        ([], "must not be an empty list"),
+        ([0, 1], "must be positive integers"),
+        (True, "must be an int or a list of ints"),
+        ([1.5], "must contain ints only"),
+        ([2, 2], "must not contain duplicates"),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_plan_overrides_ValidationError_when_lags_invalid(lags, match):
+    """
+    Test that PlanOverrides rejects the same lag specifications
+    `_validate_lags` rejects, before pydantic coerces a bool or a float,
+    so pydantic-ai sends the error back to the model.
+    """
+    with pytest.raises(ValidationError, match=match):
+        PlanOverrides(lags=lags, window_features=None, reasoning="test")
+
+
+@pytest.mark.parametrize(
+    "window_size",
+    [0, -1, 7.0, True, "7"],
+    ids=lambda value: f"{value!r}",
+)
+def test_window_feature_ValidationError_when_window_size_invalid(window_size):
+    """
+    Test that WindowFeature.window_size only accepts a strictly typed
+    positive int: zero, negatives, floats, bools and numeric strings are
+    rejected instead of being coerced.
+    """
+    err_msg = re.escape("window_size")
+    with pytest.raises(ValidationError, match=err_msg):
+        WindowFeature(stats=["mean"], window_size=window_size)
+
+
+def test_plan_overrides_ValidationError_when_window_features_duplicate_pairs():
+    """
+    Test that PlanOverrides rejects two entries pairing the same statistic
+    with the same window size.
+    """
+    err_msg = re.escape("duplicate (stat, window_size) pairs: [('mean', 7)]")
+    with pytest.raises(ValidationError, match=err_msg):
+        PlanOverrides(
+            lags=None,
+            window_features=[
+                WindowFeature(stats=["mean"], window_size=7),
+                WindowFeature(stats=["mean", "std"], window_size=7),
+            ],
+            reasoning="test",
+        )
+
+
+def test_plan_overrides_output_when_valid():
+    """
+    Test that a valid PlanOverrides keeps lags and window features as
+    given, including the same statistic at two different window sizes.
+    """
+    overrides = PlanOverrides(
+        lags=[1, 7, 14],
+        window_features=[
+            WindowFeature(stats=["mean"], window_size=7),
+            WindowFeature(stats=["mean"], window_size=14),
+        ],
+        reasoning="Weekly cycle.",
+    )
+
+    assert overrides.lags == [1, 7, 14]
+    assert [wf.window_size for wf in overrides.window_features] == [7, 14]
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"gap": -1}, "gap"),
+        ({"fold_stride": 0}, "fold_stride"),
+    ],
+    ids=["gap_negative", "fold_stride_zero"],
+)
+def test_cv_params_ValidationError_when_gap_or_fold_stride_out_of_range(
+    kwargs, match
+):
+    """
+    Test that CVParams rejects a negative gap and a non-positive fold
+    stride at the schema boundary, mirroring TimeSeriesFold.
+    """
+    with pytest.raises(ValidationError, match=match):
+        CVParams(initial_train_size=60, reasoning="test", **kwargs)
+
+
+def test_plan_overrides_json_schema_exposes_lag_bounds():
+    """
+    Test that the JSON schema the model receives states the lag and
+    window size bounds, so a future change to the field types that drops
+    the hint is noticed.
+    """
+    schema = PlanOverrides.model_json_schema()
+
+    assert schema["properties"]["lags"]["anyOf"] == [
+        {"items": {"minimum": 1, "type": "integer"}, "minItems": 1, "type": "array"},
+        {"minimum": 1, "type": "integer"},
+        {"type": "null"},
+    ]
+    window_size = schema["$defs"]["WindowFeature"]["properties"]["window_size"]
+    assert window_size["exclusiveMinimum"] == 0
+    assert window_size["type"] == "integer"

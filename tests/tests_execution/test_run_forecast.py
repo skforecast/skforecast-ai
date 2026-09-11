@@ -1,6 +1,5 @@
 # Unit test run_forecast execution/runner
 
-import re
 
 import pandas as pd
 import pytest
@@ -26,7 +25,7 @@ from .fixtures_execution import (
 )
 
 
-# Tests: run_forecast — single series
+# Tests: run_forecast: single series
 
 
 def test_run_forecast_single_series_returns_predictions():
@@ -73,7 +72,7 @@ def test_run_forecast_single_series_with_intervals():
     assert "upper_bound" in predictions.columns
 
 
-# Tests: run_forecast — multi series
+# Tests: run_forecast: multi series
 
 
 def test_run_forecast_multi_series_returns_predictions():
@@ -94,7 +93,7 @@ def test_run_forecast_multi_series_returns_predictions():
     assert (metrics["MAE"] > 0).all()
 
 
-# Tests: run_forecast — statistical
+# Tests: run_forecast: statistical
 
 
 @pytest.mark.slow
@@ -127,7 +126,7 @@ def test_run_forecast_statistical_returns_predictions():
     assert "upper_bound" in result["predictions"].columns
 
 
-# Tests: run_forecast — unsupported task type
+# Tests: run_forecast: unsupported task type
 
 
 def test_run_forecast_ForecastExecutionError_when_invalid_estimator():
@@ -167,7 +166,7 @@ def test_run_forecast_single_series_with_custom_estimator_kwargs():
     assert result["metrics"]["MAE"].iloc[0] > 0
 
 
-# Tests: run_forecast — prediction mode (plan.end_train is None)
+# Tests: run_forecast: prediction mode (plan.end_train is None)
 
 
 def test_run_forecast_prediction_mode_no_exog_returns_no_metrics():

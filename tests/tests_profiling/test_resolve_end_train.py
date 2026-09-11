@@ -127,3 +127,14 @@ def test_resolve_end_train_ValueError_when_no_frequency():
         resolve_end_train(
             start_date=_START, frequency=None, n_observations=_N, test_size=20
         )
+
+
+def test_resolve_end_train_TypeError_when_unsupported_type():
+    """
+    Test that a `test_size` of an unsupported type (for example a list)
+    raises TypeError naming the accepted types.
+    """
+    with pytest.raises(TypeError, match="must be an int, float, str or Timestamp, got list"):
+        resolve_end_train(
+            start_date="2023-01-01", frequency="D", n_observations=100, test_size=[10]
+        )

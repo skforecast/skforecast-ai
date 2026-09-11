@@ -74,3 +74,15 @@ profile_categorical_exog = DataProfile(
     exog_columns           = ["temperature", "holiday"],
     categorical_exog       = ["holiday"],
 )
+
+# --- Single series, daily, 100 observations with explicit date bounds ---
+profile_single_daily_100 = DataProfile(
+    n_series       = 1,
+    series_lengths = {
+        "value": {"start": "2023-01-01", "end": "2023-04-10", "length": 100}
+    },
+    target         = "value",
+    index_type     = "datetime",
+    frequency      = "D",
+    start_date     = "2023-01-01",
+)

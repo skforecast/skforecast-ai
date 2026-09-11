@@ -55,7 +55,7 @@ Thank you for helping us make **skforecast-ai** better! 🎉
     We value your input! Here are a few ways you can participate:
 
     - **Report bugs** and suggest new features on our [GitHub Issues page](https://github.com/skforecast/skforecast-ai/issues).
-    - **Contribute** to the project by [submitting code](https://github.com/skforecast/skforecast-ai/blob/master/CONTRIBUTING.md), adding new features, or improving the documentation.
+    - **Contribute** to the project by [submitting code](https://github.com/skforecast/skforecast-ai/blob/main/CONTRIBUTING.md), adding new features, or improving the documentation.
     - **Share your feedback** on LinkedIn to help spread the word about skforecast-ai!
 
     Together, we can make time series forecasting accessible to everyone.
@@ -70,7 +70,7 @@ Thank you for helping us make **skforecast-ai** better! 🎉
 **APA**
 
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.2.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
 **BibTeX**
@@ -79,8 +79,8 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.2.0) [Com
 @software{skforecast-ai,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast-ai},
-  version = {0.2.0},
-  month   = {8},
+  version = {0.3.0},
+  month   = {9},
   year    = {2026},
   license = {Apache-2.0},
   url     = {https://ai.skforecast.org/},
@@ -91,8 +91,8 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.2.0) [Com
 
 ## License
 
-[![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/master/LICENSE)
+[![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE)
 
-**skforecast-ai software**: [Apache License 2.0](https://github.com/skforecast/skforecast-ai/blob/master/LICENSE)
+**skforecast-ai software**: [Apache License 2.0](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE)
 
-The underlying [`skforecast`](https://github.com/skforecast/skforecast) engine is distributed under its own [BSD-3-Clause License](https://github.com/skforecast/skforecast/blob/master/LICENSE).
+The underlying [`skforecast`](https://github.com/skforecast/skforecast) engine is distributed under its own [BSD-3-Clause License](https://github.com/skforecast/skforecast/blob/main/LICENSE).

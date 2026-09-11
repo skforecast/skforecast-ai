@@ -1,20 +1,25 @@
 # Unit test _utils
 
+import re
 from pathlib import Path
 
 import pytest
 import pandas as pd
 
 from skforecast_ai._utils import (
+    _apply_interval_to_plan,
     _strip_code_blocks,
     _resolve_data_and_target,
-    _run_agent_sync,
-    _series_span_length,
-    _display_n_observations,
+    _resolve_inputs_with_profile,
+    _validate_lags,
+    _validate_max_window_size,
     _validate_task_input,
     _validate_window_features,
 )
+from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import DataProfile
+
+from tests.fixtures_assistant import df_single, series_single
 
 
 # =============================================================================
@@ -201,76 +206,118 @@ def test_resolve_data_and_target_parses_date_column(tmp_path):
 
 
 # =============================================================================
-# _run_agent_sync
+# _resolve_inputs_with_profile
 # =============================================================================
-def test_run_agent_sync_output_and_forwards_args():
+profile_single = ForecastingAssistant().profile(
+    data=df_single, target="sales", date_column="date"
+)
+
+
+def test_resolve_inputs_with_profile_delegates_when_no_profile():
     """
-    Test that _run_agent_sync awaits agent.run, forwards args/kwargs, and
-    returns the awaited value.
+    Test that without a profile the inputs are resolved as before, so a
+    DataFrame still requires an explicit target.
     """
-    received = {}
+    data, target, date_column, series_id_column = _resolve_inputs_with_profile(
+        df_single, "sales", "date", None, profile=None
+    )
+    assert target == "sales"
+    assert date_column == "date"
+    assert series_id_column is None
+    assert data is df_single
 
-    class _FakeAgent:
-        async def run(self, *args, **kwargs):
-            received["args"] = args
-            received["kwargs"] = kwargs
-            return "result"
-
-    result = _run_agent_sync(_FakeAgent(), "a", "b", deps="d", model_settings="s")
-
-    assert result == "result"
-    assert received["args"] == ("a", "b")
-    assert received["kwargs"] == {"deps": "d", "model_settings": "s"}
+    with pytest.raises(ValueError, match="`target` is required"):
+        _resolve_inputs_with_profile(df_single, None, None, None, profile=None)
 
 
-def test_run_agent_sync_runs_on_shared_background_loop():
+def test_resolve_inputs_with_profile_fills_missing_values_from_profile():
     """
-    Test that agent.run executes on the shared background loop (a daemon
-    thread), not the caller's thread, and that the same loop is reused
-    across calls.
+    Test that target, date_column and series_id_column default to the
+    values recorded in the profile when they are not given.
     """
-    import threading
+    _, target, date_column, series_id_column = _resolve_inputs_with_profile(
+        df_single, None, None, None, profile=profile_single
+    )
 
-    seen = {}
-
-    class _FakeAgent:
-        async def run(self, *args, **kwargs):
-            loop = __import__("asyncio").get_running_loop()
-            seen.setdefault("loops", []).append(id(loop))
-            seen.setdefault("threads", []).append(
-                threading.current_thread().ident
-            )
-            return "ok"
-
-    agent = _FakeAgent()
-    _run_agent_sync(agent, "first")
-    _run_agent_sync(agent, "second")
-
-    # Executed off the caller (main) thread
-    assert seen["threads"][0] != threading.current_thread().ident
-    # Same background loop reused across calls
-    assert seen["loops"][0] == seen["loops"][1]
+    assert target == "sales"
+    assert date_column == "date"
+    assert series_id_column is None
 
 
-def test_run_agent_sync_propagates_exceptions():
+def test_resolve_inputs_with_profile_accepts_matching_values():
     """
-    Test that an exception raised inside agent.run propagates to the
-    synchronous caller.
+    Test that explicit values equal to the recorded ones are accepted.
     """
+    _, target, date_column, _ = _resolve_inputs_with_profile(
+        df_single, "sales", "date", None, profile=profile_single
+    )
 
-    class _FakeAgent:
-        async def run(self, *args, **kwargs):
-            raise ValueError("boom")
+    assert target == "sales"
+    assert date_column == "date"
 
-    with pytest.raises(ValueError, match="boom"):
-        _run_agent_sync(_FakeAgent(), "msg")
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"target": "other"}, "`target` 'other' does not match the target"),
+        ({"date_column": "other"}, "`date_column` 'other' does not match"),
+        ({"series_id_column": "id"}, "`series_id_column` 'id' does not match"),
+    ],
+    ids=["target", "date_column", "series_id_column"],
+)
+def test_resolve_inputs_with_profile_raises_when_value_conflicts(kwargs, match):
+    """
+    Test that a value different from the one recorded in the profile
+    raises ValueError instead of being silently ignored.
+    """
+    args = {"target": None, "date_column": None, "series_id_column": None}
+    args.update(kwargs)
+
+    with pytest.raises(ValueError, match=match):
+        _resolve_inputs_with_profile(
+            df_single,
+            args["target"],
+            args["date_column"],
+            args["series_id_column"],
+            profile=profile_single,
+        )
+
+
+def test_resolve_inputs_with_profile_raises_when_columns_missing_in_data():
+    """
+    Test that data lacking a column the profile was built from fails
+    early with a readable message, rather than inside the executed script.
+    """
+    with pytest.raises(ValueError, match=re.escape("column(s) ['sales']")):
+        _resolve_inputs_with_profile(
+            df_single.drop(columns=["sales"]), None, None, None,
+            profile=profile_single,
+        )
+
+
+def test_resolve_inputs_with_profile_output_when_series_input():
+    """
+    Test that a pandas Series takes its target from its name and that a
+    name different from the profile's target is rejected.
+    """
+    profile = ForecastingAssistant().profile(data=series_single)
+
+    _, target, _, _ = _resolve_inputs_with_profile(
+        series_single, None, None, None, profile=profile
+    )
+    assert target == "sales"
+
+    with pytest.raises(ValueError, match="does not match the target"):
+        _resolve_inputs_with_profile(
+            series_single.rename("other"), None, None, None, profile=profile
+        )
 
 
 # =============================================================================
 # Task-aware observation-count helpers
 # =============================================================================
 def _make_profile(series_lengths, frequency="D", n_series=None):
-    """Build a minimal DataProfile for observation-count helper tests."""
+    """Build a minimal DataProfile for task input validation tests."""
     return DataProfile(
         n_series=n_series if n_series is not None else len(series_lengths),
         series_lengths=series_lengths,
@@ -278,51 +325,6 @@ def _make_profile(series_lengths, frequency="D", n_series=None):
         index_type="datetime",
         frequency=frequency,
     )
-
-
-def test_series_span_length_output_when_dates_available():
-    """
-    Test _series_span_length spans from the earliest start to the latest
-    end across all series at the profiled frequency.
-    """
-    profile = _make_profile({
-        "A": {"start": "2023-01-01", "end": "2023-04-10", "length": 100},
-        "B": {"start": "2023-02-01", "end": "2023-03-01", "length": 29},
-    })
-    # 2023-01-01 .. 2023-04-10 inclusive at daily frequency
-    assert _series_span_length(profile) == 100
-
-
-def test_series_span_length_output_when_no_frequency_falls_back_to_max():
-    """
-    Test _series_span_length falls back to the longest series length when
-    no frequency is available.
-    """
-    profile = _make_profile(
-        {"A": {"length": 100}, "B": {"length": 60}}, frequency=None
-    )
-    assert _series_span_length(profile) == 100
-
-
-def test_display_n_observations_output_when_single_series_uses_length():
-    """
-    Test _display_n_observations returns the single series length.
-    """
-    profile = _make_profile(
-        {"value": {"start": "2023-01-01", "end": "2023-04-10", "length": 100}}
-    )
-    assert _display_n_observations(profile) == 100
-
-
-def test_display_n_observations_output_when_multi_series_uses_span():
-    """
-    Test _display_n_observations returns the union span for multi-series.
-    """
-    profile = _make_profile({
-        "A": {"start": "2023-01-01", "end": "2023-04-10", "length": 100},
-        "B": {"start": "2023-02-01", "end": "2023-03-01", "length": 29},
-    })
-    assert _display_n_observations(profile) == 100
 
 
 @pytest.mark.parametrize(
@@ -365,6 +367,97 @@ def test_validate_task_input_passes_when_valid():
 
 
 # =============================================================================
+# _validate_lags
+# =============================================================================
+@pytest.mark.parametrize(
+    "lags",
+    [None, 1, 7, [1], [1, 2, 7], [7, 2, 1]],
+    ids=lambda lags: f"lags: {lags}",
+)
+def test_validate_lags_passes_when_valid(lags):
+    """
+    Test that None, a positive int and a non-empty list of unique positive
+    ints (in any order) pass validation without raising.
+    """
+    assert _validate_lags(lags) is None
+
+
+@pytest.mark.parametrize(
+    "lags, match",
+    [
+        (0, "must be positive integers"),
+        (-1, "must be positive integers"),
+        (True, "must be an int or a list of ints"),
+        ("3", "must be an int or a list of ints"),
+        (3.0, "must be an int or a list of ints"),
+        ((1, 2), "must be an int or a list of ints"),
+        ([], "must not be an empty list"),
+        ([0, 1], "must be positive integers"),
+        ([-3], "must be positive integers"),
+        ([1.5], "must contain ints only"),
+        ([1, "3"], "must contain ints only"),
+        ([True], "must contain ints only"),
+        ([2, 2], "must not contain duplicates"),
+        ([1, 2, 1], "must not contain duplicates"),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_validate_lags_ValueError_when_invalid(lags, match):
+    """
+    Test that non-positive, non-int, boolean, empty or duplicated lags
+    raise ValueError with a message naming the violated rule.
+    """
+    with pytest.raises(ValueError, match=match):
+        _validate_lags(lags)
+
+
+# =============================================================================
+# _validate_max_window_size
+# =============================================================================
+@pytest.mark.parametrize(
+    "lags, window_features",
+    [
+        (33, None),
+        ([1, 2, 33], None),
+        (None, [{"stats": ["mean"], "window_size": 33}]),
+        ([1, 7], [{"stats": ["mean"], "window_size": 33}]),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_validate_max_window_size_passes_when_within_budget(lags, window_features):
+    """
+    Test that lags and window sizes spanning up to 33% of the observations
+    (33 of 100) pass the data budget check.
+    """
+    assert _validate_max_window_size(lags, window_features, 100) is None
+
+
+@pytest.mark.parametrize(
+    "lags, window_features",
+    [
+        (34, None),
+        ([1, 2, 34], None),
+        (None, [{"stats": ["mean"], "window_size": 34}]),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_validate_max_window_size_ValueError_when_span_exceeds_budget(
+    lags, window_features
+):
+    """
+    Test that a lag or window size spanning more than 33% of the
+    observations raises ValueError with the span and the maximum allowed.
+    """
+    err_msg = re.escape(
+        "Explicit lags/window_features span up to 34 observations, exceeding "
+        "the maximum of 33 (33% of 100 observations). Reduce the largest lag "
+        "or window size."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _validate_max_window_size(lags, window_features, 100)
+
+
+# =============================================================================
 # _validate_window_features
 # =============================================================================
 @pytest.mark.parametrize(
@@ -378,13 +471,18 @@ def test_validate_task_input_passes_when_valid():
             {"stats": ["mean"], "window_size": 24},
             {"stats": ["ratio_min_max", "coef_variation", "ewm"], "window_size": 168},
         ],
+        [
+            {"stats": ["mean"], "window_size": 7},
+            {"stats": ["mean"], "window_size": 14},
+        ],
     ],
     ids=lambda wf: f"window_features: {wf}",
 )
 def test_validate_window_features_passes_when_valid(window_features):
     """
-    Test that valid window_features configurations (including None and
-    multi-stat scalar-window entries) pass validation without raising.
+    Test that valid window_features configurations (including None,
+    multi-stat scalar-window entries and the same statistic at different
+    window sizes) pass validation without raising.
     """
     assert _validate_window_features(window_features) is None
 
@@ -403,12 +501,41 @@ def test_validate_window_features_passes_when_valid(window_features):
         ([{"stats": ["mean"], "window_size": 7.0}], "must be a scalar int"),
         ([{"stats": ["mean"], "window_size": True}], "must be a scalar int"),
         ([{"stats": ["mean"], "window_size": 0}], "must be a positive int"),
+        (
+            [
+                {"stats": ["mean"], "window_size": 7},
+                {"stats": ["mean", "std"], "window_size": 7},
+            ],
+            re.escape("duplicate (stat, window_size) pairs: [('mean', 7)]"),
+        ),
     ],
 )
 def test_validate_window_features_raises_when_invalid(window_features, match):
     """
     Test that malformed window_features (wrong container, missing keys,
-    unsupported stats, or non-scalar/invalid window_size) raise ValueError.
+    unsupported stats, non-scalar/invalid window_size, or the same statistic
+    paired twice with the same window size) raise ValueError.
     """
     with pytest.raises(ValueError, match=match):
         _validate_window_features(window_features)
+
+
+def test_apply_interval_to_plan_uses_native_method_for_foundation_plan():
+    """
+    Test that applying an interval to a foundation plan without intervals
+    selects the native interval method, extends the explanation, and leaves
+    the original plan untouched, while a plan that already predicts the
+    same interval is returned as is.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+    assert plan.interval is None
+
+    updated = _apply_interval_to_plan(plan, [0.1, 0.9])
+
+    assert updated.interval == [0.1, 0.9]
+    assert updated.interval_method == "native"
+    assert updated.explanation == f"{plan.explanation} Prediction intervals via native."
+    assert plan.interval is None
+    assert _apply_interval_to_plan(updated, [0.1, 0.9]) is updated

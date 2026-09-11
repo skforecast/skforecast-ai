@@ -1,7 +1,6 @@
 # Unit test select_metric
 """Tests for the select_metric recommendation function."""
 
-import pytest
 
 from skforecast_ai.recommendation.metric_selection import (
     select_metric,

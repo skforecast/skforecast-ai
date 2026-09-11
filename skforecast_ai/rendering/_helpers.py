@@ -842,3 +842,195 @@ def _emit_aligned_kwargs(
     for key, value in kwargs:
         lines.append(f"    {key:<{max_len}} = {value},")
     lines.append(")")
+
+
+def _emit_loading_and_index(
+    loading_lines: list[str],
+    core_lines: list[str],
+    profile: DataProfile,
+    *,
+    long_format: bool = False,
+) -> None:
+    """
+    Append the data loading and the index setup blocks.
+
+    Loading goes to the standalone-only section; index setup goes to the
+    core section, which runs in both standalone and exec modes.
+
+    Parameters
+    ----------
+    loading_lines : list of str
+        Data loading lines to append to (modified in place).
+    core_lines : list of str
+        Core code lines to append to (modified in place).
+    profile : DataProfile
+        Profiled dataset metadata.
+    long_format : bool, default False
+        Whether the data is in long format (one row per series and
+        timestamp).
+
+    Returns
+    -------
+    None
+    """
+
+    _emit_data_loading(loading_lines, profile, long_format=long_format)
+    _emit_index_setup(core_lines, profile, long_format=long_format)
+
+
+def _emit_feature_setup(
+    lines: list[str],
+    plan: ForecastPlan,
+    profile: DataProfile,
+    *,
+    use_exog: bool,
+) -> None:
+    """
+    Append the window features, calendar features and exog transformer.
+
+    Shared by the forecast and backtesting renderers of every
+    autoregressive forecaster, which emit the same three blocks before
+    creating the forecaster.
+
+    Parameters
+    ----------
+    lines : list of str
+        Code lines to append to (modified in place).
+    plan : ForecastPlan
+        Forecast plan carrying `forecaster_kwargs`.
+    profile : DataProfile
+        Profiled dataset metadata.
+    use_exog : bool
+        Whether exogenous variables are used, which gates the transformer.
+
+    Returns
+    -------
+    None
+    """
+
+    kwargs = plan.forecaster_kwargs
+
+    window_features = kwargs.get("window_features")
+    if window_features and isinstance(window_features, list):
+        _emit_window_features(lines, window_features)
+        lines.append("")
+
+    if kwargs.get("calendar_features"):
+        _emit_calendar_features(lines, kwargs["calendar_features"])
+        lines.append("")
+
+    transformer_exog = kwargs.get("transformer_exog")
+    if transformer_exog and use_exog:
+        _emit_transformer_exog(lines, transformer_exog, profile)
+
+
+def _emit_pivot_to_wide(lines: list[str], profile: DataProfile) -> None:
+    """
+    Append the pivot from long format to a wide `series` frame.
+
+    Used by the multivariate renderers, whose forecaster needs one column
+    per series.
+
+    Parameters
+    ----------
+    lines : list of str
+        Code lines to append to (modified in place).
+    profile : DataProfile
+        Profiled dataset metadata.
+
+    Returns
+    -------
+    None
+    """
+
+    series_id = profile.series_id_column or "series_id"
+    date_col = profile.date_column or "datetime"
+    target = _get_target_str(profile)
+
+    lines.append("# Pivot to wide format (columns = series)")
+    lines.append("series = data.pivot_table(")
+    lines.append(
+        f"    index={repr(date_col)}, columns={repr(series_id)},"
+        f" values={repr(target)}"
+    )
+    lines.append(")")
+    lines.append("series.index.name = None")
+    lines.append("series.columns.name = None")
+    if profile.frequency:
+        lines.append(f"series = series.asfreq('{profile.frequency}')")
+    lines.append("")
+
+
+def _emit_reshape_series_long_to_dict(
+    lines: list[str],
+    profile: DataProfile,
+    *,
+    comment: str,
+) -> None:
+    """
+    Append the `reshape_series_long_to_dict` call building `series_dict`.
+
+    Parameters
+    ----------
+    lines : list of str
+        Code lines to append to (modified in place).
+    profile : DataProfile
+        Profiled dataset metadata (long format).
+    comment : str
+        Comment line emitted before the call.
+
+    Returns
+    -------
+    None
+    """
+
+    series_id = profile.series_id_column or "series_id"
+    date_col = profile.date_column or "datetime"
+    target = _get_target_str(profile)
+
+    lines.append(comment)
+    lines.append("series_dict = reshape_series_long_to_dict(")
+    lines.append("    data      = data,")
+    lines.append(f"    series_id = {repr(series_id)},")
+    lines.append(f"    index     = {repr(date_col)},")
+    lines.append(f"    values    = {repr(target)},")
+    lines.append(f"    freq      = {repr(profile.frequency)},")
+    lines.append(")")
+
+
+def _emit_reshape_exog_long_to_dict(
+    lines: list[str],
+    profile: DataProfile,
+    *,
+    var: str,
+    data_expr: str,
+) -> None:
+    """
+    Append a `reshape_exog_long_to_dict` call assigning to `var`.
+
+    Parameters
+    ----------
+    lines : list of str
+        Code lines to append to (modified in place).
+    profile : DataProfile
+        Profiled dataset metadata (long format).
+    var : str
+        Name of the variable receiving the dict, e.g. `'exog_dict'`.
+    data_expr : str
+        Expression of the long-format frame to reshape, e.g. `'data'`.
+
+    Returns
+    -------
+    None
+    """
+
+    series_id = profile.series_id_column or "series_id"
+    date_col = profile.date_column or "datetime"
+    exog_select_cols = [series_id, date_col] + list(profile.exog_columns)
+
+    lines.append(f"{var} = reshape_exog_long_to_dict(")
+    lines.append(f"    data      = {data_expr}[{repr(exog_select_cols)}],")
+    lines.append(f"    series_id = {repr(series_id)},")
+    lines.append(f"    index     = {repr(date_col)},")
+    lines.append(f"    freq      = {repr(profile.frequency)},")
+    lines.append(")")

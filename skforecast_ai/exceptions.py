@@ -29,6 +29,44 @@ class LLMRequiredError(Exception):
         )
 
 
+class LLMCallError(Exception):
+    """
+    Raised by `ask()` when the call to the LLM fails.
+
+    `ask()` has no deterministic answer to fall back on, so a failed call
+    (network, authentication, provider error, or a local model that is
+    not reachable) is reported as an error instead of a result whose
+    explanation is not an answer. The original exception is chained and
+    kept as an attribute.
+
+    Parameters
+    ----------
+    llm : str
+        LLM provider string in format `'provider:model_name'`.
+    original_error : Exception
+        The exception raised by the provider or the agent.
+
+    Attributes
+    ----------
+    llm : str
+        LLM provider string in format `'provider:model_name'`.
+    original_error : Exception
+        The exception raised by the provider or the agent.
+    """
+
+    def __init__(self, llm: str, original_error: Exception) -> None:
+        self.llm = llm
+        self.original_error = original_error
+
+        error_type = type(original_error).__name__
+        super().__init__(
+            f"The call to the LLM '{llm}' failed.\n\n"
+            f"  {error_type}: {original_error}\n\n"
+            f"Check the provider, the model name and the credentials, then "
+            f"retry. The original exception is available as `original_error`."
+        )
+
+
 class ForecastExecutionError(Exception):
     """
     Raised when the generated forecasting code fails during exec().
@@ -125,11 +163,12 @@ class DataSentToLLMWarning(UserWarning):
     """
     Warned when data values are sent to the LLM against `send_data_to_llm`.
 
-    `ask(result=...)` always sends the predicted values a result carries,
+    `ask(context=...)` always sends the predicted values a result carries,
     because a question about a result cannot be answered from summary
     statistics alone. That override is silent otherwise, so a user who set
     `send_data_to_llm=False` for privacy reasons would still ship values
-    off the machine without being told.
+    off the machine without being told. A result that carries no such
+    values (for example a `CodeGenerationResult`) does not trigger it.
 
     The input data is not sent: a result holds only the model's output,
     never the data it was fitted on.

@@ -20,17 +20,34 @@ class _FakeResult:
         self.output = output
 
 
-def _make_fake_agent(outputs):
-    """Build a fake agent whose `.run()` yields `outputs` in sequence."""
+def _make_fake_agent(outputs, messages=None):
+    """
+    Build a fake agent whose `.run()` yields `outputs` in sequence and
+    appends every received user message to `messages` when given.
+    """
     call_count = {"n": 0}
 
     class _FakeAgent:
         async def run(self, msg, **kw):
             i = min(call_count["n"], len(outputs) - 1)
             call_count["n"] += 1
+            if messages is not None:
+                messages.append(msg)
             return _FakeResult(outputs[i])
 
     return _FakeAgent(), call_count
+
+
+def _invalid_overrides(lags=None, window_features=None, reasoning="Invalid."):
+    """
+    Build a PlanOverrides bypassing schema validation, as a model output
+    would look if the schema constraints were not enforced.
+    """
+    return PlanOverrides.model_construct(
+        lags            = lags,
+        window_features = window_features,
+        reasoning       = reasoning,
+    )
 
 
 # =============================================================================
@@ -397,6 +414,110 @@ def test_refine_plan_prompt_all_retries_fail_returns_deterministic_plan(monkeypa
         x for x in w if "LLM plan refinement failed after" in str(x.message)
     ]
     assert len(fail_warnings) == 1
+
+
+@pytest.mark.parametrize(
+    "bad_overrides, expected_error",
+    [
+        (
+            _invalid_overrides(lags=[0, 7]),
+            "`lags` must be positive integers (>= 1), got [0, 7].",
+        ),
+        (
+            _invalid_overrides(lags=[7, 7]),
+            "`lags` must not contain duplicates, got [7, 7].",
+        ),
+        (
+            _invalid_overrides(
+                window_features=[
+                    WindowFeature.model_construct(stats=["mean"], window_size=0)
+                ]
+            ),
+            "`window_features[0]['window_size']` must be a positive int, got 0.",
+        ),
+    ],
+    ids=["non_positive_lag", "duplicated_lags", "window_size_zero"],
+)
+def test_refine_plan_prompt_retry_then_success_when_suggestion_invalid(
+    monkeypatch, bad_overrides, expected_error
+):
+    """
+    Test that a structurally invalid LLM suggestion (non-positive or
+    duplicated lags, zero window size) is caught inside the retry loop,
+    the concrete error is fed back to the model and the second suggestion
+    is applied, instead of crashing plan() without fallback.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    good_overrides = PlanOverrides(
+        lags=[1, 7], window_features=None, reasoning="Fixed after retry."
+    )
+    messages: list[str] = []
+    agent, call_count = _make_fake_agent([bad_overrides, good_overrides], messages)
+    monkeypatch.setattr(assistant, "_plan_refinement_agent", agent)
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    refined = assistant.refine_plan(profile, plan, prompt="Strong weekly cycles.")
+
+    assert refined.forecaster_kwargs["lags"] == [1, 7]
+    assert call_count["n"] == 2
+    assert messages[1] == (
+        "Strong weekly cycles.\n\n[RETRY 1/2] Your previous lags/window_features "
+        f"were rejected: {expected_error} Fix them and try again."
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_overrides, expected_error",
+    [
+        (
+            _invalid_overrides(lags=[]),
+            "`lags` must not be an empty list; pass None to keep the "
+            "deterministic lag selection.",
+        ),
+        (
+            _invalid_overrides(
+                window_features=[
+                    WindowFeature.model_construct(stats=["mean"], window_size=7),
+                    WindowFeature.model_construct(stats=["mean"], window_size=7),
+                ]
+            ),
+            "`window_features` contains duplicate (stat, window_size) pairs: "
+            "[('mean', 7)]. Merge the entries or change the window size.",
+        ),
+    ],
+    ids=["empty_lags", "duplicate_pairs"],
+)
+def test_refine_plan_prompt_all_retries_fail_when_suggestion_invalid(
+    monkeypatch, bad_overrides, expected_error
+):
+    """
+    Test that a structurally invalid suggestion repeated on every attempt
+    exhausts the retries and refine_plan() keeps the plan's features,
+    emitting a UserWarning with the last error.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+    original_lags = plan.forecaster_kwargs.get("lags")
+    original_wf = plan.forecaster_kwargs.get("window_features")
+
+    agent, call_count = _make_fake_agent([bad_overrides])
+    monkeypatch.setattr(assistant, "_plan_refinement_agent", agent)
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    warn_msg = re.escape(
+        f"LLM plan refinement failed after 3 attempts (last error: "
+        f"{expected_error}). Returning deterministic plan."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        refined = assistant.refine_plan(profile, plan, prompt="Strong weekly cycles.")
+
+    assert refined.forecaster_kwargs.get("lags") == original_lags
+    assert refined.forecaster_kwargs.get("window_features") == original_wf
+    assert call_count["n"] == 3
 
 
 def test_refine_plan_prompt_transient_failure_is_not_retried(monkeypatch):
