@@ -75,7 +75,7 @@ docs = [
     "mkdocs-jupyter==0.26.3",
     "mkdocs-material==9.7.7",
     "mkdocstrings==1.0.6",
-    "mkdocstrings-python==2.0.7",
+    "mkdocstrings-python==2.0.8",
     "black==26.5.1",
     "mkdocs-typer2[mkdocs]==0.4.1",
 ]
@@ -137,4 +137,8 @@ filterwarnings = [
     # skforecast suggests a transformer_series for linear multi-series models;
     # the plan decides that deliberately.
     "ignore::skforecast.exceptions.DataTransformationWarning",
+    # google-genai (pulled in by pydantic-ai's GoogleModel) touches the private
+    # typing._UnionGenericAlias at import time, which Python 3.14 deprecates.
+    # Upstream package, nothing to fix here.
+    "ignore:'_UnionGenericAlias' is deprecated:DeprecationWarning",
 ]
