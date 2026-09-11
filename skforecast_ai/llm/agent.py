@@ -172,6 +172,12 @@ class CVDeps:
     lags : int, list, None
         Lag structure from the plan. Used to communicate minimum
         training size constraints.
+    start_date : str, default None
+        First date of the series. Together with `end_date` it grounds a
+        date-based `initial_train_size`; None when the dataset has no
+        datetime index with a known frequency.
+    end_date : str, default None
+        Last date of the series, see `start_date`.
     """
 
     n_observations: int
@@ -179,6 +185,8 @@ class CVDeps:
     steps: int
     task_type: str
     lags: int | list | None = None
+    start_date: str | None = None
+    end_date: str | None = None
 
 
 def create_cv_agent(
@@ -220,6 +228,19 @@ def create_cv_agent(
         parts.append("## Dataset Context")
         parts.append(f"- Total observations: {deps.n_observations}")
         parts.append(f"- Frequency: {deps.frequency or 'unknown'}")
+        # A date-based initial_train_size is only usable when the split
+        # date can be located on the real index, so state the range or
+        # rule dates out explicitly.
+        if deps.start_date is not None and deps.end_date is not None:
+            parts.append(
+                f"- Date range: {deps.start_date} to {deps.end_date} (a date "
+                f"initial_train_size must fall strictly inside it)"
+            )
+        else:
+            parts.append(
+                "- Index: no datetime frequency; initial_train_size must be "
+                "an integer"
+            )
         parts.append(f"- Forecast horizon (steps): {deps.steps}")
         parts.append(f"- Task type: {deps.task_type}")
         if deps.lags is not None:

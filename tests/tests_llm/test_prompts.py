@@ -132,3 +132,26 @@ def test_static_role_prompt_within_ceiling():
     comes straight out of the budget available for skills.
     """
     assert _STATIC_PROMPT_TOKEN_ESTIMATE <= MAX_STATIC_PROMPT_TOKENS
+
+
+@pytest.mark.parametrize(
+    "prompt, fragment",
+    [
+        (_CV_ROLE_PROMPT, "Give `initial_train_size` as an integer number of observations"),
+        (_CV_ROLE_PROMPT, "ISO format"),
+        (_CV_ROLE_PROMPT, "strictly inside that range"),
+        (_PLAN_REFINEMENT_ROLE_PROMPT, "`lags` are positive integers (>= 1) with no duplicates"),
+        (_PLAN_REFINEMENT_ROLE_PROMPT, "non-empty list"),
+        (_PLAN_REFINEMENT_ROLE_PROMPT, "Every `window_size` is an integer >= 1"),
+    ],
+    ids=lambda value: value if len(value) < 60 else "prompt",
+)
+def test_structured_output_prompts_state_input_constraints(prompt, fragment):
+    """
+    Test that the CV and plan refinement prompts state the constraints the
+    output schemas and validators enforce (integer or ISO date inside the
+    range for initial_train_size; positive, unique, non-empty lags and
+    positive window sizes), so the model is told the rules before being
+    corrected by a validation retry.
+    """
+    assert fragment in prompt

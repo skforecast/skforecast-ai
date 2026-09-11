@@ -49,7 +49,6 @@ skforecast_ai/
 tests/                mirrors the package: tests_<subpackage>/, fixtures_*.py
 tools/                maintenance scripts; ask_context_reports/ keeps one
                       reviewed ask() evaluation per release and dataset
-dev/plan_de_accion.md work log and pending tasks
 ```
 
 ## Python environment
@@ -121,7 +120,6 @@ Follow `.github/instructions/testing.instructions.md`. In short:
   the author reviews and commits.
 - Any user-visible change (API, CLI output, generated scripts, warnings)
   gets an entry in `docs/releases/releases.md` under the unreleased version.
-- Record decisions and pending work in `dev/plan_de_accion.md`.
 - A change to `llm/context.py`, `llm/prompts.py` or the rendered
   explanations needs a run of `tools/ask_context_check.py` against a real
   model before the release (it costs money, so the user launches it), and

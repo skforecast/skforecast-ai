@@ -44,6 +44,20 @@ def test_refine_plan_ValueError_when_lags_exceed_data_budget():
         assistant.refine_plan(profile, plan, lags=50)
 
 
+def test_refine_plan_ValueError_when_lags_duplicated():
+    """
+    Test that an explicit lags override with duplicated values raises
+    ValueError before the plan is rebuilt.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    err_msg = re.escape("`lags` must not contain duplicates, got [2, 2].")
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.refine_plan(profile, plan, lags=[2, 2])
+
+
 def test_refine_plan_output_when_lags_within_budget():
     """
     Test that an explicit lag override within the data budget is applied.

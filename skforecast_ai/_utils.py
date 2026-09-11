@@ -100,6 +100,62 @@ def _validate_max_window_size(
         )
 
 
+def _validate_lags(lags: int | list[int] | None) -> None:
+    """
+    Validate the structure of an explicit `lags` override.
+
+    `lags` must be a positive int (consecutive lags `1..lags`) or a
+    non-empty list of unique positive ints. The rules mirror what
+    skforecast's `initialize_lags` requires, with two additions that
+    skforecast accepts silently: an empty list, which skforecast treats as
+    `lags=None` and trains without lag features, and duplicated lags, which
+    produce repeated feature columns. A `bool` is rejected explicitly
+    because it subclasses `int`. A `ValueError` is raised on the first
+    violation.
+
+    Parameters
+    ----------
+    lags : int, list of int, None
+        Explicit lags override. When None, no validation is performed.
+
+    Returns
+    -------
+    None
+    """
+    if lags is None:
+        return
+
+    # `bool` is a subclass of `int`; reject it explicitly.
+    if isinstance(lags, bool) or not isinstance(lags, (int, list)):
+        raise ValueError(
+            f"`lags` must be an int or a list of ints, got {lags!r}."
+        )
+
+    if isinstance(lags, int):
+        if lags < 1:
+            raise ValueError(
+                f"`lags` must be positive integers (>= 1), got {lags!r}."
+            )
+        return
+
+    if not lags:
+        raise ValueError(
+            "`lags` must not be an empty list; pass None to keep the "
+            "deterministic lag selection."
+        )
+
+    if any(isinstance(lag, bool) or not isinstance(lag, int) for lag in lags):
+        raise ValueError(f"`lags` must contain ints only, got {lags!r}.")
+
+    if any(lag < 1 for lag in lags):
+        raise ValueError(
+            f"`lags` must be positive integers (>= 1), got {lags!r}."
+        )
+
+    if len(set(lags)) != len(lags):
+        raise ValueError(f"`lags` must not contain duplicates, got {lags!r}.")
+
+
 def _validate_window_features(window_features: list[dict] | None) -> None:
     """
     Validate the structure of an explicit `window_features` override.
@@ -110,7 +166,10 @@ def _validate_window_features(window_features: list[dict] | None) -> None:
     generator pairs every statistic in an entry with that entry's single
     window size; a list would be emitted as a nested list and rejected by
     `RollingFeatures`. To combine several window sizes, add one entry per
-    size. A `ValueError` is raised on the first violation.
+    size. The same statistic must not be paired with the same window size
+    in two entries: the code generator flattens the entries into a single
+    `RollingFeatures`, which rejects duplicate pairs. A `ValueError` is
+    raised on the first violation.
 
     Parameters
     ----------
@@ -175,6 +234,17 @@ def _validate_window_features(window_features: list[dict] | None) -> None:
                 f"`window_features[{i}]['window_size']` must be a positive "
                 f"int, got {window_size}."
             )
+
+    pairs = [
+        (stat, wf["window_size"]) for wf in window_features for stat in wf["stats"]
+    ]
+    duplicates = sorted({pair for pair in pairs if pairs.count(pair) > 1})
+    if duplicates:
+        raise ValueError(
+            f"`window_features` contains duplicate (stat, window_size) "
+            f"pairs: {duplicates}. Merge the entries or change the window "
+            f"size."
+        )
 
 
 def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:

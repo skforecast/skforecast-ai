@@ -11,6 +11,8 @@ from skforecast_ai._utils import (
     _strip_code_blocks,
     _resolve_data_and_target,
     _resolve_inputs_with_profile,
+    _validate_lags,
+    _validate_max_window_size,
     _validate_task_input,
     _validate_window_features,
 )
@@ -365,6 +367,97 @@ def test_validate_task_input_passes_when_valid():
 
 
 # =============================================================================
+# _validate_lags
+# =============================================================================
+@pytest.mark.parametrize(
+    "lags",
+    [None, 1, 7, [1], [1, 2, 7], [7, 2, 1]],
+    ids=lambda lags: f"lags: {lags}",
+)
+def test_validate_lags_passes_when_valid(lags):
+    """
+    Test that None, a positive int and a non-empty list of unique positive
+    ints (in any order) pass validation without raising.
+    """
+    assert _validate_lags(lags) is None
+
+
+@pytest.mark.parametrize(
+    "lags, match",
+    [
+        (0, "must be positive integers"),
+        (-1, "must be positive integers"),
+        (True, "must be an int or a list of ints"),
+        ("3", "must be an int or a list of ints"),
+        (3.0, "must be an int or a list of ints"),
+        ((1, 2), "must be an int or a list of ints"),
+        ([], "must not be an empty list"),
+        ([0, 1], "must be positive integers"),
+        ([-3], "must be positive integers"),
+        ([1.5], "must contain ints only"),
+        ([1, "3"], "must contain ints only"),
+        ([True], "must contain ints only"),
+        ([2, 2], "must not contain duplicates"),
+        ([1, 2, 1], "must not contain duplicates"),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_validate_lags_ValueError_when_invalid(lags, match):
+    """
+    Test that non-positive, non-int, boolean, empty or duplicated lags
+    raise ValueError with a message naming the violated rule.
+    """
+    with pytest.raises(ValueError, match=match):
+        _validate_lags(lags)
+
+
+# =============================================================================
+# _validate_max_window_size
+# =============================================================================
+@pytest.mark.parametrize(
+    "lags, window_features",
+    [
+        (33, None),
+        ([1, 2, 33], None),
+        (None, [{"stats": ["mean"], "window_size": 33}]),
+        ([1, 7], [{"stats": ["mean"], "window_size": 33}]),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_validate_max_window_size_passes_when_within_budget(lags, window_features):
+    """
+    Test that lags and window sizes spanning up to 33% of the observations
+    (33 of 100) pass the data budget check.
+    """
+    assert _validate_max_window_size(lags, window_features, 100) is None
+
+
+@pytest.mark.parametrize(
+    "lags, window_features",
+    [
+        (34, None),
+        ([1, 2, 34], None),
+        (None, [{"stats": ["mean"], "window_size": 34}]),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_validate_max_window_size_ValueError_when_span_exceeds_budget(
+    lags, window_features
+):
+    """
+    Test that a lag or window size spanning more than 33% of the
+    observations raises ValueError with the span and the maximum allowed.
+    """
+    err_msg = re.escape(
+        "Explicit lags/window_features span up to 34 observations, exceeding "
+        "the maximum of 33 (33% of 100 observations). Reduce the largest lag "
+        "or window size."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _validate_max_window_size(lags, window_features, 100)
+
+
+# =============================================================================
 # _validate_window_features
 # =============================================================================
 @pytest.mark.parametrize(
@@ -378,13 +471,18 @@ def test_validate_task_input_passes_when_valid():
             {"stats": ["mean"], "window_size": 24},
             {"stats": ["ratio_min_max", "coef_variation", "ewm"], "window_size": 168},
         ],
+        [
+            {"stats": ["mean"], "window_size": 7},
+            {"stats": ["mean"], "window_size": 14},
+        ],
     ],
     ids=lambda wf: f"window_features: {wf}",
 )
 def test_validate_window_features_passes_when_valid(window_features):
     """
-    Test that valid window_features configurations (including None and
-    multi-stat scalar-window entries) pass validation without raising.
+    Test that valid window_features configurations (including None,
+    multi-stat scalar-window entries and the same statistic at different
+    window sizes) pass validation without raising.
     """
     assert _validate_window_features(window_features) is None
 
@@ -403,12 +501,20 @@ def test_validate_window_features_passes_when_valid(window_features):
         ([{"stats": ["mean"], "window_size": 7.0}], "must be a scalar int"),
         ([{"stats": ["mean"], "window_size": True}], "must be a scalar int"),
         ([{"stats": ["mean"], "window_size": 0}], "must be a positive int"),
+        (
+            [
+                {"stats": ["mean"], "window_size": 7},
+                {"stats": ["mean", "std"], "window_size": 7},
+            ],
+            re.escape("duplicate (stat, window_size) pairs: [('mean', 7)]"),
+        ),
     ],
 )
 def test_validate_window_features_raises_when_invalid(window_features, match):
     """
     Test that malformed window_features (wrong container, missing keys,
-    unsupported stats, or non-scalar/invalid window_size) raise ValueError.
+    unsupported stats, non-scalar/invalid window_size, or the same statistic
+    paired twice with the same window size) raise ValueError.
     """
     with pytest.raises(ValueError, match=match):
         _validate_window_features(window_features)

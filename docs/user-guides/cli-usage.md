@@ -159,6 +159,9 @@ skforecast-ai refine-plan --from-plan plan.json --interval "0.1,0.9" --format js
 skforecast-ai refine-plan --from-plan plan.json --lags "1,2,3,12" \
   --window-features '[{"stats": ["mean", "std"], "window_size": 12}]' --format json
 
+# Go back to the deterministic lag and window feature selection
+skforecast-ai refine-plan --from-plan plan.json --lags auto --window-features auto --format json
+
 # Let the LLM propose lags and window features from domain knowledge
 skforecast-ai refine-plan --from-plan plan.json --llm openai:gpt-4o-mini \
   --prompt "Monthly sales with a yearly cycle and a strong December peak" --format json
@@ -500,8 +503,8 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 | `--estimator` | | Override estimator class | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
 | `--estimator-kwargs` | | Estimator hyperparameters as a JSON string | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest` |
 | `--interval` | | Interval quantiles, e.g. `"0.1,0.9"`. With `--from-plan`, replaces the interval of the plan | `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast`, `backtest`, `compare` |
-| `--lags` | | Explicit lags: an int or a comma-separated list, e.g. `"1,2,3,12"` | `plan`, `refine-plan`, `forecast-code`, `backtest-code` |
-| `--window-features` | | Window features as a JSON array, e.g. `'[{"stats": ["mean"], "window_size": 7}]'` | `plan`, `refine-plan`, `forecast-code`, `backtest-code` |
+| `--lags` | | Explicit lags: a positive int or a comma-separated list of unique positive ints, e.g. `"1,2,3,12"`; `auto` re-runs the deterministic selection when refining a saved plan | `plan`, `refine-plan`, `forecast-code`, `backtest-code` |
+| `--window-features` | | Window features as a JSON array, e.g. `'[{"stats": ["mean"], "window_size": 7}]'`; `auto` re-runs the deterministic selection when refining a saved plan | `plan`, `refine-plan`, `forecast-code`, `backtest-code` |
 | `--candidates` | | Candidate configurations as a JSON array of `[name, config]` pairs | `compare` |
 | `--metric` | | Metric(s) to compute, comma-separated; the first ranks the leaderboard | `compare` |
 
@@ -509,12 +512,12 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--initial-train-size` | | Initial training window size | `backtest`, `backtest-code`, `compare` |
+| `--initial-train-size` | | Initial training window: number of observations or an ISO date (e.g. `2023-03-01`) marking the end of the initial training set | `backtest`, `backtest-code`, `compare` |
 | `--fold-stride` | | Step size between CV folds | `backtest`, `backtest-code`, `compare` |
-| `--refit/--no-refit` | | Refit model each fold | `backtest`, `backtest-code`, `compare` |
-| `--fixed-train-size/--expanding-train` | | Fixed or expanding window | `backtest`, `backtest-code`, `compare` |
+| `--refit/--no-refit` | | Refit model each fold (unset: decided by the assistant) | `backtest`, `backtest-code`, `compare` |
+| `--fixed-train-size/--expanding-train` | | Fixed or expanding window (unset: decided by the assistant) | `backtest`, `backtest-code`, `compare` |
 | `--gap` | | Gap between train and test | `backtest`, `backtest-code`, `compare` |
-| `--allow-incomplete-fold/--no-incomplete-fold` | | Allow last incomplete fold | `backtest`, `backtest-code`, `compare` |
+| `--allow-incomplete-fold/--no-incomplete-fold` | | Allow last incomplete fold (unset: decided by the assistant) | `backtest`, `backtest-code`, `compare` |
 
 ### Plan / reproducibility
 

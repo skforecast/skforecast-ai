@@ -7,6 +7,7 @@ from .autoregressive import (
     select_window_features,
 )
 from .backtesting import (
+    build_cv,
     build_cv_explanation,
     count_cv_folds,
     derive_cv_defaults,
@@ -31,6 +32,7 @@ from .preprocessing import (
 
 __all__ = [
     "_build_profile_explanation",
+    "build_cv",
     "build_cv_explanation",
     "build_plan_explanation",
     "build_forecaster_kwargs",

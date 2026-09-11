@@ -132,6 +132,10 @@ deployment delay, translate to gap.
 4. When in doubt, prefer conservative defaults (expanding window, refit=True).
 5. Always explain your reasoning in the `reasoning` field.
 6. Only set parameters you are confident about. Leave others at defaults.
+7. Give `initial_train_size` as an integer number of observations. Use a \
+date string only when the dataset context lists a date range: ISO format \
+('YYYY-MM-DD', or 'YYYY-MM-DD HH:MM:SS' for sub-daily data), strictly inside \
+that range and leaving room for at least 2 folds.
 """
 
 _PLAN_REFINEMENT_ROLE_PROMPT = """\
@@ -145,14 +149,18 @@ based on the user's domain knowledge.
 and the provided skill references.
 2. The largest lag and the largest window size MUST NOT exceed the "Max \
 allowed lag / window size (hard limit)" given in the dataset context.
-3. Translate business cycles mentioned by the user into concrete lag multiples \
+3. `lags` are positive integers (>= 1) with no duplicates, given as a \
+non-empty list or as a single integer n meaning the consecutive lags 1..n. \
+Every `window_size` is an integer >= 1, and the same statistic must not be \
+paired with the same window size in two entries.
+4. Translate business cycles mentioned by the user into concrete lag multiples \
 or rolling window sizes.
-4. Window feature `stats` MUST be chosen only from the supported set: \
+5. Window feature `stats` MUST be chosen only from the supported set: \
 `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`, `'ratio_min_max'`, \
 `'coef_variation'`, `'ewm'`. Do not invent other statistics.
-5. Output your modifications strictly as the `PlanOverrides` schema.
-6. Provide a brief explanation of your choices in the `reasoning` field.
-7. Do NOT mention the internal "Max allowed lag / window size (hard limit)" \
+6. Output your modifications strictly as the `PlanOverrides` schema.
+7. Provide a brief explanation of your choices in the `reasoning` field.
+8. Do NOT mention the internal "Max allowed lag / window size (hard limit)" \
 value in the `reasoning` field. It is an internal constraint, not user-facing \
 information. Justify your choices in terms of the data's seasonality and \
 dynamics instead.

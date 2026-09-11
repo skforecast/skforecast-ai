@@ -50,6 +50,7 @@ from .llm.runtime import run_agent_sync
 from .profiling import create_data_profile, resolve_end_train
 from .recommendation import (
     _build_profile_explanation,
+    build_cv,
     build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
@@ -91,6 +92,7 @@ from ._utils import (
     _unwrap_cv,
     _validate_forecast_mode,
     resolve_interval_method,
+    _validate_lags,
     _validate_max_window_size,
     _validate_task_input,
     _validate_window_features,
@@ -415,6 +417,9 @@ class ForecastingAssistant:
             # Explicit lag/window overrides (manual or LLM-supplied) bypass the
             # deterministic PACF selection and its budget guard, so validate
             # them against the data budget before building the forecaster.
+            if lags is not None:
+                _validate_lags(lags)
+
             if window_features is not None:
                 _validate_window_features(window_features)
 
@@ -569,8 +574,10 @@ class ForecastingAssistant:
         apply to `task_type` in `('statistical', 'foundation')`, which do not
         use lags or window features; the prompt is ignored with a
         `UserWarning`. When the agent omits a field, or the LLM call fails or
-        its suggestion cannot satisfy the data budget, that field keeps the
-        plan's existing value (a `UserWarning` is emitted on failure).
+        its suggestion is invalid (non-positive, duplicated or empty lags,
+        malformed window features) or cannot satisfy the data budget, that
+        field keeps the plan's existing value (a `UserWarning` is emitted on
+        failure).
 
         Parameters
         ----------
@@ -637,6 +644,8 @@ class ForecastingAssistant:
                 # only for self.plan() to reject the explicit value afterwards.
                 explicit_lags = overrides.get("lags")
                 explicit_window_features = overrides.get("window_features")
+                if explicit_lags is not None:
+                    _validate_lags(explicit_lags)
                 if explicit_window_features is not None:
                     _validate_window_features(explicit_window_features)
                 if explicit_lags is not None or explicit_window_features is not None:
@@ -1159,8 +1168,10 @@ class ForecastingAssistant:
             - If `None`, initial training size is automatically determined based 
             on the profile and plan.
             - If an integer, the number of observations used for initial training.
-            - If a date string or pandas Timestamp, it is the last date included in 
-            the initial training set.
+            - If a date string (ISO format, e.g. `'2023-03-01'`) or pandas 
+            Timestamp, it is the last date included in the initial training set. 
+            Requires a datetime index with a known frequency; a `ValueError` is 
+            raised otherwise, or when the date cannot be parsed.
         fold_stride : int, default None
             Number of observations that the start of the test set advances between
             consecutive folds.
@@ -1221,8 +1232,6 @@ class ForecastingAssistant:
         
         """
 
-        span_index_length = profile.data_profile.span_index_length
-
         # -----------------------------------------------------------------
         # LLM path: when prompt is provided, use LLM for CV configuration
         # -----------------------------------------------------------------
@@ -1252,11 +1261,10 @@ class ForecastingAssistant:
 
         if use_llm:
             defaults = configure_cv_with_llm(
-                           agent          = self._resolve_cv_agent(),
-                           profile        = profile,
-                           plan           = plan,
-                           prompt         = prompt,
-                           n_observations = span_index_length,
+                           agent   = self._resolve_cv_agent(),
+                           profile = profile,
+                           plan    = plan,
+                           prompt  = prompt,
                        )
         else:
             # Compute deterministic defaults
@@ -1276,45 +1284,16 @@ class ForecastingAssistant:
             if value is not None:
                 defaults[key] = value
 
-        # Handle initial_train_size type conversion
-        its = defaults["initial_train_size"]
-        if isinstance(its, float):
-            if not (0 < its < 1):
-                raise ValueError(
-                    f"initial_train_size as float must satisfy "
-                    f"0 < value < 1, got {its}."
-                )
-            defaults["initial_train_size"] = int(its * span_index_length)
-
-        # Instantiate TimeSeriesFold
-        cv = TimeSeriesFold(
-            steps                 = defaults["steps"],
-            initial_train_size    = defaults["initial_train_size"],
-            refit                 = defaults["refit"],
-            fixed_train_size      = defaults["fixed_train_size"],
-            gap                   = defaults["gap"],
-            fold_stride           = defaults["fold_stride"],
-            skip_folds            = defaults["skip_folds"],
-            allow_incomplete_fold = defaults["allow_incomplete_fold"],
-            differentiation       = defaults.get("differentiation"),
-            verbose               = False,
-        )
-
         # The LLM narrative is not a TimeSeriesFold parameter: keep it out
-        # of the error message below and prepend it to the explanation.
+        # of the splitter and prepend it to the explanation.
         reasoning = defaults.pop("_reasoning", None)
 
-        # Validate fold count. A date-based initial_train_size needs a
-        # DatetimeIndex so `cv.split` can locate the split date; integer or
-        # fractional sizes are validated against a plain RangeIndex.
+        # Same construction and validation path the LLM loop uses, so a
+        # configuration that passed there cannot fail here. Resolves a
+        # fractional or Timestamp initial_train_size, checks a date-based
+        # one against the dataset index and requires at least 2 folds.
+        cv = build_cv(cv_params=defaults, data_profile=profile.data_profile)
         cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
-        n_folds = cv_config["n_folds"]
-        if n_folds < 2:
-            raise ValueError(
-                f"The resolved CV configuration produces only "
-                f"{n_folds} fold(s). At least 2 are required. "
-                f"Resolved parameters: {defaults}."
-            )
 
         if reasoning:
             cv_explanation = f"{reasoning} {cv_explanation}"

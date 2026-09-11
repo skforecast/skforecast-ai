@@ -2,13 +2,14 @@
 
 import ast
 import json
+import re
 
 import pandas as pd
 import pytest
 import typer
 from typer.testing import CliRunner
 
-from skforecast_ai.cli import app, _parse_lags
+from skforecast_ai.cli import app, _parse_initial_train_size, _parse_lags
 from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_assistant import df_single, df_multi_long, df_multi_wide
@@ -40,6 +41,28 @@ class TestParseLags:
     def test_parse_lags_BadParameter_when_non_positive(self):
         with pytest.raises(typer.BadParameter, match="positive integers"):
             _parse_lags("0,1,2")
+
+    def test_parse_lags_BadParameter_when_duplicates(self):
+        with pytest.raises(typer.BadParameter, match="must not contain duplicates"):
+            _parse_lags("1,2,2")
+
+    def test_parse_lags_output_when_auto(self):
+        assert _parse_lags("auto") is None
+        assert _parse_lags(" AUTO ") is None
+
+
+class TestParseInitialTrainSize:
+    """Tests for the `_parse_initial_train_size` CLI helper."""
+
+    def test_parse_initial_train_size_output_when_none(self):
+        assert _parse_initial_train_size(None) is None
+
+    def test_parse_initial_train_size_output_when_int(self):
+        assert _parse_initial_train_size("70") == 70
+        assert _parse_initial_train_size(" 70 ") == 70
+
+    def test_parse_initial_train_size_output_when_date(self):
+        assert _parse_initial_train_size("2023-03-01") == "2023-03-01"
 
 
 def _write_csv(tmp_path, df, name="data.csv"):
@@ -814,6 +837,127 @@ class TestAsk:
 # ---------------------------------------------------------------------------
 # backtest command
 # ---------------------------------------------------------------------------
+
+
+class TestBacktestCodeCVOptions:
+    """Tests for the CV options forwarded by `backtest-code`."""
+
+    def _generate(self, tmp_path, *extra):
+        csv_path = _write_csv(tmp_path, df_single)
+        out = tmp_path / "script.py"
+        result = runner.invoke(
+            app,
+            ["backtest-code", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--output", str(out), "--quiet", *extra],
+        )
+        assert result.exit_code == 0, result.output
+        return out.read_text()
+
+    def test_backtest_code_forwards_no_refit(self, tmp_path):
+        """
+        --no-refit reaches create_cv() and the generated script disables
+        refitting; it used to be dropped for matching the CLI default.
+        """
+        code = self._generate(tmp_path, "--no-refit")
+        assert re.search(r"refit\s+= False,", code)
+
+    def test_backtest_code_forwards_fixed_train_size(self, tmp_path):
+        """
+        --fixed-train-size reaches create_cv() and the generated script uses
+        a rolling training window; it used to be dropped for matching the
+        CLI default.
+        """
+        code = self._generate(tmp_path, "--fixed-train-size")
+        assert re.search(r"fixed_train_size\s+= True,", code)
+
+    def test_backtest_code_defaults_leave_cv_to_assistant(self, tmp_path):
+        """
+        Without CV flags the deterministic defaults apply (refit every fold,
+        expanding window).
+        """
+        code = self._generate(tmp_path)
+        assert re.search(r"refit\s+= True,", code)
+        assert re.search(r"fixed_train_size\s+= False,", code)
+
+    def test_backtest_code_accepts_date_initial_train_size(self, tmp_path):
+        """
+        --initial-train-size accepts an ISO date, rendered as a quoted
+        string in the generated TimeSeriesFold.
+        """
+        code = self._generate(tmp_path, "--initial-train-size", "2023-03-01")
+        assert re.search(r"initial_train_size\s+= '2023-03-01',", code)
+
+    def test_backtest_code_error_when_initial_train_size_date_unparseable(
+        self, tmp_path
+    ):
+        """
+        An unparseable --initial-train-size date exits with the create_cv()
+        error message instead of a traceback.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest-code", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--initial-train-size", "not-a-date", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert "could not be parsed" in result.output
+
+
+class TestRefinePlanAuto:
+    """Tests for `--lags auto` / `--window-features auto` in `refine-plan`."""
+
+    def test_refine_plan_lags_auto_resets_to_deterministic_selection(self, tmp_path):
+        """
+        A plan saved with explicit lags is refined with --lags auto and gets
+        the deterministic PACF-based lags back, the same ones a plan without
+        --lags produces.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        base = ["plan", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--format", "json", "--quiet"]
+
+        deterministic = runner.invoke(app, base)
+        assert deterministic.exit_code == 0, deterministic.output
+        deterministic_lags = json.loads(deterministic.output)["plan"]["forecaster_kwargs"]["lags"]
+
+        explicit = runner.invoke(app, [*base, "--lags", "1,2,3"])
+        assert explicit.exit_code == 0, explicit.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(explicit.output)
+        assert json.loads(explicit.output)["plan"]["forecaster_kwargs"]["lags"] == [1, 2, 3]
+
+        refined = runner.invoke(
+            app,
+            ["refine-plan", "--from-plan", str(plan_file), "--lags", "auto",
+             "--format", "json", "--quiet"],
+        )
+        assert refined.exit_code == 0, refined.output
+        refined_lags = json.loads(refined.output)["plan"]["forecaster_kwargs"]["lags"]
+        assert refined_lags == deterministic_lags
+        assert refined_lags != [1, 2, 3]
+
+    def test_refine_plan_lags_duplicates_rejected(self, tmp_path):
+        """
+        refine-plan --lags with duplicated values fails at option parsing
+        with the shared validation message.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.output)
+
+        result = runner.invoke(
+            app,
+            ["refine-plan", "--from-plan", str(plan_file), "--lags", "1,2,2",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code != 0
+        assert "must not contain duplicates" in result.output
 
 
 class TestBacktest:

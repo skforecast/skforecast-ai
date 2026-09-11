@@ -145,9 +145,12 @@ def count_cv_folds(
     Count the folds a cross-validation splitter produces over a dataset.
 
     Builds a throwaway index of the given length and runs `cv.split` to
-    count the resulting folds. A date-based `initial_train_size` needs a
-    DatetimeIndex so `cv.split` can locate the split date; integer or
-    fractional sizes are counted against a plain RangeIndex.
+    count the resulting folds. A date-based `initial_train_size` (string or
+    pandas Timestamp) needs a DatetimeIndex so `cv.split` can locate the
+    split date; integer sizes are counted against a plain RangeIndex. This
+    is the single place where a date-based `initial_train_size` is checked
+    against the dataset, for splitters built by `build_cv` as well as for
+    user-supplied ones described by `resolve_cv_config`.
 
     The `window_size` of `cv` is unset here (no forecaster attached yet),
     so skforecast emits an `IgnoredArgumentWarning` about the last window.
@@ -163,18 +166,37 @@ def count_cv_folds(
         Number of observations spanned by the dataset.
     start_date : str, default None
         First date of the dataset, used to build a DatetimeIndex when
-        `cv.initial_train_size` is a date string. Required in that case.
+        `cv.initial_train_size` is a date string or a pandas Timestamp.
+        Required in that case; a `ValueError` is raised otherwise.
     frequency : str, default None
         Index frequency, used together with `start_date` to build the
-        DatetimeIndex. Required when `cv.initial_train_size` is a date
-        string.
+        DatetimeIndex. Required when `cv.initial_train_size` is a date;
+        without it the split date cannot be located on the real index, so
+        a `ValueError` is raised rather than counting folds on a guessed
+        index.
 
     Returns
     -------
     n_folds : int
         Number of folds produced by the configuration.
     """
-    if isinstance(cv.initial_train_size, str):
+    its = cv.initial_train_size
+    if isinstance(its, (str, pd.Timestamp)):
+        if start_date is None or frequency is None:
+            raise ValueError(
+                f"`initial_train_size` is a date ({its!r}) but the dataset has "
+                f"no datetime index with a known frequency, so the split date "
+                f"cannot be located. Pass an integer number of observations "
+                f"instead."
+            )
+        if isinstance(its, str):
+            try:
+                pd.Timestamp(its)
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    f"`initial_train_size` date {its!r} could not be parsed. "
+                    f"Use an ISO date such as '2023-03-01'."
+                ) from exc
         index = pd.date_range(
                     start   = start_date,
                     periods = n_observations,
@@ -197,6 +219,147 @@ def count_cv_folds(
 
     return len(folds)
 
+
+
+def build_cv(
+    cv_params: dict,
+    data_profile: DataProfile,
+    min_folds: int = 2,
+) -> TimeSeriesFold:
+    """
+    Build a `TimeSeriesFold` from resolved parameters and validate it.
+
+    Single construction path shared by `create_cv` (deterministic defaults
+    plus explicit overrides) and the LLM configuration loop, so a
+    configuration accepted in one place cannot fail in the other. Resolves
+    `initial_train_size` (a fraction becomes an absolute count, a pandas
+    Timestamp becomes a date string), builds the splitter and counts the
+    folds it produces over the dataset with `count_cv_folds`, which also
+    checks that a date-based size can be located on the dataset index. A
+    `ValueError` is raised when fewer than `min_folds` folds result.
+
+    Parameters
+    ----------
+    cv_params : dict
+        Resolved `TimeSeriesFold` parameters with keys `'steps'`,
+        `'initial_train_size'`, `'refit'`, `'fixed_train_size'`, `'gap'`,
+        `'fold_stride'`, `'skip_folds'`, `'allow_incomplete_fold'` and
+        `'differentiation'`. Keys starting with an underscore (such as the
+        LLM `'_reasoning'`) are ignored. `'initial_train_size'` is
+        normalised in place.
+    data_profile : DataProfile
+        Profile of the dataset the splitter is applied to.
+    min_folds : int, default 2
+        Minimum number of folds the configuration must produce.
+
+    Returns
+    -------
+    cv : TimeSeriesFold
+        Validated fold splitter.
+    """
+
+    cv_params["initial_train_size"] = _resolve_initial_train_size(
+        value        = cv_params["initial_train_size"],
+        data_profile = data_profile,
+    )
+
+    cv = TimeSeriesFold(
+        steps                 = cv_params["steps"],
+        initial_train_size    = cv_params["initial_train_size"],
+        refit                 = cv_params["refit"],
+        fixed_train_size      = cv_params["fixed_train_size"],
+        gap                   = cv_params["gap"],
+        fold_stride           = cv_params.get("fold_stride"),
+        skip_folds            = cv_params.get("skip_folds"),
+        allow_incomplete_fold = cv_params.get("allow_incomplete_fold", True),
+        differentiation       = cv_params.get("differentiation"),
+        verbose               = False,
+    )
+
+    n_folds = count_cv_folds(
+                  cv             = cv,
+                  n_observations = data_profile.span_index_length,
+                  start_date     = data_profile.start_date,
+                  frequency      = data_profile.frequency,
+              )
+    if n_folds < min_folds:
+        public_params = {
+            key: value for key, value in cv_params.items()
+            if not key.startswith("_")
+        }
+        raise ValueError(
+            f"The resolved CV configuration produces only "
+            f"{n_folds} fold(s). At least {min_folds} are required. "
+            f"Resolved parameters: {public_params}."
+        )
+
+    return cv
+
+
+def _resolve_initial_train_size(
+    value: int | float | str | pd.Timestamp,
+    data_profile: DataProfile,
+) -> int | str:
+    """
+    Normalise an `initial_train_size` value to what `TimeSeriesFold` stores.
+
+    A float in (0, 1) is a fraction of the dataset span and becomes an
+    absolute count. A pandas Timestamp becomes its string form, so the
+    rendered `TimeSeriesFold(...)` snippet stays valid Python and the
+    resolved configuration serializes to JSON. A `bool` is rejected because
+    `TimeSeriesFold` would silently read it as the integer 1. Integers and
+    date strings pass through; `TimeSeriesFold` validates the former and
+    `count_cv_folds` the latter.
+
+    Parameters
+    ----------
+    value : int, float, str, pandas Timestamp
+        Requested initial training size.
+    data_profile : DataProfile
+        Profile of the dataset, used to resolve a fraction.
+
+    Returns
+    -------
+    initial_train_size : int, str
+        Normalised value.
+    """
+
+    if isinstance(value, bool):
+        raise ValueError(
+            f"`initial_train_size` must be an int, a float in (0, 1), a date "
+            f"string or a pandas Timestamp, got {value!r}."
+        )
+    if isinstance(value, float):
+        if not (0 < value < 1):
+            raise ValueError(
+                f"initial_train_size as float must satisfy "
+                f"0 < value < 1, got {value}."
+            )
+        return int(value * data_profile.span_index_length)
+    if isinstance(value, pd.Timestamp):
+        return _timestamp_to_str(value)
+    return value
+
+
+def _timestamp_to_str(ts: pd.Timestamp) -> str:
+    """
+    Render a Timestamp as a date string, keeping the time only when set.
+
+    Parameters
+    ----------
+    ts : pandas Timestamp
+        Timestamp to render.
+
+    Returns
+    -------
+    text : str
+        `'YYYY-MM-DD'` when the time component is midnight, otherwise the
+        full `'YYYY-MM-DD HH:MM:SS'` form.
+    """
+
+    if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+        return str(ts)
+    return str(ts.date())
 
 
 def resolve_cv_config(
@@ -288,7 +451,7 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
         if isinstance(lags, int):
             max_lag = lags
         elif isinstance(lags, list):
-            max_lag = max(lags)
+            max_lag = max(lags, default=0)
         else:
             max_lag = 0
 
@@ -301,7 +464,7 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
                 if isinstance(ws, int):
                     max_window = max(max_window, ws)
                 elif isinstance(ws, list):
-                    max_window = max(max_window, max(ws))
+                    max_window = max(max_window, max(ws, default=0))
 
         effective_window = max(max_lag, max_window)
         if effective_window == 0:
@@ -346,9 +509,6 @@ def _position_to_date(
 
     try:
         idx = pd.date_range(start=start_date, periods=position, freq=frequency)
-        ts = idx[-1]
-        if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
-            return str(ts)
-        return str(ts.date())
+        return _timestamp_to_str(idx[-1])
     except Exception:
         return position

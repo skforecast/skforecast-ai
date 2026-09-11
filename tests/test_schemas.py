@@ -13,6 +13,7 @@ from skforecast_ai.schemas import (
     ForecastPlan,
     RefinePlanOverrides,
 )
+from skforecast_ai.schemas.plans import CVParams, PlanOverrides, WindowFeature
 
 from tests.fixtures_llm import (
     make_backtest_result,
@@ -376,3 +377,113 @@ def test_cv_result_json_serializes_fold_parameters():
     assert dumped["cv"]["steps"] == result.cv.steps
     assert dumped["cv"]["initial_train_size"] == result.cv.initial_train_size
     assert dumped["cv"]["refit"] is result.cv.refit
+
+
+@pytest.mark.parametrize(
+    "lags, match",
+    [
+        (0, "must be positive integers"),
+        ([], "must not be an empty list"),
+        ([0, 1], "must be positive integers"),
+        (True, "must be an int or a list of ints"),
+        ([1.5], "must contain ints only"),
+        ([2, 2], "must not contain duplicates"),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_plan_overrides_ValidationError_when_lags_invalid(lags, match):
+    """
+    Test that PlanOverrides rejects the same lag specifications
+    `_validate_lags` rejects, before pydantic coerces a bool or a float,
+    so pydantic-ai sends the error back to the model.
+    """
+    with pytest.raises(ValidationError, match=match):
+        PlanOverrides(lags=lags, window_features=None, reasoning="test")
+
+
+@pytest.mark.parametrize(
+    "window_size",
+    [0, -1, 7.0, True, "7"],
+    ids=lambda value: f"{value!r}",
+)
+def test_window_feature_ValidationError_when_window_size_invalid(window_size):
+    """
+    Test that WindowFeature.window_size only accepts a strictly typed
+    positive int: zero, negatives, floats, bools and numeric strings are
+    rejected instead of being coerced.
+    """
+    err_msg = re.escape("window_size")
+    with pytest.raises(ValidationError, match=err_msg):
+        WindowFeature(stats=["mean"], window_size=window_size)
+
+
+def test_plan_overrides_ValidationError_when_window_features_duplicate_pairs():
+    """
+    Test that PlanOverrides rejects two entries pairing the same statistic
+    with the same window size.
+    """
+    err_msg = re.escape("duplicate (stat, window_size) pairs: [('mean', 7)]")
+    with pytest.raises(ValidationError, match=err_msg):
+        PlanOverrides(
+            lags=None,
+            window_features=[
+                WindowFeature(stats=["mean"], window_size=7),
+                WindowFeature(stats=["mean", "std"], window_size=7),
+            ],
+            reasoning="test",
+        )
+
+
+def test_plan_overrides_output_when_valid():
+    """
+    Test that a valid PlanOverrides keeps lags and window features as
+    given, including the same statistic at two different window sizes.
+    """
+    overrides = PlanOverrides(
+        lags=[1, 7, 14],
+        window_features=[
+            WindowFeature(stats=["mean"], window_size=7),
+            WindowFeature(stats=["mean"], window_size=14),
+        ],
+        reasoning="Weekly cycle.",
+    )
+
+    assert overrides.lags == [1, 7, 14]
+    assert [wf.window_size for wf in overrides.window_features] == [7, 14]
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"gap": -1}, "gap"),
+        ({"fold_stride": 0}, "fold_stride"),
+    ],
+    ids=["gap_negative", "fold_stride_zero"],
+)
+def test_cv_params_ValidationError_when_gap_or_fold_stride_out_of_range(
+    kwargs, match
+):
+    """
+    Test that CVParams rejects a negative gap and a non-positive fold
+    stride at the schema boundary, mirroring TimeSeriesFold.
+    """
+    with pytest.raises(ValidationError, match=match):
+        CVParams(initial_train_size=60, reasoning="test", **kwargs)
+
+
+def test_plan_overrides_json_schema_exposes_lag_bounds():
+    """
+    Test that the JSON schema the model receives states the lag and
+    window size bounds, so a future change to the field types that drops
+    the hint is noticed.
+    """
+    schema = PlanOverrides.model_json_schema()
+
+    assert schema["properties"]["lags"]["anyOf"] == [
+        {"items": {"minimum": 1, "type": "integer"}, "minItems": 1, "type": "array"},
+        {"minimum": 1, "type": "integer"},
+        {"type": "null"},
+    ]
+    window_size = schema["$defs"]["WindowFeature"]["properties"]["window_size"]
+    assert window_size["exclusiveMinimum"] == 0
+    assert window_size["type"] == "integer"

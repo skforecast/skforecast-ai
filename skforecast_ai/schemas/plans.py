@@ -7,8 +7,8 @@
 
 from __future__ import annotations
 import sys
-from typing import Any, ClassVar, Literal
-from pydantic import BaseModel, Field
+from typing import Annotated, Any, ClassVar, Literal
+from pydantic import BaseModel, Field, field_validator
 
 if sys.version_info >= (3, 12):
     from typing import TypedDict
@@ -30,7 +30,8 @@ class CVParams(BaseModel):
     ----------
     initial_train_size : int, float, str
         Number of observations (int), fraction of data (float in
-        (0, 1)), or date string for the initial training set.
+        (0, 1)), or ISO date string marking the end of the initial
+        training set (only when the dataset has a datetime index).
     refit : bool, int
         Whether to refit every fold (True), never (False), or every
         n folds (int).
@@ -54,8 +55,11 @@ class CVParams(BaseModel):
 
     initial_train_size: int | float | str = Field(
         description=(
-            "Number of observations (int), fraction of total data "
-            "(float in (0,1)), or date string for the initial training set."
+            "Number of observations (int), fraction of the data (float in "
+            "(0, 1)), or, only when the dataset context lists a date range, "
+            "an ISO date string ('YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS') "
+            "strictly inside that range marking the end of the initial "
+            "training set."
         ),
     )
     refit: bool | int = Field(
@@ -74,10 +78,12 @@ class CVParams(BaseModel):
     )
     gap: int = Field(
         default=0,
+        ge=0,
         description="Number of observations between training end and test start.",
     )
     fold_stride: int | None = Field(
         default=None,
+        ge=1,
         description=(
             "Number of observations between consecutive test set starts. "
             "None defaults to steps (non-overlapping test sets)."
@@ -141,7 +147,8 @@ class WindowFeature(BaseModel):
         `'median'`, `'ratio_min_max'`, `'coef_variation'`, `'ewm'`.
     window_size : int
         Rolling window length in observations, applied to every statistic
-        in `stats`. Must be a scalar; to combine several window sizes, use
+        in `stats`. Must be a positive scalar int (strictly typed, so a
+        float or bool is rejected); to combine several window sizes, use
         one `WindowFeature` per size.
     """
     stats: list[WindowStat] = Field(
@@ -152,10 +159,13 @@ class WindowFeature(BaseModel):
         ),
     )
     window_size: int = Field(
+        gt=0,
+        strict=True,
         description=(
-            "Rolling window length in observations, e.g. 7. Scalar only: it "
-            "is applied to every statistic in `stats`. Use one entry per "
-            "window size to combine several sizes."
+            "Rolling window length in observations, e.g. 7. Must be a "
+            "positive integer. Scalar only: it is applied to every statistic "
+            "in `stats`. Use one entry per window size to combine several "
+            "sizes."
         ),
     )
 
@@ -164,27 +174,76 @@ class PlanOverrides(BaseModel):
     """
     LLM-produced overrides for a forecasting plan.
 
+    The field constraints mirror `_validate_lags` and
+    `_validate_window_features`, the checks `plan()` applies to explicit
+    overrides, so an invalid suggestion fails at the schema boundary and
+    pydantic-ai sends the error back to the model before the refinement
+    loop sees it.
+
     Attributes
     ----------
     lags : list of int, int, default None
-        Overridden lag indices or lag count.
+        Overridden lag indices (non-empty list of unique positive ints) or
+        lag count (positive int meaning lags `1..n`).
     window_features : list of WindowFeature, default None
-        Overridden window features configurations.
+        Overridden window features configurations. The same statistic
+        cannot be paired with the same window size in two entries.
     reasoning : str
         Explanation of why the LLM chose these features based on the
         user's domain knowledge prompt.
     """
-    lags: list[int] | int | None = Field(
+    lags: (
+        Annotated[list[Annotated[int, Field(ge=1)]], Field(min_length=1)]
+        | Annotated[int, Field(ge=1)]
+        | None
+    ) = Field(
         default=None,
-        description="The lag indices to use for the forecaster. E.g. [1, 2, 3, 7, 14] or an integer for consecutive lags.",
+        description=(
+            "The lag indices to use for the forecaster: a non-empty list of "
+            "unique positive integers, e.g. [1, 2, 3, 7, 14], or a single "
+            "positive integer n for the consecutive lags 1..n."
+        ),
     )
     window_features: list[WindowFeature] | None = Field(
         default=None,
-        description="The window features configurations to use. E.g. [{'stats': ['mean', 'std'], 'window_size': 7}].",
+        description=(
+            "The window features configurations to use. E.g. [{'stats': "
+            "['mean', 'std'], 'window_size': 7}]. Do not repeat the same "
+            "statistic with the same window size in two entries."
+        ),
     )
     reasoning: str = Field(
         description="Explanation of why these specific features (lags and window features) were chosen based on the user's prompt and time series context.",
     )
+
+    @field_validator("lags", mode="before")
+    @classmethod
+    def _check_lags(cls, value: Any) -> Any:
+        """
+        Apply `_validate_lags` before pydantic's coercion, so a boolean or a
+        float is rejected instead of being turned into an int.
+        """
+        # Deferred import: `_utils` imports the schemas package.
+        from .._utils import _validate_lags
+
+        _validate_lags(value)
+        return value
+
+    @field_validator("window_features", mode="after")
+    @classmethod
+    def _check_window_features(
+        cls, value: list[WindowFeature] | None
+    ) -> list[WindowFeature] | None:
+        """
+        Reject entries that pair the same statistic with the same window
+        size, which `RollingFeatures` refuses once the entries are flattened.
+        """
+        # Deferred import: `_utils` imports the schemas package.
+        from .._utils import _validate_window_features
+
+        if value is not None:
+            _validate_window_features([wf.model_dump() for wf in value])
+        return value
 
 
 class RefinePlanOverrides(TypedDict, total=False):
@@ -212,11 +271,14 @@ class RefinePlanOverrides(TypedDict, total=False):
         Prediction interval quantiles as `[lower, upper]`. None removes
         the prediction intervals.
     lags : int, list of int, None
-        Lag configuration. None re-runs the PACF-based selection.
+        Lag configuration: a positive int (consecutive lags `1..n`) or a
+        non-empty list of unique positive ints. None re-runs the
+        PACF-based selection.
     window_features : list of dict, None
-        Rolling window features, one dict with `'stats'` and
-        `'window_size'` per window size. None re-runs the deterministic
-        selection.
+        Rolling window features, one dict with `'stats'` and a positive
+        scalar `'window_size'` per window size; the same statistic cannot
+        repeat the same window size across entries. None re-runs the
+        deterministic selection.
     """
 
     forecaster: str
@@ -246,10 +308,13 @@ class CandidateConfig(TypedDict, total=False):
     estimator_kwargs : dict, None
         Keyword arguments for the estimator constructor.
     lags : int, list of int, None
-        Lag configuration. None uses the PACF-based selection.
+        Lag configuration: a positive int (consecutive lags `1..n`) or a
+        non-empty list of unique positive ints. None uses the PACF-based
+        selection.
     window_features : list of dict, None
-        Rolling window features, one dict with `'stats'` and
-        `'window_size'` per window size.
+        Rolling window features, one dict with `'stats'` and a positive
+        scalar `'window_size'` per window size; the same statistic cannot
+        repeat the same window size across entries.
     """
 
     forecaster: str

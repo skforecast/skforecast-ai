@@ -1,15 +1,22 @@
 # Unit test create_cv ForecastingAssistant
 
+import ast
 import re
 import warnings
 
+import pandas as pd
 import pytest
 
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
 from skforecast_ai.schemas import CVParams, CVResult
-from tests.fixtures_assistant import df_single, df_multi_long, df_short
+from tests.fixtures_assistant import (
+    df_single,
+    df_multi_long,
+    df_range_index,
+    df_short,
+)
 
 
 # =============================================================================
@@ -48,6 +55,49 @@ def test_create_cv_ValueError_when_fewer_than_2_folds():
     err_msg = re.escape("At least 2 are required")
     with pytest.raises(ValueError, match=err_msg):
         assistant.create_cv(profile, plan, initial_train_size=20)
+
+
+def test_create_cv_ValueError_when_initial_train_size_date_unparseable():
+    """
+    Test that create_cv() raises a ValueError naming initial_train_size
+    when the date string cannot be parsed, instead of a raw pandas error.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    err_msg = re.escape(
+        "`initial_train_size` date 'not-a-date' could not be parsed. Use an "
+        "ISO date such as '2023-03-01'."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.create_cv(profile, plan, initial_train_size="not-a-date")
+
+
+@pytest.mark.parametrize(
+    "initial_train_size",
+    ["2023-03-01", pd.Timestamp("2023-03-01")],
+    ids=["str", "Timestamp"],
+)
+def test_create_cv_ValueError_when_date_initial_train_size_without_datetime_index(
+    initial_train_size,
+):
+    """
+    Test that a date-based initial_train_size (string or Timestamp, the
+    latter normalised to its string form) raises ValueError on a dataset
+    without a datetime index, where the split date cannot be located.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_range_index, target="sales")
+    plan = assistant.plan(profile, steps=10)
+
+    err_msg = re.escape(
+        "`initial_train_size` is a date ('2023-03-01') but the dataset has no "
+        "datetime index with a known frequency, so the split date cannot be "
+        "located. Pass an integer number of observations instead."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.create_cv(profile, plan, initial_train_size=initial_train_size)
 
 
 # =============================================================================
@@ -426,6 +476,27 @@ def test_create_cv_explanation_contains_key_params():
     assert "Initial training up to" in explanation
 
 
+def test_create_cv_output_when_initial_train_size_timestamp():
+    """
+    Test that a pandas Timestamp initial_train_size is accepted, stored as
+    a date string on the splitter and in cv_config, and rendered as a
+    quoted string so the snippet is valid Python.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    result = assistant.create_cv(
+        profile, plan, initial_train_size=pd.Timestamp("2023-03-01")
+    )
+
+    assert result.cv.initial_train_size == "2023-03-01"
+    assert result.cv_config["initial_train_size"] == "2023-03-01"
+    assert result.cv_config["n_folds"] == 4
+    assert "initial_train_size = '2023-03-01'," in result.code
+    ast.parse(result.code)
+
+
 # =============================================================================
 # Tests: LLM path
 # =============================================================================
@@ -693,6 +764,154 @@ def test_create_cv_llm_all_retries_fail_deterministic_fallback(monkeypatch):
     # Should have emitted a warning
     llm_warnings = [x for x in w if "LLM CV configuration failed" in str(x.message)]
     assert len(llm_warnings) == 1
+
+
+def _make_cv_params(initial_train_size, reasoning: str) -> CVParams:
+    """Build CVParams around `initial_train_size` with neutral defaults."""
+    return CVParams(
+        initial_train_size    = initial_train_size,
+        refit                 = True,
+        fixed_train_size      = False,
+        gap                   = 0,
+        fold_stride           = None,
+        skip_folds            = None,
+        allow_incomplete_fold = True,
+        reasoning             = reasoning,
+    )
+
+
+def _install_fake_cv_agent(monkeypatch, assistant, outputs: list[CVParams]) -> dict:
+    """Install a fake CV agent yielding `outputs` in order (last one repeats)."""
+    call_count = {"n": 0}
+
+    class _FakeResult:
+        def __init__(self, params):
+            self.output = params
+
+    class _FakeAgent:
+        async def run(self, msg, **kw):
+            i = min(call_count["n"], len(outputs) - 1)
+            call_count["n"] += 1
+            return _FakeResult(outputs[i])
+
+    monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
+    monkeypatch.setattr(assistant, "_resolve_model", lambda self_=None: "fake-model")
+    return call_count
+
+
+def test_create_cv_llm_retry_then_success_when_date_out_of_range(monkeypatch):
+    """
+    Test that a date-based initial_train_size outside the series range
+    is caught inside the LLM retry loop (not after it) and the second
+    suggestion is used.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    call_count = _install_fake_cv_agent(
+        monkeypatch,
+        assistant,
+        [
+            _make_cv_params("2030-01-01", "Beyond the last date."),
+            _make_cv_params(50, "Fixed after retry."),
+        ],
+    )
+
+    cv = assistant.create_cv(profile, plan, prompt="Forecast ahead").cv
+
+    assert cv.initial_train_size == 50
+    assert call_count["n"] == 2
+
+
+def test_create_cv_llm_deterministic_fallback_when_date_unparseable(monkeypatch):
+    """
+    Test that an unparseable date-based initial_train_size exhausts the
+    LLM retries and create_cv() degrades to the deterministic defaults
+    with a UserWarning, instead of raising a pandas parsing error.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    call_count = _install_fake_cv_agent(
+        monkeypatch, assistant, [_make_cv_params("next spring", "Always bad.")]
+    )
+
+    warn_msg = re.escape(
+        "LLM CV configuration failed after 3 attempts (last error: "
+        "`initial_train_size` date 'next spring' could not be parsed. Use an "
+        "ISO date such as '2023-03-01'.). Falling back to deterministic "
+        "defaults."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        cv = assistant.create_cv(profile, plan, prompt="Bad scenario").cv
+
+    assert call_count["n"] == 3
+    assert cv.initial_train_size == "2023-03-11"
+
+
+def test_create_cv_llm_deterministic_fallback_when_date_on_range_index(monkeypatch):
+    """
+    Test that a date-based LLM suggestion on a dataset without a datetime
+    index is rejected inside the retry loop and the deterministic integer
+    default is used, with a UserWarning.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_range_index, target="sales")
+    plan = assistant.plan(profile, steps=5)
+
+    _install_fake_cv_agent(
+        monkeypatch, assistant, [_make_cv_params("2023-03-01", "A date.")]
+    )
+
+    warn_msg = re.escape(
+        "`initial_train_size` is a date ('2023-03-01') but the dataset has no "
+        "datetime index with a known frequency"
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        cv = assistant.create_cv(profile, plan, prompt="Some scenario").cv
+
+    assert cv.initial_train_size == 70
+
+
+@pytest.mark.parametrize(
+    "data, profile_kwargs, expected",
+    [
+        (df_single, {"date_column": "date"}, ("2023-01-01", "2023-04-10")),
+        (df_range_index, {}, (None, None)),
+    ],
+    ids=["datetime_index", "range_index"],
+)
+def test_create_cv_llm_deps_carry_date_range(
+    monkeypatch, data, profile_kwargs, expected
+):
+    """
+    Test that the CV agent receives the first and last date of the series
+    when the dataset has a datetime index with a known frequency, and no
+    dates otherwise, matching the rule `count_cv_folds` applies.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=data, target="sales", **profile_kwargs)
+    plan = assistant.plan(profile, steps=5)
+    captured = {}
+
+    class _FakeResult:
+        output = _make_cv_params(50, "Fifty observations.")
+
+    class _FakeAgent:
+        async def run(self, msg, **kw):
+            captured["deps"] = kw["deps"]
+            return _FakeResult()
+
+    monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
+    monkeypatch.setattr(assistant, "_resolve_model", lambda self_=None: "fake-model")
+
+    assistant.create_cv(profile, plan, prompt="Retrain weekly.")
+
+    deps = captured["deps"]
+    assert (deps.start_date, deps.end_date) == expected
+    assert deps.n_observations == 100
 
 
 def test_create_cv_llm_explanation_includes_reasoning(monkeypatch):

@@ -7,10 +7,12 @@
 
 from __future__ import annotations
 import warnings
-from skforecast.model_selection import TimeSeriesFold
-from .._constants import MAX_FEATURE_FRACTION
-from .._utils import _max_window_size
-from ..recommendation.backtesting import count_cv_folds, derive_cv_defaults
+from .._utils import (
+    _validate_lags,
+    _validate_max_window_size,
+    _validate_window_features,
+)
+from ..recommendation.backtesting import build_cv, derive_cv_defaults
 from ..schemas import ForecastingProfile, ForecastPlan
 from .runtime import run_agent_sync
 
@@ -24,11 +26,14 @@ def refine_features_with_llm(
     """
     Use the LLM to suggest lags and window features from domain knowledge.
 
-    Retries up to 2 times when the suggested lags/window_features exceed
-    the data budget enforced by `plan()`, feeding the concrete violation
-    back each time. On a transient/model failure, or after retries are
-    exhausted, a `UserWarning` is emitted and `(None, None, None)` is
-    returned so the caller falls back to the deterministic plan.
+    Every suggestion goes through the same checks `plan()` applies to
+    explicit overrides (`_validate_lags`, `_validate_window_features` and
+    the data budget of `_validate_max_window_size`), so a value accepted
+    here cannot be rejected downstream. Retries up to 2 times when a
+    suggestion fails, feeding the concrete violation back each time. On a
+    transient/model failure, or after retries are exhausted, a
+    `UserWarning` is emitted and `(None, None, None)` is returned so the
+    caller falls back to the deterministic plan.
 
     Parameters
     ----------
@@ -66,7 +71,6 @@ def refine_features_with_llm(
     )
 
     span_index_length = profile.data_profile.span_index_length
-    max_allowed = int(span_index_length * MAX_FEATURE_FRACTION)
 
     max_retries = 2
     last_error = None
@@ -75,14 +79,13 @@ def refine_features_with_llm(
         if attempt == 0:
             user_message = prompt
         else:
+            # The validation message already states the violated rule with
+            # its concrete numbers (span, maximum, offending values).
             user_message = (
                 f"{prompt}\n\n"
                 f"[RETRY {attempt}/{max_retries}] Your previous "
-                f"lags/window_features were infeasible: {last_error} "
-                f"The dataset has {span_index_length} observations, so "
-                f"the largest lag or window size must not exceed "
-                f"{max_allowed} ({int(MAX_FEATURE_FRACTION * 100)}%). "
-                f"Shrink the largest value and try again."
+                f"lags/window_features were rejected: {last_error} "
+                f"Fix them and try again."
             )
 
         # A transient/model failure (network, or malformed structured
@@ -109,15 +112,20 @@ def refine_features_with_llm(
             else None
         )
 
-        # Pre-validate against the same data budget `plan()` enforces, so
-        # an infeasible suggestion drives a retry with concrete feedback
-        # instead of silently falling back to the deterministic plan.
-        max_span = _max_window_size(llm_overrides.lags, window_features)
-        if max_span > max_allowed:
-            last_error = (
-                f"lags/window_features span up to {max_span} "
-                f"observations, exceeding the maximum of {max_allowed}."
+        # Pre-validate with the same checks `plan()` applies to explicit
+        # overrides, so a malformed or infeasible suggestion drives a retry
+        # with concrete feedback instead of crashing `refine_plan()` (which
+        # has no fallback around `plan()`) or silently degrading.
+        try:
+            _validate_lags(llm_overrides.lags)
+            _validate_window_features(window_features)
+            _validate_max_window_size(
+                lags              = llm_overrides.lags,
+                window_features   = window_features,
+                span_index_length = span_index_length,
             )
+        except ValueError as exc:
+            last_error = str(exc)
             if attempt < max_retries:
                 continue
             warnings.warn(
@@ -139,13 +147,16 @@ def configure_cv_with_llm(
     profile: ForecastingProfile,
     plan: ForecastPlan,
     prompt: str,
-    n_observations: int,
 ) -> dict:
     """
     Use the LLM to derive CV parameters from a natural-language prompt.
 
-    Retries up to 2 times on validation failure, then falls back to
-    deterministic defaults with a warning.
+    Every suggestion is built and validated with `build_cv`, the same path
+    `create_cv` uses afterwards, so a date-based `initial_train_size` that
+    cannot be parsed or located on the dataset index, or a configuration
+    with fewer than 2 folds, is retried with the concrete error. Retries up
+    to 2 times on validation failure, then falls back to deterministic
+    defaults with a warning.
 
     Parameters
     ----------
@@ -157,8 +168,6 @@ def configure_cv_with_llm(
         Forecast plan.
     prompt : str
         User's deployment scenario description.
-    n_observations : int
-        Total number of observations.
 
     Returns
     -------
@@ -169,13 +178,27 @@ def configure_cv_with_llm(
     from .agent import CVDeps
 
     lags = plan.forecaster_kwargs.get("lags")
+    dp = profile.data_profile
+    n_observations = dp.span_index_length
+
+    # Only a datetime index with a known frequency lets `count_cv_folds`
+    # locate a date-based initial_train_size, so only then is the date
+    # range offered to the model.
+    start_date = end_date = None
+    if dp.frequency is not None and dp.start_date is not None:
+        end_dates = [info.end for info in dp.series_lengths.values() if info.end]
+        if end_dates:
+            start_date = dp.start_date
+            end_date = max(end_dates)
 
     deps = CVDeps(
                n_observations = n_observations,
-               frequency      = profile.data_profile.frequency,
+               frequency      = dp.frequency,
                steps          = plan.steps,
                task_type      = plan.task_type,
                lags           = lags,
+               start_date     = start_date,
+               end_date       = end_date,
            )
 
     max_retries = 2
@@ -213,8 +236,9 @@ def configure_cv_with_llm(
                 "_reasoning": cv_params.reasoning,
             }
 
-            # Validate: check that we can produce ≥2 folds
-            _validate_cv_defaults(defaults, n_observations)
+            # Build and validate through the same path create_cv() uses;
+            # the splitter itself is rebuilt there from the returned dict.
+            build_cv(cv_params=defaults, data_profile=dp)
 
             return defaults
 
@@ -236,58 +260,3 @@ def configure_cv_with_llm(
 
     # Should never reach here, but satisfy type checker
     return derive_cv_defaults(profile=profile, plan=plan)  # pragma: no cover
-
-def _validate_cv_defaults(defaults: dict, n_observations: int) -> None:
-    """
-    Validate that CV defaults can produce at least 2 folds.
-
-    A `ValueError` is raised when the configuration cannot produce
-    at least 2 folds.
-
-    Parameters
-    ----------
-    defaults : dict
-        Resolved CV parameters dict with keys `'steps'`,
-        `'initial_train_size'`, `'refit'`, `'fixed_train_size'`,
-        `'gap'`, `'fold_stride'`, `'skip_folds'`,
-        `'allow_incomplete_fold'`, and `'differentiation'`.
-    n_observations : int
-        Total number of observations in the dataset.
-
-    Returns
-    -------
-    None
-    """
-
-    its = defaults["initial_train_size"]
-    if isinstance(its, str):
-        # Cannot validate date-based initial_train_size without data
-        return
-
-    if isinstance(its, float):
-        if not (0 < its < 1):
-            raise ValueError(
-                f"initial_train_size as float must be in (0, 1), got {its}."
-            )
-        its = int(its * n_observations)
-        defaults["initial_train_size"] = its
-
-    cv = TimeSeriesFold(
-        steps=defaults["steps"],
-        initial_train_size=its,
-        refit=defaults["refit"],
-        fixed_train_size=defaults["fixed_train_size"],
-        gap=defaults["gap"],
-        fold_stride=defaults.get("fold_stride"),
-        skip_folds=defaults.get("skip_folds"),
-        allow_incomplete_fold=defaults.get("allow_incomplete_fold", True),
-        differentiation=defaults.get("differentiation"),
-        verbose=False,
-    )
-
-    n_folds = count_cv_folds(cv=cv, n_observations=n_observations)
-    if n_folds < 2:
-        raise ValueError(
-            f"Configuration produces only {n_folds} fold(s). "
-            f"At least 2 required. Parameters: {defaults}."
-        )
