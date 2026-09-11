@@ -13,6 +13,41 @@ from .._constants import OLLAMA_MAX_CONTEXT_TOKENS, RESERVED_RESPONSE_TOKENS
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
+# Environment variable pydantic-ai reads for each built-in provider when no
+# explicit `api_key` is given. Bedrock uses the AWS credential chain and
+# Ollama needs no credentials, so both map to None. `check_llm_config()`
+# and the "Configuring the LLM" guide are written from this table.
+PROVIDER_ENV_VARS: dict[str, str | None] = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "bedrock": None,
+    "ollama": None,
+}
+
+# Any of these set in the environment means boto3 has somewhere to start
+# resolving Bedrock credentials. None set is not a failure: a shared
+# credentials file or an instance role may still work.
+BEDROCK_CREDENTIAL_ENV_VARS: tuple[str, ...] = (
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_PROFILE",
+)
+
+# Importable modules each provider needs on top of the base install.
+# Providers not listed need only pydantic-ai.
+PROVIDER_REQUIRED_MODULES: dict[str, tuple[str, ...]] = {
+    "bedrock": ("pydantic_ai", "boto3"),
+}
+DEFAULT_REQUIRED_MODULES: tuple[str, ...] = ("pydantic_ai",)
+
+# Providers whose pydantic-ai client takes no endpoint, so `base_url` has
+# no effect on them.
+PROVIDERS_IGNORING_BASE_URL: frozenset[str] = frozenset(
+    {"google", "anthropic", "groq"}
+)
+
 
 def parse_model_string(llm: str | None) -> tuple[str | None, str | None]:
     """
@@ -29,7 +64,7 @@ def parse_model_string(llm: str | None) -> tuple[str | None, str | None]:
     provider : str, None
         Provider identifier (e.g. `'openai'`, `'ollama'`).
     model_name : str, None
-        Model name (e.g. `'gpt-4o-mini'`, `'qwen2.5:7b-instruct'`).
+        Model name (e.g. `'gpt-5.5'`, `'qwen3:8b'`).
     """
     if llm is None:
         return (None, None)
@@ -37,7 +72,7 @@ def parse_model_string(llm: str | None) -> tuple[str | None, str | None]:
     if ":" not in llm:
         raise ValueError(
             f"Invalid LLM string '{llm}'. Expected format 'provider:model_name' "
-            f"(e.g. 'openai:gpt-4o-mini', 'ollama:qwen2.5:7b-instruct')."
+            f"(e.g. 'openai:gpt-5.5', 'ollama:qwen3:8b')."
         )
 
     provider, model_name = llm.split(":", 1)
@@ -45,7 +80,7 @@ def parse_model_string(llm: str | None) -> tuple[str | None, str | None]:
     if not model_name:
         raise ValueError(
             f"Model name is empty in '{llm}'. Expected format 'provider:model_name' "
-            f"(e.g. 'openai:gpt-4o-mini', 'ollama:qwen2.5:7b-instruct')."
+            f"(e.g. 'openai:gpt-5.5', 'ollama:qwen3:8b')."
         )
 
     return (provider, model_name)
@@ -65,22 +100,28 @@ def create_model(
         Provider string in the format `'provider:model_name'`.
         If None, returns None (Tier 0 deterministic mode).
     base_url : str, default None
-        Custom base URL for the provider. Used for Ollama (defaults to
-        `'http://localhost:11434/v1'`) and as the endpoint for unknown
-        OpenAI-compatible providers when `api_key` is set.
+        Custom endpoint for the provider. Its meaning depends on the
+        prefix: the Ollama server URL (defaults to
+        `'http://localhost:11434/v1'`), the AWS region for `bedrock`, and
+        the endpoint of an OpenAI-compatible server for `openai` or any
+        prefix not built in. Ignored by `google`, `anthropic` and `groq`,
+        whose clients take no endpoint.
     api_key : str, default None
         Explicit API key for the provider. When None, Pydantic AI
         resolves credentials from environment variables (e.g.
         `OPENAI_API_KEY`, `GOOGLE_API_KEY`). When provided, the
-        appropriate provider is instantiated with the key.
+        appropriate provider is instantiated with the key. Not needed
+        for Ollama, nor for an OpenAI-compatible server reached through
+        `base_url` that does not authenticate.
 
     Returns
     -------
     model : str, Model, None
-        For cloud providers without `api_key`, returns the raw string
-        (Pydantic AI resolves natively). When `api_key` is provided,
-        returns a fully configured model instance. For Ollama, always
-        returns an `OllamaModel`. For None input, returns None.
+        For cloud providers without `api_key` or `base_url`, returns the
+        raw string (Pydantic AI resolves natively). When `api_key` or an
+        applicable `base_url` is provided, returns a fully configured
+        model instance. For Ollama, always returns an `OllamaModel`. For
+        None input, returns None.
     """
     if llm is None:
         return None
@@ -113,6 +154,18 @@ def create_model(
         )
 
     if api_key is None:
+        if base_url is not None and provider not in PROVIDERS_IGNORING_BASE_URL:
+            # An endpoint without a key: an OpenAI-compatible server (a
+            # proxy, vLLM, LM Studio...). pydantic-ai reads OPENAI_API_KEY
+            # when set and otherwise sends a placeholder key, which local
+            # servers accept. Returning the bare string here would drop
+            # the endpoint silently.
+            from pydantic_ai.models.openai import OpenAIChatModel
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            return OpenAIChatModel(
+                model_name, provider=OpenAIProvider(base_url=base_url)
+            )
         # Cloud providers: return string for Pydantic AI native resolution.
         # Pin the OpenAI prefix to 'openai-chat:' so the Chat Completions API
         # is used. From pydantic-ai v2.0 the bare 'openai:' prefix resolves to
@@ -138,7 +191,7 @@ def _create_model_with_api_key(
     provider : str
         Provider identifier (e.g. `'openai'`, `'google'`, `'anthropic'`).
     model_name : str
-        Model name (e.g. `'gpt-4o-mini'`, `'gemini-2.5-flash'`).
+        Model name (e.g. `'gpt-5.5'`, `'gemini-3.5-flash'`).
     api_key : str
         API key for the provider.
     base_url : str, None

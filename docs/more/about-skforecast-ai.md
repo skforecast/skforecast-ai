@@ -63,14 +63,14 @@ Thank you for helping us make **skforecast-ai** better! 🎉
 
 ## Citing skforecast-ai
 
-**skforecast-ai** is built on top of [`skforecast`](https://github.com/skforecast/skforecast). If you use it for a scientific publication, we would appreciate citations to the underlying `skforecast` software.
+If you use **skforecast-ai** for a scientific publication, please cite it using the references below.
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21338160.svg)](https://doi.org/10.5281/zenodo.21338159)
 
 **APA**
 
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.1) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
 **BibTeX**
@@ -79,7 +79,7 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.0) [Com
 @software{skforecast-ai,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast-ai},
-  version = {0.3.0},
+  version = {0.3.1},
   month   = {9},
   year    = {2026},
   license = {Apache-2.0},

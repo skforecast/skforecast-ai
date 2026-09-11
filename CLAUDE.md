@@ -125,5 +125,13 @@ Follow `.github/instructions/testing.instructions.md`. In short:
   model before the release (it costs money, so the user launches it), and
   the reviewed report is saved as described in
   `tools/ask_context_reports/README.md`.
-- `.github/copilot-instructions.md` and `skforecast_ai/skills/` are synced
-  from the skforecast repository; do not edit them here.
+- `skforecast_ai/skills/` and `skforecast_ai/resources/llms-base.txt` are
+  synced from the skforecast repository with
+  `tools/sync_skforecast_assets.py`; `.github/copilot-instructions.md` is
+  generated upstream. Do not edit any of them here. When a sync adds,
+  removes or renames a skill, the script lists the change and the files
+  maintained by hand: `llm/skills.py` (`ALL_SKILLS` and the routing
+  tables, plus `tools/measure_skill_tokens.py --update`), the table in
+  `docs/user-guides/skills.md` (`tests/test_docs_skills_page.py` checks it
+  against `ALL_SKILLS`) and the upstream-order test in
+  `tests/tests_llm/test_select_skills.py`.

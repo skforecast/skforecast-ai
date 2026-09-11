@@ -19,6 +19,13 @@ Usage
 
     # CI check against a specific branch
     python tools/sync_skforecast_assets.py --check --branch v0.22.0
+
+    # Print the local skill inventory as a Markdown table (no network)
+    python tools/sync_skforecast_assets.py --inventory
+
+Both the sync and the check report the skills added, removed or whose
+description changed, because the skill inventory is mirrored by hand in
+`skforecast_ai/llm/skills.py`, `docs/user-guides/skills.md` and the tests.
 """
 
 from __future__ import annotations
@@ -103,7 +110,7 @@ def _download(url: str, branch: str) -> bytes:
             f"Hint: does branch/tag '{branch}' exist in the skforecast repo?"
         )
     except URLError as exc:
-        sys.exit(f"Error: could not reach {url} — {exc.reason}")
+        sys.exit(f"Error: could not reach {url}: {exc.reason}")
 
 
 def _extract_from_tarball(
@@ -168,6 +175,144 @@ def _skills_hash_from_dict(skills: dict[str, bytes]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Skill inventory
+# ---------------------------------------------------------------------------
+# Files kept in sync by hand whenever the inventory changes. Listed in the
+# reminder printed after a sync so the change is not forgotten.
+_MANUAL_INVENTORY_FILES = (
+    "skforecast_ai/llm/skills.py (ALL_SKILLS, _TASK_TYPE_SKILLS, "
+    "_KEYWORD_SKILLS, _SKILL_OVERRIDES), then run "
+    "`python tools/measure_skill_tokens.py --update`",
+    "docs/user-guides/skills.md (skills table, checked by "
+    "tests/test_docs_skills_page.py)",
+    "tests/tests_llm/test_select_skills.py (upstream order test)",
+)
+
+
+def _parse_frontmatter(text: str) -> tuple[str | None, str]:
+    """
+    Return `(name, description)` from the YAML front matter of a SKILL.md.
+
+    Only the two fields required by the Agent Skills format are read.
+    The description may be a folded block (`description: >`), so the
+    indented lines that follow the key are joined with single spaces.
+    A hand-rolled parser keeps the script free of a PyYAML dependency.
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None, ""
+
+    name: str | None = None
+    description_lines: list[str] = []
+    in_description = False
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith((" ", "\t")):
+            if in_description:
+                description_lines.append(line.strip())
+            continue
+        in_description = False
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        if key == "name":
+            name = value
+        elif key == "description":
+            if value in ("", ">", "|", ">-", "|-"):
+                in_description = True
+            else:
+                description_lines.append(value)
+
+    return name, " ".join(description_lines).strip()
+
+
+def _inventory_from_files(skills: dict[str, bytes]) -> dict[str, str]:
+    """Map skill name to description from the extracted tarball files."""
+    inventory: dict[str, str] = {}
+    for rel_path, content in skills.items():
+        parts = rel_path.split("/")
+        if len(parts) == 2 and parts[1] == "SKILL.md":
+            name, description = _parse_frontmatter(content.decode("utf-8"))
+            inventory[name or parts[0]] = description
+    return inventory
+
+
+def _inventory_from_dir(directory: Path) -> dict[str, str]:
+    """Map skill name to description from a local skills directory."""
+    inventory: dict[str, str] = {}
+    if not directory.exists():
+        return inventory
+    for skill_file in sorted(directory.glob("*/SKILL.md")):
+        name, description = _parse_frontmatter(
+            skill_file.read_text(encoding="utf-8")
+        )
+        inventory[name or skill_file.parent.name] = description
+    return inventory
+
+
+def _inventory_diff(
+    local: dict[str, str], remote: dict[str, str]
+) -> dict[str, list[str]]:
+    """Return the skills added, removed and re-described between two inventories."""
+    return {
+        "added": sorted(set(remote) - set(local)),
+        "removed": sorted(set(local) - set(remote)),
+        "changed": sorted(
+            name
+            for name in set(local) & set(remote)
+            if local[name] != remote[name]
+        ),
+    }
+
+
+def _report_inventory_changes(
+    local: dict[str, str], remote: dict[str, str], indent: str = "  "
+) -> bool:
+    """
+    Print the inventory differences and return whether there were any.
+
+    The hash comparison in `check()` only says that something changed;
+    this names the skills, which is what the maintainer needs to decide
+    whether the hand-maintained inventory files must be updated.
+    """
+    diff = _inventory_diff(local, remote)
+    if not any(diff.values()):
+        print(f"{indent}Skill inventory unchanged ({len(remote)} skills).")
+        return False
+
+    print(f"{indent}Skill inventory changes:")
+    for label, names in (
+        ("added", diff["added"]),
+        ("removed", diff["removed"]),
+        ("description changed", diff["changed"]),
+    ):
+        if names:
+            print(f"{indent}  {label}: {', '.join(names)}")
+    return True
+
+
+def _print_manual_files_reminder() -> None:
+    """Tell the maintainer which files mirror the inventory by hand."""
+    print(
+        "\nThe skill inventory changed. Update the files maintained by hand:"
+    )
+    for entry in _MANUAL_INVENTORY_FILES:
+        print(f"  - {entry}")
+
+
+def print_inventory() -> None:
+    """Print the local skill inventory as a Markdown table (no network)."""
+    inventory = _inventory_from_dir(DEST_SKILLS)
+    if not inventory:
+        sys.exit(f"Error: no skills found under {DEST_SKILLS}")
+    print("| Skill | Description |")
+    print("|---|---|")
+    for name, description in inventory.items():
+        print(f"| `{name}` | {description} |")
+
+
+# ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 def sync(branch: str) -> None:
@@ -193,6 +338,8 @@ def sync(branch: str) -> None:
     if not skills:
         print("Warning: no skills found in archive under skills/")
     else:
+        # Snapshot before the refresh: the local copy is gone afterwards.
+        local_inventory = _inventory_from_dir(DEST_SKILLS)
         if DEST_SKILLS.exists():
             shutil.rmtree(DEST_SKILLS)
         DEST_SKILLS.mkdir(parents=True, exist_ok=True)
@@ -205,8 +352,13 @@ def sync(branch: str) -> None:
         skill_names = sorted({p.split("/")[0] for p in skills})
         print(f"  skills/ -> {DEST_SKILLS.relative_to(REPO_ROOT)}/")
         print(f"    {len(skill_names)} skills: {', '.join(skill_names)}")
+        inventory_changed = _report_inventory_changes(
+            local_inventory, _inventory_from_files(skills)
+        )
 
     print("Sync complete.")
+    if skills and inventory_changed:
+        _print_manual_files_reminder()
 
 
 def check(branch: str) -> None:
@@ -248,6 +400,11 @@ def check(branch: str) -> None:
                 f"  local  hash: {local_hash}\n"
                 f"  remote hash: {remote_hash}"
             )
+            inventory_changed = _report_inventory_changes(
+                _inventory_from_dir(DEST_SKILLS), _inventory_from_files(skills)
+            )
+            if not inventory_changed:
+                print("  (skill content changed, inventory unchanged)")
             failed = True
         else:
             print(f"  skills/: OK ({len(skills)} files)")
@@ -274,6 +431,14 @@ def main() -> None:
         help="Verify local copies match the pinned remote version (for CI).",
     )
     parser.add_argument(
+        "--inventory",
+        action="store_true",
+        help=(
+            "Print the local skill inventory (name and description) as a "
+            "Markdown table and exit. Needs no network."
+        ),
+    )
+    parser.add_argument(
         "--branch",
         default=DEFAULT_BRANCH,
         help=(
@@ -282,6 +447,10 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+
+    if args.inventory:
+        print_inventory()
+        return
 
     branch = _resolve_branch(args.branch)
 

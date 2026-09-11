@@ -142,11 +142,11 @@ Explore the full capabilities of **skforecast-ai** with our comprehensive docume
 
 | Documentation                                |     |
 |:---------------------------------------------|:----|
-| :rocket: [Quick start]                       | Get started quickly with skforecast |
-| :book: [Introduction to agentic forecasting] | Basics of forecasting concepts and methodologies |
-| :books: [API Reference]                      | Comprehensive reference for skforecast functions and classes |
+| :rocket: [Quick start]                       | Install skforecast-ai and run your first forecast |
+| :book: [Introduction to agentic forecasting] | End-to-end walkthrough: profile, plan, forecast, backtest, compare and ask |
+| :books: [API Reference]                      | Reference for the `ForecastingAssistant`, its schemas and the CLI |
 | :memo: [Releases]                            | Keep track of major updates and changes |
-| :mag: [More]                                 | Discover more about skforecast and its creators |
+| :mag: [More]                                 | Discover more about skforecast-ai and its creators |
 
 [Introduction to agentic forecasting]: https://ai.skforecast.org/stable/user-guides/agentic-forecasting.html
 [Quick start]: https://ai.skforecast.org/stable/quick-start/quick-start.html
@@ -161,18 +161,18 @@ Contributions are welcome, whether it's a bug report, a feature idea, or a pull 
 
 ## 📖 Citation
 
-If you use `skforecast-ai` in your work, please cite the underlying `skforecast` library:
+If you use `skforecast-ai` in your work, please cite it as follows:
 
 **Zenodo**
 
 ```
-Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast-ai (Version 0.3.0). Zenodo. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, Joaquin, & Escobar Ortiz, Javier. (2026). skforecast-ai (Version 0.3.1). Zenodo. https://doi.org/10.5281/zenodo.21338159
 ```
 
 **APA**
 
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.0) [Computer software]. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.1) [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
 **BibTeX**
@@ -181,7 +181,7 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.0) [Com
 @software{skforecast-ai,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast-ai},
-  version = {0.3.0},
+  version = {0.3.1},
   month   = {9},
   year    = {2026},
   license = {Apache-2.0},

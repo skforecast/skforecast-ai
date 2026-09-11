@@ -20,6 +20,7 @@ def test_importing_the_package_does_not_load_pydantic_ai():
         "import skforecast_ai\n"
         "from skforecast_ai import ForecastingAssistant\n"
         "ForecastingAssistant()\n"
+        "ForecastingAssistant(llm='openai:gpt-5.5', api_key='x').check_llm()\n"
         "print('pydantic_ai' in sys.modules)\n"
     )
 

@@ -13,6 +13,7 @@ from skforecast_ai.schemas import (
     ComparisonResult,
     CVResult,
     ForecastResult,
+    LLMCheckResult,
 )
 
 # Methods whose `Returns` section documents the attributes of the result
@@ -25,6 +26,7 @@ RESULT_WRAPPER_METHODS = [
     ("compare", ComparisonResult),
     ("create_cv", CVResult),
     ("ask", AskResult),
+    ("check_llm", LLMCheckResult),
 ]
 
 

@@ -12,7 +12,7 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 pip install skforecast-ai
 ```
 
-The `ask` command, `refine-plan --prompt` and `backtest --prompt` also need the optional LLM extras and an API key:
+The `ask` and `check-llm` commands, `refine-plan --prompt` and `backtest --prompt` also need the optional LLM extras and an API key:
 
 ```bash
 pip install "skforecast-ai[llm]"
@@ -35,6 +35,7 @@ See [How to install](../quick-start/how-to-install.md) for the provider-specific
 | `backtest` | Run backtesting evaluation (profile, plan, CV, backtest) |
 | `compare` | Compare several forecasters and report a ranked leaderboard |
 | `ask` | Ask forecasting questions using an LLM |
+| `check-llm` | Check how the LLM configuration resolves and whether it can be used |
 | `config show` | Display the current configuration |
 | `config set` | Set a configuration value |
 | `config path` | Print the config file location |
@@ -163,7 +164,7 @@ skforecast-ai refine-plan --from-plan plan.json --lags "1,2,3,12" \
 skforecast-ai refine-plan --from-plan plan.json --lags auto --window-features auto --format json
 
 # Let the LLM propose lags and window features from domain knowledge
-skforecast-ai refine-plan --from-plan plan.json --llm openai:gpt-4o-mini \
+skforecast-ai refine-plan --from-plan plan.json --llm openai:gpt-5.5 \
   --prompt "Monthly sales with a yearly cycle and a strong December peak" --format json
 ```
 
@@ -327,7 +328,7 @@ skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12 \
 
 # LLM-assisted CV configuration (describe your deployment scenario)
 skforecast-ai backtest "$URL" --target y --date-column fecha --steps 12 \
-  --llm openai:gpt-4o-mini \
+  --llm openai:gpt-5.5 \
   --prompt "We retrain weekly with a 2-day data delay"
 ```
 
@@ -400,7 +401,7 @@ skforecast-ai profile "$URL" --target y --date-column fecha --format json -q | \
 ## ask
 
 !!! note "Requires LLM extras"
-    `ask` requires an API key and the LLM extras: `pip install "skforecast-ai[llm]"`. See the AI assistant documentation for supported providers, API key setup, and local model options.
+    `ask` requires an API key and the LLM extras: `pip install "skforecast-ai[llm]"`. See [Configuring the LLM](llm-configuration.md) for supported providers, API key setup, and local model options.
 
 Query an LLM about your data, a saved profile or plan, or general forecasting strategy. With `--data` the dataset is profiled first and the profile is what the LLM explains; add `--steps` to build a plan and have the question answered about the plan and the script generated from it. `--from-profile` explains a saved profile and `--from-plan` explains a saved plan bundle together with its generated script, without any data.
 
@@ -408,7 +409,7 @@ The LLM receives a summary of the dataset (frequency, date range, target statist
 
 ```bash
 # Set LLM (or use --llm flag on each call)
-export SKFORECAST_AI_LLM="openai:gpt-4o-mini"
+export SKFORECAST_AI_LLM="openai:gpt-5.5"
 
 # Q&A mode: general question
 skforecast-ai ask "How do I choose between recursive and direct strategies?"
@@ -433,11 +434,31 @@ skforecast-ai ask "Recommend a forecasting approach" \
 
 # Local model via Ollama
 skforecast-ai ask "How to handle missing values?" \
-  --llm ollama:llama3
+  --llm ollama:qwen3:8b
 
 # Specific skills
 skforecast-ai ask "How to set up prediction intervals?" \
   --skills "prediction-intervals,hyperparameter-optimization"
+```
+
+---
+
+## check-llm
+
+Report how the LLM configuration resolves before running anything: provider and model, where the credentials come from and whether the environment variable is set (its value is never shown), what `--base-url` means for that provider, whether the extras are installed and, for Ollama, whether the server answers. The command exits with code 1 when a check fails, so it can guard a script. With `--test-call`, a one-line prompt is sent to the model once the static checks pass. See [Configuring the LLM](llm-configuration.md#check-your-configuration).
+
+```bash
+# Check the configuration resolved from flags, environment and config file
+skforecast-ai check-llm --llm openai:gpt-5.5
+
+# Same, and send a one-line prompt to the model
+skforecast-ai check-llm --llm openai:gpt-5.5 --test-call
+
+# Machine-readable report (the `ok` field summarizes it)
+skforecast-ai check-llm --format json
+
+# Local model: also checks that the Ollama server answers
+skforecast-ai check-llm --llm ollama:qwen3:8b
 ```
 
 ---
@@ -530,11 +551,12 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 
 | Flag | Short | Description | Commands |
 |------|-------|-------------|----------|
-| `--llm` | | LLM provider | `ask`, `refine-plan`, `backtest` |
-| `--base-url` | | Custom LLM endpoint (AWS region for `bedrock`) | `ask`, `refine-plan`, `backtest` |
-| `--api-key` | | API key for the LLM provider | `ask`, `refine-plan`, `backtest` |
+| `--llm` | | LLM provider | `ask`, `refine-plan`, `backtest`, `check-llm` |
+| `--base-url` | | Custom LLM endpoint (AWS region for `bedrock`, server URL for `ollama`) | `ask`, `refine-plan`, `backtest`, `check-llm` |
+| `--api-key` | | API key for the LLM provider | `ask`, `refine-plan`, `backtest`, `check-llm` |
+| `--test-call` | | Send a one-line prompt to the model once the static checks pass | `check-llm` |
 | `--send-data-to-llm` | | Accepted for parity with the Python API; the CLI never sends observations | `ask` |
-| `--skills` | | Skill names to include | `ask` |
+| `--skills` | | Comma-separated skill names to include; see [Skills](skills.md) for the valid names | `ask` |
 | `--prompt` | | Natural-language guidance for the LLM: domain knowledge for lags and window features, or the deployment scenario for the CV strategy | `refine-plan`, `backtest` |
 
 ### Output
@@ -566,7 +588,7 @@ Config file location: `~/.config/skforecast-ai/config.toml` (XDG-compliant).
 skforecast-ai config path
 
 # Set values
-skforecast-ai config set llm.provider "openai:gpt-4o-mini"
+skforecast-ai config set llm.provider "openai:gpt-5.5"
 skforecast-ai config set llm.base_url "http://localhost:11434/v1"
 skforecast-ai config set llm.send_data_to_llm false
 skforecast-ai config set output.format table
@@ -587,9 +609,9 @@ Settings are resolved in this order (first wins):
 
 | Method | Example |
 |--------|---------|
-| `--llm` flag | `--llm openai:gpt-4o-mini` |
-| `SKFORECAST_AI_LLM` env var | `export SKFORECAST_AI_LLM="openai:gpt-4o-mini"` |
-| Config file | `skforecast-ai config set llm.provider "openai:gpt-4o-mini"` |
+| `--llm` flag | `--llm openai:gpt-5.5` |
+| `SKFORECAST_AI_LLM` env var | `export SKFORECAST_AI_LLM="openai:gpt-5.5"` |
+| Config file | `skforecast-ai config set llm.provider "openai:gpt-5.5"` |
 | `--base-url` flag | `--base-url http://localhost:11434/v1` |
 | `SKFORECAST_AI_BASE_URL` env var | `export SKFORECAST_AI_BASE_URL="http://localhost:11434/v1"` |
 | Config file | `skforecast-ai config set llm.base_url "http://localhost:11434/v1"` |
@@ -602,7 +624,7 @@ Settings are resolved in this order (first wins):
 
 `--send-data-to-llm` follows the same precedence and is off by default. It mirrors the Python API, where it governs the `DataSentToLLMWarning` of `ask()` on results; the CLI `ask` command never sends observations, whatever its value. `--skills` is not resolved from config; pass it per call.
 
-Providers: `openai:model`, `anthropic:model`, `google:model`, `groq:model`, `bedrock:model` (with `--base-url` as the AWS region, e.g. `--base-url eu-west-1`) and `ollama:model`. Any other prefix is treated as an OpenAI-compatible endpoint when combined with `--base-url`.
+Providers: `openai:model`, `anthropic:model`, `google:model`, `groq:model`, `bedrock:model` (with `--base-url` as the AWS region, e.g. `--base-url eu-west-1`) and `ollama:model`. Any other prefix is treated as an OpenAI-compatible endpoint when combined with `--base-url`. See [Providers and credentials](llm-configuration.md#providers-and-credentials) for the environment variable each provider reads and the meaning of `--base-url`.
 
 ---
 
@@ -611,7 +633,7 @@ Providers: `openai:model`, `anthropic:model`, `google:model`, `groq:model`, `bed
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Error (missing file, bad column, no LLM, unreachable URL, execution failures) |
+| 1 | Error (missing file, bad column, no LLM, unreachable URL, execution failures, a failed `check-llm`) |
 | 2 | Invalid usage (unknown flag, missing required argument) |
 
 ---

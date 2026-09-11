@@ -40,7 +40,7 @@ name and are ignored by git.
 ## What to keep
 
 One reviewed report per release and dataset, named
-`<release>_<dataset>.md` (for example `0.3.0_items_sales.md`), saved with
+`<release>_<dataset>.md` (for example `0.3.1_items_sales.md`), saved with
 `--out tools/ask_context_reports/<release>_<dataset>.md`. Those are
 tracked, so the next release can be compared against them question by
 question. Keep only the final run on the released code, not the

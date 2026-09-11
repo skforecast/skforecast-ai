@@ -1,6 +1,6 @@
 site_name: skforecast-AI Docs
 repo_url: https://github.com/skforecast/skforecast-ai
-site_url: https://github.com/skforecast/skforecast-ai
+site_url: https://ai.skforecast.org
 site_description: AI-powered forecasting assistant built on top of skforecast.
 site_author: Joaquin Amat Rodrigo and Javier Escobar Ortiz
 use_directory_urls: false
@@ -18,6 +18,8 @@ nav:
   - User Guides:
     - Agentic forecasting: user-guides/agentic-forecasting.ipynb
     - Agentic forecasting step by step: user-guides/agentic-forecasting-step-by-step.ipynb
+    - Configuring the LLM: user-guides/llm-configuration.md
+    - Skills for the LLM: user-guides/skills.md
     - Using the CLI: user-guides/cli-usage.md
 
   - API Reference:
@@ -26,6 +28,7 @@ nav:
       - Results: api/schemas/results.md
       - Plans: api/schemas/plans.md
       - Profiles: api/schemas/profiles.md
+    - Exceptions and warnings: api/exceptions.md
     - CLI: api/cli.md
 
   - Releases:
@@ -52,7 +55,7 @@ plugins:
           options:
             docstring_style: numpy
             docstring_section_style: table
-            filters: ["!__"] # exclude all members starting with __
+            filters: ["!^_"] # exclude private members and dunders (^ anchors to start)
             members_order: source
             merge_init_into_class: true
             separate_signature: true

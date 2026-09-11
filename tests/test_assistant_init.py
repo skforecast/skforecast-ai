@@ -12,12 +12,12 @@ def test_init_stores_attributes():
     send_data_to_llm attributes correctly.
     """
     assistant = ForecastingAssistant(
-        llm="openai:gpt-4o-mini",
+        llm="openai:gpt-5.5",
         base_url="http://localhost:8080/v1",
         api_key="sk-test-key-123",
         send_data_to_llm=True,
     )
-    assert assistant.llm == "openai:gpt-4o-mini"
+    assert assistant.llm == "openai:gpt-5.5"
     assert assistant.base_url == "http://localhost:8080/v1"
     assert assistant.api_key == "sk-test-key-123"
     assert assistant.send_data_to_llm is True

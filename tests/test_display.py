@@ -17,6 +17,7 @@ from skforecast_ai._display import (
     render_code,
     render_explanation,
     render_dataframe,
+    render_llm_check,
     render_metrics,
     render_profile,
     render_plan,
@@ -29,6 +30,7 @@ from skforecast_ai.schemas.results import (
     CodeGenerationResult,
     AskResult,
     ForecastResult,
+    LLMCheckResult,
     BacktestResult,
 )
 
@@ -269,6 +271,58 @@ def test_render_cv_config_renders_key_value_pairs():
     assert "initial_train_size" in text
     assert "50" in text
     assert "False" in text
+
+
+def test_render_llm_check_renders_status_credentials_and_error():
+    """
+    Test that the check table shows the status, names the credential
+    variable with its state, marks a skipped call and lists the error.
+    """
+    result = LLMCheckResult(
+        llm="openai:gpt-5.5",
+        provider="openai",
+        model_name="gpt-5.5",
+        credential_source="env_var",
+        env_var="OPENAI_API_KEY",
+        env_var_set=False,
+        base_url_note="Provider default (OPENAI_BASE_URL when set).",
+        error="OPENAI_API_KEY is not set and no api_key was given.",
+    )
+
+    console = Console(file=io.StringIO(), width=120, color_system=None)
+    console.print(render_llm_check(result))
+    text = console.file.getvalue()
+
+    assert "LLM Configuration Check" in text
+    assert "not ok" in text
+    assert "OPENAI_API_KEY (not set)" in text
+    assert "skipped" in text
+    assert "OPENAI_API_KEY is not set and no api_key was given." in text
+    assert "Ollama reachable" not in text
+
+
+def test_render_llm_check_shows_ollama_row_only_for_ollama():
+    """
+    Test that the reachability row appears when the check contacted an
+    Ollama server, and that a passing check reads ok.
+    """
+    result = LLMCheckResult(
+        llm="ollama:qwen3:8b",
+        provider="ollama",
+        model_name="qwen3:8b",
+        credential_source="none",
+        base_url="http://localhost:11434/v1",
+        reachable=True,
+        call_ok=True,
+    )
+
+    console = Console(file=io.StringIO(), width=120, color_system=None)
+    console.print(render_llm_check(result))
+    text = console.file.getvalue()
+
+    assert "Ollama reachable" in text
+    assert "none required" in text
+    assert "Status" in text and "not ok" not in text
 
 
 def test_render_profile_includes_profile_recommendation_and_explanation(sample_profile):
@@ -540,12 +594,21 @@ class TestDisplayMixin:
                 profile=profile,
                 plan=plan,
             ),
+            "llm_check": LLMCheckResult(
+                llm="openai:gpt-5.5",
+                provider="openai",
+                model_name="gpt-5.5",
+                credential_source="env_var",
+                env_var="OPENAI_API_KEY",
+                env_var_set=True,
+            ),
         }
         return results[key]
 
     @pytest.mark.parametrize(
         "key",
-        ["plan", "profile", "code_generation", "ask", "forecast", "backtest"],
+        ["plan", "profile", "code_generation", "ask", "forecast", "backtest",
+         "llm_check"],
     )
     def test_display_renders_to_console_and_jupyter(
         self, key, sample_profile, sample_plan, sample_metrics, sample_dataframe
