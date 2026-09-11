@@ -153,9 +153,12 @@ def test_check_llm_config_output_when_ollama_unreachable(monkeypatch):
 def test_check_llm_config_output_when_bedrock_with_region(monkeypatch):
     """
     Test that Bedrock reports the AWS credential chain, base_url as the
-    region, and env_var_set True when an AWS variable is present.
+    region, and env_var_set True when an AWS variable is present. The
+    dependency probe is fixed so the test does not depend on boto3 being
+    installed in the environment.
     """
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "aws-marker")
+    monkeypatch.setattr(diagnostics, "_is_importable", lambda module: True)
 
     result = check_llm_config(
         "bedrock:eu.anthropic.claude-sonnet-4-6", base_url="eu-west-1"
@@ -169,11 +172,15 @@ def test_check_llm_config_output_when_bedrock_with_region(monkeypatch):
     assert result.ok is True
 
 
-def test_check_llm_config_output_when_bedrock_without_aws_variables():
+def test_check_llm_config_output_when_bedrock_without_aws_variables(monkeypatch):
     """
     Test that Bedrock without any AWS variable is not a failure: the
-    credential chain may still resolve a profile or an instance role.
+    credential chain may still resolve a profile or an instance role. The
+    dependency probe is fixed so the test does not depend on boto3 being
+    installed in the environment.
     """
+    monkeypatch.setattr(diagnostics, "_is_importable", lambda module: True)
+
     result = check_llm_config("bedrock:eu.anthropic.claude-sonnet-4-6")
 
     assert result.credential_source == "aws_credential_chain"
