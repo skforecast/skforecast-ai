@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from skforecast.exceptions import MissingValuesWarning
+
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import DataProfile, ForecastingProfile
 
@@ -179,9 +181,11 @@ def test_profile_output_when_data_has_missing_values():
     the missing_target field in DataProfile.
     """
     assistant = ForecastingAssistant()
-    profile = assistant.profile(
-        data=df_with_missing, target="sales", date_column="date"
-    )
+    # The PACF falls back to pairwise deletion on NaN and says so.
+    with pytest.warns(MissingValuesWarning, match="pairwise deletion"):
+        profile = assistant.profile(
+            data=df_with_missing, target="sales", date_column="date"
+        )
 
     assert isinstance(profile, ForecastingProfile)
     assert profile.data_profile.missing_target != {}

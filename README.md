@@ -68,27 +68,26 @@ pip install -e ".[dev]"
 From raw data to a validated forecast, and the code behind it, in a few lines:
 
 ```python
-import pandas as pd
 from skforecast_ai import ForecastingAssistant
 from skforecast.datasets import load_demo_dataset
 
 data = load_demo_dataset(verbose=False)
 assistant = ForecastingAssistant()
-result = assistant.forecast(data=data, target="y", steps=12)
+result = assistant.forecast(data=data, target="y", steps=12, test_size=12)
 
-print(result.predictions)   # forecast for the next 12 steps
-print(result.metrics)       # evaluation metrics: MAE, MSE, MASE
+print(result.predictions)   # predictions for the 12 held-out observations
+print(result.metrics)       # evaluation metrics: MAE, MSE, MASE, MAPE
 print(result.code)          # the exact skforecast script that produced this result
 ```
 
-That single `forecast()` call profiled the data, chose a forecaster and estimator, generated a `skforecast` script, and executed it. `result.code` is the script that ran.
+That single `forecast()` call profiled the data, chose a forecaster and estimator, generated a `skforecast` script, and executed it on a train/test split. `result.code` is the script that ran. Drop `test_size` to train on all the data and forecast the next 12 steps (then `result.metrics` is `None`, since there is nothing to score against).
 
 The returned `ForecastResult` exposes everything the pipeline produced:
 
 | Attribute | What it holds |
 | --- | --- |
 | `result.predictions` | Forecast for the requested horizon (includes interval columns when `interval` is requested) |
-| `result.metrics` | Backtest evaluation metrics (MAE, MSE, MASE) |
+| `result.metrics` | Evaluation metrics on the held-out test set (MAE, MSE, MASE, MAPE); `None` in prediction mode |
 | `result.code` | The runnable `skforecast` script that produced the result |
 | `result.profile` | What profiling detected about your data |
 | `result.plan` | The forecaster, estimator, lags, and metrics that were chosen |
@@ -126,7 +125,7 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 
 A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data. You can also use `compare()` to evaluate several candidate configurations under the same cross-validation strategy and obtain a ranked leaderboard, so the best configuration is chosen from measured performance rather than intuition.
 
-The `ask()` method is available in both workflows. It can explain a profile, plan, validation setup, backtest result, comparison result, or answer general forecasting questions, but it will never execute the workflow or modify your parameters without explicit instruction.
+The `ask()` method is available in both workflows. Pass it the object to explain as `context` (a profile, optionally with a plan, a generated script, a cross-validation strategy, a forecast, backtest or comparison result) or nothing to ask a general forecasting question. It never executes the workflow or modifies your parameters.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/skforecast/skforecast-ai/refs/heads/main/docs/img/how-it-works.svg" alt="How skforecast-ai works: fast path and step-by-step path" width="100%">
@@ -183,7 +182,7 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.0) [Com
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast-ai},
   version = {0.3.0},
-  month   = {8},
+  month   = {9},
   year    = {2026},
   license = {Apache-2.0},
   url     = {https://ai.skforecast.org/},

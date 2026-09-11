@@ -3,17 +3,24 @@
 - Observations: 100
 - Series: 1
 - Frequency: D
+- Date range: 2023-01-01 to 2023-04-10
 - Target: sales
 - Exogenous columns: none
+- Target statistics: min 0, max 99, mean 49.5, std 29.01
+- Missing values: none
+- Index irregularities: none detected
 </dataset>
 <profile_decision>
 A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 observations, 'D' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation', 'ForecasterStats']. Estimator: Ridge. A linear model is preferred because the dataset is small (100 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+- Significant lags (partial autocorrelation, strongest first): 1
+- Suggested window features: mean(window=3), std(window=3), mean(window=7), mean(window=21)
+- Suggested calendar features: day_of_week, weekend, month
 </profile_decision>
 <comparison_overview>
 - Candidates evaluated: 2
 - Ranking metric: MAE
 - Winner: candidate_01
-The ranking is a deterministic ascending sort of the MAE column (lower is better). Do not re-rank the candidates or recompute the table.
+The ranking is a deterministic ascending sort of the MAE column (lower is better). Do not re-rank the candidates or recompute the table, and do not suggest reasons for the ranking beyond the metric values: the leaderboard reports what happened, not why.
 </comparison_overview>
 <leaderboard>
 Candidates listed: 2 (all shown below).

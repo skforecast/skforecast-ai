@@ -6,7 +6,12 @@ from .autoregressive import (
     select_lags,
     select_window_features,
 )
-from .backtesting import build_cv_explanation, derive_cv_defaults
+from .backtesting import (
+    build_cv_explanation,
+    count_cv_folds,
+    derive_cv_defaults,
+    resolve_cv_config,
+)
 from .calendar import select_calendar_features, select_calendar_encoding
 from .explanation import _build_profile_explanation, build_plan_explanation
 from .forecaster_selection import (
@@ -31,9 +36,11 @@ __all__ = [
     "build_forecaster_kwargs",
     "check_exog_usage",
     "compute_series_pacf",
+    "count_cv_folds",
     "derive_cv_defaults",
     "derive_preprocessing_steps",
     "finalize_lags",
+    "resolve_cv_config",
     "select_calendar_encoding",
     "select_calendar_features",
     "select_dropna_from_series",

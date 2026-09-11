@@ -410,7 +410,12 @@ def test_create_data_profile_output_when_target_not_constant():
         index=pd.date_range("2023-01-01", periods=50, freq="D"),
     )
     profile = create_data_profile(df, target="y")
-    assert profile is not None
+
+    assert profile.target == "y"
+    assert profile.n_series == 1
+    assert profile.frequency == "D"
+    assert profile.target_stats["y"]["min"] == 0.0
+    assert profile.target_stats["y"]["max"] == 49.0
 
 
 def test_create_data_profile_missing_values_excludes_date_and_series_id():
@@ -496,3 +501,18 @@ def test_create_data_profile_output_when_long_series_different_lengths():
     assert profile.series_lengths["A"].start == "2023-01-01"
     assert profile.series_lengths["B"].start == "2023-02-01"
 
+
+def test_create_data_profile_start_date_keeps_time_when_not_midnight():
+    """
+    Test that the recorded start date carries the time component when the
+    series does not start at midnight, so position-to-date conversions
+    stay aligned with the actual timestamps.
+    """
+    df = pd.DataFrame(
+        {"y": np.arange(48, dtype=float)},
+        index=pd.date_range("2023-01-01 06:00:00", periods=48, freq="h"),
+    )
+
+    profile = create_data_profile(df, target="y")
+
+    assert profile.start_date == "2023-01-01 06:00:00"

@@ -1,12 +1,12 @@
 # Unit test forecast ForecastingAssistant
 
+import re
 import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast.exceptions import IgnoredArgumentWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
 
@@ -216,20 +216,49 @@ def test_forecast_metrics_are_finite():
 
 
 # =============================================================================
-# Tests: ignored plan-override warning
+# Tests: plan overrides
 # =============================================================================
-def test_forecast_IgnoredArgumentWarning_when_interval_passed_with_plan():
+def test_forecast_output_when_interval_passed_with_plan_without_intervals():
     """
-    Test that forecast() warns with IgnoredArgumentWarning when an interval
-    override is passed alongside a pre-built plan, because the planning
-    stage (which consumes interval) is skipped.
+    Test that an `interval` passed alongside a pre-built plan that has no
+    intervals is applied: the interval is a prediction-time option, so the
+    executed plan carries it and the predictions include the bounds.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
+    assert plan.interval is None
 
-    with pytest.warns(IgnoredArgumentWarning, match="pre-built `plan`"):
-        assistant.forecast(
+    result = assistant.forecast(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        steps=5,
+        interval=[0.1, 0.9],
+        test_size=0.2,
+        profile=profile,
+        plan=plan,
+    )
+
+    assert result.plan.interval == [0.1, 0.9]
+    assert result.plan.interval_method == "bootstrapping"
+    assert result.plan.explanation.endswith("Prediction intervals via bootstrapping.")
+    assert {"lower_bound", "upper_bound"} <= set(result.predictions.columns)
+    assert plan.interval is None
+
+
+def test_forecast_no_warning_when_interval_matches_plan():
+    """
+    Test that an `interval` equal to the one the pre-built plan already
+    holds is accepted silently and the plan is used unchanged.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, interval=[0.1, 0.9])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = assistant.forecast(
             data=df_single,
             target="sales",
             date_column="date",
@@ -239,6 +268,55 @@ def test_forecast_IgnoredArgumentWarning_when_interval_passed_with_plan():
             profile=profile,
             plan=plan,
         )
+
+    assert result.plan.interval == [0.1, 0.9]
+    assert result.plan.explanation == plan.explanation
+
+
+def test_forecast_ValueError_when_lags_differ_from_plan():
+    """
+    Test that forecast() rejects a `lags` override that differs from the
+    lags of the pre-built plan, since the planning stage that would apply
+    it is skipped and the value would otherwise be dropped silently.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    with pytest.raises(ValueError, match=re.escape("['lags']")):
+        assistant.forecast(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=5,
+            lags=[1, 2],
+            test_size=0.2,
+            profile=profile,
+            plan=plan,
+        )
+
+
+def test_forecast_output_when_lags_match_plan():
+    """
+    Test that a `lags` override equal to the lags of the pre-built plan is
+    accepted, also when given as the integer form of the same lag list.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, lags=3)
+
+    result = assistant.forecast(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        steps=5,
+        lags=[1, 2, 3],
+        test_size=0.2,
+        profile=profile,
+        plan=plan,
+    )
+
+    assert result.plan.forecaster_kwargs["lags"] == 3
 
 
 def test_forecast_no_override_warning_when_plan_without_overrides():
@@ -435,3 +513,80 @@ def test_forecast_ValueError_when_exog_with_prebuilt_evaluation_plan():
             profile=profile,
             plan=plan,
         )
+
+
+def test_forecast_output_when_profile_given_without_target():
+    """
+    Test that a supplied profile makes `target` and `date_column`
+    optional: they are taken from the profile, which is what the executed
+    script is rendered from anyway.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.forecast(
+        data=df_single, steps=5, test_size=5, profile=profile, plan=plan
+    )
+
+    assert result.profile is profile
+    assert len(result.predictions) == 5
+
+
+def test_forecast_ValueError_when_target_conflicts_with_profile():
+    """
+    Test that a target different from the one recorded in the supplied
+    profile raises ValueError. Previously it was ignored and the script
+    used the profile's target regardless.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(ValueError, match="does not match the target recorded"):
+        assistant.forecast(
+            data=df_single, target="temperature", steps=5, test_size=5,
+            profile=profile,
+        )
+
+
+def test_forecast_output_when_plan_given_without_steps():
+    """
+    Test that a supplied plan makes `steps` optional: the horizon is
+    taken from the plan, which is what the executed script uses anyway.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=7)
+
+    result = assistant.forecast(
+        data=df_single, test_size=7, profile=profile, plan=plan
+    )
+
+    assert len(result.predictions) == 7
+
+
+def test_forecast_ValueError_when_steps_conflicts_with_plan():
+    """
+    Test that a `steps` different from `plan.steps` raises ValueError,
+    mirroring the `cv.steps` check of backtest(). Previously the argument
+    was ignored and the script predicted `plan.steps` regardless.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=7)
+
+    with pytest.raises(ValueError, match=re.escape("`steps` (3) does not match `plan.steps` (7)")):
+        assistant.forecast(
+            data=df_single, steps=3, test_size=7, profile=profile, plan=plan
+        )
+
+
+def test_forecast_ValueError_when_neither_steps_nor_plan():
+    """
+    Test that omitting `steps` without a plan raises a clear ValueError
+    instead of failing inside plan validation.
+    """
+    assistant = ForecastingAssistant()
+
+    with pytest.raises(ValueError, match="`steps` is required when `plan` is not provided"):
+        assistant.forecast(data=df_single, target="sales", date_column="date")

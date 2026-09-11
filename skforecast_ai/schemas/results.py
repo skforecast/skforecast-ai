@@ -7,8 +7,8 @@
 
 from __future__ import annotations
 import traceback
-from typing import TYPE_CHECKING, Any, ClassVar
-from pydantic import BaseModel, ConfigDict, Field
+from typing import TYPE_CHECKING, ClassVar
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 from .._display import (
     DisplayMixin,
     render_cv_config,
@@ -18,6 +18,8 @@ from .._display import (
     render_plan,
     render_profile,
 )
+from ._types import JSONFrame, JSONTimeSeriesFold, OptionalJSONFrame
+from .explainable import ExplainableResult
 from .plans import ForecastPlan
 from .profiles import ForecastingProfile
 
@@ -80,6 +82,14 @@ class LLMContext(BaseModel):
         Generated script echoed back on `AskResult`. When not None,
         `ask()` strips code blocks from the LLM response, since a
         validated script already exists.
+    sends_result_values : bool, default True
+        Whether `text` ships values the result owns (predictions or
+        metrics), which `ask()` sends regardless of `send_data_to_llm`.
+        `ask()` emits `DataSentToLLMWarning` only when this is True and
+        `send_data_to_llm` is False, so a result that holds no such values
+        (for example a generated script) does not warn about data it never
+        sends. Defaults to True so a result type that does not declare it
+        keeps the warning.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -88,51 +98,10 @@ class LLMContext(BaseModel):
     profile: ForecastingProfile | None = None
     plan: ForecastPlan | None = None
     code: str | None = None
+    sends_result_values: bool = True
 
 
-class ExplainableResult:
-    """
-    Capability shared by every result that can describe itself to an LLM.
-
-    Mirrors `DisplayMixin`, which lets a result describe itself to a
-    terminal. Subclasses must implement `_build_llm_context`, returning
-    the context block plus the artifacts `ask()` echoes back on its
-    `AskResult`.
-
-    Each result decides its own payload, so an aggregate result (for
-    example `ComparisonResult`) can send a compact summary instead of the
-    concatenated payloads of everything it wraps.
-    """
-
-    def _build_llm_context(
-        self, *, send_data: bool
-    ) -> LLMContext:  # pragma: no cover - overridden by subclasses
-        raise NotImplementedError(
-            f"{type(self).__name__} must implement _build_llm_context"
-        )
-
-    def to_llm_context(self, *, send_data: bool = False) -> LLMContext:
-        """
-        Build the LLM context for this result.
-
-        Parameters
-        ----------
-        send_data : bool, default False
-            Whether raw data values may be included. When False, only
-            aggregate statistics are shown for row-level data. The
-            decision belongs to the caller, so the privacy policy stays
-            owned by `ForecastingAssistant`.
-
-        Returns
-        -------
-        context : LLMContext
-            Rendered context block plus the artifacts `ask()` echoes back.
-        """
-
-        return self._build_llm_context(send_data=send_data)
-
-
-class CodeGenerationResult(DisplayMixin, BaseModel):
+class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
     """
     Result of the `forecast_code` workflow.
 
@@ -149,6 +118,50 @@ class CodeGenerationResult(DisplayMixin, BaseModel):
     profile: ForecastingProfile
     plan: ForecastPlan
     code: str
+
+    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+        """
+        Describe the generated script to the LLM.
+
+        Parameters
+        ----------
+        send_data : bool
+            Whether raw data values may be included. Has no effect here:
+            a generated script carries no predictions, only the profile
+            and plan it was rendered from. The parameter is part of the
+            `ExplainableResult` interface.
+
+        Returns
+        -------
+        context : LLMContext
+            Context block covering the dataset, the profile decisions, and
+            the plan behind the script.
+        """
+
+        # Deferred import: `llm.context` imports from this package, so a
+        # module-level import here would be circular.
+        from ..llm.context import (
+            join_sections,
+            render_dataset_section,
+            render_plan_section,
+            render_profile_decision_section,
+            render_script_section,
+        )
+
+        # The script itself is not sent; its contract (mode, files, outputs,
+        # packages) is, so "what do I need to run it" has an answer.
+        return LLMContext(
+            text                = join_sections([
+                                      render_dataset_section(self.profile),
+                                      render_profile_decision_section(self.profile),
+                                      render_plan_section(self.plan),
+                                      render_script_section(self.plan, self.code),
+                                  ]),
+            profile             = self.profile,
+            plan                = self.plan,
+            code                = self.code,
+            sends_result_values = False,
+        )
 
     def _rich_body(
         self, console: Console, options: ConsoleOptions
@@ -171,6 +184,10 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
     `ExplainableResult` directly so they can send a compact summary rather
     than a concatenation of everything they wrap.
 
+    Every result serializes to JSON with `model_dump(mode="json")` or
+    `model_dump_json()`: DataFrames become lists of row records with the
+    index as a leading column. `model_dump()` keeps the live DataFrames.
+
     Attributes
     ----------
     profile : ForecastingProfile
@@ -190,8 +207,8 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
     profile: ForecastingProfile
     plan: ForecastPlan
     code: str
-    predictions: Any  # pd.DataFrame
-    metrics: Any  # pd.DataFrame | None
+    predictions: JSONFrame
+    metrics: OptionalJSONFrame
 
     def _build_llm_context(self, *, send_data: bool) -> LLMContext:
         """
@@ -323,6 +340,105 @@ class BacktestResult(SingleRunResult):
         yield render_dataframe(self.predictions, title="Backtest Predictions")
         yield render_profile(self.profile)
         yield render_plan(self.plan)
+
+
+class CVResult(DisplayMixin, ExplainableResult, BaseModel):
+    """
+    Result of the `create_cv` workflow (a cross-validation strategy).
+
+    Wraps the `TimeSeriesFold` splitter together with the resolved
+    parameters, the fold count, the snippet that builds the splitter, and
+    the explanation of the choices. Pass it to `backtest()`,
+    `backtest_code()` or `compare()` as `cv`, or to `ask()` as `result`.
+
+    Attributes
+    ----------
+    profile : ForecastingProfile
+        Profile of the input dataset and high-level modeling decisions
+        the strategy was derived from.
+    plan : ForecastPlan
+        Forecasting plan the strategy was derived from (its `steps` is the
+        fold horizon).
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter.
+    cv_config : dict
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`.
+    code : str
+        Python snippet that builds the same `TimeSeriesFold`.
+    explanation : str
+        Human-readable explanation of the chosen configuration. When the
+        strategy was derived from a prompt, the LLM reasoning comes first.
+
+    Notes
+    -----
+    `create_cv()` used to return a `(TimeSeriesFold, str)` tuple. A
+    `CVResult` is not iterable, so unpacking it raises a `TypeError` that
+    points to the `cv` and `explanation` attributes.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    profile: ForecastingProfile
+    plan: ForecastPlan
+    cv: JSONTimeSeriesFold
+    cv_config: dict
+    code: str
+    explanation: str
+
+    _explanation_title: ClassVar[str] = "Cross-Validation Explanation"
+
+    def __iter__(self):
+        # Pydantic models iterate over (field, value) pairs, which would let
+        # the old `cv, explanation = create_cv(...)` silently unpack the
+        # wrong things (or fail with a puzzling "too many values" error).
+        raise TypeError(
+            "`create_cv()` returns a `CVResult`, not a tuple. Use "
+            "`result.cv` for the TimeSeriesFold and `result.explanation` "
+            "for the explanation, or pass the result itself as `cv` to "
+            "`backtest()`, `backtest_code()` or `compare()`."
+        )
+
+    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+        """
+        Describe the cross-validation strategy to the LLM.
+
+        Parameters
+        ----------
+        send_data : bool
+            Whether raw data values may be included. Has no effect here:
+            a strategy carries no predictions or metrics. The parameter is
+            part of the `ExplainableResult` interface.
+
+        Returns
+        -------
+        context : LLMContext
+            Context block covering the dataset, the profile decisions, the
+            plan, the resolved cross-validation parameters, and the
+            deterministic explanation.
+        """
+
+        # Deferred import: `llm.context` imports from this package, so a
+        # module-level import here would be circular.
+        from ..llm.context import build_context_message
+
+        return LLMContext(
+            text                = build_context_message(
+                                      profile     = self.profile,
+                                      plan        = self.plan,
+                                      cv_config   = self.cv_config,
+                                      explanation = self.explanation,
+                                  ),
+            profile             = self.profile,
+            plan                = self.plan,
+            code                = self.code,
+            sends_result_values = False,
+        )
+
+    def _rich_body(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield render_explanation(self.explanation, title=self._explanation_title)
+        yield render_cv_config(self.cv_config)
 
 
 class AskResult(DisplayMixin, BaseModel):
@@ -509,16 +625,20 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     therefore partition the candidates that were evaluated, and their
     union matches the `'name'` column of `results`.
 
-    `best_name` and `best_candidate` are plain properties rather than
-    fields, so the winning `BacktestResult` is not serialized a second
-    time by `model_dump()`.
+    `best_name` is a computed field, so it is included by `model_dump()`;
+    `best_candidate` is a plain property, so the winning `BacktestResult`
+    is not serialized a second time.
+
+    Every result serializes to JSON with `model_dump(mode="json")` or
+    `model_dump_json()`: DataFrames become lists of row records with the
+    index as a leading column. `model_dump()` keeps the live DataFrames.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     profile: ForecastingProfile
     cv_config: dict
-    results: Any  # pd.DataFrame
+    results: JSONFrame
     candidates: dict[str, BacktestResult] = Field(min_length=1)
     failures: dict[str, CandidateFailure] = Field(default_factory=dict)
     ranking_metric: str
@@ -526,6 +646,7 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
 
     _explanation_title: ClassVar[str] = "Comparison Explanation"
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def best_name(self) -> str:
         """Return the name of the top-ranked candidate."""

@@ -12,7 +12,7 @@ from .fixtures_rendering import (
 
 
 # =============================================================================
-# Tests: render_forecast_foundation — full script comparison
+# Tests: render_forecast_foundation: full script comparison
 # =============================================================================
 def test_render_forecast_foundation_output_when_single_series():
     """
@@ -53,7 +53,7 @@ def test_render_forecast_foundation_output_when_single_series():
         "# Create forecaster\n"
         "forecaster = ForecasterFoundation(estimator=estimator)\n"
         "\n"
-        "# Fit (stores context only — no training)\n"
+        "# Fit (stores context only, no training)\n"
         "forecaster.fit(series=series_train)\n"
         "\n"
         "# Predict\n"
@@ -122,7 +122,7 @@ def test_render_forecast_foundation_output_when_quantiles_requested():
         "# Create forecaster\n"
         "forecaster = ForecasterFoundation(estimator=estimator)\n"
         "\n"
-        "# Fit (stores context only — no training)\n"
+        "# Fit (stores context only, no training)\n"
         "forecaster.fit(series=series_train)\n"
         "\n"
         "# Predict quantiles (native)\n"
@@ -194,7 +194,7 @@ def test_render_forecast_foundation_output_when_multi_series():
         "# Create forecaster\n"
         "forecaster = ForecasterFoundation(estimator=estimator)\n"
         "\n"
-        "# Fit (stores context only — no training)\n"
+        "# Fit (stores context only, no training)\n"
         "forecaster.fit(series=series_train)\n"
         "\n"
         "# Predict\n"

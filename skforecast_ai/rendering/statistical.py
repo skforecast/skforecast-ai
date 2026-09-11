@@ -8,12 +8,11 @@
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
-    _emit_data_loading,
     _emit_end_train,
     _emit_future_exog_index_setup,
     _emit_future_exog_loading,
     _emit_imports_statistical,
-    _emit_index_setup,
+    _emit_loading_and_index,
     _emit_metrics_section,
     _emit_preprocessing_steps,
     _emit_production_note,
@@ -95,14 +94,10 @@ def render_forecast_statistical(
 
     _emit_imports_statistical(import_lines, plan, include_metrics=evaluate)
 
-    # --- Load data ---
-    _emit_data_loading(loading_lines, profile)
+    # --- Load data and index setup ---
+    _emit_loading_and_index(loading_lines, core_lines, profile)
     if not evaluate and use_exog:
         _emit_future_exog_loading(loading_lines, profile)
-
-    # --- Index setup (runs in both standalone and exec modes) ---
-    _emit_index_setup(core_lines, profile)
-    if not evaluate and use_exog:
         _emit_future_exog_index_setup(core_lines, profile)
 
     # --- Preprocessing steps ---

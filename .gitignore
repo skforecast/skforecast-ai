@@ -157,3 +157,8 @@ tools/execute_docs/logs/
 # Local scratch artifacts
 /test_out.json
 /test_plan.json
+
+# ask() context evaluation runs: only the reviewed per-release reports are kept
+tools/ask_context_reports/*.md
+!tools/ask_context_reports/README.md
+!tools/ask_context_reports/[0-9]*.[0-9]*.[0-9]*_*.md

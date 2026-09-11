@@ -1,11 +1,13 @@
 # Unit test backtest ForecastingAssistant
 
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import BacktestResult, ForecastingAssistant
@@ -51,7 +53,7 @@ def test_backtest_output_when_single_series():
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     result = assistant.backtest(
         data=df_single,
@@ -101,7 +103,12 @@ def test_backtest_output_when_single_series():
     y = df_single.set_index("date")["sales"].asfreq(
         profile.data_profile.frequency
     )
-    assert result.cv_config["n_folds"] == len(cv.split(X=y))
+    # `cv` has no forecaster attached, so skforecast warns that the last
+    # window cannot be computed; irrelevant for counting folds.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=IgnoredArgumentWarning)
+        n_folds = len(cv.split(X=y))
+    assert result.cv_config["n_folds"] == n_folds
 
 
 # =============================================================================
@@ -142,3 +149,85 @@ def test_backtest_output_when_no_exog():
     assert isinstance(result, BacktestResult)
     assert result.plan.use_exog is False
     assert len(result.predictions) > 0
+
+
+def test_backtest_output_when_profile_given_without_target():
+    """
+    Test that a supplied profile makes `target` and `date_column`
+    optional for backtest(), taking them from the profile.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+
+    result = assistant.backtest(
+        data=df_single, cv=cv, profile=profile, plan=plan, show_progress=False
+    )
+
+    assert result.profile is profile
+    assert result.cv_config["n_folds"] >= 2
+
+
+def test_backtest_output_when_cv_result_given():
+    """
+    Test that backtest() accepts the CVResult returned by create_cv() and
+    runs with its splitter, reporting the same configuration.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+
+    result = assistant.backtest(
+        data=df_single, cv=cv_result, profile=profile, plan=plan,
+        show_progress=False,
+    )
+
+    assert result.cv_config == cv_result.cv_config
+    assert len(result.predictions) > 0
+
+
+def test_backtest_output_when_interval_passed_with_plan():
+    """
+    Test that an `interval` passed alongside a pre-built plan without
+    intervals is applied to the backtest: the executed plan carries it and
+    the predictions include the bounds.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    result = assistant.backtest(
+        data=df_single,
+        cv=cv,
+        interval=[0.1, 0.9],
+        profile=profile,
+        plan=plan,
+        show_progress=False,
+    )
+
+    assert result.plan.interval == [0.1, 0.9]
+    assert {"lower_bound", "upper_bound"} <= set(result.predictions.columns)
+
+
+def test_backtest_ValueError_when_estimator_differs_from_plan():
+    """
+    Test that backtest() rejects an `estimator` override that differs from
+    the estimator of the pre-built plan instead of silently ignoring it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, estimator="Ridge")
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    with pytest.raises(ValueError, match=re.escape("['estimator']")):
+        assistant.backtest(
+            data=df_single,
+            cv=cv,
+            estimator="LGBMRegressor",
+            profile=profile,
+            plan=plan,
+            show_progress=False,
+        )

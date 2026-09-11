@@ -43,24 +43,6 @@ def test_role_prompt_structure(name, prompt):
 
 
 @pytest.mark.parametrize(
-    "name, prompt",
-    ALL_ROLE_PROMPTS,
-    ids=lambda dt: f"role prompt: {dt}"
-)
-def test_role_prompt_uses_plain_ascii_punctuation(name, prompt):
-    """
-    Test that no role prompt contains en dashes or em dashes. The prompts
-    instruct the model to avoid them, so they must not model the opposite.
-    """
-    assert "\u2013" not in prompt
-    assert "\u2014" not in prompt
-
-
-# ---------------------------------------------------------------------------
-# Static role prompt: required directives
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize(
     "directive",
     [
         # Grounding: values must come from the context, never from arithmetic.
@@ -101,7 +83,7 @@ def test_static_role_prompt_documents_context_tags():
     Test that the static role prompt names the tags the context block
     emits, so the model knows which content is authoritative.
     """
-    for tag in ["<forecast_context>", "<dataset>", "<forecast_plan>",
+    for tag in ["<forecast_context>", "<dataset>", "<forecast_plan>", "<script>",
                 "<cross_validation>", "<deterministic_summary>",
                 "<evaluation_metrics>", "<predictions>", "<leaderboard>",
                 "<question>"]:

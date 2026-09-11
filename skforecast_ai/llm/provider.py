@@ -7,6 +7,9 @@
 
 import urllib.error
 import urllib.request
+import warnings
+
+from .._constants import OLLAMA_MAX_CONTEXT_TOKENS, RESERVED_RESPONSE_TOKENS
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
@@ -210,7 +213,7 @@ def ensure_ollama_reachable(base_url: str | None = None) -> None:
         If the Ollama instance is not reachable.
     """
     url = base_url or DEFAULT_OLLAMA_BASE_URL
-    # Strip /v1 suffix — the health endpoint is at the root
+    # Strip /v1 suffix: the health endpoint is at the root
     url = url.rstrip("/").removesuffix("/v1")
 
     try:
@@ -223,3 +226,59 @@ def ensure_ollama_reachable(base_url: str | None = None) -> None:
             f"Make sure Ollama is running: `ollama serve`. "
             f"Original error: {exc}"
         ) from exc
+
+
+def build_ollama_settings(
+    llm: str | None,
+    estimated_prompt_tokens: int,
+    user_message: str,
+) -> dict | None:
+    """
+    Build Ollama-specific model settings with dynamic context sizing.
+
+    Uses the pre-computed token estimate for system prompt content
+    plus the user message length to determine the appropriate
+    `num_ctx`. Clamps between 4096 and `OLLAMA_MAX_CONTEXT_TOKENS`.
+    Warns when the prompt approaches the hard maximum. Returns None
+    for non-Ollama providers.
+
+    Parameters
+    ----------
+    llm : str, None
+        LLM provider string in format `'provider:model_name'`, or None.
+    estimated_prompt_tokens : int
+        Estimated tokens for the system prompt (skills + reference).
+    user_message : str
+        The user message to send.
+
+    Returns
+    -------
+    settings : dict, None
+        Model settings dict or None for cloud providers.
+    """
+    if llm is None or not llm.startswith("ollama:"):
+        return None
+
+    user_tokens = len(user_message) // 4
+    estimated_tokens = estimated_prompt_tokens + user_tokens
+    requested_ctx = estimated_tokens + RESERVED_RESPONSE_TOKENS
+    num_ctx = max(4096, min(requested_ctx, OLLAMA_MAX_CONTEXT_TOKENS))
+
+    # The clamp is what causes truncation: the prompt plus the space
+    # reserved for the answer no longer fits the window.
+    if requested_ctx > OLLAMA_MAX_CONTEXT_TOKENS:
+        warnings.warn(
+            f"Estimated prompt size (~{estimated_tokens} tokens) exceeds "
+            f"the Ollama context limit ({OLLAMA_MAX_CONTEXT_TOKENS}) once "
+            f"room for the answer is reserved. Output may be truncated. "
+            f"Consider using `skills=[]` or `include_reference=False`.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    return {
+        "extra_body": {
+            "keep_alive": "10m",
+            "options": {"num_ctx": num_ctx},
+        }
+    }

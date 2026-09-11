@@ -1,6 +1,5 @@
 # Unit test _emit_imports helpers rendering
 
-import pytest
 
 from skforecast_ai.rendering._helpers import (
     _emit_imports_foundation,
@@ -8,7 +7,7 @@ from skforecast_ai.rendering._helpers import (
     _emit_imports_single_series,
     _emit_imports_statistical,
 )
-from skforecast_ai.schemas import DataProfile, ForecastPlan
+from skforecast_ai.schemas import ForecastPlan
 
 from .fixtures_rendering import (
     plan_foundation,
@@ -48,8 +47,8 @@ def test_emit_imports_single_series_output_when_minimal_recursive():
     assert "from lightgbm import LGBMRegressor" in lines
     assert "from skforecast.recursive import ForecasterRecursive" in lines
     assert lines[-1] == ""
-    assert not any("StandardScaler" in l for l in lines)
-    assert not any("model_selection" in l for l in lines)
+    assert not any("StandardScaler" in line for line in lines)
+    assert not any("model_selection" in line for line in lines)
 
 
 def test_emit_imports_single_series_output_when_direct_forecaster():
@@ -99,7 +98,7 @@ def test_emit_imports_single_series_output_when_transformer_exog_without_column_
     )
 
     assert "from sklearn.preprocessing import StandardScaler" in lines
-    assert not any("make_column_transformer" in l for l in lines)
+    assert not any("make_column_transformer" in line for line in lines)
 
 
 def test_emit_imports_single_series_output_when_window_features():
@@ -135,7 +134,7 @@ def test_emit_imports_single_series_output_when_include_metrics():
         lines, plan, profile_single_no_exog, include_metrics=True
     )
 
-    assert any("mean_absolute_error" in l for l in lines)
+    assert any("mean_absolute_error" in line for line in lines)
 
 
 def test_emit_imports_single_series_output_when_include_backtesting():
@@ -149,7 +148,7 @@ def test_emit_imports_single_series_output_when_include_backtesting():
         include_backtesting=True,
     )
 
-    bt_line = [l for l in lines if "model_selection" in l]
+    bt_line = [line for line in lines if "model_selection" in line]
     assert len(bt_line) == 1
     assert "backtesting_forecaster" in bt_line[0]
     assert "TimeSeriesFold" in bt_line[0]
@@ -169,9 +168,9 @@ def test_emit_imports_single_series_ordering_model_selection_always_last():
     )
 
     forecaster_idx = next(
-        i for i, l in enumerate(lines) if "ForecasterRecursive" in l
+        i for i, line in enumerate(lines) if "ForecasterRecursive" in line
     )
-    bt_idx = next(i for i, l in enumerate(lines) if "model_selection" in l)
+    bt_idx = next(i for i, line in enumerate(lines) if "model_selection" in line)
     assert bt_idx > forecaster_idx
 
 
@@ -189,7 +188,7 @@ def test_emit_imports_multi_series_output_when_wide_no_exog():
     assert lines[0] == "import pandas as pd"
     assert "from lightgbm import LGBMRegressor" in lines
     assert "from skforecast.recursive import ForecasterRecursiveMultiSeries" in lines
-    assert not any("reshape" in l for l in lines)
+    assert not any("reshape" in line for line in lines)
     assert lines[-1] == ""
 
 
@@ -202,7 +201,7 @@ def test_emit_imports_multi_series_output_when_long_format_with_exog():
     lines: list[str] = []
     _emit_imports_multi_series(lines, plan_multi_series_exog, profile_multi_long_exog)
 
-    preprocessing_line = [l for l in lines if "skforecast.preprocessing" in l]
+    preprocessing_line = [line for line in lines if "skforecast.preprocessing" in line]
     assert len(preprocessing_line) == 1
     assert "reshape_series_long_to_dict" in preprocessing_line[0]
     assert "reshape_exog_long_to_dict" in preprocessing_line[0]
@@ -216,7 +215,7 @@ def test_emit_imports_multi_series_output_when_long_format_no_exog():
     lines: list[str] = []
     _emit_imports_multi_series(lines, plan_multi_series, profile_multi_long)
 
-    preprocessing_line = [l for l in lines if "skforecast.preprocessing" in l]
+    preprocessing_line = [line for line in lines if "skforecast.preprocessing" in line]
     assert len(preprocessing_line) == 1
     assert "reshape_series_long_to_dict" in preprocessing_line[0]
     assert "reshape_exog_long_to_dict" not in preprocessing_line[0]
@@ -231,7 +230,7 @@ def test_emit_imports_multi_series_output_when_multivariate_forecaster():
     _emit_imports_multi_series(lines, plan_multivariate, profile_multi_wide)
 
     assert "from skforecast.direct import ForecasterDirectMultiVariate" in lines
-    assert not any("reshape" in l for l in lines)
+    assert not any("reshape" in line for line in lines)
 
 
 def test_emit_imports_multi_series_output_when_transformer_series():
@@ -256,7 +255,7 @@ def test_emit_imports_multi_series_output_when_window_features_and_long_format()
         lines, plan_multi_series_with_window_features, profile_multi_long
     )
 
-    preprocessing_line = [l for l in lines if "skforecast.preprocessing" in l]
+    preprocessing_line = [line for line in lines if "skforecast.preprocessing" in line]
     assert len(preprocessing_line) == 1
     assert "RollingFeatures" in preprocessing_line[0]
     assert "reshape_series_long_to_dict" in preprocessing_line[0]
@@ -272,7 +271,7 @@ def test_emit_imports_multi_series_output_when_include_backtesting():
         lines, plan_multi_series, profile_multi_wide, include_backtesting=True
     )
 
-    bt_line = [l for l in lines if "model_selection" in l]
+    bt_line = [line for line in lines if "model_selection" in line]
     assert len(bt_line) == 1
     assert "backtesting_forecaster_multiseries" in bt_line[0]
     assert "TimeSeriesFold" in bt_line[0]
@@ -291,9 +290,9 @@ def test_emit_imports_multi_series_ordering_model_selection_always_last():
     )
 
     forecaster_idx = next(
-        i for i, l in enumerate(lines) if "ForecasterRecursiveMultiSeries" in l
+        i for i, line in enumerate(lines) if "ForecasterRecursiveMultiSeries" in line
     )
-    bt_idx = next(i for i, l in enumerate(lines) if "model_selection" in l)
+    bt_idx = next(i for i, line in enumerate(lines) if "model_selection" in line)
     assert bt_idx > forecaster_idx
 
 
@@ -310,10 +309,10 @@ def test_emit_imports_foundation_output_when_minimal():
     _emit_imports_foundation(lines, plan_foundation)
 
     assert lines[0] == "import pandas as pd"
-    assert any("FoundationModel" in l and "ForecasterFoundation" in l for l in lines)
+    assert any("FoundationModel" in line and "ForecasterFoundation" in line for line in lines)
     assert lines[-1] == ""
-    assert not any("model_selection" in l for l in lines)
-    assert not any("sklearn" in l for l in lines)
+    assert not any("model_selection" in line for line in lines)
+    assert not any("sklearn" in line for line in lines)
 
 
 def test_emit_imports_foundation_output_when_include_metrics():
@@ -336,8 +335,8 @@ def test_emit_imports_foundation_output_when_include_metrics():
     lines: list[str] = []
     _emit_imports_foundation(lines, plan, include_metrics=True)
 
-    assert any("mean_absolute_error" in l for l in lines)
-    assert any("mean_absolute_scaled_error" in l for l in lines)
+    assert any("mean_absolute_error" in line for line in lines)
+    assert any("mean_absolute_scaled_error" in line for line in lines)
 
 
 def test_emit_imports_foundation_output_when_include_backtesting():
@@ -348,7 +347,7 @@ def test_emit_imports_foundation_output_when_include_backtesting():
     lines: list[str] = []
     _emit_imports_foundation(lines, plan_foundation, include_backtesting=True)
 
-    bt_line = [l for l in lines if "model_selection" in l]
+    bt_line = [line for line in lines if "model_selection" in line]
     assert len(bt_line) == 1
     assert "backtesting_foundation" in bt_line[0]
     assert "TimeSeriesFold" in bt_line[0]
@@ -364,9 +363,9 @@ def test_emit_imports_foundation_ordering_model_selection_after_foundation():
     _emit_imports_foundation(lines, plan_foundation, include_backtesting=True)
 
     foundation_idx = next(
-        i for i, l in enumerate(lines) if "FoundationModel" in l
+        i for i, line in enumerate(lines) if "FoundationModel" in line
     )
-    bt_idx = next(i for i, l in enumerate(lines) if "model_selection" in l)
+    bt_idx = next(i for i, line in enumerate(lines) if "model_selection" in line)
     assert bt_idx > foundation_idx
 
 
@@ -386,8 +385,8 @@ def test_emit_imports_statistical_output_when_minimal():
     assert "from skforecast.stats import Arima" in lines
     assert "from skforecast.recursive import ForecasterStats" in lines
     assert lines[-1] == ""
-    assert not any("model_selection" in l for l in lines)
-    assert not any("sklearn" in l for l in lines)
+    assert not any("model_selection" in line for line in lines)
+    assert not any("sklearn" in line for line in lines)
 
 
 def test_emit_imports_statistical_output_when_include_metrics():
@@ -409,7 +408,7 @@ def test_emit_imports_statistical_output_when_include_metrics():
     lines: list[str] = []
     _emit_imports_statistical(lines, plan, include_metrics=True)
 
-    assert any("mean_absolute_error" in l for l in lines)
+    assert any("mean_absolute_error" in line for line in lines)
 
 
 def test_emit_imports_statistical_output_when_include_backtesting():
@@ -420,7 +419,7 @@ def test_emit_imports_statistical_output_when_include_backtesting():
     lines: list[str] = []
     _emit_imports_statistical(lines, plan_statistical, include_backtesting=True)
 
-    bt_line = [l for l in lines if "model_selection" in l]
+    bt_line = [line for line in lines if "model_selection" in line]
     assert len(bt_line) == 1
     assert "backtesting_stats" in bt_line[0]
     assert "TimeSeriesFold" in bt_line[0]
@@ -436,7 +435,7 @@ def test_emit_imports_statistical_ordering_model_selection_after_forecaster():
     _emit_imports_statistical(lines, plan_statistical, include_backtesting=True)
 
     forecaster_idx = next(
-        i for i, l in enumerate(lines) if "ForecasterStats" in l
+        i for i, line in enumerate(lines) if "ForecasterStats" in line
     )
-    bt_idx = next(i for i, l in enumerate(lines) if "model_selection" in l)
+    bt_idx = next(i for i, line in enumerate(lines) if "model_selection" in line)
     assert bt_idx > forecaster_idx

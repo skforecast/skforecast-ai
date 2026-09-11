@@ -678,6 +678,75 @@ class TestAsk:
         assert "explanation" in data
         assert "ForecasterRecursive" in data["explanation"]
 
+    def test_ask_with_data_without_steps(self, tmp_path, monkeypatch):
+        """
+        Ask with --data and no --steps explains the profile alone.
+        """
+        monkeypatch.delenv("SKFORECAST_AI_LLM", raising=False)
+        _mock_ask_agent(monkeypatch, "A recursive forecaster fits this data.")
+        csv_path = _write_csv(tmp_path, df_single)
+
+        result = runner.invoke(
+            app,
+            ["ask", "Why this forecaster?", "--llm", "openai:fake-model",
+             "--data", csv_path, "--target", "sales", "--date-column", "date",
+             "--format", "json", "--quiet"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["profile"]["forecaster"]
+        assert data["plan"] is None
+
+    def test_ask_from_profile(self, tmp_path, monkeypatch):
+        """
+        Ask --from-profile explains a saved profile without any data.
+        """
+        monkeypatch.delenv("SKFORECAST_AI_LLM", raising=False)
+        _mock_ask_agent(monkeypatch, "Explained from the saved profile.")
+        profile = ForecastingAssistant().profile(
+            data=df_single, target="sales", date_column="date"
+        )
+        profile_file = tmp_path / "profile.json"
+        profile_file.write_text(json.dumps(profile.model_dump(mode="json")))
+
+        result = runner.invoke(
+            app,
+            ["ask", "Why this forecaster?", "--llm", "openai:fake-model",
+             "--from-profile", str(profile_file), "--format", "json", "--quiet"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["profile"]["forecaster"] == profile.forecaster
+        assert "saved profile" in data["explanation"]
+
+    def test_ask_llm_failure_exits_with_error(self, monkeypatch):
+        """
+        A failed LLM call prints an LLM error and exits with code 1
+        instead of printing the failure as if it were an answer.
+        """
+        import skforecast_ai.llm.agent as agent_mod
+
+        monkeypatch.delenv("SKFORECAST_AI_LLM", raising=False)
+
+        def _mock_create_agent(*args, **kwargs):
+            class _FailingAgent:
+                async def run(self, msg, **kw):
+                    raise RuntimeError("Error code: 401 - invalid api key")
+            return _FailingAgent()
+
+        monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+
+        result = runner.invoke(
+            app,
+            ["ask", "What is skforecast?", "--llm", "openai:fake-model", "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert "LLM Error" in result.output
+        assert "401" in result.output
+
     def test_ask_missing_target_with_data(self, tmp_path, monkeypatch):
         """
         Ask with --data but without --target shows error.
@@ -970,6 +1039,27 @@ class TestCompare:
         assert result.exit_code == 0, result.output
         assert code_path.exists()
         ast.parse(code_path.read_text())
+
+    def test_compare_output_code_keeps_json_stdout_parseable(self, tmp_path):
+        """
+        Compare --output-code with --format json writes the confirmation
+        message to stderr, so stdout is the JSON document alone and can be
+        piped to another command.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        code_path = tmp_path / "best.py"
+        result = runner.invoke(
+            app,
+            ["compare", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--initial-train-size", "70",
+             "--candidates", self._candidates,
+             "--output-code", str(code_path), "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["best_name"] in payload["candidates"]
+        assert "Code written to" in result.stderr
+        assert "Code written to" not in result.stdout
 
     def test_compare_missing_steps(self, tmp_path):
         """

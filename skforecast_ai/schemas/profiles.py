@@ -10,6 +10,7 @@ from typing import ClassVar, Literal
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .._display import DisplayMixin, render_profile
+from .explainable import ExplainableResult
 
 class SeriesLengthInfo(BaseModel):
     """
@@ -108,6 +109,9 @@ class DataProfile(BaseModel):
         Pooled total number of observations across all series (the sum of
         every series length). Computed automatically from
         `series_lengths`.
+    n_observations_display : int
+        Task-agnostic observation count for display and summaries: the
+        series length for a single series, `span_index_length` otherwise.
     target : str, list
         Name(s) of the target column(s). A single string for single
         series and long format. A list of strings for wide format where
@@ -213,6 +217,24 @@ class DataProfile(BaseModel):
             self.n_total_observations = total
         return self
 
+    @property
+    def n_observations_display(self) -> int:
+        """
+        Task-agnostic observation count for display and summaries.
+
+        Returns the series length for single-series data and the union
+        span (`span_index_length`) for multi-series data.
+
+        Returns
+        -------
+        n_observations : int
+            Representative observation count for display.
+        """
+        if len(self.series_lengths) == 1:
+            return next(iter(self.series_lengths.values())).length
+        return self.span_index_length
+
+
 class SeriesPacf(BaseModel):
     """
     PACF-significant lags for a single series.
@@ -241,7 +263,7 @@ class SeriesPacf(BaseModel):
     pacf_abs: list[float] = Field(default_factory=list)
 
 
-class ForecastingProfile(DisplayMixin, BaseModel):
+class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
     """
     High-level profile of the forecasting problem.
 
@@ -316,3 +338,33 @@ class ForecastingProfile(DisplayMixin, BaseModel):
 
     def _rich_body(self, console, options):
         yield render_profile(self)
+
+    def _build_llm_context(self, *, send_data: bool):
+        """
+        Describe the profile to the LLM.
+
+        Lets a profile be passed to `ForecastingAssistant.ask()` as
+        `context` on its own, before any plan exists.
+
+        Parameters
+        ----------
+        send_data : bool
+            Whether raw data values may be included. Has no effect here:
+            a profile holds summary statistics only. The parameter is part
+            of the `ExplainableResult` interface.
+
+        Returns
+        -------
+        context : LLMContext
+            Context block covering the dataset and the profile decisions.
+        """
+
+        # Deferred imports: `results` and `llm.context` import this module.
+        from ..llm.context import build_context_message
+        from .results import LLMContext
+
+        return LLMContext(
+            text                = build_context_message(profile=self),
+            profile             = self,
+            sends_result_values = False,
+        )

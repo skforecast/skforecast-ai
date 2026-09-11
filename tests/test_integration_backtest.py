@@ -4,7 +4,6 @@
 import ast
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from skforecast_ai import BacktestResult, ForecastingAssistant
@@ -27,7 +26,7 @@ def test_forecaster_recursive_full_workflow_with_exog():
         data=df_single, target="sales", date_column="date"
     )
     plan = assistant.plan(profile, steps=5)
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     result = assistant.backtest(
         data=df_single,
@@ -64,7 +63,7 @@ def test_forecaster_recursive_full_workflow_without_exog():
         data=df_no_exog, target="sales", date_column="date"
     )
     plan = assistant.plan(profile, steps=5)
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     result = assistant.backtest(
         data=df_no_exog,
@@ -104,7 +103,7 @@ def test_forecaster_direct_full_workflow(steps):
     plan = assistant.plan(
         profile, steps=steps, forecaster="ForecasterDirect"
     )
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     assert cv.steps == plan.steps == steps
 
@@ -142,7 +141,7 @@ def test_forecaster_recursive_multiseries_full_workflow():
         series_id_column="series_id",
     )
     plan = assistant.plan(profile, steps=5)
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     result = assistant.backtest(
         data=df_multi_long,
@@ -181,7 +180,7 @@ def test_forecaster_direct_multivariate_full_workflow():
     plan = assistant.plan(
         profile, steps=5, forecaster="ForecasterDirectMultiVariate"
     )
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     result = assistant.backtest(
         data=df_multi_wide,
@@ -216,7 +215,7 @@ def test_forecaster_stats_full_workflow():
     plan = assistant.plan(
         profile, steps=5, forecaster="ForecasterStats"
     )
-    cv, _ = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, plan).cv
 
     result = assistant.backtest(
         data=df_no_exog,
@@ -257,7 +256,7 @@ def test_cv_kwarg_propagates_to_result(cv_kwargs, expected_key, expected_value):
         data=df_single, target="sales", date_column="date"
     )
     plan = assistant.plan(profile, steps=5)
-    cv, _ = assistant.create_cv(profile, plan, **cv_kwargs)
+    cv = assistant.create_cv(profile, plan, **cv_kwargs).cv
 
     result = assistant.backtest(
         data=df_single,

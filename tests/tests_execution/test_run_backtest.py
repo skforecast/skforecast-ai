@@ -1,5 +1,6 @@
 # Unit test run_backtest execution/backtesting_runner
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -26,7 +27,7 @@ from .fixtures_execution import (
 )
 
 
-# Tests: run_backtest — error handling
+# Tests: run_backtest: error handling
 
 
 def test_run_backtest_ValueError_when_unsupported_task_type():
@@ -81,7 +82,7 @@ def test_run_backtest_ForecastExecutionError_when_invalid_estimator():
         )
 
 
-# Tests: run_backtest — single series
+# Tests: run_backtest: single series
 
 
 def test_run_backtest_single_series_returns_dict_with_expected_keys():
@@ -156,6 +157,9 @@ def test_run_backtest_single_series_rendered_code_is_RenderedScript():
     )
 
     assert isinstance(result["rendered_code"], RenderedScript)
+    assert "backtesting_forecaster(" in result["rendered_code"].core
+    assert "read_csv" in result["rendered_code"].full_script
+    assert "read_csv" not in result["rendered_code"].executable
 
 
 def test_run_backtest_single_series_explanation_contains_metrics():
@@ -195,7 +199,7 @@ def test_run_backtest_single_series_show_progress_false():
     assert not result["metrics"].empty
 
 
-# Tests: run_backtest — multi series
+# Tests: run_backtest: multi series
 
 
 def test_run_backtest_multi_series_returns_predictions():
@@ -233,7 +237,7 @@ def test_run_backtest_multi_series_metrics_per_level():
     assert len(metrics) >= profile_multi.n_series
 
 
-# Tests: run_backtest — statistical
+# Tests: run_backtest: statistical
 
 
 @pytest.mark.slow
@@ -255,7 +259,7 @@ def test_run_backtest_statistical_returns_predictions():
     assert isinstance(result["metrics"], pd.DataFrame)
 
 
-# Tests: run_backtest — edge cases
+# Tests: run_backtest: edge cases
 
 
 def test_run_backtest_short_series_runs_without_error():
@@ -272,4 +276,7 @@ def test_run_backtest_short_series_runs_without_error():
     )
 
     assert isinstance(result["metrics"], pd.DataFrame)
-    assert isinstance(result["predictions"], pd.DataFrame)
+    assert "mean_absolute_error" in result["metrics"].columns
+    assert np.isfinite(result["metrics"]["mean_absolute_error"].iloc[0])
+    assert "pred" in result["predictions"].columns
+    assert len(result["predictions"]) == len(df_short) - cv_short.initial_train_size

@@ -26,7 +26,7 @@ def build_plan_explanation(
     Compose a sentence-by-sentence summary of the plan configuration.
 
     Covers lags, window features, interval method, NaN handling, exogenous
-    variables, and metric. Does not explain forecaster/estimator selection —
+    variables, and metric. Does not explain forecaster/estimator selection;
     that belongs in the profile explanation.
 
     Parameters
@@ -177,7 +177,11 @@ def _build_profile_explanation(
     # Data context anchoring the recommendation.
     context_bits: list[str] = []
     n_obs = data_profile.n_total_observations
-    if n_obs:
+    if n_obs and data_profile.n_series > 1:
+        context_bits.append(
+            f"{n_obs} observations pooled across {data_profile.n_series} series"
+        )
+    elif n_obs:
         context_bits.append(f"{n_obs} observations")
     if data_profile.frequency is not None:
         context_bits.append(f"'{data_profile.frequency}' frequency")
