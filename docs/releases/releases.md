@@ -10,7 +10,7 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-danger">Fix</span>              | Bug fix                               |
 
 
-## 0.3.0 <small>Unreleased</small> { id="0.3.0" }
+## 0.3.0 <small>Sep 11, 2026</small> { id="0.3.0" }
 
 
 **Added**
