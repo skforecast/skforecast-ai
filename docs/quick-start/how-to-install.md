@@ -31,7 +31,7 @@ The following dependencies are installed with the default installation:
 
 + pydantic>=2.10
 + pandas>=2.1
-+ skforecast>=0.24
++ skforecast>=0.25
 + typer>=0.22
 + rich>=13.9
 + tomli>=2.0 (only for Python < 3.11)
