@@ -162,3 +162,7 @@ tools/execute_docs/logs/
 tools/ask_context_reports/*.md
 !tools/ask_context_reports/README.md
 !tools/ask_context_reports/[0-9]*.[0-9]*.[0-9]*_*.md
+
+# Claude Code (local user settings)
+.claude/settings.local.json
+.claude/settings.json
