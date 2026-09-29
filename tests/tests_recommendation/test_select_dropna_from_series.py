@@ -61,3 +61,19 @@ def test_select_dropna_none_when_statistical():
     )
 
     assert result is None
+
+
+def test_select_dropna_none_when_baseline():
+    """
+    Test select_dropna_from_series returns None for the baseline task type
+    (ForecasterEquivalentDate has no `dropna_from_series` parameter).
+    """
+    result = select_dropna_from_series(
+        estimator=None,
+        missing_target={"y": 3},
+        missing_exog={},
+        task_type="baseline",
+    )
+
+    assert result is None
+

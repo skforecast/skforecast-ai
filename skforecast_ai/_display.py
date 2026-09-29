@@ -615,6 +615,12 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
             calendar_value = _format_value(None)
         table.add_row("Calendar features", calendar_value)
 
+    if plan.task_type == "baseline":
+        table.add_row("Offset", _format_value(plan.forecaster_kwargs.get("offset")))
+        table.add_row(
+            "Number of offsets", _format_value(plan.forecaster_kwargs.get("n_offsets"))
+        )
+
     table.add_row("Use exog", _format_value(plan.use_exog))
     table.add_row("Interval", _format_value(plan.interval or None))
     if plan.interval:

@@ -125,7 +125,7 @@ Run `skforecast-ai --help` or `skforecast-ai <command> --help` for inline docume
 
 + **The Step-by-Step Path:** Use this when you want granular control to inspect or adjust intermediate decisions. You can manually create a profile, build a plan, optionally refine it with the LLM, define a validation strategy, evaluate the model, and then generate the forecast.
 
-A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data. You can also use `compare()` to evaluate several candidate configurations under the same cross-validation strategy and obtain a ranked leaderboard, so the best configuration is chosen from measured performance rather than intuition.
+A useful mental model is that forecasting and validation are separate branches. Once you have a `profile` and a `plan`, you can use `forecast()` to produce future predictions directly, or `backtest()` to evaluate the model's performance on historical data. You can also use `compare()` to evaluate several candidate configurations under the same cross-validation strategy and obtain a ranked leaderboard, so the best configuration is chosen from measured performance rather than intuition. For a single series, the leaderboard includes a seasonal naive baseline, so it also shows whether a model beats the simplest reasonable forecast.
 
 The `ask()` method is available in both workflows. Pass it the object to explain as `context` (a profile, optionally with a plan, a generated script, a cross-validation strategy, a forecast, backtest or comparison result) or nothing to ask a general forecasting question. It never executes the workflow or modifies your parameters.
 
@@ -194,7 +194,7 @@ The `ask()` method is available in both workflows. Pass it the object to explain
   <div style="box-sizing:border-box; margin-top:16px; border:1px solid #bc4c00; border-radius:12px; overflow:hidden;">
     <div style="box-sizing:border-box; background:#bc4c00; color:#ffffff; padding:10px 16px; font-size:15px; font-weight:700;">Model selection: which forecaster should you use?</div>
     <div style="box-sizing:border-box; padding:12px 16px; background:#fff4ed; font-size:13px;">
-      <p style="margin:0 0 12px 0;"><code>compare()</code> answers the question every forecasting project starts with: <b>Among several reasonable models, which one actually performs best on my data?</b> Every candidate is evaluated using the same data and cross-validation strategy. Therefore, the differences you see come from the models, not from the setup.</p>
+      <p style="margin:0 0 12px 0;"><code>compare()</code> answers the question every forecasting project starts with: <b>Among several reasonable models, which one actually performs best on my data?</b> Every candidate is evaluated using the same data and cross-validation strategy. Therefore, the differences you see come from the models, not from the setup. A seasonal naive baseline is ranked alongside them, so you also see whether any model is worth its complexity.</p>
       <table style="width:100%; border:0; border-collapse:collapse; table-layout:fixed; background:transparent; box-shadow:none; margin:0;">
         <tbody style="border:0; background:transparent;">
         <tr style="border:0; background:transparent;">

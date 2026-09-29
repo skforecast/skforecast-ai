@@ -384,6 +384,60 @@ plan_foundation_with_intervals = ForecastPlan(
     explanation="Foundation model with quantile predictions.",
 )
 
+plan_baseline = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Seasonal naive baseline.",
+)
+
+plan_baseline_naive = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 1, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Naive baseline.",
+)
+
+plan_baseline_with_intervals = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    interval=[0.1, 0.9],
+    interval_method="conformal",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Seasonal naive baseline with conformal intervals.",
+)
+
+plan_baseline_no_end_train = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train=None,
+    explanation="Seasonal naive baseline (prediction mode).",
+)
+
 
 # =============================================================================
 # Prediction-mode ForecastPlan fixtures (end_train=None)

@@ -214,6 +214,97 @@ def test_plan_output_when_foundation_forecaster():
     assert plan.forecaster_kwargs == {}
 
 
+def test_plan_output_when_baseline_forecaster():
+    """
+    Test that plan() builds a seasonal naive ForecasterEquivalentDate plan
+    without an UnrecommendedForecasterWarning: no estimator, no features,
+    the offset from the daily frequency, and no exogenous variables.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    assert plan.task_type == "baseline"
+    assert plan.forecaster == "ForecasterEquivalentDate"
+    assert plan.forecaster_kwargs == {"offset": 7, "n_offsets": 1}
+    assert plan.estimator is None
+    assert plan.use_exog is False
+    assert plan.interval_method is None
+    assert plan.explanation == (
+        "Plan: ForecasterEquivalentDate. No lag or window features: the "
+        "baseline repeats past values and learns nothing from the data. MAE "
+        "is interpretable, robust to outliers, and works at any scale. "
+        "Baseline: seasonal naive, each step repeats the value observed 7 "
+        "steps earlier (one seasonal period). Exogenous variables ['promo'] "
+        "are not used: the baseline only repeats past target values."
+    )
+
+
+def test_plan_output_when_baseline_with_interval():
+    """
+    Test that plan() selects conformal intervals for the baseline.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterEquivalentDate", interval=[0.1, 0.9]
+    )
+
+    assert plan.interval == [0.1, 0.9]
+    assert plan.interval_method == "conformal"
+
+
+@pytest.mark.parametrize(
+    "kwargs, given",
+    [
+        ({"estimator": "Ridge"}, "['estimator']"),
+        ({"estimator_kwargs": {"alpha": 1.0}}, "['estimator_kwargs']"),
+        ({"lags": 7}, "['lags']"),
+        (
+            {"lags": 7, "window_features": [{"stats": ["mean"], "window_size": 7}]},
+            "['lags', 'window_features']",
+        ),
+    ],
+    ids=lambda dt: f"kwargs, given: {dt}",
+)
+def test_plan_ValueError_when_baseline_with_model_arguments(kwargs, given):
+    """
+    Test that plan() rejects an estimator, estimator kwargs, lags or window
+    features for the baseline instead of silently ignoring them.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"'ForecasterEquivalentDate' is a baseline that repeats past values: "
+        f"it has no estimator and no lag or window features, so {given} "
+        f"cannot be applied. Omit them."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=5, forecaster="ForecasterEquivalentDate", **kwargs
+        )
+
+
+def test_plan_ValueError_when_baseline_with_multi_series():
+    """
+    Test that plan() rejects the baseline for multi-series data, since
+    ForecasterEquivalentDate forecasts a single series.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_long,
+        target="value",
+        date_column="date",
+        series_id_column="series_id",
+    )
+
+    with pytest.raises(
+        ValueError, match="Task type 'baseline' supports a single series only"
+    ):
+        assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+
 def test_plan_deterministic():
     """
     Test that plan() is deterministic: two identical calls produce

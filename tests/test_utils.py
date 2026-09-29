@@ -329,7 +329,7 @@ def _make_profile(series_lengths, frequency="D", n_series=None):
 
 @pytest.mark.parametrize(
     "task_type",
-    ["single_series", "statistical", "foundation"],
+    ["single_series", "statistical", "foundation", "baseline"],
 )
 def test_validate_task_input_raises_when_single_task_with_multiple_series(
     task_type,
@@ -539,3 +539,18 @@ def test_apply_interval_to_plan_uses_native_method_for_foundation_plan():
     assert updated.explanation == f"{plan.explanation} Prediction intervals via native."
     assert plan.interval is None
     assert _apply_interval_to_plan(updated, [0.1, 0.9]) is updated
+
+
+def test_apply_interval_to_plan_uses_conformal_for_baseline():
+    """
+    Test that applying an interval to a baseline plan selects the conformal
+    method, the only one ForecasterEquivalentDate supports.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    updated = _apply_interval_to_plan(plan, [0.1, 0.9])
+
+    assert updated.interval == [0.1, 0.9]
+    assert updated.interval_method == "conformal"

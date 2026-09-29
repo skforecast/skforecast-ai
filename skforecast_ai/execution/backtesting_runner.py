@@ -13,6 +13,7 @@ import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 
 from ..rendering.backtesting import (
+    render_backtesting_baseline,
     render_backtesting_foundation,
     render_backtesting_multi_series,
     render_backtesting_multivariate,
@@ -31,6 +32,7 @@ _RENDER_DISPATCH: dict[
     "multivariate": render_backtesting_multivariate,
     "statistical": render_backtesting_statistical,
     "foundation": render_backtesting_foundation,
+    "baseline": render_backtesting_baseline,
 }
 
 

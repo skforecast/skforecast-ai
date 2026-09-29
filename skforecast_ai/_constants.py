@@ -73,6 +73,10 @@ STATS_FORECASTERS: set[str] = {
     "ForecasterStats",
 }
 
+BASELINE_FORECASTERS: set[str] = {
+    "ForecasterEquivalentDate",
+}
+
 # Forecasting task category implied by each supported forecaster
 FORECASTER_TASK_TYPES: dict[str, str] = {
     "ForecasterRecursive": "single_series",
@@ -81,6 +85,7 @@ FORECASTER_TASK_TYPES: dict[str, str] = {
     "ForecasterDirectMultiVariate": "multivariate",
     "ForecasterStats": "statistical",
     "ForecasterFoundation": "foundation",
+    "ForecasterEquivalentDate": "baseline",
 }
 
 # Mapping from pandas frequency strings to seasonal period (m)

@@ -17,7 +17,7 @@ from skforecast_ai.recommendation.calendar import (
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
     "task_type",
-    ["statistical", "foundation"],
+    ["statistical", "foundation", "baseline"],
     ids=lambda t: f"task_type: {t}",
 )
 def test_select_calendar_features_None_when_task_not_machine_learning(task_type):
@@ -224,7 +224,7 @@ def test_select_calendar_features_returns_fresh_list():
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
     "task_type",
-    ["statistical", "foundation"],
+    ["statistical", "foundation", "baseline"],
     ids=lambda t: f"task_type: {t}",
 )
 def test_select_calendar_encoding_None_when_task_not_machine_learning(task_type):

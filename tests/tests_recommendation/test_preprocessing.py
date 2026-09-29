@@ -231,6 +231,27 @@ def test_derive_steps_handle_categorical_exog_reason_per_forecaster(
     assert not_expected not in reason
 
 
+def test_derive_steps_no_handle_categorical_exog_when_baseline():
+    """
+    Test that no handle_categorical_exog step is added for the baseline,
+    which uses no exogenous variables at all.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["holiday"],
+        categorical_exog=["holiday"],
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(profile, "ForecasterEquivalentDate")
+    actions = [s.action for s in steps]
+
+    assert "handle_categorical_exog" not in actions
+
+
 def test_derive_steps_handle_gaps_is_non_blocking():
     profile = DataProfile(
         series_lengths={"y": 100},

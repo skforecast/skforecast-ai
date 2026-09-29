@@ -374,6 +374,11 @@ def render_plan_section(plan: ForecastPlan | None) -> str:
             parts.append(
                 f"- Window features: {plan.forecaster_kwargs['window_features']}"
             )
+        if "offset" in plan.forecaster_kwargs:
+            parts.append(
+                f"- Baseline offset: {plan.forecaster_kwargs['offset']} steps "
+                f"(n_offsets={plan.forecaster_kwargs.get('n_offsets', 1)})"
+            )
     if plan.interval is not None:
         coverage = (plan.interval[1] - plan.interval[0]) * 100
         parts.append(
@@ -595,6 +600,14 @@ def render_comparison_overview_section(result: ComparisonResult) -> str:
         f"- Candidates evaluated: {n_candidates}",
         f"- Ranking metric: {result.ranking_metric}",
         f"- Winner: {result.best_name}",
+    ]
+    if result.baseline_name is not None:
+        parts.append(
+            f"- Baseline: {result.baseline_name} (ForecasterEquivalentDate, "
+            f"repeats past values). A candidate ranked below it does not "
+            f"beat the naive reference."
+        )
+    parts += [
         (
             f"The ranking is a deterministic ascending sort of the "
             f"{result.ranking_metric} column (lower is better). Do not "

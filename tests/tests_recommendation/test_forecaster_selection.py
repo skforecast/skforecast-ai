@@ -117,6 +117,7 @@ def test_select_forecaster_and_candidates_stats_gated_by_frequency(
         ("ForecasterDirectMultiVariate", "multivariate"),
         ("ForecasterStats", "statistical"),
         ("ForecasterFoundation", "foundation"),
+        ("ForecasterEquivalentDate", "baseline"),
     ],
 )
 def test_select_task_type_from_forecaster_output(forecaster, expected_task_type):
@@ -158,6 +159,16 @@ def test_select_estimator_and_candidates_output_when_foundation():
 
     assert preferred == "Chronos-2"
     assert candidates == ["Chronos-2"]
+
+
+def test_select_estimator_and_candidates_output_when_baseline():
+    """
+    Test that the baseline task type has no estimator and no candidates.
+    """
+    preferred, candidates = select_estimator_and_candidates("baseline", n_observations=10000)
+
+    assert preferred is None
+    assert candidates == []
 
 
 def test_select_estimator_and_candidates_output_when_short_series():

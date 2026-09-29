@@ -6,6 +6,7 @@ from .autoregressive import (
     select_lags,
     select_window_features,
 )
+from .baseline import select_baseline_config
 from .backtesting import (
     build_cv,
     build_cv_explanation,
@@ -43,6 +44,7 @@ __all__ = [
     "derive_preprocessing_steps",
     "finalize_lags",
     "resolve_cv_config",
+    "select_baseline_config",
     "select_calendar_encoding",
     "select_calendar_features",
     "select_dropna_from_series",

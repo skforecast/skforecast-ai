@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 import pandas as pd
-from .._constants import FORECASTER_TASK_TYPES
+from .._constants import BASELINE_FORECASTERS, FORECASTER_TASK_TYPES
+from ..recommendation import select_baseline_config
 from ..schemas import (
     CANDIDATE_CONFIG_KEYS,
     BacktestResult,
@@ -29,6 +30,7 @@ _COMPARISON_FAMILY: dict[str, str] = {
     "single_series": "single-target",
     "statistical": "single-target",
     "foundation": "single-target",
+    "baseline": "single-target",
     "multi_series": "multi-series",
     "multivariate": "multivariate",
 }
@@ -170,6 +172,72 @@ def aggregate_metrics(metrics: pd.DataFrame | None) -> dict[str, Any]:
     row = metrics.iloc[0]
     return {c: row[c] for c in metrics.columns}
 
+def add_baseline_candidate(
+    candidates: list[tuple[str, CandidateConfig]],
+    profile: ForecastingProfile,
+) -> tuple[list[tuple[str, CandidateConfig]], str | None, str | None]:
+    """
+    Append the `ForecasterEquivalentDate` baseline to the candidates.
+
+    The baseline is a single-series forecaster, so it is only added when
+    the candidates score a single series. When the caller already passed a
+    `ForecasterEquivalentDate` candidate, that one is the baseline and
+    nothing is appended.
+
+    Parameters
+    ----------
+    candidates : list of tuple of (str, CandidateConfig)
+        Resolved candidates, as returned by `resolve_compare_candidates()`.
+    profile : ForecastingProfile
+        Shared profile used for every candidate.
+
+    Returns
+    -------
+    candidates : list of tuple of (str, CandidateConfig)
+        Candidates with the baseline appended last when it applies.
+    baseline_name : str, None
+        Name of the baseline candidate, or None when there is none.
+    note : str, None
+        Sentence explaining why no baseline was added, or None.
+
+    Raises
+    ------
+    ValueError
+        If a candidate already uses the name reserved for the baseline.
+    """
+
+    for name, config in candidates:
+        if config.get("forecaster") in BASELINE_FORECASTERS:
+            return candidates, name, None
+
+    families = {
+        _comparison_family(config.get("forecaster") or profile.forecaster)
+        for _, config in candidates
+    }
+    if families != {"single-target"}:
+        note = (
+            "No baseline: ForecasterEquivalentDate forecasts a single series, "
+            "so it cannot be ranked against multi-series or multivariate "
+            "candidates."
+        )
+        return candidates, None, note
+
+    forecaster_kwargs, _ = select_baseline_config(profile.data_profile)
+    if forecaster_kwargs["offset"] == 1:
+        baseline_name = "Baseline (naive)"
+    else:
+        baseline_name = "Baseline (seasonal naive)"
+
+    if baseline_name in {name for name, _ in candidates}:
+        raise ValueError(
+            f"The candidate name '{baseline_name}' is reserved for the "
+            f"baseline. Rename the candidate or pass `baseline=False`."
+        )
+
+    baseline_config: CandidateConfig = {"forecaster": "ForecasterEquivalentDate"}
+    return [*candidates, (baseline_name, baseline_config)], baseline_name, None
+
+
 def compare_sort_key(item: tuple[Any, Any, Any]) -> tuple[bool, float]:
     """
     Sort key placing NaN ranking values last while keeping order.
@@ -237,6 +305,8 @@ def build_comparison_explanation(
     ranking_metric: str,
     any_error: bool,
     cv_explanation: str,
+    baseline_name: str | None = None,
+    baseline_note: str | None = None,
 ) -> str:
     """
     Build the deterministic `compare()` summary explanation.
@@ -254,6 +324,11 @@ def build_comparison_explanation(
         Whether at least one candidate failed.
     cv_explanation : str
         Description of the shared cross-validation strategy.
+    baseline_name : str, default None
+        Name of the baseline candidate. When given, the summary says
+        whether the best configuration beats it and by how much.
+    baseline_note : str, default None
+        Sentence explaining why no baseline was added, appended as is.
 
     Returns
     -------
@@ -281,9 +356,10 @@ def build_comparison_explanation(
     if len(ranked) > 1:
         # The runner-up is only quoted when its value is usable: the
         # table sorts NaN last, so a non-finite runner-up carries no
-        # information about the margin.
+        # information about the margin. A baseline runner-up is left to
+        # the baseline sentence, which quotes the same margin.
         runner_name, _, runner_value = ranked[1]
-        if np.isfinite(runner_value):
+        if np.isfinite(runner_value) and runner_name != baseline_name:
             if np.isfinite(best_value) and runner_value != 0:
                 margin = 100 * (runner_value - best_value) / abs(runner_value)
                 best_sentence += (
@@ -302,6 +378,10 @@ def build_comparison_explanation(
         f"Shared cross-validation strategy: {cv_explanation}",
         best_sentence,
     ]
+    if baseline_name is not None:
+        parts.append(_baseline_sentence(ranked, baseline_name))
+    if baseline_note is not None:
+        parts.append(baseline_note)
     if any_error:
         n_failed = n_candidates - len(ranked)
         if n_failed == 1:
@@ -312,3 +392,59 @@ def build_comparison_explanation(
                 f"last."
             )
     return " ".join(parts)
+
+
+def _baseline_sentence(
+    ranked: list[tuple[str, BacktestResult, float]],
+    baseline_name: str,
+) -> str:
+    """
+    Describe how the ranked candidates compare with the baseline.
+
+    Parameters
+    ----------
+    ranked : list of tuple of (str, BacktestResult, float)
+        Successful candidates ordered best to worst.
+    baseline_name : str
+        Name of the baseline candidate.
+
+    Returns
+    -------
+    sentence : str
+        One or two sentences comparing the candidates with the baseline.
+    """
+
+    names = [name for name, _, _ in ranked]
+    if baseline_name not in names:
+        return (
+            f"The baseline '{baseline_name}' failed to run, so the "
+            f"candidates cannot be checked against it."
+        )
+
+    position = names.index(baseline_name)
+    baseline_value = ranked[position][2]
+    n_models = len(ranked) - 1
+    if n_models == 0:
+        return f"Only the baseline '{baseline_name}' ran successfully."
+
+    if position == 0:
+        return (
+            f"No configuration beats the baseline '{baseline_name}': the "
+            f"added complexity is not justified on this data."
+        )
+
+    best_name, _, best_value = ranked[0]
+    sentence = f"'{best_name}' beats the baseline '{baseline_name}'"
+    if np.isfinite(baseline_value):
+        sentence += f" ({baseline_value:.4f})"
+        if np.isfinite(best_value) and baseline_value != 0:
+            improvement = 100 * (baseline_value - best_value) / abs(baseline_value)
+            sentence += f" by {improvement:.1f}%"
+    sentence += "."
+
+    n_behind = len(ranked) - 1 - position
+    if n_behind == 1:
+        sentence += " 1 configuration does not beat it."
+    elif n_behind > 1:
+        sentence += f" {n_behind} configurations do not beat it."
+    return sentence

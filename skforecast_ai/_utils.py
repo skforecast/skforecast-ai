@@ -251,8 +251,8 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
     """
     Validate that the input shape is compatible with the task type.
 
-    Single-series tasks (`single_series`, `statistical`, `foundation`)
-    accept exactly one series. The `multivariate` task requires all
+    Single-series tasks (`single_series`, `statistical`, `foundation`,
+    `baseline`) accept exactly one series. The `multivariate` task requires all
     series to share the same length.
 
     Parameters
@@ -274,7 +274,10 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
     series_lengths = data_profile.series_lengths
     n_series = len(series_lengths)
 
-    if task_type in ("single_series", "statistical", "foundation") and n_series > 1:
+    if (
+        task_type in ("single_series", "statistical", "foundation", "baseline")
+        and n_series > 1
+    ):
         raise ValueError(
             f"Task type '{task_type}' supports a single series only, but the "
             f"input contains {n_series} series ({list(series_lengths)}). "
@@ -386,13 +389,16 @@ def resolve_interval_method(task_type: str, interval: list[float] | None) -> str
     -------
     interval_method : str, None
         `'native'` for statistical and foundation forecasters, which
-        produce their own intervals, `'bootstrapping'` otherwise, and
-        None when `interval` is None.
+        produce their own intervals, `'conformal'` for the baseline
+        (`ForecasterEquivalentDate` supports no other method),
+        `'bootstrapping'` otherwise, and None when `interval` is None.
     """
     if interval is None:
         return None
     if task_type in {"statistical", "foundation"}:
         return "native"
+    if task_type == "baseline":
+        return "conformal"
     return "bootstrapping"
 
 
@@ -441,6 +447,7 @@ def _validate_forecast_mode(
     has_exog: bool,
     steps: int,
     require_exog: bool = True,
+    uses_exog: bool | None = None,
 ) -> None:
     """
     Validate the `exog` argument against the effective forecast mode.
@@ -469,6 +476,11 @@ def _validate_forecast_mode(
         only renders a script (which loads the future values from a CSV at
         run time), so it sets this to False and validates the remaining
         rules without demanding `exog`.
+    uses_exog : bool, default None
+        Whether the plan uses the exogenous variables. None means it uses
+        them whenever the data has them, as every ML forecaster does. The
+        baseline (`ForecasterEquivalentDate`) never does, so it needs no
+        future `exog` and rejects one.
 
     Returns
     -------
@@ -490,8 +502,11 @@ def _validate_forecast_mode(
             )
         return
 
+    if uses_exog is None:
+        uses_exog = has_exog
+
     # Prediction mode.
-    if require_exog and has_exog and exog is None:
+    if require_exog and uses_exog and exog is None:
         raise ValueError(
             "`exog` is required for future prediction because the data "
             "contains exogenous variables. Provide future exogenous "
@@ -503,6 +518,12 @@ def _validate_forecast_mode(
             "`exog` was provided but the data contains no exogenous "
             "variables. Remove `exog` or add exogenous columns to the "
             "data."
+        )
+    if has_exog and not uses_exog and exog is not None:
+        raise ValueError(
+            "`exog` was provided but the plan does not use exogenous "
+            "variables (the baseline only repeats past target values). "
+            "Remove `exog`."
         )
     if exog is not None and len(exog) < steps:
         raise ValueError(

@@ -93,6 +93,27 @@ def test_refine_plan_prompt_skips_when_statistical_task_type(monkeypatch):
     assert len(skip_warnings) == 1
 
 
+def test_refine_plan_prompt_skips_when_baseline_task_type():
+    """
+    Test that refine_plan() ignores the prompt for a baseline plan without
+    calling the LLM, emitting a UserWarning, and keeps the baseline offset.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, forecaster="ForecasterEquivalentDate")
+
+    # No agent/model mock set up: if the LLM were called, this would raise.
+    warn_msg = re.escape(
+        "LLM plan refinement does not apply to task_type 'baseline' (no "
+        "lags/window_features to refine). Ignoring prompt."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        refined = assistant.refine_plan(profile, plan, prompt="weekly seasonality")
+
+    assert refined.task_type == "baseline"
+    assert refined.forecaster_kwargs == {"offset": 7, "n_offsets": 1}
+
+
 # =============================================================================
 # Tests: success path
 # =============================================================================

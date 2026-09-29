@@ -236,6 +236,41 @@ def test_forecaster_stats_full_workflow():
 
 
 # =============================================================================
+# Tests: ForecasterEquivalentDate (baseline)
+# =============================================================================
+def test_forecaster_equivalent_date_full_workflow():
+    """
+    Full workflow with the ForecasterEquivalentDate baseline: profile, plan,
+    create_cv and backtest. Validates metrics, predictions and code syntax.
+    """
+    profile = assistant.profile(
+        data=df_single, target="sales", date_column="date"
+    )
+    plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterEquivalentDate"
+    )
+    cv = assistant.create_cv(profile, plan).cv
+
+    result = assistant.backtest(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        cv=cv,
+        profile=profile,
+        plan=plan,
+    )
+
+    assert isinstance(result, BacktestResult)
+    assert result.plan.forecaster == "ForecasterEquivalentDate"
+    assert result.plan.task_type == "baseline"
+    # Linear series and offset 7: every prediction is off by exactly 7.
+    np.testing.assert_allclose(result.metrics["mean_absolute_error"], [7.0])
+    assert len(result.predictions) > 0
+    assert "backtesting_forecaster" in result.code
+    ast.parse(result.code)
+
+
+# =============================================================================
 # Tests: custom CV parameters flow through the full chain
 # =============================================================================
 @pytest.mark.parametrize(

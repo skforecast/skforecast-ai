@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 from .._constants import (
     AUTOREG_FORECASTERS,
+    BASELINE_FORECASTERS,
     DIRECT_FORECASTERS,
     CATEGORICAL_FORECASTERS,
     DROPNA_FORECASTERS,
@@ -50,7 +51,7 @@ def select_transformer_series(
     Source: `skforecast_ai/skills/feature-engineering/SKILL.md`,
     `skforecast_ai/skills/forecasting-single-series/SKILL.md`.
     """
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
     if estimator is None:
         return None
@@ -98,7 +99,7 @@ def select_transformer_exog(
     building the appropriate `ColumnTransformer` that leaves categorical
     columns untouched.
     """
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
     if estimator is None:
         return None
@@ -146,7 +147,7 @@ def select_dropna_from_series(
     `skforecast_ai/resources/llms-base.txt` (NaN handling section).
     """
 
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
     has_missing = bool(missing_target) or bool(missing_exog)
     if not has_missing:
@@ -229,7 +230,7 @@ def build_forecaster_kwargs(
     -----
     Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md`.
     """
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return {}
 
     kwargs: dict[str, Any] = {}
@@ -371,7 +372,8 @@ def derive_preprocessing_steps(
         ))
 
     # --- Categorical exogenous variables ---
-    if profile.categorical_exog:
+    # The baseline uses no exogenous variables, so there is nothing to encode.
+    if profile.categorical_exog and forecaster not in BASELINE_FORECASTERS:
         detected = (
             f"Categorical exogenous variables detected: "
             f"{profile.categorical_exog}."

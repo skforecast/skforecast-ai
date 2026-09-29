@@ -312,3 +312,43 @@ def test_refine_plan_output_drops_llm_mark_when_value_is_not_carried_over():
 
     assert statistical.llm_refined_fields == []
     assert recursive.llm_refined_fields == []
+
+
+def test_refine_plan_output_when_switching_to_and_from_baseline():
+    """
+    Test that refine_plan() can switch a plan to the baseline, which drops
+    the estimator and the features, and back to an ML forecaster, which
+    re-derives them deterministically.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    baseline = assistant.refine_plan(
+        profile, plan, forecaster="ForecasterEquivalentDate"
+    )
+    recursive = assistant.refine_plan(
+        profile, baseline, forecaster="ForecasterRecursive"
+    )
+
+    assert baseline.task_type == "baseline"
+    assert baseline.forecaster_kwargs == {"offset": 7, "n_offsets": 1}
+    assert baseline.estimator is None
+    assert recursive.task_type == "single_series"
+    assert recursive.forecaster_kwargs["lags"] == plan.forecaster_kwargs["lags"]
+
+
+def test_refine_plan_ValueError_when_baseline_with_explicit_lags():
+    """
+    Test that an explicit lags override is not silently dropped when the
+    plan is switched to the baseline: plan() rejects it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.raises(ValueError, match=re.escape("so ['lags'] cannot be applied")):
+        assistant.refine_plan(
+            profile, plan, forecaster="ForecasterEquivalentDate", lags=7
+        )
+

@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast.model_selection import TimeSeriesFold
+
 from skforecast_ai import (
     DataSentToLLMWarning,
     ForecastingAssistant,
@@ -730,3 +732,30 @@ def test_ask_output_when_cv_result_provided(monkeypatch):
     assert result.plan is plan
     assert result.code == cv_result.code
     assert result.explanation == "Four folds, no refit."
+
+
+def test_ask_output_when_context_is_baseline_backtest(monkeypatch):
+    """
+    Test that ask() explains a baseline BacktestResult: the plan section
+    carries the baseline offset and the baseline script is echoed back.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model", send_data_to_llm=True)
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+    backtest = assistant.backtest(
+        data=df_single,
+        cv=TimeSeriesFold(steps=5, initial_train_size=70, verbose=False),
+        profile=profile,
+        plan=plan,
+        show_progress=False,
+    )
+    capture = {}
+    patch_agent(monkeypatch, assistant, output="A seasonal naive baseline.", capture=capture)
+
+    result = assistant.ask(prompt="Is this a good baseline?", context=backtest)
+
+    assert "- Baseline offset: 7 steps (n_offsets=1)" in capture["message"]
+    assert result.plan is plan
+    assert result.code == backtest.code
+    assert result.explanation == "A seasonal naive baseline."
+

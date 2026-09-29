@@ -51,8 +51,9 @@ def build_plan_explanation(
         Calendar feature configuration with keys `'features'` and
         `'encoding'`. None when no calendar features are used.
     task_type : str, default None
-        Forecasting task category. Used to state why `'foundation'` and
-        `'statistical'` plans carry no lag or window features.
+        Forecasting task category. Used to state why `'foundation'`,
+        `'statistical'` and `'baseline'` plans carry no lag or window
+        features.
 
     Returns
     -------
@@ -77,6 +78,11 @@ def build_plan_explanation(
         parts.append(
             "No lag or window features: the statistical model estimates its "
             "own autoregressive and seasonal structure."
+        )
+    elif task_type == "baseline":
+        parts.append(
+            "No lag or window features: the baseline repeats past values "
+            "and learns nothing from the data."
         )
 
     if window_features is not None:

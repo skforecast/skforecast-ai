@@ -1143,6 +1143,30 @@ class TestCompare:
         assert "Comparison Results" in result.output
         assert "Cross-Validation Configuration" in result.output
 
+    def test_compare_adds_baseline_by_default(self, tmp_path):
+        """
+        Compare adds the seasonal naive baseline row unless --no-baseline is
+        passed.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        args = ["compare", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--initial-train-size", "70",
+                "--candidates", self._candidates, "--format", "json", "--quiet"]
+
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["baseline_name"] == "Baseline (seasonal naive)"
+        assert [row["name"] for row in data["results"]] == [
+            "rec", "dir", "Baseline (seasonal naive)"
+        ]
+
+        result = runner.invoke(app, [*args, "--no-baseline"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["baseline_name"] is None
+        assert [row["name"] for row in data["results"]] == ["rec", "dir"]
+
     def test_compare_json_format(self, tmp_path):
         """
         Compare --format json outputs valid JSON with expected keys.
@@ -1152,7 +1176,7 @@ class TestCompare:
             app,
             ["compare", csv_path, "--target", "sales", "--date-column", "date",
              "--steps", "5", "--initial-train-size", "70",
-             "--candidates", self._candidates,
+             "--candidates", self._candidates, "--no-baseline",
              "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0, result.output

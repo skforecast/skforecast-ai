@@ -99,6 +99,7 @@ def select_task_type_from_forecaster(
     "multivariate",
     "statistical",
     "foundation",
+    "baseline",
 ]:
     """
     Resolve the task type implied by a selected forecaster.
@@ -122,7 +123,7 @@ def select_task_type_from_forecaster(
 def select_estimator_and_candidates(
     task_type: str,
     n_observations: int,
-) -> tuple[str, list[str]]:
+) -> tuple[str | None, list[str]]:
     """
     Select the preferred estimator and ordered compatible candidates.
 
@@ -135,11 +136,12 @@ def select_estimator_and_candidates(
 
     Returns
     -------
-    preferred : str
-        Name of the recommended estimator class.
+    preferred : str, None
+        Name of the recommended estimator class. None for the baseline,
+        which has no estimator.
     candidates : list of str
         Ordered list of compatible estimator class names.
-        The first item matches `preferred`.
+        The first item matches `preferred`. Empty for the baseline.
 
     Notes
     -----
@@ -157,6 +159,9 @@ def select_estimator_and_candidates(
     
     if task_type == "foundation":
         return "Chronos-2", ["Chronos-2"]
+
+    if task_type == "baseline":
+        return None, []
 
     if n_observations < 250:
         return "Ridge", ["Ridge", "RandomForestRegressor", "LGBMRegressor"]

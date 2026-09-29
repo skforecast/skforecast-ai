@@ -11,6 +11,21 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-docs">Docs</span>               | Documentation improvement             |
 
 
+## 0.4.0 <small>In development</small> { id="0.4.0" }
+
+
+**Added**
+
++ <span class="badge text-bg-feature">Feature</span> [<code>ForecastingAssistant.compare()</code>][assistant] adds a baseline to the leaderboard: a seasonal naive `ForecasterEquivalentDate` that repeats the value observed one seasonal period earlier (7 steps for daily data, 24 for hourly, 12 for monthly), or the last observed value (`offset=1`) when the frequency has no seasonal period or one period spans more than a third of the series. It is backtested with the same cross-validation and metrics as the other candidates and ranked like any other row, and the explanation says whether the best configuration beats it and by how much, how many configurations do not, or that none does. The row is named `'Baseline (seasonal naive)'` or `'Baseline (naive)'`, and `ComparisonResult.baseline_name` identifies it. The configuration is fixed rather than searched: a tuned baseline selected on the same folds would stop being a neutral reference. Pass `baseline=False` (`--no-baseline` in the CLI) to leave it out. No baseline is added for multi-series data, which `ForecasterEquivalentDate` cannot forecast, and a `ForecasterEquivalentDate` passed in `candidates` is used as the baseline instead of adding a second one.
+
++ <span class="badge text-bg-feature">Feature</span> `'ForecasterEquivalentDate'` is accepted as `forecaster` in [<code>ForecastingAssistant.plan()</code>][assistant] and everywhere a forecaster can be chosen (`refine_plan()`, `forecast()`, `forecast_code()`, `backtest()`, `backtest_code()`, `compare()` candidates and the CLI `--forecaster`), without an `UnrecommendedForecasterWarning`. The plan has the new task type `'baseline'`, an integer `offset` chosen as above, no estimator and no lag, window or exogenous features, and conformal prediction intervals when an interval is requested. Passing `estimator`, `estimator_kwargs`, `lags` or `window_features` for it raises `ValueError`. In prediction mode `forecast()` needs no future `exog` for it even when the data has exogenous columns, and passing one raises `ValueError`. The generated scripts use `ForecasterEquivalentDate` and `backtesting_forecaster(..., interval_method='conformal')`.
+
+
+**Changed**
+
++ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.compare()</code>][assistant] returns one more row by default (the baseline) and its explanation gains a sentence about it. Code that relies on the number of rows or on the exact explanation text passes `baseline=False` to keep the previous output. A candidate named like the baseline it would add raises `ValueError`.
+
+
 ## 0.3.1 <small>Sep 11, 2026</small> { id="0.3.1" }
 
 

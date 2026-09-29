@@ -10,6 +10,7 @@ from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
     _emit_feature_setup,
+    _emit_imports_baseline,
     _emit_imports_foundation,
     _emit_imports_multi_series,
     _emit_imports_single_series,
@@ -22,6 +23,7 @@ from ._helpers import (
     _get_numeric_exog,
     _get_target_str,
 )
+from .baseline import _emit_forecaster_creation_baseline
 from .foundation import _emit_forecaster_creation_foundation
 from .multi_series import _emit_forecaster_creation_multi
 from .single_series import _emit_forecaster_creation_single
@@ -531,6 +533,73 @@ def render_backtesting_statistical(
 
     # --- Backtesting call ---
     _emit_backtesting_call_statistical(core_lines, plan, profile)
+
+    return RenderedScript(
+        imports="\n".join(import_lines),
+        data_loading="\n".join(loading_lines),
+        core="\n".join(core_lines),
+    )
+
+
+def _emit_backtesting_call_baseline(
+    lines: list[str],
+    plan: ForecastPlan,
+    profile: DataProfile,
+) -> None:
+    """Append backtesting_forecaster call for ForecasterEquivalentDate."""
+
+    target = _get_target_str(profile)
+
+    lines.append("# Run backtesting")
+    bt_kwargs: list[tuple[str, str]] = []
+    bt_kwargs.append(("forecaster", "forecaster"))
+    bt_kwargs.append(("y", f"data[{repr(target)}]"))
+    bt_kwargs.append(("cv", "cv"))
+    bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
+    if plan.interval is not None:
+        bt_kwargs.append(("interval", repr(plan.interval)))
+        bt_kwargs.append(("interval_method", f"'{plan.interval_method}'"))
+    bt_kwargs.append(("n_jobs", "'auto'"))
+    bt_kwargs.append(("verbose", "False"))
+    bt_kwargs.append(("show_progress", "True"))
+    bt_kwargs.append(("suppress_warnings", "True"))
+
+    _emit_aligned_kwargs(
+        lines, "metrics, predictions = backtesting_forecaster(", bt_kwargs
+    )
+    lines.append("")
+    lines.append("print(metrics)")
+    lines.append("print(predictions.head())")
+
+
+def render_backtesting_baseline(
+    plan: ForecastPlan,
+    profile: DataProfile,
+    cv: Any,
+) -> RenderedScript:
+    """Render backtesting code for ForecasterEquivalentDate (baseline)."""
+
+    import_lines: list[str] = []
+    loading_lines: list[str] = []
+    core_lines: list[str] = []
+
+    # --- Imports ---
+    _emit_imports_baseline(import_lines, plan, include_backtesting=True)
+
+    # --- Load data and index setup ---
+    _emit_loading_and_index(loading_lines, core_lines, profile)
+
+    # --- Preprocessing steps ---
+    _emit_preprocessing_steps(core_lines, plan, profile)
+
+    # --- Create forecaster ---
+    _emit_forecaster_creation_baseline(core_lines, plan)
+
+    # --- CV configuration ---
+    _emit_cv_configuration(core_lines, cv)
+
+    # --- Backtesting call ---
+    _emit_backtesting_call_baseline(core_lines, plan, profile)
 
     return RenderedScript(
         imports="\n".join(import_lines),

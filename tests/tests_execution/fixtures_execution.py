@@ -232,6 +232,21 @@ plan_statistical = ForecastPlan(
     explanation="Statistical ARIMA model for backtesting.",
 )
 
+plan_baseline = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    steps=5,
+    frequency="D",
+    interval=[0.1, 0.9],
+    interval_method="conformal",
+    use_exog=False,
+    end_train=_end_train_single,
+    warnings=[],
+    explanation="Seasonal naive baseline with conformal intervals.",
+)
+
 
 # --- Prediction-mode fixtures (end_train=None) ---
 #

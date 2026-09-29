@@ -3,6 +3,7 @@
 import ast
 import json
 import re
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai.execution.comparison import (
     aggregate_metrics,
+    build_comparison_explanation,
     resolve_compare_candidates,
 )
 
@@ -281,6 +283,7 @@ def test_compare_output_when_single_series():
         date_column="date",
         candidates=_LIGHT_CANDIDATES,
         show_progress=False,
+        baseline=False,
     )
 
     # Type and structure
@@ -339,6 +342,7 @@ def test_compare_explanation_content_when_single_series():
         date_column="date",
         candidates=_LIGHT_CANDIDATES,
         show_progress=False,
+        baseline=False,
     )
 
     explanation = result.explanation
@@ -403,6 +407,7 @@ def test_compare_output_when_candidates_none_auto_candidates():
         candidates=None,
         profile=profile,
         show_progress=False,
+        baseline=False,
     )
 
     assert set(result.results["name"]) == {
@@ -483,6 +488,7 @@ def test_compare_propagates_interval_to_candidates():
         candidates=_LIGHT_CANDIDATES,
         interval=[0.1, 0.9],
         show_progress=False,
+        baseline=False,
     )
 
     for bt in result.candidates.values():
@@ -536,6 +542,7 @@ def test_compare_records_error_and_sorts_failed_candidate_last():
             date_column="date",
             candidates=candidates,
             show_progress=False,
+            baseline=False,
         )
 
     # The "error" column is present because one candidate failed
@@ -661,6 +668,7 @@ def test_compare_candidates_and_failures_partition_names():
             date_column="date",
             candidates=candidates,
             show_progress=False,
+            baseline=False,
         )
 
     assert set(result.candidates) == {"good"}
@@ -721,6 +729,7 @@ def test_compare_AllCandidatesFailedError_when_all_candidates_fail():
                 date_column="date",
                 candidates=candidates,
                 show_progress=False,
+                baseline=False,
             )
 
     failures = excinfo.value.failures
@@ -853,3 +862,307 @@ def test_resolve_compare_candidates_auto_when_multi_series_varies_the_estimator(
         config == {"forecaster": "ForecasterRecursiveMultiSeries", "estimator": estimator}
         for (_, config), estimator in zip(resolved, profile.estimator_candidates)
     )
+
+
+# =============================================================================
+# Tests: baseline
+# =============================================================================
+_CV_EXPLANATION = (
+    "Using 70% of data (70 observations) for initial training, fixed window, "
+    "no refit, 5-step horizon, 6 folds."
+)
+
+
+def test_compare_output_when_baseline_added_by_default():
+    """
+    Test that compare() adds the seasonal naive baseline as one more ranked
+    row by default and states by how much the best configuration beats it.
+    On the linear fixture the baseline (offset 7) is off by 7 at every step.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        show_progress=False,
+    )
+
+    assert result.baseline_name == "Baseline (seasonal naive)"
+    assert list(result.results["name"]) == [
+        "recursive_default",
+        "direct_ridge",
+        "Baseline (seasonal naive)",
+    ]
+    baseline_row = result.results.iloc[2]
+    assert baseline_row["forecaster"] == "ForecasterEquivalentDate"
+    assert baseline_row["estimator"] is None
+    assert baseline_row["mean_absolute_error"] == 7.0
+    assert baseline_row["mean_squared_error"] == 49.0
+    assert baseline_row["mean_absolute_scaled_error"] == 7.0
+
+    baseline_plan = result.candidates["Baseline (seasonal naive)"].plan
+    assert baseline_plan.forecaster_kwargs == {"offset": 7, "n_offsets": 1}
+
+    assert result.explanation == (
+        f"Compared 3 configurations, ranked ascending by mean_absolute_error. "
+        f"Shared cross-validation strategy: {_CV_EXPLANATION} Best: "
+        f"'recursive_default' (ForecasterRecursive / Ridge) = 0.3652, 22.5% "
+        f"ahead of 'direct_ridge' (0.4711). 'recursive_default' beats the "
+        f"baseline 'Baseline (seasonal naive)' (7.0000) by 94.8%."
+    )
+
+
+def test_compare_explanation_counts_candidates_behind_baseline():
+    """
+    Test that the explanation counts the configurations ranked below the
+    baseline, which do not beat the naive reference.
+    """
+    candidates = [
+        (
+            "strong_ridge",
+            {
+                "forecaster": "ForecasterRecursive",
+                "estimator": "Ridge",
+                "estimator_kwargs": {"alpha": 1e6},
+            },
+        ),
+        ("recursive_default", {"forecaster": "ForecasterRecursive"}),
+    ]
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=candidates,
+        show_progress=False,
+    )
+
+    assert list(result.results["name"]) == [
+        "recursive_default",
+        "Baseline (seasonal naive)",
+        "strong_ridge",
+    ]
+    assert result.explanation.endswith(
+        "'recursive_default' beats the baseline 'Baseline (seasonal naive)' "
+        "(7.0000) by 94.8%. 1 configuration does not beat it."
+    )
+
+
+def test_compare_explanation_when_no_candidate_beats_baseline():
+    """
+    Test that the explanation says so when the baseline ranks first, and
+    that the baseline is then the reusable best candidate.
+    """
+    candidates = [
+        (
+            "strong_ridge",
+            {
+                "forecaster": "ForecasterRecursive",
+                "estimator": "Ridge",
+                "estimator_kwargs": {"alpha": 1e6},
+            },
+        ),
+    ]
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=candidates,
+        show_progress=False,
+    )
+
+    assert result.best_name == "Baseline (seasonal naive)"
+    assert result.best_candidate.plan.task_type == "baseline"
+    assert result.explanation.endswith(
+        "No configuration beats the baseline 'Baseline (seasonal naive)': the "
+        "added complexity is not justified on this data."
+    )
+
+
+def test_compare_output_when_baseline_false():
+    """
+    Test that `baseline=False` leaves the candidates untouched and the
+    explanation without any baseline sentence.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert result.baseline_name is None
+    assert set(result.results["name"]) == {"recursive_default", "direct_ridge"}
+    assert "baseline" not in result.explanation
+
+
+def test_compare_uses_explicit_baseline_candidate_without_duplicating_it():
+    """
+    Test that a ForecasterEquivalentDate passed in `candidates` is used as
+    the baseline and no second baseline row is added.
+    """
+    candidates = [
+        ("naive_weekly", {"forecaster": "ForecasterEquivalentDate"}),
+        ("recursive_default", {"forecaster": "ForecasterRecursive"}),
+    ]
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=candidates,
+        show_progress=False,
+    )
+
+    assert result.baseline_name == "naive_weekly"
+    assert list(result.results["name"]) == ["recursive_default", "naive_weekly"]
+    assert result.explanation.endswith(
+        "'recursive_default' beats the baseline 'naive_weekly' (7.0000) by 94.8%."
+    )
+
+
+def test_compare_baseline_uses_conformal_intervals():
+    """
+    Test that the requested interval reaches the baseline with the conformal
+    method while the ML candidates keep bootstrapping.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        interval=[0.1, 0.9],
+        show_progress=False,
+    )
+
+    methods = {name: bt.plan.interval_method for name, bt in result.candidates.items()}
+    assert methods == {
+        "recursive_default": "bootstrapping",
+        "direct_ridge": "bootstrapping",
+        "Baseline (seasonal naive)": "conformal",
+    }
+
+
+def test_compare_no_baseline_when_multi_series():
+    """
+    Test that no baseline is added for multi-series data, which
+    ForecasterEquivalentDate cannot forecast, and that the explanation says
+    why.
+    """
+    result = assistant.compare(
+        data=df_multi_wide,
+        cv=_single_cv(),
+        target=["series_a", "series_b"],
+        date_column="date",
+        candidates=[
+            ("multiseries", {"forecaster": "ForecasterRecursiveMultiSeries"})
+        ],
+        show_progress=False,
+    )
+
+    assert result.baseline_name is None
+    assert list(result.results["name"]) == ["multiseries"]
+    assert result.explanation.endswith(
+        "No baseline: ForecasterEquivalentDate forecasts a single series, so "
+        "it cannot be ranked against multi-series or multivariate candidates."
+    )
+
+
+def test_compare_ValueError_when_candidate_uses_baseline_name():
+    """
+    Test that compare() rejects a candidate named like the baseline it
+    would add, instead of producing two rows with the same name.
+    """
+    candidates = [
+        ("Baseline (seasonal naive)", {"forecaster": "ForecasterRecursive"}),
+    ]
+
+    err_msg = re.escape(
+        "The candidate name 'Baseline (seasonal naive)' is reserved for the "
+        "baseline. Rename the candidate or pass `baseline=False`."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=candidates,
+            show_progress=False,
+        )
+
+
+def test_compare_baseline_name_is_serialized():
+    """
+    Test that `baseline_name` is part of the JSON dump of the result.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        show_progress=False,
+    )
+
+    dumped = json.loads(result.model_dump_json())
+
+    assert dumped["baseline_name"] == "Baseline (seasonal naive)"
+
+
+def _ranked_entry(name: str, forecaster: str, value: float) -> tuple:
+    """Build a `(name, backtest, value)` entry with the attributes the explanation reads."""
+    backtest = SimpleNamespace(
+        plan=SimpleNamespace(forecaster=forecaster, estimator=None),
+        metrics=None,
+    )
+    return (name, backtest, value)
+
+
+def test_build_comparison_explanation_when_baseline_failed():
+    """
+    Test that the explanation says the candidates cannot be checked against
+    the baseline when the baseline failed to run.
+    """
+    explanation = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = [_ranked_entry("model", "ForecasterRecursive", 1.0)],
+        ranking_metric = "mean_absolute_error",
+        any_error      = True,
+        cv_explanation = "Folds.",
+        baseline_name  = "Baseline (naive)",
+    )
+
+    assert explanation == (
+        "Compared 2 configurations, ranked ascending by mean_absolute_error. "
+        "Shared cross-validation strategy: Folds. Best: 'model' "
+        "(ForecasterRecursive) = 1.0000. The baseline 'Baseline (naive)' "
+        "failed to run, so the candidates cannot be checked against it. "
+        "1 configuration failed to run and is ranked last."
+    )
+
+
+def test_build_comparison_explanation_when_only_baseline_ran():
+    """
+    Test that the explanation says so when the baseline is the only
+    configuration that ran successfully.
+    """
+    explanation = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = [
+            _ranked_entry("Baseline (naive)", "ForecasterEquivalentDate", 2.0)
+        ],
+        ranking_metric = "mean_absolute_error",
+        any_error      = True,
+        cv_explanation = "Folds.",
+        baseline_name  = "Baseline (naive)",
+    )
+
+    assert "Only the baseline 'Baseline (naive)' ran successfully." in explanation
+
