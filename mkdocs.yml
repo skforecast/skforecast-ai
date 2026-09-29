@@ -1,10 +1,23 @@
-site_name: skforecast-AI Docs
+site_name: skforecast-ai Docs
 repo_url: https://github.com/skforecast/skforecast-ai
 site_url: https://ai.skforecast.org
 site_description: AI-powered forecasting assistant built on top of skforecast.
 site_author: Joaquin Amat Rodrigo and Javier Escobar Ortiz
 use_directory_urls: false
-copyright: Copyright &copy; 2024 - 2030 Joaquín Amat Rodrigo, Javier Escobar Ortiz
+
+# The theme overrides (custom_dir) live inside docs_dir, so without this MkDocs
+# would also publish the raw templates and the data of the home page.
+exclude_docs: |
+  /overrides/
+
+# Report broken links and missing anchors as warnings (the default is INFO,
+# which hides them in the build output).
+validation:
+  links:
+    unrecognized_links: warn
+    anchors: warn
+
+copyright: Copyright &copy; 2026-present Joaquín Amat Rodrigo and Javier Escobar Ortiz
 
 nav:
   - Home: 
@@ -42,8 +55,7 @@ extra_css:
   - stylesheets/extra.css
 extra_javascript:
   - javascripts/version-switcher.js
-  - javascripts/mathjax.js
-  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+  - javascripts/home.js
 
 hooks:
   - tools/mkdocs_hooks.py
@@ -75,25 +87,27 @@ plugins:
       allow_errors: False
       execute: False
       ignore_h1_titles: True
+      # require.js is needed by the Jupyter widget manager: the notebooks of the
+      # user guides are saved with widget outputs.
       include_requirejs: True
       include_source: True
   - mike:
       alias_type: copy
       canonical_version: stable
-      css_dir: css
-      deploy_prefix: ''
-      javascript_dir: js
-      redirect_template: null
-      version_selector: true
   - search:
       lang: en
-      separator: '[\s\-\._]+'
+      # Splits words at spaces, punctuation and underscores, at case changes
+      # (ForecastingAssistant -> Forecasting, Assistant) and at dots except in
+      # version strings (0.3.1 stays whole). Same as the skforecast docs, based
+      # on Material's recommendation.
+      separator: '[\s\-_,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
 
 theme:
   name: material
   custom_dir: docs/overrides
   favicon: img/favicon.png
   features:
+    - announce.dismiss
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.top
@@ -115,13 +129,20 @@ theme:
     code: Ubuntu Mono
   logo: img/logo-skforecast.png
   palette:
+    # primary and accent are "custom": the brand colors are defined in
+    # stylesheets/extra.css. Without it, Material applies "indigo", whose rules
+    # are more specific and override some of them (links in dark mode).
     - media: "(prefers-color-scheme: light)"
-      scheme: light
+      scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -134,8 +155,6 @@ markdown_extensions:
   - md_in_html
   - toc:
       permalink: true
-  - pymdownx.arithmatex:
-      generic: true
   - pymdownx.betterem:
       smart_enable: all
   - pymdownx.caret
@@ -153,11 +172,7 @@ markdown_extensions:
   - pymdownx.mark
   - pymdownx.smartsymbols
   - pymdownx.snippets
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.tasklist:
@@ -183,3 +198,5 @@ extra:
       link: https://www.linkedin.com/company/skforecast/
     - icon: fontawesome/brands/github
       link: https://github.com/skforecast/skforecast-ai
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/3V52qpNkuj

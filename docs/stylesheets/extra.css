@@ -91,7 +91,12 @@ Markdown Content Styles
 Color Scheme Styles
 ===============================
 */
-/* Light color scheme styles */
+/* Light color scheme styles. "light" is not a Material scheme (the light one
+   is "default"), but it was used in mkdocs.yml until 0.3.1 and Material
+   re-applies the scheme saved in the browser of returning visitors, so it is
+   kept here until those saved values have expired. Same as the skforecast
+   docs. */
+[data-md-color-scheme="default"],
 [data-md-color-scheme="light"] {
   --md-primary-fg-color:        #001633;
   --md-primary-fg-color--light: #001633;
@@ -116,16 +121,25 @@ Color Scheme Styles
   --md-typeset-a-color:         #f79939;
 }
   
-/* Hide dark images in light mode */
-[data-md-color-scheme="light"] img[src$="#only-dark"],
-[data-md-color-scheme="light"] img[src$="#gh-dark-mode-only"] {
-  display: none; 
+/* Material hides the #only-dark images in "default" and the #only-light images
+   in "slate". Same behavior for the legacy "light" value (see above). */
+[data-md-color-scheme="light"] {
+  color-scheme: light;
 }
 
-/* Hide light images in dark mode */
-[data-md-color-scheme="dark"] img[src$="#only-light"],
-[data-md-color-scheme="dark"] img[src$="#gh-light-mode-only"] {
-  display: none; 
+[data-md-color-scheme="light"] img[src$="#only-dark"],
+[data-md-color-scheme="light"] img[src$="#gh-dark-mode-only"] {
+  display: none;
+}
+
+/* Brand accent, scoped to the announce bar only (not the outdated banner). */
+[data-md-component="announce"] .md-banner a {
+  color: var(--md-accent-fg-color);
+  font-weight: 600;
+}
+
+[data-md-component="announce"] .md-banner a:hover {
+  text-decoration: underline;
 }
 
 /*
