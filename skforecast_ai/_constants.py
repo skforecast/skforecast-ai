@@ -50,7 +50,7 @@ MAX_SKILL_TOKENS = 20_000
 
 # Ceiling for the static role prompt. It is paid on every call and is not
 # trimmable, so it must not grow into the budget reserved for skills.
-MAX_STATIC_PROMPT_TOKENS = 1200
+MAX_STATIC_PROMPT_TOKENS = 1250
 
 MULTI_SERIES_FORECASTERS: set[str] = {
     "ForecasterRecursiveMultiSeries",

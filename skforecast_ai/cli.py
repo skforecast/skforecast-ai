@@ -33,6 +33,7 @@ from ._display import (
 from .assistant import ForecastingAssistant
 from .config import (
     CONFIG_FILE,
+    VALID_KEYS,
     get_config_value,
     load_config,
     set_config_value,
@@ -62,7 +63,7 @@ StepsOption = Annotated[int | None, typer.Option("--steps", help="Forecast horiz
 ForecasterOption = Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")]
 EstimatorOption = Annotated[str | None, typer.Option("--estimator", help="Override estimator class, or the Hugging Face model ID for ForecasterFoundation (e.g. 'google/timesfm-3.0-pytorch').")]
 EstimatorKwargsOption = Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")]
-IntervalOption = Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")]
+IntervalOption = Annotated[str | None, typer.Option("--interval", help="Prediction interval as two quantiles between 0 and 1, e.g. '0.1,0.9' for an 80% interval.")]
 LagsOption = Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3', or 'auto' to re-run the deterministic selection when refining a saved plan.")]
 WindowFeaturesOption = Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]', or 'auto' to re-run the deterministic selection when refining a saved plan.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
@@ -75,7 +76,7 @@ RefitOption = Annotated[bool | None, typer.Option("--refit/--no-refit", help="Wh
 FixedTrainSizeOption = Annotated[bool | None, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window (default: decided by the assistant).")]
 GapOption = Annotated[int | None, typer.Option("--gap", help="Gap between training and test sets.")]
 AllowIncompleteFoldOption = Annotated[bool | None, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations (default: decided by the assistant).")]
-BaseUrlOption = Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")]
+BaseUrlOption = Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint: server URL for ollama or an OpenAI-compatible API, AWS region for bedrock.")]
 ApiKeyOption = Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")]
 OutputOption = Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")]
 OutputPredictionsOption = Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")]
@@ -141,6 +142,10 @@ def config_show() -> None:
     """
     Display current configuration.
 
+    Keys that skforecast-ai does not read (left by an older version or
+    written by hand) are listed as ignored instead of being shown as if
+    they had an effect.
+
     Returns
     -------
     None
@@ -156,15 +161,26 @@ def config_show() -> None:
     table.add_column("Value")
     table.add_column("Source", style="dim")
 
+    ignored: list[str] = []
     for section, values in sorted(config.items()):
         if not isinstance(values, dict):
+            ignored.append(section)
             continue
         for key, val in sorted(values.items()):
             full_key = f"{section}.{key}"
+            if full_key not in VALID_KEYS:
+                ignored.append(full_key)
+                continue
             display_val = _mask_secret(full_key, str(val))
             table.add_row(full_key, display_val, str(CONFIG_FILE))
 
-    console.print(table)
+    if table.row_count:
+        console.print(table)
+    if ignored:
+        console.print(
+            f"[yellow]Ignored keys (not used by skforecast-ai):[/yellow] "
+            f"{', '.join(ignored)}. You can remove them from {CONFIG_FILE}."
+        )
 
 
 @config_app.command("set")
@@ -692,7 +708,7 @@ def profile(
     output: OutputOption = None,
     quiet: QuietOption = False,
 ) -> None:
-    """Profile a dataset and recommend a forecaster + estimator."""
+    """Profile a dataset and recommend a forecaster and an estimator."""
     with _error_handler():
         assistant = ForecastingAssistant()
         parsed_target = _parse_target(target)
@@ -894,11 +910,11 @@ def refine_plan(
     estimator: EstimatorOption = None,
     estimator_kwargs: EstimatorKwargsOption = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Override forecast horizon.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '0.1,0.9'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval as two quantiles between 0 and 1, e.g. '0.1,0.9'.")] = None,
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
-    prompt: Annotated[str | None, typer.Option("--prompt", help="Natural language domain knowledge to guide LLM plan refinement.")] = None,
-    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for plan refinement.")] = None,
+    prompt: Annotated[str | None, typer.Option("--prompt", help="Domain knowledge in natural language; the LLM proposes lags and window features from it.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider and model, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
     api_key: ApiKeyOption = None,
     format: TableFormatOption = "table",
@@ -1212,7 +1228,7 @@ def _result_to_json(result) -> str:
 
 @app.command()
 def forecast(
-    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
+    data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
     target: TargetOption = None,
     steps: StepsOption = None,
     date_column: DateColumnOption = None,
@@ -1222,14 +1238,14 @@ def forecast(
     estimator_kwargs: EstimatorKwargsOption = None,
     interval: IntervalOption = None,
     test_size: Annotated[str | None, typer.Option("--test-size", help="Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). When omitted, forecasts the future.")] = None,
-    exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous variables (prediction mode).")] = None,
+    exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous values covering the forecast horizon (prediction mode only).")] = None,
     from_plan: FromPlanOption = None,
     output_predictions: OutputPredictionsOption = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
     format: TableFormatOption = "table",
     quiet: QuietOption = False,
 ) -> None:
-    """Run end-to-end forecasting and report metrics + predictions."""
+    """Run end-to-end forecasting and report predictions, plus metrics with --test-size."""
     with _error_handler():
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
@@ -1332,14 +1348,14 @@ def _render_backtest_results(result) -> None:
 
 @app.command()
 def backtest(
-    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
+    data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
     target: TargetOption = None,
     steps: StepsOption = None,
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
     forecaster: ForecasterOption = None,
     estimator: EstimatorOption = None,
-    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string.")] = None,
+    estimator_kwargs: EstimatorKwargsOption = None,
     interval: IntervalOption = None,
     initial_train_size: InitialTrainSizeOption = None,
     fold_stride: FoldStrideOption = None,
@@ -1347,8 +1363,8 @@ def backtest(
     fixed_train_size: FixedTrainSizeOption = None,
     gap: GapOption = None,
     allow_incomplete_fold: AllowIncompleteFoldOption = None,
-    prompt: Annotated[str | None, typer.Option("--prompt", help="Optional prompt for LLM-assisted CV configuration.")] = None,
-    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for CV configuration.")] = None,
+    prompt: Annotated[str | None, typer.Option("--prompt", help="Deployment scenario in natural language; the LLM translates it into the cross-validation strategy.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider and model, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
     api_key: ApiKeyOption = None,
     from_plan: FromPlanOption = None,
@@ -1357,7 +1373,7 @@ def backtest(
     format: TableFormatOption = "table",
     quiet: QuietOption = False,
 ) -> None:
-    """Run backtesting evaluation and report metrics + predictions."""
+    """Run backtesting evaluation and report metrics and predictions."""
     with _error_handler():
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
@@ -1536,12 +1552,12 @@ def _render_comparison_results(result) -> None:
 
 @app.command()
 def compare(
-    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
+    data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
     target: TargetOption = None,
     steps: StepsOption = None,
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
-    candidates: Annotated[str | None, typer.Option("--candidates", help="Candidate configs as JSON array of [name, config] pairs. When omitted, candidates are built from the profile.")] = None,
+    candidates: Annotated[str | None, typer.Option("--candidates", help="Candidate configs as JSON array of [name, config] pairs; config keys: forecaster, estimator, estimator_kwargs, lags, window_features. When omitted, candidates are built from the profile.")] = None,
     metric: Annotated[str | None, typer.Option("--metric", help="Metric(s) to compute, comma-separated. The first ranks the table.")] = None,
     interval: IntervalOption = None,
     baseline: Annotated[bool, typer.Option("--baseline/--no-baseline", help="Add a seasonal naive baseline (ForecasterEquivalentDate) to the leaderboard. Single series only.")] = True,
@@ -1644,18 +1660,18 @@ def compare(
 @app.command()
 def ask(
     prompt: Annotated[str, typer.Argument(help="Natural-language question about forecasting.")],
-    data: Annotated[Path | None, typer.Option("--data", help="Path to CSV file for context.")] = None,
+    data: Annotated[Path | None, typer.Option("--data", help="Path to a CSV file to profile; the LLM receives its profile, never the observations.")] = None,
     target: TargetOption = None,
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon. With --data, also builds a plan so the question is answered about the plan.")] = None,
     from_profile: FromProfileOption = None,
     from_plan: FromPlanOption = None,
-    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-5.5'.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider and model, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
     api_key: ApiKeyOption = None,
-    send_data_to_llm: Annotated[bool | None, typer.Option("--send-data-to-llm/--no-send-data-to-llm", help="Allow sending raw data to the LLM.")] = None,
-    skills: Annotated[str | None, typer.Option("--skills", help="Comma-separated skill names to include.")] = None,
+    send_data_to_llm: Annotated[bool | None, typer.Option("--send-data-to-llm/--no-send-data-to-llm", help="Accepted for parity with the Python API; the CLI never sends observations to the LLM, whatever its value.")] = None,
+    skills: Annotated[str | None, typer.Option("--skills", help="Comma-separated skill names to include, e.g. 'prediction-intervals'. The Skills page of the documentation lists them.")] = None,
     format: Annotated[str, typer.Option("--format", help="Output format: text or json.")] = "text",
     quiet: QuietOption = False,
 ) -> None:
@@ -1723,7 +1739,7 @@ def ask(
 
 @app.command(name="check-llm")
 def check_llm(
-    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-5.5'.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider and model, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
     api_key: ApiKeyOption = None,
     test_call: Annotated[bool, typer.Option("--test-call", help="Send a one-line prompt to the model once the static checks pass.")] = False,

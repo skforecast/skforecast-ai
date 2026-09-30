@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skforecast-ai"
-version = "0.3.1"
-description = "AI-powered forecasting assistant built on top of skforecast."
+version = "0.4.0"
+description = "Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them."
 readme = "README.md"
 authors = [
     {name = "Javier Escobar Ortiz", email = "javier.escobar.ortiz@gmail.com"},

@@ -9,19 +9,19 @@ Downloads from a configurable branch/tag and places files into:
 Usage
 -----
     # Sync all assets from the default branch
-    python tools/sync_skforecast_assets.py
+    python tools/ai/sync_skforecast_assets.py
 
     # Sync from a specific branch or tag
-    python tools/sync_skforecast_assets.py --branch 0.23.x
+    python tools/ai/sync_skforecast_assets.py --branch 0.23.x
 
     # CI check: verify local copies match the remote version
-    python tools/sync_skforecast_assets.py --check
+    python tools/ai/sync_skforecast_assets.py --check
 
     # CI check against a specific branch
-    python tools/sync_skforecast_assets.py --check --branch v0.22.0
+    python tools/ai/sync_skforecast_assets.py --check --branch v0.22.0
 
     # Print the local skill inventory as a Markdown table (no network)
-    python tools/sync_skforecast_assets.py --inventory
+    python tools/ai/sync_skforecast_assets.py --inventory
 
 Both the sync and the check report the skills added, removed or whose
 description changed, because the skill inventory is mirrored by hand in
@@ -46,7 +46,7 @@ from urllib.request import Request, urlopen
 # ---------------------------------------------------------------------------
 DEFAULT_BRANCH = "auto"
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 DEST_LLMS = REPO_ROOT / "skforecast_ai" / "resources" / "llms-base.txt"
 DEST_SKILLS = REPO_ROOT / "skforecast_ai" / "skills"
@@ -182,7 +182,7 @@ def _skills_hash_from_dict(skills: dict[str, bytes]) -> str:
 _MANUAL_INVENTORY_FILES = (
     "skforecast_ai/llm/skills.py (ALL_SKILLS, _TASK_TYPE_SKILLS, "
     "_KEYWORD_SKILLS, _SKILL_OVERRIDES), then run "
-    "`python tools/measure_skill_tokens.py --update`",
+    "`python tools/ai/measure_skill_tokens.py --update`",
     "docs/user-guides/skills.md (skills table, checked by "
     "tests/test_docs_skills_page.py)",
     "tests/tests_llm/test_select_skills.py (upstream order test)",
@@ -412,7 +412,7 @@ def check(branch: str) -> None:
     if failed:
         sys.exit(
             "\nCheck failed. Run "
-            f"`python tools/sync_skforecast_assets.py --branch {branch}` to update."
+            f"`python tools/ai/sync_skforecast_assets.py --branch {branch}` to update."
         )
 
     print("\nAll checks passed.")

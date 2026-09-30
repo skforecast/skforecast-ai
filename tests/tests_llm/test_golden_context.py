@@ -29,13 +29,13 @@ def test_llm_context_matches_golden(scenario):
     substring. A substring assertion cannot catch a section that silently
     stopped being rendered, which is the defect class these files exist
     to prevent. Regenerate with
-    `python tools/update_golden_llm_contexts.py` and review the diff
+    `python tools/ai/update_golden_contexts.py` and review the diff
     whenever the change is intentional.
     """
     path = GOLDEN_DIR / f"{scenario}.txt"
     assert path.exists(), (
         f"Missing golden file for '{scenario}'. "
-        f"Run 'python tools/update_golden_llm_contexts.py' to create it."
+        f"Run 'python tools/ai/update_golden_contexts.py' to create it."
     )
 
     context = GOLDEN_SCENARIOS[scenario]().to_llm_context(send_data=True)

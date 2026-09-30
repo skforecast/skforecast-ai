@@ -7,9 +7,9 @@ updates the constants in-place with --update.
 
 Usage
 -----
-    python tools/measure_skill_tokens.py           # Print estimates
-    python tools/measure_skill_tokens.py --update  # Update skills.py in-place
-    python tools/measure_skill_tokens.py --report  # Markdown size breakdown
+    python tools/ai/measure_skill_tokens.py           # Print estimates
+    python tools/ai/measure_skill_tokens.py --update  # Update skills.py in-place
+    python tools/ai/measure_skill_tokens.py --report  # Markdown size breakdown
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import re
 import sys
 from pathlib import Path
 
-PACKAGE_DIR = Path(__file__).resolve().parent.parent / "skforecast_ai"
+PACKAGE_DIR = Path(__file__).resolve().parents[2] / "skforecast_ai"
 RESOURCES_DIR = PACKAGE_DIR / "resources"
 SKILLS_DIR = PACKAGE_DIR / "skills"
 SKILLS_MODULE = PACKAGE_DIR / "llm" / "skills.py"
@@ -168,7 +168,7 @@ def check_skills_file(skills: dict[str, int], reference: int) -> bool:
         for line in stale:
             print(line, file=sys.stderr)
         print(
-            "\nRun 'python3 tools/measure_skill_tokens.py --update' to fix.",
+            "\nRun 'python3 tools/ai/measure_skill_tokens.py --update' to fix.",
             file=sys.stderr,
         )
         return False

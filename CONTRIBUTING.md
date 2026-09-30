@@ -20,6 +20,10 @@ To make sure we are aligned, please **open an issue** with a brief description o
 
 We are excited to have you involved in this project!
 
+### Submitting a Pull Request
+
+Open the pull request against the current release branch (for example `0.4.x`), not `main`. `main` only receives a release branch when that version is published. The pull request template includes a checklist; strike through the items that do not apply.
+
 ## Testing
 
 To run the test suite, first install the test dependencies:

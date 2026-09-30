@@ -11,7 +11,7 @@ Skills are plain Markdown files bundled with the package under `skforecast_ai/sk
 
 ## Where the skills come from
 
-The skills are the ones skforecast publishes in its own repository, copied verbatim by `tools/sync_skforecast_assets.py` from the skforecast branch that `pyproject.toml` pins. They are never edited in skforecast-ai, so a skill always describes the skforecast version the generated scripts run on. The upstream [Workflow skills](https://skforecast.org/latest/quick-start/ai-assisted-forecasting.html#workflow-skills) table is the canonical list.
+The skills are the ones skforecast publishes in its own repository, copied verbatim by `tools/ai/sync_skforecast_assets.py` from the skforecast branch that `pyproject.toml` pins. They are never edited in skforecast-ai, so a skill always describes the skforecast version the generated scripts run on. The upstream [Workflow skills](https://skforecast.org/latest/quick-start/ai-assisted-forecasting.html#workflow-skills) table is the canonical list.
 
 Each skill follows the open [Agent Skills](https://agentskills.io/specification) standard: a directory named after the skill with a `SKILL.md` file whose YAML front matter declares `name` and `description`, a Markdown body with the instructions, and an optional `references/` folder with longer material (API signatures, worked examples). Because the format is standard, any agent that supports it (GitHub Copilot, Claude Code and others) can load the same skills directly from the skforecast repository.
 

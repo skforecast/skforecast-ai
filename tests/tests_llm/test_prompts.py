@@ -61,6 +61,7 @@ def test_role_prompt_structure(name, prompt):
         "never second-guess or re-derive them",
         "must not contain invented numeric thresholds",
         "Never present a suggestion as a decision that has already been made",
+        "`assistant.compare()` to choose between models",
         # Output contract.
         "Open with a direct answer to the question",
         "Cover only what was asked",

@@ -118,15 +118,16 @@ from ._utils import (
 
 class ForecastingAssistant:
     """
-    AI-powered forecasting assistant built on skforecast.
+    Time series forecasting assistant built on skforecast.
 
     Analyses a time series dataset, selects a forecaster and estimator,
     produces a ready-to-run Python script, and optionally executes it,
     returning predictions, metrics, and the exact code that generated them.
 
     All modeling decisions are deterministic and reproducible. An optional
-    LLM adds natural-language explanations and Q&A without influencing
-    any recommendation.
+    LLM explains them and answers questions. On request, it also proposes
+    lags and window features (`refine_plan()`) or a cross-validation
+    strategy (`create_cv()`), which are validated before they are used.
 
     Parameters
     ----------

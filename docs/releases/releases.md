@@ -38,6 +38,16 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-enhancement">Enhancement</span> [<code>ForecastingAssistant.ask()</code>][assistant] also routes the skills by the task type of the plan in the context, not only by the profile's, so a plan built for `ForecasterStats` or `ForecasterEquivalentDate` loads `statistical-models` or `baseline-forecasting`. A `ComparisonResult` with a baseline row loads `baseline-forecasting` too.
 
++ <span class="badge text-bg-enhancement">Enhancement</span> When [<code>ForecastingAssistant.ask()</code>][assistant] suggests how to measure accuracy or choose between models, it points to `assistant.backtest()` and `assistant.compare()` instead of the lower-level skforecast functions.
+
++ <span class="badge text-bg-docs">Docs</span> New documentation home page: an animation of the four steps of the assistant (profile, plan, run, ask) and examples of what `ask()`, `refine_plan()` and `create_cv()` return.
+
++ <span class="badge text-bg-docs">Docs</span> New animation "Deterministic first, LLM second" in the [Agentic forecasting][agentic-guide] user guide: what stays on your machine, what reaches the LLM, and how an invalid LLM suggestion is rejected before it enters the plan.
+
++ <span class="badge text-bg-docs">Docs</span> New animation "Validate the way you deploy" in the Backtesting section of the [Agentic forecasting][agentic-guide-backtesting] user guide: how `create_cv()` turns a deployment scenario in plain words into `TimeSeriesFold` parameters, and how `backtest()` evaluates the model fold by fold.
+
++ <span class="badge text-bg-docs">Docs</span> New animation "Let measured performance pick the model" in the comparison section of the [Agentic forecasting][agentic-guide-compare] user guide: `compare()` backtests the candidates and the seasonal naive baseline on the same folds and ranks them by the metric, with no LLM involved.
+
 
 **Changed**
 
@@ -48,6 +58,16 @@ All significant changes to this project are documented in this release file.
 + <span class="badge text-bg-api-change">API Change</span> The `estimator` of a `ForecasterFoundation` plan is the Hugging Face model ID of the foundation model (default `'autogluon/chronos-2-small'`) instead of the `'Chronos-2'` label, which the generated code ignored. Pass the ID as `estimator` in [<code>ForecastingAssistant.plan()</code>][assistant] and everywhere an estimator can be chosen (`refine_plan()`, `forecast()`, `forecast_code()`, `backtest()`, `backtest_code()`, `compare()` candidates and the CLI `--estimator`), e.g. `estimator='google/timesfm-3.0-pytorch'`. An ID that no skforecast adapter serves, `'Chronos-2'` included, raises `ValueError` with the supported prefixes when the plan is built, and so does a `model_id` in `estimator_kwargs`, the former way to choose another model. A `ForecastPlan` built by hand or loaded from JSON is validated the same way. skforecast-ai now requires `skforecast>=0.26.0`.
 
 + <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.plan()</code>][assistant] raises `ValueError` when `lags` or `window_features` are passed for `ForecasterStats` or `ForecasterFoundation`, which model the past values themselves. They were silently ignored, so the plan differed from what was asked. The same applies to every method that forwards them to `plan()` (`refine_plan()`, `forecast()`, `forecast_code()`, `backtest()`, `backtest_code()`, `compare()` candidates and the CLI `--lags` and `--window-features`).
+
++ <span class="badge text-bg-docs">Docs</span> The Quick start section is reorganized into [Installation](../quick-start/how-to-install.md), [Your first forecast](../quick-start/first-forecast.ipynb), now a notebook with its outputs, and the new [Ask the assistant](../quick-start/ask-the-assistant.md), on what the LLM layer adds. Links to the old Quick start page redirect to Installation.
+
++ <span class="badge text-bg-docs">Docs</span> The [API reference][assistant] opens with a table of the methods of `ForecastingAssistant`, what each one returns and whether it uses the LLM.
+
++ <span class="badge text-bg-docs">Docs</span> To cite skforecast-ai, use the concept DOI in `CITATION.cff`, which always resolves to the latest release.
+
++ <span class="badge text-bg-docs">Docs</span> [Using the CLI][cli-guide] is rewritten as a shorter guide organized by task, with an example for every command. The options of each command are listed in the [CLI reference][cli], generated from the code, instead of tables maintained by hand.
+
++ <span class="badge text-bg-enhancement">Enhancement</span> Clearer `--help` texts in the CLI: `--interval` takes quantiles, what `--base-url` means for each provider, the fields a `--candidates` config accepts, and the data argument of `forecast`, `backtest` and `compare` accepts a URL.
 
 
 **Fixed**
@@ -72,6 +92,14 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-enhancement">Enhancement</span> For a single series, [<code>ForecastingAssistant.backtest()</code>][assistant], [<code>ForecastingAssistant.compare()</code>][assistant] and the evaluation mode of [<code>ForecastingAssistant.forecast()</code>][assistant] raise `ValueError` before running when a test fold (or the test split) has a missing target value, including the missing timestamps that `asfreq()` restores, and name the dates. skforecast computes single-series metrics without dropping missing values, so these runs failed anyway with "Input contains NaN", in `compare()` once per candidate and whatever the estimator.
 
++ <span class="badge text-bg-danger">Fix</span> The "How it works" diagram of the README and the [Agentic forecasting][agentic-guide] guides showed `create_cv()` in the fast path, where it needs a profile and a plan. It now shows a `TimeSeriesFold` passed to `backtest(data, cv)`.
+
++ <span class="badge text-bg-danger">Fix</span> The `--help` of `ask --send-data-to-llm` described it as permission to send raw data. The CLI never sends observations to the LLM, whatever its value; the help now says so.
+
++ <span class="badge text-bg-danger">Fix</span> The quick start of the CLI guide forecast the future of a dataset with exogenous variables without their future values, which fails. It now evaluates on a held-out test set, and the guide explains when `--exog` is needed.
+
++ <span class="badge text-bg-danger">Fix</span> `skforecast-ai config set` no longer accepts `output.format`. No command read it, so the setting had no effect. `config show` lists it, and any other unknown key found in the file, as ignored.
+
 
 ## 0.3.1 <small>Sep 11, 2026</small> { id="0.3.1" }
 
@@ -83,8 +111,6 @@ All significant changes to this project are documented in this release file.
 + <span class="badge text-bg-enhancement">Enhancement</span> New user guide [Configuring the LLM][llm-config]: model strings, credentials per provider, the meaning of `base_url`, local models with Ollama, OpenAI-compatible endpoints, what is sent to the LLM, and troubleshooting. The quick start, the installation page, the CLI reference and the notebooks link to it, and the examples use the same set of model names throughout.
 
 + <span class="badge text-bg-docs">Docs</span> New API page for the exceptions and warnings the package exports, a user guide on the skills `ask()` sends to the LLM (which exist, how they are selected, how to pick them with `skills=` and `--skills`, and how they follow the Agent Skills standard), and an "Under the hood" section in the first forecast guide showing `profile()`, `plan()`, `forecast_code()` and `forecast()` chained step by step.
-
-+ <span class="badge text-bg-enhancement">Enhancement</span> `tools/sync_skforecast_assets.py` reports the skills added, removed or re-described by a sync (also in `--check`, instead of two bare hashes) and gains `--inventory` to print the local skill table. The skills table in the user guide is checked against `ALL_SKILLS` by the test suite.
 
 
 **Fixed**
@@ -103,7 +129,7 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-feature">Feature</span> Every result (`ForecastResult`, `BacktestResult`, `ComparisonResult`, `CodeGenerationResult`, `CVResult`) serializes to JSON with `model_dump(mode="json")` and `model_dump_json()`; DataFrames become lists of row records. The JSON output of the CLI commands is exactly this dump.
 
-+ <span class="badge text-bg-enhancement">Enhancement</span> [<code>ForecastingAssistant.ask()</code>][assistant] sends a richer context to the LLM: date range and target statistics, missing values, significant lags, the suggested features, a summary of the generated script, and per-series statistics of the predictions for multi-series results. Answers are better grounded and questions about one series can be answered. Checked against a real model with `tools/ask_context_check.py`.
++ <span class="badge text-bg-enhancement">Enhancement</span> [<code>ForecastingAssistant.ask()</code>][assistant] sends a richer context to the LLM: date range and target statistics, missing values, significant lags, the suggested features, a summary of the generated script, and per-series statistics of the predictions for multi-series results. Answers are better grounded and questions about one series can be answered.
 
 
 **Changed**
@@ -177,8 +203,12 @@ First public release. `skforecast-ai` wraps the [`skforecast`](https://skforecas
 <!-- Links to API Reference -->
 [assistant]: ../api/assistant.md
 [cli]: ../api/cli.md
+[cli-guide]: ../user-guides/cli-usage.md
 [config]: ../user-guides/cli-usage.md#configuration
 [llm-config]: ../user-guides/llm-configuration.md
+[agentic-guide]: ../user-guides/agentic-forecasting.ipynb#what-is-skforecast-ai
+[agentic-guide-backtesting]: ../user-guides/agentic-forecasting.ipynb#backtesting
+[agentic-guide-compare]: ../user-guides/agentic-forecasting.ipynb#comparing-forecaster-configurations
 
 <!-- schemas -->
 [results]: ../api/schemas/results.md
