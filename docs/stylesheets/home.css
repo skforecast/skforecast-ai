@@ -1446,6 +1446,19 @@ Sections
   color: var(--orange-ink);
 }
 
+/* The baseline is the reference the candidates are measured against, not a
+   candidate: an outlined bar and a muted name. */
+.sk-home .board-row.base .who b {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.sk-home .board-row.base .fill {
+  background: transparent;
+  border: 1.5px dashed #9aabc3;
+  box-sizing: border-box;
+}
+
 .sk-home .board.go .fill {
   width: var(--w, 0%);
 }
@@ -1603,7 +1616,7 @@ Sections
 
 /*
 ===============================
-ask() section: real answers in tabs, and the other LLM methods
+ask() section: example answers in tabs, and the other LLM methods
 ===============================
 The window with the answers is shared with the "Ask the assistant" page:
 partials/ask-window.html, styled in extra.css (.sk-ask).

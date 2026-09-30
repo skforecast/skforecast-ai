@@ -195,7 +195,7 @@
       'from skforecast_ai import ForecastingAssistant\n\nassistant = ForecastingAssistant()  # no LLM needed\nprofile = assistant.profile(data, target="users", date_column="date_time")',
       'plan = assistant.plan(profile, steps=36, interval=[0.1, 0.9])\n\n# The plan is data: inspect it, override any field with refine_plan(),\n# or ask the LLM to refine the lags and window features.',
       "result = assistant.forecast(data, test_size=36, profile=profile, plan=plan)\n\n# result.code, the script that produced this forecast:\n\n" + ALL.code.trim(),
-      'assistant = ForecastingAssistant(llm="google:gemini-3.5-flash")\nanswer = assistant.ask(\n    "Explain the evaluation metrics. Is the MASE good, and what do the predictions look like?",\n    context=result,\n)'
+      'assistant = ForecastingAssistant(llm="google:gemini-3.8-flash")\nanswer = assistant.ask(\n    "Explain the evaluation metrics. Is the MASE good, and what do the predictions look like?",\n    context=result,\n)'
     ];
     var codeBox = $("stage-code-box"), codeEl = $("stage-code"), codeKey = null, codeTimer = null;
     function setCode(key) {
@@ -369,7 +369,8 @@
     board.innerHTML = '<div class="board-head" aria-hidden="true"><span>#</span><span>Candidate</span><span>MAE</span><span>MASE</span></div>';
     CMP.rows.forEach(function (r, k) {
       var row = document.createElement("div");
-      row.className = "board-row" + (k === 0 ? " best" : "");
+      var isBase = r.name === CMP.baseline;
+      row.className = "board-row" + (isBase ? " base" : k === 0 ? " best" : "");
       row.style.setProperty("--w", (r.mae / maxMae * 100).toFixed(1) + "%");
       row.style.setProperty("--d", (k * 0.25).toFixed(2) + "s");
       row.innerHTML = '<span class="rank">' + (k + 1) + '</span><span class="who"><b>' + esc(r.name) +
@@ -377,6 +378,7 @@
       board.appendChild(row);
     });
     $("board-cap").innerHTML = "Real <code>compare()</code> output on the data of the animation, ranked by backtesting MAE (lower is better). " +
+      (CMP.baseline ? esc(CMP.baseline) + " is not a candidate: it is the reference that <code>compare()</code> adds. " : "") +
       "Same cross-validation for every candidate: " + esc(CMP.cv.charAt(0).toLowerCase() + CMP.cv.slice(1));
     if (reduce || !("IntersectionObserver" in window)) {
       board.classList.add("go");

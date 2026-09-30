@@ -37,7 +37,6 @@ docs/
 tools/docs/home_page/
 ├── README.md                          # This file
 ├── generate_home_data.py              # Writes home-data.json and the data of the animations
-├── deterministic_first_llm.json       # LLM suggestion of the animation, recorded with --llm
 ├── make_social_card.mjs               # Writes the two images of docs/img/ above
 └── social_card.html                   # Layout of the social preview card
 ```
@@ -118,26 +117,23 @@ output. `generate_home_data.py` runs the same workflow as
 | Assistant | `ForecastingAssistant()`, no LLM |
 | Plan | `plan(profile, steps=36, interval=[0.1, 0.9])` |
 | Forecast | `forecast(data, test_size=36, ...)`: evaluated on the last 36 hours |
-| Comparison | `compare()` of LightGBM recursive, LightGBM direct and Ridge recursive, with `create_cv(profile, plan, refit=False)` |
+| Comparison | `compare()` of LightGBM recursive, LightGBM direct and Ridge recursive, plus the seasonal naive baseline it adds, with `create_cv(profile, plan, refit=False)` |
 | Chart | The last 8 days before the forecast (3 on phones) and the 36 held-out hours |
 
-The answer in step 4 is not generated at build time: it is an excerpt, quoted
-word for word, of the `forecast` scenario of
-`tools/ai/ask_context_reports/0.3.0_bike_sharing.md` (`google:gemini-3.5-flash`).
-The five tabs of the "Ask why, at any step" section quote, in the same way,
-the opening of the grounded answer of the `forecast`, `backtest`, `compare`,
-`plan` and `qa` scenarios of that report. They are ordered from the most
-common use of `ask()` to the least, as the quick start, the user guides and
-the CLI use it: a forecast result first, then backtests and comparisons, the
-plan and a question without context. The `profile` and `code` scenarios are
-left out: the plan tab already carries the profile, and the CLI explains a
-plan through its script. The Compare tab shows the candidates as the evaluation script names
-them (`recursive_default`, `direct`), because its answer quotes those names.
-The script stops if the MASE of the forecast or of the backtest no longer
-matches the value quoted in those answers (`QUOTED_MASE`,
-`QUOTED_BACKTEST_MASE`; the backtest is the `LightGBM, recursive` row of the
-leaderboard, the winner of the Compare tab), so the page never shows an
-explanation of different results.
+The `ask()` answers of the page are examples written by hand, not recorded
+from a model: step 4 of the animation, and the five tabs of the "Ask why, at
+any step" section (`partials/ask-window.html`, also shown on the "Ask the
+assistant" page). They show the kind of answer `ask()` gives and follow its
+rules: only values of the result, MASE read against the one-step naive
+forecast, no reasons for a ranking. They never need an LLM call or a new
+evaluation report for a release. The tabs are ordered from the most common use
+of `ask()` to the least: a forecast result first, then backtests and
+comparisons, the plan and a question without context. The Compare tab names
+the candidates as the leaderboard of the page does.
+
+Their numbers are the real results. The script stops when one of the numbers
+they quote (`QUOTED`, `QUOTED_LAGS`) no longer matches, so the page never
+shows an answer about other results.
 
 ### The animation "Deterministic first, LLM second"
 
@@ -151,14 +147,14 @@ option), and it continues the workflow above: `refine_plan()` with the prompt
 `REFINE_PROMPT`, `forecast()` with the refined plan on the same 36 held-out
 hours, and `ask()` about that forecast.
 
-The suggestion of `refine_plan()` (lags, and window features when the LLM
-changes them) is recorded once with `--llm` in `deterministic_first_llm.json`.
-Every run replays it as an explicit override of `refine_plan()` (the LLM mode
-merges its suggestion the same way and calls the same `plan()`), so the refined
-plan, its forecast and its metrics are real and need no LLM call. The first
-suggestion of the animation, which the validation of `plan()` rejects, is the
-recorded lags plus a monthly lag (`REJECTED_EXTRA_LAG`): the suggestion is
-illustrative, the rejection message is the real one.
+The suggestion of `refine_plan()` (`REFINE_SUGGESTION` in the script: lags and
+window features) is an example written by hand, like the answers of `ask()`; no
+LLM is ever called. The script applies it as an explicit override of
+`refine_plan()` (the LLM mode merges its suggestion the same way and calls the
+same `plan()`), so the refined plan, its forecast and its metrics are real. The
+first suggestion of the animation, which the validation of `plan()` rejects, is
+those lags plus a monthly lag (`REJECTED_EXTRA_LAG`): the rejection message is
+the real one.
 
 The question and the answer of `ask()` are written by hand in the animation
 (`ASK_PROMPT` and `ANSWER`): the step shows what kind of answer to expect, and a
@@ -197,17 +193,21 @@ forecaster configurations" section of the Agentic forecasting user guide; the
 `compare()` section of the home page and the step-by-step guide link to it. It runs `compare()`
 without candidates, so the profile proposes them (ForecasterRecursive,
 ForecasterDirect and ForecasterFoundation with Chronos-2), with the strategy of
-the backtesting animation, and shows one window moving over the three
-candidates at once while each one draws its forecast against the actual
-series, the leaderboard as a plain sort, the winner reused in `forecast()`, and
+the backtesting animation, and shows the seasonal naive baseline that
+`compare()` adds as a gray lane (it has no card: the profile does not propose
+it), one window moving over all the lanes at once while each one draws its
+forecast against the actual series, the leaderboard as a plain sort with how
+many candidates beat the baseline, the winner reused in `forecast()`, and
 `ask()` explaining the ranking. The question and the answer of `ask()` are
 written in the animation (`ASK_PROMPT`, `ANSWER`), with figures from the data;
 the answer only uses what `ask()` sends for a comparison (the leaderboard, the
 shared profile and strategy, and the winning plan, never per-fold results).
 
 `write_compare_data()` writes the leaderboard, the series over the span of the
-folds and, for every candidate, the predictions that are scored and the error
-of every fold (for the running MAE). With overlapping folds, skforecast scores
+folds and, for every candidate and the baseline, the predictions that are
+scored and the error of every fold (for the running MAE), the name of the
+baseline and the improvement of the winner over it. The script stops if
+`compare()` adds no baseline. With overlapping folds, skforecast scores
 each hour with its latest forecast, so those are the predictions written and
 the hours each fold's error uses; the script checks that those errors average
 to the MAE of the leaderboard, and that every candidate is scored on the same
@@ -235,28 +235,9 @@ network access for the dataset and the Chronos-2 checkpoint.
 python tools/docs/home_page/generate_home_data.py
 ```
 
-If it stops on the MASE check, run `tools/ai/check_ask_context.py --dataset
-bike_sharing` against a real model (it costs money),
-save the reviewed report as described in `tools/ai/ask_context_reports/README.md`,
-and update the answers (step 4 in `home.html`, the ask() section in
-`partials/ask-window.html`), the report links (the note under the stage, and
-the caption of the ask() section in `home.html` and in
-`docs/quick-start/ask-the-assistant.md`),
-`QUOTED_MASE` and `QUOTED_BACKTEST_MASE`.
-
-### Record the LLM outputs of the animation
-
-Needed only to change the suggestion the animation replays, for example after
-changing `REFINE_PROMPT`. It calls a real LLM (it costs money), so review the
-file before committing it: the suggested lags must make sense for the prompt.
-
-```bash
-python tools/docs/home_page/generate_home_data.py --llm google:gemini-3.5-flash
-```
-
-It needs `GOOGLE_API_KEY` for `google:` models (other providers read their
-usual environment variables). If the LLM does not change the lags, the script
-stops: run it again or adjust `REFINE_PROMPT`.
+If it stops on the check of the quoted numbers, edit the example answers
+(step 4 in `home.html`, the tabs of `partials/ask-window.html`) so they state
+the new results, and update `QUOTED` or `QUOTED_LAGS`. No LLM is needed.
 
 ### Update the social preview card and the README image
 

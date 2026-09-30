@@ -121,14 +121,14 @@
               <h3>Evaluated on the held-out 36 hours</h3>
               <div class="metrics">
                 <div class="metric"><span>MAE</span><b id="m-mae">45.8</b><i>users per hour</i></div>
-                <div class="metric good"><span>MASE</span><b id="m-mase">0.62</b><i>below 1: beats the naive baseline</i></div>
+                <div class="metric good"><span>MASE</span><b id="m-mase">0.62</b><i>below 1: beats the naive forecast</i></div>
               </div>
               <p class="small">Below: <code>result.code</code>, the script that produced this forecast. It runs with plain skforecast, without <span class="nw">skforecast-ai</span>.</p>
             </div>
             <div class="pane" id="pane-3">
               <div class="chat">
                 <p class="q">Explain the evaluation metrics. Is the MASE good, and what do the predictions look like?</p>
-                <p class="a" id="answer" data-text="A MASE value below 1 indicates that the model outperforms the naive baseline. With a MASE of 0.616892, this forecaster is highly effective compared to a simple historical baseline."></p>
+                <p class="a" id="answer" data-text="A MASE of 0.62 is good: below 1, the forecast beats the one-step naive forecast. The predictions miss by 45.8 users per hour on average, and each one comes with an 80% interval."></p>
               </div>
               <p class="small llm-note">The LLM reads the result and explains it. It never changes the forecast, and the dataset never leaves your machine.</p>
             </div>
@@ -138,7 +138,7 @@
       </div>
       <details class="stage-foot">
         <summary>Every number, decision and line of code in this animation is a real skforecast-ai output, not a drawing. <span class="how">How this animation was made</span></summary>
-        <p>Hourly users of a bike sharing service in Washington D.C. (the <code>bike_sharing</code> dataset of skforecast, last 2,000 hours), with holiday, weather and temperature as exogenous variables. The profile, the plan and the script come from <code>ForecastingAssistant()</code> without an LLM; the forecast is evaluated on the last 36 hours, held out from training. The answer in step 4 is an excerpt, quoted word for word, of a real <code>ask()</code> response of <code>google:gemini-3.5-flash</code> on these same results, kept in the <a href="https://github.com/skforecast/skforecast-ai/blob/main/tools/ai/ask_context_reports/0.3.0_bike_sharing.md">evaluation report</a> of the release. The chart shows the last week before the forecast.</p>
+        <p>Hourly users of a bike sharing service in Washington D.C. (the <code>bike_sharing</code> dataset of skforecast, last 2,000 hours), with holiday, weather and temperature as exogenous variables. The profile, the plan and the script come from <code>ForecastingAssistant()</code> without an LLM; the forecast is evaluated on the last 36 hours, held out from training. The answer in step 4 is an example. The chart shows the last week before the forecast.</p>
       </details>
     </div>
   </div>
@@ -219,7 +219,7 @@
   <section class="block">
     <div class="container code-sec rev">
       <figure class="board-fig">
-        <div class="board" id="board" role="img" aria-label="Leaderboard of three candidate configurations ranked by backtesting mean absolute error"></div>
+        <div class="board" id="board" role="img" aria-label="Leaderboard of three candidate configurations and a seasonal naive baseline ranked by backtesting mean absolute error"></div>
         <figcaption id="board-cap"></figcaption>
       </figure>
       <div>
@@ -231,7 +231,7 @@
         </div>
         <ul class="ticks">
           <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg><span><b>Your candidates</b> or the alternatives proposed by the profile.</span></li>
-          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg><span><b>A ranked leaderboard</b> with the reproducible code of every row.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg><span><b>A ranked leaderboard</b> with a seasonal naive baseline as the reference, and the reproducible code of every row.</span></li>
           <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg><span><b>The winner</b> ready to forecast. The LLM plays no part in choosing it.</span></li>
         </ul>
       </div>
@@ -254,7 +254,7 @@
       </div>
       <figure class="ask-fig">
         {% include "partials/ask-window.html" %}
-        <figcaption>Real answers of <code>google:gemini-3.5-flash</code> on the data of the animation, from the most common use of <code>ask()</code> to the least: the opening of each answer, quoted word for word from the <a href="https://github.com/skforecast/skforecast-ai/blob/main/tools/ai/ask_context_reports/0.3.0_bike_sharing.md">evaluation report</a> of the release.</figcaption>
+        <figcaption>Example answers on the data of the animation, from the most common use of <code>ask()</code> to the least.</figcaption>
       </figure>
     </div>
     <div class="container">

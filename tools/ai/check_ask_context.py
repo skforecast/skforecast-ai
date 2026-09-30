@@ -29,7 +29,7 @@ a quick way to test whether giving the model extra facts (for example the
 seasonal period or the PACF values) improves an answer before deciding to
 add them to the library context.
 
-Model: defaults to the value of `ASK_CHECK_LLM`, else `google:gemini-3.5-flash`.
+Model: defaults to the value of `ASK_CHECK_LLM`, else `google:gemini-3.8-flash`.
 To see which Gemini models the key can use, list them with:
 
     curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=$GOOGLE_API_KEY" \\
@@ -60,7 +60,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from skforecast_ai import ForecastingAssistant, LLMCallError  # noqa: E402
 from skforecast_ai.llm.skills import estimate_context_tokens  # noqa: E402
 
-DEFAULT_MODEL = os.getenv("ASK_CHECK_LLM", "google:gemini-3.5-flash")
+DEFAULT_MODEL = os.getenv("ASK_CHECK_LLM", "google:gemini-3.8-flash")
 REPORTS_DIR = REPO_ROOT / "tools" / "ask_context_reports"
 
 
@@ -219,26 +219,27 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
-        # The model is chosen for its capabilities, not its accuracy: a
-        # non-commercial license and numeric-only covariates, so the plan
-        # explanation and preprocessing steps have something to say. Only a
-        # plan is built: no backend is installed and no weights are loaded.
+        # The default foundation model, the one compare() proposes, so the
+        # answers are the ones users get. Its license has no restriction and
+        # it accepts categorical covariates; the explanations of the other
+        # branches (restricted license, numeric-only covariates) are covered
+        # by the unit tests. Only a plan is built: no weights are loaded.
         name="foundation_plan",
         build=lambda w: (w["profile"], w["foundation_plan"]),
         grounded=[
             "Which foundation model does this plan load, which exogenous "
-            "variables will it use, and what should I check before using it "
-            "in a commercial product?",
+            "variables will it use, and how much history does it read?",
         ],
         probes=[
             "Will this foundation model be more accurate than the recommended "
             "forecaster on my data?",
         ],
         checklist=[
-            "The model is named with the exact ID in <forecast_plan> (google/timesfm-3.0-pytorch).",
-            "Only the exogenous variables the plan uses are named (none when the data has none); categorical ones are excluded, as the preprocessing step says.",
-            "The license restriction is quoted with the name and link of the explanation, with no legal claims beyond them.",
-            "Probe: no accuracy is predicted; it points to backtest() or compare() on the same folds.",
+            "The model is named with the exact ID in <forecast_plan> (autogluon/chronos-2-small).",
+            "Only the exogenous variables the plan uses are named (none when the data has none).",
+            "The history read is the context length and series length of the explanation, not a derived number.",
+            "No license claim: the plan explanation states none.",
+            "Probe: no accuracy is predicted; it points to assistant.backtest() or assistant.compare().",
             "Multi-series data only: one model forecasts every series; equal lengths are not required (skill knowledge, not a claim about the data).",
         ],
         multi_series=[
@@ -386,7 +387,6 @@ def build_workflow(
         profile,
         steps      = steps,
         forecaster = "ForecasterFoundation",
-        estimator  = "google/timesfm-3.0-pytorch",
         interval   = [0.1, 0.9],
     )
     print(f"[workflow] built in {time.perf_counter() - started:.1f}s")
@@ -577,7 +577,7 @@ def run_scenario(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="LLM provider string, e.g. google:gemini-3.5-flash")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="LLM provider string, e.g. google:gemini-3.8-flash")
     parser.add_argument("--scenarios", default=",".join(s.name for s in SCENARIOS), help="Comma-separated scenario names")
     parser.add_argument("--dataset", choices=sorted(DATASETS), default="bike_sharing", help="Dataset to run on")
     parser.add_argument("--tail", type=int, default=2000, help="Trailing rows of the dataset to use")

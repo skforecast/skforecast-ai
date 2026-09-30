@@ -1,5 +1,5 @@
 /*
- * Window with real answers of ask() (docs/overrides/partials/ask-window.html),
+ * Window with example answers of ask() (docs/overrides/partials/ask-window.html),
  * on the home page and on the "Ask the assistant" page.
  *
  * Highlights the Python of every `code[data-hl]` inside `.sk-ask` and switches

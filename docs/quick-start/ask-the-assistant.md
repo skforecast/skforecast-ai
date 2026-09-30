@@ -14,11 +14,11 @@ The animation follows one series through the whole path: what stays on your mach
   <iframe src="../animations/deterministic-first.html" title="Animation: deterministic first, LLM second" loading="lazy" allowfullscreen></iframe>
 </div>
 
-`ask()` explains whatever you pass as `context`: a forecast, a backtest, a comparison, a plan, or nothing at all for a general question. These are real answers to each kind of question:
+`ask()` explains whatever you pass as `context`: a forecast, a backtest, a comparison, a plan, or nothing at all for a general question. These are example answers to each kind of question:
 
 <figure class="sk-ask-fig">
 --8<-- "ask-window.html"
-<figcaption>Real answers of <code>google:gemini-3.5-flash</code> on the hourly bike sharing data of the <a href="../index.html">home page</a> animation: the opening of each answer, quoted word for word from the <a href="https://github.com/skforecast/skforecast-ai/blob/main/tools/ai/ask_context_reports/0.3.0_bike_sharing.md">evaluation report</a> of the release.</figcaption>
+<figcaption>Example answers on the hourly bike sharing data of the <a href="../index.html">home page</a> animation.</figcaption>
 </figure>
 
 ---
@@ -64,7 +64,7 @@ pip install "skforecast-ai[llm]"
     ```python
     from skforecast_ai import ForecastingAssistant
 
-    assistant = ForecastingAssistant(llm="google:gemini-3.5-flash")
+    assistant = ForecastingAssistant(llm="google:gemini-3.8-flash")
     ```
 
 === "Ollama (local)"

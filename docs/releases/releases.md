@@ -38,13 +38,15 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-enhancement">Enhancement</span> [<code>ForecastingAssistant.ask()</code>][assistant] also routes the skills by the task type of the plan in the context, not only by the profile's, so a plan built for `ForecasterStats` or `ForecasterEquivalentDate` loads `statistical-models` or `baseline-forecasting`. A `ComparisonResult` with a baseline row loads `baseline-forecasting` too.
 
++ <span class="badge text-bg-enhancement">Enhancement</span> When [<code>ForecastingAssistant.ask()</code>][assistant] suggests how to measure accuracy or choose between models, it points to `assistant.backtest()` and `assistant.compare()` instead of the lower-level skforecast functions.
+
 + <span class="badge text-bg-docs">Docs</span> New documentation home page: an animation of the four steps of the assistant (profile, plan, run, ask) and examples of what `ask()`, `refine_plan()` and `create_cv()` return.
 
 + <span class="badge text-bg-docs">Docs</span> New animation "Deterministic first, LLM second" in the [Agentic forecasting][agentic-guide] user guide: what stays on your machine, what reaches the LLM, and how an invalid LLM suggestion is rejected before it enters the plan.
 
 + <span class="badge text-bg-docs">Docs</span> New animation "Validate the way you deploy" in the Backtesting section of the [Agentic forecasting][agentic-guide-backtesting] user guide: how `create_cv()` turns a deployment scenario in plain words into `TimeSeriesFold` parameters, and how `backtest()` evaluates the model fold by fold.
 
-+ <span class="badge text-bg-docs">Docs</span> New animation "Let measured performance pick the model" in the comparison section of the [Agentic forecasting][agentic-guide-compare] user guide: `compare()` backtests the candidates on the same folds and ranks them by the metric, with no LLM involved.
++ <span class="badge text-bg-docs">Docs</span> New animation "Let measured performance pick the model" in the comparison section of the [Agentic forecasting][agentic-guide-compare] user guide: `compare()` backtests the candidates and the seasonal naive baseline on the same folds and ranks them by the metric, with no LLM involved.
 
 
 **Changed**

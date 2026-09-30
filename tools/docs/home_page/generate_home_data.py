@@ -10,19 +10,20 @@
 """
 Generate the data of the documentation home page animations.
 
-Every number the home page shows is a real skforecast-ai output. The workflow
-is the one of `tools/ai/check_ask_context.py` on `bike_sharing` (last 2000 hourly
-rows, 36 steps, 80% interval), so the `ask()` answer quoted in the animation,
-taken from `tools/ai/ask_context_reports/<release>_bike_sharing.md`, refers to the
-same results. The script checks that the metrics still match that answer.
+Every number the home page shows is a real skforecast-ai output, from the
+workflow of `tools/ai/check_ask_context.py` on `bike_sharing` (last 2000
+hourly rows, 36 steps, 80% interval). The `ask()` answers of the page are
+examples written by hand, not recorded from a model; the script checks that
+the numbers they quote (`QUOTED`) still match the results, so a change in the
+data stops it instead of leaving an answer about other results.
 
 It also writes the data of the animation "Deterministic first, LLM second"
 (`docs/animations/deterministic-first.html`), which continues the same
-workflow with `refine_plan()` and `ask()`. The LLM suggestion of
-`refine_plan()` is recorded once with `--llm`, which calls a real model, and
-kept in `ANIMATION_LLM_OUTPUTS`; every other run replays it as an explicit
-override, which goes through the same `plan()` call. The answer of `ask()` is
-written by hand in the animation.
+workflow with `refine_plan()` and `ask()`. The suggestion of `refine_plan()`
+(`REFINE_SUGGESTION`) and the answer of `ask()` are examples written by hand;
+the suggestion is applied as an explicit override, which goes through the same
+`plan()` call as the LLM mode, so the refined plan and its metrics are real.
+No LLM is called.
 
 Finally, it writes the data of the animation "Validate the way you deploy"
 (`docs/animations/backtesting-scenario.html`): the folds, predictions and
@@ -33,23 +34,20 @@ explicitly to `create_cv()`, the same path the LLM mode takes.
 
 With the same strategy, it writes the data of the animation "Let measured
 performance pick the model" (`docs/animations/compare-candidates.html`): the
-leaderboard of `compare()` with the candidates the profile proposes, and the
-error of every candidate in every fold.
+leaderboard of `compare()` with the candidates the profile proposes and the
+seasonal naive baseline it adds, and the error of every row in every fold.
 
 Run from the repository root:
 
     python tools/docs/home_page/generate_home_data.py
-    python tools/docs/home_page/generate_home_data.py --llm google:gemini-3.5-flash
 """
 
 from __future__ import annotations
 
-import argparse
 import json
-import os
+import re
 import sys
 import warnings
-from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -64,26 +62,44 @@ OUTPUT = REPO_ROOT / "docs" / "overrides" / "partials" / "home-data.json"
 ANIMATION_OUTPUT = REPO_ROOT / "docs" / "animations" / "deterministic-first-data.js"
 BACKTEST_OUTPUT = REPO_ROOT / "docs" / "animations" / "backtesting-scenario-data.js"
 COMPARE_OUTPUT = REPO_ROOT / "docs" / "animations" / "compare-candidates-data.js"
-# LLM outputs of the animation, written by `--llm` and reviewed by hand.
-ANIMATION_LLM_OUTPUTS = Path(__file__).resolve().parent / "deterministic_first_llm.json"
 
 TAIL = 2000
 STEPS = 36
 # Eight days, so the arc of lag 169 fits before the last training hour.
 HISTORY_SHOWN = 192
-# MASE quoted in the ask() answer of the animation
-# (tools/ai/ask_context_reports/0.3.0_bike_sharing.md, scenario forecast).
-QUOTED_MASE = 0.616892
-# MASE quoted in the Backtest tab of the ask() section (same report, scenario
-# backtest). The backtest uses the plan and the cross-validation of compare(),
-# so it is the MASE of the "LightGBM, recursive" row of the leaderboard, which
-# is also the winner quoted in the Compare tab.
-QUOTED_BACKTEST_MASE = 0.6531
+# Numbers quoted, rounded as written, by the example ask() answers: step 4 of
+# the animation in docs/overrides/home.html and the tabs of
+# docs/overrides/partials/ask-window.html. The backtest uses the plan and the
+# cross-validation of compare(), so it is the "LightGBM, recursive" row of the
+# leaderboard, the winner of the Compare tab.
+QUOTED = {
+    "forecast MAE": 45.8,
+    "forecast MASE": 0.62,
+    "backtest MAE": 49.5,
+    "backtest MASE": 0.65,
+    "backtest folds": 17,
+    "runner-up MAE": 53.1,
+    "gap to the runner-up (%)": 6.7,
+    "gap to the baseline (%)": 22.4,
+    "lags": 28,
+}
+# Lags named by the Plan tab.
+QUOTED_LAGS = {1, 2, 3, 23, 24, 25, 167, 169}
 
-# Questions of the animation "Deterministic first, LLM second".
+# Prompt of refine_plan() in the animation "Deterministic first, LLM second",
+# and the suggestion the animation shows for it. The suggestion is an example
+# written by hand, not recorded from a model: the last 24 hours and the same
+# hour a week earlier, with daily and weekly rolling statistics.
 REFINE_PROMPT = "Rentals follow the daily commute and a weekly cycle."
+REFINE_SUGGESTION = {
+    "lags": [*range(1, 25), 168],
+    "window_features": [
+        {"stats": ["mean", "std"], "window_size": 24},
+        {"stats": ["mean", "std"], "window_size": 168},
+    ],
+}
 # The animation shows a first suggestion rejected by the validation of plan():
-# the recorded lags plus a monthly lag (30 days), longer than the 33% of the
+# the lags of REFINE_SUGGESTION plus a monthly lag (30 days), longer than the 33% of the
 # series that plan() accepts. The suggestion is illustrative; the rejection
 # message is the real one.
 REJECTED_EXTRA_LAG = 720
@@ -191,58 +207,6 @@ def lags_list(lags: int | list[int]) -> list[int]:
     return sorted(int(v) for v in lags)
 
 
-def record_llm_outputs(model: str, data: pd.DataFrame, profile, plan) -> None:
-    """
-    Call a real LLM and record the suggestion the animation shows.
-
-    Runs `refine_plan()` with `REFINE_PROMPT` and writes the fields the LLM
-    suggested in `ANIMATION_LLM_OUTPUTS`. It costs money: review the file
-    before committing it.
-
-    Parameters
-    ----------
-    model : str
-        LLM provider string, for example `'google:gemini-3.5-flash'`.
-    data : pandas DataFrame
-        Data returned by `load_bike_sharing()`.
-    profile : ForecastingProfile
-        Profile of `data`.
-    plan : ForecastPlan
-        Deterministic plan of `data`.
-
-    Returns
-    -------
-    None
-    """
-
-    api_key = os.getenv("GOOGLE_API_KEY") if model.startswith("google:") else None
-    if model.startswith("google:") and not api_key:
-        raise SystemExit("Set GOOGLE_API_KEY to record the LLM outputs.")
-    assistant = ForecastingAssistant(llm=model, api_key=api_key)
-
-    refined = assistant.refine_plan(profile, plan, prompt=REFINE_PROMPT)
-    if "lags" not in refined.llm_refined_fields:
-        raise SystemExit(
-            "The LLM did not change the lags (fields applied: "
-            f"{refined.llm_refined_fields}), so the animation has nothing to "
-            "show. Run again, or adjust REFINE_PROMPT."
-        )
-    suggested = {
-        field: refined.forecaster_kwargs[field] for field in refined.llm_refined_fields
-    }
-
-    record = {
-        "model": model,
-        "date": date.today().isoformat(),
-        "refine": {"prompt": REFINE_PROMPT, "suggested": suggested},
-    }
-    ANIMATION_LLM_OUTPUTS.write_text(
-        json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
-    print(f"Wrote {ANIMATION_LLM_OUTPUTS.relative_to(REPO_ROOT)}. Review it before committing.")
-    print(f"Suggested: {suggested}")
-
-
 def write_animation_data(
     assistant: ForecastingAssistant,
     data: pd.DataFrame,
@@ -252,9 +216,9 @@ def write_animation_data(
     """
     Write the data of the animation "Deterministic first, LLM second".
 
-    Replays the recorded LLM suggestion as an explicit override of
-    `refine_plan()` (the LLM mode merges its suggestion the same way and
-    calls the same `plan()`) and forecasts with the refined plan.
+    Applies `REFINE_SUGGESTION` as an explicit override of `refine_plan()`
+    (the LLM mode merges its suggestion the same way and calls the same
+    `plan()`) and forecasts with the refined plan.
 
     Parameters
     ----------
@@ -272,15 +236,7 @@ def write_animation_data(
     None
     """
 
-    if not ANIMATION_LLM_OUTPUTS.exists():
-        print(
-            f"Skipped {ANIMATION_OUTPUT.relative_to(REPO_ROOT)}: "
-            f"{ANIMATION_LLM_OUTPUTS.name} does not exist. Record it once with "
-            "--llm <model> (it calls a real LLM)."
-        )
-        return
-    record = json.loads(ANIMATION_LLM_OUTPUTS.read_text(encoding="utf-8"))
-    suggested = record["refine"]["suggested"]
+    suggested = REFINE_SUGGESTION
 
     refined = assistant.refine_plan(profile, plan, **suggested)
     result = assistant.forecast(
@@ -348,8 +304,7 @@ def write_animation_data(
             "message": rejection,
         },
         "llm": {
-            "model": record["model"],
-            "refine_prompt": record["refine"]["prompt"],
+            "refine_prompt": REFINE_PROMPT,
         },
     }
     if f"maximum of {payload['rejected']['max']} " not in rejection:
@@ -495,6 +450,30 @@ def write_backtesting_data(
     print(f"Scenario: {scenario.explanation} MAE {metrics['mean_absolute_error']:.4f}")
 
 
+def baseline_detail(offset: int) -> str:
+    """
+    Describe the values the hourly seasonal naive baseline repeats.
+
+    Parameters
+    ----------
+    offset : int
+        `offset` of the `ForecasterEquivalentDate` baseline, in hours.
+
+    Returns
+    -------
+    detail : str
+        Short description shown under the baseline in the animation.
+    """
+
+    if offset == 1:
+        return "repeats the last hour"
+    if offset == 24:
+        return "same hour, one day earlier"
+    if offset == 168:
+        return "same hour, one week earlier"
+    return f"repeats the value {offset} hours earlier"
+
+
 def write_compare_data(
     assistant: ForecastingAssistant,
     data: pd.DataFrame,
@@ -506,8 +485,9 @@ def write_compare_data(
 
     Runs `compare()` with the candidates the profile proposes and the strategy
     of the backtesting animation, and writes the leaderboard, the series over
-    the span of the folds, and the predictions and errors of every candidate.
-    With overlapping folds, skforecast scores each hour with its latest
+    the span of the folds, and the predictions and errors of every candidate,
+    the seasonal naive baseline that `compare()` adds included. With
+    overlapping folds, skforecast scores each hour with its latest
     forecast, so those are the predictions written, and the error of a fold
     uses the hours where its forecast is the latest one; the mean over all
     those hours is the metric of the leaderboard, which the script checks.
@@ -554,15 +534,18 @@ def write_compare_data(
                 f"leaderboard says {board.loc[name, metric]:.6f}: the scoring "
                 "rule of overlapping folds changed."
             )
-        lags = result.plan.forecaster_kwargs.get("lags")
+        kwargs = result.plan.forecaster_kwargs
+        if name == comparison.baseline_name:
+            detail = baseline_detail(kwargs["offset"])
+        elif kwargs.get("lags") is not None:
+            detail = f"{len(lags_list(kwargs['lags']))} lags, rolling windows"
+        else:
+            detail = "pre-trained, no lags"
         rows[name] = {
             "forecaster": result.plan.forecaster,
-            "estimator": result.plan.estimator,
-            "detail": (
-                f"{len(lags_list(lags))} lags, rolling windows"
-                if lags is not None
-                else "pre-trained, no lags"
-            ),
+            # The baseline has no estimator: its lane shows the forecaster.
+            "estimator": result.plan.estimator or result.plan.forecaster,
+            "detail": detail,
             "rank": int(board.loc[name, "rank"]),
             "mae": round(mae, 1),
             "mase": round(float(board.loc[name, "mean_absolute_scaled_error"]), 2),
@@ -574,6 +557,9 @@ def write_compare_data(
     order = [name for name in profile.forecaster_candidates if name in rows]
     order += [name for name in ranked if name not in order]
     first, second = board[metric].iloc[0], board[metric].iloc[1]
+    if comparison.baseline_name is None:
+        raise SystemExit("compare() added no baseline: the animation shows one.")
+    reference = board.loc[comparison.baseline_name, metric]
 
     payload = {
         "start": str(hours[0]),
@@ -583,6 +569,10 @@ def write_compare_data(
         "rows": rows,
         "metric": metric,
         "gap_pct": round(float((second - first) / second * 100), 1),
+        "baseline": comparison.baseline_name,
+        # Improvement of the winner over the baseline, as the explanation of
+        # compare() computes it.
+        "baseline_gap_pct": round(float((reference - first) / reference * 100), 1),
         "cv": {
             k: scenario.cv_config[k]
             for k in ("n_folds", "steps", "initial_train_size", "fold_stride", "refit")
@@ -599,23 +589,72 @@ def write_compare_data(
     print(comparison.explanation)
 
 
+def check_quoted_numbers(result, cv_result, comparison, plan) -> None:
+    """
+    Stop when a number quoted by the example ask() answers no longer matches.
+
+    The answers are written by hand, so nothing regenerates them: when the
+    results change, the answers and `QUOTED` are edited together. No LLM is
+    involved.
+
+    Parameters
+    ----------
+    result : ForecastResult
+        Forecast evaluated on the held-out hours.
+    cv_result : CVResult
+        Cross-validation strategy of the comparison.
+    comparison : ComparisonResult
+        Comparison of the home page.
+    plan : ForecastPlan
+        Deterministic plan of the data.
+
+    Returns
+    -------
+    None
+    """
+
+    board = comparison.results.set_index("name")
+    winner = board.loc["LightGBM, recursive"]
+    explanation = comparison.explanation
+    gaps = {
+        "gap to the runner-up (%)": r"([\d.]+)% ahead of",
+        "gap to the baseline (%)": r"beats the baseline .* by ([\d.]+)%",
+    }
+    actual = {
+        "forecast MAE": round(float(result.metrics.iloc[0]["MAE"]), 1),
+        "forecast MASE": round(float(result.metrics.iloc[0]["MASE"]), 2),
+        "backtest MAE": round(float(winner["mean_absolute_error"]), 1),
+        "backtest MASE": round(float(winner["mean_absolute_scaled_error"]), 2),
+        "backtest folds": int(cv_result.cv_config["n_folds"]),
+        "runner-up MAE": round(float(board.loc["LightGBM, direct", "mean_absolute_error"]), 1),
+        "lags": len(plan.forecaster_kwargs["lags"]),
+    }
+    for key, pattern in gaps.items():
+        found = re.search(pattern, explanation)
+        actual[key] = float(found.group(1)) if found else None
+
+    changed = [
+        f"{key}: quoted {QUOTED[key]}, now {actual[key]}"
+        for key in QUOTED
+        if actual[key] != QUOTED[key]
+    ]
+    missing = QUOTED_LAGS - set(plan.forecaster_kwargs["lags"])
+    if missing:
+        changed.append(f"lags named by the Plan tab no longer in the plan: {sorted(missing)}")
+    if changed:
+        raise SystemExit(
+            "The example ask() answers quote numbers that changed:\n  "
+            + "\n  ".join(changed)
+            + "\nEdit the answers (step 4 in docs/overrides/home.html, the tabs "
+            "of docs/overrides/partials/ask-window.html) and QUOTED or QUOTED_LAGS."
+        )
+
+
 def main() -> None:
     """
     Run the workflow and write the data files of the home page and of the
     animation "Deterministic first, LLM second".
     """
-
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    parser.add_argument(
-        "--llm",
-        default=None,
-        metavar="MODEL",
-        help=(
-            "Record the LLM outputs of the animation with this model, e.g. "
-            "google:gemini-3.5-flash. Calls a real LLM (it costs money)."
-        ),
-    )
-    args = parser.parse_args()
 
     data = load_bike_sharing()
     assistant = ForecastingAssistant()
@@ -638,23 +677,8 @@ def main() -> None:
 
     metrics = result.metrics.iloc[0]
     mase = float(metrics["MASE"])
-    if round(mase, 6) != QUOTED_MASE:
-        raise SystemExit(
-            f"MASE is {mase:.6f}, the ask() answer quoted on the home page says "
-            f"{QUOTED_MASE}. Rerun tools/ai/check_ask_context.py on bike_sharing and "
-            "update the answer in docs/overrides/home.html and QUOTED_MASE."
-        )
-
+    check_quoted_numbers(result, cv_result, comparison, plan)
     leaderboard = comparison.results
-    winner = leaderboard.loc[leaderboard["name"] == "LightGBM, recursive"].iloc[0]
-    backtest_mase = float(winner["mean_absolute_scaled_error"])
-    if round(backtest_mase, 4) != QUOTED_BACKTEST_MASE:
-        raise SystemExit(
-            f"Backtest MASE is {backtest_mase:.4f}, the ask() answer quoted in the "
-            f"Backtest tab of the home page says {QUOTED_BACKTEST_MASE}. Rerun "
-            "tools/ai/check_ask_context.py on bike_sharing and update the answers of "
-            "the ask() section in docs/overrides/home.html and QUOTED_BACKTEST_MASE."
-        )
 
     series = data.set_index("date_time")["users"]
     shown = series.iloc[-(HISTORY_SHOWN + STEPS):]
@@ -708,6 +732,7 @@ def main() -> None:
             "metric": metric_column,
             "cv": cv_result.explanation,
             "explanation": comparison.explanation,
+            "baseline": comparison.baseline_name,
             "rows": [
                 {
                     "name": row["name"],
@@ -724,8 +749,6 @@ def main() -> None:
     print(f"MAE {metrics['MAE']:.4f}, MASE {mase:.6f}")
     print(comparison.explanation)
 
-    if args.llm:
-        record_llm_outputs(args.llm, data, profile, plan)
     write_animation_data(assistant, data, profile, plan)
     write_backtesting_data(assistant, data, profile, plan)
     write_compare_data(assistant, data, profile, plan)
