@@ -1,0 +1,21 @@
+{#-
+  Redirect for a page that moved. A Markdown page selects it in its front
+  matter (template: redirect.html) and gives the new location, relative to the
+  site root, in `redirect`. Keeps old links (the README on PyPI, bookmarks)
+  working without a plugin.
+-#}
+{%- set target = page.meta.redirect | url -%}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Redirecting</title>
+  <meta name="robots" content="noindex">
+  <link rel="canonical" href="{{ target }}">
+  <meta http-equiv="refresh" content="0; url={{ target }}">
+  <script>location.replace("{{ target }}" + location.hash);</script>
+</head>
+<body>
+  <p>This page has moved to <a href="{{ target }}">{{ target }}</a>.</p>
+</body>
+</html>

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2021-present Joaquín Amat Rodrigo and Javier Escobar Ortiz.
+  Part of the skforecast-ai documentation, licensed under CC BY-NC-SA 4.0
+  (https://creativecommons.org/licenses/by-nc-sa/4.0/). It is not covered by the
+  license of the skforecast-ai software.
+  The skforecast trademark and logo are registered with the EUIPO (application
+  number 019109684) and may not be used without permission.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Validate the way you deploy</title>
+<meta name="description" content="Animated explanation of backtesting with skforecast-ai: create_cv() turns a deployment scenario into a TimeSeriesFold strategy (a forecast every day at noon, retrained once a week), and backtest() evaluates the model fold by fold the way it will be used.">
+<link rel="stylesheet" href="skf-anim.css">
+</head>
+<body>
+<div class="skf-anim"></div>
+<script src="skf-anim.js"></script>
+<script src="backtesting-scenario-data.js"></script>
+<script>
+(function(){
+"use strict";
+const {cl, ease, lin, P, lerp, r2, V, pulse, mw, text, rect, line, circle, path, polyline, arrow, header} = SkfAnim;
+
+/* ------------------------------------------------------------------ data */
+// Real skforecast-ai outputs on the last 2,000 hours of bike_sharing, written by
+// tools/docs/home_page/generate_home_data.py: the TimeSeriesFold that create_cv()
+// builds for the scenario below, its folds, the predictions of backtest() in each
+// fold and the metrics. The scenario and how each phrase maps to a parameter are
+// written here: the animation shows what the LLM mode of create_cv() does, and the
+// data comes from passing the same parameters explicitly.
+const D = window.BACKTESTING_SCENARIO_DATA;
+if (!D){
+  document.querySelector('.skf-anim').textContent =
+    'Missing backtesting-scenario-data.js: run tools/docs/home_page/generate_home_data.py.';
+  return;
+}
+const S = D.start_pos, N = D.n_obs, FOLDS = D.folds, NF = FOLDS.length;
+const FITS = FOLDS.filter(f => f[3]).length;
+const OVERLAP = D.cv.steps - D.cv.fold_stride;
+
+// The scenario, in two lines, and the parameter each phrase becomes. The LLM
+// decides the TimeSeriesFold parameters (CVParams); the horizon, steps, always
+// comes from the plan, so its phrase is marked with the color of the plan.
+const LINE1 = '"Every day at noon we forecast';
+const LINE2 = 'the next 36 hours, and we retrain once a week."';
+const MAP = [
+  {line:0, phrase:'Every day', param:'fold_stride', c:'llm'},
+  {line:0, phrase:'at noon', param:'initial_train_size', c:'llm'},
+  {line:1, phrase:'the next 36 hours', param:'steps', c:'lag', note:'from the plan'},
+  {line:1, phrase:'retrain once a week', param:'refit', c:'llm'}
+];
+const SNIP = D.snippet;
+// The call of the script that runs the backtest, shortened: the lines that say
+// what is evaluated and with which folds.
+const CALL = D.call.filter((s, i) => i === 0 || /^\s+(forecaster|y|cv)\s/.test(s)).concat(['    ...', ')']);
+const CALL_CV = CALL.findIndex(s => /^\s+cv\s/.test(s));
+const paramLine = key => SNIP.findIndex(s => s.trim().startsWith(key + ' '));
+
+/* -------------------------------------------------------------- timeline */
+const T = {
+  scen:[0.3,0.9], llmTag:[1.4,2.0], cvCard:[2.0,2.6], map0:3.0, mapStep:1.6, mapDur:1.2,
+  rest:[9.2,9.6], valid:[10.0,10.5], det:[10.4,10.9], optional:[11.2,11.7],
+  chart:[12.6,13.2], draw:[12.8,14.5], rows:14.6, rowStep:.16, overlap:[19.0,21.0], refit:[21.0,24.0],
+  bt:[25.0,33.0],
+  results:[34.0,34.6], resRows:34.8, resStep:.5, codeOut:[36.2,36.6], code:[36.6,37.2], codeRow:37.2, codeStep:.2, codeHi:[38.8,39.4],
+  fadeOut:[47.2,48.0], total:48.0
+};
+const CAPTIONS = [
+  [0.0, 3.0, 'create_cv() can take the way you will use the model, in plain words.'],
+  [3.0, 9.6, 'The LLM translates the scenario into TimeSeriesFold parameters; the 36-hour horizon comes from the plan.'],
+  [9.6, 12.5,'The parameters pass the same checks as explicit ones; if they keep failing, create_cv() warns and uses its defaults.'],
+  [12.5,16.5,'Each fold is one day in production: the model forecasts the next 36 hours from noon.'],
+  [16.5,21.0,'A forecast starts every 24 hours, so consecutive forecasts overlap, as they will in production.'],
+  [21.0,24.5,'The model is retrained every 7 folds, once a week; in between, it only reads the new data.'],
+  [24.5,34.0,'backtest() runs the script fold by fold, with the model each day would really have.'],
+  [34.0,39.5,'The result carries the metrics, the predictions of every fold and the script that ran.'],
+  [39.5,99,  'The backtest measures the model the way it will be used, not on a convenient split.']
+];
+const STEPPER = [['Scenario',0,12.5],['Strategy',12.5,24.5],['Backtest',24.5,34.0],['Results',34.0,99]];
+
+/* ---------------------------------------------------------------- layout */
+const SX0 = 40, SX1 = 560, CX0 = 600, CX1 = 1240, TOP = 120, BOT = 316;   // scenario, cv
+const LY = [184, 212];                                                   // lines of the scenario
+const codeY = i => 156 + i*23;
+const GX0 = 40, GX1 = 150, AX0 = 160, AX1 = 1240, CY0 = 350, CY1 = 470;  // chart
+const RY0 = 488, RH = 7.8;                                              // fold rows
+const xp = pos => pos < S ? GX0 + pos/S*(GX1 - GX0) : AX0 + (pos - S)/(N - S)*(AX1 - AX0);
+const yv = v => CY1 - v/800*(CY1 - CY0 - 6);
+const rowY = k => RY0 + k*RH;
+
+/* ------------------------------------------------------------- helpers */
+function card(o, x0, y0, x1, y1, op, stroke = V('border'), fill = V('panel')){
+  o.push(rect(x0, y0, x1 - x0, y1 - y0, {rx:12, fill, stroke, op}));
+}
+function pill(o, x, y, s, fill, op = 1, size = 12.5, color = V('chip')){
+  const w = mw(s, size, 700) + 18;
+  o.push(rect(x - w/2, y - 11, w, 22, {rx:11, fill, op}));
+  o.push(text(x, y + 4.5, s, {size, weight:700, anchor:'middle', fill:color, op}));
+}
+// The prompt is laid out like an argument: indented, the second line aligned
+// after the opening quote, and the closing parenthesis on its own line.
+const lines = [LINE1, LINE2];
+const INDENT = mw('    ', 14, 700, 'm');
+const lineX = k => SX0 + 18 + INDENT + (k ? mw('"', 18) : 0);
+function phraseBox(m){
+  const s = lines[m.line], i = s.indexOf(m.phrase);
+  return {x:lineX(m.line) + mw(s.slice(0, i), 18), w:mw(m.phrase, 18), y:LY[m.line]};
+}
+const fmtDate = s => new Date(s.replace(' ', 'T') + 'Z').toLocaleDateString('en', {month:'short', day:'numeric', timeZone:'UTC'});
+
+/* ----------------------------------------------------------------- scenes */
+function scenario(t, o){
+  const a = P(t, ...T.scen)*(1 - P(t, T.results[0] - .4, T.results[0]));
+  if (a <= 0) return;
+  card(o, SX0, TOP, SX1, BOT, a, V('llm'), V('panel'));
+  o.push(rect(SX0, TOP, SX1 - SX0, BOT - TOP, {rx:12, fill:V('llm'), fo:.06, op:a}));
+  o.push(text(SX0 + 18, TOP + 30, 'create_cv(profile, plan, prompt=', {size:14, cls:'m', weight:700, op:a}));
+  // each phrase lights up while it becomes a parameter, and stays marked
+  MAP.forEach((m, k) => {
+    const s = T.map0 + k*T.mapStep, b = phraseBox(m);
+    const on = P(t, s, s + .3)*(1 - .6*P(t, s + T.mapDur, s + T.mapDur + .3));
+    o.push(rect(b.x - 4, b.y - 19, b.w + 8, 26, {rx:6, fill:V(m.c), fo:.22, op:a*on}));
+  });
+  lines.forEach((s, k) => o.push(text(lineX(k), LY[k], s, {size:18, op:a})));
+  o.push(text(SX0 + 18, LY[1] + 34, ')', {size:14, cls:'m', weight:700, op:a}));
+  const la = P(t, ...T.llmTag)*a;
+  pill(o, SX0 + 18 + (mw('LLM, optional', 12.5, 700) + 18)/2, BOT - 30, 'LLM, optional', V('llm'), la);
+  o.push(text(SX0 + 36 + mw('LLM, optional', 12.5, 700) + 18, BOT - 25, 'turns it into parameters', {size:14, fill:V('muted'), op:la}));
+}
+
+function cvCard(t, o){
+  const c = P(t, ...T.cvCard);
+  if (c <= 0) return;
+  card(o, CX0, TOP, CX1, BOT, c);
+  // the card is cleared for result.code once the backtest is done
+  const a = c*(1 - P(t, ...T.codeOut));
+  if (a <= 0) return;
+  const shownAt = i => {
+    const k = MAP.findIndex(m => paramLine(m.param) === i);
+    if (k >= 0) return T.map0 + k*T.mapStep + .4;
+    if (i === 0 || i === SNIP.length - 1) return T.cvCard[0];
+    return T.rest[0];
+  };
+  SNIP.forEach((s, i) => {
+    const s0 = shownAt(i), la = P(t, s0, s0 + .4)*a;
+    const k = MAP.findIndex(m => paramLine(m.param) === i);
+    if (k >= 0){
+      const m0 = T.map0 + k*T.mapStep;
+      const on = P(t, m0 + .3, m0 + .6)*(1 - .6*P(t, m0 + T.mapDur, m0 + T.mapDur + .3));
+      o.push(rect(CX0 + 10, codeY(i) - 17, mw(s, 14.5, 400, 'm') + 16, 24, {rx:5, fill:V(MAP[k].c), fo:.14, op:on*a}));
+      if (MAP[k].note){
+        const nx = CX0 + 18 + mw(s, 14.5, 400, 'm') + 14;
+        o.push(text(nx, codeY(i), MAP[k].note, {size:13, weight:700, fill:V(MAP[k].c), op:la}));
+      }
+    }
+    o.push(text(CX0 + 18, codeY(i), s, {size:14.5, cls:'m', fill: k >= 0 ? V('fg') : i === 0 || i === SNIP.length - 1 ? V('fg') : V('muted'), op:la}));
+  });
+  // validated by the same path as explicit parameters
+  const va = P(t, ...T.valid)*a, vs = `valid, ${NF} folds`;
+  pill(o, CX0 + 18 + mw(')', 14.5, 400, 'm') + 16 + (mw(vs, 13, 700) + 18)/2, codeY(SNIP.length - 1) - 5, vs, V('ok'), va, 13);
+  // in the free column: what create_cv() does without a prompt, and that it is optional
+  const dr = D.deterministic;
+  const notes = [
+    [T.det, ['without a prompt:', `${dr.n_folds} folds back to back,`, dr.refit === true ? 'retrained in every fold' : `retrained every ${dr.refit} folds`]],
+    [T.optional, ['create_cv() is optional:', 'backtest() also takes', 'your own TimeSeriesFold']]
+  ];
+  notes.forEach(([tt, ls], j) => {
+    const na = P(t, ...tt)*a;
+    ls.forEach((s, i) => o.push(text(CX1 - 18, codeY(0) + 6 + j*74 + i*20, s, {size:13, weight: i ? 400 : 700, anchor:'end', fill:V('muted'), op:na})));
+  });
+}
+
+function codeView(t, o){
+  const a = P(t, ...T.code);
+  if (a <= 0) return;
+  o.push(text(CX0 + 18, TOP + 28, 'result.code', {size:17, cls:'m', weight:700, op:a}));
+  o.push(text(CX0 + 18, TOP + 49, 'the script that ran, the same backtest_code() returns', {size:13, cls:'m', fill:V('muted'), op:a}));
+  const ha = P(t, ...T.codeHi);
+  CALL.forEach((s, i) => {
+    const y = TOP + 84 + i*21, ca = P(t, T.codeRow + i*T.codeStep, T.codeRow + i*T.codeStep + .3)*a;
+    if (i === CALL_CV){
+      o.push(rect(CX0 + 10, y - 16, mw(s, 14, 400, 'm') + 16, 22, {rx:5, fill:V('llm'), fo:.12, op:ha*a}));
+      o.push(text(CX0 + 18 + mw(s, 14, 400, 'm') + 14, y, `the TimeSeriesFold of the scenario`, {size:13, weight:700, fill:V('llm'), op:ha*a}));
+    }
+    o.push(text(CX0 + 18, y, s, {size:14, cls:'m', fill: s.trim() === '...' ? V('muted') : V('fg'), op:ca}));
+  });
+}
+
+function chart(t, o){
+  const a = P(t, ...T.chart);
+  if (a <= 0) return;
+  o.push(text(AX0, CY0 - 12, 'bike_sharing, users per hour', {size:13, fill:V('muted'), op:a}));
+  o.push(text(AX1, CY0 - 12, `${fmtDate(D.start)} to ${fmtDate('2012-12-31 23:00:00')}, 2012`, {size:13, anchor:'end', fill:V('muted'), op:a}));
+  // the history before the chart, compressed: every fold trains on it too
+  const first = new Date(Date.parse(D.start.replace(' ', 'T') + 'Z') - S*3600e3).toISOString().slice(0, 19).replace('T', ' ');
+  o.push(rect(GX0, CY0, GX1 - GX0, CY1 - CY0, {rx:8, fill:V('panel'), stroke:V('border'), dash:'4 3', op:a}));
+  [['earlier data', 700], [`${fmtDate(first)} to ${fmtDate(D.start)}`, 400], ['not to scale', 400]].forEach(([s, w], i) =>
+    o.push(text((GX0 + GX1)/2, (CY0 + CY1)/2 - 14 + i*20, s, {size:13, weight:w, anchor:'middle', fill:V('muted'), op:a})));
+  o.push(line(AX0, CY1 + 1, AX1, CY1 + 1, {op:a}));
+  o.push(path(polyline(D.y.map((v, i) => [xp(S + i), yv(v)]), P(t, ...T.draw)), {stroke:V('series'), sw:1.3, op:a*.9}));
+  // the predictions of backtest(), fold by fold
+  const bp = lin(t, ...T.bt)*NF;
+  FOLDS.forEach(([, ts], k) => {
+    const q = cl(bp - k);
+    if (q <= 0) return;
+    const pts = D.pred[k].map((v, h) => [xp(ts + h), yv(v)]);
+    o.push(path(polyline(pts, q), {stroke:V('target'), sw:2, op: q < 1 ? 1 : .75}));
+  });
+}
+
+function folds(t, o){
+  if (t < T.rows) return;
+  const bp = lin(t, ...T.bt)*NF;
+  FOLDS.forEach(([te, ts, tend, fit], k) => {
+    const s = T.rows + k*T.rowStep, g = P(t, s, s + .4);
+    if (g <= 0) return;
+    const y = rowY(k), h = 5.5;
+    // the fold being run
+    const act = t >= T.bt[0] && t < T.bt[1] ? pulse(bp, k + .5, .9) : 0;
+    if (act > 0) o.push(rect(GX0 - 4, y - 1.5, AX1 - GX0 + 8, h + 3, {rx:3, fill:V('target'), fo:.14, op:act}));
+    const xe = lerp(GX0, xp(te), g);
+    o.push(rect(GX0, y, xe - GX0, h, {rx:2, fill:V('lag'), op:fit ? .75 : .3}));
+    if (!fit && te < ts){
+      // data the model reads as input, without being trained on it
+      o.push(line(xp(te), y + h/2, lerp(xp(te), xp(ts), g), y + h/2, {stroke:V('lag'), sw:1.5, dash:'2 3', op:.8}));
+    }
+    o.push(rect(xp(ts), y, (xp(tend) - xp(ts))*g, h, {rx:2, fill:V('target'), op:.95}));
+    if (fit){
+      const fa = 1 + .8*pulse(t, (T.refit[0] + T.refit[1])/2, 1.4);
+      o.push(circle(xp(te), y + h/2, 3.6*fa, {fill:V('lag'), stroke:V('bg'), sw:1.2, op:g}));
+    }
+  });
+  const la = P(t, T.rows + NF*T.rowStep, T.rows + NF*T.rowStep + .5);
+  // legend, in the empty corner the first folds leave
+  const LX = 960, items = [['lag', .75, 'training'], ['lag', .3, 'model reused, reads new data'], ['target', .95, 'forecast, 36 hours']];
+  items.forEach(([c, op, s], i) => {
+    o.push(rect(LX, RY0 + 6 + i*20, 18, 6, {rx:2, fill:V(c), op:op*la}));
+    o.push(text(LX + 26, RY0 + 12 + i*20, s, {size:13, fill:V('muted'), op:la}));
+  });
+  o.push(circle(LX + 9, RY0 + 69, 4, {fill:V('lag'), op:la}));
+  o.push(text(LX + 26, RY0 + 73, 'model trained', {size:13, fill:V('muted'), op:la}));
+  o.push(text(GX0, RY0 - 6, `${NF} folds`, {size:13, weight:700, fill:V('muted'), op:la}));
+  // callouts: the overlap of two forecasts, and the weekly retraining
+  const oa = P(t, T.overlap[0], T.overlap[0] + .4)*(1 - P(t, T.overlap[1] - .3, T.overlap[1]));
+  if (oa > 0){
+    const [, ts0, te0] = FOLDS[0], [, ts1, te1] = FOLDS[1];
+    o.push(rect(xp(ts1) - 1, rowY(0) - 3, xp(te0) - xp(ts1) + 2, 2*RH + 2, {rx:3, stroke:V('targetText'), sw:1.6, op:oa}));
+    o.push(text(xp(te1) + 12, rowY(1) + 4, `${OVERLAP} hours shared by consecutive forecasts`, {size:14, weight:700, fill:V('targetText'), op:oa}));
+  }
+  const ra = P(t, T.refit[0], T.refit[0] + .4)*(1 - P(t, T.refit[1] - .3, T.refit[1]));
+  const k7 = FOLDS.findIndex((f, k) => k > 0 && f[3]);
+  if (ra > 0 && k7 > 0){
+    o.push(text(xp(FOLDS[k7][2]) + 12, rowY(k7) + 5, `trained again every ${D.cv.refit} folds: ${FITS} times in ${NF} folds`, {size:14, weight:700, fill:V('lag'), op:ra}));
+  }
+}
+
+function results(t, o){
+  const a = P(t, ...T.results);
+  if (a <= 0) return;
+  card(o, SX0, TOP, SX1, BOT, a);
+  o.push(text(SX0 + 18, TOP + 30, 'backtest()', {size:17, cls:'m', weight:700, op:a}));
+  // with overlapping folds, skforecast scores each hour with its latest forecast
+  o.push(text(SX0 + 18, TOP + 51, 'each hour scored with its latest forecast', {size:13, fill:V('muted'), op:a}));
+  const rows = [
+    ['MAE', D.metrics.mae.toFixed(1), 'users per hour'],
+    ['MASE', D.metrics.mase.toFixed(2), D.metrics.mase < 1 ? 'below 1: beats the naive forecast' : 'not below the naive forecast'],
+    ['folds', String(NF), `the model trained ${FITS} times`]
+  ];
+  rows.forEach(([k, v, note], i) => {
+    const s = T.resRows + i*T.resStep, ra = P(t, s, s + .4)*a, y = TOP + 90 + i*32;
+    o.push(text(SX0 + 18, y, k, {size:14, fill:V('muted'), op:ra}));
+    o.push(text(SX0 + 150, y, v, {size:18, cls:'m', weight:700, anchor:'end', op:ra}));
+    o.push(text(SX0 + 170, y, note, {size:14, fill:V('muted'), op:ra}));
+  });
+}
+
+/* ---------------------------------------------------------------- run */
+SkfAnim.run({
+  title: 'Validate the way you deploy',
+  desc: 'create_cv() receives a deployment scenario in plain words: "Every day at noon we forecast the next 36 hours, ' +
+        'and we retrain once a week." The LLM turns it into TimeSeriesFold parameters: every day becomes ' +
+        `fold_stride = ${D.cv.fold_stride}, at noon becomes initial_train_size = '${D.cv.initial_train_size}' and ` +
+        `once a week becomes refit = ${D.cv.refit}; the horizon, steps = ${D.cv.steps}, comes from the plan. The ` +
+        `parameters pass the same checks as explicit ones and give ${NF} folds; without a prompt, create_cv() would ` +
+        `use ${D.deterministic.n_folds} back-to-back folds, and create_cv() is optional: backtest() also takes a ` +
+        'TimeSeriesFold built by hand. On the last hours of bike_sharing, each fold forecasts 36 ' +
+        `hours from noon, consecutive forecasts share ${OVERLAP} hours, and the model is trained ${FITS} times. ` +
+        'backtest() runs the script fold by fold and returns the metrics ' +
+        `(MAE ${D.metrics.mae}, MASE ${D.metrics.mase}), the predictions of every fold and the script that ran, ` +
+        'whose backtesting_forecaster() call receives that cv.',
+  total: T.total,
+  height: 720,
+  still: 44,
+  fadeOut: T.fadeOut,
+  brandUrl: 'ai.skforecast.org',
+  render(t, o){
+    header(t, o, {title:'Validate the way you deploy', captions:CAPTIONS, steps:STEPPER});
+    chart(t, o); folds(t, o);
+    scenario(t, o); results(t, o); cvCard(t, o); codeView(t, o);
+  }
+});
+})();
+</script>
+</body>
+</html>

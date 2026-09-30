@@ -25,7 +25,6 @@ VALID_KEYS: set[str] = {
     "llm.base_url",
     "llm.api_key",
     "llm.send_data_to_llm",
-    "output.format",
 }
 
 

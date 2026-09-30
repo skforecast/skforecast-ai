@@ -19,10 +19,10 @@ For every scenario the script prints and writes to a Markdown report:
 
 Usage (from the repository root, inside the conda environment):
 
-    python tools/ask_context_check.py --dry-run          # contexts only, no LLM
-    python tools/ask_context_check.py                    # full run
-    python tools/ask_context_check.py --scenarios profile,plan,compare
-    python tools/ask_context_check.py --extra-context notes.txt
+    python tools/ai/check_ask_context.py --dry-run          # contexts only, no LLM
+    python tools/ai/check_ask_context.py                    # full run
+    python tools/ai/check_ask_context.py --scenarios profile,plan,compare
+    python tools/ai/check_ask_context.py --extra-context notes.txt
 
 `--extra-context` prepends the text of a file to every question, which is
 a quick way to test whether giving the model extra facts (for example the
@@ -54,7 +54,7 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from skforecast_ai import ForecastingAssistant, LLMCallError  # noqa: E402
@@ -550,7 +550,7 @@ def main() -> None:
     parser.add_argument("--extra-context", type=Path, default=None, help="Text file prepended to every question")
     parser.add_argument("--dry-run", action="store_true", help="Build contexts only; make no LLM call")
     parser.add_argument("--no-context", action="store_true", help="Do not include the context blocks in the report")
-    parser.add_argument("--out", type=Path, default=None, help="Report path (default tools/ask_context_reports/ask_context_<dataset>_<timestamp>.md)")
+    parser.add_argument("--out", type=Path, default=None, help="Report path (default tools/ai/ask_context_reports/ask_context_<dataset>_<timestamp>.md)")
     args = parser.parse_args()
 
     api_key = os.getenv("GOOGLE_API_KEY") if args.model.startswith("google:") else None

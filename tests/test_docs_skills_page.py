@@ -70,7 +70,7 @@ def test_skills_guide_table_lists_all_skills_in_inventory_order():
     exactly the names in `ALL_SKILLS`, in the same order. The skills are
     synced from skforecast and the guide is written by hand, so this is
     what catches a sync that adds or removes a skill without the guide
-    being updated. `python tools/sync_skforecast_assets.py --inventory`
+    being updated. `python tools/ai/sync_skforecast_assets.py --inventory`
     prints the current table.
     """
     text = SKILLS_GUIDE.read_text(encoding="utf-8")
@@ -81,7 +81,7 @@ def test_skills_guide_table_lists_all_skills_in_inventory_order():
         "docs/user-guides/skills.md does not match ALL_SKILLS. Missing: "
         f"{sorted(set(ALL_SKILLS) - set(documented))}. Extra: "
         f"{sorted(set(documented) - set(ALL_SKILLS))}. Regenerate the rows "
-        "with `python tools/sync_skforecast_assets.py --inventory`."
+        "with `python tools/ai/sync_skforecast_assets.py --inventory`."
     )
 
 

@@ -12,7 +12,7 @@ See [How to install](../quick-start/how-to-install.md#optional-dependencies) for
 
 ---
 
-## Quickstart
+## Quick start
 
 ```bash
 export OPENAI_API_KEY="sk-..."
@@ -235,7 +235,7 @@ skforecast-ai check-llm --test-call --format json
 
 **Sent only for results**, that is, when `context` is a `ForecastResult`, `BacktestResult` or `ComparisonResult`:
 
-- The predictions of the result: in full when there are 30 rows or fewer, otherwise the first and last five plus per-column statistics. A question about a result cannot be answered from summary statistics alone, so these are sent even with `send_data_to_llm=False`; in that case `ask()` emits `DataSentToLLMWarning` to make it visible. Setting `send_data_to_llm=True` acknowledges it and silences the warning. A profile, a `CodeGenerationResult` or a `CVResult` never trigger it.
+- The values the result owns. For a forecast or a backtest, its predictions: in full when there are 30 rows or fewer, otherwise the first and last five plus per-column statistics. For a comparison, only the metrics of its leaderboard: no predictions of any candidate. A question about a result cannot be answered from summary statistics alone, so these are sent even with `send_data_to_llm=False`; in that case `ask()` emits `DataSentToLLMWarning` to make it visible. Setting `send_data_to_llm=True` acknowledges it and silences the warning. A profile, a `CodeGenerationResult` or a `CVResult` never trigger it.
 
 **Never sent**:
 
@@ -245,6 +245,8 @@ skforecast-ai check-llm --test-call --format json
 - The generated code.
 
 `refine_plan(prompt=...)` and `create_cv(prompt=...)` send even less: observation count, frequency, date range, horizon, the current lags and window features, your prompt, and the skills the step needs.
+
+The animation of [Ask the assistant](../quick-start/ask-the-assistant.md) shows these boundaries on one example: the data stays on your machine, `refine_plan()` sends the profile and the plan, and `ask()` sends the predictions and metrics of a result.
 
 If nothing may leave your machine at all, run a [local model with Ollama](#local-models-with-ollama): the same payloads go to `localhost`.
 

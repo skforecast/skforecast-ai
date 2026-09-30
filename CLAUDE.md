@@ -47,8 +47,9 @@ skforecast_ai/
   skills/, resources/ synced from skforecast (do not edit by hand)
   cli.py              Typer CLI mirroring the Python API
 tests/                mirrors the package: tests_<subpackage>/, fixtures_*.py
-tools/                maintenance scripts; ask_context_reports/ keeps one
-                      reviewed ask() evaluation per release and dataset
+tools/                maintenance scripts (see tools/README.md): ai/ for the
+                      skforecast assets and the LLM context checks,
+                      docs/ for the documentation build
 ```
 
 ## Python environment
@@ -64,8 +65,8 @@ confirms an environment, reuse it for the rest of the session.
 pytest -n auto                                   # full suite
 pytest tests/test_assistant_ask.py -q            # one file
 ruff check skforecast_ai tests                   # lint (must be clean; CI runs it)
-python tools/update_golden_llm_contexts.py       # regenerate LLM context goldens
-python tools/ask_context_check.py --dry-run      # ask() contexts, no LLM call
+python tools/ai/update_golden_contexts.py        # regenerate LLM context goldens
+python tools/ai/check_ask_context.py --dry-run   # ask() contexts, no LLM call
 PYTHONPATH=. mkdocs build -q -d /tmp/site        # docs build check
 ```
 
@@ -121,17 +122,17 @@ Follow `.github/instructions/testing.instructions.md`. In short:
 - Any user-visible change (API, CLI output, generated scripts, warnings)
   gets an entry in `docs/releases/releases.md` under the unreleased version.
 - A change to `llm/context.py`, `llm/prompts.py` or the rendered
-  explanations needs a run of `tools/ask_context_check.py` against a real
+  explanations needs a run of `tools/ai/check_ask_context.py` against a real
   model before the release (it costs money, so the user launches it), and
   the reviewed report is saved as described in
-  `tools/ask_context_reports/README.md`.
+  `tools/ai/ask_context_reports/README.md`.
 - `skforecast_ai/skills/` and `skforecast_ai/resources/llms-base.txt` are
   synced from the skforecast repository with
-  `tools/sync_skforecast_assets.py`; `.github/copilot-instructions.md` is
+  `tools/ai/sync_skforecast_assets.py`; `.github/copilot-instructions.md` is
   generated upstream. Do not edit any of them here. When a sync adds,
   removes or renames a skill, the script lists the change and the files
   maintained by hand: `llm/skills.py` (`ALL_SKILLS` and the routing
-  tables, plus `tools/measure_skill_tokens.py --update`), the table in
+  tables, plus `tools/ai/measure_skill_tokens.py --update`), the table in
   `docs/user-guides/skills.md` (`tests/test_docs_skills_page.py` checks it
   against `ALL_SKILLS`) and the upstream-order test in
   `tests/tests_llm/test_select_skills.py`.

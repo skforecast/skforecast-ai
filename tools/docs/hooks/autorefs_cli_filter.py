@@ -1,5 +1,5 @@
 ################################################################################
-#                             mkdocs_hooks                                      #
+#                           autorefs_cli_filter                                #
 #                                                                              #
 # MkDocs build hooks for skforecast-ai documentation.                          #
 # This work by skforecast team is licensed under the Apache License 2.0        #

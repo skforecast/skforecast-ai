@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2021-present Joaquín Amat Rodrigo and Javier Escobar Ortiz.
+  Part of the skforecast-ai documentation, licensed under CC BY-NC-SA 4.0
+  (https://creativecommons.org/licenses/by-nc-sa/4.0/). It is not covered by the
+  license of the skforecast-ai software.
+  The skforecast trademark and logo are registered with the EUIPO (application
+  number 019109684) and may not be used without permission.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Let measured performance pick the model</title>
+<meta name="description" content="Animated explanation of compare() in skforecast-ai: the candidates the profile proposes are backtested with the same data and the same folds, ranked by a plain sort of the metric, and the winner is reused directly in forecast().">
+<link rel="stylesheet" href="skf-anim.css">
+</head>
+<body>
+<div class="skf-anim"></div>
+<script src="skf-anim.js"></script>
+<script src="compare-candidates-data.js"></script>
+<script>
+(function(){
+"use strict";
+const {cl, ease, lin, P, lerp, r2, V, pulse, mw, text, rect, line, circle, path, polyline, arrow, header} = SkfAnim;
+
+/* ------------------------------------------------------------------ data */
+// Real skforecast-ai outputs on the last 2,000 hours of bike_sharing, written by
+// tools/docs/home_page/generate_home_data.py: compare() with the candidates the
+// profile proposes and the strategy of the backtesting animation, the series over
+// the span of the folds, and the predictions of every candidate. With overlapping
+// folds each hour is scored with its latest forecast: those are the predictions
+// drawn, and the errors of the folds average to the leaderboard MAE.
+const D = window.COMPARE_CANDIDATES_DATA;
+if (!D){
+  document.querySelector('.skf-anim').textContent =
+    'Missing compare-candidates-data.js: run tools/docs/home_page/generate_home_data.py.';
+  return;
+}
+const ORDER = D.order, RANKED = D.ranked, ROWS = D.rows, BEST = RANKED[0];
+const NF = D.cv.n_folds, NH = D.actual.length, STRIDE = D.cv.fold_stride, STEPS = D.cv.steps;
+// The identity of each candidate follows it when the lanes are sorted.
+const COLORS = ['lag', 's3', 's1'];
+const color = name => V(COLORS[ORDER.indexOf(name) % COLORS.length]);
+const fmtDate = (s, h = 0) => new Date(Date.parse(s.replace(' ', 'T') + 'Z') + h*3600e3)
+  .toLocaleDateString('en', {month:'short', day:'numeric', timeZone:'UTC'});
+
+// The question and the answer of ask() are written for the animation. The answer
+// only uses what ask() sends for a comparison (the leaderboard, the shared profile
+// and strategy, and the plan of the winner; never per-fold results), and its
+// figures come from the data.
+const SECOND = RANKED[1];
+const ASK_PROMPT = 'Why did it win?';
+const ANSWER = `${ROWS[BEST].estimator} ranks first: its MAE of ${ROWS[BEST].mae.toFixed(1)} is ` +
+  `${Math.round(D.gap_pct)}% lower than that of ${SECOND} (${ROWS[SECOND].mae.toFixed(1)}), and its MASE of ` +
+  `${ROWS[BEST].mase.toFixed(2)} is also the lowest` +
+  (ROWS[BEST].forecaster === 'ForecasterFoundation'
+    ? '. As a pre-trained foundation model, it forecasts from the recent values of the series, without lags.'
+    : '.');
+
+/* -------------------------------------------------------------- timeline */
+const T = {
+  left:[0.3,0.9], cand0:1.2, candStep:.6, own:[3.4,3.9], cvCard:[4.4,5.0], comb:[5.0,6.4], cvNote:[6.2,6.7],
+  lanes:[8.6,9.2], series:[8.8,10.0], sweep:[10.4,16.4],
+  sort:[18.0,19.6], badges:[19.6,20.1], win:[20.4,21.0], gap:[20.8,21.4], llm:[22.2,22.7],
+  swap:[26.0,26.4], code:[26.4,27.0], codeRow:26.8, codeStep:.5,
+  askOut:[32.2,32.6], ask:[32.6,33.2], typing:[33.6,37.4], 
+  fadeOut:[44.2,45.0], total:45.0
+};
+const CAPTIONS = [
+  [0.0, 4.2, 'compare() backtests several configurations and ranks them. Without candidates, the profile proposes them.'],
+  [4.2, 8.6, 'Every candidate gets the same data and the same folds: here, the strategy of the backtesting example.'],
+  [8.6, 13.2,'The same window moves over all of them: each candidate forecasts the same hours from the same data.'],
+  [13.2,17.6,'Each hour is scored with its latest forecast, the same rule for all: the differences come from the models.'],
+  [17.6,22.2,'The ranking is a plain ascending sort of the metric: the lowest MAE ranks first.'],
+  [22.2,26.0,'The LLM plays no part in choosing the winner.'],
+  [26.0,29.4,'The winner is a complete BacktestResult, with its profile, its plan and its code.'],
+  [29.4,32.4,'Reuse it as it is: forecast() takes its profile and its plan.'],
+  [32.4,37.6,'Optional: ask() explains the comparison from its leaderboard, the shared strategy and the winning plan.'],
+  [37.6,99,  'The answer explains the ranking; it never changes it.']
+];
+const STEPPER = [['Candidates',0,8.6],['Same folds',8.6,17.6],['Ranking',17.6,26.0],['Winner',26.0,32.4],['Ask',32.4,99]];
+
+/* ---------------------------------------------------------------- layout */
+const KX0 = 40, KX1 = 760, VX0 = 800, VX1 = 1240, TOP = 120, BOT = 306;   // candidates, cv
+const candX = i => KX0 + 18 + i*228, CW = 216, CY0 = 186, CY1 = 272;
+const combX = k => VX0 + 24 + k*(VX1 - VX0 - 48)/(NF - 1);
+const LY0 = 356, LH = 92, LBOX = 80;                                  // lanes
+const laneY = i => LY0 + i*LH;
+const SX0 = 310, SX1 = 1060;                                          // series in each lane
+const xh = h => SX0 + h/(NH - 1)*(SX1 - SX0);
+const yl = (y, v) => y + LBOX - 8 - v/800*(LBOX - 14);
+
+/* ------------------------------------------------------------- helpers */
+function card(o, x0, y0, x1, y1, op, stroke = V('border')){
+  o.push(rect(x0, y0, x1 - x0, y1 - y0, {rx:12, fill:V('panel'), stroke, op}));
+}
+// Running MAE after `done` folds: the mean over the scored hours of those folds.
+function running(name, done){
+  const r = ROWS[name];
+  if (done >= NF) return r.mae;
+  let s = 0, n = 0;
+  for (let k = 0; k < done; k++){ s += r.fold_mae[k]*r.fold_n[k]; n += r.fold_n[k]; }
+  return n ? s/n : null;
+}
+// Hours of the sweep: the window is at fold `fp` (continuous), and the scored hours
+// it has passed are drawn.
+const sweepAt = t => lin(t, ...T.sweep)*NF;
+const drawnHours = fp => Math.min(NH, fp*STRIDE + STRIDE*Math.min(1, fp));
+
+/* ----------------------------------------------------------------- scenes */
+function candidates(t, o){
+  const a = P(t, ...T.left);
+  if (a <= 0) return;
+  card(o, KX0, TOP, KX1, BOT, a);
+  const k = a*(1 - P(t, ...T.swap));          // the card is cleared for the winner
+  o.push(text(KX0 + 18, TOP + 30, 'comparison = assistant.compare(data, cv=cv, candidates=None)', {size:14.5, cls:'m', weight:700, op:k}));
+  o.push(text(KX0 + 18, TOP + 52, 'the profile of the data proposes the candidates', {size:13, fill:V('muted'), op:k}));
+  ORDER.forEach((name, i) => {
+    const s = T.cand0 + i*T.candStep, ca = P(t, s, s + .4)*k, r = ROWS[name], x = candX(i);
+    o.push(rect(x, CY0, CW, CY1 - CY0, {rx:10, fill:V('bg'), stroke:V('border'), op:ca}));
+    o.push(rect(x, CY0, 5, CY1 - CY0, {rx:2, fill:color(name), op:ca}));
+    o.push(text(x + 16, CY0 + 26, name, {size:14, cls:'m', weight:700, fill:color(name), op:ca}));
+    o.push(text(x + 16, CY0 + 49, r.estimator, {size:14, weight:700, op:ca}));
+    o.push(text(x + 16, CY0 + 70, r.detail, {size:13, fill:V('muted'), op:ca}));
+  });
+  o.push(text(KX0 + 18, BOT - 12, 'or pass your own: candidates=[("name", {...}), ...]', {size:13, fill:V('muted'), op:P(t, ...T.own)*k}));
+}
+
+function winner(t, o){
+  const a = P(t, ...T.code)*(1 - P(t, ...T.askOut));
+  if (a <= 0) return;
+  const r = ROWS[BEST];
+  const lines = [
+    ['best = comparison.best_candidate', 'm', 15, 700, V('fg')],
+    [`# ${BEST}, ${r.estimator}, MAE ${r.mae.toFixed(1)}`, 'm', 13.5, 400, V('muted')],
+    ['result = assistant.forecast(data, profile=best.profile, plan=best.plan)', 'm', 14, 400, V('fg')],
+    ['The winner is a BacktestResult: its profile, plan and code are ready to reuse.', 's', 14, 400, V('muted')],
+    ['Every row keeps its script too: comparison.candidates[name].code', 's', 14, 400, V('muted')]
+  ];
+  const ys = [TOP + 34, TOP + 58, TOP + 96, TOP + 134, TOP + 158];
+  lines.forEach(([s, cls, size, weight, fill], i) => {
+    const s0 = T.codeRow + i*T.codeStep, la = P(t, s0, s0 + .4)*a;
+    if (i === 2) o.push(rect(KX0 + 10, ys[i] - 17, mw(s, 14, 400, 'm') + 16, 24, {rx:5, fill:V('target'), fo:.14, op:la}));
+    o.push(text(KX0 + 18, ys[i], s, {size, cls, weight, fill, op:la}));
+  });
+}
+
+function cvCard(t, o){
+  const a = P(t, ...T.cvCard);
+  if (a <= 0) return;
+  card(o, VX0, TOP, VX1, BOT, a);
+  o.push(text(VX0 + 18, TOP + 30, 'the same cv for every candidate', {size:15, weight:700, op:a}));
+  // the object the backtesting example ends with, passed as it is to compare()
+  const code = [
+    'cv = TimeSeriesFold(',
+    `    steps              = ${STEPS},`,
+    `    initial_train_size = '${D.cv.initial_train_size}',`,
+    '    ...',
+    ')'
+  ];
+  code.forEach((s, i) => {
+    const ca = P(t, T.comb[0] + i*.25, T.comb[0] + i*.25 + .4)*a;
+    o.push(text(VX0 + 18, TOP + 60 + i*21, s, {size:14, cls:'m', fill: s.trim() === '...' ? V('muted') : V('fg'), op:ca}));
+  });
+  const na = P(t, ...T.cvNote);
+  o.push(text(VX0 + 18, BOT - 16, `${NF} folds, one every day at noon: the backtesting example`, {size:13, fill:V('muted'), op:na}));
+}
+
+function lanes(t, o){
+  const a = P(t, ...T.lanes);
+  if (a <= 0) return;
+  const fp = sweepAt(t), sp = P(t, ...T.sort), sa = P(t, ...T.series);
+  const hdr = a*P(t, T.series[1] - .3, T.series[1]);
+  o.push(text(SX0, LY0 - 12, fmtDate(D.start), {size:13, fill:V('muted'), op:hdr}));
+  o.push(text(SX1, LY0 - 12, fmtDate(D.start, NH - 1), {size:13, anchor:'end', fill:V('muted'), op:hdr}));
+  o.push(text((SX0 + SX1)/2, LY0 - 12, 'users per hour: actual (gray) and each forecast', {size:13, anchor:'middle', fill:V('muted'), op:hdr}));
+  o.push(text(1224, LY0 - 12, D.metric === 'mean_absolute_error' ? 'MAE' : D.metric, {size:13, weight:700, anchor:'end', fill:V('muted'), op:hdr}));
+  // lanes are drawn from last to first rank, so the winner moves above the others
+  [...ORDER].sort((x, y) => ROWS[y].rank - ROWS[x].rank).forEach(name => {
+    const r = ROWS[name], from = ORDER.indexOf(name), to = RANKED.indexOf(name);
+    // a lane that moves up overtakes the others: it shifts aside while it passes,
+    // and the lanes it passes dim a little
+    const move = Math.sin(Math.PI*sp), up = to < from;
+    const y = lerp(laneY(from), laneY(to), sp), dx = up ? 24*move : 0;
+    const la = a*(up || sp <= 0 || sp >= 1 ? 1 : 1 - .35*move);
+    o.push(`<g transform="translate(${r2(dx)} 0)" opacity="${r2(la/a || 0)}">`);
+    const isBest = name === BEST, wa = isBest ? P(t, ...T.win) : 0;
+    o.push(rect(KX0, y, 1200, LBOX, {rx:10, fill:V('panel'), stroke: up && move > .01 ? color(name) : V('border'), sw: up && move > .01 ? 2 : 1, op:a}));
+    o.push(rect(KX0, y, 1200, LBOX, {rx:10, stroke:V('target'), sw:2.5, op:wa}));
+    o.push(rect(KX0, y, 5, LBOX, {rx:2, fill:color(name), op:a}));
+    // rank badge, once sorted
+    const ba = P(t, ...T.badges);
+    o.push(circle(KX0 + 30, y + LBOX/2, 13, {fill: isBest ? V('target') : 'none', stroke: isBest ? V('target') : V('muted'), sw:1.5, op:ba}));
+    o.push(text(KX0 + 30, y + LBOX/2 + 5, String(r.rank), {size:14, weight:700, anchor:'middle', fill: isBest ? '#2a1600' : V('muted'), op:ba}));
+    o.push(text(KX0 + 56, y + 28, name, {size:14.5, cls:'m', weight:700, fill:color(name), op:a}));
+    o.push(text(KX0 + 56, y + 50, r.estimator, {size:14, weight:700, op:a}));
+    o.push(text(KX0 + 56, y + 68, r.detail, {size:13, fill:V('muted'), op:a}));
+    // the actual series, and the forecasts of this candidate behind the window
+    o.push(path(polyline(D.actual.map((v, h) => [xh(h), yl(y, v)]), sa), {stroke:V('series'), sw:1.1, op:a*.35}));
+    const nh = Math.round(drawnHours(fp));
+    if (nh > 1) o.push(path(polyline(r.pred.slice(0, nh).map((v, h) => [xh(h), yl(y, v)])), {stroke:color(name), sw:1.6, op:a}));
+    // the running metric
+    const done = Math.min(NF, Math.floor(fp)), m = running(name, done);
+    o.push(text(1224, y + 50, m === null ? '' : m.toFixed(1), {size:24, cls:'m', weight:700, anchor:'end', fill: isBest && wa > 0 ? V('targetText') : V('fg'), op:a*(m === null ? 0 : 1)}));
+    if (isBest){
+      o.push(text(1224, y + 70, `${D.gap_pct}% below the second`, {size:13, weight:700, anchor:'end', fill:V('targetText'), op:P(t, ...T.gap)}));
+    }
+    o.push('</g>');
+  });
+  // one window for everyone: the fold being run, across the three lanes
+  const wa = P(t, T.sweep[0] - .3, T.sweep[0])*(1 - P(t, T.sweep[1], T.sweep[1] + .4));
+  if (wa > 0){
+    const h0 = Math.min(fp, NF - 1)*STRIDE, x0 = xh(h0), x1 = xh(Math.min(NH - 1, h0 + STEPS));
+    o.push(rect(x0, LY0 - 5, x1 - x0, ORDER.length*LH - LH + LBOX + 10, {rx:6, fill:V('target'), fo:.12, stroke:V('target'), sw:1.8, op:wa}));
+    o.push(text((x0 + x1)/2, LY0 + ORDER.length*LH + 8, `fold ${Math.min(NF, Math.floor(fp) + 1)}`, {size:13, weight:700, anchor:'middle', fill:V('targetText'), op:wa}));
+  }
+  const ra = P(t, ...T.badges);
+  o.push(text(KX0, LY0 - 12, 'comparison.results', {size:13.5, cls:'m', weight:700, op:ra}));
+  const la = P(t, ...T.llm);
+  o.push(text(KX0, LY0 + ORDER.length*LH + 18, `A plain ascending sort of ${D.metric}. The LLM plays no part in choosing the winner.`, {size:14, fill:V('muted'), op:la}));
+}
+
+function ask(t, o){
+  const a = P(t, ...T.ask);
+  if (a <= 0) return;
+  o.push(rect(KX0, TOP, KX1 - KX0, BOT - TOP, {rx:12, fill:V('llm'), fo:.06, stroke:V('llm'), so:.7, op:a}));
+  o.push(text(KX0 + 18, TOP + 32, `assistant.ask("${ASK_PROMPT}", context=comparison)`, {size:14.5, cls:'m', weight:700, op:a}));
+  // generous margin: a line measured before the font loads must still fit
+  const lines = wrap(ANSWER, KX1 - KX0 - 150, 18), total = lines.join(' ').length;
+  const shown = Math.round(lin(t, ...T.typing)*total);
+  let used = 0;
+  lines.forEach((s, k) => {
+    const n = cl(shown - used, 0, s.length); used += s.length + 1;
+    if (n > 0) o.push(text(KX0 + 18, TOP + 74 + k*28, s.slice(0, n), {size:18, op:a}));
+  });
+}
+// Greedy word wrap to `width` pixels.
+function wrap(s, width, size){
+  const out = []; let cur = '';
+  for (const w of s.split(' ')){
+    const next = cur ? cur + ' ' + w : w;
+    if (cur && mw(next, size) > width){ out.push(cur); cur = w; } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/* ---------------------------------------------------------------- run */
+const DESC_ROWS = RANKED.map(n => `${ROWS[n].rank}. ${n} (${ROWS[n].estimator}), MAE ${ROWS[n].mae}`).join('; ');
+SkfAnim.run({
+  title: 'Let measured performance pick the model',
+  desc: `compare() is called without candidates, so the profile proposes ${ORDER.length}: ` +
+        ORDER.map(n => `${n} with ${ROWS[n].estimator}`).join(', ') + '. Every candidate is backtested with the same ' +
+        `data and the same cross-validation, the strategy of the backtesting example: ${NF} folds, one every day at ` +
+        `noon, ${STEPS}-hour forecasts, retrained every ${D.cv.refit} folds. The same window moves over the three ` +
+        'candidates, and each one draws its forecast against the actual series; each hour is scored with its latest ' +
+        `forecast. The ranking is a plain ascending sort of ${D.metric}, with no LLM involved: ${DESC_ROWS}. The ` +
+        `winner is ${D.gap_pct}% below the second. It is a complete BacktestResult, and forecast() reuses its ` +
+        'profile and plan directly; every row keeps its script. Finally, ask() explains the comparison: ' +
+        `"${ASK_PROMPT}" ${ANSWER} The answer explains the ranking; it does not change it.`,
+  total: T.total,
+  height: 720,
+  still: 42,
+  fadeOut: T.fadeOut,
+  brandUrl: 'ai.skforecast.org',
+  render(t, o){
+    header(t, o, {title:'Let measured performance pick the model', captions:CAPTIONS, steps:STEPPER});
+    candidates(t, o); winner(t, o); ask(t, o); cvCard(t, o); lanes(t, o);
+  }
+});
+})();
+</script>
+</body>
+</html>

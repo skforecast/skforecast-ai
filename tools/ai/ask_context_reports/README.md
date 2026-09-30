@@ -1,6 +1,6 @@
 # ask() context evaluation
 
-`tools/ask_context_check.py` sends what `ForecastingAssistant.ask()` builds
+`tools/ai/check_ask_context.py` sends what `ForecastingAssistant.ask()` builds
 for every kind of object (profile, plan, script, cross-validation strategy,
 forecast, backtest, comparison) to a real LLM and writes a Markdown report
 with the exact `<forecast_context>` block, the answers and a review
@@ -27,10 +27,10 @@ From the repository root, inside the project conda environment, with
 `GOOGLE_API_KEY` (or the key of the chosen provider) in the environment:
 
 ```bash
-python tools/ask_context_check.py --dry-run                     # contexts only, free
-python tools/ask_context_check.py --dataset bike_sharing        # single series with exog
-python tools/ask_context_check.py --dataset items_sales         # three series, wide format
-python tools/ask_context_check.py --scenarios profile,compare   # a subset
+python tools/ai/check_ask_context.py --dry-run                     # contexts only, free
+python tools/ai/check_ask_context.py --dataset bike_sharing        # single series with exog
+python tools/ai/check_ask_context.py --dataset items_sales         # three series, wide format
+python tools/ai/check_ask_context.py --scenarios profile,compare   # a subset
 ```
 
 A full run makes about 15 calls per dataset. With `google:gemini-3.5-flash`
@@ -41,7 +41,7 @@ name and are ignored by git.
 
 One reviewed report per release and dataset, named
 `<release>_<dataset>.md` (for example `0.3.1_items_sales.md`), saved with
-`--out tools/ask_context_reports/<release>_<dataset>.md`. Those are
+`--out tools/ai/ask_context_reports/<release>_<dataset>.md`. Those are
 tracked, so the next release can be compared against them question by
 question. Keep only the final run on the released code, not the
 intermediate iterations.

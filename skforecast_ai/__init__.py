@@ -1,4 +1,4 @@
-"""skforecast-ai: AI-powered forecasting assistant built on skforecast.
+"""skforecast-ai: Python time series forecasting assistant built on skforecast.
 
 Works with any scikit-learn compatible estimator (LightGBM, XGBoost, CatBoost,
 Keras, etc.), statistical models (ARIMA, SARIMAX, ETS, ARAR), and zero-shot

@@ -354,7 +354,7 @@ def make_comparison_result(*, n_candidates: int = 2, with_failure: bool = False)
 #
 # One entry per rendered context that is pinned to a file under
 # `tests/tests_llm/golden/`. Regenerate with
-# `python tools/update_golden_llm_contexts.py` after an intentional change.
+# `python tools/ai/update_golden_contexts.py` after an intentional change.
 # ---------------------------------------------------------------------------
 GOLDEN_SCENARIOS = {
     "profile_only": lambda: profile_single,

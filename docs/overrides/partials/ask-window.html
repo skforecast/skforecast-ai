@@ -1,0 +1,66 @@
+<!--
+  Window with real answers of ask(), one tab per object passed as context.
+  Shared by the home page (Jinja include in home.html) and the "Ask the
+  assistant" page (snippet in quick-start/ask-the-assistant.md): each page
+  wraps it in its own figure and caption. Styles in stylesheets/extra.css
+  (.sk-ask), tabs and syntax highlight in javascripts/ask-window.js. The
+  answers are quoted word for word from
+  tools/ai/ask_context_reports/0.3.0_bike_sharing.md; see
+  tools/docs/home_page/README.md before changing them.
+-->
+<div class="sk-ask">
+<div class="window ask-win">
+  <div class="window-bar"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i><div class="ask-tabs" role="tablist" aria-label="Object passed to ask()"><button type="button" role="tab" class="ask-tab on" id="ask-tab-0" aria-controls="ask-0" aria-selected="true">Forecast</button><button type="button" role="tab" class="ask-tab" id="ask-tab-1" aria-controls="ask-1" aria-selected="false" tabindex="-1">Backtest</button><button type="button" role="tab" class="ask-tab" id="ask-tab-2" aria-controls="ask-2" aria-selected="false" tabindex="-1">Compare</button><button type="button" role="tab" class="ask-tab" id="ask-tab-3" aria-controls="ask-3" aria-selected="false" tabindex="-1">Plan</button><button type="button" role="tab" class="ask-tab" id="ask-tab-4" aria-controls="ask-4" aria-selected="false" tabindex="-1">Question</button></div></div>
+<div class="ask-panel on" id="ask-0" role="tabpanel" aria-labelledby="ask-tab-0">
+  <pre><code data-hl>result = assistant.forecast(data, test_size=36, profile=profile, plan=plan)
+answer = assistant.ask(
+    "Explain the evaluation metrics. Is the MASE good, "
+    "and what do the predictions look like?",
+    context=result,
+)</code></pre>
+  <div class="chat"><p class="a">The evaluation of the forecasting model shows strong performance, highlighted by a Mean Absolute Scaled Error (MASE) of 0.616892, which is below 1 and indicates that the model successfully beats the naive baseline.</p></div>
+</div>
+<div class="ask-panel" id="ask-1" role="tabpanel" aria-labelledby="ask-tab-1">
+  <pre><code data-hl>backtest = assistant.backtest(data, cv, profile=profile, plan=plan)
+answer = assistant.ask(
+    "Explain the backtesting strategy and the metrics. "
+    "Is the model good enough to deploy?",
+    context=backtest,
+)</code></pre>
+  <div class="chat"><p class="a">The backtesting strategy evaluates a ForecasterRecursive model with a LightGBM estimator by training it once and testing it sequentially across 17 folds of 36 hourly steps each. Based on the evaluation metrics, specifically a Mean Absolute Scaled Error (MASE) of 0.6531, the model is good enough to deploy because it successfully beats the naive baseline.</p></div>
+</div>
+<div class="ask-panel" id="ask-2" role="tabpanel" aria-labelledby="ask-tab-2">
+  <pre><code data-hl>candidates = [
+    ("recursive_default", {"forecaster": "ForecasterRecursive"}),
+    ("recursive_ridge", {"forecaster": "ForecasterRecursive",
+                 "estimator": "Ridge"}),
+    ("direct", {"forecaster": "ForecasterDirect"}),
+]
+comparison = assistant.compare(data, cv, profile=profile, candidates=candidates)
+answer = assistant.ask(
+    "Explain the comparison. Is the margin between the top "
+    "candidates meaningful, or are they practically equivalent?",
+    context=comparison,
+)</code></pre>
+  <div class="chat"><p class="a">The evaluation compared three forecasting configurations, and the <code>recursive_default</code> model emerged as the top performer with a Mean Absolute Error (MAE) of 49.503318, which is 6.7% ahead of the second-place <code>direct</code> model. The winning configuration successfully beats the naive baseline because its Mean Absolute Scaled Error (MASE) of 0.653050 is below 1.</p></div>
+</div>
+<div class="ask-panel" id="ask-3" role="tabpanel" aria-labelledby="ask-tab-3">
+  <pre><code data-hl>answer = assistant.ask(
+    "Walk me through this plan: why these lags and window "
+    "features, and how will the prediction interval be produced?",
+    context=profile,
+    plan=plan,
+)</code></pre>
+  <div class="chat"><p class="a">The forecasting plan utilizes a ForecasterRecursive with an LGBMRegressor to generate 36-hour predictions for hourly user activity. The model incorporates historical lags, multi-scale rolling statistics, and exogenous features to capture both short-term dynamics and recurring daily or weekly cycles. An 80 percent prediction interval is computed through bootstrapping to quantify forecast uncertainty.</p></div>
+</div>
+<div class="ask-panel" id="ask-4" role="tabpanel" aria-labelledby="ask-tab-4">
+  <pre><code data-hl># No context: a general question, answered from the skills
+answer = assistant.ask(
+    "For hourly demand with strong daily and weekly seasonality, "
+    "when should I prefer a direct forecasting strategy over a "
+    "recursive one?"
+)</code></pre>
+  <div class="chat"><p class="a">For hourly demand with strong daily and weekly seasonality, you should prefer a direct forecasting strategy when you need to avoid error propagation over long horizons or when the predictive relationship changes significantly across the forecast horizon. Because a direct forecaster trains an independent model for each step, it is highly effective at capturing step-specific patterns without letting early-step prediction errors compound over a 24-hour or 168-hour cycle.</p></div>
+</div>
+</div>
+</div>

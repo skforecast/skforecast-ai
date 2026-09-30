@@ -1,62 +1,12 @@
-# Quick start
+---
+template: redirect.html
+redirect: quick-start/how-to-install.html
+search:
+  exclude: true
+---
 
-Install **skforecast-ai** and verify the setup works. For a step-by-step walkthrough of your first real forecast, continue to [Your first forecast](first-forecast.md).
-
-
-!!! note ""
-    New to forecasting with machine learning? skforecast's [Introduction to forecasting](https://skforecast.org/latest/introduction-forecasting/introduction-forecasting) covers the fundamentals this documentation assumes.
-
-## Install
-
-=== "Core"
-
-    Core library, no API key needed, runs entirely offline:
-
-    ```bash
-    pip install skforecast-ai
-    ```
-
-=== "With LLM assistant"
-
-    Adds the optional LLM reasoning layer for explanations and Q&A:
-
-    ```bash
-    pip install "skforecast-ai[llm]"
-    ```
-
-=== "From source"
-
-    For development or contributing:
-
-    ```bash
-    git clone https://github.com/skforecast/skforecast-ai.git
-    cd skforecast-ai
-    pip install -e ".[dev]"
-    ```
-
-
-## Smoke test
-
-Run the snippet below. If it prints a predictions table and a metrics row, the installation is working.
-
-```python
-import pandas as pd
-from skforecast_ai import ForecastingAssistant
-from skforecast.datasets import load_demo_dataset
-
-data = load_demo_dataset(verbose=False)
-assistant = ForecastingAssistant(llm=None)
-result = assistant.forecast(data=data, target="y", steps=12, test_size=12)
-
-print(result.predictions)   # forecast for the held-out test window
-print(result.metrics)       # evaluation metrics: MAE, MSE, MASE, MAPE
-print(result.code)          # the skforecast script that produced this result
-```
-
-!!! tip "Runs locally by default"
-    The smoke test runs in deterministic mode: no LLM, no network access, and no configuration required.
-
-## Next steps
-
-- **[Your first forecast](first-forecast.md)**: the same call, explained step by step.
-- **[Agentic forecasting](../user-guides/agentic-forecasting.ipynb)**: End-to-end walkthrough on a real hourly dataset.
+<!--
+The content of this page moved to how-to-install.md (installation and a check
+of the setup). It stays as a redirect so the links published before 0.4.0,
+such as the README on PyPI, keep working. See docs/overrides/redirect.html.
+-->

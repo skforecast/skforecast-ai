@@ -31,7 +31,7 @@ implementation of it would be one more thing to keep in sync.
 
 Usage
 -----
-    python tools/update_golden_llm_contexts.py
+    python tools/ai/update_golden_contexts.py
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from tests.fixtures_llm import GOLDEN_SCENARIOS  # noqa: E402

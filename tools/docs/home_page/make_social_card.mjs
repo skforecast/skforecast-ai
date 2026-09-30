@@ -3,7 +3,9 @@
  *
  * 1. Opens the home page served by `mkdocs serve`, pauses the animation on its
  *    last step (the forecast and the ask() answer) and takes a screenshot of it.
- * 2. Renders tools/home_page/social_card.html with that screenshot and saves
+ * 2. Saves that screenshot as docs/img/skforecast-ai-forecast-ask.png, the
+ *    image for the GitHub README.
+ * 3. Renders tools/docs/home_page/social_card.html with that screenshot and saves
  *    it as docs/img/social-card-home.png (1200 x 630 px), the image that
  *    docs/overrides/home.html declares in its Open Graph tags.
  *
@@ -11,7 +13,7 @@
  * Needs Node.js 22 or newer (built-in WebSocket) and Google Chrome.
  *
  * Usage (from the repository root, with `mkdocs serve` running):
- *     node tools/home_page/make_social_card.mjs [http://127.0.0.1:8000/]
+ *     node tools/docs/home_page/make_social_card.mjs [http://127.0.0.1:8000/]
  *
  * Set CHROME_PATH if Chrome is not in the default macOS location. Behind a
  * proxy, Chrome is started with the proxy of HTTPS_PROXY, so that the fonts
@@ -29,8 +31,9 @@ const CHROME =
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9339;
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(HERE, "..", "..");
+const ROOT = resolve(HERE, "..", "..", "..");
 const OUTPUT = join(ROOT, "docs", "img", "social-card-home.png");
+const README_IMAGE = join(ROOT, "docs", "img", "skforecast-ai-forecast-ask.png");
 // Step of the animation shown on the card: 3 is "Ask why", which keeps the
 // forecast on the chart and shows the answer of ask() in the side pane.
 const STEP = 3;
@@ -129,6 +132,8 @@ try {
   });
   const stageFile = join(profile, "stage.png");
   writeFileSync(stageFile, Buffer.from(stageShot.result.data, "base64"));
+  writeFileSync(README_IMAGE, Buffer.from(stageShot.result.data, "base64"));
+  console.log(`Written ${README_IMAGE}`);
   home.ws.close();
 
   // 2. Card

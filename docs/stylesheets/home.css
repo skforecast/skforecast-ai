@@ -11,7 +11,7 @@ The base components (hero, stage, code window, cards) follow the home page of
 the skforecast documentation, so that both sites read as one family. Orange
 marks the deterministic engine and violet the optional LLM layer.
 
-See tools/home_page/README.md.
+See tools/docs/home_page/README.md.
 */
 
 /*
@@ -429,6 +429,11 @@ Components
   line-height: 1.5;
 }
 
+/* Keeps a hyphenated name such as skforecast-ai from breaking at the hyphen. */
+.sk-home .nw {
+  white-space: nowrap;
+}
+
 .sk-home .facts {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -621,6 +626,13 @@ Components
 .sk-home .sec-head p {
   color: var(--ink-2);
   font-size: 17px;
+}
+
+.sk-home .sec-head a.more {
+  justify-self: start;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 15px;
 }
 
 .sk-home .trust {
@@ -949,10 +961,12 @@ Components
   fill: currentColor;
 }
 
+.sk-home .community .sponsor .ico { color: #db61a2; }
 .sk-home .community .github .ico { color: var(--heading); }
 .sk-home .community .discord .ico { color: #5865f2; }
 .sk-home .community .linkedin .ico { color: #0a66c2; }
 
+.sk-home .community .sponsor:hover { border-color: #db61a2; background: rgba(219, 97, 162, 0.08); }
 .sk-home .community .github:hover { border-color: var(--heading); }
 .sk-home .community .discord:hover { border-color: #5865f2; background: rgba(88, 101, 242, 0.08); }
 .sk-home .community .linkedin:hover { border-color: #0a66c2; background: rgba(10, 102, 194, 0.08); }
@@ -1501,6 +1515,14 @@ Sections
   font-size: 14px;
 }
 
+/* Two links in one card share a row, so the card keeps the rows of its
+   neighbours and their texts stay aligned. */
+.sk-home .way .more-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+}
+
 .sk-home .learn span code {
   font-size: 0.95em;
 }
@@ -1512,7 +1534,9 @@ Sections
 
 .sk-home .family a {
   display: grid;
-  gap: 4px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -1532,11 +1556,193 @@ Sections
   font-size: 16.5px;
 }
 
-.sk-home .family span {
+.sk-home .family .fam-text {
+  display: grid;
+  gap: 4px;
+}
+
+.sk-home .family .fam-text > span {
   font-size: 14.5px;
   color: var(--ink-2);
   line-height: 1.5;
 }
+
+/* The skforecast logo: navy on light, white on dark. Skforecast Studio has no
+   logo of its own (it uses the skforecast one), so its card shows an icon. */
+.sk-home .fam-logo {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+}
+
+.sk-home .fam-logo img {
+  width: 48px;
+  height: 48px;
+}
+
+.sk-home .fam-logo .on-dark,
+[data-md-color-scheme="slate"] .sk-home .fam-logo .on-light {
+  display: none;
+}
+
+[data-md-color-scheme="slate"] .sk-home .fam-logo .on-dark {
+  display: block;
+}
+
+.sk-home .fam-icon {
+  border-radius: 12px;
+  background: rgba(247, 153, 57, 0.12);
+}
+
+.sk-home .fam-icon svg {
+  width: 26px;
+  height: 26px;
+  fill: var(--orange);
+}
+
+/*
+===============================
+ask() section: real answers in tabs, and the other LLM methods
+===============================
+The window with the answers is shared with the "Ask the assistant" page:
+partials/ask-window.html, styled in extra.css (.sk-ask).
+*/
+
+.sk-home .sec-head .kicker.llm {
+  color: var(--llm-ink);
+}
+
+.sk-home .ask-sec li svg {
+  stroke: var(--llm-ink);
+}
+
+.sk-home .ask-fig {
+  margin: 0;
+  min-width: 0;
+}
+
+.sk-home .ask-fig figcaption {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.sk-home .ask-fig figcaption code {
+  font-size: 0.95em;
+}
+
+.sk-home .ways.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 48px;
+}
+
+.sk-home .way.llm .tagline {
+  color: var(--llm-ink);
+}
+
+.sk-home .way p {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.sk-home .way p code {
+  font-size: 0.95em;
+}
+
+@media (max-width: 1020px) {
+  .sk-home .ways.two {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 32px;
+  }
+}
+
+/*
+===============================
+Team (component in partials/team.html, base styles in extra.css)
+===============================
+*/
+
+.sk-home .team {
+  margin-top: 56px;
+}
+
+.sk-home .team-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+}
+
+.sk-home .team-head h3 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.sk-home .team-head a {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* On the home page the two cards line up with the two columns above them
+   (same grid and gap as .backed) and are larger than on the More pages. */
+.sk-home .sk-team {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 48px;
+  margin: 20px 0 0;
+}
+
+.sk-home .sk-person {
+  max-width: none;
+  gap: 22px;
+  padding: 22px 24px;
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.sk-home .sk-person__photo {
+  width: 88px;
+  height: 88px;
+}
+
+.sk-home .sk-person__name {
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--heading);
+}
+
+.sk-home .sk-person__role {
+  font-size: 14.5px;
+}
+
+.sk-home .sk-person__links {
+  margin-top: 10px;
+}
+
+@media (max-width: 1020px) {
+  .sk-home .sk-team {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sk-home .sk-person {
+    padding: 18px;
+    gap: 16px;
+  }
+
+  .sk-home .sk-person__photo {
+    width: 64px;
+    height: 64px;
+  }
+}
+
 
 /*
 ===============================
