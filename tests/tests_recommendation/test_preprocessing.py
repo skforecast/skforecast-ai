@@ -231,6 +231,76 @@ def test_derive_steps_handle_categorical_exog_reason_per_forecaster(
     assert not_expected not in reason
 
 
+def test_derive_steps_no_handle_categorical_exog_when_baseline():
+    """
+    Test that no handle_categorical_exog step is added for the baseline,
+    which uses no exogenous variables at all.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["holiday"],
+        categorical_exog=["holiday"],
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(profile, "ForecasterEquivalentDate")
+    actions = [s.action for s in steps]
+
+    assert "handle_categorical_exog" not in actions
+
+
+@pytest.mark.parametrize(
+    "missing_target, missing_exog, has_gaps, expected_actions",
+    [
+        ({"y": 3}, {}, False, ["handle_missing_values"]),
+        ({}, {}, True, ["handle_missing_values"]),
+        ({}, {"holiday": 2}, False, []),
+    ],
+    ids=lambda value: f"{value}",
+)
+def test_derive_steps_handle_missing_values_when_baseline(
+    missing_target, missing_exog, has_gaps, expected_actions
+):
+    """
+    Test that the baseline gets its own missing-values advice (impute the
+    target) when the target has missing values or missing timestamps, and
+    none for missing exogenous values, which it does not use.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["holiday"],
+        missing_target=missing_target,
+        missing_exog=missing_exog,
+        has_gaps=has_gaps,
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(profile, "ForecasterEquivalentDate")
+
+    assert [s.action for s in steps] == expected_actions
+    if expected_actions:
+        assert steps[0] == PreprocessingStep(
+            action="handle_missing_values",
+            reason=(
+                "Impute the missing target values before training. "
+                "ForecasterEquivalentDate repeats past values, so a missing "
+                "value at an equivalent date becomes a missing prediction and "
+                "the metrics cannot be computed."
+            ),
+            code_snippet=(
+                "# Impute missing target values, for example:\n"
+                "# data[target] = data[target].interpolate()"
+            ),
+            blocking=False,
+        )
+
+
 def test_derive_steps_handle_gaps_is_non_blocking():
     profile = DataProfile(
         series_lengths={"y": 100},

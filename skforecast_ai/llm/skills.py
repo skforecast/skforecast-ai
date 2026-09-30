@@ -52,6 +52,7 @@ _TASK_TYPE_SKILLS: dict[str | None, list[str]] = {
     "multivariate": ["choosing-a-forecaster", "forecasting-multiple-series"],
     "statistical": ["statistical-models"],
     "foundation": ["foundation-forecasting"],
+    "baseline": ["baseline-forecasting"],
     None: ["choosing-a-forecaster"],
 }
 
@@ -223,7 +224,7 @@ def load_llms_reference() -> str:
 
 
 def select_skills(
-    task_type: str | None,
+    task_type: str | list[str] | None,
     question: str,
     token_budget: int | None = None,
 ) -> list[str]:
@@ -233,7 +234,8 @@ def select_skills(
     Uses a two-step strategy:
 
     1. **Profile-based**: resolve base skills from the forecaster's
-       `task_type` using a deterministic routing table.
+       `task_type` using a deterministic routing table. Several task types
+       (for example the profile's and the plan's) add up their skills.
     2. **Keyword augmentation**: scan the user question for topic
        keywords and append matching skills.
 
@@ -242,9 +244,11 @@ def select_skills(
 
     Parameters
     ----------
-    task_type : str, None
+    task_type : str, list of str, None
         The forecasting task category from `ForecastingProfile.task_type`
-        (e.g., `'single_series'`, `'statistical'`). If None, falls
+        or `ForecastPlan.task_type` (e.g., `'single_series'`,
+        `'statistical'`, `'baseline'`), or a list of them whose base
+        skills are combined in order. If None or an empty list, falls
         back to a minimal general-purpose skill set.
     question : str
         The user's natural-language question.
@@ -259,7 +263,12 @@ def select_skills(
     skills : list of str
         Ordered list of skill names to load.
     """
-    base = list(_TASK_TYPE_SKILLS.get(task_type, _TASK_TYPE_SKILLS[None]))
+    task_types = task_type if isinstance(task_type, list) else [task_type]
+    base: list[str] = []
+    for key in task_types or [None]:
+        for skill_name in _TASK_TYPE_SKILLS.get(key, _TASK_TYPE_SKILLS[None]):
+            if skill_name not in base:
+                base.append(skill_name)
 
     augmented: list[str] = []
     for pattern, skill_name in _KEYWORD_SKILLS:

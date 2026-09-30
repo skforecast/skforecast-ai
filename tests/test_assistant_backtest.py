@@ -231,3 +231,33 @@ def test_backtest_ValueError_when_estimator_differs_from_plan():
             plan=plan,
             show_progress=False,
         )
+
+
+def test_backtest_output_when_baseline_plan():
+    """
+    Test that backtest() runs a ForecasterEquivalentDate plan and reports
+    the error of the seasonal naive baseline on a linear series (7 per step).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    result = assistant.backtest(
+        data=df_single,
+        cv=TimeSeriesFold(steps=5, initial_train_size=70, verbose=False),
+        profile=profile,
+        plan=plan,
+        show_progress=False,
+    )
+
+    expected_metrics = pd.DataFrame(
+        {
+            "mean_absolute_error": [7.0],
+            "mean_squared_error": [49.0],
+            "mean_absolute_scaled_error": [7.0],
+        }
+    )
+    assert isinstance(result, BacktestResult)
+    pd.testing.assert_frame_equal(result.metrics, expected_metrics)
+    assert "backtesting_forecaster(" in result.code
+

@@ -420,6 +420,43 @@ def test_create_cv_output_when_statistical_floor():
     assert cv.initial_train_size == "2023-03-11"
 
 
+def test_create_cv_output_when_baseline_floor():
+    """
+    Test that a baseline plan uses 2 * steps as floor when its window
+    (`offset * n_offsets`) is shorter than one horizon.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, forecaster="ForecasterEquivalentDate"
+    )
+
+    cv = assistant.create_cv(profile, plan).cv
+
+    # offset = 7, floor = max(7 + 10, 2*10) = 20, 70% of 100 = 70.
+    # ceiling = 100 - 2*10 = 80. So initial_train_size = 70.
+    # Date at index 69 = 2023-01-01 + 69 days = 2023-03-11.
+    assert cv.initial_train_size == "2023-03-11"
+
+
+def test_create_cv_output_when_floor_by_baseline_window():
+    """
+    Test that the initial_train_size floor of a baseline plan is
+    `offset * n_offsets + steps`, so every fold finds its equivalent dates.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_short, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=1, forecaster="ForecasterEquivalentDate")
+
+    plan.forecaster_kwargs["offset"] = 20  # floor = 20 * 1 + 1 = 21
+
+    cv = assistant.create_cv(profile, plan).cv
+
+    # With 25 obs, 70% = 17. Floor = 21 (> 17). Ceiling = 25 - 2*1 = 23.
+    # So initial_train_size = 21. Date at index 20 = 2023-01-21.
+    assert cv.initial_train_size == "2023-01-21"
+
+
 def test_create_cv_output_when_differentiation_set():
     """
     Test that differentiation flows from plan.forecaster_kwargs to the

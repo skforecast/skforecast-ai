@@ -359,7 +359,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 
 ## compare
 
-Compare several forecaster configurations with the same cross-validation strategy and report a metric-ranked leaderboard. Chains profile → plan → create_cv → backtest for each candidate. When `--candidates` is omitted, the candidates are built automatically from the profile.
+Compare several forecaster configurations with the same cross-validation strategy and report a metric-ranked leaderboard. Chains profile → plan → create_cv → backtest for each candidate. When `--candidates` is omitted, the candidates are built automatically from the profile. For a single series, a seasonal naive baseline (`ForecasterEquivalentDate`) is added as one more ranked row, and the explanation says whether the best configuration beats it; pass `--no-baseline` to leave it out.
 
 ```bash
 URL="https://raw.githubusercontent.com/skforecast/skforecast-datasets/main/data/h2o_exog.csv"
@@ -382,6 +382,9 @@ skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 \
 # Save the winning configuration's script
 skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 \
   --output-code best_script.py
+
+# Leave the seasonal naive baseline out of the leaderboard
+skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 --no-baseline
 
 # JSON output (full serialized ComparisonResult)
 skforecast-ai compare "$URL" --target y --date-column fecha --steps 12 --format json
@@ -528,6 +531,7 @@ skforecast-ai plan "$URL" --target y --date-column fecha --steps 12 --format jso
 | `--window-features` | | Window features as a JSON array, e.g. `'[{"stats": ["mean"], "window_size": 7}]'`; `auto` re-runs the deterministic selection when refining a saved plan | `plan`, `refine-plan`, `forecast-code`, `backtest-code` |
 | `--candidates` | | Candidate configurations as a JSON array of `[name, config]` pairs | `compare` |
 | `--metric` | | Metric(s) to compute, comma-separated; the first ranks the leaderboard | `compare` |
+| `--baseline` / `--no-baseline` | | Add a seasonal naive baseline (`ForecasterEquivalentDate`) to the leaderboard (default: added, single series only) | `compare` |
 
 ### Cross-validation / backtest
 

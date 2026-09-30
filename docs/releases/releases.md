@@ -11,6 +11,44 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-docs">Docs</span>               | Documentation improvement             |
 
 
+## 0.4.0 <small>In development</small> { id="0.4.0" }
+
+
+**Added**
+
++ <span class="badge text-bg-feature">Feature</span> [<code>ForecastingAssistant.compare()</code>][assistant] adds a baseline to the leaderboard: a seasonal naive `ForecasterEquivalentDate` that repeats the value observed one seasonal period earlier (the period `ForecasterStats` also uses: 7 steps for daily data, 24 for hourly, 96 for 15-minute data, 12 for monthly), or the last observed value (`offset=1`) when the frequency has no seasonal period or one period spans more than a third of the series. It is backtested with the same cross-validation and metrics as the other candidates and ranked like any other row, and the explanation says whether the best configuration beats it and by how much, how many configurations do not, or that none does. A configuration beats the baseline only when its ranking metric is strictly lower: on a tie the baseline ranks first, so a configuration ranked above it always beats it, and a baseline with a NaN or infinite metric is reported as not comparable. The row is named `'Baseline (seasonal naive)'` or `'Baseline (naive)'`, and `ComparisonResult.baseline_name` identifies it. The configuration is fixed rather than searched: a tuned baseline selected on the same folds would stop being a neutral reference. Pass `baseline=False` (`--no-baseline` in the CLI) to leave it out. No baseline is added for multi-series data, which `ForecasterEquivalentDate` cannot forecast, nor when the target has missing values or missing timestamps, which it would repeat as missing predictions; the explanation says why. A `ForecasterEquivalentDate` passed in `candidates` is used as the baseline instead of adding a second one.
+
++ <span class="badge text-bg-feature">Feature</span> `'ForecasterEquivalentDate'` is accepted as `forecaster` in [<code>ForecastingAssistant.plan()</code>][assistant] and everywhere a forecaster can be chosen (`refine_plan()`, `forecast()`, `forecast_code()`, `backtest()`, `backtest_code()`, `compare()` candidates and the CLI `--forecaster`), without an `UnrecommendedForecasterWarning`. The plan has the new task type `'baseline'`, an integer `offset` chosen as above, no estimator and no lag, window or exogenous features, and conformal prediction intervals when an interval is requested. Passing `estimator`, `estimator_kwargs`, `lags` or `window_features` for it raises `ValueError`, and a target with missing values or missing timestamps emits a `UserWarning` and a preprocessing step that advises imputing it. In prediction mode `forecast()` needs no future `exog` for it even when the data has exogenous columns, and passing one raises `ValueError`. The generated scripts use `ForecasterEquivalentDate` and `backtesting_forecaster(..., interval_method='conformal')`.
+
++ <span class="badge text-bg-enhancement">Enhancement</span> [<code>ForecastingAssistant.ask()</code>][assistant] also routes the skills by the task type of the plan in the context, not only by the profile's, so a plan built for `ForecasterStats` or `ForecasterEquivalentDate` loads `statistical-models` or `baseline-forecasting`. A `ComparisonResult` with a baseline row loads `baseline-forecasting` too.
+
+
+**Changed**
+
++ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.compare()</code>][assistant] returns one more row by default (the baseline) and its explanation gains a sentence about it. Code that relies on the number of rows or on the exact explanation text passes `baseline=False` to keep the previous output. A candidate named like the baseline it would add raises `ValueError`.
+
++ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.plan()</code>][assistant] raises `ValueError` when `lags` or `window_features` are passed for `ForecasterStats` or `ForecasterFoundation`, which model the past values themselves. They were silently ignored, so the plan differed from what was asked. The same applies to every method that forwards them to `plan()` (`refine_plan()`, `forecast()`, `forecast_code()`, `backtest()`, `backtest_code()`, `compare()` candidates and the CLI `--lags` and `--window-features`).
+
+
+**Fixed**
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.refine_plan()</code>][assistant] carried the estimator of the previous plan over when switching forecaster family, so an ML plan refined with `forecaster="ForecasterStats"` kept `Ridge` as its estimator. The estimator and its kwargs are now kept only within the ML forecasters or the same family, and the lags and window features only for the ML forecasters; any other value is re-derived. Whether the LLM is called with `prompt` is decided by the forecaster of the refined plan, so switching to `ForecasterStats`, `ForecasterFoundation` or `ForecasterEquivalentDate` ignores the prompt with a `UserWarning` instead of calling the LLM.
+
++ <span class="badge text-bg-danger">Fix</span> In prediction mode [<code>ForecastingAssistant.forecast()</code>][assistant] required a future `exog` whenever the data had exogenous columns, even for a plan with `use_exog=False`. It is now validated against `plan.use_exog`: such a plan needs no future `exog`, and passing one raises `ValueError`.
+
++ <span class="badge text-bg-danger">Fix</span> The plan explanation said "NaN rows kept (NaN-tolerant estimator)" whenever `dropna_from_series` was False, which also happens when no value is missing, so a `Ridge` plan on complete data claimed a NaN-tolerant estimator and `ask()` repeated it. The sentence now appears only when the data has missing values.
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.ask()</code>][assistant] could explain why one `compare()` candidate beat another by describing, with hedged wording, how their strategies differ. The prompt now forbids suggesting any reason for a ranking, hedged or not, and judging whether a margin is meaningful (the per-fold spread is not available), and the comparison context states that the MASE or RMSSE reference is a one-step naive forecast on the training data, not the baseline row, which can itself score below 1.
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.profile()</code>][assistant] left the frequency unknown when the series had missing timestamps, because `pd.infer_freq` needs a gap-free index. Without a frequency the gaps went undetected, the scripts skipped `asfreq()` and every forecaster failed with "`y` has a pandas DatetimeIndex without a frequency". The frequency is now inferred on the stretches between gaps and accepted when every timestamp lies on its grid and at least half of the grid is observed; the profile warns with the number of missing timestamps. Truly irregular spacing still leaves the frequency unknown.
+
++ <span class="badge text-bg-danger">Fix</span> The missing timestamps that `asfreq()` restores as missing values now count as missing values when choosing `dropna_from_series`, so a plan with an estimator that does not tolerate NaN (such as `Ridge`) drops those rows instead of failing with "Input X contains NaN".
+
++ <span class="badge text-bg-danger">Fix</span> `RandomForestRegressor` is treated as NaN-tolerant, as it is since scikit-learn 1.4 (the minimum skforecast requires), so a plan with missing values keeps its rows instead of setting `dropna_from_series=True`. Among the supported estimators, only `Ridge` now drops them.
+
++ <span class="badge text-bg-enhancement">Enhancement</span> For a single series, [<code>ForecastingAssistant.backtest()</code>][assistant], [<code>ForecastingAssistant.compare()</code>][assistant] and the evaluation mode of [<code>ForecastingAssistant.forecast()</code>][assistant] raise `ValueError` before running when a test fold (or the test split) has a missing target value, including the missing timestamps that `asfreq()` restores, and name the dates. skforecast computes single-series metrics without dropping missing values, so these runs failed anyway with "Input contains NaN", in `compare()` once per candidate and whatever the estimator.
+
+
 ## 0.3.1 <small>Sep 11, 2026</small> { id="0.3.1" }
 
 

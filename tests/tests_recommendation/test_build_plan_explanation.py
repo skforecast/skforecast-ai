@@ -11,13 +11,14 @@ from skforecast_ai.recommendation import build_plan_explanation
     [
         ("foundation", "the foundation model forecasts directly from the raw context window"),
         ("statistical", "the statistical model estimates its own autoregressive and seasonal structure"),
+        ("baseline", "the baseline repeats past values and learns nothing from the data"),
     ],
     ids=lambda dt: f"task_type, expected: {dt}",
 )
 def test_build_plan_explanation_states_why_no_lags(task_type, expected):
     """
-    Test that build_plan_explanation states why foundation and statistical
-    plans carry no lag or window features.
+    Test that build_plan_explanation states why foundation, statistical and
+    baseline plans carry no lag or window features.
     """
     explanation = build_plan_explanation(
         forecaster         = "ForecasterFoundation",

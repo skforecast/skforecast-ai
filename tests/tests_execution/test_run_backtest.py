@@ -16,6 +16,7 @@ from .fixtures_execution import (
     df_multi,
     df_short,
     df_single,
+    plan_baseline,
     plan_multi,
     plan_short,
     plan_single,
@@ -280,3 +281,28 @@ def test_run_backtest_short_series_runs_without_error():
     assert np.isfinite(result["metrics"]["mean_absolute_error"].iloc[0])
     assert "pred" in result["predictions"].columns
     assert len(result["predictions"]) == len(df_short) - cv_short.initial_train_size
+
+
+def test_run_backtest_baseline_returns_metrics_and_conformal_intervals():
+    """
+    Test that run_backtest runs the ForecasterEquivalentDate baseline with
+    conformal intervals and returns one metrics row plus the predictions.
+    """
+    result = run_backtest(
+        data           = df_single,
+        profile        = profile_single,
+        plan           = plan_baseline,
+        cv             = cv_single,
+        cv_explanation = cv_explanation_single,
+        show_progress  = False,
+    )
+
+    assert list(result["metrics"].columns) == [
+        "mean_absolute_error",
+        "mean_squared_error",
+        "mean_absolute_scaled_error",
+    ]
+    assert len(result["metrics"]) == 1
+    assert {"pred", "lower_bound", "upper_bound"} <= set(result["predictions"].columns)
+    assert "interval_method   = 'conformal'" in result["rendered_code"].core
+

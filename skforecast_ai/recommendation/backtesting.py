@@ -473,6 +473,15 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
         # Need initial_train_size > window_size, so floor at window + steps
         return effective_window + steps
 
+    if task_type == "baseline":
+        # ForecasterEquivalentDate needs more observations than
+        # `offset * n_offsets` to find every equivalent date.
+        window_size = (
+            plan.forecaster_kwargs.get("offset", 1)
+            * plan.forecaster_kwargs.get("n_offsets", 1)
+        )
+        return max(window_size + steps, 2 * steps)
+
     # statistical, foundation
     return 2 * steps
 

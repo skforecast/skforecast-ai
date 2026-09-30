@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 from .._constants import (
     AUTOREG_FORECASTERS,
+    BASELINE_FORECASTERS,
     DIRECT_FORECASTERS,
     CATEGORICAL_FORECASTERS,
     DROPNA_FORECASTERS,
@@ -50,7 +51,7 @@ def select_transformer_series(
     Source: `skforecast_ai/skills/feature-engineering/SKILL.md`,
     `skforecast_ai/skills/forecasting-single-series/SKILL.md`.
     """
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
     if estimator is None:
         return None
@@ -98,7 +99,7 @@ def select_transformer_exog(
     building the appropriate `ColumnTransformer` that leaves categorical
     columns untouched.
     """
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
     if estimator is None:
         return None
@@ -118,6 +119,7 @@ def select_dropna_from_series(
     missing_target: dict[str, int],
     missing_exog: dict[str, int],
     task_type: str,
+    has_gaps: bool = False,
 ) -> bool | None:
     """
     Determine whether to drop NaN rows from training matrices.
@@ -132,6 +134,9 @@ def select_dropna_from_series(
         Mapping of exogenous column name to count of missing values.
     task_type : str
         Forecasting task category.
+    has_gaps : bool, default False
+        Whether the index has missing timestamps. `asfreq()` inserts them
+        as rows with missing values, so they count as missing values.
 
     Returns
     -------
@@ -146,9 +151,9 @@ def select_dropna_from_series(
     `skforecast_ai/resources/llms-base.txt` (NaN handling section).
     """
 
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
-    has_missing = bool(missing_target) or bool(missing_exog)
+    has_missing = bool(missing_target) or bool(missing_exog) or has_gaps
     if not has_missing:
         return False
     if estimator in NAN_TOLERANT_ESTIMATORS:
@@ -229,7 +234,7 @@ def build_forecaster_kwargs(
     -----
     Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md`.
     """
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return {}
 
     kwargs: dict[str, Any] = {}
@@ -354,7 +359,26 @@ def derive_preprocessing_steps(
         ))
 
     # --- Missing values ---
-    if profile.missing_target or profile.missing_exog:
+    if forecaster in BASELINE_FORECASTERS:
+        # The baseline ignores the exogenous variables and has neither
+        # `dropna_from_series` nor an estimator, so only imputing the target
+        # helps.
+        if profile.missing_target or profile.has_gaps:
+            steps.append(PreprocessingStep(
+                action="handle_missing_values",
+                reason=(
+                    "Impute the missing target values before training. "
+                    "ForecasterEquivalentDate repeats past values, so a "
+                    "missing value at an equivalent date becomes a missing "
+                    "prediction and the metrics cannot be computed."
+                ),
+                code_snippet=(
+                    "# Impute missing target values, for example:\n"
+                    "# data[target] = data[target].interpolate()"
+                ),
+                blocking=False,
+            ))
+    elif profile.missing_target or profile.missing_exog:
         steps.append(PreprocessingStep(
             action="handle_missing_values",
             reason=(
@@ -371,7 +395,8 @@ def derive_preprocessing_steps(
         ))
 
     # --- Categorical exogenous variables ---
-    if profile.categorical_exog:
+    # The baseline uses no exogenous variables, so there is nothing to encode.
+    if profile.categorical_exog and forecaster not in BASELINE_FORECASTERS:
         detected = (
             f"Categorical exogenous variables detected: "
             f"{profile.categorical_exog}."

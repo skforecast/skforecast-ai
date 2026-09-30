@@ -16,7 +16,12 @@ if sys.version_info >= (3, 12):
 else:
     from typing_extensions import Unpack
 from skforecast.model_selection import TimeSeriesFold
-from ._constants import FORECASTER_TASK_TYPES, OLLAMA_MAX_CONTEXT_TOKENS
+from ._constants import (
+    AUTOREG_FORECASTERS,
+    BASELINE_FORECASTERS,
+    FORECASTER_TASK_TYPES,
+    OLLAMA_MAX_CONTEXT_TOKENS,
+)
 from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
@@ -28,6 +33,7 @@ from .exceptions import (
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
 from .execution.comparison import (
+    add_baseline_candidate,
     aggregate_metrics,
     build_comparison_explanation,
     build_comparison_table,
@@ -51,6 +57,7 @@ from .llm.runtime import run_agent_sync
 from .profiling import create_data_profile, resolve_end_train
 from .recommendation import (
     _build_profile_explanation,
+    baseline_missing_values_note,
     build_cv,
     build_plan_explanation,
     build_forecaster_kwargs,
@@ -60,6 +67,7 @@ from .recommendation import (
     derive_preprocessing_steps,
     finalize_lags,
     resolve_cv_config,
+    select_baseline_config,
     select_calendar_encoding,
     select_calendar_features,
     select_dropna_from_series,
@@ -88,6 +96,7 @@ from .schemas import (
     RefinePlanOverrides,
 )
 from ._utils import (
+    _check_evaluated_target,
     _resolve_data_and_target,
     _resolve_inputs_with_profile,
     _strip_code_blocks,
@@ -341,6 +350,11 @@ class ForecastingAssistant:
             `profile.forecaster_candidates` but is a supported
             forecaster, it is used anyway and an
             `UnrecommendedForecasterWarning` is issued.
+            `'ForecasterEquivalentDate'` builds a seasonal naive baseline
+            (single series only) without that warning: it is a reference
+            to compare against, not a recommendation. Its offset is
+            chosen from the frequency, and it takes no `estimator`,
+            `estimator_kwargs`, `lags` or `window_features`.
         estimator : str, default None
             Explicit estimator class name to override the profile
             recommendation (e.g. `'HistGradientBoostingRegressor'`).
@@ -351,7 +365,10 @@ class ForecastingAssistant:
             flags). User values take precedence.
         lags : int, list of int, default None
             Explicit lag configuration. If provided, bypasses the
-            deterministic PACF-based lag selection.
+            deterministic PACF-based lag selection. Only the ML forecasters
+            take lags: passing them for `ForecasterStats`,
+            `ForecasterFoundation` or `ForecasterEquivalentDate` raises
+            `ValueError`.
         window_features : list of dict, default None
             Explicit window (rolling) features configuration. Each dict
             must contain the keys `'stats'` (a list of rolling statistics)
@@ -363,19 +380,32 @@ class ForecastingAssistant:
             `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`,
             `'ratio_min_max'`, `'coef_variation'`, and `'ewm'`. If
             provided, bypasses the deterministic window feature selection.
-            deterministic window feature selection.
+            Like `lags`, raises `ValueError` for a forecaster without
+            window features.
 
         Returns
         -------
         plan : ForecastPlan
             Detailed forecasting plan.
+
+        Raises
+        ------
+        ValueError
+            If `forecaster` is not supported, if the input does not fit its
+            task type, or if an argument does not apply to it: `lags` and
+            `window_features` for `ForecasterStats`, `ForecasterFoundation`
+            and `ForecasterEquivalentDate`, and also `estimator` and
+            `estimator_kwargs` for `ForecasterEquivalentDate`.
         """
 
         data_profile = profile.data_profile
 
         fc = profile.forecaster
         if forecaster is not None:
-            if forecaster not in profile.forecaster_candidates:
+            if (
+                forecaster not in profile.forecaster_candidates
+                and forecaster not in BASELINE_FORECASTERS
+            ):
                 if forecaster not in FORECASTER_TASK_TYPES:
                     raise ValueError(
                         f"Forecaster '{forecaster}' is not compatible with this "
@@ -398,6 +428,42 @@ class ForecastingAssistant:
         # series of different lengths).
         _validate_task_input(data_profile, task_type)
 
+        # Arguments the forecaster has no use for are rejected rather than
+        # silently ignored, so the plan never differs from what was asked.
+        if task_type in ("statistical", "foundation", "baseline"):
+            inapplicable = [("lags", lags), ("window_features", window_features)]
+            if task_type == "baseline":
+                inapplicable = [
+                    ("estimator", estimator),
+                    ("estimator_kwargs", estimator_kwargs),
+                    *inapplicable,
+                ]
+                reason = (
+                    "is a baseline that repeats past values: it has no "
+                    "estimator and no lag or window features"
+                )
+            else:
+                reason = (
+                    "models the past values itself: it takes no lag or "
+                    "window features"
+                )
+            given = [name for name, value in inapplicable if value is not None]
+            if given:
+                raise ValueError(
+                    f"'{fc}' {reason}, so {given} cannot be applied. Omit them."
+                )
+
+        if task_type == "baseline":
+            missing_note = baseline_missing_values_note(data_profile)
+            if missing_note is not None:
+                warnings.warn(
+                    f"'{fc}' cannot handle missing values: {missing_note}. "
+                    f"Impute the target before fitting, or the predictions "
+                    f"and metrics will contain missing values.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
         n_obs_total = data_profile.n_total_observations
 
         # Recompute the estimator only when the task type changed.
@@ -412,7 +478,8 @@ class ForecastingAssistant:
         if estimator is not None:
             est = estimator
 
-        if task_type in ("statistical", "foundation"):
+        baseline_explanation = None
+        if task_type in ("statistical", "foundation", "baseline"):
             final_lags = None
             final_window_features = None
             transformer_series = None
@@ -479,6 +546,7 @@ class ForecastingAssistant:
                 missing_target   = data_profile.missing_target,
                 missing_exog     = data_profile.missing_exog,
                 task_type        = task_type,
+                has_gaps         = data_profile.has_gaps,
             )
 
         forecaster_kwargs = build_forecaster_kwargs(
@@ -493,9 +561,19 @@ class ForecastingAssistant:
             dropna_from_series = dropna_from_series
         )
 
+        if task_type == "baseline":
+            forecaster_kwargs, baseline_explanation = select_baseline_config(
+                data_profile
+            )
+
         interval_method = resolve_interval_method(task_type, interval)
 
-        use_exog = check_exog_usage(data_profile.exog_columns)
+        # The baseline cannot take exogenous variables; the explanation says
+        # they are left out.
+        use_exog = (
+            task_type != "baseline"
+            and check_exog_usage(data_profile.exog_columns)
+        )
 
         preprocessing_steps = derive_preprocessing_steps(data_profile, fc)
 
@@ -503,18 +581,34 @@ class ForecastingAssistant:
             data_profile = data_profile,
         )
 
+        # `dropna_from_series=False` also means that no value is missing
+        # (missing timestamps become missing values after `asfreq()`), and
+        # then there is no NaN handling to explain: saying the rows are kept
+        # because the estimator tolerates NaN would be wrong for Ridge.
+        has_missing = (
+            bool(data_profile.missing_target)
+            or bool(data_profile.missing_exog)
+            or data_profile.has_gaps
+        )
         explanation = build_plan_explanation(
             forecaster         = fc,
             estimator          = est,
             lags               = final_lags,
             window_features    = final_window_features,
             interval_method    = interval_method,
-            dropna_from_series = dropna_from_series,
+            dropna_from_series = dropna_from_series if has_missing else None,
             use_exog           = use_exog,
             metric_explanation = metric_explanation,
             calendar_features  = calendar_features,
             task_type          = task_type,
         )
+        if baseline_explanation is not None:
+            explanation = f"{explanation} {baseline_explanation}"
+            if data_profile.exog_columns:
+                explanation += (
+                    f" Exogenous variables {data_profile.exog_columns} are "
+                    f"not used: the baseline only repeats past target values."
+                )
 
         return ForecastPlan(
             task_type           = task_type,
@@ -566,7 +660,12 @@ class ForecastingAssistant:
         Note that `lags` and `window_features` default to the values
         already stored in `plan.forecaster_kwargs`, so refining an
         unrelated field (e.g. `steps`) preserves the existing features
-        rather than re-running the PACF-based selection. The
+        rather than re-running the PACF-based selection. A value the new
+        forecaster cannot use is not carried over: switching to a
+        forecaster without lags (`ForecasterStats`, `ForecasterFoundation`,
+        `ForecasterEquivalentDate`) drops `lags` and `window_features`, and
+        switching to another forecaster family drops `estimator` and
+        `estimator_kwargs`, which are then re-derived. The
         `llm_refined_fields` marks of the original plan are kept for the
         fields whose value is carried over unchanged. The `end_train` split
         boundary is not kept: a refined plan starts in prediction mode, so
@@ -577,9 +676,10 @@ class ForecastingAssistant:
         each shadowed field, and a note recording the overridden field(s) is
         appended to the explanation). When both are supplied explicitly, the
         LLM has nothing left to decide and is not called. LLM mode does not
-        apply to `task_type` in `('statistical', 'foundation')`, which do not
-        use lags or window features; the prompt is ignored with a
-        `UserWarning`. When the agent omits a field, or the LLM call fails or
+        apply when the refined plan's `task_type` is `'statistical'`,
+        `'foundation'` or `'baseline'`, which do not use lags or window
+        features; the prompt is ignored with a `UserWarning` and the LLM is
+        not called. When the agent omits a field, or the LLM call fails or
         its suggestion is invalid (non-positive, duplicated or empty lags,
         malformed window features) or cannot satisfy the data budget, that
         field keeps the plan's existing value (a `UserWarning` is emitted on
@@ -622,6 +722,16 @@ class ForecastingAssistant:
         # field the caller overrode explicitly.
         explicit_keys = set(overrides)
 
+        # The forecaster of the refined plan, not the one of `plan`, decides
+        # whether the LLM has lags and window features to refine and which
+        # values of `plan` still apply.
+        target_forecaster = (
+            overrides.get("forecaster", plan.forecaster) or profile.forecaster
+        )
+        target_task_type = FORECASTER_TASK_TYPES.get(
+            target_forecaster, plan.task_type
+        )
+
         reasoning = None
         shadowed_fields: list[str] = []
         llm_applied_fields: list[str] = []
@@ -629,10 +739,10 @@ class ForecastingAssistant:
             if self.llm is None:
                 raise LLMRequiredError("refine_plan")
 
-            if plan.task_type in ("statistical", "foundation"):
+            if target_task_type in ("statistical", "foundation", "baseline"):
                 warnings.warn(
                     f"LLM plan refinement does not apply to task_type "
-                    f"'{plan.task_type}' (no lags/window_features to refine). "
+                    f"'{target_task_type}' (no lags/window_features to refine). "
                     f"Ignoring prompt.",
                     UserWarning,
                     stacklevel=2,
@@ -696,13 +806,35 @@ class ForecastingAssistant:
                             overrides[field] = value
                             llm_applied_fields.append(field)
 
+        # A value of `plan` is carried over only when the new forecaster can
+        # use it: lags and window features only by the autoregressive
+        # forecasters, an estimator only within its own family (an ML
+        # regressor is not an ARIMA order, and the baseline has none).
+        # Explicit overrides always reach `self.plan()`, which validates them.
+        inherits_features = target_forecaster in AUTOREG_FORECASTERS
+        inherits_estimator = target_task_type == plan.task_type or (
+            inherits_features and plan.forecaster in AUTOREG_FORECASTERS
+        )
+        inherited_estimator = plan.estimator if inherits_estimator else None
+        inherited_estimator_kwargs = (
+            (plan.estimator_kwargs or None) if inherits_estimator else None
+        )
+        inherited_lags = (
+            plan.forecaster_kwargs.get("lags") if inherits_features else None
+        )
+        inherited_window_features = (
+            plan.forecaster_kwargs.get("window_features")
+            if inherits_features
+            else None
+        )
+
         steps = overrides.get("steps", plan.steps)
         forecaster = overrides.get("forecaster", plan.forecaster)
-        estimator = overrides.get("estimator", plan.estimator)
-        estimator_kwargs = overrides.get("estimator_kwargs", plan.estimator_kwargs or None)
+        estimator = overrides.get("estimator", inherited_estimator)
+        estimator_kwargs = overrides.get("estimator_kwargs", inherited_estimator_kwargs)
         interval = overrides.get("interval", plan.interval)
-        lags = overrides.get("lags", plan.forecaster_kwargs.get("lags"))
-        window_features = overrides.get("window_features", plan.forecaster_kwargs.get("window_features"))
+        lags = overrides.get("lags", inherited_lags)
+        window_features = overrides.get("window_features", inherited_window_features)
 
         refined_plan = self.plan(
             profile          = profile,
@@ -869,6 +1001,9 @@ class ForecastingAssistant:
             Explicit lag configuration. An integer uses lags 1 to `lags`;
             a list uses the specified lags. When None, lags are selected
             automatically from the partial autocorrelation of the series.
+            Raises `ValueError` for a forecaster without lags
+            (`ForecasterStats`, `ForecasterFoundation`,
+            `ForecasterEquivalentDate`).
         window_features : list of dict, default None
             Explicit window (rolling) features configuration. Each dict
             must contain the keys `'stats'` (a list of rolling statistics)
@@ -1050,6 +1185,9 @@ class ForecastingAssistant:
             Explicit lag configuration. An integer uses lags 1 to `lags`;
             a list uses the specified lags. When None, lags are selected
             automatically from the partial autocorrelation of the series.
+            Raises `ValueError` for a forecaster without lags
+            (`ForecasterStats`, `ForecasterFoundation`,
+            `ForecasterEquivalentDate`).
         window_features : list of dict, default None
             Explicit window (rolling) features configuration. Each dict
             must contain the keys `'stats'` (a list of rolling statistics)
@@ -1120,6 +1258,14 @@ class ForecastingAssistant:
             plan             = plan,
             require_exog     = True,
         )
+
+        if plan.end_train is not None:
+            _check_evaluated_target(
+                data         = data_df,
+                data_profile = profile.data_profile,
+                end_train    = plan.end_train,
+                steps        = plan.steps,
+            )
 
         result = run_forecast(
             data    = data_df,
@@ -1593,6 +1739,12 @@ class ForecastingAssistant:
             plan             = plan,
         )
 
+        _check_evaluated_target(
+            data         = data_df,
+            data_profile = profile.data_profile,
+            cv           = cv,
+        )
+
         # Resolved CV parameters (with the fold count) and their explanation.
         cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
 
@@ -1627,6 +1779,7 @@ class ForecastingAssistant:
         interval: list[float] | None = None,
         profile: ForecastingProfile | None = None,
         show_progress: bool = True,
+        baseline: bool = True,
     ) -> ComparisonResult:
         """
         Compare several forecaster configurations on the same data.
@@ -1696,6 +1849,17 @@ class ForecastingAssistant:
             profile across candidates.
         show_progress : bool, default True
             Whether to display a progress bar across candidates.
+        baseline : bool, default True
+            Whether to add a `ForecasterEquivalentDate` baseline (seasonal
+            naive, or naive when no seasonal period applies) as one more
+            row, ranked like the other candidates. The explanation states
+            whether the best configuration beats it and by how much. It is
+            not added for multi-series data, which it cannot forecast, nor
+            when the target has missing values or missing timestamps, which
+            it would repeat as missing predictions (the explanation says
+            why), nor when `candidates` already contains a
+            `ForecasterEquivalentDate` (that candidate is then the
+            baseline).
 
         Returns
         -------
@@ -1716,6 +1880,7 @@ class ForecastingAssistant:
             describing why it failed. Empty when all candidates succeed.
             - ranking_metric: name of the metric used to sort `results`.
             - explanation: human-readable summary of the comparison.
+            - baseline_name: name of the baseline candidate, or None.
             - best_name: name of the top-ranked candidate.
             - best_candidate: top-ranked candidate as a `BacktestResult`.
 
@@ -1726,9 +1891,9 @@ class ForecastingAssistant:
             available on the `failures` attribute of the raised error.
         ValueError
             If `metric` is an empty list, or if `candidates` is empty,
-            contains a malformed entry, repeats a name, or mixes forecaster
+            contains a malformed entry, repeats a name, mixes forecaster
             families whose metrics are not comparable (multi-series with
-            multivariate).
+            multivariate), or uses the name reserved for the baseline.
 
         Warns
         -----
@@ -1767,6 +1932,20 @@ class ForecastingAssistant:
             )
 
         candidate_configs = resolve_compare_candidates(candidates, profile)
+
+        # Checked once here: every candidate would fail on the same dates.
+        _check_evaluated_target(
+            data         = data_df,
+            data_profile = profile.data_profile,
+            cv           = cv,
+        )
+
+        baseline_name = None
+        baseline_note = None
+        if baseline:
+            candidate_configs, baseline_name, baseline_note = (
+                add_baseline_candidate(candidate_configs, profile)
+            )
 
         # Resolve the ranking metric and the metric columns once, so the
         # table is consistent across candidates regardless of which ones
@@ -1863,13 +2042,17 @@ class ForecastingAssistant:
             rows           = rows,
             metric_columns = metric_columns,
             any_error      = bool(failures),
+            baseline_name  = baseline_name,
         )
 
         # Order the successful candidates using the same
-        # ascending-with-NaN-last, stable ordering as the results table, so
-        # the mapping iterates best to worst and its first entry is the
-        # winner reported by `best_name` / `best_candidate`.
-        ranked_sorted = sorted(ranked, key=compare_sort_key)
+        # ascending-with-NaN-last, stable ordering as the results table
+        # (the baseline wins ties), so the mapping iterates best to worst
+        # and its first entry is the winner reported by `best_name` /
+        # `best_candidate`.
+        ranked_sorted = sorted(
+            ranked, key=lambda item: compare_sort_key(item, baseline_name)
+        )
         if not ranked_sorted:
             raise AllCandidatesFailedError(failures)
         candidate_results = {name: bt for name, bt, _ in ranked_sorted}
@@ -1880,6 +2063,8 @@ class ForecastingAssistant:
             ranking_metric = ranking_metric,
             any_error      = bool(failures),
             cv_explanation = cv_explanation,
+            baseline_name  = baseline_name,
+            baseline_note  = baseline_note,
         )
 
         return ComparisonResult(
@@ -1890,6 +2075,7 @@ class ForecastingAssistant:
             failures       = failures,
             ranking_metric = ranking_metric,
             explanation    = explanation,
+            baseline_name  = baseline_name,
         )
 
     def ask(
@@ -2090,11 +2276,21 @@ class ForecastingAssistant:
         # --- Dynamic skill selection when not explicitly provided ---
         resolved_skills = skills
         if resolved_skills is None:
-            task_type = (
-                profile.task_type
-                if profile is not None
-                else None
-            )
+            # The profile gives the data's task type, the plan the one of
+            # the forecaster actually used (a statistical model or the
+            # baseline chosen over the recommendation). A comparison also
+            # ranks its baseline, which the winner's plan does not show.
+            task_types: list[str] = []
+            if profile is not None:
+                task_types.append(profile.task_type)
+            if plan is not None and plan.task_type not in task_types:
+                task_types.append(plan.task_type)
+            if (
+                isinstance(context, ComparisonResult)
+                and context.baseline_name is not None
+                and "baseline" not in task_types
+            ):
+                task_types.append("baseline")
             # Budget the skills against the space the context block has
             # already taken. Only local models expose a context window
             # known up front; hosted windows are provider specific and
@@ -2108,7 +2304,7 @@ class ForecastingAssistant:
                     include_reference  = include_reference,
                 )
             resolved_skills = select_skills(
-                task_type    = task_type,
+                task_type    = task_types,
                 question     = prompt,
                 token_budget = token_budget,
             )
@@ -2361,13 +2557,6 @@ class ForecastingAssistant:
         evaluate = test_size is not None or (
             plan is not None and plan.end_train is not None
         )
-        _validate_forecast_mode(
-            evaluate     = evaluate,
-            exog         = exog,
-            has_exog     = has_exog,
-            steps        = steps,
-            require_exog = require_exog,
-        )
 
         if plan is None:
             plan = self.plan(
@@ -2382,6 +2571,17 @@ class ForecastingAssistant:
             )
         elif interval is not None:
             plan = _apply_interval_to_plan(plan, interval)
+
+        # Validated once the plan is known: whether future `exog` is needed
+        # depends on the plan using it, not only on the data having it.
+        _validate_forecast_mode(
+            evaluate     = evaluate,
+            exog         = exog,
+            has_exog     = has_exog,
+            steps        = steps,
+            require_exog = require_exog,
+            uses_exog    = plan.use_exog,
+        )
 
         # `test_size` is a forecast-only concept, so the split boundary is
         # resolved here rather than in the shared `plan()` method. It is

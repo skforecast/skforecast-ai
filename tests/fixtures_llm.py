@@ -42,6 +42,9 @@ profile_multi = assistant.profile(
 plan_single = assistant.plan(profile_single, steps=5)
 plan_interval = assistant.plan(profile_exog, steps=5, interval=[0.1, 0.9])
 plan_multi = assistant.plan(profile_multi, steps=3)
+plan_baseline = assistant.plan(
+    profile_single, steps=5, forecaster="ForecasterEquivalentDate"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +276,12 @@ def make_backtest_result(
     )
 
 
-def make_comparison_result(*, n_candidates: int = 2, with_failure: bool = False):
+def make_comparison_result(
+    *,
+    n_candidates: int = 2,
+    with_failure: bool = False,
+    with_baseline: bool = False,
+):
     """
     Build a `ComparisonResult` without backtesting any candidate.
 
@@ -288,6 +296,9 @@ def make_comparison_result(*, n_candidates: int = 2, with_failure: bool = False)
     with_failure : bool, default False
         Whether to append one failed candidate to `failures` and to the
         leaderboard.
+    with_baseline : bool, default False
+        Whether to append a `ForecasterEquivalentDate` baseline, ranked
+        after the other successful candidates, and set `baseline_name`.
 
     Returns
     -------
@@ -316,6 +327,28 @@ def make_comparison_result(*, n_candidates: int = 2, with_failure: bool = False)
             "estimator":  "Ridge",
             "MAE":        mae,
         })
+
+    baseline_name = None
+    if with_baseline:
+        baseline_name = "Baseline (seasonal naive)"
+        mae = 1.5 + n_candidates
+        candidates[baseline_name] = BacktestResult(
+            profile     = profile_single,
+            plan        = plan_baseline,
+            code        = "# baseline code",
+            predictions = pd.DataFrame({"pred": [1.0, 2.0, 3.0, 4.0, 5.0]}),
+            metrics     = pd.DataFrame({"MAE": [mae]}),
+            cv_config   = cv_config,
+            explanation = "Backtest of the baseline.",
+        )
+        rows.append({
+            "rank":       n_candidates + 1,
+            "name":       baseline_name,
+            "forecaster": "ForecasterEquivalentDate",
+            "estimator":  None,
+            "MAE":        mae,
+        })
+        n_candidates += 1
 
     failures = {}
     if with_failure:
@@ -346,6 +379,7 @@ def make_comparison_result(*, n_candidates: int = 2, with_failure: bool = False)
         explanation    = (
             f"Compared {n_candidates} configurations, ranked ascending by MAE."
         ),
+        baseline_name  = baseline_name,
     )
 
 
@@ -385,5 +419,8 @@ GOLDEN_SCENARIOS = {
     "comparison_all_succeeded": lambda: make_comparison_result(),
     "comparison_with_failures": lambda: make_comparison_result(
         with_failure=True
+    ),
+    "comparison_with_baseline": lambda: make_comparison_result(
+        with_baseline=True
     ),
 }

@@ -2,6 +2,7 @@
 
 
 from skforecast_ai.rendering._helpers import (
+    _emit_imports_baseline,
     _emit_imports_foundation,
     _emit_imports_multi_series,
     _emit_imports_single_series,
@@ -10,6 +11,7 @@ from skforecast_ai.rendering._helpers import (
 from skforecast_ai.schemas import ForecastPlan
 
 from .fixtures_rendering import (
+    plan_baseline,
     plan_foundation,
     plan_multi_series,
     plan_multi_series_exog,
@@ -439,3 +441,43 @@ def test_emit_imports_statistical_ordering_model_selection_after_forecaster():
     )
     bt_idx = next(i for i, line in enumerate(lines) if "model_selection" in line)
     assert bt_idx > forecaster_idx
+
+
+# =============================================================================
+# Tests: _emit_imports_baseline
+# =============================================================================
+def test_emit_imports_baseline_output_when_minimal():
+    """
+    Test that a minimal baseline plan emits pandas, ForecasterEquivalentDate
+    and a trailing empty string, without model_selection or sklearn imports.
+    """
+    lines: list[str] = []
+    _emit_imports_baseline(lines, plan_baseline)
+
+    assert lines == [
+        "import pandas as pd",
+        "from skforecast.recursive import ForecasterEquivalentDate",
+        "",
+    ]
+
+
+def test_emit_imports_baseline_output_when_include_metrics_and_backtesting():
+    """
+    Test that include_metrics=True emits the metric imports before the
+    forecaster, and include_backtesting=True emits backtesting_forecaster
+    after it.
+    """
+    lines: list[str] = []
+    _emit_imports_baseline(
+        lines, plan_baseline, include_metrics=True, include_backtesting=True
+    )
+
+    assert lines == [
+        "import pandas as pd",
+        "from sklearn.metrics import mean_absolute_error, mean_squared_error",
+        "from skforecast.metrics import mean_absolute_scaled_error",
+        "from skforecast.recursive import ForecasterEquivalentDate",
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster",
+        "",
+    ]
+

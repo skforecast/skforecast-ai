@@ -344,7 +344,8 @@ class ForecastPlan(DisplayMixin, BaseModel):
         Forecasting task category (mirrored from the source
         `ForecastingProfile`). One of `'single_series'`,
         `'multi_series'`, `'multivariate'`, `'statistical'`,
-        `'foundation'`.
+        `'foundation'`, or `'baseline'` when the plan was built for
+        `ForecasterEquivalentDate`.
     forecaster : str
         Name of the skforecast forecaster class.
     forecaster_kwargs : dict, default {}
@@ -407,6 +408,7 @@ class ForecastPlan(DisplayMixin, BaseModel):
         "multivariate",
         "statistical",
         "foundation",
+        "baseline",
     ]
     forecaster: str
     forecaster_kwargs: dict[str, Any] = Field(default_factory=dict)

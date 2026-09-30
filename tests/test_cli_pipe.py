@@ -768,3 +768,54 @@ class TestPipeComposition:
         assert refine_result.exit_code == 0, refine_result.output
         output = json.loads(refine_result.output)
         assert output["plan"]["steps"] == 5
+
+    def test_baseline_plan_to_forecast_pipe(self, tmp_path):
+        """A baseline plan saved as JSON feeds into forecast --from-plan."""
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "5",
+            "--forecaster", "ForecasterEquivalentDate",
+            "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+        assert json.loads(plan_result.output)["plan"]["task_type"] == "baseline"
+
+        forecast_result = runner.invoke(
+            app,
+            ["forecast", str(csv_file), "--from-plan", "-", "--format", "json", "--quiet"],
+            input=plan_result.output,
+        )
+        assert forecast_result.exit_code == 0, forecast_result.output
+        output = json.loads(forecast_result.output)
+        assert [row["pred"] for row in output["predictions"]] == [
+            93.0, 94.0, 95.0, 96.0, 97.0
+        ]
+
+    def test_refine_plan_to_baseline_pipe(self, tmp_path):
+        """refine-plan --forecaster switches a saved ML plan to the baseline."""
+        csv_file = tmp_path / "data.csv"
+        df_single.to_csv(csv_file, index=False)
+
+        plan_result = runner.invoke(app, [
+            "plan", str(csv_file), "--target", "sales",
+            "--date-column", "date", "--steps", "10",
+            "--format", "json", "--quiet",
+        ])
+        assert plan_result.exit_code == 0, plan_result.output
+
+        refine_result = runner.invoke(
+            app,
+            ["refine-plan", "--from-plan", "-",
+             "--forecaster", "ForecasterEquivalentDate",
+             "--format", "json", "--quiet"],
+            input=plan_result.output,
+        )
+        assert refine_result.exit_code == 0, refine_result.output
+        plan = json.loads(refine_result.output)["plan"]
+        assert plan["task_type"] == "baseline"
+        assert plan["forecaster_kwargs"] == {"offset": 7, "n_offsets": 1}
+        assert plan["estimator"] is None
+

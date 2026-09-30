@@ -320,6 +320,35 @@ def test_render_comparison_overview_section_counts_failures_as_candidates():
     assert "- Winner: winner" in section
 
 
+def test_render_comparison_overview_section_names_the_baseline():
+    """
+    Test that the overview names the baseline and how to read the rows
+    ranked below it, and says nothing about a baseline when there is none.
+    """
+    comparison = make_comparison_result(assistant)
+    with_baseline = comparison.model_copy(update={"baseline_name": "runner_up"})
+
+    assert "- Baseline: runner_up (ForecasterEquivalentDate, repeats past values)." in (
+        render_comparison_overview_section(with_baseline)
+    )
+    assert "Baseline" not in render_comparison_overview_section(comparison)
+
+
+def test_render_plan_section_includes_baseline_offset():
+    """
+    Test that the plan section of a baseline plan states its offset, which
+    is the only setting the baseline has.
+    """
+    baseline_plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterEquivalentDate"
+    )
+
+    section = render_plan_section(baseline_plan)
+
+    assert "- Baseline offset: 7 steps (n_offsets=1)" in section
+    assert "- Estimator" not in section
+
+
 def test_render_failures_section_withholds_tracebacks():
     """
     Test that a failure contributes a one-line summary only. Full

@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
 
@@ -590,3 +591,122 @@ def test_forecast_ValueError_when_neither_steps_nor_plan():
 
     with pytest.raises(ValueError, match="`steps` is required when `plan` is not provided"):
         assistant.forecast(data=df_single, target="sales", date_column="date")
+
+
+def test_forecast_output_when_baseline_plan():
+    """
+    Test that forecast() runs a ForecasterEquivalentDate plan: on a linear
+    series, the seasonal naive baseline (offset 7) repeats the value seven
+    days earlier, so every prediction is off by exactly 7.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    result = assistant.forecast(
+        data=df_single, profile=profile, plan=plan, test_size=5
+    )
+
+    expected_predictions = pd.DataFrame(
+        {"pred": [88.0, 89.0, 90.0, 91.0, 92.0]},
+        index=pd.date_range("2023-04-06", periods=5, freq="D"),
+    )
+    expected_metrics = pd.DataFrame(
+        {"series": ["sales"], "MAE": [7.0], "MSE": [49.0], "MASE": [7.0]}
+    )
+    pd.testing.assert_frame_equal(
+        result.predictions, expected_predictions, check_names=False, check_freq=False
+    )
+    pd.testing.assert_frame_equal(result.metrics, expected_metrics)
+    assert "ForecasterEquivalentDate(" in result.code
+    assert "promo" not in result.code
+
+
+def test_forecast_output_when_baseline_prediction_mode_with_exog_in_data():
+    """
+    Test that forecast() in prediction mode needs no future `exog` for the
+    baseline, even when the data has exogenous columns, because the
+    baseline only repeats past target values.
+    """
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        steps=5,
+        forecaster="ForecasterEquivalentDate",
+    )
+
+    expected_predictions = pd.DataFrame(
+        {"pred": [93.0, 94.0, 95.0, 96.0, 97.0]},
+        index=pd.date_range("2023-04-11", periods=5, freq="D"),
+    )
+    pd.testing.assert_frame_equal(
+        result.predictions, expected_predictions, check_names=False, check_freq=False
+    )
+    assert result.metrics is None
+    assert "exog" not in result.code
+
+
+def test_forecast_ValueError_when_baseline_given_future_exog():
+    """
+    Test that forecast() rejects a future `exog` for the baseline instead of
+    silently ignoring it.
+    """
+    assistant = ForecastingAssistant()
+    future_exog = pd.DataFrame(
+        {"promo": [0.0, 1.0, 0.0, 1.0, 0.0]},
+        index=pd.date_range("2023-04-11", periods=5, freq="D"),
+    )
+
+    err_msg = re.escape(
+        "`exog` was provided but the plan does not use exogenous variables "
+        "(`plan.use_exog` is False). Remove `exog`."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.forecast(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=5,
+            forecaster="ForecasterEquivalentDate",
+            exog=future_exog,
+        )
+
+
+
+def test_forecast_output_when_data_has_missing_timestamps():
+    """
+    Test that forecast() works on a series with missing timestamps: the
+    frequency is inferred despite the gaps, the script restores them with
+    `asfreq()`, and a Ridge plan drops the resulting NaN rows instead of
+    failing on them.
+    """
+    assistant = ForecastingAssistant()
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame(
+        {"date": dates, "sales": np.arange(100, dtype=float)}
+    ).drop(index=[40, 41, 70]).reset_index(drop=True)
+
+    # skforecast reports the rows it drops (from `y_train` and `X_train`)
+    # because of the restored gaps.
+    with pytest.warns(MissingValuesWarning, match="NaNs detected in"):
+        result = assistant.forecast(
+            data        = data,
+            target      = "sales",
+            date_column = "date",
+            steps       = 5,
+            estimator   = "Ridge",
+        )
+
+    assert result.profile.data_profile.frequency == "D"
+    assert result.profile.data_profile.has_gaps is True
+    assert result.plan.forecaster_kwargs["dropna_from_series"] is True
+    assert "data = data.asfreq('D')" in result.code
+    pd.testing.assert_index_equal(
+        result.predictions.index,
+        pd.date_range("2023-04-11", periods=5, freq="D"),
+        check_names=False,
+    )
+    assert not result.predictions["pred"].isna().any()

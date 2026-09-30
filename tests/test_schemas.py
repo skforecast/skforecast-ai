@@ -26,7 +26,7 @@ from tests.fixtures_llm import (
 RESULT_BUILDERS = {
     "ForecastResult":       make_forecast_result,
     "BacktestResult":       make_backtest_result,
-    "ComparisonResult":     make_comparison_result,
+    "ComparisonResult":     lambda: make_comparison_result(with_baseline=True),
     "CodeGenerationResult": make_code_generation_result,
     "CVResult":             make_cv_result,
 }

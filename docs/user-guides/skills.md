@@ -56,14 +56,15 @@ print(ALL_SKILLS)
 
 When `skills` is not passed, `ask()` selects them in three steps.
 
-**1. Base skills from the context.** If `context` carries a profile (a `ForecastingProfile` or any result), its `task_type` picks the foundational skills. Without a context, the general `choosing-a-forecaster` skill is used alone.
+**1. Base skills from the context.** If `context` carries a profile (a `ForecastingProfile` or any result), its `task_type` picks the foundational skills. When the context also carries a plan whose forecaster has another task type (a `ForecasterStats` or `ForecasterEquivalentDate` chosen over the recommendation), the skills of that task type are added, and a `ComparisonResult` with a baseline row adds `baseline-forecasting`. Without a context, the general `choosing-a-forecaster` skill is used alone.
 
-| `profile.task_type` | Base skills |
+| Task type | Base skills |
 |---|---|
 | `single_series` | `choosing-a-forecaster`, `forecasting-single-series` |
 | `multi_series`, `multivariate` | `choosing-a-forecaster`, `forecasting-multiple-series` |
 | `statistical` | `statistical-models` |
 | `foundation` | `foundation-forecasting` |
+| `baseline` | `baseline-forecasting` |
 | no context | `choosing-a-forecaster` |
 
 **2. Keyword augmentation from the question.** The prompt is scanned for topic keywords and the matching skills are added:

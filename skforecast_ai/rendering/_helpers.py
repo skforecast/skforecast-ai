@@ -368,6 +368,23 @@ def _emit_end_train(
     )
 
 
+def _emit_split_dates(lines: list[str]) -> None:
+    """Emit the prints of the train and test date ranges of `data`."""
+    lines.append("print(")
+    lines.append(
+        '    f"Train dates : {data_train.index.min()} --- '
+        '{data_train.index.max()}  (n={len(data_train)})"'
+    )
+    lines.append(")")
+    lines.append("print(")
+    lines.append(
+        '    f"Test dates  : {data_test.index.min()} --- '
+        '{data_test.index.max()}  (n={len(data_test)})"'
+    )
+    lines.append(")")
+    lines.append("")
+
+
 def _emit_future_exog_loading(
     lines: list[str],
     profile: DataProfile,
@@ -781,6 +798,40 @@ def _emit_imports_statistical(
         lines.append(
             "from skforecast.model_selection import "
             "TimeSeriesFold, backtesting_stats"
+        )
+    lines.append("")
+
+
+def _emit_imports_baseline(
+    lines: list[str],
+    plan: ForecastPlan,
+    include_metrics: bool = False,
+    include_backtesting: bool = False,
+) -> None:
+    """Append import lines for baseline (`ForecasterEquivalentDate`) scripts.
+
+    Parameters
+    ----------
+    lines : list of str
+        Output list to append import lines to.
+    plan : ForecastPlan
+        Forecast plan containing metrics_to_compute.
+    include_metrics : bool, default False
+        If True, include metric import lines based on `plan.metrics_to_compute`.
+    include_backtesting : bool, default False
+        If True, append `TimeSeriesFold, backtesting_forecaster` from
+        `skforecast.model_selection` as the last import.
+
+    """
+
+    lines.append("import pandas as pd")
+    if include_metrics:
+        lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    lines.append("from skforecast.recursive import ForecasterEquivalentDate")
+    if include_backtesting:
+        lines.append(
+            "from skforecast.model_selection import "
+            "TimeSeriesFold, backtesting_forecaster"
         )
     lines.append("")
 

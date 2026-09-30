@@ -17,6 +17,7 @@ from ..rendering.single_series import render_forecast_single_series
 from ..rendering.multi_series import render_forecast_multi_series, render_forecast_multivariate
 from ..rendering.statistical import render_forecast_statistical
 from ..rendering.foundation import render_forecast_foundation
+from ..rendering.baseline import render_forecast_baseline
 from ._exec import exec_rendered
 
 _RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript]] = {
@@ -25,6 +26,7 @@ _RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript
     "multivariate": render_forecast_multivariate,
     "statistical": render_forecast_statistical,
     "foundation": render_forecast_foundation,
+    "baseline": render_forecast_baseline,
 }
 
 

@@ -326,15 +326,23 @@ def test_create_data_profile_output_when_target_dtype_categorical():
 # Gaps, duplicates, monotonicity, frequency
 # ---------------------------------------------------------------------------
 def test_create_data_profile_output_when_has_gaps_true():
+    """
+    Test that create_data_profile infers the frequency of a series with
+    missing timestamps, flags the gaps and warns with their count, instead
+    of leaving the frequency unknown.
+    """
     dates = pd.date_range("2023-01-01", periods=100, freq="D")
-    values = np.arange(100, dtype=float)
-    values[10] = np.nan
-    values[20] = np.nan
-    df = pd.DataFrame({"y": values}, index=dates)
+    df = pd.DataFrame({"y": np.arange(100, dtype=float)}, index=dates)
     df_gapped = df.drop(dates[[50, 60, 70]])
-    from skforecast_ai.profiling.data_profile import detect_gaps
-    gapped_index = pd.DatetimeIndex(df_gapped.index)
-    assert detect_gaps(gapped_index, "D") is True
+
+    profile = create_data_profile(df_gapped, target="y")
+
+    assert profile.frequency == "D"
+    assert profile.has_gaps is True
+    assert profile.warnings == [
+        "Missing timestamps: 3 timestamps of frequency 'D' are missing from "
+        "the date range. asfreq() inserts them as rows with missing values."
+    ]
 
 
 def test_create_data_profile_output_when_has_gaps_false():

@@ -13,8 +13,9 @@ from tests.fixtures_assistant import df_multi_long, df_single
     [
         (df_single, {"target": "sales", "date_column": "date"}),
         (df_multi_long, {"target": "value", "date_column": "date", "series_id_column": "series_id"}),
+        (df_single, {"target": "sales", "date_column": "date", "forecaster": "ForecasterEquivalentDate"}),
     ],
-    ids=["single series", "multi series"],
+    ids=["single series", "multi series", "baseline"],
 )
 def test_forecast_workflow_is_deterministic(data, kwargs):
     """
@@ -25,10 +26,11 @@ def test_forecast_workflow_is_deterministic(data, kwargs):
     first = ForecastingAssistant()
     second = ForecastingAssistant()
 
-    profile_1 = first.profile(data=data.copy(), **kwargs)
-    profile_2 = second.profile(data=data.copy(), **kwargs)
-    plan_1 = first.plan(profile_1, steps=5)
-    plan_2 = second.plan(profile_2, steps=5)
+    profile_kwargs = {k: v for k, v in kwargs.items() if k != "forecaster"}
+    profile_1 = first.profile(data=data.copy(), **profile_kwargs)
+    profile_2 = second.profile(data=data.copy(), **profile_kwargs)
+    plan_1 = first.plan(profile_1, steps=5, forecaster=kwargs.get("forecaster"))
+    plan_2 = second.plan(profile_2, steps=5, forecaster=kwargs.get("forecaster"))
     result_1 = first.forecast(data=data.copy(), steps=5, test_size=5, **kwargs)
     result_2 = second.forecast(data=data.copy(), steps=5, test_size=5, **kwargs)
 

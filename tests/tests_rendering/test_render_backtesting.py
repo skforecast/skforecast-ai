@@ -1,6 +1,7 @@
 # Unit test render_backtesting rendering
 
 from skforecast_ai.rendering.backtesting import (
+    render_backtesting_baseline,
     render_backtesting_foundation,
     render_backtesting_multi_series,
     render_backtesting_multivariate,
@@ -11,6 +12,8 @@ from skforecast_ai.schemas import RenderedScript
 
 from .fixtures_rendering import (
     cv_basic,
+    plan_baseline,
+    plan_baseline_with_intervals,
     plan_foundation,
     plan_multi_series,
     plan_multi_series_exog,
@@ -21,6 +24,7 @@ from .fixtures_rendering import (
     profile_multi_long,
     profile_multi_wide,
     profile_multi_wide_exog,
+    profile_single,
     profile_single_mixed_exog,
     profile_single_no_exog,
 )
@@ -482,3 +486,114 @@ def test_render_backtesting_single_series_output_when_no_end_train_needed():
     assert isinstance(result, RenderedScript)
     assert "end_train" not in result.core
     assert "cv = TimeSeriesFold(" in result.core
+
+
+# =============================================================================
+# Tests: render_backtesting_baseline: full script comparison
+# =============================================================================
+def test_render_backtesting_baseline_output_when_seasonal_naive():
+    """
+    Test that render_backtesting_baseline produces the expected full script
+    with backtesting_forecaster and no exogenous variables.
+    """
+    result = render_backtesting_baseline(plan_baseline, profile_single, cv_basic)
+
+    assert isinstance(result, RenderedScript)
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.recursive import ForecasterEquivalentDate\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster (baseline, seasonal naive)\n"
+        "forecaster = ForecasterEquivalentDate(\n"
+        "    offset    = 7,\n"
+        "    n_offsets = 1,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_baseline_output_when_intervals_requested():
+    """
+    Test that render_backtesting_baseline passes the interval together with
+    `interval_method='conformal'`, the only method the baseline supports.
+    """
+    result = render_backtesting_baseline(plan_baseline_with_intervals, profile_single_no_exog, cv_basic)
+
+    assert isinstance(result, RenderedScript)
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.recursive import ForecasterEquivalentDate\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster (baseline, seasonal naive)\n"
+        "forecaster = ForecasterEquivalentDate(\n"
+        "    offset    = 7,\n"
+        "    n_offsets = 1,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    interval          = [0.1, 0.9],\n"
+        "    interval_method   = 'conformal',\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected

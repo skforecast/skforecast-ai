@@ -16,6 +16,35 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Suggested window features: mean(window=3), std(window=3), mean(window=7), mean(window=21)
 - Suggested calendar features: day_of_week, weekend, month
 </profile_decision>
+<comparison_overview>
+- Candidates evaluated: 3
+- Ranking metric: MAE
+- Winner: candidate_01
+- Baseline: Baseline (seasonal naive) (ForecasterEquivalentDate, repeats past values). A candidate beats this naive reference only when it ranks above it (strictly lower MAE; the baseline wins ties). This row is not the reference of MASE or RMSSE: those scale every row, this one included, against the one-step naive forecast on the training data, so the baseline row can also score below 1.
+The ranking is a deterministic ascending sort of the MAE column (lower is better). Do not re-rank the candidates or recompute the table, and do not suggest reasons for the ranking beyond the metric values: the leaderboard reports what happened, not why.
+</comparison_overview>
+<leaderboard>
+Candidates listed: 3 (all shown below).
+   rank                       name                forecaster estimator  MAE
+0     1               candidate_01       ForecasterRecursive     Ridge  1.5
+1     2               candidate_02       ForecasterRecursive     Ridge  2.5
+2     3  Baseline (seasonal naive)  ForecasterEquivalentDate      None  3.5
+</leaderboard>
+<cross_validation>
+Applied identically to every candidate.
+- steps: 5
+- initial_train_size: 70
+- refit: False
+- fixed_train_size: True
+- gap: 0
+- n_folds: 6
+</cross_validation>
+<deterministic_summary>
+Compared 3 configurations, ranked ascending by MAE.
+</deterministic_summary>
+<winning_candidate>
+Name: candidate_01
+Only the winning configuration is detailed below. The other candidates are represented by their leaderboard rows.
 <forecast_plan>
 - Steps: 5
 - Estimator: Ridge
@@ -26,16 +55,5 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 
 Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
 </forecast_plan>
-<evaluation_metrics>
-No evaluation metrics were computed (prediction mode, no ground truth to score against).
-</evaluation_metrics>
-<predictions>
-Total rows: 5 (all shown below).
-                 pred
-2023-04-11  1000.0000
-2023-04-12  1111.1111
-2023-04-13  1250.0000
-2023-04-14  1375.0000
-2023-04-15  2000.0000
-</predictions>
+</winning_candidate>
 </forecast_context>

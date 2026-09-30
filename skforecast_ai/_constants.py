@@ -73,6 +73,10 @@ STATS_FORECASTERS: set[str] = {
     "ForecasterStats",
 }
 
+BASELINE_FORECASTERS: set[str] = {
+    "ForecasterEquivalentDate",
+}
+
 # Forecasting task category implied by each supported forecaster
 FORECASTER_TASK_TYPES: dict[str, str] = {
     "ForecasterRecursive": "single_series",
@@ -81,6 +85,7 @@ FORECASTER_TASK_TYPES: dict[str, str] = {
     "ForecasterDirectMultiVariate": "multivariate",
     "ForecasterStats": "statistical",
     "ForecasterFoundation": "foundation",
+    "ForecasterEquivalentDate": "baseline",
 }
 
 # Mapping from pandas frequency strings to seasonal period (m)
@@ -158,11 +163,15 @@ TREE_BASED_ESTIMATORS: set[str] = {
     "ExtraTreesRegressor",
 }
 
+# Estimators that fit and predict with missing values. RandomForestRegressor
+# does since scikit-learn 1.4, the minimum skforecast requires. Among the
+# supported estimators only the linear model (Ridge) does not.
 NAN_TOLERANT_ESTIMATORS: set[str] = {
     "LGBMRegressor",
     "CatBoostRegressor",
     "XGBRegressor",
     "HistGradientBoostingRegressor",
+    "RandomForestRegressor",
 }
 
 # Rolling statistics supported by skforecast's `RollingFeatures`. Explicit

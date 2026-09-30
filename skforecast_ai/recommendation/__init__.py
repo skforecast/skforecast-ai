@@ -6,6 +6,7 @@ from .autoregressive import (
     select_lags,
     select_window_features,
 )
+from .baseline import baseline_missing_values_note, select_baseline_config
 from .backtesting import (
     build_cv,
     build_cv_explanation,
@@ -32,6 +33,7 @@ from .preprocessing import (
 
 __all__ = [
     "_build_profile_explanation",
+    "baseline_missing_values_note",
     "build_cv",
     "build_cv_explanation",
     "build_plan_explanation",
@@ -43,6 +45,7 @@ __all__ = [
     "derive_preprocessing_steps",
     "finalize_lags",
     "resolve_cv_config",
+    "select_baseline_config",
     "select_calendar_encoding",
     "select_calendar_features",
     "select_dropna_from_series",
