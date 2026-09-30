@@ -211,7 +211,7 @@ def test_forecast_code_evaluation_mode_when_test_size_set():
     assistant = ForecastingAssistant()
     result = assistant.forecast_code(
         data=df_no_exog, target="sales", date_column="date", steps=10,
-        test_size=0.2,
+        test_size=10,
     )
 
     assert result.plan.end_train is not None
@@ -253,7 +253,7 @@ def test_forecast_code_ValueError_when_test_size_and_exog_combined():
     with pytest.raises(ValueError, match="only used for future prediction"):
         assistant.forecast_code(
             data=df_single, target="sales", date_column="date", steps=10,
-            test_size=0.2, exog=exog,
+            test_size=10, exog=exog,
         )
 
 

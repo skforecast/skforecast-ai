@@ -56,6 +56,26 @@ def test_generate_warnings_output_when_timestamps_are_missing():
     ]
 
 
+def test_generate_warnings_output_when_timestamps_are_duplicated():
+    """
+    Test that timestamps repeated in identical rows produce a warning with
+    their count, saying that the generated code keeps the first row.
+    """
+    warnings = generate_warnings(
+        n_observations         = 100,
+        frequency              = "D",
+        missing_target         = {},
+        missing_exog           = {},
+        index_type             = "datetime",
+        n_duplicate_timestamps = 5,
+    )
+
+    assert warnings == [
+        "Duplicate timestamps: identical rows repeat 5 timestamps. The "
+        "generated code keeps the first row of each."
+    ]
+
+
 def test_generate_warnings_output_when_frequency_cannot_be_inferred():
     """
     Test that a datetime index whose frequency cannot be inferred produces

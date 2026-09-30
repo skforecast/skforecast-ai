@@ -15,12 +15,21 @@ if sys.version_info >= (3, 12):
     from typing import Unpack
 else:
     from typing_extensions import Unpack
+from skforecast.exceptions import LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
     AUTOREG_FORECASTERS,
     BASELINE_FORECASTERS,
     FORECASTER_TASK_TYPES,
     OLLAMA_MAX_CONTEXT_TOKENS,
+    REQUIRES_DATETIME_FREQ,
+)
+from ._validation import (
+    check_estimator_installed,
+    validate_estimator,
+    validate_estimator_kwargs,
+    validate_interval,
+    validate_metrics,
 )
 from .exceptions import (
     AllCandidatesFailedError,
@@ -39,6 +48,7 @@ from .execution.comparison import (
     build_comparison_explanation,
     build_comparison_table,
     compare_sort_key,
+    exclude_costly_candidates,
     missing_foundation_backend,
     resolve_compare_candidates,
 )
@@ -56,7 +66,11 @@ from .llm import (
 from .llm.diagnostics import check_llm_config
 from .llm.refinement import configure_cv_with_llm, refine_features_with_llm
 from .llm.runtime import run_agent_sync
-from .profiling import create_data_profile, resolve_end_train
+from .profiling import (
+    count_test_observations,
+    create_data_profile,
+    resolve_end_train,
+)
 from .recommendation import (
     _build_profile_explanation,
     baseline_missing_values_note,
@@ -66,8 +80,10 @@ from .recommendation import (
     build_forecaster_kwargs,
     check_exog_usage,
     compute_series_pacf,
+    count_estimator_fits,
     derive_cv_defaults,
     derive_preprocessing_steps,
+    drop_colliding_calendar_features,
     finalize_lags,
     resolve_cv_config,
     select_baseline_config,
@@ -113,6 +129,7 @@ from ._utils import (
     _validate_window_features,
     _apply_interval_to_plan,
     _check_plan_overrides,
+    warn_long_training,
 )
 
 
@@ -493,6 +510,15 @@ class ForecastingAssistant:
         if estimator is not None:
             est = estimator
 
+        # The estimator name and its keyword arguments are written into the
+        # generated script, so they are checked before anything is derived.
+        validate_estimator(
+            estimator        = est,
+            estimator_kwargs = estimator_kwargs,
+            task_type        = task_type,
+        )
+        validate_estimator_kwargs(est, estimator_kwargs)
+
         # The foundation model is validated before anything else is derived,
         # so an unsupported model ID or interval fails with its own message.
         foundation_model = None
@@ -502,8 +528,48 @@ class ForecastingAssistant:
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
             )
+        else:
+            validate_interval(
+                interval   = interval,
+                task_type  = task_type,
+                forecaster = fc,
+            )
+
+        # Without a frequency the datetime index cannot be regularized, and
+        # every forecaster that needs one fails inside the script with a
+        # skforecast error that does not say why. Irregular timestamps are
+        # often day-first dates that pandas read month-first.
+        if (
+            fc in REQUIRES_DATETIME_FREQ
+            and data_profile.index_type == "datetime"
+            and data_profile.frequency is None
+        ):
+            raise ValueError(
+                f"The frequency of the datetime index could not be inferred "
+                f"(the timestamps are irregular or too few), and '{fc}' needs "
+                f"a regular DatetimeIndex. Check the dates: day-first values "
+                f"such as '13/02/2023' are read month-first unless parsed "
+                f"explicitly, for example with "
+                f"pandas.to_datetime(..., dayfirst=True)."
+            )
+
+        # The baseline cannot take exogenous variables; the explanation says
+        # they are left out. A foundation model uses the columns its backend
+        # accepts, so a model without covariate support uses none.
+        if task_type == "foundation":
+            use_exog = bool(foundation_exog_columns(
+                info             = foundation_model,
+                exog_columns     = data_profile.exog_columns,
+                categorical_exog = data_profile.categorical_exog,
+            ))
+        else:
+            use_exog = (
+                task_type != "baseline"
+                and check_exog_usage(data_profile.exog_columns)
+            )
 
         baseline_explanation = None
+        skipped_calendar_features: list[str] = []
         if task_type in ("statistical", "foundation", "baseline"):
             final_lags = None
             final_window_features = None
@@ -550,10 +616,26 @@ class ForecastingAssistant:
                 final_window_features = profile.window_features
 
             if profile.calendar_features:
-                calendar_features = {
-                    "features": profile.calendar_features,
-                    "encoding": select_calendar_encoding(est, task_type),
-                }
+                calendar_encoding = select_calendar_encoding(est, task_type)
+                calendar_names = list(profile.calendar_features)
+                if use_exog:
+                    # A generated column named like an exogenous column makes
+                    # skforecast fail with duplicated feature names; the
+                    # user's column is kept and the calendar feature skipped.
+                    calendar_names, skipped_calendar_features = (
+                        drop_colliding_calendar_features(
+                            features     = calendar_names,
+                            encoding     = calendar_encoding,
+                            exog_columns = data_profile.exog_columns,
+                        )
+                    )
+                if calendar_names:
+                    calendar_features = {
+                        "features": calendar_names,
+                        "encoding": calendar_encoding,
+                    }
+                else:
+                    calendar_features = None
             else:
                 calendar_features = None
 
@@ -593,21 +675,6 @@ class ForecastingAssistant:
 
         interval_method = resolve_interval_method(task_type, interval)
 
-        # The baseline cannot take exogenous variables; the explanation says
-        # they are left out. A foundation model uses the columns its backend
-        # accepts, so a model without covariate support uses none.
-        if task_type == "foundation":
-            use_exog = bool(foundation_exog_columns(
-                info             = foundation_model,
-                exog_columns     = data_profile.exog_columns,
-                categorical_exog = data_profile.categorical_exog,
-            ))
-        else:
-            use_exog = (
-                task_type != "baseline"
-                and check_exog_usage(data_profile.exog_columns)
-            )
-
         preprocessing_steps = derive_preprocessing_steps(
             profile          = data_profile,
             forecaster       = fc,
@@ -628,16 +695,17 @@ class ForecastingAssistant:
             or data_profile.has_gaps
         )
         explanation = build_plan_explanation(
-            forecaster         = fc,
-            estimator          = est,
-            lags               = final_lags,
-            window_features    = final_window_features,
-            interval_method    = interval_method,
-            dropna_from_series = dropna_from_series if has_missing else None,
-            use_exog           = use_exog,
-            metric_explanation = metric_explanation,
-            calendar_features  = calendar_features,
-            task_type          = task_type,
+            forecaster                = fc,
+            estimator                 = est,
+            lags                      = final_lags,
+            window_features           = final_window_features,
+            interval_method           = interval_method,
+            dropna_from_series        = dropna_from_series if has_missing else None,
+            use_exog                  = use_exog,
+            metric_explanation        = metric_explanation,
+            calendar_features         = calendar_features,
+            task_type                 = task_type,
+            skipped_calendar_features = skipped_calendar_features,
         )
         if foundation_model is not None:
             foundation_explanation = build_foundation_explanation(
@@ -1324,6 +1392,8 @@ class ForecastingAssistant:
                 steps        = plan.steps,
             )
 
+        check_estimator_installed(plan.estimator, plan.task_type)
+
         result = run_forecast(
             data    = data_df,
             profile = profile.data_profile,
@@ -1394,8 +1464,10 @@ class ForecastingAssistant:
         refit : bool, int, default None
             Whether to refit the forecaster in each fold.
 
-            - If `None`, refit behavior is automatically determined based on the 
-            profile and plan.
+            - If `None`, the forecaster is trained once, in the first fold
+            (`False`, the skforecast default). Refitting multiplies the
+            training cost by the number of folds, which the explanation
+            states.
             - If `True`, the forecaster is refitted in each fold.
             - If `False`, the forecaster is trained only in the first fold.
             - If an integer, the forecaster is trained in the first fold and then refitted
@@ -1503,7 +1575,10 @@ class ForecastingAssistant:
         # one against the dataset index and requires at least 2 folds.
         cv = build_cv(cv_params=defaults, data_profile=profile.data_profile)
         cv_config, cv_explanation = resolve_cv_config(
-            cv, profile.data_profile, trains=plan.task_type != "foundation"
+            cv,
+            profile.data_profile,
+            trains     = plan.task_type != "foundation",
+            forecaster = plan.forecaster,
         )
 
         if reasoning:
@@ -1804,10 +1879,26 @@ class ForecastingAssistant:
             cv           = cv,
         )
 
-        # Resolved CV parameters (with the fold count) and their explanation.
+        # Resolved CV parameters (with the fold and training counts) and their
+        # explanation, which states the cost of the backtest.
         cv_config, cv_explanation = resolve_cv_config(
-            cv, profile.data_profile, trains=plan.task_type != "foundation"
+            cv,
+            profile.data_profile,
+            trains     = plan.task_type != "foundation",
+            forecaster = plan.forecaster,
         )
+        warn_long_training(
+            estimator_fits = count_estimator_fits(
+                                 n_fits     = cv_config["n_fits"],
+                                 forecaster = plan.forecaster,
+                                 steps      = plan.steps,
+                             ),
+            n_fits         = cv_config["n_fits"],
+            forecaster     = plan.forecaster,
+            steps          = plan.steps,
+        )
+
+        check_estimator_installed(plan.estimator, plan.task_type)
 
         result = run_backtest(
             data           = data_df,
@@ -2013,6 +2104,11 @@ class ForecastingAssistant:
             candidates, profile, exclude=excluded
         )
 
+        # Checked once here: an invalid interval would make every candidate
+        # fail. Whether a method needs a symmetric interval is checked per
+        # candidate by `plan()`.
+        validate_interval(interval)
+
         # Checked once here: every candidate would fail on the same dates.
         _check_evaluated_target(
             data         = data_df,
@@ -2040,15 +2136,42 @@ class ForecastingAssistant:
             metric_override = [metric] if isinstance(metric, str) else list(metric)
             if not metric_override:
                 raise ValueError("`metric` must not be an empty list.")
+            validate_metrics(metric_override)
             ranking_metric = metric_override[0]
             metric_columns = metric_override
 
         steps = cv.steps
 
-        # Shared CV parameters (with the fold count) and their explanation.
-        # The folds are counted before any candidate runs, on the untouched
-        # `cv`.
+        # Shared CV parameters (with the fold and training counts) and their
+        # explanation. The folds are counted before any candidate runs, on
+        # the untouched `cv`.
         cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
+        n_fits = cv_config["n_fits"]
+
+        # Automatic candidates are also kept within a fit budget: with a
+        # strategy that refits in every fold a direct forecaster can take
+        # hours. Explicit candidates always run; they only get the warning.
+        budget_note = None
+        if candidates is None:
+            candidate_configs, budget_note = exclude_costly_candidates(
+                candidate_configs = candidate_configs,
+                preferred         = profile.forecaster,
+                n_fits            = n_fits,
+                steps             = steps,
+            )
+            if budget_note is not None:
+                warnings.warn(budget_note, LongTrainingWarning, stacklevel=2)
+
+        # Warned once per costly candidate here; the warning of each
+        # backtest() call is silenced in the loop so it is not repeated.
+        for _, config in candidate_configs:
+            forecaster = config.get("forecaster") or profile.forecaster
+            warn_long_training(
+                estimator_fits = count_estimator_fits(n_fits, forecaster, steps),
+                n_fits         = n_fits,
+                forecaster     = forecaster,
+                steps          = steps,
+            )
 
         iterator: Any = candidate_configs
         if show_progress:
@@ -2089,16 +2212,18 @@ class ForecastingAssistant:
                 row["forecaster"] = cand_plan.forecaster
                 row["estimator"] = cand_plan.estimator
 
-                bt = self.backtest(
-                    data             = data_df,
-                    cv               = cv,
-                    target           = target,
-                    date_column      = date_column,
-                    series_id_column = series_id_column,
-                    profile          = profile,
-                    plan             = cand_plan,
-                    show_progress    = False,
-                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=LongTrainingWarning)
+                    bt = self.backtest(
+                        data             = data_df,
+                        cv               = cv,
+                        target           = target,
+                        date_column      = date_column,
+                        series_id_column = series_id_column,
+                        profile          = profile,
+                        plan             = cand_plan,
+                        show_progress    = False,
+                    )
                 agg = aggregate_metrics(bt.metrics)
                 for col in metric_columns:
                     row[col] = agg.get(col, float("nan"))
@@ -2146,6 +2271,7 @@ class ForecastingAssistant:
             baseline_name  = baseline_name,
             baseline_note  = baseline_note,
             backend_note   = backend_note,
+            budget_note    = budget_note,
         )
 
         return ComparisonResult(
@@ -2675,6 +2801,26 @@ class ForecastingAssistant:
                 test_size      = test_size,
             )
             plan = plan.model_copy(update={"end_train": end_train})
+
+        # One forecast of `steps` observations is evaluated, so a longer test
+        # set would be scored on its first `steps` rows only (without saying
+        # so) and a shorter one cannot hold the forecast.
+        if evaluate and plan.end_train is not None:
+            n_test = count_test_observations(
+                start_date     = profile.data_profile.start_date,
+                frequency      = profile.data_profile.frequency,
+                n_observations = profile.data_profile.span_index_length,
+                end_train      = plan.end_train,
+            )
+            if n_test is not None and n_test != plan.steps:
+                raise ValueError(
+                    f"The test set has {n_test} observations but `steps` is "
+                    f"{plan.steps}. forecast() evaluates one forecast of "
+                    f"`steps` observations, so the test set must have the "
+                    f"same length: pass test_size={plan.steps}. To evaluate "
+                    f"over a longer period, use backtest() (create_cv() "
+                    f"builds the folds)."
+                )
 
         return profile, plan
 

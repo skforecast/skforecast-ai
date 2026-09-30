@@ -84,3 +84,62 @@ def test_build_plan_explanation_states_nan_handling(dropna_from_series, expected
     )
 
     assert expected in explanation
+
+
+@pytest.mark.parametrize(
+    "calendar_features",
+    [{"features": ["day_of_week", "weekend"], "encoding": None}, None],
+    ids=["some calendar features remain", "every calendar feature skipped"],
+)
+def test_build_plan_explanation_states_skipped_calendar_features(calendar_features):
+    """
+    Test that build_plan_explanation names the calendar features skipped
+    because their columns already exist among the exogenous variables,
+    whether or not other calendar features remain.
+    """
+    explanation = build_plan_explanation(
+        forecaster                = "ForecasterRecursive",
+        estimator                 = "LGBMRegressor",
+        lags                      = [1, 2, 3],
+        window_features           = None,
+        interval_method           = None,
+        dropna_from_series        = None,
+        use_exog                  = True,
+        calendar_features         = calendar_features,
+        task_type                 = "single_series",
+        skipped_calendar_features = ["hour", "month"],
+    )
+
+    assert (
+        "Calendar features ['hour', 'month'] skipped: the exogenous variables "
+        "already have columns with the names they would create, and those "
+        "columns are used instead."
+    ) in explanation
+
+
+@pytest.mark.parametrize(
+    "skipped_calendar_features",
+    [None, []],
+    ids=lambda skipped: f"skipped_calendar_features: {skipped}",
+)
+def test_build_plan_explanation_no_skipped_calendar_note_when_nothing_skipped(
+    skipped_calendar_features,
+):
+    """
+    Test that build_plan_explanation adds no skipped calendar features
+    sentence when no calendar feature was left out.
+    """
+    explanation = build_plan_explanation(
+        forecaster                = "ForecasterRecursive",
+        estimator                 = "LGBMRegressor",
+        lags                      = [1, 2, 3],
+        window_features           = None,
+        interval_method           = None,
+        dropna_from_series        = None,
+        use_exog                  = True,
+        calendar_features         = {"features": ["month"], "encoding": None},
+        task_type                 = "single_series",
+        skipped_calendar_features = skipped_calendar_features,
+    )
+
+    assert "skipped" not in explanation

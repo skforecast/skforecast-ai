@@ -1,11 +1,11 @@
 # Unit test run_forecast execution/runner
 
+import re
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.execution.forecast_runner import run_forecast
 from skforecast_ai.schemas import ForecastPlan
 
@@ -152,23 +152,25 @@ def test_run_forecast_baseline_repeats_last_seasonal_period():
 # Tests: run_forecast: unsupported task type
 
 
-def test_run_forecast_ForecastExecutionError_when_invalid_estimator():
+def test_run_forecast_ValueError_when_estimator_not_supported():
     """
-    Test that run_forecast raises ForecastExecutionError when the generated
-    code references an estimator that cannot be imported.
+    Test that run_forecast raises ValueError, before writing the name into
+    the script, for a plan whose estimator skipped validation (model_copy
+    does not run the ForecastPlan validator).
     """
     plan_bad = ForecastPlan(
         task_type="single_series",
         forecaster="ForecasterRecursive",
         forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
-        estimator="NonExistentEstimator",
+        estimator="Ridge",
         steps=5,
         frequency="D",
         end_train=_end_train_single,
         explanation="Bad estimator.",
-    )
+    ).model_copy(update={"estimator": "NonExistentEstimator"})
 
-    with pytest.raises((ValueError, ForecastExecutionError)):
+    err_msg = re.escape("'NonExistentEstimator' is not a supported estimator.")
+    with pytest.raises(ValueError, match=err_msg):
         run_forecast(data=df_single, profile=profile_single, plan=plan_bad)
 
 

@@ -123,6 +123,16 @@ FREQUENCY_TO_SEASONAL_PERIOD: dict[str, int] = {
 # ForecasterStats is not recommended automatically at or above this value.
 MAX_STATS_SEASONAL_PERIOD = 24
 
+# Backtesting cost, counted in estimator fits (a ForecasterDirect training
+# fits one estimator per step). Counting fits instead of timing a trial fold
+# keeps the decision exact, known before running and reproducible.
+# `LONG_TRAINING_FITS` is the threshold of skforecast's LongTrainingWarning,
+# which the generated scripts silence with `suppress_warnings=True`, so the
+# assistant warns itself before running. `COMPARE_FIT_BUDGET` is the most a
+# candidate chosen automatically by `compare()` may cost.
+LONG_TRAINING_FITS = 50
+COMPARE_FIT_BUDGET = 500
+
 AUTOREG_FORECASTERS: set[str] = {
     "ForecasterRecursive",
     "ForecasterDirect",
@@ -157,6 +167,37 @@ REQUIRES_DATETIME_FREQ: set[str] = {
     "ForecasterStats",
     "ForecasterFoundation",
 }
+
+# Estimators the generated scripts can import, mapped to their module. It is
+# the whitelist `plan()` validates against: the estimator name is written
+# into the script, so an arbitrary name must never reach it.
+SUPPORTED_ESTIMATORS: dict[str, str] = {
+    "LGBMRegressor": "lightgbm",
+    "Ridge": "sklearn.linear_model",
+    "XGBRegressor": "xgboost",
+    "CatBoostRegressor": "catboost",
+    "RandomForestRegressor": "sklearn.ensemble",
+    "HistGradientBoostingRegressor": "sklearn.ensemble",
+}
+
+# Estimators whose constructor takes `**kwargs` and forwards unknown names to
+# the library as extra parameters (LightGBM also accepts parameter aliases),
+# so an unknown keyword argument is warned about rather than rejected.
+PASSTHROUGH_KWARGS_ESTIMATORS: set[str] = {"LGBMRegressor", "XGBRegressor"}
+
+# Regression metrics accepted by skforecast's backtesting, all of them lower
+# is better, which is the order `compare()` ranks by. skforecast also accepts
+# classification scores, which are higher is better and never apply here.
+ALLOWED_METRICS: tuple[str, ...] = (
+    "mean_squared_error",
+    "mean_absolute_error",
+    "mean_absolute_percentage_error",
+    "mean_squared_log_error",
+    "mean_absolute_scaled_error",
+    "root_mean_squared_scaled_error",
+    "median_absolute_error",
+    "symmetric_mean_absolute_percentage_error",
+)
 
 TREE_BASED_ESTIMATORS: set[str] = {
     "LGBMRegressor",

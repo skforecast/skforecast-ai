@@ -313,13 +313,29 @@ def derive_preprocessing_steps(
     steps: list[PreprocessingStep] = []
 
     # --- Duplicate timestamps ---
+    # Only identical rows reach this point (profiling raises when repeated
+    # rows differ). Long-format data still holds the dates in a column when
+    # the step runs, before the series are reshaped, so it deduplicates on
+    # the identifier and date columns instead of the index.
     if profile.has_duplicate_timestamps:
+        if (
+            profile.data_format == "long"
+            and profile.series_id_column is not None
+            and profile.date_column is not None
+        ):
+            code_snippet = (
+                "data = data.drop_duplicates(subset=['{series_id_column}', "
+                "'{date_column}'], keep='first')"
+            )
+        else:
+            code_snippet = "data = data[~data.index.duplicated(keep='first')]"
         steps.append(PreprocessingStep(
             action="drop_duplicates",
-            reason="Duplicate timestamps cause errors in skforecast.",
-            code_snippet=(
-                "data = data[~data.index.duplicated(keep='first')]"
+            reason=(
+                "Timestamps repeated in identical rows are removed: skforecast "
+                "needs one row per timestamp."
             ),
+            code_snippet=code_snippet,
             blocking=True,
         ))
 

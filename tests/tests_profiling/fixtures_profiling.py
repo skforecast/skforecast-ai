@@ -55,3 +55,48 @@ df_short = pd.DataFrame(
     {"y": np.arange(20, dtype=float)},
     index=pd.date_range("2023-01-01", periods=20, freq="D"),
 )
+
+# --- Duplicate timestamps ---
+# The first 5 dates appear twice. In the `*_duplicate_values` frames the
+# repeated rows hold other values, which profiling rejects; in the
+# `*_identical_duplicates` frames they are copies, which are dropped. One
+# copied row has a missing exog value: two NaN count as identical.
+_dup_dates = pd.date_range("2023-01-01", periods=50, freq="D")
+df_single_duplicate_values = pd.DataFrame(
+    {"y": np.arange(55, dtype=float)},
+    index=_dup_dates.append(_dup_dates[:5]),
+)
+_single_no_dup = pd.DataFrame(
+    {
+        "y": np.arange(50, dtype=float),
+        "exog": np.arange(50, dtype=float) * 2,
+    },
+    index=_dup_dates,
+)
+_single_no_dup.iloc[2, 1] = np.nan
+df_single_identical_duplicates = pd.concat(
+    [_single_no_dup, _single_no_dup.iloc[:5]]
+)
+df_wide_duplicate_values = pd.DataFrame(
+    {
+        "a": np.arange(55, dtype=float),
+        "b": np.arange(55, dtype=float) * 2,
+    },
+    index=_dup_dates.append(_dup_dates[:5]),
+)
+_wide_no_dup = df_wide_duplicate_values.iloc[:50]
+df_wide_identical_duplicates = pd.concat([_wide_no_dup, _wide_no_dup.iloc[:5]])
+
+# Series B of `df_multi_long` repeats 2023-01-11 (row 110) with another
+# value, or as an identical copy.
+df_long_duplicate_values_series_b = pd.concat(
+    [df_multi_long, df_multi_long.iloc[[110]].assign(value=-1.0)],
+    ignore_index=True,
+)
+df_long_identical_duplicates_series_b = pd.concat(
+    [df_multi_long, df_multi_long.iloc[[110]]],
+    ignore_index=True,
+)
+df_multiindex_identical_duplicates_series_b = (
+    df_long_identical_duplicates_series_b.set_index(["series_id", "date"])
+)

@@ -16,6 +16,7 @@ else:
     from typing_extensions import TypedDict
 from .._constants import WindowStat
 from .._foundation import validate_foundation_plan
+from .._validation import validate_estimator, validate_interval, validate_metrics
 from .._display import DisplayMixin, render_plan
 
 
@@ -64,10 +65,11 @@ class CVParams(BaseModel):
         ),
     )
     refit: bool | int = Field(
-        default=True,
+        default=False,
         description=(
-            "Whether to refit the model every fold (True), never (False), "
-            "or every n folds (int)."
+            "Whether to refit the model every fold (True), never (False, "
+            "train once), or every n folds (int). Refitting multiplies the "
+            "training cost by the number of folds."
         ),
     )
     fixed_train_size: bool = Field(
@@ -434,17 +436,31 @@ class ForecastPlan(DisplayMixin, BaseModel):
     explanation: str
 
     @model_validator(mode="after")
-    def _check_foundation_model(self) -> ForecastPlan:
+    def _check_plan_inputs(self) -> ForecastPlan:
         """
-        Validate the foundation model of a `'foundation'` plan, so a plan
-        built by hand or loaded from JSON cannot name a model, or an
-        interval, that the generated script would fail to load or predict.
+        Validate the inputs that reach the generated script, so a plan built
+        by hand or loaded from JSON cannot name an estimator the script
+        cannot import (or write an arbitrary name into it), an interval or a
+        metric that would fail inside it, or a foundation model it would
+        fail to load or predict with.
         """
+        validate_estimator(
+            estimator        = self.estimator,
+            estimator_kwargs = self.estimator_kwargs,
+            task_type        = self.task_type,
+        )
+        validate_metrics([self.metric, *self.metrics_to_compute])
         if self.task_type == "foundation":
             validate_foundation_plan(
                 estimator        = self.estimator,
                 estimator_kwargs = self.estimator_kwargs,
                 interval         = self.interval,
+            )
+        else:
+            validate_interval(
+                interval   = self.interval,
+                task_type  = self.task_type,
+                forecaster = self.forecaster,
             )
         return self
 

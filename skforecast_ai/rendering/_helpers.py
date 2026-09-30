@@ -8,15 +8,11 @@
 ################################################################################
 
 from ..schemas import DataProfile, ForecastPlan
-from .._constants import FREQUENCY_TO_SEASONAL_PERIOD
+from .._constants import FREQUENCY_TO_SEASONAL_PERIOD, SUPPORTED_ESTIMATORS
 
 _ESTIMATOR_IMPORTS: dict[str, str] = {
-    "LGBMRegressor": "from lightgbm import LGBMRegressor",
-    "Ridge": "from sklearn.linear_model import Ridge",
-    "XGBRegressor": "from xgboost import XGBRegressor",
-    "CatBoostRegressor": "from catboost import CatBoostRegressor",
-    "RandomForestRegressor": "from sklearn.ensemble import RandomForestRegressor",
-    "HistGradientBoostingRegressor": "from sklearn.ensemble import HistGradientBoostingRegressor",
+    name: f"from {module} import {name}"
+    for name, module in SUPPORTED_ESTIMATORS.items()
 }
 
 # Default kwargs injected into estimator constructors (silencing + reproducibility)
@@ -65,7 +61,72 @@ _METRIC_REGISTRY: dict[str, dict[str, str | bool]] = {
         "call": "mean_absolute_percentage_error(actual, {pred_expr})",
         "requires_y_train": False,
     },
+    "mean_squared_log_error": {
+        "import": "from sklearn.metrics import mean_squared_log_error",
+        "var": "msle",
+        "label": "MSLE",
+        "call": "mean_squared_log_error(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
+    "median_absolute_error": {
+        "import": "from sklearn.metrics import median_absolute_error",
+        "var": "medae",
+        "label": "MedAE",
+        "call": "median_absolute_error(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
+    "symmetric_mean_absolute_percentage_error": {
+        "import": (
+            "from skforecast.metrics import "
+            "symmetric_mean_absolute_percentage_error"
+        ),
+        "var": "smape",
+        "label": "SMAPE",
+        "call": "symmetric_mean_absolute_percentage_error(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
+    "root_mean_squared_scaled_error": {
+        "import": "from skforecast.metrics import root_mean_squared_scaled_error",
+        "var": "rmsse",
+        "label": "RMSSE",
+        "call": (
+            "root_mean_squared_scaled_error(\n"
+            "    y_true  = actual,\n"
+            "    y_pred  = {pred_expr},\n"
+            "    y_train = {train_expr},\n"
+            ")"
+        ),
+        "requires_y_train": True,
+    },
 }
+
+
+def _metric_info(metric: str) -> dict[str, str | bool]:
+    """
+    Look up how a metric is imported, named and computed in the scripts.
+
+    Parameters
+    ----------
+    metric : str
+        Metric name.
+
+    Returns
+    -------
+    info : dict
+        Registry entry of the metric.
+
+    Notes
+    -----
+    An unknown metric raises a `ValueError` instead of being left out of
+    the script: plans are validated before rendering, so reaching this
+    means the registry and `ALLOWED_METRICS` have drifted apart.
+    """
+    if metric not in _METRIC_REGISTRY:
+        raise ValueError(
+            f"Metric {metric!r} cannot be rendered. Supported metrics: "
+            f"{list(_METRIC_REGISTRY)}."
+        )
+    return _METRIC_REGISTRY[metric]
 
 
 def _get_seasonal_period(frequency: str | None) -> int | None:
@@ -133,8 +194,13 @@ def _emit_preprocessing_steps(
         for snippet_line in snippet.split("\n"):
             lines.append(snippet_line)
 
-    # After deduplication, set the frequency that was deferred during loading
-    if profile.has_duplicate_timestamps and profile.frequency:
+    # After deduplication, set the frequency that was deferred during loading.
+    # Long-format data gets its frequency when the series are reshaped.
+    if (
+        profile.has_duplicate_timestamps
+        and profile.frequency
+        and profile.data_format != "long"
+    ):
         lines.append(f"data = data.asfreq('{profile.frequency}')")
 
     lines.append("")
@@ -431,9 +497,7 @@ def _get_metric_imports(metrics_to_compute: list[str]) -> list[str]:
     skforecast_imports: list[str] = []
 
     for m in metrics_to_compute:
-        info = _METRIC_REGISTRY.get(m)
-        if info is None:
-            continue
+        info = _metric_info(m)
         if info["import"].startswith("from sklearn"):
             func_name = info["import"].split("import ")[-1]
             if func_name not in sklearn_funcs:
@@ -468,17 +532,13 @@ def _emit_metrics_section(
     lines.append(f"actual = {actual_expr}")
 
     for m in metrics_to_compute:
-        info = _METRIC_REGISTRY.get(m)
-        if info is None:
-            continue
+        info = _metric_info(m)
         call = info["call"].format(pred_expr=pred_expr, train_expr=train_expr)
         lines.append(f"{info['var']} = {call}")
 
     lines.append("")
     for m in metrics_to_compute:
-        info = _METRIC_REGISTRY.get(m)
-        if info is None:
-            continue
+        info = _metric_info(m)
         lines.append(f'print(f"{info["label"]:<5}: {{{info["var"]}:.4f}}")')
 
 
@@ -512,9 +572,7 @@ def _emit_metrics_section_multiseries(
     lines.append("    metrics_list.append({")
     lines.append('        "series": series_name,')
     for m in metrics_to_compute:
-        info = _METRIC_REGISTRY.get(m)
-        if info is None:
-            continue
+        info = _metric_info(m)
         func_name = info["import"].split("import ")[-1]
         if info["requires_y_train"]:
             lines.append(f'        "{info["label"]}": {func_name}(')
@@ -561,9 +619,7 @@ def _emit_metrics_section_foundation(
         lines.append("    metrics_list.append({")
         lines.append('        "series": level,')
         for m in metrics_to_compute:
-            info = _METRIC_REGISTRY.get(m)
-            if info is None:
-                continue
+            info = _metric_info(m)
             func_name = info["import"].split("import ")[-1]
             if info["requires_y_train"]:
                 lines.append(f'        "{info["label"]}": {func_name}(')
@@ -585,16 +641,12 @@ def _emit_metrics_section_foundation(
             "pred = predictions['pred'].values"
         )
         for m in metrics_to_compute:
-            info = _METRIC_REGISTRY.get(m)
-            if info is None:
-                continue
+            info = _metric_info(m)
             call = info["call"].format(pred_expr="pred", train_expr=train_var)
             lines.append(f"{info['var']} = {call}")
         lines.append("")
         for m in metrics_to_compute:
-            info = _METRIC_REGISTRY.get(m)
-            if info is None:
-                continue
+            info = _metric_info(m)
             lines.append(f'print(f"{info["label"]:<5}: {{{info["var"]}:.4f}}")')
 
 
@@ -851,12 +903,18 @@ def _emit_imports_baseline(
 
 
 def _get_estimator_import(estimator: str | None) -> str:
-    """Resolve the estimator import line."""
-    return _ESTIMATOR_IMPORTS.get(
-        estimator or "",
-        f"from __main__ import {estimator}  "
-        f"# TODO: replace with correct import for {estimator}",
-    )
+    """Resolve the estimator import line.
+
+    An estimator without a known import raises instead of writing its name
+    into the script: plans are validated before rendering, so reaching this
+    means a plan skipped that validation.
+    """
+    if estimator not in _ESTIMATOR_IMPORTS:
+        raise ValueError(
+            f"{estimator!r} is not a supported estimator. Supported "
+            f"estimators: {list(_ESTIMATOR_IMPORTS)}."
+        )
+    return _ESTIMATOR_IMPORTS[estimator]
 
 
 def _get_estimator_constructor(

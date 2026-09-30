@@ -11,13 +11,16 @@ import numpy as np
 import pandas as pd
 from .._constants import (
     BASELINE_FORECASTERS,
+    COMPARE_FIT_BUDGET,
     DEFAULT_FOUNDATION_MODEL_ID,
     FORECASTER_TASK_TYPES,
     FOUNDATION_FORECASTERS,
 )
 from .._foundation import foundation_backend_installed, resolve_foundation_model
+from .._utils import long_training_message
 from ..recommendation import (
     baseline_missing_values_note,
+    count_estimator_fits,
     select_baseline_config,
 )
 from ..schemas import (
@@ -407,6 +410,72 @@ def build_comparison_table(
         ordered.append("error")
     return results[ordered]
 
+def exclude_costly_candidates(
+    candidate_configs: list[tuple[str, CandidateConfig]],
+    preferred: str,
+    n_fits: int,
+    steps: int,
+    budget: int | None = None,
+) -> tuple[list[tuple[str, CandidateConfig]], str | None]:
+    """
+    Leave out the automatic candidates that would fit too many estimators.
+
+    `compare()` without `candidates` chooses the candidates itself, so it
+    also keeps their cost bounded: with a strategy that refits in every
+    fold, a direct forecaster fits one estimator per step and fold, which
+    can take hours. The recommended forecaster is always kept, since the
+    comparison exists to measure the alternatives against it.
+
+    Parameters
+    ----------
+    candidate_configs : list of tuple of (str, CandidateConfig)
+        Automatic candidates as `(name, config)` pairs.
+    preferred : str
+        Recommended forecaster of the profile, never left out.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+    budget : int, default None
+        Largest number of estimator fits a candidate may cost. None uses
+        `COMPARE_FIT_BUDGET`.
+
+    Returns
+    -------
+    kept : list of tuple of (str, CandidateConfig)
+        Candidates within the budget, in input order.
+    note : str, None
+        Sentence explaining the exclusion, or None when nothing is left out.
+    """
+
+    budget = COMPARE_FIT_BUDGET if budget is None else budget
+
+    kept = []
+    costs = []
+    for name, config in candidate_configs:
+        forecaster = config.get("forecaster") or preferred
+        estimator_fits = count_estimator_fits(n_fits, forecaster, steps)
+        if forecaster != preferred and estimator_fits > budget:
+            costs.append(
+                f"'{name}': "
+                f"{long_training_message(estimator_fits, n_fits, forecaster, steps)}"
+            )
+        else:
+            kept.append((name, config))
+
+    if not costs:
+        return kept, None
+
+    note = (
+        f"Left out of the automatic candidates because this cross-validation "
+        f"strategy exceeds the budget of {budget} estimator fits: "
+        f"{'; '.join(costs)}. Pass them in `candidates` to include them."
+    )
+
+    return kept, note
+
+
 def build_comparison_explanation(
     n_candidates: int,
     ranked: list[tuple[str, BacktestResult, float]],
@@ -416,6 +485,7 @@ def build_comparison_explanation(
     baseline_name: str | None = None,
     baseline_note: str | None = None,
     backend_note: str | None = None,
+    budget_note: str | None = None,
 ) -> str:
     """
     Build the deterministic `compare()` summary explanation.
@@ -441,6 +511,9 @@ def build_comparison_explanation(
     backend_note : str, default None
         Sentence explaining why a foundation candidate was left out,
         appended as is.
+    budget_note : str, default None
+        Sentence explaining which candidates were left out for exceeding
+        the fit budget, appended as is.
 
     Returns
     -------
@@ -509,6 +582,8 @@ def build_comparison_explanation(
         parts.append(baseline_note)
     if backend_note is not None:
         parts.append(backend_note)
+    if budget_note is not None:
+        parts.append(budget_note)
     if any_error:
         n_failed = n_candidates - len(ranked)
         if n_failed == 1:

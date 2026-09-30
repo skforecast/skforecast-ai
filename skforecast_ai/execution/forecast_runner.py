@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Callable
 import pandas as pd
 
-from ..rendering._helpers import _METRIC_REGISTRY
+from ..rendering._helpers import _metric_info
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 
 from ..rendering.single_series import render_forecast_single_series
@@ -150,9 +150,7 @@ def run_forecast(
                 target_name = target_name[0]
             row: dict[str, object] = {"series": target_name}
             for m in plan.metrics_to_compute:
-                info = _METRIC_REGISTRY.get(m)
-                if info is None:
-                    continue
+                info = _metric_info(m)
                 row[info["label"]] = namespace.get(info["var"])
             metrics = pd.DataFrame([row])
 

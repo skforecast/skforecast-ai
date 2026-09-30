@@ -24,6 +24,17 @@ df_categorical_exog = df_single.assign(
     weekday=df_single["date"].dt.day_name(),
 )
 
+# --- Single series with exog named like the calendar features ---
+# The daily profile recommends `day_of_week`, `weekend` and `month`; these
+# exog columns carry the names the raw calendar columns would take.
+df_calendar_named_exog = df_single.assign(
+    month=df_single["date"].dt.month,
+    weekend=(df_single["date"].dt.dayofweek >= 5).astype(int),
+)
+df_all_calendar_named_exog = df_calendar_named_exog.assign(
+    day_of_week=df_single["date"].dt.dayofweek,
+)
+
 # --- Single series without exog (100 daily observations) ---
 df_no_exog = pd.DataFrame(
     {

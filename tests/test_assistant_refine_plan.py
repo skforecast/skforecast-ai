@@ -167,7 +167,7 @@ def test_refine_plan_output_when_estimator_kwargs_overridden():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
 
-    custom_kwargs = {"n_estimators": 200, "learning_rate": 0.05}
+    custom_kwargs = {"alpha": 2.0, "fit_intercept": False}
     refined = assistant.refine_plan(profile, plan, estimator_kwargs=custom_kwargs)
 
     assert refined.estimator_kwargs == custom_kwargs
@@ -283,7 +283,7 @@ def test_refine_plan_output_preserves_llm_refined_fields_when_not_overridden():
     )
 
     refined_unrelated = assistant.refine_plan(
-        profile, plan, estimator_kwargs={"n_estimators": 50}
+        profile, plan, estimator_kwargs={"alpha": 0.5}
     )
     refined_lags = assistant.refine_plan(profile, plan, lags=[1, 2])
 

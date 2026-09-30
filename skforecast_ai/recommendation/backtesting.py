@@ -10,6 +10,7 @@ import warnings
 import pandas as pd
 from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
+from .._constants import DIRECT_FORECASTERS
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
 
 
@@ -57,7 +58,10 @@ def derive_cv_defaults(
     return {
         "steps": steps,
         "initial_train_size": initial_train_size,
-        "refit": True,
+        # Train once, as skforecast does by default: refitting in every fold
+        # multiplies the cost by the number of folds, which grows with the
+        # series length (hours for a direct forecaster on hourly data).
+        "refit": False,
         "fixed_train_size": False,
         "gap": 0,
         "fold_stride": None,
@@ -72,6 +76,8 @@ def build_cv_explanation(
     n_observations: int,
     n_folds: int,
     trains: bool = True,
+    n_fits: int | None = None,
+    forecaster: str | None = None,
 ) -> str:
     """
     Build a human-readable explanation of the cross-validation strategy.
@@ -88,6 +94,15 @@ def build_cv_explanation(
         Whether the forecaster is trained. A foundation model is not: each
         fold forecasts from the observations before it, so the training
         window and the refit settings do not apply and are not described.
+    n_fits : int, default None
+        Number of folds in which the forecaster is trained, see
+        `count_cv_fits`. Stated when the forecaster is refitted. None when
+        unknown.
+    forecaster : str, default None
+        Name of the forecaster the strategy is applied to. For a direct
+        forecaster, which fits one estimator per step, the total number of
+        estimator fits is also stated. None when the strategy is shared by
+        several forecasters.
 
     Returns
     -------
@@ -129,23 +144,19 @@ def build_cv_explanation(
             f"Using {pct}% of data ({initial_train_size} observations) for"
             f" initial training"
         )
-    window_type = "fixed window" if fixed_train_size else "expanding window"
-
+    trainings = f" ({n_fits} trainings)" if n_fits is not None else ""
     if refit is True:
-        refit_desc = "refit every fold"
-    elif refit is False:
-        refit_desc = "no refit"
-    elif isinstance(refit, int):
-        refit_desc = f"refit every {refit} folds"
+        refit_desc = f"refit every fold{trainings}"
+    elif isinstance(refit, int) and not isinstance(refit, bool) and refit > 0:
+        refit_desc = f"refit every {refit} folds{trainings}"
     else:
-        refit_desc = "no refit"
+        refit_desc = "trained once (no refit)"
 
-    parts = [
-        train_desc,
-        window_type,
-        refit_desc,
-        f"{steps}-step horizon",
-    ]
+    # The window type only matters when the forecaster is refitted.
+    parts = [train_desc]
+    if refit_desc != "trained once (no refit)":
+        parts.append("fixed window" if fixed_train_size else "expanding window")
+    parts += [refit_desc, f"{steps}-step horizon"]
 
     if n_folds > 0:
         parts.append(f"{n_folds} folds")
@@ -157,25 +168,32 @@ def build_cv_explanation(
     if differentiation is not None:
         parts.append(f"differentiation order {differentiation}")
 
-    return ", ".join(parts) + "."
+    explanation = ", ".join(parts) + "."
+    if forecaster in DIRECT_FORECASTERS and n_fits is not None:
+        explanation += (
+            f" {forecaster} fits one estimator per step, so each training "
+            f"fits {steps} estimators "
+            f"({count_estimator_fits(n_fits, forecaster, steps)} fits in all)."
+        )
+
+    return explanation
 
 
-def count_cv_folds(
+def _split_folds(
     cv: TimeSeriesFold,
     n_observations: int,
     start_date: str | None = None,
     frequency: str | None = None,
-) -> int:
+) -> list:
     """
-    Count the folds a cross-validation splitter produces over a dataset.
+    Split a throwaway index the way a cross-validation splitter would.
 
-    Builds a throwaway index of the given length and runs `cv.split` to
-    count the resulting folds. A date-based `initial_train_size` (string or
-    pandas Timestamp) needs a DatetimeIndex so `cv.split` can locate the
-    split date; integer sizes are counted against a plain RangeIndex. This
-    is the single place where a date-based `initial_train_size` is checked
-    against the dataset, for splitters built by `build_cv` as well as for
-    user-supplied ones described by `resolve_cv_config`.
+    Builds a throwaway index of the given length and runs `cv.split` on
+    it, so folds and refits can be counted before any data is loaded. A
+    date-based `initial_train_size` (string or pandas Timestamp) needs a
+    DatetimeIndex so `cv.split` can locate the split date; integer sizes
+    are split on a plain RangeIndex. This is the single place where a
+    date-based `initial_train_size` is checked against the dataset.
 
     The `window_size` of `cv` is unset here (no forecaster attached yet),
     so skforecast emits an `IgnoredArgumentWarning` about the last window.
@@ -202,8 +220,9 @@ def count_cv_folds(
 
     Returns
     -------
-    n_folds : int
-        Number of folds produced by the configuration.
+    folds : list
+        Folds as returned by `cv.split(as_pandas=False)`; the last element
+        of each fold says whether the forecaster is trained in it.
     """
     its = cv.initial_train_size
     if isinstance(its, (str, pd.Timestamp)):
@@ -242,8 +261,113 @@ def count_cv_folds(
     finally:
         cv.verbose = original_verbose
 
-    return len(folds)
+    return folds
 
+
+
+def count_cv_folds(
+    cv: TimeSeriesFold,
+    n_observations: int,
+    start_date: str | None = None,
+    frequency: str | None = None,
+) -> int:
+    """
+    Count the folds a cross-validation splitter produces over a dataset.
+
+    A date-based `initial_train_size` is checked against the dataset here,
+    for splitters built by `build_cv` as well as for user-supplied ones
+    described by `resolve_cv_config`.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter.
+    n_observations : int
+        Number of observations spanned by the dataset.
+    start_date : str, default None
+        First date of the dataset. Required when `cv.initial_train_size`
+        is a date string or a pandas Timestamp.
+    frequency : str, default None
+        Index frequency. Required when `cv.initial_train_size` is a date.
+
+    Returns
+    -------
+    n_folds : int
+        Number of folds produced by the configuration.
+    """
+
+    return len(_split_folds(cv, n_observations, start_date, frequency))
+
+
+def count_cv_fits(
+    cv: TimeSeriesFold,
+    n_observations: int,
+    start_date: str | None = None,
+    frequency: str | None = None,
+) -> int:
+    """
+    Count how many folds train the forecaster under a splitter.
+
+    Reads the training flag that `TimeSeriesFold.split` sets on each fold:
+    the first fold always trains, and the rest follow `refit` (never with
+    False, every fold with True, every n folds with an integer).
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter.
+    n_observations : int
+        Number of observations spanned by the dataset.
+    start_date : str, default None
+        First date of the dataset. Required when `cv.initial_train_size`
+        is a date string or a pandas Timestamp.
+    frequency : str, default None
+        Index frequency. Required when `cv.initial_train_size` is a date.
+
+    Returns
+    -------
+    n_fits : int
+        Number of folds in which the forecaster is trained.
+    """
+
+    folds = _split_folds(cv, n_observations, start_date, frequency)
+
+    return sum(bool(fold[-1]) for fold in folds)
+
+
+def count_estimator_fits(
+    n_fits: int,
+    forecaster: str,
+    steps: int,
+) -> int:
+    """
+    Count the estimator fits of a backtest, the measure of its cost.
+
+    Parameters
+    ----------
+    n_fits : int
+        Number of folds in which the forecaster is trained, see
+        `count_cv_fits`.
+    forecaster : str
+        Name of the skforecast forecaster class.
+    steps : int
+        Forecast horizon of each fold.
+
+    Returns
+    -------
+    estimator_fits : int
+        Number of times an estimator is fitted: `n_fits * steps` for the
+        direct forecasters, which fit one estimator per step, 0 for
+        `ForecasterFoundation` (never trained) and
+        `ForecasterEquivalentDate` (no estimator), and `n_fits` otherwise.
+    """
+
+    if forecaster in ("ForecasterFoundation", "ForecasterEquivalentDate"):
+        return 0
+    if forecaster in DIRECT_FORECASTERS:
+        return n_fits * steps
+
+    return n_fits
 
 
 def build_cv(
@@ -391,6 +515,7 @@ def resolve_cv_config(
     cv: TimeSeriesFold,
     data_profile: DataProfile,
     trains: bool = True,
+    forecaster: str | None = None,
 ) -> tuple[dict, str]:
     """
     Describe a cross-validation splitter as applied to a profiled dataset.
@@ -411,6 +536,10 @@ def resolve_cv_config(
     trains : bool, default True
         Whether the forecaster is trained; False for a foundation model,
         whose explanation does not describe a training window or refits.
+    forecaster : str, default None
+        Name of the forecaster the strategy is applied to, used to state
+        the estimator fits of a direct forecaster. None when the strategy
+        is shared by several forecasters.
 
     Returns
     -------
@@ -418,19 +547,22 @@ def resolve_cv_config(
         Resolved `TimeSeriesFold` parameters (`steps`,
         `initial_train_size`, `refit`, `fixed_train_size`, `gap`,
         `fold_stride`, `skip_folds`, `allow_incomplete_fold`,
-        `differentiation`) plus `n_folds`.
+        `differentiation`) plus `n_folds` and `n_fits` (folds in which the
+        forecaster is trained, 0 when it is not trained).
     explanation : str
         Multi-sentence description of the strategy, see
         `build_cv_explanation`.
     """
 
     span_index_length = data_profile.span_index_length
-    n_folds = count_cv_folds(
-                  cv             = cv,
-                  n_observations = span_index_length,
-                  start_date     = data_profile.start_date,
-                  frequency      = data_profile.frequency,
-              )
+    folds = _split_folds(
+                cv             = cv,
+                n_observations = span_index_length,
+                start_date     = data_profile.start_date,
+                frequency      = data_profile.frequency,
+            )
+    n_folds = len(folds)
+    n_fits = sum(bool(fold[-1]) for fold in folds) if trains else 0
     cv_config = {
         "steps": cv.steps,
         "initial_train_size": cv.initial_train_size,
@@ -442,12 +574,15 @@ def resolve_cv_config(
         "allow_incomplete_fold": cv.allow_incomplete_fold,
         "differentiation": cv.differentiation,
         "n_folds": n_folds,
+        "n_fits": n_fits,
     }
     explanation = build_cv_explanation(
                       cv_params      = cv_config,
                       n_observations = span_index_length,
                       n_folds        = n_folds,
                       trains         = trains,
+                      n_fits         = n_fits,
+                      forecaster     = forecaster,
                   )
 
     return cv_config, explanation

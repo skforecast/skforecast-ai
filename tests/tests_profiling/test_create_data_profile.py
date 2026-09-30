@@ -10,11 +10,18 @@ from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
 from .fixtures_profiling import (
+    df_long_duplicate_values_series_b,
+    df_long_identical_duplicates_series_b,
     df_multi_long,
+    df_multiindex_identical_duplicates_series_b,
     df_range_index,
     df_short,
     df_single_daily,
+    df_single_duplicate_values,
     df_single_hourly_exog,
+    df_single_identical_duplicates,
+    df_wide_duplicate_values,
+    df_wide_identical_duplicates,
     df_with_missing,
 )
 
@@ -106,20 +113,21 @@ def test_create_data_profile_ValueError_when_date_column_not_found():
         create_data_profile(data=df, target="y", date_column="wrong")
 
 
-def test_create_data_profile_output_when_date_column_not_datetime():
+def test_create_data_profile_ValueError_when_date_column_not_datetime():
     """
-    Test create_data_profile sets index_type to 'other' when date_column
-    points to a column that does not hold datetime values.
+    Test create_data_profile raises a ValueError when date_column points to
+    a column that does not hold dates, instead of profiling it as an
+    exogenous variable.
     """
     df = df_single_daily.reset_index(drop=True)
     df["label"] = ["a"] * len(df)
 
-    profile = create_data_profile(data=df, target="y", date_column="label")
-
-    assert profile.index_type == "other"
-    assert profile.date_column is None
-    assert profile.frequency is None
-    assert any("No datetime index" in w for w in profile.warnings)
+    err_msg = re.escape(
+        "date_column='label' does not hold dates: values such as ['a'] could "
+        "not be parsed as timestamps."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        create_data_profile(data=df, target="y", date_column="label")
 
 
 def test_create_data_profile_output_when_date_column_is_string_dtype():
@@ -354,15 +362,129 @@ def test_create_data_profile_output_when_has_gaps_false():
     assert profile.has_gaps is False
 
 
-def test_create_data_profile_output_when_has_duplicate_timestamps():
-    dates = pd.date_range("2023-01-01", periods=50, freq="D")
-    dup_dates = dates.append(dates[:5])
-    df = pd.DataFrame(
-        {"y": np.arange(55, dtype=float)},
-        index=dup_dates,
-    )
-    profile = create_data_profile(df, target="y")
+@pytest.mark.parametrize(
+    "data, kwargs, err_msg",
+    [
+        (
+            df_single_duplicate_values,
+            {"target": "y"},
+            "Found 5 timestamps with more than one row and different values, "
+            "for example '2023-01-01'. A single series needs one row per "
+            "timestamp, and keeping only one of them would silently discard "
+            "data. Aggregate or remove the repeated rows before profiling, or "
+            "pass `series_id_column` if a column identifies different series.",
+        ),
+        (
+            df_multi_long,
+            {"target": "value", "date_column": "date"},
+            "Found 100 timestamps with more than one row and different values, "
+            "for example '2023-01-01'. A single series needs one row per "
+            "timestamp, and keeping only one of them would silently discard "
+            "data. If the rows belong to different series, pass "
+            "`series_id_column` (candidate columns: ['series_id']) to profile "
+            "the data in long format. Otherwise, aggregate or remove the "
+            "repeated rows before profiling.",
+        ),
+        (
+            df_wide_duplicate_values,
+            {"target": ["a", "b"]},
+            "Found 5 timestamps with more than one row and different values, "
+            "for example '2023-01-01'. Wide format needs one row per "
+            "timestamp, with one column per series, and keeping only one of "
+            "them would silently discard data. Aggregate or remove the "
+            "repeated rows before profiling.",
+        ),
+        (
+            df_long_duplicate_values_series_b,
+            {
+                "target": "value",
+                "date_column": "date",
+                "series_id_column": "series_id",
+            },
+            "Found 1 date with more than one row and different values within "
+            "the same series, for example '2023-01-11' in series 'B' (affected "
+            "series: ['B']). Each series needs one row per date, and keeping "
+            "only one of them would silently discard data. Aggregate or "
+            "remove the repeated rows of each series before profiling.",
+        ),
+    ],
+    ids=[
+        "single",
+        "long data without series_id_column",
+        "wide",
+        "long, duplicate in the second series",
+    ],
+)
+def test_create_data_profile_ValueError_when_duplicate_timestamps_have_different_values(
+    data, kwargs, err_msg
+):
+    """
+    Test that create_data_profile raises a ValueError when a timestamp has
+    several rows with different values in the same series, instead of
+    keeping the first row. Long-format data profiled without
+    `series_id_column` gets the identifier column suggested (the float exog
+    `exog_1` is not a candidate), and long-format data is checked in every
+    series, not only the first one.
+    """
+    with pytest.raises(ValueError, match=re.escape(err_msg)):
+        create_data_profile(data, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "data, kwargs, expected_lengths, expected_warning",
+    [
+        (
+            df_single_identical_duplicates,
+            {"target": "y"},
+            {"y": 50},
+            "Duplicate timestamps: identical rows repeat 5 timestamps. The "
+            "generated code keeps the first row of each.",
+        ),
+        (
+            df_wide_identical_duplicates,
+            {"target": ["a", "b"]},
+            {"a": 50, "b": 50},
+            "Duplicate timestamps: identical rows repeat 5 timestamps. The "
+            "generated code keeps the first row of each.",
+        ),
+        (
+            df_long_identical_duplicates_series_b,
+            {
+                "target": "value",
+                "date_column": "date",
+                "series_id_column": "series_id",
+            },
+            {"A": 100, "B": 100, "C": 100},
+            "Duplicate timestamps: identical rows repeat 1 timestamp. The "
+            "generated code keeps the first row of each.",
+        ),
+        (
+            df_multiindex_identical_duplicates_series_b,
+            {"target": "value"},
+            {"A": 100, "B": 100, "C": 100},
+            "Duplicate timestamps: identical rows repeat 1 timestamp. The "
+            "generated code keeps the first row of each.",
+        ),
+    ],
+    ids=["single", "wide", "long", "long with MultiIndex"],
+)
+def test_create_data_profile_output_when_duplicate_timestamps_are_identical(
+    data, kwargs, expected_lengths, expected_warning
+):
+    """
+    Test that create_data_profile accepts timestamps repeated in identical
+    rows (two missing values count as identical): it flags them, warns
+    with their count, and describes the deduplicated data, so the series
+    lengths and the frequency do not count the repeated rows.
+    """
+    profile = create_data_profile(data, **kwargs)
+
     assert profile.has_duplicate_timestamps is True
+    assert profile.warnings == [expected_warning]
+    assert profile.frequency == "D"
+    assert {
+        name: info.length for name, info in profile.series_lengths.items()
+    } == expected_lengths
 
 
 def test_create_data_profile_output_when_index_not_monotonic():

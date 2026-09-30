@@ -355,7 +355,10 @@ def _parse_interval(interval_str: str | None) -> list[float] | None:
     """
     if interval_str is None:
         return None
-    parts = [float(x.strip()) for x in interval_str.split(",")]
+    try:
+        parts = [float(x.strip()) for x in interval_str.split(",")]
+    except ValueError:
+        parts = []
     if len(parts) != 2:
         raise typer.BadParameter(
             "Interval must be two comma-separated quantiles, e.g. '0.1,0.9'."
@@ -1237,7 +1240,7 @@ def forecast(
     estimator: EstimatorOption = None,
     estimator_kwargs: EstimatorKwargsOption = None,
     interval: IntervalOption = None,
-    test_size: Annotated[str | None, typer.Option("--test-size", help="Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). When omitted, forecasts the future.")] = None,
+    test_size: Annotated[str | None, typer.Option("--test-size", help="Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). The test set must hold exactly --steps observations. When omitted, forecasts the future.")] = None,
     exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous values covering the forecast horizon (prediction mode only).")] = None,
     from_plan: FromPlanOption = None,
     output_predictions: OutputPredictionsOption = None,

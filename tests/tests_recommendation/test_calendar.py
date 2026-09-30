@@ -1,12 +1,18 @@
 """Unit tests for calendar feature selection."""
 
+import re
+
+import pandas as pd
 import pytest
+from skforecast.preprocessing import CalendarFeatures
 
 from skforecast_ai._constants import TREE_BASED_ESTIMATORS
 from skforecast_ai.recommendation.calendar import (
     MIN_OBS_CALENDAR,
     MIN_YEARS_FOR_ANNUAL,
     OBS_PER_YEAR,
+    calendar_feature_names_out,
+    drop_colliding_calendar_features,
     select_calendar_encoding,
     select_calendar_features,
 )
@@ -270,3 +276,153 @@ def test_select_calendar_encoding_cyclical_when_non_tree_estimator(estimator):
     )
 
     assert result == "cyclical"
+
+
+# ---------------------------------------------------------------------------
+# calendar_feature_names_out
+# ---------------------------------------------------------------------------
+_CALENDAR_FEATURES = [
+    "year", "month", "week", "day_of_week", "day_of_month", "day_of_year",
+    "weekend", "hour", "minute", "second", "quarter",
+]
+
+
+def test_calendar_feature_names_out_ValueError_when_encoding_not_supported():
+    """
+    Test calendar_feature_names_out raises a ValueError for an encoding the
+    plan never generates, so its naming cannot be assumed.
+    """
+    err_msg = re.escape(
+        "Unsupported calendar encoding 'onehot'. Only None and 'cyclical' "
+        "are generated."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        calendar_feature_names_out(features=["month"], encoding="onehot")
+
+
+@pytest.mark.parametrize(
+    "encoding, expected",
+    [
+        (
+            None,
+            {
+                "year": ["year"],
+                "weekend": ["weekend"],
+                "month": ["month"],
+                "hour": ["hour"],
+            },
+        ),
+        (
+            "cyclical",
+            {
+                "year": ["year"],
+                "weekend": ["weekend"],
+                "month": ["month_sin", "month_cos"],
+                "hour": ["hour_sin", "hour_cos"],
+            },
+        ),
+    ],
+    ids=lambda dt: f"encoding, expected: {dt}",
+)
+def test_calendar_feature_names_out_output_when_encoding_none_or_cyclical(
+    encoding, expected
+):
+    """
+    Test calendar_feature_names_out keeps the raw names without encoding,
+    and names the sine and cosine columns under cyclical encoding, except
+    for 'year' and 'weekend', which are never encoded.
+    """
+    result = calendar_feature_names_out(
+        features=["year", "weekend", "month", "hour"], encoding=encoding
+    )
+
+    assert result == expected
+
+
+@pytest.mark.parametrize("encoding", [None, "cyclical"], ids=lambda e: f"encoding: {e}")
+@pytest.mark.parametrize("feature", _CALENDAR_FEATURES, ids=lambda f: f"feature: {f}")
+def test_calendar_feature_names_out_matches_skforecast_CalendarFeatures(
+    feature, encoding
+):
+    """
+    Test calendar_feature_names_out names the same columns as skforecast
+    CalendarFeatures for every supported feature. The expected value comes
+    from the library on purpose: this guards the mirrored naming against a
+    change in skforecast.
+    """
+    transformer = CalendarFeatures(
+        features=[feature], encoding=encoding, keep_original_columns=False
+    )
+    transformer.fit_transform(pd.date_range("2023-01-01", periods=3, freq="h"))
+
+    result = calendar_feature_names_out(features=[feature], encoding=encoding)
+
+    assert result == {feature: list(transformer.get_feature_names_out())}
+
+
+# ---------------------------------------------------------------------------
+# drop_colliding_calendar_features
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "features, encoding, exog_columns, expected_kept, expected_skipped",
+    [
+        (
+            ["hour", "day_of_week", "weekend", "month"],
+            None,
+            ["month", "hour", "weekday"],
+            ["day_of_week", "weekend"],
+            ["hour", "month"],
+        ),
+        (
+            ["hour", "day_of_week", "weekend", "month"],
+            "cyclical",
+            ["month", "hour"],
+            ["hour", "day_of_week", "weekend", "month"],
+            [],
+        ),
+        (
+            ["day_of_week", "weekend", "month"],
+            "cyclical",
+            ["weekend"],
+            ["day_of_week", "month"],
+            ["weekend"],
+        ),
+        (
+            ["month"],
+            "cyclical",
+            ["month_sin"],
+            [],
+            ["month"],
+        ),
+        (
+            ["day_of_week", "month"],
+            None,
+            [],
+            ["day_of_week", "month"],
+            [],
+        ),
+    ],
+    ids=[
+        "raw names collide",
+        "cyclical names do not collide with raw exog",
+        "weekend is never encoded",
+        "one cyclical column collides",
+        "no exog",
+    ],
+)
+def test_drop_colliding_calendar_features_output(
+    features, encoding, exog_columns, expected_kept, expected_skipped
+):
+    """
+    Test drop_colliding_calendar_features skips a calendar feature only
+    when one of the columns it creates (which depend on the encoding) is
+    already an exogenous column, keeping the input order.
+    """
+    kept, skipped = drop_colliding_calendar_features(
+        features     = features,
+        encoding     = encoding,
+        exog_columns = exog_columns,
+    )
+
+    assert kept == expected_kept
+    assert skipped == expected_skipped

@@ -126,7 +126,8 @@ def test_create_cv_cv_config_matches_splitter_and_counts_folds():
     """
     Test that `cv_config` mirrors every TimeSeriesFold parameter,
     including `skip_folds` and `allow_incomplete_fold`, and reports the
-    fold count the splitter actually produces.
+    fold count the splitter actually produces and the folds that train the
+    forecaster.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -149,6 +150,7 @@ def test_create_cv_cv_config_matches_splitter_and_counts_folds():
         "allow_incomplete_fold": False,
         "differentiation": None,
         "n_folds": 4,
+        "n_fits": 1,
     }
     assert "4 folds" in result.explanation
 
@@ -319,6 +321,41 @@ def test_create_cv_ValueError_when_initial_train_size_str_date_too_late():
     err_msg = re.escape("At least 2 are required")
     with pytest.raises(ValueError, match=err_msg):
         assistant.create_cv(profile, plan, initial_train_size="2023-04-09")
+
+
+@pytest.mark.parametrize(
+    "forecaster, expected_explanation",
+    [
+        (
+            None,
+            "Initial training up to 2023-03-11, trained once (no refit), "
+            "10-step horizon, 3 folds.",
+        ),
+        (
+            "ForecasterDirect",
+            "Initial training up to 2023-03-11, trained once (no refit), "
+            "10-step horizon, 3 folds. ForecasterDirect fits one estimator per "
+            "step, so each training fits 10 estimators (10 fits in all).",
+        ),
+    ],
+    ids=["recursive", "direct"],
+)
+def test_create_cv_output_when_default_refit(forecaster, expected_explanation):
+    """
+    Test that the default strategy trains the forecaster once (refit=False,
+    the skforecast default), since refitting in every fold multiplies the
+    cost by the number of folds, and that the explanation states the cost,
+    including the estimator fits of a direct forecaster.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, forecaster=forecaster)
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.cv.refit is False
+    assert result.cv_config["n_fits"] == 1
+    assert result.explanation == expected_explanation
 
 
 def test_create_cv_output_when_refit_override():

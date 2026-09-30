@@ -164,7 +164,7 @@ function cvCard(t, o){
   // in the free column: what create_cv() does without a prompt, and that it is optional
   const dr = D.deterministic;
   const notes = [
-    [T.det, ['without a prompt:', `${dr.n_folds} folds back to back,`, dr.refit === true ? 'retrained in every fold' : `retrained every ${dr.refit} folds`]],
+    [T.det, ['without a prompt:', `${dr.n_folds} folds back to back,`, dr.refit === false ? 'trained once, no refit' : dr.refit === true ? 'retrained in every fold' : `retrained every ${dr.refit} folds`]],
     [T.optional, ['create_cv() is optional:', 'backtest() also takes', 'your own TimeSeriesFold']]
   ];
   notes.forEach(([tt, ls], j) => {

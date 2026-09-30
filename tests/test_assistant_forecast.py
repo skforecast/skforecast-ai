@@ -10,8 +10,11 @@ import pytest
 from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
+from skforecast_ai import _validation as validation_module
+from skforecast_ai._constants import ALLOWED_METRICS
 
 from tests.fixtures_assistant import (
+    df_calendar_named_exog,
     df_single,
     df_no_exog,
     df_short,
@@ -35,7 +38,7 @@ def test_forecast_output_when_single_series():
         target="sales",
         date_column="date",
         steps=10,
-        test_size=0.2,
+        test_size=10,
     )
 
     assert isinstance(result, ForecastResult)
@@ -60,7 +63,7 @@ def test_forecast_predictions_length_matches_steps():
         target="sales",
         date_column="date",
         steps=steps,
-        test_size=0.2,
+        test_size=steps,
     )
 
     assert len(result.predictions) == steps
@@ -77,7 +80,7 @@ def test_forecast_code_contains_skforecast_imports():
         target="sales",
         date_column="date",
         steps=5,
-        test_size=0.2,
+        test_size=5,
     )
 
     assert isinstance(result.code, str)
@@ -129,7 +132,7 @@ def test_forecast_output_when_interval_requested():
         date_column="date",
         steps=5,
         interval=[0.1, 0.9],
-        test_size=0.2,
+        test_size=5,
     )
 
     assert isinstance(result.predictions, pd.DataFrame)
@@ -154,6 +157,31 @@ def test_forecast_output_when_no_exog():
     assert isinstance(result, ForecastResult)
     assert result.plan.use_exog is False
     assert len(result.predictions) == 5
+
+
+def test_forecast_output_when_exog_columns_named_like_calendar_features():
+    """
+    Test that forecast() runs when exogenous columns are named like the raw
+    calendar features of a tree-based plan ('month', 'weekend'), which made
+    skforecast fail with duplicated feature names before those calendar
+    features were skipped.
+    """
+    assistant = ForecastingAssistant()
+    result = assistant.forecast(
+        data        = df_calendar_named_exog,
+        target      = "sales",
+        date_column = "date",
+        steps       = 5,
+        test_size   = 5,
+        estimator   = "LGBMRegressor",
+    )
+
+    assert isinstance(result, ForecastResult)
+    assert result.plan.forecaster_kwargs["calendar_features"] == {
+        "features": ["day_of_week"], "encoding": None
+    }
+    assert len(result.predictions) == 5
+    assert list(result.metrics["series"]) == ["sales"]
 
 
 @pytest.mark.slow
@@ -207,7 +235,7 @@ def test_forecast_metrics_are_finite():
         target="sales",
         date_column="date",
         steps=5,
-        test_size=0.2,
+        test_size=5,
     )
 
     assert np.isfinite(result.metrics["MAE"].iloc[0])
@@ -236,7 +264,7 @@ def test_forecast_output_when_interval_passed_with_plan_without_intervals():
         date_column="date",
         steps=5,
         interval=[0.1, 0.9],
-        test_size=0.2,
+        test_size=5,
         profile=profile,
         plan=plan,
     )
@@ -265,7 +293,7 @@ def test_forecast_no_warning_when_interval_matches_plan():
             date_column="date",
             steps=5,
             interval=[0.1, 0.9],
-            test_size=0.2,
+            test_size=5,
             profile=profile,
             plan=plan,
         )
@@ -291,7 +319,7 @@ def test_forecast_ValueError_when_lags_differ_from_plan():
             date_column="date",
             steps=5,
             lags=[1, 2],
-            test_size=0.2,
+            test_size=5,
             profile=profile,
             plan=plan,
         )
@@ -312,7 +340,7 @@ def test_forecast_output_when_lags_match_plan():
         date_column="date",
         steps=5,
         lags=[1, 2, 3],
-        test_size=0.2,
+        test_size=5,
         profile=profile,
         plan=plan,
     )
@@ -336,7 +364,7 @@ def test_forecast_no_override_warning_when_plan_without_overrides():
             target="sales",
             date_column="date",
             steps=5,
-            test_size=0.2,
+            test_size=5,
             profile=profile,
             plan=plan,
         )
@@ -358,7 +386,7 @@ def test_forecast_evaluation_mode_returns_metrics():
         target="sales",
         date_column="date",
         steps=5,
-        test_size=0.2,
+        test_size=5,
     )
 
     assert isinstance(result.metrics, pd.DataFrame)
@@ -424,7 +452,7 @@ def test_forecast_ValueError_when_test_size_and_exog_combined():
             target="sales",
             date_column="date",
             steps=5,
-            test_size=0.2,
+            test_size=5,
             exog=exog,
         )
 
@@ -473,7 +501,7 @@ def test_forecast_prebuilt_evaluation_plan_without_test_size_no_exog_required():
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
-    split_date = str(df_single["date"].iloc[int(len(df_single) * 0.8)].date())
+    split_date = str(df_single["date"].iloc[-6].date())
     plan = plan.model_copy(update={"end_train": split_date})
 
     result = assistant.forecast(
@@ -710,3 +738,94 @@ def test_forecast_output_when_data_has_missing_timestamps():
         check_names=False,
     )
     assert not result.predictions["pred"].isna().any()
+
+
+@pytest.mark.parametrize(
+    "test_size, n_test",
+    [(10, 10), (3, 3)],
+    ids=["test set longer than steps", "test set shorter than steps"],
+)
+def test_forecast_ValueError_when_test_size_differs_from_steps(test_size, n_test):
+    """
+    Test that forecast() in evaluation mode raises when the test set does
+    not hold exactly `steps` observations: a longer one would be scored on
+    its first `steps` rows only, and a shorter one cannot hold the forecast.
+    """
+    assistant = ForecastingAssistant()
+
+    err_msg = re.escape(
+        f"The test set has {n_test} observations but `steps` is 5. forecast() "
+        f"evaluates one forecast of `steps` observations, so the test set "
+        f"must have the same length: pass test_size=5. To evaluate over a "
+        f"longer period, use backtest() (create_cv() builds the folds)."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.forecast(
+            data        = df_single,
+            target      = "sales",
+            date_column = "date",
+            steps       = 5,
+            test_size   = test_size,
+        )
+
+
+def test_forecast_ValueError_when_plan_end_train_leaves_other_test_length():
+    """
+    Test that a pre-built plan carrying `end_train` (evaluation mode
+    without `test_size`) is checked the same way against `steps`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5).model_copy(
+        update={"end_train": str(df_single["date"].iloc[-21].date())}
+    )
+
+    err_msg = re.escape("The test set has 20 observations but `steps` is 5.")
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.forecast(data=df_single, profile=profile, plan=plan)
+
+
+def test_forecast_output_when_every_supported_metric_requested():
+    """
+    Test that forecast() computes every supported regression metric in
+    evaluation mode, the same set backtesting accepts, instead of leaving
+    out the ones it did not know.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5).model_copy(
+        update={"metrics_to_compute": list(ALLOWED_METRICS)}
+    )
+
+    result = assistant.forecast(
+        data=df_single, profile=profile, plan=plan, test_size=5
+    )
+
+    assert list(result.metrics.columns) == [
+        "series", "MSE", "MAE", "MAPE", "MSLE", "MASE", "RMSSE", "MedAE", "SMAPE"
+    ]
+    assert np.isfinite(result.metrics.drop(columns="series").to_numpy()).all()
+
+
+def test_forecast_ValueError_when_estimator_package_not_installed(monkeypatch):
+    """
+    Test that forecast() raises with the install command, before running
+    the script, when the package of the estimator is not installed.
+    """
+    monkeypatch.setattr(
+        validation_module.importlib.util, "find_spec", lambda name: None
+    )
+    assistant = ForecastingAssistant()
+
+    err_msg = re.escape(
+        "LGBMRegressor needs the 'lightgbm' package, which is not installed "
+        "(pip install lightgbm)."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.forecast(
+            data        = df_no_exog,
+            target      = "sales",
+            date_column = "date",
+            steps       = 5,
+            estimator   = "LGBMRegressor",
+        )

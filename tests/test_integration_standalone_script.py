@@ -6,6 +6,7 @@ import textwrap
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from skforecast.model_selection import TimeSeriesFold
 
@@ -152,6 +153,45 @@ def test_standalone_script_matches_forecast_when_multi_series_long(tmp_path):
         data=csv_path, target="value", date_column="date",
         series_id_column="series_id", steps=5, test_size=5,
     )
+
+    code = assistant.forecast_code(**kwargs).code
+    executed = assistant.forecast(**kwargs)
+
+    standalone = _run_standalone(code, tmp_path)
+    assert len(standalone) == len(executed.predictions)
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+@pytest.mark.parametrize(
+    "data, kwargs",
+    [
+        (
+            pd.concat([df_no_exog, df_no_exog.iloc[[10]]], ignore_index=True),
+            {"target": "sales", "date_column": "date"},
+        ),
+        (
+            pd.concat([df_multi_long, df_multi_long.iloc[[-10]]], ignore_index=True),
+            {"target": "value", "date_column": "date", "series_id_column": "series_id"},
+        ),
+    ],
+    ids=["single", "long"],
+)
+def test_standalone_script_matches_forecast_when_duplicate_rows_are_identical(
+    tmp_path, data, kwargs
+):
+    """
+    Test that data with a timestamp repeated in an identical row produces a
+    script that drops the copy and runs (for long format it deduplicates on
+    the series identifier and date columns, without asfreq on its
+    RangeIndex), with the same predictions as forecast().
+    """
+    csv_path = tmp_path / "data.csv"
+    data.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    kwargs = dict(data=csv_path, steps=5, test_size=5, **kwargs)
 
     code = assistant.forecast_code(**kwargs).code
     executed = assistant.forecast(**kwargs)

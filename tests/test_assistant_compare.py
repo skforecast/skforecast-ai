@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from skforecast.exceptions import MissingValuesWarning
+from skforecast.exceptions import LongTrainingWarning, MissingValuesWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai.execution import comparison as comparison_module
@@ -592,7 +592,14 @@ def test_compare_keeps_failure_snapshot_in_failures():
     """
     candidates = [
         ("good", {"forecaster": "ForecasterRecursive"}),
-        ("bad", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"}),
+        (
+            "bad",
+            {
+                "forecaster": "ForecasterRecursive",
+                "estimator": "Ridge",
+                "estimator_kwargs": {"alpha": "not-a-number"},
+            },
+        ),
     ]
 
     with pytest.warns(CandidateFailedWarning):
@@ -608,7 +615,7 @@ def test_compare_keeps_failure_snapshot_in_failures():
     assert list(result.failures) == ["bad"]
     failure = result.failures["bad"]
     assert isinstance(failure, CandidateFailure)
-    assert "NotAReal" in failure.message
+    assert "alpha" in failure.message
     assert "Traceback (most recent call last)" in failure.traceback
     assert failure.generated_code is not None
     # The recorded summary matches the 'error' column of the results table.
@@ -1071,6 +1078,79 @@ def test_compare_MissingBackendWarning_when_foundation_backend_not_installed(
     assert result.explanation.endswith(_MISSING_BACKEND_NOTE)
 
 
+def test_compare_LongTrainingWarning_when_automatic_candidate_exceeds_fit_budget(
+    monkeypatch,
+):
+    """
+    Test that compare() without candidates leaves out an alternative whose
+    estimator fits exceed the budget (ForecasterDirect refitted in 6 folds
+    fits 5 estimators per training, 30 fits, above a budget patched to 10),
+    warns with LongTrainingWarning and records the reason in the
+    explanation. The recommended forecaster is kept.
+    """
+    monkeypatch.setattr(comparison_module, "COMPARE_FIT_BUDGET", 10)
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    profile.forecaster_candidates = ["ForecasterRecursive", "ForecasterDirect"]
+    profile.estimator_candidates = ["Ridge"]
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, refit=True, verbose=False)
+
+    budget_note = (
+        "Left out of the automatic candidates because this cross-validation "
+        "strategy exceeds the budget of 10 estimator fits: 'ForecasterDirect': "
+        "ForecasterDirect will be fit 30 times (6 trainings x 5 estimators). "
+        "Pass them in `candidates` to include them."
+    )
+    with pytest.warns(LongTrainingWarning, match=re.escape(budget_note)):
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv,
+            target        = "sales",
+            date_column   = "date",
+            profile       = profile,
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert list(result.results["name"]) == ["ForecasterRecursive"]
+    assert result.failures == {}
+    assert result.explanation.endswith(budget_note)
+
+
+def test_compare_LongTrainingWarning_once_when_explicit_candidate_is_costly(
+    monkeypatch,
+):
+    """
+    Test that an explicit candidate is never left out for its cost, even
+    above the budget, and that compare() warns once before running it
+    instead of once more from its backtest.
+    """
+    monkeypatch.setattr(comparison_module, "COMPARE_FIT_BUDGET", 10)
+    cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
+
+    with pytest.warns(LongTrainingWarning) as record:
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv,
+            target        = "sales",
+            date_column   = "date",
+            candidates    = [
+                ("direct", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]})
+            ],
+            show_progress = False,
+            baseline      = False,
+        )
+
+    messages = [
+        str(w.message) for w in record if w.category is LongTrainingWarning
+    ]
+    assert len(messages) == 1
+    assert messages[0].startswith(
+        "ForecasterDirect will be fit 60 times (6 trainings x 10 estimators)."
+    )
+    assert list(result.results["name"]) == ["direct"]
+    assert result.failures == {}
+
+
 def test_build_comparison_explanation_notes_foundation_is_not_trained():
     """
     Test that the explanation says the shared window and refit settings do
@@ -1101,8 +1181,8 @@ def test_build_comparison_explanation_notes_foundation_is_not_trained():
 # Tests: baseline
 # =============================================================================
 _CV_EXPLANATION = (
-    "Using 70% of data (70 observations) for initial training, fixed window, "
-    "no refit, 5-step horizon, 6 folds."
+    "Using 70% of data (70 observations) for initial training, trained once "
+    "(no refit), 5-step horizon, 6 folds."
 )
 
 
@@ -1617,4 +1697,34 @@ def test_compare_ValueError_when_target_missing_in_test_folds():
             date_column="date",
             candidates=_LIGHT_CANDIDATES,
             show_progress=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"metric": "f1_score"}, "Unknown metric 'f1_score'."),
+        ({"metric": ["mean_absolute_error", "foo"]}, "Unknown metric 'foo'."),
+        (
+            {"interval": [5, 95]},
+            "`interval` must be `[lower, upper]` with 0 < lower < upper < 1",
+        ),
+    ],
+    ids=["classification score", "unknown metric", "percentile interval"],
+)
+def test_compare_ValueError_when_metric_or_interval_invalid(kwargs, match):
+    """
+    Test that compare() rejects an invalid metric or interval before any
+    candidate runs, instead of failing every candidate and raising
+    AllCandidatesFailedError.
+    """
+    with pytest.raises(ValueError, match=re.escape(match)):
+        assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = _LIGHT_CANDIDATES,
+            show_progress = False,
+            **kwargs,
         )

@@ -43,19 +43,61 @@ def test_derive_steps_no_sort_index_step():
     assert "sort_index" not in actions
 
 
-def test_derive_steps_includes_drop_duplicates_when_duplicates():
+@pytest.mark.parametrize(
+    "profile_kwargs, forecaster, expected_snippet",
+    [
+        (
+            {"series_lengths": {"y": 100}, "n_series": 1, "target": "y"},
+            "ForecasterRecursive",
+            "data = data[~data.index.duplicated(keep='first')]",
+        ),
+        (
+            {
+                "series_lengths": {"A": 100, "B": 100},
+                "n_series": 2,
+                "target": "value",
+                "data_format": "long",
+                "date_column": "date",
+                "series_id_column": "series_id",
+            },
+            "ForecasterRecursiveMultiSeries",
+            "data = data.drop_duplicates(subset=['{series_id_column}', "
+            "'{date_column}'], keep='first')",
+        ),
+    ],
+    ids=["single, dates in the index", "long, dates in a column"],
+)
+def test_derive_steps_drop_duplicates_snippet_per_data_format(
+    profile_kwargs, forecaster, expected_snippet
+):
+    """
+    Test that timestamps repeated in identical rows add a blocking
+    drop_duplicates step that deduplicates on the index, or on the series
+    identifier and date columns for long-format data, whose dates are still
+    a column when the step runs.
+    """
     profile = DataProfile(
-        series_lengths={"y": 100},
-        n_series=1,
-        index_type="datetime",
-        frequency="D",
-        target="y",
-        has_duplicate_timestamps=True,
-        frequency_is_set=True,
+        index_type               = "datetime",
+        frequency                = "D",
+        has_duplicate_timestamps = True,
+        frequency_is_set         = True,
+        **profile_kwargs,
     )
-    steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
-    actions = [s.action for s in steps]
-    assert "drop_duplicates" in actions
+
+    steps = derive_preprocessing_steps(profile, forecaster)
+
+    expected = PreprocessingStep(
+        action       = "drop_duplicates",
+        reason       = (
+            "Timestamps repeated in identical rows are removed: skforecast "
+            "needs one row per timestamp."
+        ),
+        code_snippet = expected_snippet,
+        blocking     = True,
+    )
+    assert [step for step in steps if step.action == "drop_duplicates"] == [
+        expected
+    ]
 
 
 def test_derive_steps_no_asfreq_step():

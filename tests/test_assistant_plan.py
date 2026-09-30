@@ -12,6 +12,8 @@ from skforecast_ai.exceptions import UnrecommendedForecasterWarning
 from skforecast_ai.schemas import ForecastPlan
 
 from tests.fixtures_assistant import (
+    df_all_calendar_named_exog,
+    df_calendar_named_exog,
     df_categorical_exog,
     df_hourly,
     df_multi_long,
@@ -142,6 +144,64 @@ def test_plan_output_when_forecaster_override():
 
     assert plan.forecaster == "ForecasterDirect"
     assert plan.task_type == "single_series"
+
+
+@pytest.mark.parametrize(
+    "estimator, expected_calendar, expected_skipped",
+    [
+        (
+            None,
+            {"features": ["day_of_week", "month"], "encoding": "cyclical"},
+            "['weekend']",
+        ),
+        (
+            "LGBMRegressor",
+            {"features": ["day_of_week"], "encoding": None},
+            "['weekend', 'month']",
+        ),
+    ],
+    ids=["Ridge, cyclical encoding", "LGBMRegressor, raw encoding"],
+)
+def test_plan_output_when_calendar_features_collide_with_exog(
+    estimator, expected_calendar, expected_skipped
+):
+    """
+    Test that plan() leaves out the calendar features whose columns already
+    exist as exogenous columns and says so in the explanation. The columns
+    depend on the encoding: with cyclical encoding 'month' creates
+    'month_sin' and 'month_cos' and is kept, while 'weekend' is never
+    encoded and collides with either estimator.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_calendar_named_exog, target="sales", date_column="date"
+    )
+    plan = assistant.plan(profile, steps=10, estimator=estimator)
+
+    assert plan.forecaster_kwargs["calendar_features"] == expected_calendar
+    assert (
+        f"Calendar features {expected_skipped} skipped: the exogenous "
+        f"variables already have columns with the names they would create, "
+        f"and those columns are used instead."
+    ) in plan.explanation
+
+
+def test_plan_output_when_every_calendar_feature_collides_with_exog():
+    """
+    Test that plan() sets no calendar features when all of them collide
+    with exogenous columns, and the explanation names them as skipped.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_all_calendar_named_exog, target="sales", date_column="date"
+    )
+    plan = assistant.plan(profile, steps=10, estimator="LGBMRegressor")
+
+    assert plan.forecaster_kwargs["calendar_features"] is None
+    assert "Calendar features: [" not in plan.explanation
+    assert (
+        "Calendar features ['day_of_week', 'weekend', 'month'] skipped:"
+    ) in plan.explanation
 
 
 def test_plan_output_when_multi_series():
@@ -659,7 +719,8 @@ def test_plan_output_when_estimator_kwargs_provided():
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     custom_kwargs = {"n_estimators": 200, "learning_rate": 0.05}
     plan = assistant.plan(
-        profile, steps=10, estimator_kwargs=custom_kwargs
+        profile, steps=10, estimator="LGBMRegressor",
+        estimator_kwargs=custom_kwargs,
     )
 
     assert plan.estimator_kwargs == custom_kwargs
@@ -716,3 +777,84 @@ def test_plan_end_train_is_none():
     plan = assistant.plan(profile, steps=10)
 
     assert plan.end_train is None
+
+
+def test_plan_ValueError_when_estimator_not_supported():
+    """
+    Test that plan() rejects an estimator the generated script cannot
+    import, instead of rendering it and failing at execution.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape("'LightGBM' is not a supported estimator.")
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=10, estimator="LightGBM")
+
+
+def test_plan_ValueError_when_estimator_kwargs_name_unknown():
+    """
+    Test that plan() rejects a misspelled keyword argument of the
+    estimator, which would fail inside the script.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape("Ridge has no parameter 'alpah'. Did you mean 'alpha'?")
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=10, estimator="Ridge", estimator_kwargs={"alpah": 1.0}
+        )
+
+
+@pytest.mark.parametrize(
+    "forecaster, interval, match",
+    [
+        (
+            None,
+            [5, 95],
+            "`interval` must be `[lower, upper]` with 0 < lower < upper < 1, "
+            "got [5, 95].",
+        ),
+        (
+            "ForecasterEquivalentDate",
+            [0.05, 0.9],
+            "'ForecasterEquivalentDate' predicts symmetric intervals only",
+        ),
+    ],
+    ids=["percentiles", "asymmetric conformal interval"],
+)
+def test_plan_ValueError_when_interval_invalid(forecaster, interval, match):
+    """
+    Test that plan() rejects an interval the forecaster cannot predict,
+    instead of failing inside the executed script.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(ValueError, match=re.escape(match)):
+        assistant.plan(profile, steps=10, forecaster=forecaster, interval=interval)
+
+
+def test_plan_ValueError_when_datetime_index_has_no_frequency(tmp_path):
+    """
+    Test that plan() raises, pointing at day-first dates, when the datetime
+    index has no inferable frequency: dd/mm/yyyy strings read month-first
+    give irregular timestamps, and the script would fail inside skforecast.
+    """
+    csv_path = tmp_path / "dayfirst.csv"
+    df_single.assign(
+        date=df_single["date"].dt.strftime("%d/%m/%Y")
+    ).to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "The frequency of the datetime index could not be inferred (the "
+        "timestamps are irregular or too few), and 'ForecasterRecursive' needs "
+        "a regular DatetimeIndex. Check the dates: day-first values such as "
+        "'13/02/2023' are read month-first unless parsed explicitly, for "
+        "example with pandas.to_datetime(..., dayfirst=True)."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=5)

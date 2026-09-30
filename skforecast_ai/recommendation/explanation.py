@@ -25,6 +25,7 @@ def build_plan_explanation(
     metric_explanation: str | None = None,
     calendar_features: dict | None = None,
     task_type: str | None = None,
+    skipped_calendar_features: list[str] | None = None,
 ) -> str:
     """
     Compose a sentence-by-sentence summary of the plan configuration.
@@ -59,6 +60,10 @@ def build_plan_explanation(
         Forecasting task category. Used to state why `'foundation'`,
         `'statistical'` and `'baseline'` plans carry no lag or window
         features.
+    skipped_calendar_features : list of str, default None
+        Calendar features left out because the columns they would create
+        already exist among the exogenous variables. None or empty when
+        nothing was skipped.
 
     Returns
     -------
@@ -108,6 +113,13 @@ def build_plan_explanation(
             parts.append(
                 f"Calendar features: {feature_names} ({encoding_str} encoding)."
             )
+
+    if skipped_calendar_features:
+        parts.append(
+            f"Calendar features {skipped_calendar_features} skipped: the "
+            f"exogenous variables already have columns with the names they "
+            f"would create, and those columns are used instead."
+        )
 
     if interval_method is not None:
         parts.append(f"Prediction intervals via {interval_method}.")

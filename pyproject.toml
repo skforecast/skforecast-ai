@@ -49,6 +49,7 @@ dependencies = [
     "tomli>=2.0; python_version < '3.11'",
     "typing-extensions>=4.12; python_version < '3.12'",
     "statsmodels>=0.13, <0.15",
+    "lightgbm>=4.0,<5.0",
 ]
 
 [project.optional-dependencies]
@@ -91,7 +92,6 @@ test = [
     "pytest-cov>=7",
     "pytest-xdist>=3.8",
     "pydantic-ai[groq]>=2,<3",
-    "lightgbm>=4.0,<5.0",
 ]
 
 dev = [

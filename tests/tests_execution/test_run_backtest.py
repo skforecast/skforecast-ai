@@ -1,10 +1,11 @@
 # Unit test run_backtest execution/backtesting_runner
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.execution.backtesting_runner import run_backtest
 from skforecast_ai.schemas import ForecastPlan, RenderedScript
 
@@ -58,22 +59,24 @@ def test_run_backtest_ValueError_when_unsupported_task_type():
         )
 
 
-def test_run_backtest_ForecastExecutionError_when_invalid_estimator():
+def test_run_backtest_ValueError_when_estimator_not_supported():
     """
-    Test that run_backtest raises ForecastExecutionError when the generated
-    code references an estimator that cannot be imported.
+    Test that run_backtest raises ValueError, before writing the name into
+    the script, for a plan whose estimator skipped validation (model_copy
+    does not run the ForecastPlan validator).
     """
     plan_bad = ForecastPlan(
         task_type="single_series",
         forecaster="ForecasterRecursive",
         forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
-        estimator="NonExistentEstimator",
+        estimator="Ridge",
         steps=5,
         frequency="D",
         explanation="Bad estimator for backtesting.",
-    )
+    ).model_copy(update={"estimator": "NonExistentEstimator"})
 
-    with pytest.raises((ValueError, ForecastExecutionError)):
+    err_msg = re.escape("'NonExistentEstimator' is not a supported estimator.")
+    with pytest.raises(ValueError, match=err_msg):
         run_backtest(
             data=df_single,
             profile=profile_single,

@@ -62,7 +62,7 @@ MOCK_PLAN = {
     "interval": None,
     "interval_method": None,
     "use_exog": True,
-    "end_train": "2023-03-22",
+    "end_train": "2023-03-31",
     "preprocessing_steps": [],
     "warnings": [],
     "explanation": "Recursive strategy with LightGBM.",
@@ -363,7 +363,7 @@ class TestForecastFromPlan:
         result = runner.invoke(app, [
             "forecast", str(csv_file),
             "--from-plan", str(plan_file),
-            "--test-size", "0.2",
+            "--test-size", "10",
             "--format", "json", "--quiet",
         ])
         assert result.exit_code == 0, result.output
@@ -398,7 +398,7 @@ class TestForecastFromPlan:
             "forecast", str(csv_file),
             "--from-plan", str(plan_file),
             "--interval", "0.1,0.9",
-            "--test-size", "0.2",
+            "--test-size", "5",
             "--format", "json", "--quiet",
         ])
         assert result.exit_code == 0, result.output
@@ -435,7 +435,7 @@ class TestForecastFromPlan:
             "forecast", str(csv_file),
             "--from-plan", str(plan_file),
             "--estimator", "LGBMRegressor",
-            "--test-size", "0.2",
+            "--test-size", "5",
             "--format", "json", "--quiet",
         ])
         assert result.exit_code == 0, result.output

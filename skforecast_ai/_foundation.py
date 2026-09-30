@@ -11,6 +11,7 @@ from importlib.metadata import PackageNotFoundError, distribution
 from skforecast.foundation import FoundationModelInfo, get_model_info, list_adapters
 
 from ._constants import DEFAULT_FOUNDATION_MODEL_ID
+from ._validation import validate_interval
 
 # Same tolerance skforecast uses to match a quantile level against the grid
 # of a backend, so a level accepted here is never rejected at prediction.
@@ -152,11 +153,7 @@ def validate_foundation_interval(
     """
     if interval is None:
         return
-    if len(interval) != 2 or not 0 < interval[0] < interval[1] < 1:
-        raise ValueError(
-            f"`interval` must be `[lower, upper]` with "
-            f"0 < lower < upper < 1, got {interval}."
-        )
+    validate_interval(interval)
     grid = info.supported_quantiles
     if grid is None:
         return

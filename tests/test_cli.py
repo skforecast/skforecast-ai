@@ -229,6 +229,20 @@ class TestPlan:
         assert data["plan"]["interval"] == [0.1, 0.9]
         assert data["plan"]["interval_method"] is not None
 
+    def test_plan_invalid_interval(self, tmp_path):
+        """
+        Plan with a non-numeric --interval reports the expected format
+        instead of a raw conversion error.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "10", "--interval", "low,high"],
+        )
+        assert result.exit_code != 0
+        assert "Interval must be two comma-separated quantiles" in result.output
+
     def test_plan_missing_steps(self, tmp_path):
         """
         Plan without --steps shows error.
@@ -264,12 +278,12 @@ class TestPlan:
         result = runner.invoke(
             app,
             ["plan", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--estimator-kwargs", '{"n_estimators": 200}',
+             "--steps", "10", "--estimator-kwargs", '{"alpha": 2.0}',
              "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["plan"]["estimator_kwargs"]["n_estimators"] == 200
+        assert data["plan"]["estimator_kwargs"]["alpha"] == 2.0
 
     def test_plan_estimator_kwargs_invalid_json(self, tmp_path):
         """
@@ -398,11 +412,11 @@ class TestGenerateCode:
         result = runner.invoke(
             app,
             ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--estimator-kwargs", '{"n_estimators": 300}',
+             "--steps", "10", "--estimator-kwargs", '{"alpha": 3.0}',
              "--quiet"],
         )
         assert result.exit_code == 0
-        assert "n_estimators" in result.output
+        assert "alpha=3.0" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +435,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--quiet"],
+             "--steps", "5", "--test-size", "5", "--quiet"],
         )
         assert result.exit_code == 0
         assert "MAE" in result.output
@@ -435,7 +449,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "5", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -453,7 +467,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--output-predictions", str(preds_path), "--quiet"],
+             "--steps", "5", "--test-size", "5", "--output-predictions", str(preds_path), "--quiet"],
         )
         assert result.exit_code == 0
         assert preds_path.exists()
@@ -470,7 +484,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--output-code", str(code_path), "--quiet"],
+             "--steps", "5", "--test-size", "5", "--output-code", str(code_path), "--quiet"],
         )
         assert result.exit_code == 0
         assert code_path.exists()
@@ -485,7 +499,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "5", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -522,7 +536,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--estimator", "RandomForestRegressor",
+             "--steps", "5", "--test-size", "5", "--estimator", "RandomForestRegressor",
              "--estimator-kwargs", '{"n_estimators": 150, "random_state": 123}',
              "--format", "json", "--quiet"],
         )
@@ -539,7 +553,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "20", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "5", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -865,19 +879,20 @@ class TestBacktestCodeCVOptions:
         """
         --fixed-train-size reaches create_cv() and the generated script uses
         a rolling training window; it used to be dropped for matching the
-        CLI default.
+        CLI default. It is passed with --refit because the training window
+        only matters, and is only written, when the model is refitted.
         """
-        code = self._generate(tmp_path, "--fixed-train-size")
+        code = self._generate(tmp_path, "--refit", "--fixed-train-size")
         assert re.search(r"fixed_train_size\s+= True,", code)
 
     def test_backtest_code_defaults_leave_cv_to_assistant(self, tmp_path):
         """
-        Without CV flags the deterministic defaults apply (refit every fold,
-        expanding window).
+        Without CV flags the deterministic defaults apply: the model is
+        trained once, so the training window is not written.
         """
         code = self._generate(tmp_path)
-        assert re.search(r"refit\s+= True,", code)
-        assert re.search(r"fixed_train_size\s+= False,", code)
+        assert re.search(r"refit\s+= False,", code)
+        assert "fixed_train_size" not in code
 
     def test_backtest_code_accepts_date_initial_train_size(self, tmp_path):
         """

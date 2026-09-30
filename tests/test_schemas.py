@@ -103,6 +103,46 @@ def test_forecast_plan_ValidationError_when_foundation_model_invalid(
         )
 
 
+@pytest.mark.parametrize(
+    "update, match",
+    [
+        (
+            {"estimator": "__import__('os').system('ls')"},
+            "is not a supported estimator",
+        ),
+        (
+            {"estimator": "Ridge", "estimator_kwargs": {"alpha=1) or (x": 1}},
+            "`estimator_kwargs` keys must be valid Python parameter names",
+        ),
+        (
+            {"estimator": "Ridge", "metrics_to_compute": ["f1_score"]},
+            "Unknown metric 'f1_score'",
+        ),
+        (
+            {"estimator": "Ridge", "interval": [5, 95]},
+            "`interval` must be `[lower, upper]` with 0 < lower < upper < 1",
+        ),
+    ],
+    ids=["estimator", "estimator_kwargs key", "metric", "interval"],
+)
+def test_forecast_plan_ValidationError_when_script_inputs_invalid(update, match):
+    """
+    Test that a machine-learning ForecastPlan built by hand or loaded from
+    JSON is validated like the plans built by `plan()`: the estimator must
+    be supported, the keyword argument keys valid parameter names, and the
+    metrics and interval valid, since all of them reach the script.
+    """
+    fields = {
+        "task_type": "single_series",
+        "forecaster": "ForecasterRecursive",
+        "steps": 10,
+        "explanation": "Test.",
+        **update,
+    }
+    with pytest.raises(ValidationError, match=re.escape(match)):
+        ForecastPlan.model_validate(json.loads(json.dumps(fields)))
+
+
 def test_forecast_plan_invalid_steps_zero():
     """
     Test ForecastPlan raises ValidationError when steps is 0.

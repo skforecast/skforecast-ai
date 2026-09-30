@@ -135,7 +135,10 @@ Minimum: 2 * max_lag for ML models, or 2 * steps for statistical/foundation.
 3. Map the user's business scenario to concrete parameters. If the user \
 mentions retraining frequency, translate to refit interval. If they mention \
 deployment delay, translate to gap.
-4. When in doubt, prefer conservative defaults (expanding window, refit=True).
+4. When in doubt, train once (refit=False) with an expanding window. Set \
+refit only when the scenario describes retraining: True for every fold, an \
+integer for a cadence. Refitting every fold multiplies the training cost by \
+the number of folds.
 5. Always explain your reasoning in the `reasoning` field.
 6. Only set parameters you are confident about. Leave others at defaults.
 7. Give `initial_train_size` as an integer number of observations. Use a \

@@ -7,6 +7,7 @@ import pytest
 from skforecast_ai.rendering._helpers import (
     _emit_aligned_kwargs,
     _emit_end_train,
+    _emit_preprocessing_steps,
     _emit_window_features,
     _format_lags,
     _get_estimator_constructor,
@@ -16,7 +17,7 @@ from skforecast_ai.rendering._helpers import (
     _get_seasonal_period,
     _needs_column_transformer,
 )
-from skforecast_ai.schemas import DataProfile, ForecastPlan
+from skforecast_ai.schemas import DataProfile, ForecastPlan, PreprocessingStep
 
 
 # =============================================================================
@@ -121,14 +122,19 @@ def test_get_estimator_import_output_when_known(estimator, expected):
     assert _get_estimator_import(estimator) == expected
 
 
-def test_get_estimator_import_output_when_unknown():
+def test_get_estimator_import_ValueError_when_unknown():
     """
-    Test that _get_estimator_import returns a TODO placeholder for
-    unknown estimators.
+    Test that _get_estimator_import raises for an estimator without a known
+    import instead of writing its name into the script.
     """
-    result = _get_estimator_import("MyCustomEstimator")
-    assert "TODO" in result
-    assert "MyCustomEstimator" in result
+    err_msg = re.escape(
+        "'MyCustomEstimator' is not a supported estimator. Supported "
+        "estimators: ['LGBMRegressor', 'Ridge', 'XGBRegressor', "
+        "'CatBoostRegressor', 'RandomForestRegressor', "
+        "'HistGradientBoostingRegressor']."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _get_estimator_import("MyCustomEstimator")
 
 
 # =============================================================================
@@ -231,7 +237,8 @@ def test_emit_end_train_output_when_end_train_set():
 def test_get_metric_imports_output_when_multiple_metrics():
     """
     Test that _get_metric_imports produces deduplicated import lines,
-    groups sklearn imports together, and ignores unknown metric names.
+    groups sklearn imports together, and raises for an unknown metric
+    instead of leaving it out of the script.
     """
     metrics = [
         "mean_absolute_error",
@@ -243,10 +250,21 @@ def test_get_metric_imports_output_when_multiple_metrics():
     assert "from sklearn.metrics import mean_absolute_error, mean_squared_error" in result
     assert "from skforecast.metrics import mean_absolute_scaled_error" in result
 
-    # Unknown metrics are silently ignored
-    result_with_unknown = _get_metric_imports(["mean_absolute_error", "unknown_metric"])
-    assert len(result_with_unknown) == 1
-    assert "mean_absolute_error" in result_with_unknown[0]
+    result_new = _get_metric_imports([
+        "median_absolute_error",
+        "mean_squared_log_error",
+        "symmetric_mean_absolute_percentage_error",
+        "root_mean_squared_scaled_error",
+    ])
+    assert result_new == [
+        "from sklearn.metrics import median_absolute_error, mean_squared_log_error",
+        "from skforecast.metrics import symmetric_mean_absolute_percentage_error",
+        "from skforecast.metrics import root_mean_squared_scaled_error",
+    ]
+
+    err_msg = re.escape("Metric 'unknown_metric' cannot be rendered.")
+    with pytest.raises(ValueError, match=err_msg):
+        _get_metric_imports(["mean_absolute_error", "unknown_metric"])
 
 
 # =============================================================================
@@ -314,3 +332,81 @@ def test_emit_window_features_output_when_features_provided():
     empty_lines: list[str] = []
     _emit_window_features(empty_lines, [])
     assert empty_lines == []
+
+
+# =============================================================================
+# Tests: _emit_preprocessing_steps
+# =============================================================================
+@pytest.mark.parametrize(
+    "profile_kwargs, code_snippet, expected",
+    [
+        (
+            {"series_lengths": {"y": 100}, "n_series": 1, "target": "y"},
+            "data = data[~data.index.duplicated(keep='first')]",
+            [
+                "# Preprocessing",
+                "data = data[~data.index.duplicated(keep='first')]",
+                "data = data.asfreq('D')",
+                "",
+            ],
+        ),
+        (
+            {
+                "series_lengths": {"A": 100, "B": 100},
+                "n_series": 2,
+                "target": "value",
+                "data_format": "long",
+                "date_column": "date",
+                "series_id_column": "series_id",
+            },
+            "data = data.drop_duplicates(subset=['{series_id_column}', "
+            "'{date_column}'], keep='first')",
+            [
+                "# Preprocessing",
+                "data = data.drop_duplicates(subset=['series_id', 'date'], "
+                "keep='first')",
+                "",
+            ],
+        ),
+    ],
+    ids=["single", "long"],
+)
+def test_emit_preprocessing_steps_output_when_duplicate_timestamps(
+    profile_kwargs, code_snippet, expected
+):
+    """
+    Test that the drop_duplicates step is emitted with its placeholders
+    filled, followed by the deferred asfreq() for single-series data but
+    not for long-format data, whose frequency is set when the series are
+    reshaped (asfreq on its RangeIndex would fail).
+    """
+    profile = DataProfile(
+        index_type               = "datetime",
+        frequency                = "D",
+        has_duplicate_timestamps = True,
+        **profile_kwargs,
+    )
+    plan = ForecastPlan(
+        task_type           = "single_series",
+        forecaster          = "ForecasterRecursive",
+        forecaster_kwargs   = {"lags": 7},
+        estimator           = "Ridge",
+        estimator_kwargs    = {},
+        steps               = 10,
+        frequency           = "D",
+        use_exog            = False,
+        preprocessing_steps = [
+            PreprocessingStep(
+                action       = "drop_duplicates",
+                reason       = "Timestamps repeated in identical rows.",
+                code_snippet = code_snippet,
+                blocking     = True,
+            )
+        ],
+        explanation         = "Plan.",
+    )
+
+    lines: list[str] = []
+    _emit_preprocessing_steps(lines, plan, profile)
+
+    assert lines == expected

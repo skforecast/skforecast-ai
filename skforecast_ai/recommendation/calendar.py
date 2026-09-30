@@ -162,3 +162,107 @@ def select_calendar_encoding(
         return None
     
     return "cyclical"
+
+
+# Features that `CalendarFeatures` turns into `<name>_sin` and `<name>_cos`
+# columns under cyclical encoding (the keys of skforecast's default
+# `max_values`); `'year'` and `'weekend'` always stay as raw columns.
+# `tests_recommendation/test_calendar.py` checks it against skforecast.
+CYCLICAL_ENCODABLE_FEATURES = frozenset({
+    "month",
+    "week",
+    "day_of_week",
+    "day_of_month",
+    "day_of_year",
+    "hour",
+    "minute",
+    "second",
+    "quarter",
+})
+
+
+def calendar_feature_names_out(
+    features: list[str],
+    encoding: str | None,
+) -> dict[str, list[str]]:
+    """
+    Name the columns `CalendarFeatures` creates for each calendar feature.
+
+    Parameters
+    ----------
+    features : list of str
+        Calendar feature names, as passed to `CalendarFeatures`.
+    encoding : str, None
+        Calendar encoding chosen by `select_calendar_encoding`: None (raw
+        ordinal values) or `'cyclical'`.
+
+    Returns
+    -------
+    names_out : dict
+        Mapping of each feature to the output column names it creates.
+
+    Notes
+    -----
+    Any other encoding raises a `ValueError`: the plan only generates None
+    and `'cyclical'`, and a new encoding needs its naming added here.
+    """
+
+    if encoding not in (None, "cyclical"):
+        raise ValueError(
+            f"Unsupported calendar encoding {encoding!r}. Only None and "
+            f"'cyclical' are generated."
+        )
+
+    names_out = {}
+    for feature in features:
+        if encoding == "cyclical" and feature in CYCLICAL_ENCODABLE_FEATURES:
+            names_out[feature] = [f"{feature}_sin", f"{feature}_cos"]
+        else:
+            names_out[feature] = [feature]
+
+    return names_out
+
+
+def drop_colliding_calendar_features(
+    features: list[str],
+    encoding: str | None,
+    exog_columns: list[str],
+) -> tuple[list[str], list[str]]:
+    """
+    Leave out the calendar features whose columns already exist as exog.
+
+    skforecast raises an error when two predictors share a name, so a
+    calendar feature that would create a column named like an exogenous
+    variable (for example `'month'` with raw encoding when the data has a
+    `month` column) is skipped and the user's column is used instead.
+
+    Parameters
+    ----------
+    features : list of str
+        Calendar feature names recommended by the profile.
+    encoding : str, None
+        Calendar encoding chosen by `select_calendar_encoding`.
+    exog_columns : list of str
+        Names of the exogenous columns used by the plan.
+
+    Returns
+    -------
+    kept : list of str
+        Features whose output columns do not collide, in input order.
+    skipped : list of str
+        Features left out because at least one of their output columns is
+        an exogenous column, in input order.
+    """
+
+    exog = set(exog_columns)
+    names_out = calendar_feature_names_out(features, encoding)
+
+    kept = []
+    skipped = []
+    for feature in features:
+        if exog.intersection(names_out[feature]):
+            skipped.append(feature)
+        else:
+            kept.append(feature)
+
+    return kept, skipped

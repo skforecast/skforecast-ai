@@ -158,6 +158,14 @@ def create_data_profile(
     profile : DataProfile
         Validated profile containing metadata, detected features, and
         warnings about the dataset.
+
+    Notes
+    -----
+    A timestamp that appears in more than one row of the same series with
+    different values raises a `ValueError` (for example long-format data
+    profiled without `series_id_column`). Timestamps repeated in identical
+    rows are dropped (the first row is kept, as in the generated script)
+    and reported in `warnings`.
     """
     if isinstance(data, (str, Path)):
         data = pd.read_csv(data)
@@ -180,6 +188,22 @@ def create_data_profile(
 
     date_col, index_type = detect_date_column(data, date_column)
 
+    # Repeated timestamps are resolved before anything is measured: rows
+    # that differ cannot be merged without losing data, and identical rows
+    # are dropped here as the generated script drops them, so the profile
+    # describes the data that is modeled.
+    n_duplicate_timestamps, keep_mask = _check_duplicate_timestamps(
+        data             = data,
+        target           = target,
+        date_col         = date_col,
+        index_type       = index_type,
+        data_format      = data_format,
+        series_id_column = series_id_column,
+    )
+    if keep_mask is not None:
+        data = data[keep_mask]
+    has_duplicate_timestamps = n_duplicate_timestamps > 0
+
     # Extract a datetime index suitable for quality checks (frequency,
     # gaps, duplicates, monotonicity). For long format, use a single
     # representative series to avoid stacked dates breaking inference.
@@ -188,13 +212,6 @@ def create_data_profile(
     )
 
     frequency = infer_frequency(datetime_index) if datetime_index is not None else None
-
-    has_duplicate_timestamps = detect_duplicate_timestamps(datetime_index)
-
-    # If frequency inference failed due to duplicates, retry on deduplicated index
-    if frequency is None and has_duplicate_timestamps and datetime_index is not None:
-        deduped_index = datetime_index[~datetime_index.duplicated(keep="first")]
-        frequency = infer_frequency(deduped_index)
 
     # Compute n_series and per-series ranges (start, end, length)
     n_series, series_lengths = _compute_series_metrics(
@@ -236,7 +253,8 @@ def create_data_profile(
         missing_target,
         missing_exog,
         index_type,
-        n_missing_timestamps = n_missing_timestamps,
+        n_missing_timestamps   = n_missing_timestamps,
+        n_duplicate_timestamps = n_duplicate_timestamps,
     )
 
     # Compute start_date: the reference start for position-to-date
@@ -351,6 +369,37 @@ def _is_datetime_like(values: pd.Series | pd.Index) -> bool:
     return bool(parsed.notna().all())
 
 
+def _unparsable_dates(values: pd.Series, n: int = 3) -> list[str]:
+    """
+    Quote the first values that cannot be parsed as timestamps.
+
+    Parameters
+    ----------
+    values : pandas Series
+        Values of the column or index named as the date source.
+    n : int, default 3
+        Largest number of values to quote.
+
+    Returns
+    -------
+    examples : list of str
+        Up to `n` distinct values that do not parse, or the first values
+        when the column is not text (numbers are not read as dates) or
+        every value parses (text dates in an index that was not converted).
+    """
+    if not (
+        pd.api.types.is_object_dtype(values)
+        or pd.api.types.is_string_dtype(values)
+    ):
+        return [str(value) for value in values.head(n)]
+    parsed = pd.to_datetime(values, format="mixed", errors="coerce")
+    failed = values[parsed.isna() & values.notna()]
+    if failed.empty:
+        return [str(value) for value in values.head(n)]
+
+    return [str(value) for value in failed.unique()[:n]]
+
+
 def detect_date_column(
     data: pd.DataFrame,
     date_column: str | None,
@@ -377,26 +426,38 @@ def detect_date_column(
     ------
     ValueError
         If `date_column` is provided but matches neither a column nor the
-        index name.
+        index name, or does not hold dates.
 
     Notes
     -----
     Passing `date_column` does not assume the source is datetime. The
-    referenced column or index is validated with `_is_datetime_like`, and
-    `'other'` is returned when it does not hold datetime values.
+    referenced column or index is validated with `_is_datetime_like`; when
+    it does not hold dates a `ValueError` quotes values that could not be
+    parsed, instead of treating the column as an exogenous variable.
     """
     if date_column is not None:
         if date_column in data.columns:
             if _is_datetime_like(data[date_column]):
                 return date_column, "datetime"
-            return None, "other"
+            raise ValueError(
+                f"date_column='{date_column}' does not hold dates: values "
+                f"such as {_unparsable_dates(data[date_column])} could not be "
+                f"parsed as timestamps. Pass the column that holds the dates, "
+                f"or convert it with pandas.to_datetime before profiling."
+            )
         if data.index.name == date_column:
             # The user pointed `date_column` at the index (e.g. after
             # `set_index(date_column)`). Downstream uses the index only
             # when it is a real DatetimeIndex.
             if isinstance(data.index, pd.DatetimeIndex):
                 return None, "datetime"
-            return None, "other"
+            raise ValueError(
+                f"date_column='{date_column}' names the index, which is not a "
+                f"DatetimeIndex (values such as "
+                f"{_unparsable_dates(data.index.to_series())}). Convert it "
+                f"with pandas.to_datetime before profiling, or omit "
+                f"date_column."
+            )
         available = list(data.columns)
         raise ValueError(
             f"date_column='{date_column}' was not found in the data. It "
@@ -947,6 +1008,7 @@ def generate_warnings(
     missing_exog: dict[str, int],
     index_type: str,
     n_missing_timestamps: int = 0,
+    n_duplicate_timestamps: int = 0,
 ) -> list[str]:
     """
     Generate human-readable warnings about potential data issues.
@@ -965,6 +1027,9 @@ def generate_warnings(
         Type of the index (`'datetime'`, `'range'`, `'other'`).
     n_missing_timestamps : int, default 0
         Number of timestamps missing from the regular grid of the index.
+    n_duplicate_timestamps : int, default 0
+        Number of timestamps (per series) repeated in identical rows, which
+        the generated code drops.
 
     Returns
     -------
@@ -996,6 +1061,14 @@ def generate_warnings(
             f"Missing timestamps: {n_missing_timestamps} timestamps of "
             f"frequency '{frequency}' are missing from the date range. "
             f"asfreq() inserts them as rows with missing values."
+        )
+
+    if n_duplicate_timestamps > 0:
+        warnings.append(
+            f"Duplicate timestamps: identical rows repeat "
+            f"{n_duplicate_timestamps} "
+            f"timestamp{'s' if n_duplicate_timestamps != 1 else ''}. The "
+            f"generated code keeps the first row of each."
         )
 
     total_target_missing = sum(missing_target.values())
@@ -1132,26 +1205,268 @@ def detect_gaps(
     return count_missing_timestamps(datetime_index, frequency) > 0
 
 
-def detect_duplicate_timestamps(
-    datetime_index: pd.DatetimeIndex | None,
-) -> bool:
+def _check_duplicate_timestamps(
+    data: pd.DataFrame,
+    target: str | list[str],
+    date_col: str | None,
+    index_type: str,
+    data_format: str,
+    series_id_column: str | None,
+) -> tuple[int, np.ndarray | None]:
     """
-    Detect whether the index contains duplicate timestamps.
+    Check repeated timestamps and decide whether they can be dropped.
+
+    A timestamp is repeated when it appears in more than one row of the
+    same series (the row timestamp for single and wide formats, the pair
+    series identifier and date for long format). Repeated rows that are
+    identical can be dropped without losing data; repeated rows whose
+    values differ cannot, since keeping any one of them would silently
+    discard the others.
 
     Parameters
     ----------
-    datetime_index : pandas DatetimeIndex, None
-        The datetime index to check.
+    data : pandas DataFrame
+        Input dataset.
+    target : str, list
+        Name(s) of the target column(s). Used to suggest a series
+        identifier column in the error message.
+    date_col : str, None
+        Resolved date column name. When None, the DataFrame index is used.
+    index_type : str
+        One of `'datetime'`, `'range'`, `'other'`.
+    data_format : str
+        One of `'single'`, `'wide'`, `'long'`.
+    series_id_column : str, None
+        Series identifier column (only relevant for long format).
 
     Returns
     -------
-    has_duplicates : bool
-        True if duplicate timestamps exist.
-    """
-    if datetime_index is None:
-        return False
+    n_duplicate_timestamps : int
+        Number of timestamps (per series) that appear in more than one
+        identical row.
+    keep_mask : numpy ndarray, None
+        Boolean mask that keeps the first row of each repeated timestamp.
+        None when no timestamp is repeated.
 
-    return bool(datetime_index.duplicated().any())
+    Notes
+    -----
+    A repeated timestamp whose rows have different values raises a
+    `ValueError` that says how to fix the input. Rows with a missing date
+    are left out of the check. Two missing values in the same column count
+    as identical.
+    """
+    if index_type != "datetime":
+        return 0, None
+
+    if date_col is not None and date_col in data.columns:
+        dates = pd.DatetimeIndex(pd.to_datetime(data[date_col]))
+    elif isinstance(data.index, pd.DatetimeIndex):
+        dates = data.index
+    else:
+        return 0, None
+
+    long_format = (
+        data_format == "long"
+        and series_id_column is not None
+        and series_id_column in data.columns
+    )
+
+    # Columns are labelled by position so a data column cannot clash with
+    # the key columns: 0 is the date, 1 the series identifier (long format).
+    keys = pd.DataFrame({0: dates.to_numpy()})
+    if long_format:
+        keys[1] = data[series_id_column].to_numpy()
+    key_cols = list(keys.columns)
+
+    valid = dates.notna()
+    repeated = keys.duplicated(keep=False).to_numpy() & valid
+    if not repeated.any():
+        return 0, None
+
+    # The raw date and identifier columns are left out of the comparison:
+    # the keys already hold them, parsed, so two spellings of the same
+    # timestamp do not count as different values.
+    value_cols = [
+        col for col in data.columns if col not in (date_col, series_id_column)
+    ]
+    values = data[value_cols].reset_index(drop=True)
+    values.columns = range(len(key_cols), len(key_cols) + len(value_cols))
+    rows = pd.concat([keys, values], axis=1)[repeated]
+
+    repeated_keys = rows[key_cols].drop_duplicates()
+    try:
+        distinct = rows.drop_duplicates()
+        conflicts = distinct.loc[
+            distinct.duplicated(subset=key_cols, keep=False), key_cols
+        ].drop_duplicates()
+    except TypeError:
+        # Unhashable cells (lists, dicts) cannot be compared, so every
+        # repeated timestamp is treated as a conflict rather than dropped.
+        conflicts = repeated_keys
+
+    if not conflicts.empty:
+        raise ValueError(
+            _duplicate_timestamps_message(
+                conflicts   = conflicts,
+                data        = data,
+                dates       = dates,
+                target      = target,
+                date_col    = date_col,
+                data_format = data_format,
+                long_format = long_format,
+            )
+        )
+
+    keep_mask = ~(keys.duplicated(keep="first").to_numpy() & valid)
+
+    return len(repeated_keys), keep_mask
+
+
+def _duplicate_timestamps_message(
+    conflicts: pd.DataFrame,
+    data: pd.DataFrame,
+    dates: pd.DatetimeIndex,
+    target: str | list[str],
+    date_col: str | None,
+    data_format: str,
+    long_format: bool,
+) -> str:
+    """
+    Build the error message for timestamps repeated with different values.
+
+    Parameters
+    ----------
+    conflicts : pandas DataFrame
+        One row per conflicting timestamp: column 0 holds the date and, for
+        long format, column 1 the series identifier.
+    data : pandas DataFrame
+        Input dataset.
+    dates : pandas DatetimeIndex
+        Parsed timestamps of `data`, row by row.
+    target : str, list
+        Name(s) of the target column(s).
+    date_col : str, None
+        Resolved date column name.
+    data_format : str
+        One of `'single'`, `'wide'`, `'long'`.
+    long_format : bool
+        Whether the rows are keyed by series identifier and date.
+
+    Returns
+    -------
+    message : str
+        Error message saying how many timestamps conflict, one example, and
+        how to fix the input.
+    """
+    n = len(conflicts)
+    plural = "s" if n != 1 else ""
+    # The earliest conflict is the example; series identifiers are sorted as
+    # text so mixed types cannot break the ordering.
+    order = conflicts.astype({1: str}) if long_format else conflicts
+    first = conflicts.loc[order.sort_values(by=list(order.columns)).index[0]]
+    example = _fmt_timestamp(first[0])
+
+    if long_format:
+        series = sorted(conflicts[1].astype(str).unique())
+        shown = series[:5]
+        more = f" and {len(series) - 5} more" if len(series) > 5 else ""
+        return (
+            f"Found {n} date{plural} with more than one row and different "
+            f"values within the same series, for example '{example}' in series "
+            f"'{first[1]}' (affected series: {shown}{more}). Each series "
+            f"needs one row per date, and keeping only one of them would "
+            f"silently discard data. Aggregate or remove the repeated rows of "
+            f"each series before profiling."
+        )
+
+    found = (
+        f"Found {n} timestamp{plural} with more than one row and different "
+        f"values, for example '{example}'."
+    )
+    if data_format == "wide":
+        return (
+            f"{found} Wide format needs one row per timestamp, with one column "
+            f"per series, and keeping only one of them would silently discard "
+            f"data. Aggregate or remove the repeated rows before profiling."
+        )
+
+    found = (
+        f"{found} A single series needs one row per timestamp, and keeping "
+        f"only one of them would silently discard data."
+    )
+    excluded = {target} if isinstance(target, str) else set(target)
+    if date_col is not None:
+        excluded.add(date_col)
+    candidates = _find_series_id_candidates(
+        data     = data,
+        dates    = dates,
+        excluded = excluded,
+    )
+    if candidates:
+        return (
+            f"{found} If the rows belong to different series, pass "
+            f"`series_id_column` (candidate columns: {candidates}) to profile "
+            f"the data in long format. Otherwise, aggregate or remove the "
+            f"repeated rows before profiling."
+        )
+
+    return (
+        f"{found} Aggregate or remove the repeated rows before profiling, or "
+        f"pass `series_id_column` if a column identifies different series."
+    )
+
+
+def _find_series_id_candidates(
+    data: pd.DataFrame,
+    dates: pd.DatetimeIndex,
+    excluded: set[str],
+) -> list[str]:
+    """
+    Find columns that could identify the series of long-format data.
+
+    A column is a candidate when every timestamp appears at most once per
+    value of the column (identical repeated rows aside), it is not a float
+    column, and it has at most half as many distinct values as rows, which
+    leaves out continuous variables and row identifiers.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    dates : pandas DatetimeIndex
+        Parsed timestamps of `data`, row by row.
+    excluded : set of str
+        Columns that cannot identify series (target and date column).
+
+    Returns
+    -------
+    candidates : list of str
+        Candidate column names, in column order.
+    """
+    columns = [col for col in data.columns if col not in excluded]
+    values = data[columns].reset_index(drop=True)
+    values.columns = range(1, len(columns) + 1)
+    frame = pd.concat([pd.DataFrame({0: dates.to_numpy()}), values], axis=1)
+    frame = frame[dates.notna()]
+
+    try:
+        distinct = frame.drop_duplicates()
+    except TypeError:
+        return []
+
+    candidates = []
+    for position, col in enumerate(columns, start=1):
+        if pd.api.types.is_float_dtype(data[col]):
+            continue
+        try:
+            if data[col].nunique(dropna=False) > len(data) // 2:
+                continue
+            if not distinct.duplicated(subset=[0, position]).any():
+                candidates.append(col)
+        except TypeError:
+            continue
+
+    return candidates
 
 
 def _check_monotonic(
@@ -1350,3 +1665,40 @@ def resolve_end_train(
         )
 
     return _format_split_ts(index[boundary_idx])
+
+
+def count_test_observations(
+    start_date: str | None,
+    frequency: str | None,
+    n_observations: int,
+    end_train: str,
+) -> int | None:
+    """
+    Count the observations after a train/test split boundary.
+
+    Rebuilds the same date grid as `resolve_end_train`, so the count
+    matches the test set that boundary defines.
+
+    Parameters
+    ----------
+    start_date : str, None
+        First timestamp of the dataset.
+    frequency : str, None
+        Inferred pandas frequency string.
+    n_observations : int
+        Number of observations spanned by the dataset.
+    end_train : str
+        Last timestamp of the training set.
+
+    Returns
+    -------
+    n_test : int, None
+        Number of observations after `end_train`, or None when the date grid
+        cannot be rebuilt (no start date or no frequency).
+    """
+    if start_date is None or frequency is None:
+        return None
+
+    index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
+
+    return int((index > pd.Timestamp(end_train)).sum())

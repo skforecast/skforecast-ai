@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast.exceptions import IgnoredArgumentWarning
+from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import BacktestResult, ForecastingAssistant
@@ -45,6 +45,36 @@ def test_backtest_ValueError_when_cv_steps_differs_from_plan_steps():
 # =============================================================================
 # Tests: basic output
 # =============================================================================
+def test_backtest_LongTrainingWarning_when_estimator_fits_exceed_threshold():
+    """
+    Test that backtest() warns before running when the strategy fits the
+    estimator more than 50 times (the skforecast threshold, silenced in the
+    generated scripts): a ForecasterDirect refitted in each of 6 folds fits
+    10 estimators per training. The backtest still runs.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, forecaster="ForecasterDirect")
+    cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
+
+    warn_msg = re.escape(
+        "ForecasterDirect will be fit 60 times (6 trainings x 10 estimators). "
+        "This can take substantial amounts of time. If not feasible, use a "
+        "cross-validation strategy with `refit=False` (train once) or an "
+        "integer `refit` (retrain every n folds)."
+    )
+    with pytest.warns(LongTrainingWarning, match=warn_msg):
+        result = assistant.backtest(
+            data          = df_single,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
+
+    assert result.cv_config["n_fits"] == 6
+    assert "(60 fits in all)" in result.explanation
+
+
 def test_backtest_output_when_single_series():
     """
     Test that backtest() returns a BacktestResult with correct types,

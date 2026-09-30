@@ -71,12 +71,12 @@ Every command that reads data accepts these three options, so the examples below
 
 `forecast` runs the whole pipeline in one call and works in two modes:
 
-- **Evaluation mode** (`--test-size`): holds out the end of the series, forecasts it and reports metrics. `--test-size` takes an integer (the last *N* observations), a float in `(0, 1)` (the last fraction) or a date (the start of the test set).
+- **Evaluation mode** (`--test-size`): holds out the end of the series, forecasts it and reports metrics. `--test-size` takes an integer (the last *N* observations), a float in `(0, 1)` (the last fraction) or a date (the start of the test set); the test set must hold exactly `--steps` observations. To evaluate over a longer period, use `backtest`.
 - **Prediction mode** (the default): trains on all the data and forecasts the next `--steps` periods. There is no ground truth, so there are no metrics. When the data has exogenous variables, their future values are required: pass `--exog` with a CSV that has the date column and the same exogenous columns, covering the horizon.
 
 ```bash
-# Evaluation mode: hold out the last 20% of the series
-skforecast-ai forecast "$DATA" --target y --date-column fecha --steps 12 --test-size 0.2
+# Evaluation mode: hold out the last 12 observations and forecast them
+skforecast-ai forecast "$DATA" --target y --date-column fecha --steps 12 --test-size 12
 
 # Prediction mode: this dataset has exogenous variables, so their future values are needed
 skforecast-ai forecast "$DATA" --target y --date-column fecha --steps 12 --exog future_exog.csv

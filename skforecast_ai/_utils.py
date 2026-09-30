@@ -10,10 +10,17 @@ import re
 import warnings
 from pathlib import Path
 import pandas as pd
+from skforecast.exceptions import LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 
-from ._constants import ALLOWED_WINDOW_STATS, MAX_FEATURE_FRACTION
+from ._constants import (
+    ALLOWED_WINDOW_STATS,
+    DIRECT_FORECASTERS,
+    LONG_TRAINING_FITS,
+    MAX_FEATURE_FRACTION,
+)
 from ._foundation import resolve_foundation_model, validate_foundation_interval
+from ._validation import validate_interval
 from .profiling.data_profile import _try_parse_first_date_column
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
 
@@ -434,12 +441,18 @@ def _apply_interval_to_plan(plan: ForecastPlan, interval: list[float]) -> Foreca
     """
     if plan.interval == interval:
         return plan
-    # `model_copy` skips the plan validators, so the foundation model is
-    # checked against the new interval here.
+    # `model_copy` skips the plan validators, so the interval is checked
+    # here, against the foundation model when there is one.
     if plan.task_type == "foundation":
         validate_foundation_interval(
             info     = resolve_foundation_model(plan.estimator),
             interval = interval,
+        )
+    else:
+        validate_interval(
+            interval   = interval,
+            task_type  = plan.task_type,
+            forecaster = plan.forecaster,
         )
     interval_method = resolve_interval_method(plan.task_type, interval)
     explanation = plan.explanation
@@ -866,4 +879,81 @@ def _check_evaluated_target(
         f"counting the missing timestamps that asfreq() restores. skforecast "
         f"cannot compute the metrics on them, whatever the estimator. Impute "
         f"the target, or evaluate on dates without missing values."
+    )
+
+
+def long_training_message(
+    estimator_fits: int,
+    n_fits: int,
+    forecaster: str,
+    steps: int,
+) -> str:
+    """
+    Describe the cost of a backtest in estimator fits.
+
+    Parameters
+    ----------
+    estimator_fits : int
+        Number of estimator fits of the backtest.
+    n_fits : int
+        Number of folds in which the forecaster is trained.
+    forecaster : str
+        Name of the skforecast forecaster class.
+    steps : int
+        Forecast horizon of each fold.
+
+    Returns
+    -------
+    message : str
+        Sentence with the number of fits, broken down into trainings and
+        estimators for a direct forecaster.
+    """
+
+    breakdown = (
+        f" ({n_fits} trainings x {steps} estimators)"
+        if forecaster in DIRECT_FORECASTERS else ""
+    )
+
+    return f"{forecaster} will be fit {estimator_fits} times{breakdown}"
+
+
+def warn_long_training(
+    estimator_fits: int,
+    n_fits: int,
+    forecaster: str,
+    steps: int,
+) -> None:
+    """
+    Warn before a backtest that fits the estimator many times.
+
+    skforecast emits `LongTrainingWarning` from the same threshold, but the
+    generated scripts pass `suppress_warnings=True`, so the assistant warns
+    itself, before anything runs.
+
+    Parameters
+    ----------
+    estimator_fits : int
+        Number of estimator fits of the backtest.
+    n_fits : int
+        Number of folds in which the forecaster is trained.
+    forecaster : str
+        Name of the skforecast forecaster class.
+    steps : int
+        Forecast horizon of each fold.
+
+    Returns
+    -------
+    None
+    """
+
+    if estimator_fits <= LONG_TRAINING_FITS:
+        return
+
+    warnings.warn(
+        f"{long_training_message(estimator_fits, n_fits, forecaster, steps)}. "
+        f"This can take substantial amounts of time. If not feasible, use a "
+        f"cross-validation strategy with `refit=False` (train once) or an "
+        f"integer `refit` (retrain every n folds).",
+        LongTrainingWarning,
+        stacklevel=3,
     )

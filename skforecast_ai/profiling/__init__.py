@@ -1,3 +1,7 @@
-from .data_profile import create_data_profile, resolve_end_train
+from .data_profile import (
+    count_test_observations,
+    create_data_profile,
+    resolve_end_train,
+)
 
-__all__ = ["create_data_profile", "resolve_end_train"]
+__all__ = ["count_test_observations", "create_data_profile", "resolve_end_train"]

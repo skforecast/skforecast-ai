@@ -16,6 +16,8 @@ All significant changes to this project are documented in this release file.
 
 **Added**
 
++ <span class="badge text-bg-enhancement">Enhancement</span> The cross-validation explanation of [<code>ForecastingAssistant.create_cv()</code>][assistant], `backtest()` and `compare()` states how many times the forecaster is trained (`cv_config['n_fits']`) and, for a direct forecaster, how many estimators that fits. `backtest()` and `compare()` warn with skforecast's `LongTrainingWarning` before running a backtest with more than 50 estimator fits, and `compare()` without `candidates` leaves out the alternatives above 500 fits (the recommended forecaster is always kept), saying so in the warning and the explanation. Pass them in `candidates` to run them anyway.
+
 + <span class="badge text-bg-feature">Feature</span> [<code>ForecastingAssistant.compare()</code>][assistant] adds a baseline to the leaderboard: a seasonal naive `ForecasterEquivalentDate` that repeats the value observed one seasonal period earlier, or the last observed value when the data has no usable seasonality. It is backtested and ranked like any other candidate, its row is identified by `ComparisonResult.baseline_name`, and the explanation says whether the best configuration beats it. Pass `baseline=False` (`--no-baseline` in the CLI) to leave it out. It is not added for multi-series data or when the target has missing values or missing timestamps, and a `ForecasterEquivalentDate` passed in `candidates` is used as the baseline instead.
 
 + <span class="badge text-bg-feature">Feature</span> `'ForecasterEquivalentDate'` can be chosen as `forecaster` in [<code>ForecastingAssistant.plan()</code>][assistant], every method that builds a plan and the CLI `--forecaster`. Its plan has the task type `'baseline'`, an `offset` chosen as for the baseline of `compare()`, no estimator or features, and conformal prediction intervals. A target with missing values emits a `UserWarning` that advises imputing it.
@@ -39,6 +41,14 @@ All significant changes to this project are documented in this release file.
 
 **Changed**
 
++ <span class="badge text-bg-api-change">API Change</span> `lightgbm` is now a dependency of skforecast-ai. `LGBMRegressor` is the recommended estimator from 250 observations, so a clean install failed on the default plan with an `ImportError` inside the script.
+
++ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.forecast()</code>][assistant] and `forecast_code()` in evaluation mode raise `ValueError` unless the test set holds exactly `steps` observations. A longer test set was scored on its first `steps` rows without saying so, and a shorter one failed inside the script. Use `backtest()` to evaluate over a longer period.
+
++ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.plan()</code>][assistant] and every method that builds a plan raise `ValueError` before rendering the script, saying what to pass instead, for an unsupported estimator (or one other than `Arima` for `ForecasterStats`), an `estimator_kwargs` name the estimator does not accept (LightGBM and XGBoost, which take extra parameters, warn instead), an `interval` that is not `[lower, upper]` quantiles or is asymmetric where the method needs it, and a datetime index without an inferable frequency (for example day-first dates read month-first). A `date_column` that does not hold dates also raises, instead of being used as an exogenous variable.
+
++ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.create_cv()</code>][assistant] trains the forecaster once by default (`refit=False`, the skforecast default) instead of refitting it in every fold, whose cost grows with the number of folds: on two years of hourly data a `ForecasterDirect` backtest took about an hour instead of seconds. The metrics of `backtest()` and `compare()` with the default strategy change; pass `refit=True` (or `--refit` in the CLI) to keep the previous behavior.
+
 + <span class="badge text-bg-api-change">API Change</span> skforecast-ai now requires `skforecast>=0.26.0`.
 
 + <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.compare()</code>][assistant] returns one more row by default (the baseline) and its explanation gains a sentence about it. Code that relies on the number of rows or on the exact explanation text passes `baseline=False` to keep the previous output.
@@ -57,6 +67,14 @@ All significant changes to this project are documented in this release file.
 
 
 **Fixed**
+
++ <span class="badge text-bg-danger">Fix</span> `forecast()` in evaluation mode left out, without saying so, any metric other than MAE, MSE, MASE and MAPE. It now computes the same eight regression metrics as backtesting, and `compare(metric=...)` rejects any other name (such as classification scores, which it would have ranked in reverse) with `ValueError` instead of failing every candidate. An invalid `interval` in `compare()` also raises `ValueError` instead of `AllCandidatesFailedError`.
+
++ <span class="badge text-bg-danger">Fix</span> The estimator name and the keys of `estimator_kwargs` were written into the generated script without validation, so a crafted value could inject code into the script that `forecast()` and `backtest()` execute. They are now checked against the supported estimators and as valid Python parameter names, including in plans loaded from JSON.
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.profile()</code>][assistant] raises `ValueError` when a timestamp has several rows with different values, instead of silently keeping the first one: long-format data profiled without `series_id_column` lost every series but one. The message suggests the column to pass as `series_id_column`. Identical repeated rows are still removed, now with a note in the profile warnings, and long-format data with a repeated date no longer produces a script that fails.
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.plan()</code>][assistant] leaves out the calendar features whose columns already exist among the exogenous variables (for example `month` or `hour`), which made `forecast()` and `backtest()` fail with "Duplicated feature names detected". The data column is used instead, and the plan explanation names the skipped features.
 
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.refine_plan()</code>][assistant] no longer carries over values that do not apply to the refined plan: switching forecaster family re-derives the estimator, lags and window features (an ML plan refined with `forecaster="ForecasterStats"` kept `Ridge`), and a new `estimator` drops the previous `estimator_kwargs` unless they are passed too. A `prompt` is ignored with a `UserWarning` when the new forecaster does not use the LLM.
 

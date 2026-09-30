@@ -10,11 +10,17 @@ from .baseline import baseline_missing_values_note, select_baseline_config
 from .backtesting import (
     build_cv,
     build_cv_explanation,
+    count_cv_fits,
     count_cv_folds,
+    count_estimator_fits,
     derive_cv_defaults,
     resolve_cv_config,
 )
-from .calendar import select_calendar_features, select_calendar_encoding
+from .calendar import (
+    drop_colliding_calendar_features,
+    select_calendar_encoding,
+    select_calendar_features,
+)
 from .explanation import (
     _build_profile_explanation,
     build_foundation_explanation,
@@ -45,9 +51,12 @@ __all__ = [
     "build_forecaster_kwargs",
     "check_exog_usage",
     "compute_series_pacf",
+    "count_cv_fits",
     "count_cv_folds",
+    "count_estimator_fits",
     "derive_cv_defaults",
     "derive_preprocessing_steps",
+    "drop_colliding_calendar_features",
     "finalize_lags",
     "resolve_cv_config",
     "select_baseline_config",

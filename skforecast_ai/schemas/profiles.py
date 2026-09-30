@@ -142,7 +142,9 @@ class DataProfile(BaseModel):
     has_gaps : bool, default False
         Whether the datetime index has missing timestamps within its range.
     has_duplicate_timestamps : bool, default False
-        Whether the index contains duplicate timestamps.
+        Whether some timestamps appear in several identical rows, which the
+        generated code drops. Timestamps repeated with different values
+        raise a `ValueError` during profiling.
     exog_columns : list
         Names of exogenous predictor columns.
     categorical_exog : list
