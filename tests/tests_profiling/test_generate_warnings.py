@@ -34,3 +34,42 @@ def test_generate_warnings_output_when_missing_rate_is_low():
     )
 
     assert warnings == []
+
+
+def test_generate_warnings_output_when_timestamps_are_missing():
+    """
+    Test that missing timestamps produce a warning with their count and
+    frequency, saying that `asfreq()` turns them into missing values.
+    """
+    warnings = generate_warnings(
+        n_observations       = 100,
+        frequency            = "D",
+        missing_target       = {},
+        missing_exog         = {},
+        index_type           = "datetime",
+        n_missing_timestamps = 3,
+    )
+
+    assert warnings == [
+        "Missing timestamps: 3 timestamps of frequency 'D' are missing from "
+        "the date range. asfreq() inserts them as rows with missing values."
+    ]
+
+
+def test_generate_warnings_output_when_frequency_cannot_be_inferred():
+    """
+    Test that a datetime index whose frequency cannot be inferred produces
+    the irregular spacing warning.
+    """
+    warnings = generate_warnings(
+        n_observations = 100,
+        frequency      = None,
+        missing_target = {},
+        missing_exog   = {},
+        index_type     = "datetime",
+    )
+
+    assert warnings == [
+        "Could not infer frequency from the datetime index: the spacing is "
+        "irregular, or there are too few timestamps."
+    ]

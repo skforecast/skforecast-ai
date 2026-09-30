@@ -13,6 +13,7 @@ import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import ALLOWED_WINDOW_STATS, MAX_FEATURE_FRACTION
+from ._foundation import resolve_foundation_model, validate_foundation_interval
 from .profiling.data_profile import _try_parse_first_date_column
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
 
@@ -251,9 +252,9 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
     """
     Validate that the input shape is compatible with the task type.
 
-    Single-series tasks (`single_series`, `statistical`, `foundation`)
-    accept exactly one series. The `multivariate` task requires all
-    series to share the same length.
+    Single-series tasks (`single_series`, `statistical`, `baseline`) accept
+    exactly one series. The `multivariate` task requires all series to share
+    the same length. `foundation` takes one or several series.
 
     Parameters
     ----------
@@ -274,7 +275,10 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
     series_lengths = data_profile.series_lengths
     n_series = len(series_lengths)
 
-    if task_type in ("single_series", "statistical", "foundation") and n_series > 1:
+    if (
+        task_type in ("single_series", "statistical", "baseline")
+        and n_series > 1
+    ):
         raise ValueError(
             f"Task type '{task_type}' supports a single series only, but the "
             f"input contains {n_series} series ({list(series_lengths)}). "
@@ -386,13 +390,16 @@ def resolve_interval_method(task_type: str, interval: list[float] | None) -> str
     -------
     interval_method : str, None
         `'native'` for statistical and foundation forecasters, which
-        produce their own intervals, `'bootstrapping'` otherwise, and
-        None when `interval` is None.
+        produce their own intervals, `'conformal'` for the baseline
+        (`ForecasterEquivalentDate` supports no other method),
+        `'bootstrapping'` otherwise, and None when `interval` is None.
     """
     if interval is None:
         return None
     if task_type in {"statistical", "foundation"}:
         return "native"
+    if task_type == "baseline":
+        return "conformal"
     return "bootstrapping"
 
 
@@ -419,9 +426,21 @@ def _apply_interval_to_plan(plan: ForecastPlan, interval: list[float]) -> Foreca
         The same plan when it already predicts `interval`, otherwise a
         copy with `interval`, `interval_method` and the explanation
         updated.
+
+    Raises
+    ------
+    ValueError
+        When the foundation model of the plan cannot predict `interval`.
     """
     if plan.interval == interval:
         return plan
+    # `model_copy` skips the plan validators, so the foundation model is
+    # checked against the new interval here.
+    if plan.task_type == "foundation":
+        validate_foundation_interval(
+            info     = resolve_foundation_model(plan.estimator),
+            interval = interval,
+        )
     interval_method = resolve_interval_method(plan.task_type, interval)
     explanation = plan.explanation
     if "Prediction intervals via" not in explanation:
@@ -441,6 +460,7 @@ def _validate_forecast_mode(
     has_exog: bool,
     steps: int,
     require_exog: bool = True,
+    uses_exog: bool | None = None,
 ) -> None:
     """
     Validate the `exog` argument against the effective forecast mode.
@@ -469,6 +489,12 @@ def _validate_forecast_mode(
         only renders a script (which loads the future values from a CSV at
         run time), so it sets this to False and validates the remaining
         rules without demanding `exog`.
+    uses_exog : bool, default None
+        Whether the plan uses the exogenous variables (`plan.use_exog`).
+        None means it uses them whenever the data has them. A plan that
+        does not use them, such as the baseline
+        (`ForecasterEquivalentDate`), needs no future `exog` and rejects
+        one.
 
     Returns
     -------
@@ -490,8 +516,11 @@ def _validate_forecast_mode(
             )
         return
 
+    if uses_exog is None:
+        uses_exog = has_exog
+
     # Prediction mode.
-    if require_exog and has_exog and exog is None:
+    if require_exog and uses_exog and exog is None:
         raise ValueError(
             "`exog` is required for future prediction because the data "
             "contains exogenous variables. Provide future exogenous "
@@ -503,6 +532,11 @@ def _validate_forecast_mode(
             "`exog` was provided but the data contains no exogenous "
             "variables. Remove `exog` or add exogenous columns to the "
             "data."
+        )
+    if has_exog and not uses_exog and exog is not None:
+        raise ValueError(
+            "`exog` was provided but the plan does not use exogenous "
+            "variables (`plan.use_exog` is False). Remove `exog`."
         )
     if exog is not None and len(exog) < steps:
         raise ValueError(
@@ -734,3 +768,102 @@ def _unwrap_cv(cv: TimeSeriesFold | CVResult) -> TimeSeriesFold:
     """
 
     return cv.cv if isinstance(cv, CVResult) else cv
+
+
+def _check_evaluated_target(
+    data: pd.DataFrame,
+    data_profile: DataProfile,
+    cv: TimeSeriesFold | None = None,
+    end_train: str | None = None,
+    steps: int | None = None,
+) -> None:
+    """
+    Reject an evaluation whose test dates have missing target values.
+
+    For a single series, skforecast computes the backtesting metrics on the
+    raw target of the test folds without dropping missing values, so one
+    missing value (or one missing timestamp, which `asfreq()` restores as a
+    missing value) in a test fold makes every metric fail with "Input
+    contains NaN", whatever the estimator. The generated evaluation script
+    fails the same way on the test split. This check names the dates up
+    front. Multi-series backtesting drops them per series and is not
+    checked.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Dataset the script runs on.
+    data_profile : DataProfile
+        Profile of `data`.
+    cv : TimeSeriesFold, default None
+        Cross-validation of a backtest. Its test folds are checked.
+    end_train : str, default None
+        Last training date of an evaluation-mode forecast. The `steps`
+        dates after it are checked. Ignored when `cv` is given.
+    steps : int, default None
+        Forecast horizon of an evaluation-mode forecast.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If a checked date has a missing target value.
+    """
+
+    if data_profile.n_series != 1 or not isinstance(data_profile.target, str):
+        return
+    if not data_profile.missing_target and not data_profile.has_gaps:
+        return
+
+    # Rebuild the target as the generated script does: datetime index,
+    # sorted, and on its regular grid when the frequency is known.
+    if data_profile.date_column is not None and data_profile.date_column in data:
+        index = pd.to_datetime(data[data_profile.date_column])
+    else:
+        index = data.index
+    y = pd.Series(data[data_profile.target].to_numpy(), index=index).sort_index()
+    if y.index.has_duplicates:
+        return
+    if data_profile.frequency is not None and isinstance(y.index, pd.DatetimeIndex):
+        y = y.asfreq(data_profile.frequency)
+
+    if cv is not None:
+        original_verbose = cv.verbose
+        cv.verbose = False
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                folds = cv.split(X=y, as_pandas=True)
+        finally:
+            cv.verbose = original_verbose
+        positions = sorted({
+            position
+            for start, end in zip(
+                folds["test_start_with_gap"], folds["test_end_with_gap"]
+            )
+            for position in range(int(start), int(end))
+        })
+        evaluated = y.iloc[positions]
+        where = "in the test folds"
+    elif end_train is not None and steps is not None:
+        evaluated = y.loc[y.index > pd.Timestamp(end_train)].iloc[:steps]
+        where = "in the test split"
+    else:
+        return
+
+    missing = evaluated.index[evaluated.isna()]
+    if len(missing) == 0:
+        return
+
+    shown = ", ".join(str(date) for date in missing[:5])
+    if len(missing) > 5:
+        shown += f" and {len(missing) - 5} more"
+    raise ValueError(
+        f"The target has {len(missing)} missing value(s) {where} ({shown}), "
+        f"counting the missing timestamps that asfreq() restores. skforecast "
+        f"cannot compute the metrics on them, whatever the estimator. Impute "
+        f"the target, or evaluate on dates without missing values."
+    )

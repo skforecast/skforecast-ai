@@ -93,7 +93,7 @@ def test_skills_guide_base_skills_table_matches_task_type_routing():
     """
     text = SKILLS_GUIDE.read_text(encoding="utf-8")
     rows = _table_rows(
-        _section(text, "Automatic selection"), "`profile.task_type`"
+        _section(text, "Automatic selection"), "Task type"
     )
     documented: dict[str | None, list[str]] = {}
     for task_types, skills in rows:

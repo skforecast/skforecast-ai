@@ -10,6 +10,7 @@ from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
     _emit_feature_setup,
+    _emit_imports_baseline,
     _emit_imports_foundation,
     _emit_imports_multi_series,
     _emit_imports_single_series,
@@ -19,10 +20,17 @@ from ._helpers import (
     _emit_preprocessing_steps,
     _emit_reshape_exog_long_to_dict,
     _emit_reshape_series_long_to_dict,
+    _emit_series_dict,
     _get_numeric_exog,
     _get_target_str,
 )
-from .foundation import _emit_forecaster_creation_foundation
+from .baseline import _emit_forecaster_creation_baseline
+from .foundation import (
+    _SERIES_DICT_COMMENT,
+    _emit_excluded_categorical_note,
+    _emit_forecaster_creation_foundation,
+    _get_foundation_exog,
+)
 from .multi_series import _emit_forecaster_creation_multi
 from .single_series import _emit_forecaster_creation_single
 from .statistical import (
@@ -66,7 +74,13 @@ def _emit_backtesting_call(
     plan: ForecastPlan,
     profile: DataProfile,
 ) -> None:
-    """Append backtesting_forecaster call for single-series."""
+    """Append backtesting_forecaster call for a single series.
+
+    Shared by the ML forecasters and the baseline. The exogenous variables
+    are passed only when the plan uses them, and `interval_method` only
+    when it is not skforecast's default (`'bootstrapping'`), as for the
+    conformal intervals of the baseline.
+    """
 
     target = _get_target_str(profile)
     exog_columns = profile.exog_columns
@@ -85,6 +99,8 @@ def _emit_backtesting_call(
     bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
     if plan.interval is not None:
         bt_kwargs.append(("interval", repr(plan.interval)))
+        if plan.interval_method not in (None, "bootstrapping"):
+            bt_kwargs.append(("interval_method", f"'{plan.interval_method}'"))
     bt_kwargs.append(("n_jobs", "'auto'"))
     bt_kwargs.append(("verbose", "False"))
     bt_kwargs.append(("show_progress", "True"))
@@ -367,7 +383,6 @@ def _emit_backtesting_call_foundation(
     *,
     series_expr: str,
     exog_expr: str | None,
-    levels_expr: str | None,
 ) -> None:
     """Append backtesting_foundation call."""
 
@@ -379,8 +394,6 @@ def _emit_backtesting_call_foundation(
     bt_kwargs.append(("series", series_expr))
     bt_kwargs.append(("cv", "cv"))
     bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
-    if levels_expr is not None:
-        bt_kwargs.append(("levels", levels_expr))
     if exog_expr is not None:
         bt_kwargs.append(("exog", exog_expr))
     if quantiles is not None:
@@ -406,42 +419,55 @@ def render_backtesting_foundation(
 ) -> RenderedScript:
     """Render backtesting code for ForecasterFoundation."""
 
-    exog_columns = profile.exog_columns
-    use_exog = plan.use_exog and bool(exog_columns)
+    exog_columns, excluded_categorical = _get_foundation_exog(plan, profile)
+    use_exog = bool(exog_columns)
 
-    is_multi_series = isinstance(profile.target, list) and len(profile.target) > 1
+    is_multi_series = profile.n_series > 1
+    is_long = profile.data_format == "long"
 
     import_lines: list[str] = []
     loading_lines: list[str] = []
     core_lines: list[str] = []
 
     # --- Imports ---
-    _emit_imports_foundation(import_lines, plan, include_backtesting=True)
+    _emit_imports_foundation(
+        import_lines,
+        plan,
+        include_backtesting = True,
+        profile             = profile,
+        use_exog            = use_exog,
+    )
 
     # --- Load data and index setup ---
-    _emit_loading_and_index(loading_lines, core_lines, profile)
+    _emit_loading_and_index(
+        loading_lines, core_lines, profile, long_format=is_long
+    )
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)
 
     # --- Series expression ---
-    target = _get_target_str(profile)
     if is_multi_series:
-        series_expr = f"data[{repr(profile.target)}]"
+        _emit_series_dict(core_lines, profile, comment=_SERIES_DICT_COMMENT)
+        core_lines.append("")
+        series_expr = "series_dict"
     else:
-        series_expr = f"data[{repr(target)}]"
+        series_expr = f"data[{repr(_get_target_str(profile))}]"
 
     # --- Exog setup ---
     exog_expr: str | None = None
     if use_exog:
-        core_lines.append(f"exog_features = {repr(exog_columns)}")
+        _emit_excluded_categorical_note(core_lines, plan, excluded_categorical)
+        if is_long:
+            _emit_reshape_exog_long_to_dict(
+                core_lines, profile, var="exog_dict", data_expr="data",
+                columns=exog_columns,
+            )
+            exog_expr = "exog_dict"
+        else:
+            core_lines.append(f"exog_features = {repr(exog_columns)}")
+            exog_expr = "data[exog_features]"
         core_lines.append("")
-        exog_expr = "data[exog_features]"
-
-    # --- Levels ---
-    levels_expr: str | None = None
-    if is_multi_series:
-        levels_expr = repr(profile.target)
 
     # --- Create forecaster ---
     _emit_forecaster_creation_foundation(core_lines, plan)
@@ -455,7 +481,6 @@ def render_backtesting_foundation(
         plan,
         series_expr=series_expr,
         exog_expr=exog_expr,
-        levels_expr=levels_expr,
     )
 
     return RenderedScript(
@@ -531,6 +556,59 @@ def render_backtesting_statistical(
 
     # --- Backtesting call ---
     _emit_backtesting_call_statistical(core_lines, plan, profile)
+
+    return RenderedScript(
+        imports="\n".join(import_lines),
+        data_loading="\n".join(loading_lines),
+        core="\n".join(core_lines),
+    )
+
+
+def render_backtesting_baseline(
+    plan: ForecastPlan,
+    profile: DataProfile,
+    cv: Any,
+) -> RenderedScript:
+    """
+    Render backtesting code for `ForecasterEquivalentDate` (baseline).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan with task type `'baseline'`. Its `forecaster_kwargs` hold the
+        `offset` and `n_offsets` of the forecaster.
+    profile : DataProfile
+        Data profile of the series.
+    cv : TimeSeriesFold
+        Cross-validation splitter rendered into the script.
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the backtesting script.
+    """
+
+    import_lines: list[str] = []
+    loading_lines: list[str] = []
+    core_lines: list[str] = []
+
+    # --- Imports ---
+    _emit_imports_baseline(import_lines, plan, include_backtesting=True)
+
+    # --- Load data and index setup ---
+    _emit_loading_and_index(loading_lines, core_lines, profile)
+
+    # --- Preprocessing steps ---
+    _emit_preprocessing_steps(core_lines, plan, profile)
+
+    # --- Create forecaster ---
+    _emit_forecaster_creation_baseline(core_lines, plan)
+
+    # --- CV configuration ---
+    _emit_cv_configuration(core_lines, cv)
+
+    # --- Backtesting call ---
+    _emit_backtesting_call(core_lines, plan, profile)
 
     return RenderedScript(
         imports="\n".join(import_lines),

@@ -169,9 +169,15 @@ def _serialize_dataframe(
             )
         # A multi-series frame pools every series into the summary above,
         # so a question about one series ("what is the average forecast for
-        # item_2") has no answer. Break `pred` down by level, capped like
-        # the per-series target statistics of the dataset section.
-        if "level" in df.columns and "pred" in numeric_cols.columns:
+        # item_2") has no answer. Break the point forecast down by level,
+        # capped like the per-series target statistics of the dataset
+        # section. Foundation models predicting quantiles have no `pred`
+        # column: their point forecast is the median, `q_0.5`.
+        point_col = next(
+            (col for col in ("pred", "q_0.5") if col in numeric_cols.columns),
+            None,
+        )
+        if "level" in df.columns and point_col is not None:
             levels = list(dict.fromkeys(df["level"]))
             if len(levels) > 1:
                 shown = levels[:MAX_STATS_SERIES]
@@ -179,9 +185,11 @@ def _serialize_dataframe(
                     "" if len(levels) <= MAX_STATS_SERIES
                     else f" (first {MAX_STATS_SERIES} of {len(levels)} levels)"
                 )
-                lines.append(f"Per-level summary of pred (all rows){suffix}:")
+                lines.append(
+                    f"Per-level summary of {point_col} (all rows){suffix}:"
+                )
                 for level in shown:
-                    level_pred = df.loc[df["level"] == level, "pred"]
+                    level_pred = df.loc[df["level"] == level, point_col]
                     lines.append(
                         f"  {level}: min={level_pred.min()}, "
                         f"max={level_pred.max()}, mean={level_pred.mean()}"
@@ -374,6 +382,11 @@ def render_plan_section(plan: ForecastPlan | None) -> str:
             parts.append(
                 f"- Window features: {plan.forecaster_kwargs['window_features']}"
             )
+        if "offset" in plan.forecaster_kwargs:
+            parts.append(
+                f"- Baseline offset: {plan.forecaster_kwargs['offset']} steps "
+                f"(n_offsets={plan.forecaster_kwargs.get('n_offsets', 1)})"
+            )
     if plan.interval is not None:
         coverage = (plan.interval[1] - plan.interval[0]) * 100
         parts.append(
@@ -459,9 +472,19 @@ def render_script_section(plan: ForecastPlan | None, code: str | None) -> str:
     return _tag("script", "\n".join(parts))
 
 
-def render_cv_section(cv_config: dict | None, note: str | None = None) -> str:
+# `TimeSeriesFold` parameters that only describe how a model is trained. A
+# foundation model is not trained (`backtesting_foundation` overrides both),
+# so they are left out of its context rather than quoted back as facts.
+_TRAINING_CV_PARAMS = ("refit", "fixed_train_size")
+
+
+def render_cv_section(
+    cv_config: dict | None,
+    note: str | None = None,
+    trains: bool = True,
+) -> str:
     """
-    Render the `<cross_validation>` section.
+    Render the `<backtesting_strategy>` section (time series cross-validation).
 
     Parameters
     ----------
@@ -471,6 +494,10 @@ def render_cv_section(cv_config: dict | None, note: str | None = None) -> str:
     note : str, default None
         Line prepended to the parameter list, used by a comparison to
         state that the same strategy was applied to every candidate.
+    trains : bool, default True
+        Whether the forecaster is trained. When False (a foundation
+        model), `refit` and `fixed_train_size` are left out: they do not
+        apply to it.
 
     Returns
     -------
@@ -482,9 +509,12 @@ def render_cv_section(cv_config: dict | None, note: str | None = None) -> str:
         return ""
 
     parts = [note] if note else []
-    parts += [f"- {key}: {value}" for key, value in cv_config.items()]
+    parts += [
+        f"- {key}: {value}" for key, value in cv_config.items()
+        if trains or key not in _TRAINING_CV_PARAMS
+    ]
 
-    return _tag("cross_validation", "\n".join(parts))
+    return _tag("backtesting_strategy", "\n".join(parts))
 
 
 def render_deterministic_summary_section(explanation: str | None) -> str:
@@ -595,6 +625,18 @@ def render_comparison_overview_section(result: ComparisonResult) -> str:
         f"- Candidates evaluated: {n_candidates}",
         f"- Ranking metric: {result.ranking_metric}",
         f"- Winner: {result.best_name}",
+    ]
+    if result.baseline_name is not None:
+        parts.append(
+            f"- Baseline: {result.baseline_name} (ForecasterEquivalentDate, "
+            f"repeats past values). A candidate beats this naive reference "
+            f"only when it ranks above it (strictly lower "
+            f"{result.ranking_metric}; the baseline wins ties). This row is "
+            f"not the reference of MASE or RMSSE: those scale every row, this "
+            f"one included, against the one-step naive forecast on the "
+            f"training data, so the baseline row can also score below 1."
+        )
+    parts += [
         (
             f"The ranking is a deterministic ascending sort of the "
             f"{result.ranking_metric} column (lower is better). Do not "
@@ -748,7 +790,7 @@ def build_context_message(
         Evaluation metrics from a completed forecast run.
     cv_config : dict, default None
         Cross-validation configuration from a backtest run. When
-        provided, a `<cross_validation>` section is rendered.
+        provided, a `<backtesting_strategy>` section is rendered.
     explanation : str, default None
         Deterministic human-readable summary produced alongside the run.
         When provided, a `<deterministic_summary>` section is rendered.
@@ -769,7 +811,10 @@ def build_context_message(
         render_dataset_section(profile),
         render_profile_decision_section(profile),
         render_plan_section(plan),
-        render_cv_section(cv_config),
+        render_cv_section(
+            cv_config,
+            trains=plan is None or plan.task_type != "foundation",
+        ),
         render_deterministic_summary_section(explanation),
         render_metrics_section(metrics, has_predictions=predictions is not None),
         render_predictions_section(predictions, send_data=send_data),

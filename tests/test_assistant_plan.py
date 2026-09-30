@@ -1,14 +1,25 @@
 # Unit test plan ForecastingAssistant
 
 import re
+import warnings
 
 import pytest
+
+from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import UnrecommendedForecasterWarning
 from skforecast_ai.schemas import ForecastPlan
 
-from tests.fixtures_assistant import df_single, df_multi_long, df_no_exog, df_hourly
+from tests.fixtures_assistant import (
+    df_categorical_exog,
+    df_hourly,
+    df_multi_long,
+    df_multi_wide,
+    df_no_exog,
+    df_single,
+    df_with_missing,
+)
 
 
 # =============================================================================
@@ -200,8 +211,8 @@ def test_plan_output_when_statistical_has_no_lags():
 
 def test_plan_output_when_foundation_forecaster():
     """
-    Test that plan() assigns the foundation estimator and empty
-    forecaster_kwargs for a foundation forecaster override.
+    Test that plan() assigns the default foundation model ID as estimator
+    and empty forecaster_kwargs for a foundation forecaster override.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -210,8 +221,420 @@ def test_plan_output_when_foundation_forecaster():
     )
 
     assert plan.task_type == "foundation"
-    assert plan.estimator == "Chronos-2"
+    assert plan.estimator == "autogluon/chronos-2-small"
+    assert plan.estimator_kwargs == {}
     assert plan.forecaster_kwargs == {}
+    assert plan.use_exog is True
+
+
+@pytest.mark.parametrize(
+    "data, profile_kwargs",
+    [
+        (
+            df_multi_long,
+            {"target": "value", "date_column": "date", "series_id_column": "series_id"},
+        ),
+        (
+            df_multi_wide,
+            {"target": ["series_a", "series_b"], "date_column": "date"},
+        ),
+    ],
+    ids=["long", "wide"],
+)
+def test_plan_output_when_foundation_forecaster_with_multi_series(
+    data, profile_kwargs
+):
+    """
+    Test that plan() builds a ForecasterFoundation plan for multi-series data
+    in long and wide format, without an UnrecommendedForecasterWarning since
+    it is a candidate for several series, with the default model.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, **profile_kwargs)
+    assert "ForecasterFoundation" in profile.forecaster_candidates
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnrecommendedForecasterWarning)
+        plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+
+    assert plan.task_type == "foundation"
+    assert plan.estimator == "autogluon/chronos-2-small"
+    assert plan.forecaster_kwargs == {}
+    assert plan.use_exog is False
+
+
+def test_plan_output_when_foundation_model_id_given():
+    """
+    Test that plan() keeps an explicit foundation model ID as estimator, and
+    that the explanation names the model and its non-commercial license.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile          = profile,
+        steps            = 10,
+        forecaster       = "ForecasterFoundation",
+        estimator        = "google/timesfm-3.0-pytorch",
+        estimator_kwargs = {"context_length": 1024},
+        interval         = [0.1, 0.9],
+    )
+
+    assert plan.estimator == "google/timesfm-3.0-pytorch"
+    assert plan.estimator_kwargs == {"context_length": 1024}
+    assert plan.use_exog is True
+    assert plan.explanation.startswith(
+        "Plan: ForecasterFoundation + google/timesfm-3.0-pytorch."
+    )
+    assert (
+        "The weights of 'google/timesfm-3.0-pytorch' are released under "
+        "TimesFM Non-Commercial License v1.0, which restricts commercial use "
+        "(https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE)."
+    ) in plan.explanation
+
+
+def test_plan_output_when_foundation_model_without_covariates():
+    """
+    Test that plan() does not use the exogenous variables with a foundation
+    model that accepts no covariates, and says so in the explanation.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile    = profile,
+        steps      = 10,
+        forecaster = "ForecasterFoundation",
+        estimator  = "Salesforce/moirai-2.0-R-small",
+    )
+
+    assert plan.use_exog is False
+    assert "Exogenous variables included." not in plan.explanation
+    assert (
+        "Exogenous variables ['promo'] are not used: "
+        "'Salesforce/moirai-2.0-R-small' does not support covariates."
+    ) in plan.explanation
+
+
+def test_plan_output_when_foundation_model_requires_numeric_covariates():
+    """
+    Test that plan() keeps the numeric exogenous variables and adds a
+    non-blocking step that excludes the categorical ones when the foundation
+    model only accepts numeric covariates.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_categorical_exog, target="sales", date_column="date"
+    )
+    plan = assistant.plan(
+        profile    = profile,
+        steps      = 10,
+        forecaster = "ForecasterFoundation",
+        estimator  = "google/timesfm-3.0-pytorch",
+    )
+    step = next(
+        s for s in plan.preprocessing_steps
+        if s.action == "handle_categorical_exog"
+    )
+
+    assert plan.use_exog is True
+    assert step.blocking is False
+    assert step.reason == (
+        "Categorical exogenous variables detected: ['weekday']. "
+        "'google/timesfm-3.0-pytorch' only accepts numeric covariates, so "
+        "these columns are excluded. Encode them manually to include them."
+    )
+
+
+def test_plan_output_when_foundation_model_is_gated():
+    """
+    Test that the explanation warns that the weights of a gated foundation
+    model need an authenticated Hugging Face account.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile    = profile,
+        steps      = 10,
+        forecaster = "ForecasterFoundation",
+        estimator  = "theforecastingcompany/t0-alpha",
+    )
+
+    assert (
+        "The weights of 'theforecastingcompany/t0-alpha' are gated on the "
+        "Hugging Face Hub: log in with an account that has accepted the model "
+        "license before running the script."
+    ) in plan.explanation
+
+
+def test_plan_ValueError_when_foundation_model_not_supported():
+    """
+    Test that plan() rejects a foundation estimator that no skforecast
+    adapter serves, including the former 'Chronos-2' label.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "'Chronos-2' is not a foundation model supported by skforecast. "
+        "Pass its Hugging Face model ID as `estimator`, for example "
+        "'autogluon/chronos-2-small'."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=10, forecaster="ForecasterFoundation",
+            estimator="Chronos-2",
+        )
+
+
+def test_plan_ValueError_when_foundation_model_id_in_estimator_kwargs():
+    """
+    Test that plan() rejects a model ID passed in `estimator_kwargs`, which
+    would let the plan name one model and the script load another.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "`estimator_kwargs` cannot contain 'model_id' for "
+        "'ForecasterFoundation'. Pass the model ID as `estimator` instead, "
+        "e.g. estimator='google/timesfm-3.0-pytorch'."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=10, forecaster="ForecasterFoundation",
+            estimator_kwargs={"model_id": "google/timesfm-3.0-pytorch"},
+        )
+
+
+def test_plan_ValueError_when_foundation_model_cannot_predict_interval():
+    """
+    Test that plan() rejects an interval whose bounds are not in the
+    quantile grid of the foundation model.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "'google/timesfm-3.0-pytorch' (TimesFM3Adapter) only predicts the "
+        "quantile levels [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], so "
+        "`interval` [0.05, 0.95] cannot be computed: [0.05, 0.95] not in "
+        "that list."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=10, forecaster="ForecasterFoundation",
+            estimator="google/timesfm-3.0-pytorch", interval=[0.05, 0.95],
+        )
+
+
+def test_plan_output_when_baseline_forecaster():
+    """
+    Test that plan() builds a seasonal naive ForecasterEquivalentDate plan
+    without an UnrecommendedForecasterWarning: no estimator, no features,
+    the offset from the daily frequency, and no exogenous variables.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    assert plan.task_type == "baseline"
+    assert plan.forecaster == "ForecasterEquivalentDate"
+    assert plan.forecaster_kwargs == {"offset": 7, "n_offsets": 1}
+    assert plan.estimator is None
+    assert plan.use_exog is False
+    assert plan.interval_method is None
+    assert plan.explanation == (
+        "Plan: ForecasterEquivalentDate. No lag or window features: the "
+        "baseline repeats past values and learns nothing from the data. MAE "
+        "is interpretable, robust to outliers, and works at any scale. "
+        "Baseline: seasonal naive, each step repeats the value observed 7 "
+        "steps earlier (one seasonal period). Exogenous variables ['promo'] "
+        "are not used: the baseline only repeats past target values."
+    )
+
+
+def test_plan_output_when_baseline_with_interval():
+    """
+    Test that plan() selects conformal intervals for the baseline.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterEquivalentDate", interval=[0.1, 0.9]
+    )
+
+    assert plan.interval == [0.1, 0.9]
+    assert plan.interval_method == "conformal"
+
+
+@pytest.mark.parametrize(
+    "kwargs, given",
+    [
+        ({"estimator": "Ridge"}, "['estimator']"),
+        ({"estimator_kwargs": {"alpha": 1.0}}, "['estimator_kwargs']"),
+        ({"lags": 7}, "['lags']"),
+        (
+            {"lags": 7, "window_features": [{"stats": ["mean"], "window_size": 7}]},
+            "['lags', 'window_features']",
+        ),
+    ],
+    ids=lambda dt: f"kwargs, given: {dt}",
+)
+def test_plan_ValueError_when_baseline_with_model_arguments(kwargs, given):
+    """
+    Test that plan() rejects an estimator, estimator kwargs, lags or window
+    features for the baseline instead of silently ignoring them.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"'ForecasterEquivalentDate' is a baseline that repeats past values: "
+        f"it has no estimator and no lag or window features, so {given} "
+        f"cannot be applied. Omit them."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=5, forecaster="ForecasterEquivalentDate", **kwargs
+        )
+
+
+@pytest.mark.parametrize(
+    "forecaster, kwargs, given",
+    [
+        ("ForecasterStats", {"lags": 7}, "['lags']"),
+        (
+            "ForecasterStats",
+            {"window_features": [{"stats": ["mean"], "window_size": 7}]},
+            "['window_features']",
+        ),
+        (
+            "ForecasterFoundation",
+            {"lags": 7, "window_features": [{"stats": ["mean"], "window_size": 7}]},
+            "['lags', 'window_features']",
+        ),
+    ],
+    ids=lambda dt: f"forecaster, kwargs, given: {dt}",
+)
+def test_plan_ValueError_when_forecaster_without_lags_given_features(
+    forecaster, kwargs, given
+):
+    """
+    Test that plan() rejects lags or window features for the statistical and
+    foundation forecasters, which model the past values themselves, instead
+    of silently ignoring them.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"'{forecaster}' models the past values itself: it takes no lag or "
+        f"window features, so {given} cannot be applied. Omit them."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=5, forecaster=forecaster, **kwargs)
+
+
+def test_plan_output_when_statistical_with_estimator_kwargs():
+    """
+    Test that plan() still accepts an estimator and its kwargs for the
+    statistical forecaster, which uses them (only lags and window features
+    are rejected).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan = assistant.plan(
+        profile,
+        steps=5,
+        forecaster="ForecasterStats",
+        estimator="Arima",
+        estimator_kwargs={"order": [1, 0, 0]},
+    )
+
+    assert plan.estimator == "Arima"
+    assert plan.estimator_kwargs == {"order": [1, 0, 0]}
+    assert plan.forecaster_kwargs == {}
+
+
+def test_plan_ValueError_when_baseline_with_multi_series():
+    """
+    Test that plan() rejects the baseline for multi-series data, since
+    ForecasterEquivalentDate forecasts a single series.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_long,
+        target="value",
+        date_column="date",
+        series_id_column="series_id",
+    )
+
+    with pytest.raises(
+        ValueError, match="Task type 'baseline' supports a single series only"
+    ):
+        assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+
+def test_plan_UserWarning_when_baseline_with_missing_target():
+    """
+    Test that plan() warns when the baseline is built for a target with
+    missing values, which it would repeat as missing predictions, and that
+    the preprocessing step advises imputing the target.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.warns(MissingValuesWarning, match="pairwise deletion"):
+        profile = assistant.profile(
+            data=df_with_missing, target="sales", date_column="date"
+        )
+
+    warn_msg = re.escape(
+        "'ForecasterEquivalentDate' cannot handle missing values: the target "
+        "has missing values or missing timestamps, and "
+        "ForecasterEquivalentDate repeats a missing value as a missing "
+        "prediction. Impute the target before fitting, or the predictions "
+        "and metrics will contain missing values."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    missing_steps = [
+        step for step in plan.preprocessing_steps
+        if step.action == "handle_missing_values"
+    ]
+    assert len(missing_steps) == 1
+    assert missing_steps[0].reason == (
+        "Impute the missing target values before training. "
+        "ForecasterEquivalentDate repeats past values, so a missing value at "
+        "an equivalent date becomes a missing prediction and the metrics "
+        "cannot be computed."
+    )
+
+
+def test_plan_explanation_says_nothing_about_nan_when_no_missing_values():
+    """
+    Test that the plan explanation does not claim NaN rows are kept by a
+    NaN-tolerant estimator when there is no missing value at all (Ridge is
+    not NaN-tolerant), and that it still explains the NaN handling when
+    there are missing values.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    with pytest.warns(MissingValuesWarning, match="pairwise deletion"):
+        profile_missing = assistant.profile(
+            data=df_with_missing, target="sales", date_column="date"
+        )
+
+    plan_ridge = assistant.plan(profile, steps=5, estimator="Ridge")
+    plan_lgbm = assistant.plan(profile, steps=5, estimator="LGBMRegressor")
+    plan_missing_ridge = assistant.plan(profile_missing, steps=5, estimator="Ridge")
+    plan_missing_lgbm = assistant.plan(
+        profile_missing, steps=5, estimator="LGBMRegressor"
+    )
+
+    assert "NaN" not in plan_ridge.explanation
+    assert "NaN" not in plan_lgbm.explanation
+    assert "NaN rows will be dropped before fitting." in plan_missing_ridge.explanation
+    assert "NaN rows kept (NaN-tolerant estimator)." in plan_missing_lgbm.explanation
 
 
 def test_plan_deterministic():

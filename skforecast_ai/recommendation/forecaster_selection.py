@@ -7,6 +7,7 @@
 from __future__ import annotations
 from typing import Literal
 from .._constants import (
+    DEFAULT_FOUNDATION_MODEL_ID,
     FORECASTER_TASK_TYPES,
     FREQUENCY_TO_SEASONAL_PERIOD,
     MAX_STATS_SEASONAL_PERIOD,
@@ -74,8 +75,9 @@ def select_forecaster_and_candidates(
         preferred = "ForecasterRecursiveMultiSeries"
         candidates = [
             "ForecasterRecursiveMultiSeries",
-            "ForecasterDirectMultiVariate"
-        ]            
+            "ForecasterDirectMultiVariate",
+            "ForecasterFoundation",
+        ]
 
     else:
         
@@ -99,6 +101,7 @@ def select_task_type_from_forecaster(
     "multivariate",
     "statistical",
     "foundation",
+    "baseline",
 ]:
     """
     Resolve the task type implied by a selected forecaster.
@@ -122,7 +125,7 @@ def select_task_type_from_forecaster(
 def select_estimator_and_candidates(
     task_type: str,
     n_observations: int,
-) -> tuple[str, list[str]]:
+) -> tuple[str | None, list[str]]:
     """
     Select the preferred estimator and ordered compatible candidates.
 
@@ -135,28 +138,31 @@ def select_estimator_and_candidates(
 
     Returns
     -------
-    preferred : str
-        Name of the recommended estimator class.
+    preferred : str, None
+        Name of the recommended estimator class. None for the baseline,
+        which has no estimator.
     candidates : list of str
         Ordered list of compatible estimator class names.
-        The first item matches `preferred`.
+        The first item matches `preferred`. Empty for the baseline.
 
     Notes
     -----
     Source: `skforecast_ai/skills/forecasting-single-series/SKILL.md`.
 
-    Foundation tasks always resolve to `'Chronos-2'`. It is the only
-    foundation backend wired into skforecast-ai, and the generated code
-    loads `autogluon/chronos-2-small`. The other backends supported by
-    skforecast (TimesFM, Moirai, TabICL, TabPFN-TS, T0) are reachable
-    only by overriding `estimator_kwargs['model_id']` in the plan.
+    For foundation tasks the estimator is the Hugging Face model ID of the
+    foundation model, and the default is `'autogluon/chronos-2-small'`. No
+    rule ranks the foundation models against each other; any other model
+    supported by skforecast is chosen by passing its ID as `estimator`.
     """
 
     if task_type == "statistical":
         return "Arima", ["Arima"]
     
     if task_type == "foundation":
-        return "Chronos-2", ["Chronos-2"]
+        return DEFAULT_FOUNDATION_MODEL_ID, [DEFAULT_FOUNDATION_MODEL_ID]
+
+    if task_type == "baseline":
+        return None, []
 
     if n_observations < 250:
         return "Ridge", ["Ridge", "RandomForestRegressor", "LGBMRegressor"]

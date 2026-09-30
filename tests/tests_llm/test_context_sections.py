@@ -80,7 +80,7 @@ def test_section_renderer_output_when_input_is_empty(renderer, empty_input):
         (render_dataset_section(profile), "dataset"),
         (render_profile_decision_section(profile), "profile_decision"),
         (render_plan_section(plan), "forecast_plan"),
-        (render_cv_section(cv_config), "cross_validation"),
+        (render_cv_section(cv_config), "backtesting_strategy"),
         (render_deterministic_summary_section("Ran 4 folds."),
          "deterministic_summary"),
         (render_metrics_section(metrics), "evaluation_metrics"),
@@ -320,6 +320,35 @@ def test_render_comparison_overview_section_counts_failures_as_candidates():
     assert "- Winner: winner" in section
 
 
+def test_render_comparison_overview_section_names_the_baseline():
+    """
+    Test that the overview names the baseline and how to read the rows
+    ranked below it, and says nothing about a baseline when there is none.
+    """
+    comparison = make_comparison_result(assistant)
+    with_baseline = comparison.model_copy(update={"baseline_name": "runner_up"})
+
+    assert "- Baseline: runner_up (ForecasterEquivalentDate, repeats past values)." in (
+        render_comparison_overview_section(with_baseline)
+    )
+    assert "Baseline" not in render_comparison_overview_section(comparison)
+
+
+def test_render_plan_section_includes_baseline_offset():
+    """
+    Test that the plan section of a baseline plan states its offset, which
+    is the only setting the baseline has.
+    """
+    baseline_plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterEquivalentDate"
+    )
+
+    section = render_plan_section(baseline_plan)
+
+    assert "- Baseline offset: 7 steps (n_offsets=1)" in section
+    assert "- Estimator" not in section
+
+
 def test_render_failures_section_withholds_tracebacks():
     """
     Test that a failure contributes a one-line summary only. Full
@@ -399,3 +428,30 @@ def test_build_context_message_matches_the_composed_sections():
     )
 
     assert result == composed
+
+
+def test_render_cv_section_omits_training_parameters_when_not_trained():
+    """
+    Test that the section of a forecaster that is not trained (a foundation
+    model) leaves out `refit` and `fixed_train_size`, which do not apply to
+    it, and keeps the other parameters.
+    """
+    cv_config = {
+        "steps": 5,
+        "initial_train_size": 70,
+        "refit": False,
+        "fixed_train_size": True,
+        "gap": 0,
+        "n_folds": 6,
+    }
+
+    section = render_cv_section(cv_config, trains=False)
+
+    assert section == (
+        "<backtesting_strategy>\n"
+        "- steps: 5\n"
+        "- initial_train_size: 70\n"
+        "- gap: 0\n"
+        "- n_folds: 6\n"
+        "</backtesting_strategy>"
+    )

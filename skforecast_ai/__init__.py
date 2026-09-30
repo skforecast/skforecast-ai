@@ -21,6 +21,7 @@ from .exceptions import (
     ForecastExecutionError,
     LLMCallError,
     LLMRequiredError,
+    MissingBackendWarning,
     UnrecommendedForecasterWarning,
 )
 from .llm.skills import ALL_SKILLS
@@ -66,6 +67,7 @@ __all__ = [
     "CodeGenerationResult",
     "LLMCallError",
     "LLMRequiredError",
+    "MissingBackendWarning",
     "PreprocessingStep",
     "ForecastResult",
     "SeriesPacf",

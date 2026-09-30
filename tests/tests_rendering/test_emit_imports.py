@@ -1,7 +1,9 @@
 # Unit test _emit_imports helpers rendering
 
+import pytest
 
 from skforecast_ai.rendering._helpers import (
+    _emit_imports_baseline,
     _emit_imports_foundation,
     _emit_imports_multi_series,
     _emit_imports_single_series,
@@ -10,6 +12,7 @@ from skforecast_ai.rendering._helpers import (
 from skforecast_ai.schemas import ForecastPlan
 
 from .fixtures_rendering import (
+    plan_baseline,
     plan_foundation,
     plan_multi_series,
     plan_multi_series_exog,
@@ -315,6 +318,42 @@ def test_emit_imports_foundation_output_when_minimal():
     assert not any("sklearn" in line for line in lines)
 
 
+@pytest.mark.parametrize(
+    "use_exog, expected",
+    [
+        (False, "from skforecast.preprocessing import reshape_series_long_to_dict"),
+        (
+            True,
+            "from skforecast.preprocessing import reshape_series_long_to_dict, "
+            "reshape_exog_long_to_dict",
+        ),
+    ],
+    ids=lambda dt: f"use_exog, expected: {dt}",
+)
+def test_emit_imports_foundation_output_when_long_format(use_exog, expected):
+    """
+    Test that long-format data imports the reshape helpers, the exog one only
+    when exogenous variables are used, before the foundation import, and
+    that wide data imports neither.
+    """
+    lines: list[str] = []
+    _emit_imports_foundation(
+        lines, plan_foundation, profile=profile_multi_long, use_exog=use_exog
+    )
+    wide_lines: list[str] = []
+    _emit_imports_foundation(
+        wide_lines, plan_foundation, profile=profile_multi_wide, use_exog=use_exog
+    )
+
+    assert lines == [
+        "import pandas as pd",
+        expected,
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation",
+        "",
+    ]
+    assert not any("reshape" in line for line in wide_lines)
+
+
 def test_emit_imports_foundation_output_when_include_metrics():
     """
     Test that include_metrics=True emits metric imports between pandas
@@ -324,7 +363,7 @@ def test_emit_imports_foundation_output_when_include_metrics():
         task_type="foundation",
         forecaster="ForecasterFoundation",
         forecaster_kwargs={},
-        estimator=None,
+        estimator="autogluon/chronos-2-small",
         estimator_kwargs={},
         steps=10,
         frequency="D",
@@ -439,3 +478,43 @@ def test_emit_imports_statistical_ordering_model_selection_after_forecaster():
     )
     bt_idx = next(i for i, line in enumerate(lines) if "model_selection" in line)
     assert bt_idx > forecaster_idx
+
+
+# =============================================================================
+# Tests: _emit_imports_baseline
+# =============================================================================
+def test_emit_imports_baseline_output_when_minimal():
+    """
+    Test that a minimal baseline plan emits pandas, ForecasterEquivalentDate
+    and a trailing empty string, without model_selection or sklearn imports.
+    """
+    lines: list[str] = []
+    _emit_imports_baseline(lines, plan_baseline)
+
+    assert lines == [
+        "import pandas as pd",
+        "from skforecast.recursive import ForecasterEquivalentDate",
+        "",
+    ]
+
+
+def test_emit_imports_baseline_output_when_include_metrics_and_backtesting():
+    """
+    Test that include_metrics=True emits the metric imports before the
+    forecaster, and include_backtesting=True emits backtesting_forecaster
+    after it.
+    """
+    lines: list[str] = []
+    _emit_imports_baseline(
+        lines, plan_baseline, include_metrics=True, include_backtesting=True
+    )
+
+    assert lines == [
+        "import pandas as pd",
+        "from sklearn.metrics import mean_absolute_error, mean_squared_error",
+        "from skforecast.metrics import mean_absolute_scaled_error",
+        "from skforecast.recursive import ForecasterEquivalentDate",
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster",
+        "",
+    ]
+

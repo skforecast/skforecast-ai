@@ -61,7 +61,7 @@ DateColumnOption = Annotated[str | None, typer.Option("--date-column", "-d", hel
 SeriesIdColumnOption = Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")]
 StepsOption = Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")]
 ForecasterOption = Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")]
-EstimatorOption = Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")]
+EstimatorOption = Annotated[str | None, typer.Option("--estimator", help="Override estimator class, or the Hugging Face model ID for ForecasterFoundation (e.g. 'google/timesfm-3.0-pytorch').")]
 EstimatorKwargsOption = Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")]
 IntervalOption = Annotated[str | None, typer.Option("--interval", help="Prediction interval as two quantiles between 0 and 1, e.g. '0.1,0.9' for an 80% interval.")]
 LagsOption = Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3', or 'auto' to re-run the deterministic selection when refining a saved plan.")]
@@ -1560,6 +1560,7 @@ def compare(
     candidates: Annotated[str | None, typer.Option("--candidates", help="Candidate configs as JSON array of [name, config] pairs; config keys: forecaster, estimator, estimator_kwargs, lags, window_features. When omitted, candidates are built from the profile.")] = None,
     metric: Annotated[str | None, typer.Option("--metric", help="Metric(s) to compute, comma-separated. The first ranks the table.")] = None,
     interval: IntervalOption = None,
+    baseline: Annotated[bool, typer.Option("--baseline/--no-baseline", help="Add a seasonal naive baseline (ForecasterEquivalentDate) to the leaderboard. Single series only.")] = True,
     initial_train_size: InitialTrainSizeOption = None,
     fold_stride: FoldStrideOption = None,
     refit: RefitOption = None,
@@ -1612,10 +1613,10 @@ def compare(
                     series_id_column=resolved_series_id,
                 )
 
-            # A baseline plan derived from the profile default gives a
-            # shared cross-validation strategy; compare() re-plans each
-            # candidate with the same cv.steps.
-            baseline_plan = assistant.plan(profile=prof, steps=steps)
+            # The default plan of the profile gives a shared
+            # cross-validation strategy; compare() re-plans each candidate
+            # with the same cv.steps.
+            default_plan = assistant.plan(profile=prof, steps=steps)
 
             cv_kwargs = _collect_cv_overrides(
                 initial_train_size=_parse_initial_train_size(initial_train_size),
@@ -1628,7 +1629,7 @@ def compare(
 
             cv = assistant.create_cv(
                 profile=prof,
-                plan=baseline_plan,
+                plan=default_plan,
                 **cv_kwargs,
             ).cv
 
@@ -1643,6 +1644,7 @@ def compare(
                 interval=parsed_interval,
                 profile=prof,
                 show_progress=(not quiet and format != "json"),
+                baseline=baseline,
             )
 
         if output_code is not None:

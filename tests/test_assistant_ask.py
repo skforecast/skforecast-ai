@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast.model_selection import TimeSeriesFold
+
 from skforecast_ai import (
     DataSentToLLMWarning,
     ForecastingAssistant,
@@ -143,6 +145,47 @@ def test_ask_records_the_auto_routed_skills(monkeypatch):
 
     assert result.skills == select_skills(task_type=None, question=prompt)
     assert result.skills
+
+
+def test_ask_routes_skills_by_plan_task_type_when_baseline_plan(monkeypatch):
+    """
+    Test that the skills of the plan's task type are added to the ones of
+    the profile, so a baseline plan loads `baseline-forecasting` although
+    the profile recommends an ML forecaster.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    patch_agent(monkeypatch, assistant, output="answer")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    result = assistant.ask(prompt="Explain this plan.", context=profile, plan=plan)
+
+    assert result.skills == [
+        "choosing-a-forecaster",
+        "forecasting-single-series",
+        "baseline-forecasting",
+    ]
+
+
+def test_ask_routes_baseline_skill_when_comparison_has_baseline(monkeypatch):
+    """
+    Test that a comparison with a baseline row loads `baseline-forecasting`
+    even when the question does not mention the baseline and the winner is
+    an ML forecaster.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model", send_data_to_llm=True)
+    patch_agent(monkeypatch, assistant, output="answer")
+    comparison = make_comparison_result(assistant).model_copy(
+        update={"baseline_name": "runner_up"}
+    )
+
+    result = assistant.ask(prompt="Why did it win?", context=comparison)
+
+    assert result.skills == [
+        "choosing-a-forecaster",
+        "forecasting-single-series",
+        "baseline-forecasting",
+    ]
 
 
 def test_ask_records_the_skills_when_given_explicitly(monkeypatch):
@@ -688,7 +731,7 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
     )
 
     # Context message carries the backtest configuration and results.
-    assert "<cross_validation>" in capture["message"]
+    assert "<backtesting_strategy>" in capture["message"]
     assert "initial_train_size" in capture["message"]
     assert "- n_folds: 4" in capture["message"]
     assert "<evaluation_metrics>" in capture["message"]
@@ -723,10 +766,37 @@ def test_ask_output_when_cv_result_provided(monkeypatch):
         warnings.simplefilter("error", DataSentToLLMWarning)
         result = assistant.ask(prompt="Why this strategy?", context=cv_result)
 
-    assert "<cross_validation>" in capture["message"]
+    assert "<backtesting_strategy>" in capture["message"]
     assert "n_folds" in capture["message"]
     assert "<predictions>" not in capture["message"]
     assert result.profile is profile
     assert result.plan is plan
     assert result.code == cv_result.code
     assert result.explanation == "Four folds, no refit."
+
+
+def test_ask_output_when_context_is_baseline_backtest(monkeypatch):
+    """
+    Test that ask() explains a baseline BacktestResult: the plan section
+    carries the baseline offset and the baseline script is echoed back.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model", send_data_to_llm=True)
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+    backtest = assistant.backtest(
+        data=df_single,
+        cv=TimeSeriesFold(steps=5, initial_train_size=70, verbose=False),
+        profile=profile,
+        plan=plan,
+        show_progress=False,
+    )
+    capture = {}
+    patch_agent(monkeypatch, assistant, output="A seasonal naive baseline.", capture=capture)
+
+    result = assistant.ask(prompt="Is this a good baseline?", context=backtest)
+
+    assert "- Baseline offset: 7 steps (n_offsets=1)" in capture["message"]
+    assert result.plan is plan
+    assert result.code == backtest.code
+    assert result.explanation == "A seasonal naive baseline."
+

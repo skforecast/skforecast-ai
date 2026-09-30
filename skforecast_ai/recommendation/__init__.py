@@ -6,6 +6,7 @@ from .autoregressive import (
     select_lags,
     select_window_features,
 )
+from .baseline import baseline_missing_values_note, select_baseline_config
 from .backtesting import (
     build_cv,
     build_cv_explanation,
@@ -14,7 +15,11 @@ from .backtesting import (
     resolve_cv_config,
 )
 from .calendar import select_calendar_features, select_calendar_encoding
-from .explanation import _build_profile_explanation, build_plan_explanation
+from .explanation import (
+    _build_profile_explanation,
+    build_foundation_explanation,
+    build_plan_explanation,
+)
 from .forecaster_selection import (
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
@@ -32,8 +37,10 @@ from .preprocessing import (
 
 __all__ = [
     "_build_profile_explanation",
+    "baseline_missing_values_note",
     "build_cv",
     "build_cv_explanation",
+    "build_foundation_explanation",
     "build_plan_explanation",
     "build_forecaster_kwargs",
     "check_exog_usage",
@@ -43,6 +50,7 @@ __all__ = [
     "derive_preprocessing_steps",
     "finalize_lags",
     "resolve_cv_config",
+    "select_baseline_config",
     "select_calendar_encoding",
     "select_calendar_features",
     "select_dropna_from_series",

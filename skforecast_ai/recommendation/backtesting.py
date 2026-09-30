@@ -71,6 +71,7 @@ def build_cv_explanation(
     cv_params: dict,
     n_observations: int,
     n_folds: int,
+    trains: bool = True,
 ) -> str:
     """
     Build a human-readable explanation of the cross-validation strategy.
@@ -83,6 +84,10 @@ def build_cv_explanation(
         Total number of observations in the dataset.
     n_folds : int
         Number of folds produced by the configuration.
+    trains : bool, default True
+        Whether the forecaster is trained. A foundation model is not: each
+        fold forecasts from the observations before it, so the training
+        window and the refit settings do not apply and are not described.
 
     Returns
     -------
@@ -95,6 +100,26 @@ def build_cv_explanation(
     refit = cv_params["refit"]
     fixed_train_size = cv_params["fixed_train_size"]
     gap = cv_params["gap"]
+
+    if not trains:
+        if isinstance(initial_train_size, str):
+            first_desc = f"First fold forecasts from the data up to {initial_train_size}"
+        else:
+            pct = round(100 * initial_train_size / n_observations)
+            first_desc = (
+                f"First fold forecasts from {pct}% of data "
+                f"({initial_train_size} observations)"
+            )
+        parts = [
+            first_desc,
+            "no training (each fold forecasts from the observations before it)",
+            f"{steps}-step horizon",
+        ]
+        if n_folds > 0:
+            parts.append(f"{n_folds} folds")
+        if gap > 0:
+            parts.append(f"gap of {gap} observations")
+        return ", ".join(parts) + "."
 
     if isinstance(initial_train_size, str):
         train_desc = f"Initial training up to {initial_train_size}"
@@ -365,6 +390,7 @@ def _timestamp_to_str(ts: pd.Timestamp) -> str:
 def resolve_cv_config(
     cv: TimeSeriesFold,
     data_profile: DataProfile,
+    trains: bool = True,
 ) -> tuple[dict, str]:
     """
     Describe a cross-validation splitter as applied to a profiled dataset.
@@ -382,6 +408,9 @@ def resolve_cv_config(
         Configured cross-validation fold splitter.
     data_profile : DataProfile
         Profile of the dataset the splitter is applied to.
+    trains : bool, default True
+        Whether the forecaster is trained; False for a foundation model,
+        whose explanation does not describe a training window or refits.
 
     Returns
     -------
@@ -418,6 +447,7 @@ def resolve_cv_config(
                       cv_params      = cv_config,
                       n_observations = span_index_length,
                       n_folds        = n_folds,
+                      trains         = trains,
                   )
 
     return cv_config, explanation
@@ -472,6 +502,15 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
 
         # Need initial_train_size > window_size, so floor at window + steps
         return effective_window + steps
+
+    if task_type == "baseline":
+        # ForecasterEquivalentDate needs more observations than
+        # `offset * n_offsets` to find every equivalent date.
+        window_size = (
+            plan.forecaster_kwargs.get("offset", 1)
+            * plan.forecaster_kwargs.get("n_offsets", 1)
+        )
+        return max(window_size + steps, 2 * steps)
 
     # statistical, foundation
     return 2 * steps

@@ -37,7 +37,7 @@ print(ALL_SKILLS)
 | `feature-engineering` | Calendar features, holiday distances, rolling statistics with `RollingFeatures`, differencing, categorical exogenous variables. |
 | `forecasting-single-series` | `ForecasterRecursive` and `ForecasterDirect`: data preparation, training, prediction, backtesting, intervals. |
 | `forecasting-multiple-series` | Global models with `ForecasterRecursiveMultiSeries` and `ForecasterDirectMultiVariate`: data formats, encoding, per-series transformers. |
-| `foundation-forecasting` | Zero-shot forecasting with pre-trained foundation models (Chronos, TimesFM, Moirai, TabPFN-TS and others) through `ForecasterFoundation`. |
+| `foundation-forecasting` | Zero-shot forecasting with pre-trained foundation models (Chronos, TimesFM, Moirai, TabPFN-TS and others) through `ForecasterFoundation`: accurate forecasts without training, also for short or new (cold-start) series. |
 | `baseline-forecasting` | Seasonal-naive and equivalent-date baselines with `ForecasterEquivalentDate`, and how to benchmark a model against them. |
 | `metric-selection` | Which metric fits the forecaster type, the prediction output and multi-series aggregation; configuring `metric` in backtesting and search. |
 | `backtesting-configuration` | Mapping a deployment scenario (retraining frequency, horizon, data budget) to `TimeSeriesFold` parameters. |
@@ -56,14 +56,15 @@ print(ALL_SKILLS)
 
 When `skills` is not passed, `ask()` selects them in three steps.
 
-**1. Base skills from the context.** If `context` carries a profile (a `ForecastingProfile` or any result), its `task_type` picks the foundational skills. Without a context, the general `choosing-a-forecaster` skill is used alone.
+**1. Base skills from the context.** If `context` carries a profile (a `ForecastingProfile` or any result), its `task_type` picks the foundational skills. When the context also carries a plan whose forecaster has another task type (a `ForecasterStats` or `ForecasterEquivalentDate` chosen over the recommendation), the skills of that task type are added, and a `ComparisonResult` with a baseline row adds `baseline-forecasting`. Without a context, the general `choosing-a-forecaster` skill is used alone.
 
-| `profile.task_type` | Base skills |
+| Task type | Base skills |
 |---|---|
 | `single_series` | `choosing-a-forecaster`, `forecasting-single-series` |
 | `multi_series`, `multivariate` | `choosing-a-forecaster`, `forecasting-multiple-series` |
 | `statistical` | `statistical-models` |
 | `foundation` | `foundation-forecasting` |
+| `baseline` | `baseline-forecasting` |
 | no context | `choosing-a-forecaster` |
 
 **2. Keyword augmentation from the question.** The prompt is scanned for topic keywords and the matching skills are added:
@@ -78,7 +79,7 @@ When `skills` is not passed, `ask()` selects them in three steps.
 | feature selection, rfecv, feature importance | `feature-selection` |
 | metric, mae, mape, rmse, mase, pinball, coverage | `metric-selection` |
 | lstm, gru, rnn, keras, neural | `deep-learning-forecasting` |
-| chronos, timesfm, moirai, foundation, zero-shot | `foundation-forecasting` |
+| chronos, timesfm, moirai, tabpfn, foundation, zero-shot, cold start | `foundation-forecasting` |
 | arima, sarimax, ets, arar, statistical | `statistical-models` |
 | drift, monitor, production, distribution shift | `drift-detection` |
 | baseline, naive, benchmark, equivalent date | `baseline-forecasting` |

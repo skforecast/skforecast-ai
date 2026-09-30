@@ -207,6 +207,26 @@ def test_standalone_script_matches_forecast_when_statistical(tmp_path):
     _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)
 
 
+def test_standalone_script_matches_forecast_when_baseline(tmp_path):
+    """
+    Test that the ForecasterEquivalentDate (baseline) script, with conformal
+    intervals and exogenous columns in the data that it must ignore, yields
+    the same predictions as forecast().
+    """
+    csv_path = tmp_path / "sales.csv"
+    df_single.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    kwargs = dict(
+        data=csv_path, target="sales", date_column="date", steps=5,
+        test_size=5, forecaster="ForecasterEquivalentDate", interval=[0.1, 0.9],
+    )
+
+    code = assistant.forecast_code(**kwargs).code
+    executed = assistant.forecast(**kwargs)
+
+    _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)
+
+
 def test_standalone_backtesting_script_matches_backtest(tmp_path):
     """
     Test that the script produced by backtest_code() loads the CSV from

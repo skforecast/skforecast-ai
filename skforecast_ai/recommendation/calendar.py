@@ -96,7 +96,7 @@ def select_calendar_features(
     
     """
 
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
 
     if frequency is None:
@@ -156,7 +156,7 @@ def select_calendar_encoding(
 
     """
 
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
     if estimator in TREE_BASED_ESTIMATORS:
         return None

@@ -312,3 +312,157 @@ def test_refine_plan_output_drops_llm_mark_when_value_is_not_carried_over():
 
     assert statistical.llm_refined_fields == []
     assert recursive.llm_refined_fields == []
+
+
+def test_refine_plan_output_when_switching_to_and_from_baseline():
+    """
+    Test that refine_plan() can switch a plan to the baseline, which drops
+    the estimator and the features, and back to an ML forecaster, which
+    re-derives them deterministically.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    baseline = assistant.refine_plan(
+        profile, plan, forecaster="ForecasterEquivalentDate"
+    )
+    recursive = assistant.refine_plan(
+        profile, baseline, forecaster="ForecasterRecursive"
+    )
+
+    assert baseline.task_type == "baseline"
+    assert baseline.forecaster_kwargs == {"offset": 7, "n_offsets": 1}
+    assert baseline.estimator is None
+    assert recursive.task_type == "single_series"
+    assert recursive.forecaster_kwargs["lags"] == plan.forecaster_kwargs["lags"]
+
+
+def test_refine_plan_output_does_not_carry_estimator_across_families():
+    """
+    Test that switching an ML plan to ForecasterStats re-derives the
+    statistical estimator instead of carrying the ML regressor over, and
+    that switching back re-derives the ML estimator of the profile.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    statistical = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
+    recursive = assistant.refine_plan(
+        profile, statistical, forecaster="ForecasterRecursive"
+    )
+
+    assert plan.estimator == "Ridge"
+    assert statistical.estimator == "Arima"
+    assert statistical.forecaster_kwargs == {}
+    assert recursive.estimator == "Ridge"
+    assert recursive.forecaster_kwargs["lags"] == plan.forecaster_kwargs["lags"]
+
+
+def test_refine_plan_output_keeps_estimator_within_ml_forecasters():
+    """
+    Test that switching between ML forecasters keeps the estimator, its
+    kwargs and the lags of the plan.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile,
+        steps=10,
+        estimator="Ridge",
+        estimator_kwargs={"alpha": 2.0},
+        lags=[1, 2, 7],
+    )
+
+    direct = assistant.refine_plan(profile, plan, forecaster="ForecasterDirect")
+
+    assert direct.estimator == "Ridge"
+    assert direct.estimator_kwargs == {"alpha": 2.0}
+    assert direct.forecaster_kwargs["lags"] == [1, 2, 7]
+
+
+@pytest.mark.parametrize(
+    "forecaster, estimator, estimator_kwargs, new_estimator, new_kwargs",
+    [
+        (
+            "ForecasterRecursive",
+            "Ridge",
+            {"alpha": 2.0},
+            "LGBMRegressor",
+            {"n_estimators": 50},
+        ),
+        (
+            "ForecasterFoundation",
+            "autogluon/chronos-2-small",
+            {"cross_learning": True},
+            "google/timesfm-3.0-pytorch",
+            {"context_length": 1024},
+        ),
+    ],
+    ids=lambda dt: (
+        f"forecaster, estimator, estimator_kwargs, new_estimator, new_kwargs: {dt}"
+    ),
+)
+def test_refine_plan_output_drops_estimator_kwargs_when_estimator_changes(
+    forecaster, estimator, estimator_kwargs, new_estimator, new_kwargs
+):
+    """
+    Test that changing the estimator drops the kwargs written for the
+    previous one (a Chronos-2 `cross_learning` would make TimesFM fail),
+    while refining another field keeps them and new kwargs passed with the
+    new estimator are applied.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile,
+        steps            = 10,
+        forecaster       = forecaster,
+        estimator        = estimator,
+        estimator_kwargs = estimator_kwargs,
+    )
+
+    same_estimator = assistant.refine_plan(profile, plan, steps=5)
+    new = assistant.refine_plan(profile, plan, estimator=new_estimator)
+    new_with_kwargs = assistant.refine_plan(
+        profile, plan, estimator=new_estimator, estimator_kwargs=new_kwargs
+    )
+
+    assert same_estimator.estimator_kwargs == estimator_kwargs
+    assert new.estimator == new_estimator
+    assert new.estimator_kwargs == {}
+    assert new_with_kwargs.estimator_kwargs == new_kwargs
+
+
+def test_refine_plan_ValueError_when_statistical_with_explicit_lags():
+    """
+    Test that an explicit lags override is not silently dropped when the
+    plan is switched to ForecasterStats: plan() rejects it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    err_msg = re.escape(
+        "'ForecasterStats' models the past values itself: it takes no lag or "
+        "window features, so ['lags'] cannot be applied. Omit them."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.refine_plan(profile, plan, forecaster="ForecasterStats", lags=7)
+
+
+def test_refine_plan_ValueError_when_baseline_with_explicit_lags():
+    """
+    Test that an explicit lags override is not silently dropped when the
+    plan is switched to the baseline: plan() rejects it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.raises(ValueError, match=re.escape("so ['lags'] cannot be applied")):
+        assistant.refine_plan(
+            profile, plan, forecaster="ForecasterEquivalentDate", lags=7
+        )
+

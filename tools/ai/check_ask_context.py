@@ -219,6 +219,34 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        # The model is chosen for its capabilities, not its accuracy: a
+        # non-commercial license and numeric-only covariates, so the plan
+        # explanation and preprocessing steps have something to say. Only a
+        # plan is built: no backend is installed and no weights are loaded.
+        name="foundation_plan",
+        build=lambda w: (w["profile"], w["foundation_plan"]),
+        grounded=[
+            "Which foundation model does this plan load, which exogenous "
+            "variables will it use, and what should I check before using it "
+            "in a commercial product?",
+        ],
+        probes=[
+            "Will this foundation model be more accurate than the recommended "
+            "forecaster on my data?",
+        ],
+        checklist=[
+            "The model is named with the exact ID in <forecast_plan> (google/timesfm-3.0-pytorch).",
+            "Only the exogenous variables the plan uses are named (none when the data has none); categorical ones are excluded, as the preprocessing step says.",
+            "The license restriction is quoted with the name and link of the explanation, with no legal claims beyond them.",
+            "Probe: no accuracy is predicted; it points to backtest() or compare() on the same folds.",
+            "Multi-series data only: one model forecasts every series; equal lengths are not required (skill knowledge, not a claim about the data).",
+        ],
+        multi_series=[
+            "Does this plan use one model for all the series, and does it need "
+            "the series to have the same length?",
+        ],
+    ),
+    Scenario(
         name="code",
         build=lambda w: (w["code_result"], None),
         grounded=[
@@ -243,7 +271,7 @@ SCENARIOS: list[Scenario] = [
             "How long will the backtest take on my machine?",
         ],
         checklist=[
-            "n_folds and the parameters are quoted from <cross_validation>.",
+            "n_folds and the parameters are quoted from <backtesting_strategy>.",
             "The deterministic summary is used, not re-derived.",
         ],
     ),
@@ -259,7 +287,7 @@ SCENARIOS: list[Scenario] = [
             "What is the RMSE?",
         ],
         checklist=[
-            "MASE is interpreted against the naive baseline (below 1 beats it) and nothing else.",
+            "MASE is interpreted against the one-step naive forecast (below 1 beats it) and nothing else.",
             "No percentage improvements or derived numbers.",
             "Probes: attribution refused; RMSE reported as not available.",
         ],
@@ -278,7 +306,7 @@ SCENARIOS: list[Scenario] = [
             "How did the error evolve from the first fold to the last one?",
         ],
         checklist=[
-            "Fold count comes from <cross_validation> or the summary, not from counting rows.",
+            "Fold count comes from <backtesting_strategy> or the summary, not from counting rows.",
             "Probe: with rows omitted in <predictions>, no trend across folds is described.",
         ],
         multi_series=[
@@ -354,12 +382,20 @@ def build_workflow(
         data=data, cv=cv_result, profile=profile, candidates=candidates,
         show_progress=False,
     )
+    foundation_plan = assistant.plan(
+        profile,
+        steps      = steps,
+        forecaster = "ForecasterFoundation",
+        estimator  = "google/timesfm-3.0-pytorch",
+        interval   = [0.1, 0.9],
+    )
     print(f"[workflow] built in {time.perf_counter() - started:.1f}s")
 
     return {
         "multi_series": multi,
         "profile": profile,
         "plan": plan,
+        "foundation_plan": foundation_plan,
         "code_result": code_result,
         "cv_result": cv_result,
         "forecast_result": forecast_result,

@@ -360,8 +360,8 @@ plan_foundation = ForecastPlan(
     task_type="foundation",
     forecaster="ForecasterFoundation",
     forecaster_kwargs={},
-    estimator=None,
-    estimator_kwargs={"model_id": "autogluon/chronos-2-small", "context_length": 512},
+    estimator="autogluon/chronos-2-small",
+    estimator_kwargs={"context_length": 512},
     steps=10,
     frequency="D",
     use_exog=False,
@@ -373,8 +373,8 @@ plan_foundation_with_intervals = ForecastPlan(
     task_type="foundation",
     forecaster="ForecasterFoundation",
     forecaster_kwargs={},
-    estimator=None,
-    estimator_kwargs={"model_id": "autogluon/chronos-2-small", "context_length": 512},
+    estimator="autogluon/chronos-2-small",
+    estimator_kwargs={"context_length": 512},
     steps=10,
     frequency="D",
     interval=[0.1, 0.9],
@@ -382,6 +382,73 @@ plan_foundation_with_intervals = ForecastPlan(
     use_exog=False,
     end_train="2023-03-12",
     explanation="Foundation model with quantile predictions.",
+)
+
+plan_foundation_numeric_covariates = ForecastPlan(
+    task_type="foundation",
+    forecaster="ForecasterFoundation",
+    forecaster_kwargs={},
+    estimator="google/timesfm-3.0-pytorch",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=True,
+    end_train="2023-03-12",
+    explanation="Foundation model that only accepts numeric covariates.",
+)
+
+plan_baseline = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Seasonal naive baseline.",
+)
+
+plan_baseline_naive = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 1, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Naive baseline.",
+)
+
+plan_baseline_with_intervals = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    interval=[0.1, 0.9],
+    interval_method="conformal",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Seasonal naive baseline with conformal intervals.",
+)
+
+plan_baseline_no_end_train = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train=None,
+    explanation="Seasonal naive baseline (prediction mode).",
 )
 
 
@@ -417,6 +484,19 @@ plan_single_predict_exog = ForecastPlan(
     use_exog=True,
     end_train=None,
     explanation="Single series with exog (prediction mode).",
+)
+
+plan_foundation_numeric_covariates_no_end_train = ForecastPlan(
+    task_type="foundation",
+    forecaster="ForecasterFoundation",
+    forecaster_kwargs={},
+    estimator="google/timesfm-3.0-pytorch",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=True,
+    end_train=None,
+    explanation="Foundation model with numeric covariates (prediction mode).",
 )
 
 

@@ -16,6 +16,7 @@ from ._helpers import (
     _emit_metrics_section,
     _emit_preprocessing_steps,
     _emit_production_note,
+    _emit_split_dates,
     _get_interval_repr,
     _get_numeric_exog,
     _get_seasonal_period,
@@ -112,19 +113,7 @@ def render_forecast_statistical(
         if use_exog:
             _emit_exog_features_statistical(core_lines, profile)
         core_lines.append("")
-        core_lines.append("print(")
-        core_lines.append(
-            '    f"Train dates : {data_train.index.min()} --- '
-            '{data_train.index.max()}  (n={len(data_train)})"'
-        )
-        core_lines.append(")")
-        core_lines.append("print(")
-        core_lines.append(
-            '    f"Test dates  : {data_test.index.min()} --- '
-            '{data_test.index.max()}  (n={len(data_test)})"'
-        )
-        core_lines.append(")")
-        core_lines.append("")
+        _emit_split_dates(core_lines)
     elif use_exog:
         _emit_exog_features_statistical(core_lines, profile)
         core_lines.append("")

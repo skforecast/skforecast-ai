@@ -3,10 +3,14 @@
 import re
 from pathlib import Path
 
+import numpy as np
 import pytest
 import pandas as pd
 
+from skforecast.model_selection import TimeSeriesFold
+
 from skforecast_ai._utils import (
+    _check_evaluated_target,
     _apply_interval_to_plan,
     _strip_code_blocks,
     _resolve_data_and_target,
@@ -17,6 +21,7 @@ from skforecast_ai._utils import (
     _validate_window_features,
 )
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
 from tests.fixtures_assistant import df_single, series_single
@@ -329,7 +334,7 @@ def _make_profile(series_lengths, frequency="D", n_series=None):
 
 @pytest.mark.parametrize(
     "task_type",
-    ["single_series", "statistical", "foundation"],
+    ["single_series", "statistical", "baseline"],
 )
 def test_validate_task_input_raises_when_single_task_with_multiple_series(
     task_type,
@@ -356,13 +361,17 @@ def test_validate_task_input_raises_when_multivariate_unequal_lengths():
 def test_validate_task_input_passes_when_valid():
     """
     Test _validate_task_input accepts compatible inputs (single-series
-    task with one series; multivariate with equal lengths).
+    task with one series; multivariate with equal lengths; foundation with
+    one or several series, of equal or different lengths).
     """
     single = _make_profile({"value": {"length": 100}}, n_series=1)
     multivariate = _make_profile({"A": {"length": 100}, "B": {"length": 100}})
+    uneven = _make_profile({"A": {"length": 100}, "B": {"length": 80}})
 
     assert _validate_task_input(single, "single_series") is None
     assert _validate_task_input(multivariate, "multivariate") is None
+    assert _validate_task_input(single, "foundation") is None
+    assert _validate_task_input(uneven, "foundation") is None
 
 
 
@@ -539,3 +548,106 @@ def test_apply_interval_to_plan_uses_native_method_for_foundation_plan():
     assert updated.explanation == f"{plan.explanation} Prediction intervals via native."
     assert plan.interval is None
     assert _apply_interval_to_plan(updated, [0.1, 0.9]) is updated
+
+
+def test_apply_interval_to_plan_ValueError_when_foundation_model_lacks_quantiles():
+    """
+    Test that applying an interval that the foundation model of the plan
+    cannot predict raises ValueError, although the plan copy skips the
+    schema validators.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterFoundation",
+        estimator="google/timesfm-3.0-pytorch",
+    )
+
+    err_msg = re.escape(
+        "'google/timesfm-3.0-pytorch' (TimesFM3Adapter) only predicts the "
+        "quantile levels"
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _apply_interval_to_plan(plan, [0.05, 0.95])
+
+
+def test_apply_interval_to_plan_uses_conformal_for_baseline():
+    """
+    Test that applying an interval to a baseline plan selects the conformal
+    method, the only one ForecasterEquivalentDate supports.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    updated = _apply_interval_to_plan(plan, [0.1, 0.9])
+
+    assert updated.interval == [0.1, 0.9]
+    assert updated.interval_method == "conformal"
+
+
+def _gapped_single_series(drop: list[int]) -> tuple[pd.DataFrame, DataProfile]:
+    """Daily series of 100 days without the given positions, and its profile."""
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame(
+        {"date": dates, "y": np.arange(100, dtype=float)}
+    ).drop(index=drop).reset_index(drop=True)
+
+    return data, create_data_profile(data, target="y", date_column="date")
+
+
+def test_check_evaluated_target_ValueError_when_gap_in_test_folds():
+    """
+    Test that a missing timestamp inside a test fold is reported with its
+    date before running, whatever the estimator, because skforecast cannot
+    compute single-series metrics on it.
+    """
+    data, data_profile = _gapped_single_series(drop=[85])
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test folds "
+        "(2023-03-27 00:00:00), counting the missing timestamps that asfreq() "
+        "restores. skforecast cannot compute the metrics on them, whatever "
+        "the estimator. Impute the target, or evaluate on dates without "
+        "missing values."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _check_evaluated_target(data=data, data_profile=data_profile, cv=cv)
+
+
+def test_check_evaluated_target_output_when_gap_only_in_training():
+    """
+    Test that a missing timestamp before the first test fold is accepted:
+    the forecaster handles it in training and no metric is computed on it.
+    """
+    data, data_profile = _gapped_single_series(drop=[20, 21])
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    assert _check_evaluated_target(data=data, data_profile=data_profile, cv=cv) is None
+
+
+def test_check_evaluated_target_ValueError_when_gap_in_test_split():
+    """
+    Test that a missing timestamp in the test split of an evaluation-mode
+    forecast is reported, and one outside the evaluated steps is not.
+    """
+    data, data_profile = _gapped_single_series(drop=[97])
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test split (2023-04-08 00:00:00)"
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _check_evaluated_target(
+            data         = data,
+            data_profile = data_profile,
+            end_train    = "2023-04-05",
+            steps        = 5,
+        )
+
+    assert _check_evaluated_target(
+        data         = data,
+        data_profile = data_profile,
+        end_train    = "2023-03-20",
+        steps        = 5,
+    ) is None

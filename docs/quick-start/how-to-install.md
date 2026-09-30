@@ -1,6 +1,6 @@
 # Installation
 
-**skforecast-ai** needs Python 3.10 or newer and is available on PyPI. The core package runs the whole forecasting pipeline offline, with no API key; the LLM reasoning layer is an optional extra.
+**skforecast-ai** needs Python 3.10 or newer and is available on PyPI. The core package runs the whole forecasting pipeline offline, with no API key; the LLM reasoning layer and the foundation model backend are optional extras.
 
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue) [![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai)
 
@@ -28,6 +28,14 @@
 
     ```bash
     pip install "skforecast-ai[bedrock]"
+    ```
+
+=== "Foundation models"
+
+    Adds the backend of Chronos-2, the default model of `ForecasterFoundation`, so it can run in `forecast()`, `backtest()` and `compare()`. Scripts that use it can be generated without it.
+
+    ```bash
+    pip install "skforecast-ai[foundation]"
     ```
 
 To install a specific version, pin it (`pip install skforecast-ai==0.3.1`). The development version, which may be unstable, installs from GitHub:
@@ -83,8 +91,11 @@ The same check is available in Python as `assistant.check_llm()`. [Configuring t
 | `llm` | [pydantic-ai](https://ai.pydantic.dev/), the only LLM abstraction the package uses | OpenAI, Anthropic, Google, Groq, Ollama and OpenAI-compatible endpoints |
 | `bedrock` | pydantic-ai with its Bedrock support, and `boto3` | Amazon Bedrock |
 | `all` | Every provider-specific dependency (`full` is an alias) | Several providers in the same environment |
+| `foundation` | `chronos-forecasting`, the backend of Chronos-2 | Running `ForecasterFoundation` with its default model |
 
 The core dependencies (skforecast, pandas, pydantic, statsmodels, typer and rich) are listed with their versions on [PyPI](https://pypi.org/project/skforecast-ai/).
+
+Without the `foundation` extra, `compare()` leaves `ForecasterFoundation` out of the automatic candidates with a `MissingBackendWarning`. Other foundation models (TimesFM, Moirai, TabICL, ...) need their own backend; skforecast names the package to install when it is missing.
 
 !!! note "Groq"
     The `groq` extra (`pip install "skforecast-ai[groq]"`) is kept for backwards compatibility. Groq support is already included in the `llm` extra.

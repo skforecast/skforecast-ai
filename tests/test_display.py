@@ -487,7 +487,7 @@ def test_render_plan_no_llm_marker_without_refined_fields(sample_plan):
 
 @pytest.mark.parametrize(
     "task_type",
-    ["statistical", "foundation"],
+    ["statistical", "foundation", "baseline"],
     ids=lambda task_type: f"task_type: {task_type}",
 )
 def test_render_plan_omits_autoreg_rows_for_non_ml_task_types(sample_plan, task_type):
@@ -502,6 +502,24 @@ def test_render_plan_omits_autoreg_rows_for_non_ml_task_types(sample_plan, task_
     assert "Lags" not in text
     assert "Window features" not in text
     assert "Calendar features" not in text
+
+
+def test_render_plan_shows_offset_rows_for_baseline(sample_plan):
+    """
+    Test that render_plan shows the offset and number of offsets of a
+    baseline plan, and only for that task type.
+    """
+    plan = sample_plan.model_copy(
+        update={
+            "task_type": "baseline",
+            "forecaster": "ForecasterEquivalentDate",
+            "forecaster_kwargs": {"offset": 7, "n_offsets": 1},
+        }
+    )
+    text = _render_to_text(render_plan(plan))
+    assert "Offset" in text
+    assert "Number of offsets" in text
+    assert "Offset" not in _render_to_text(render_plan(sample_plan))
 
 
 def test_render_plan_omits_interval_method_when_no_interval(sample_plan):

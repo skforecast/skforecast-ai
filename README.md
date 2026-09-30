@@ -111,7 +111,7 @@ answer = assistant.ask(
 - **[Data profiling](https://ai.skforecast.org/stable/user-guides/agentic-forecasting-step-by-step.html)**: frequency, missing values, exogenous and categorical variables, and the significant lags from the partial autocorrelation.
 - **A plan with a rule for every decision**: forecaster and estimator, lags, window and calendar features, prediction intervals, metric and cross-validation.
 - **The code you see is the code that ran**: `forecast()` and `backtest()` execute the same script that `forecast_code()` and `backtest_code()` return. Inspect it, version it or run it with plain skforecast.
-- **[Model selection](https://ai.skforecast.org/stable/user-guides/agentic-forecasting.html)** with `compare()`: every candidate is backtested with the same data and cross-validation, and the ranking is a plain sort of the metric.
+- **[Model selection](https://ai.skforecast.org/stable/user-guides/agentic-forecasting.html)** with `compare()`: every candidate is backtested with the same data and cross-validation, and the ranking is a plain sort of the metric. For a single series, a seasonal naive baseline is ranked alongside them, so you also see whether a model beats the simplest reasonable forecast.
 - **Reproducible**: the same input always gives the same profile, plan, script and predictions.
 - **Python or terminal**: the [CLI](https://ai.skforecast.org/stable/user-guides/cli-usage.html) runs the same pipeline from a CSV file or URL.
 

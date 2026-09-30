@@ -69,8 +69,17 @@ FOUNDATION_FORECASTERS: set[str] = {
     "ForecasterFoundation",
 }
 
+# Foundation model loaded when a `ForecasterFoundation` plan names none. Its
+# capabilities (covariates, categorical covariates, any quantile level) and a
+# license with no registered restriction make it the safest default.
+DEFAULT_FOUNDATION_MODEL_ID = "autogluon/chronos-2-small"
+
 STATS_FORECASTERS: set[str] = {
     "ForecasterStats",
+}
+
+BASELINE_FORECASTERS: set[str] = {
+    "ForecasterEquivalentDate",
 }
 
 # Forecasting task category implied by each supported forecaster
@@ -81,6 +90,7 @@ FORECASTER_TASK_TYPES: dict[str, str] = {
     "ForecasterDirectMultiVariate": "multivariate",
     "ForecasterStats": "statistical",
     "ForecasterFoundation": "foundation",
+    "ForecasterEquivalentDate": "baseline",
 }
 
 # Mapping from pandas frequency strings to seasonal period (m)
@@ -158,11 +168,15 @@ TREE_BASED_ESTIMATORS: set[str] = {
     "ExtraTreesRegressor",
 }
 
+# Estimators that fit and predict with missing values. RandomForestRegressor
+# does since scikit-learn 1.4, the minimum skforecast requires. Among the
+# supported estimators only the linear model (Ridge) does not.
 NAN_TOLERANT_ESTIMATORS: set[str] = {
     "LGBMRegressor",
     "CatBoostRegressor",
     "XGBRegressor",
     "HistGradientBoostingRegressor",
+    "RandomForestRegressor",
 }
 
 # Rolling statistics supported by skforecast's `RollingFeatures`. Explicit

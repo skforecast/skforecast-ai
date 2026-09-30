@@ -253,7 +253,10 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
                           render_dataset_section(self.profile),
                           render_profile_decision_section(self.profile),
                           render_plan_section(self.plan),
-                          render_cv_section(cv_config),
+                          render_cv_section(
+                              cv_config,
+                              trains=self.plan.task_type != "foundation",
+                          ),
                           render_deterministic_summary_section(explanation),
                           render_metrics_section(
                               self.metrics,
@@ -702,6 +705,11 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
         Name of the metric used to sort `results`.
     explanation : str
         Human-readable summary of the comparison.
+    baseline_name : str, default None
+        Name of the `ForecasterEquivalentDate` candidate that serves as
+        the naive reference, ranked like any other row. None when the
+        comparison has no baseline (`baseline=False`, multi-series data,
+        or a target with missing values).
     best_name : str
         Name of the top-ranked candidate.
     best_candidate : BacktestResult
@@ -734,6 +742,7 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     failures: dict[str, CandidateFailure] = Field(default_factory=dict)
     ranking_metric: str
     explanation: str
+    baseline_name: str | None = None
 
     _explanation_title: ClassVar[str] = "Comparison Explanation"
 

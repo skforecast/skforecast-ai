@@ -53,7 +53,8 @@ when it:
 
 - quotes a number that is not in `<forecast_context>` or derives one
   (percentages, ratios, RMSE from MSE),
-- interprets MASE against anything other than the naive baseline,
+- interprets MASE against anything other than the one-step naive forecast
+  (in particular against the baseline row of a comparison),
 - explains why a candidate won, or attributes accuracy to a feature,
 - describes a trend across a truncated `<predictions>` table,
 - answers a probe question with an invented value instead of saying the

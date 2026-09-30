@@ -19,6 +19,11 @@ df_single = pd.DataFrame(
     }
 )
 
+# --- Single series with a numeric and a categorical exog ---
+df_categorical_exog = df_single.assign(
+    weekday=df_single["date"].dt.day_name(),
+)
+
 # --- Single series without exog (100 daily observations) ---
 df_no_exog = pd.DataFrame(
     {

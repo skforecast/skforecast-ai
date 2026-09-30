@@ -77,6 +77,28 @@ def test_forecast_code_with_profile_and_plan_when_statistical():
     assert "ForecasterStats" in result.code
 
 
+def test_forecast_code_with_profile_and_plan_when_baseline():
+    """
+    Test that forecast_code() with pre-computed profile and plan produces
+    code for the baseline (ForecasterEquivalentDate) without exogenous
+    variables.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, forecaster="ForecasterEquivalentDate"
+    )
+
+    result = assistant.forecast_code(
+        data=df_single, profile=profile, plan=plan
+    )
+
+    assert isinstance(result, CodeGenerationResult)
+    assert "ForecasterEquivalentDate(" in result.code
+    assert "offset    = 7," in result.code
+    assert "exog" not in result.code
+
+
 def test_forecast_code_with_profile_and_plan_contains_frequency():
     """
     Test that generated code includes the frequency assignment.

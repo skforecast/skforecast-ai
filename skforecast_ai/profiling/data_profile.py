@@ -29,9 +29,29 @@ from ..schemas import DataProfile
 # or return a dictionary mapping each target to its dtype.
 
 
+# Consecutive timestamps per window when the frequency is inferred from the
+# stretches between gaps. Long enough to tell a business day from a calendar
+# day (a window must cross a weekend) and capped in number so the cost does
+# not grow with the length of the series.
+_FREQUENCY_WINDOW = 10
+_MAX_FREQUENCY_WINDOWS = 200
+
+# Minimum share of the regular grid that must be observed to accept a
+# frequency inferred despite gaps. Below it the spacing is irregular rather
+# than regular with missing timestamps.
+_MIN_FREQUENCY_COVERAGE = 0.5
+
+
 def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     """
-    Infer the frequency of a DatetimeIndex.
+    Infer the frequency of a DatetimeIndex, tolerating missing timestamps.
+
+    `pd.infer_freq` needs a gap-free index. When it fails, the frequency is
+    inferred on windows of consecutive timestamps (the stretches between
+    gaps), and the most frequent answer is accepted when every timestamp
+    lies on its regular grid and at least half of that grid is observed.
+    The missing timestamps are then reported by `detect_gaps()` and
+    become NaN rows after `asfreq()`.
 
     Parameters
     ----------
@@ -42,7 +62,8 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     -------
     frequency : str, None
         Inferred pandas frequency string, or None if the frequency cannot
-        be determined (e.g. too few observations or irregular spacing).
+        be determined (too few observations, or spacing that is irregular
+        rather than regular with gaps).
     """
     if len(index) < 3:
         return None
@@ -50,9 +71,58 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     try:
         freq = pd.infer_freq(index)
     except (TypeError, ValueError):
+        freq = None
+    if freq is not None:
+        return freq
+
+    return _infer_frequency_with_gaps(index)
+
+
+def _infer_frequency_with_gaps(index: pd.DatetimeIndex) -> str | None:
+    """
+    Infer a frequency from the gap-free stretches of a DatetimeIndex.
+
+    Parameters
+    ----------
+    index : pandas DatetimeIndex
+        Datetime index whose frequency `pd.infer_freq` could not infer.
+
+    Returns
+    -------
+    frequency : str, None
+        Frequency whose grid contains every timestamp and is at least
+        `_MIN_FREQUENCY_COVERAGE` observed, or None.
+    """
+    index = pd.DatetimeIndex(index.dropna().unique()).sort_values()
+    if len(index) < _FREQUENCY_WINDOW:
         return None
 
-    return freq
+    starts = range(0, len(index) - _FREQUENCY_WINDOW + 1, _FREQUENCY_WINDOW)
+    if len(starts) > _MAX_FREQUENCY_WINDOWS:
+        positions = np.linspace(0, len(starts) - 1, _MAX_FREQUENCY_WINDOWS)
+        starts = [starts[int(i)] for i in positions]
+
+    candidates: dict[str, int] = {}
+    for start in starts:
+        try:
+            freq = pd.infer_freq(index[start:start + _FREQUENCY_WINDOW])
+        except (TypeError, ValueError):
+            continue
+        if freq is not None:
+            candidates[freq] = candidates.get(freq, 0) + 1
+
+    for freq in sorted(candidates, key=candidates.get, reverse=True):
+        try:
+            grid = pd.date_range(index[0], index[-1], freq=freq)
+        except ValueError:
+            continue
+        if (
+            len(index) >= _MIN_FREQUENCY_COVERAGE * len(grid)
+            and index.isin(grid).all()
+        ):
+            return freq
+
+    return None
 
 
 def create_data_profile(
@@ -139,7 +209,8 @@ def create_data_profile(
     first_target = target[0] if isinstance(target, list) else target
     target_dtype = detect_target_dtype(data, first_target)
 
-    has_gaps = detect_gaps(datetime_index, frequency)
+    n_missing_timestamps = count_missing_timestamps(datetime_index, frequency)
+    has_gaps = n_missing_timestamps > 0
     index_is_monotonic = _check_monotonic(datetime_index, data)
     frequency_is_set = _check_frequency_is_set(datetime_index, data)
 
@@ -160,7 +231,12 @@ def create_data_profile(
     target_stats = compute_target_stats(data, target, data_format, series_id_column)
 
     warnings = generate_warnings(
-        representative_n, frequency, missing_target, missing_exog, index_type
+        representative_n,
+        frequency,
+        missing_target,
+        missing_exog,
+        index_type,
+        n_missing_timestamps = n_missing_timestamps,
     )
 
     # Compute start_date: the reference start for position-to-date
@@ -870,6 +946,7 @@ def generate_warnings(
     missing_target: dict[str, int],
     missing_exog: dict[str, int],
     index_type: str,
+    n_missing_timestamps: int = 0,
 ) -> list[str]:
     """
     Generate human-readable warnings about potential data issues.
@@ -886,6 +963,8 @@ def generate_warnings(
         Mapping of exogenous column name to count of missing values.
     index_type : str
         Type of the index (`'datetime'`, `'range'`, `'other'`).
+    n_missing_timestamps : int, default 0
+        Number of timestamps missing from the regular grid of the index.
 
     Returns
     -------
@@ -908,8 +987,15 @@ def generate_warnings(
 
     if frequency is None and index_type == "datetime":
         warnings.append(
-            "Could not infer frequency from the datetime index. "
-            "The series may have irregular spacing or gaps."
+            "Could not infer frequency from the datetime index: the "
+            "spacing is irregular, or there are too few timestamps."
+        )
+
+    if n_missing_timestamps > 0:
+        warnings.append(
+            f"Missing timestamps: {n_missing_timestamps} timestamps of "
+            f"frequency '{frequency}' are missing from the date range. "
+            f"asfreq() inserts them as rows with missing values."
         )
 
     total_target_missing = sum(missing_target.values())
@@ -977,6 +1063,45 @@ def detect_target_dtype(data: pd.DataFrame, target: str) -> str:
     return "other"
 
 
+def count_missing_timestamps(
+    datetime_index: pd.DatetimeIndex | None,
+    frequency: str | None,
+) -> int:
+    """
+    Count the timestamps missing from the regular grid of the index.
+
+    Parameters
+    ----------
+    datetime_index : pandas DatetimeIndex, None
+        The datetime index to check.
+    frequency : str, None
+        Inferred frequency string.
+
+    Returns
+    -------
+    n_missing : int
+        Number of timestamps of the regular grid between the first and the
+        last timestamp that the index does not contain. 0 when the
+        frequency is unknown.
+    """
+    if datetime_index is None or frequency is None:
+        return 0
+
+    if len(datetime_index) < 2:
+        return 0
+
+    try:
+        expected = pd.date_range(
+            start=datetime_index.min(),
+            end=datetime_index.max(),
+            freq=frequency,
+        )
+    except ValueError:
+        return 0
+
+    return int((~expected.isin(datetime_index)).sum())
+
+
 def detect_gaps(
     datetime_index: pd.DatetimeIndex | None,
     frequency: str | None,
@@ -999,28 +1124,12 @@ def detect_gaps(
     Notes
     -----
     This function requires a known `frequency` to compare actual vs
-    expected timestamps. When `pd.infer_freq` returns None (often
-    because the gaps themselves prevent inference), this function
-    returns False, meaning "gaps not detected", not "no gaps exist".
-    In such cases, a separate warning about uninferable frequency is
-    emitted by the profiler.
+    expected timestamps. `infer_frequency()` tolerates gaps, so it is
+    None only for irregular spacing; this function then returns False,
+    meaning "gaps not detected", not "no gaps exist", and the profiler
+    warns that the frequency could not be inferred.
     """
-    if datetime_index is None or frequency is None:
-        return False
-
-    if len(datetime_index) < 2:
-        return False
-
-    try:
-        expected = pd.date_range(
-            start=datetime_index.min(),
-            end=datetime_index.max(),
-            freq=frequency,
-        )
-    except ValueError:
-        return False
-
-    return len(expected) > len(datetime_index)
+    return count_missing_timestamps(datetime_index, frequency) > 0
 
 
 def detect_duplicate_timestamps(

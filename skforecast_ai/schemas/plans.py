@@ -8,13 +8,14 @@
 from __future__ import annotations
 import sys
 from typing import Annotated, Any, ClassVar, Literal
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 if sys.version_info >= (3, 12):
     from typing import TypedDict
 else:
     from typing_extensions import TypedDict
 from .._constants import WindowStat
+from .._foundation import validate_foundation_plan
 from .._display import DisplayMixin, render_plan
 
 
@@ -261,7 +262,8 @@ class RefinePlanOverrides(TypedDict, total=False):
     forecaster : str
         Forecaster class name, e.g. `'ForecasterDirect'`.
     estimator : str
-        Estimator class name, e.g. `'Ridge'`.
+        Estimator class name, e.g. `'Ridge'`, or the Hugging Face model ID
+        of a foundation model, e.g. `'google/timesfm-3.0-pytorch'`.
     estimator_kwargs : dict, None
         Keyword arguments for the estimator constructor. None resets them
         to the built-in defaults.
@@ -304,7 +306,8 @@ class CandidateConfig(TypedDict, total=False):
     forecaster : str
         Forecaster class name, e.g. `'ForecasterRecursive'`.
     estimator : str
-        Estimator class name, e.g. `'LGBMRegressor'`.
+        Estimator class name, e.g. `'LGBMRegressor'`, or the Hugging Face
+        model ID of a foundation model, e.g. `'autogluon/chronos-2-small'`.
     estimator_kwargs : dict, None
         Keyword arguments for the estimator constructor.
     lags : int, list of int, None
@@ -344,7 +347,8 @@ class ForecastPlan(DisplayMixin, BaseModel):
         Forecasting task category (mirrored from the source
         `ForecastingProfile`). One of `'single_series'`,
         `'multi_series'`, `'multivariate'`, `'statistical'`,
-        `'foundation'`.
+        `'foundation'`, or `'baseline'` when the plan was built for
+        `ForecasterEquivalentDate`.
     forecaster : str
         Name of the skforecast forecaster class.
     forecaster_kwargs : dict, default {}
@@ -353,14 +357,15 @@ class ForecastPlan(DisplayMixin, BaseModel):
         directly into the constructor alongside `estimator`.
     estimator : str, default None
         Name of the scikit-learn compatible estimator. For `'foundation'`
-        plans this is always `'Chronos-2'`, the only foundation backend
-        wired into skforecast-ai.
+        plans it is the Hugging Face model ID of the foundation model
+        (e.g. `'autogluon/chronos-2-small'`), and it must be a model
+        supported by skforecast.
     estimator_kwargs : dict, default {}
         Keyword arguments for the estimator constructor (e.g.
         `n_estimators`, `learning_rate`). Merged on top of built-in
         defaults (`random_state`, silencing flags). For `'foundation'`
-        plans, use `model_id` to load a backend other than
-        `autogluon/chronos-2-small`.
+        plans they are passed to `FoundationModel` on top of the default
+        `context_length` of the model, and cannot contain `model_id`.
     steps : int
         Number of steps ahead to predict. Must be greater than 0.
     frequency : str, default None
@@ -407,6 +412,7 @@ class ForecastPlan(DisplayMixin, BaseModel):
         "multivariate",
         "statistical",
         "foundation",
+        "baseline",
     ]
     forecaster: str
     forecaster_kwargs: dict[str, Any] = Field(default_factory=dict)
@@ -426,6 +432,21 @@ class ForecastPlan(DisplayMixin, BaseModel):
     warnings: list[str] = Field(default_factory=list)
     llm_refined_fields: list[str] = Field(default_factory=list)
     explanation: str
+
+    @model_validator(mode="after")
+    def _check_foundation_model(self) -> ForecastPlan:
+        """
+        Validate the foundation model of a `'foundation'` plan, so a plan
+        built by hand or loaded from JSON cannot name a model, or an
+        interval, that the generated script would fail to load or predict.
+        """
+        if self.task_type == "foundation":
+            validate_foundation_plan(
+                estimator        = self.estimator,
+                estimator_kwargs = self.estimator_kwargs,
+                interval         = self.interval,
+            )
+        return self
 
     def _rich_body(self, console, options):
         yield render_plan(self)
