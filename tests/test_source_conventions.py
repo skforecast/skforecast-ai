@@ -63,15 +63,15 @@ def test_source_files_contain_no_en_or_em_dashes(directory):
     assert offenders == []
 
 
-def test_agent_instruction_files_are_identical():
+def test_claude_instructions_import_agents_instructions():
     """
-    Test that AGENTS.md and CLAUDE.md carry the same content. They are
-    the same conventions published under the two names coding agents look
-    for; keeping two copies in sync by hand is the price of not relying on
-    symlinks, so this test makes a divergence fail loudly.
+    Test that CLAUDE.md starts by importing AGENTS.md, so the conventions
+    shared by every coding agent live in a single file and Claude Code
+    loads them without a second copy that could drift. CLAUDE.md only adds
+    what is specific to the Claude Code harness.
     """
 
-    agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
     claude = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
 
-    assert agents == claude
+    assert claude.splitlines()[0] == "@AGENTS.md"
+    assert (REPO_ROOT / "AGENTS.md").is_file()

@@ -54,10 +54,15 @@ tools/                maintenance scripts (see tools/README.md): ai/ for the
 
 ## Python environment
 
-Before running any Python command (tests, scripts, notebooks, `pip install`)
-for the first time in a session, run `conda env list` and ask which
-environment to use. Do not assume the active environment. Once the user
-confirms an environment, reuse it for the rest of the session.
+Interactive local session: before running any Python command (tests,
+scripts, notebooks, `pip install`) for the first time in a session, run
+`conda env list` and ask which environment to use. Do not assume the active
+environment. Once the user confirms an environment, reuse it for the rest of
+the session.
+
+Non-interactive or cloud session (nobody to ask, no conda): install with
+`pip install -e ".[test,llm]" ruff` and run the commands below as they are.
+No API key or network is needed for the test suite; LLM calls are mocked.
 
 ## Commands
 
@@ -117,8 +122,12 @@ Follow `.github/instructions/testing.instructions.md`. In short:
 
 ## Working with the user
 
-- Do not create git commits. Leave changes uncommitted in the working tree;
-  the author reviews and commits.
+- Do not create git commits in a local session unless the user asks. Leave
+  changes uncommitted in the working tree; the author reviews and commits.
+- An autonomous remote session commits and pushes to its own branch, named
+  `feature/<slug>`, `fix/<slug>`, `docs/<slug>` or `chore/<slug>`. Never push
+  to `main` or a release branch (`X.Y.x`), never force push, and do not open
+  a pull request unless asked.
 - Any user-visible change (API, CLI output, generated scripts, warnings)
   gets an entry in `docs/releases/releases.md` under the unreleased version.
 - A change to `llm/context.py`, `llm/prompts.py` or the rendered
