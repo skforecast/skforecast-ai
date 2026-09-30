@@ -61,7 +61,7 @@ from skforecast_ai import ForecastingAssistant, LLMCallError  # noqa: E402
 from skforecast_ai.llm.skills import estimate_context_tokens  # noqa: E402
 
 DEFAULT_MODEL = os.getenv("ASK_CHECK_LLM", "google:gemini-3.8-flash")
-REPORTS_DIR = REPO_ROOT / "tools" / "ask_context_reports"
+REPORTS_DIR = REPO_ROOT / "tools" / "ai" / "ask_context_reports"
 
 
 # =============================================================================
