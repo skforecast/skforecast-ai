@@ -69,6 +69,11 @@ FOUNDATION_FORECASTERS: set[str] = {
     "ForecasterFoundation",
 }
 
+# Foundation model loaded when a `ForecasterFoundation` plan names none. Its
+# capabilities (covariates, categorical covariates, any quantile level) and a
+# license with no registered restriction make it the safest default.
+DEFAULT_FOUNDATION_MODEL_ID = "autogluon/chronos-2-small"
+
 STATS_FORECASTERS: set[str] = {
     "ForecasterStats",
 }

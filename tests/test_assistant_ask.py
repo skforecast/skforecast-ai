@@ -731,7 +731,7 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
     )
 
     # Context message carries the backtest configuration and results.
-    assert "<cross_validation>" in capture["message"]
+    assert "<backtesting_strategy>" in capture["message"]
     assert "initial_train_size" in capture["message"]
     assert "- n_folds: 4" in capture["message"]
     assert "<evaluation_metrics>" in capture["message"]
@@ -766,7 +766,7 @@ def test_ask_output_when_cv_result_provided(monkeypatch):
         warnings.simplefilter("error", DataSentToLLMWarning)
         result = assistant.ask(prompt="Why this strategy?", context=cv_result)
 
-    assert "<cross_validation>" in capture["message"]
+    assert "<backtesting_strategy>" in capture["message"]
     assert "n_folds" in capture["message"]
     assert "<predictions>" not in capture["message"]
     assert result.profile is profile

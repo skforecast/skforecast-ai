@@ -32,7 +32,7 @@ Candidates listed: 3 (all shown below).
 <failed_candidates>
 - broken: ImportError: No module named 'lightgbm'
 </failed_candidates>
-<cross_validation>
+<backtesting_strategy>
 Applied identically to every candidate.
 - steps: 5
 - initial_train_size: 70
@@ -40,7 +40,7 @@ Applied identically to every candidate.
 - fixed_train_size: True
 - gap: 0
 - n_folds: 6
-</cross_validation>
+</backtesting_strategy>
 <deterministic_summary>
 Compared 2 configurations, ranked ascending by MAE.
 </deterministic_summary>

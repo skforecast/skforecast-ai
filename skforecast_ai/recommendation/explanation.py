@@ -7,7 +7,11 @@
 
 
 from __future__ import annotations
+from typing import TYPE_CHECKING
 from ..schemas import DataProfile
+
+if TYPE_CHECKING:
+    from skforecast.foundation import FoundationModelInfo
 
 
 def build_plan_explanation(
@@ -118,6 +122,79 @@ def build_plan_explanation(
 
     if metric_explanation is not None:
         parts.append(f"{metric_explanation}")
+
+    return " ".join(parts)
+
+
+def build_foundation_explanation(
+    foundation_model: FoundationModelInfo,
+    exog_columns: list[str],
+    context_length: int,
+    n_observations: int,
+    n_series: int,
+) -> str:
+    """
+    Explain what the chosen foundation model implies for the plan.
+
+    A foundation model reads only the last `context_length` observations
+    of each series, which the plan does not show otherwise. skforecast
+    reports the license only when the weights are loaded, and ignores
+    unsupported covariates with a warning at fit time. Stating all of them
+    in the plan lets the user see them before running anything.
+
+    Parameters
+    ----------
+    foundation_model : FoundationModelInfo
+        Capabilities and requirements of the foundation model.
+    exog_columns : list of str
+        Exogenous columns of the data.
+    context_length : int
+        Maximum number of past observations the model reads per series.
+    n_observations : int
+        Length of the longest series.
+    n_series : int
+        Number of series.
+
+    Returns
+    -------
+    explanation : str
+        Sentences about the context the model reads, unused exogenous
+        variables, restricted licenses and gated weights.
+    """
+    model_id = foundation_model.model_id
+    parts: list[str] = []
+
+    of_series = "of each series" if n_series > 1 else "of the series"
+    longest = "the longest series has" if n_series > 1 else "the series has"
+    if n_observations > context_length:
+        parts.append(
+            f"The model reads the last {context_length} observations "
+            f"{of_series} as context; {longest} {n_observations}, so older "
+            f"observations are not used."
+        )
+    else:
+        parts.append(
+            f"The model reads up to {context_length} observations "
+            f"{of_series} as context, so the whole history is used "
+            f"({longest} {n_observations})."
+        )
+    if exog_columns and not foundation_model.allow_exog:
+        parts.append(
+            f"Exogenous variables {exog_columns} are not used: "
+            f"'{model_id}' does not support covariates."
+        )
+    if foundation_model.license_restriction is not None:
+        parts.append(
+            f"The weights of '{model_id}' are released under "
+            f"{foundation_model.license_restriction}, which restricts "
+            f"commercial use ({foundation_model.license_url})."
+        )
+    if foundation_model.requires_hf_auth:
+        parts.append(
+            f"The weights of '{model_id}' are gated on the Hugging Face Hub: "
+            f"log in with an account that has accepted the model license "
+            f"before running the script."
+        )
 
     return " ".join(parts)
 

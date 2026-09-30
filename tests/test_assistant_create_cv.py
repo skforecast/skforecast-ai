@@ -1009,3 +1009,22 @@ def test_create_cv_deterministic_when_no_prompt_and_llm_configured():
     assert isinstance(cv, TimeSeriesFold)
     assert cv.steps == 5
     assert "Initial training up to" in explanation
+
+
+def test_create_cv_explanation_when_foundation_plan():
+    """
+    Test that the explanation of the strategy for a foundation plan does
+    not describe a training window or refits, which do not apply to a model
+    that is not trained.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+
+    result = assistant.create_cv(profile, plan)
+
+    assert "no training (each fold forecasts from the observations before it)" in (
+        result.explanation
+    )
+    assert "refit" not in result.explanation
+    assert "window" not in result.explanation

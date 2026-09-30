@@ -13,7 +13,9 @@ from pydantic import ValidationError
 from skforecast.exceptions import MissingValuesWarning
 from skforecast.model_selection import TimeSeriesFold
 
+from skforecast_ai.execution import comparison as comparison_module
 from skforecast_ai.execution.comparison import (
+    _comparison_family,
     add_baseline_candidate,
     aggregate_metrics,
     build_comparison_explanation,
@@ -29,6 +31,7 @@ from skforecast_ai import (
     CandidateFailure,
     ComparisonResult,
     ForecastingAssistant,
+    MissingBackendWarning,
 )
 
 from tests.fixtures_assistant import (
@@ -363,7 +366,7 @@ def test_compare_explanation_content_when_single_series():
 
     assert "Compared 2 configurations, ranked ascending by " in explanation
     assert "mean_absolute_error." in explanation
-    assert "pooled across series" not in explanation
+    assert "averaged across series" not in explanation
     assert "Shared cross-validation strategy: " in explanation
     assert "5-step horizon" in explanation
     assert f"Best: '{best_name}' (" in explanation
@@ -375,10 +378,11 @@ def test_compare_explanation_content_when_single_series():
     assert "failed to run" not in explanation
 
 
-def test_compare_explanation_reports_pooled_metric_when_multi_series():
+def test_compare_explanation_reports_averaged_metric_when_multi_series():
     """
     Test that the compare() explanation flags the ranking metric as
-    pooled across series for multi-series tasks.
+    averaged across series for multi-series tasks, the skforecast
+    `average` row it is read from (not the `pooling` row).
     """
     result = assistant.compare(
         data=df_multi_wide,
@@ -392,7 +396,7 @@ def test_compare_explanation_reports_pooled_metric_when_multi_series():
     )
 
     assert "Compared 1 configuration, ranked ascending by " in result.explanation
-    assert "pooled across series." in result.explanation
+    assert "averaged across series." in result.explanation
     assert "ahead of" not in result.explanation
 
 
@@ -848,18 +852,39 @@ def test_compare_ValueError_when_multi_series_and_multivariate_are_mixed():
         )
 
 
-def test_resolve_compare_candidates_auto_when_multi_series_varies_the_estimator():
+def test_resolve_compare_candidates_auto_when_multi_series():
     """
-    Test that the automatic candidates of a multi-series profile keep the
-    multi-series forecaster only (the multivariate alternative is not
-    comparable) and vary its estimator across the profile's estimator
-    candidates, so the comparison still has more than one row.
+    Test that the automatic candidates of a multi-series profile compare
+    ForecasterRecursiveMultiSeries against ForecasterFoundation, both scored
+    on the average across series, and leave out the multivariate
+    alternative, which scores one series only.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(
         data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
     )
     assert "ForecasterDirectMultiVariate" in profile.forecaster_candidates
+
+    resolved = resolve_compare_candidates(None, profile)
+
+    assert resolved == [
+        ("ForecasterRecursiveMultiSeries", {"forecaster": "ForecasterRecursiveMultiSeries"}),
+        ("ForecasterFoundation", {"forecaster": "ForecasterFoundation"}),
+    ]
+
+
+def test_resolve_compare_candidates_auto_varies_the_estimator_when_one_forecaster_left():
+    """
+    Test that when a single forecaster of the recommended family is left,
+    the automatic candidates vary its estimator across the profile's
+    estimator candidates, so the comparison still has more than one row.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    ).model_copy(update={"forecaster_candidates": [
+        "ForecasterRecursiveMultiSeries", "ForecasterDirectMultiVariate"
+    ]})
 
     resolved = resolve_compare_candidates(None, profile)
 
@@ -871,6 +896,205 @@ def test_resolve_compare_candidates_auto_when_multi_series_varies_the_estimator(
         config == {"forecaster": "ForecasterRecursiveMultiSeries", "estimator": estimator}
         for (_, config), estimator in zip(resolved, profile.estimator_candidates)
     )
+
+
+@pytest.mark.parametrize(
+    "forecaster, n_series, expected",
+    [
+        ("ForecasterFoundation", 1, "single-target"),
+        ("ForecasterFoundation", 3, "multi-series"),
+        ("ForecasterRecursive", 1, "single-target"),
+        ("ForecasterRecursiveMultiSeries", 3, "multi-series"),
+        ("ForecasterDirectMultiVariate", 3, "multivariate"),
+        ("ForecasterUnknown", 1, None),
+    ],
+    ids=lambda dt: f"forecaster, n_series, expected: {dt}",
+)
+def test_comparison_family_output(forecaster, n_series, expected):
+    """
+    Test that the family of ForecasterFoundation follows the number of
+    series, while the other forecasters keep a fixed family and an
+    unknown forecaster has none.
+    """
+    assert _comparison_family(forecaster, n_series) == expected
+
+
+def test_resolve_compare_candidates_accepts_foundation_with_multi_series_forecaster():
+    """
+    Test that ForecasterFoundation and ForecasterRecursiveMultiSeries can be
+    compared on multi-series data, while ForecasterFoundation and the
+    multivariate forecaster cannot.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+    candidates = [
+        ("multiseries", {"forecaster": "ForecasterRecursiveMultiSeries"}),
+        ("foundation", {"forecaster": "ForecasterFoundation"}),
+    ]
+
+    resolved = resolve_compare_candidates(candidates, profile)
+
+    assert resolved == candidates
+    with pytest.raises(ValueError, match="Candidates mix forecaster families"):
+        resolve_compare_candidates(
+            [
+                ("foundation", {"forecaster": "ForecasterFoundation"}),
+                ("multivariate", {"forecaster": "ForecasterDirectMultiVariate"}),
+            ],
+            profile,
+        )
+
+
+def test_add_baseline_candidate_skips_baseline_when_foundation_on_multi_series():
+    """
+    Test that no baseline is added to a ForecasterFoundation candidate on
+    multi-series data, where it is scored on the average across series.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+    candidates = [("foundation", {"forecaster": "ForecasterFoundation"})]
+
+    resolved, baseline_name, note = add_baseline_candidate(candidates, profile)
+
+    assert resolved == candidates
+    assert baseline_name is None
+    assert note == (
+        "No baseline: ForecasterEquivalentDate forecasts a single series, so "
+        "it cannot be ranked against multi-series or multivariate candidates."
+    )
+
+
+# =============================================================================
+# Tests: foundation backend
+# =============================================================================
+_MISSING_BACKEND_NOTE = (
+    "ForecasterFoundation left out: its default model "
+    "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
+    "which is not installed (pip install skforecast-ai[foundation])."
+)
+
+
+@pytest.mark.parametrize(
+    "installed, expected_excluded, expected_note",
+    [
+        (True, frozenset(), None),
+        (False, frozenset({"ForecasterFoundation"}), _MISSING_BACKEND_NOTE),
+    ],
+    ids=["installed", "missing"],
+)
+def test_missing_foundation_backend_output(
+    monkeypatch, installed, expected_excluded, expected_note
+):
+    """
+    Test that the foundation forecaster is excluded, with a note naming the
+    package to install, only when the backend of its default model is not
+    installed.
+    """
+    monkeypatch.setattr(
+        comparison_module, "foundation_backend_installed", lambda info: installed
+    )
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+
+    excluded, note = comparison_module.missing_foundation_backend(profile)
+
+    assert excluded == expected_excluded
+    assert note == expected_note
+
+
+def test_missing_foundation_backend_output_when_no_foundation_candidate(monkeypatch):
+    """
+    Test that nothing is excluded when the profile has no foundation
+    candidate, whether or not its backend is installed.
+    """
+    monkeypatch.setattr(
+        comparison_module, "foundation_backend_installed", lambda info: False
+    )
+    profile = assistant.profile(
+        data=df_no_exog, target="sales", date_column="date"
+    ).model_copy(update={"forecaster_candidates": ["ForecasterRecursive"]})
+
+    assert comparison_module.missing_foundation_backend(profile) == (frozenset(), None)
+
+
+def test_resolve_compare_candidates_auto_when_forecaster_excluded():
+    """
+    Test that an excluded forecaster is left out of the auto candidates, so
+    a multi-series profile without its foundation candidate falls back to
+    varying the estimator of the multi-series forecaster.
+    """
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+
+    resolved = resolve_compare_candidates(
+        None, profile, exclude=frozenset({"ForecasterFoundation"})
+    )
+
+    assert [name for name, _ in resolved] == [
+        f"ForecasterRecursiveMultiSeries+{estimator}"
+        for estimator in profile.estimator_candidates
+    ]
+
+
+def test_compare_MissingBackendWarning_when_foundation_backend_not_installed(
+    monkeypatch,
+):
+    """
+    Test that compare() without candidates leaves ForecasterFoundation out
+    when its backend is not installed, warns with MissingBackendWarning and
+    records the reason in the explanation, instead of failing the candidate.
+    """
+    monkeypatch.setattr(
+        comparison_module, "foundation_backend_installed", lambda info: False
+    )
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    profile.forecaster_candidates = ["ForecasterRecursive", "ForecasterFoundation"]
+    profile.estimator_candidates = ["Ridge"]
+
+    with pytest.warns(MissingBackendWarning, match=re.escape(_MISSING_BACKEND_NOTE)):
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            profile       = profile,
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert list(result.results["name"]) == ["ForecasterRecursive"]
+    assert result.failures == {}
+    assert result.explanation.endswith(_MISSING_BACKEND_NOTE)
+
+
+def test_build_comparison_explanation_notes_foundation_is_not_trained():
+    """
+    Test that the explanation says the shared window and refit settings do
+    not apply to a ForecasterFoundation candidate, which is not trained.
+    """
+    ranked = [
+        _ranked_entry("foundation", "ForecasterFoundation", 1.0),
+        _ranked_entry("recursive", "ForecasterRecursive", 2.0),
+    ]
+
+    explanation = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = ranked,
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Initial training up to 2023-03-01, fixed window, no refit.",
+    )
+
+    assert (
+        "Shared cross-validation strategy: Initial training up to 2023-03-01, "
+        "fixed window, no refit. ForecasterFoundation is not trained: the "
+        "window and refit settings do not apply to it, each fold forecasts "
+        "from the observations before it. Best: 'foundation'"
+    ) in explanation
 
 
 # =============================================================================

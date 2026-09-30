@@ -253,7 +253,10 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
                           render_dataset_section(self.profile),
                           render_profile_decision_section(self.profile),
                           render_plan_section(self.plan),
-                          render_cv_section(cv_config),
+                          render_cv_section(
+                              cv_config,
+                              trains=self.plan.task_type != "foundation",
+                          ),
                           render_deterministic_summary_section(explanation),
                           render_metrics_section(
                               self.metrics,

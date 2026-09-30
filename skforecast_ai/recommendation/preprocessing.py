@@ -6,7 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from .._constants import (
     AUTOREG_FORECASTERS,
     BASELINE_FORECASTERS,
@@ -18,6 +18,9 @@ from .._constants import (
     NAN_TOLERANT_ESTIMATORS,
 )
 from ..schemas import DataProfile, PreprocessingStep
+
+if TYPE_CHECKING:
+    from skforecast.foundation import FoundationModelInfo
 
 
 def select_transformer_series(
@@ -274,6 +277,7 @@ def build_forecaster_kwargs(
 def derive_preprocessing_steps(
     profile: DataProfile,
     forecaster: str,
+    foundation_model: FoundationModelInfo | None = None,
 ) -> list[PreprocessingStep]:
     """
     Determine required preprocessing steps for a given profile and forecaster.
@@ -292,6 +296,12 @@ def derive_preprocessing_steps(
         Universal data profile from Stage 1.
     forecaster : str
         Name of the skforecast forecaster class.
+    foundation_model : FoundationModelInfo, default None
+        Capabilities of the foundation model of a `ForecasterFoundation`
+        plan. They decide how missing values are handled and whether
+        categorical exogenous variables are consumed natively, excluded,
+        or not used at all. Required when `forecaster` is
+        `'ForecasterFoundation'`.
 
     Returns
     -------
@@ -378,6 +388,36 @@ def derive_preprocessing_steps(
                 ),
                 blocking=False,
             ))
+    elif foundation_model is not None and (
+        profile.missing_target or profile.missing_exog
+    ):
+        # A foundation model is not trained: `dropna_from_series` and
+        # NaN-tolerant estimators do not apply, only what the backend accepts.
+        parts: list[str] = []
+        if profile.missing_target and foundation_model.supports_nan_in_series:
+            parts.append(
+                f"'{foundation_model.model_id}' accepts missing values in the "
+                f"series used as context, so they are passed as they are."
+            )
+        elif profile.missing_target:
+            parts.append(
+                f"'{foundation_model.model_id}' does not accept missing values "
+                f"in the series used as context: impute them before fitting."
+            )
+        if profile.missing_exog:
+            parts.append(
+                "Missing values in the exogenous variables are passed to the "
+                "model unchanged; impute them to control how they are filled."
+            )
+        steps.append(PreprocessingStep(
+            action="handle_missing_values",
+            reason=" ".join(parts),
+            code_snippet=(
+                "# Impute missing values only if needed, for example:\n"
+                "# data[column] = data[column].interpolate()"
+            ),
+            blocking=False,
+        ))
     elif profile.missing_target or profile.missing_exog:
         steps.append(PreprocessingStep(
             action="handle_missing_values",
@@ -429,17 +469,41 @@ def derive_preprocessing_steps(
                 ),
                 blocking=False,
             ))
+        elif foundation_model is None:
+            raise ValueError(
+                f"`foundation_model` is required to derive the preprocessing "
+                f"steps of '{forecaster}'."
+            )
+        elif not foundation_model.allow_exog:
+            # No exogenous variable reaches the model; the plan explanation
+            # says so, and there is nothing to encode.
+            pass
+        elif foundation_model.supports_categorical_covariates:
+            steps.append(PreprocessingStep(
+                action="handle_categorical_exog",
+                reason=(
+                    f"{detected} '{foundation_model.model_id}' consumes "
+                    f"categorical covariates natively, so no encoding is "
+                    f"needed."
+                ),
+                code_snippet=(
+                    f"# '{foundation_model.model_id}' consumes categorical "
+                    f"covariates natively."
+                ),
+                blocking=False,
+            ))
         else:
             steps.append(PreprocessingStep(
                 action="handle_categorical_exog",
                 reason=(
-                    f"{detected} Chronos-2 consumes categorical covariates "
-                    f"natively, so no encoding is needed."
+                    f"{detected} '{foundation_model.model_id}' only accepts "
+                    f"numeric covariates, so these columns are excluded. "
+                    f"Encode them manually to include them."
                 ),
                 code_snippet=(
-                    "# Chronos-2 consumes categorical covariates natively.\n"
-                    "# Encode them manually only when model_id is overridden\n"
-                    "# with a backend that requires numeric covariates."
+                    "# Categorical exog is excluded from the foundation model.\n"
+                    "# To include it, encode it as numeric first, e.g.:\n"
+                    "# data = pd.get_dummies(data, columns=[...], dtype=float)"
                 ),
                 blocking=False,
             ))

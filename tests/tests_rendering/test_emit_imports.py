@@ -1,5 +1,6 @@
 # Unit test _emit_imports helpers rendering
 
+import pytest
 
 from skforecast_ai.rendering._helpers import (
     _emit_imports_baseline,
@@ -317,6 +318,42 @@ def test_emit_imports_foundation_output_when_minimal():
     assert not any("sklearn" in line for line in lines)
 
 
+@pytest.mark.parametrize(
+    "use_exog, expected",
+    [
+        (False, "from skforecast.preprocessing import reshape_series_long_to_dict"),
+        (
+            True,
+            "from skforecast.preprocessing import reshape_series_long_to_dict, "
+            "reshape_exog_long_to_dict",
+        ),
+    ],
+    ids=lambda dt: f"use_exog, expected: {dt}",
+)
+def test_emit_imports_foundation_output_when_long_format(use_exog, expected):
+    """
+    Test that long-format data imports the reshape helpers, the exog one only
+    when exogenous variables are used, before the foundation import, and
+    that wide data imports neither.
+    """
+    lines: list[str] = []
+    _emit_imports_foundation(
+        lines, plan_foundation, profile=profile_multi_long, use_exog=use_exog
+    )
+    wide_lines: list[str] = []
+    _emit_imports_foundation(
+        wide_lines, plan_foundation, profile=profile_multi_wide, use_exog=use_exog
+    )
+
+    assert lines == [
+        "import pandas as pd",
+        expected,
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation",
+        "",
+    ]
+    assert not any("reshape" in line for line in wide_lines)
+
+
 def test_emit_imports_foundation_output_when_include_metrics():
     """
     Test that include_metrics=True emits metric imports between pandas
@@ -326,7 +363,7 @@ def test_emit_imports_foundation_output_when_include_metrics():
         task_type="foundation",
         forecaster="ForecasterFoundation",
         forecaster_kwargs={},
-        estimator=None,
+        estimator="autogluon/chronos-2-small",
         estimator_kwargs={},
         steps=10,
         frequency="D",

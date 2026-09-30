@@ -30,7 +30,7 @@ Candidates listed: 3 (all shown below).
 1     2               candidate_02       ForecasterRecursive     Ridge  2.5
 2     3  Baseline (seasonal naive)  ForecasterEquivalentDate      None  3.5
 </leaderboard>
-<cross_validation>
+<backtesting_strategy>
 Applied identically to every candidate.
 - steps: 5
 - initial_train_size: 70
@@ -38,7 +38,7 @@ Applied identically to every candidate.
 - fixed_train_size: True
 - gap: 0
 - n_folds: 6
-</cross_validation>
+</backtesting_strategy>
 <deterministic_summary>
 Compared 3 configurations, ranked ascending by MAE.
 </deterministic_summary>

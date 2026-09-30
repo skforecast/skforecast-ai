@@ -175,6 +175,19 @@ class DataSentToLLMWarning(UserWarning):
     """
 
 
+class MissingBackendWarning(UserWarning):
+    """
+    Warned by `compare()` when a foundation model candidate is left out.
+
+    `compare()` without `candidates` includes `ForecasterFoundation`, whose
+    default model needs a backend package (for Chronos-2,
+    `chronos-forecasting`) that skforecast-ai does not install by default.
+    When that package is missing, the candidate is dropped instead of
+    failing on every call, and this warning says which package to install.
+    The comparison explanation records it as well.
+    """
+
+
 class UnrecommendedForecasterWarning(UserWarning):
     """
     Warned by `plan()` when the requested forecaster is not recommended.

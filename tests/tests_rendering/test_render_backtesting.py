@@ -15,6 +15,7 @@ from .fixtures_rendering import (
     plan_baseline,
     plan_baseline_with_intervals,
     plan_foundation,
+    plan_foundation_numeric_covariates,
     plan_multi_series,
     plan_multi_series_exog,
     plan_multivariate,
@@ -22,6 +23,7 @@ from .fixtures_rendering import (
     plan_statistical,
     plan_statistical_exog,
     profile_multi_long,
+    profile_multi_long_exog,
     profile_multi_wide,
     profile_multi_wide_exog,
     profile_single,
@@ -335,6 +337,196 @@ def test_render_backtesting_foundation_output_when_chronos():
         "    series            = data['sales'],\n"
         "    cv                = cv,\n"
         "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_foundation_output_when_model_only_accepts_numeric_covariates():
+    """
+    Test that render_backtesting_foundation passes only the numeric exog,
+    with a note on the excluded categorical ones, and the default context
+    length of the adapter when the model only accepts numeric covariates.
+    """
+    result = render_backtesting_foundation(
+        plan_foundation_numeric_covariates, profile_single_mixed_exog, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_foundation\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Categorical exog excluded (holiday): 'google/timesfm-3.0-pytorch' only accepts numeric covariates\n"
+        "exog_features = ['temp']\n"
+        "\n"
+        "# Create foundation model (timesfm-3.0-pytorch)\n"
+        "estimator = FoundationModel(\n"
+        "    model_id       = 'google/timesfm-3.0-pytorch',\n"
+        "    context_length = 2048,\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterFoundation(estimator=estimator)\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_foundation(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    exog              = data[exog_features],\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_foundation_output_when_multi_series():
+    """
+    Test that render_backtesting_foundation passes wide multi-series data
+    as a dict with one entry per series and no `levels`, so every series
+    is backtested.
+    """
+    result = render_backtesting_foundation(
+        plan_foundation, profile_multi_wide, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_foundation\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Reshape to dict format (one entry per series)\n"
+        "series_dict = data[['series_a', 'series_b']].to_dict('series')\n"
+        "\n"
+        "# Create foundation model (chronos-2-small)\n"
+        "estimator = FoundationModel(\n"
+        "    model_id       = 'autogluon/chronos-2-small',\n"
+        "    context_length = 512,\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterFoundation(estimator=estimator)\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_foundation(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = series_dict,\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_foundation_output_when_multi_series_long_format_with_exog():
+    """
+    Test that render_backtesting_foundation reshapes long-format series and
+    exogenous variables into dicts with one entry per series.
+    """
+    result = render_backtesting_foundation(
+        plan_foundation_numeric_covariates, profile_multi_long_exog, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.preprocessing import reshape_series_long_to_dict, reshape_exog_long_to_dict\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_foundation\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.sort_values('date')\n"
+        "\n"
+        "# Reshape to dict format (one entry per series)\n"
+        "series_dict = reshape_series_long_to_dict(\n"
+        "    data      = data,\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    values    = 'value',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "exog_dict = reshape_exog_long_to_dict(\n"
+        "    data      = data[['series_id', 'date', 'promo']],\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "# Create foundation model (timesfm-3.0-pytorch)\n"
+        "estimator = FoundationModel(\n"
+        "    model_id       = 'google/timesfm-3.0-pytorch',\n"
+        "    context_length = 2048,\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterFoundation(estimator=estimator)\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_foundation(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = series_dict,\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    exog              = exog_dict,\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
         "    suppress_warnings = True,\n"

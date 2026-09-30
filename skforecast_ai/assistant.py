@@ -28,6 +28,7 @@ from .exceptions import (
     DataSentToLLMWarning,
     LLMCallError,
     LLMRequiredError,
+    MissingBackendWarning,
     UnrecommendedForecasterWarning,
 )
 from .execution import run_backtest, run_forecast
@@ -38,6 +39,7 @@ from .execution.comparison import (
     build_comparison_explanation,
     build_comparison_table,
     compare_sort_key,
+    missing_foundation_backend,
     resolve_compare_candidates,
 )
 from .execution.forecast_runner import render_forecast_script
@@ -59,6 +61,7 @@ from .recommendation import (
     _build_profile_explanation,
     baseline_missing_values_note,
     build_cv,
+    build_foundation_explanation,
     build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
@@ -95,6 +98,7 @@ from .schemas import (
     LLMCheckResult,
     RefinePlanOverrides,
 )
+from ._foundation import foundation_exog_columns, validate_foundation_plan
 from ._utils import (
     _check_evaluated_target,
     _resolve_data_and_target,
@@ -357,12 +361,19 @@ class ForecastingAssistant:
             `estimator_kwargs`, `lags` or `window_features`.
         estimator : str, default None
             Explicit estimator class name to override the profile
-            recommendation (e.g. `'HistGradientBoostingRegressor'`).
+            recommendation (e.g. `'HistGradientBoostingRegressor'`). For
+            `ForecasterFoundation` it is the Hugging Face model ID of a
+            foundation model supported by skforecast (e.g.
+            `'google/timesfm-3.0-pytorch'`); the default is
+            `'autogluon/chronos-2-small'`.
         estimator_kwargs : dict, default None
             Keyword arguments for the estimator constructor (e.g.
             `{'n_estimators': 200, 'learning_rate': 0.05}`). Merged
             on top of built-in defaults (`random_state`, silencing
-            flags). User values take precedence.
+            flags). User values take precedence. For
+            `ForecasterFoundation` they are passed to `FoundationModel`
+            (e.g. `{'context_length': 1024}`), and the model ID goes in
+            `estimator`, not here.
         lags : int, list of int, default None
             Explicit lag configuration. If provided, bypasses the
             deterministic PACF-based lag selection. Only the ML forecasters
@@ -395,7 +406,10 @@ class ForecastingAssistant:
             task type, or if an argument does not apply to it: `lags` and
             `window_features` for `ForecasterStats`, `ForecasterFoundation`
             and `ForecasterEquivalentDate`, and also `estimator` and
-            `estimator_kwargs` for `ForecasterEquivalentDate`.
+            `estimator_kwargs` for `ForecasterEquivalentDate`. For
+            `ForecasterFoundation`, also if `estimator` is not a model
+            supported by skforecast, if `estimator_kwargs` contains
+            `'model_id'`, or if the model cannot predict `interval`.
         """
 
         data_profile = profile.data_profile
@@ -477,6 +491,16 @@ class ForecastingAssistant:
 
         if estimator is not None:
             est = estimator
+
+        # The foundation model is validated before anything else is derived,
+        # so an unsupported model ID or interval fails with its own message.
+        foundation_model = None
+        if task_type == "foundation":
+            foundation_model = validate_foundation_plan(
+                estimator        = est,
+                estimator_kwargs = estimator_kwargs,
+                interval         = interval,
+            )
 
         baseline_explanation = None
         if task_type in ("statistical", "foundation", "baseline"):
@@ -569,13 +593,25 @@ class ForecastingAssistant:
         interval_method = resolve_interval_method(task_type, interval)
 
         # The baseline cannot take exogenous variables; the explanation says
-        # they are left out.
-        use_exog = (
-            task_type != "baseline"
-            and check_exog_usage(data_profile.exog_columns)
-        )
+        # they are left out. A foundation model uses the columns its backend
+        # accepts, so a model without covariate support uses none.
+        if task_type == "foundation":
+            use_exog = bool(foundation_exog_columns(
+                info             = foundation_model,
+                exog_columns     = data_profile.exog_columns,
+                categorical_exog = data_profile.categorical_exog,
+            ))
+        else:
+            use_exog = (
+                task_type != "baseline"
+                and check_exog_usage(data_profile.exog_columns)
+            )
 
-        preprocessing_steps = derive_preprocessing_steps(data_profile, fc)
+        preprocessing_steps = derive_preprocessing_steps(
+            profile          = data_profile,
+            forecaster       = fc,
+            foundation_model = foundation_model,
+        )
 
         metric, metric_explanation, metrics_to_compute = select_metric(
             data_profile = data_profile,
@@ -602,6 +638,19 @@ class ForecastingAssistant:
             calendar_features  = calendar_features,
             task_type          = task_type,
         )
+        if foundation_model is not None:
+            foundation_explanation = build_foundation_explanation(
+                foundation_model = foundation_model,
+                exog_columns     = data_profile.exog_columns,
+                context_length   = (estimator_kwargs or {}).get(
+                    "context_length", foundation_model.default_context_length
+                ),
+                n_observations   = max(
+                    info.length for info in data_profile.series_lengths.values()
+                ),
+                n_series         = data_profile.n_series,
+            )
+            explanation = f"{explanation} {foundation_explanation}"
         if baseline_explanation is not None:
             explanation = f"{explanation} {baseline_explanation}"
             if data_profile.exog_columns:
@@ -663,9 +712,11 @@ class ForecastingAssistant:
         rather than re-running the PACF-based selection. A value the new
         forecaster cannot use is not carried over: switching to a
         forecaster without lags (`ForecasterStats`, `ForecasterFoundation`,
-        `ForecasterEquivalentDate`) drops `lags` and `window_features`, and
+        `ForecasterEquivalentDate`) drops `lags` and `window_features`,
         switching to another forecaster family drops `estimator` and
-        `estimator_kwargs`, which are then re-derived. The
+        `estimator_kwargs`, which are then re-derived, and changing the
+        `estimator` without passing `estimator_kwargs` drops the kwargs of
+        the previous estimator. The
         `llm_refined_fields` marks of the original plan are kept for the
         fields whose value is carried over unchanged. The `end_train` split
         boundary is not kept: a refined plan starts in prediction mode, so
@@ -831,6 +882,11 @@ class ForecastingAssistant:
         steps = overrides.get("steps", plan.steps)
         forecaster = overrides.get("forecaster", plan.forecaster)
         estimator = overrides.get("estimator", inherited_estimator)
+        # Keyword arguments belong to the estimator they were written for
+        # (`alpha` of Ridge, `cross_learning` of Chronos-2), so a different
+        # estimator starts from its own defaults unless new ones are passed.
+        if estimator != inherited_estimator:
+            inherited_estimator_kwargs = None
         estimator_kwargs = overrides.get("estimator_kwargs", inherited_estimator_kwargs)
         interval = overrides.get("interval", plan.interval)
         lags = overrides.get("lags", inherited_lags)
@@ -1445,7 +1501,9 @@ class ForecastingAssistant:
         # fractional or Timestamp initial_train_size, checks a date-based
         # one against the dataset index and requires at least 2 folds.
         cv = build_cv(cv_params=defaults, data_profile=profile.data_profile)
-        cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
+        cv_config, cv_explanation = resolve_cv_config(
+            cv, profile.data_profile, trains=plan.task_type != "foundation"
+        )
 
         if reasoning:
             cv_explanation = f"{reasoning} {cv_explanation}"
@@ -1746,7 +1804,9 @@ class ForecastingAssistant:
         )
 
         # Resolved CV parameters (with the fold count) and their explanation.
-        cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
+        cv_config, cv_explanation = resolve_cv_config(
+            cv, profile.data_profile, trains=plan.task_type != "foundation"
+        )
 
         result = run_backtest(
             data           = data_df,
@@ -1831,11 +1891,15 @@ class ForecastingAssistant:
             unique, and every candidate must belong to the same forecaster
             family: a multivariate forecaster is scored on the single series
             it predicts, a multi-series forecaster on the average across all
-            series, so the two are never ranked together. When None, the
-            set is built from the profile's forecaster candidates of the
-            same family as the recommended forecaster; when that leaves a
-            single forecaster (multi-series data), its estimator candidates
-            are compared instead.
+            series, so the two are never ranked together.
+            `ForecasterFoundation` belongs to the family of the data: it
+            is ranked with the single-series forecasters on one series and
+            with `ForecasterRecursiveMultiSeries` on several. When None,
+            the set is built from the profile's forecaster candidates of
+            the same family as the recommended forecaster (with several
+            series, `ForecasterRecursiveMultiSeries` and
+            `ForecasterFoundation`); when that leaves a single forecaster,
+            its estimator candidates are compared instead.
         metric : str, list of str, default None
             Metric(s) computed per candidate. When a list is passed, the
             first metric is used to rank the table. When None, the plan
@@ -1899,6 +1963,10 @@ class ForecastingAssistant:
         -----
         CandidateFailedWarning
             Once per failed candidate.
+        MissingBackendWarning
+            When `candidates` is None and the backend of the default
+            foundation model is not installed, so `ForecasterFoundation`
+            is left out of the comparison.
 
         Notes
         -----
@@ -1931,7 +1999,18 @@ class ForecastingAssistant:
                 series_id_column = series_id_column,
             )
 
-        candidate_configs = resolve_compare_candidates(candidates, profile)
+        # Automatic candidates leave out a foundation model whose backend
+        # is not installed, rather than fail on every call; the warning and
+        # the explanation say which package to install.
+        excluded: frozenset[str] = frozenset()
+        backend_note = None
+        if candidates is None:
+            excluded, backend_note = missing_foundation_backend(profile)
+            if backend_note is not None:
+                warnings.warn(backend_note, MissingBackendWarning, stacklevel=2)
+        candidate_configs = resolve_compare_candidates(
+            candidates, profile, exclude=excluded
+        )
 
         # Checked once here: every candidate would fail on the same dates.
         _check_evaluated_target(
@@ -2065,6 +2144,7 @@ class ForecastingAssistant:
             cv_explanation = cv_explanation,
             baseline_name  = baseline_name,
             baseline_note  = baseline_note,
+            backend_note   = backend_note,
         )
 
         return ComparisonResult(

@@ -65,7 +65,7 @@ KNOWN_TAGS = {
     "profile_decision",
     "forecast_plan",
     "script",
-    "cross_validation",
+    "backtesting_strategy",
     "deterministic_summary",
     "evaluation_metrics",
     "predictions",

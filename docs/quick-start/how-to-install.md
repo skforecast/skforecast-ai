@@ -31,7 +31,7 @@ The following dependencies are installed with the default installation:
 
 + pydantic>=2.10
 + pandas>=2.1
-+ skforecast>=0.25
++ skforecast>=0.26.0
 + typer>=0.22
 + rich>=13.9
 + tomli>=2.0 (only for Python < 3.11)
@@ -41,7 +41,17 @@ The following dependencies are installed with the default installation:
 
 ## **Optional dependencies**
 
-The core installation runs the whole deterministic pipeline offline. The extras below only add the LLM reasoning layer (`ask()`, and the LLM-guided variants of `refine_plan()` and `create_cv()`).
+The core installation runs the whole deterministic pipeline offline. The `foundation` extra adds the backend of the default foundation model; the other extras only add the LLM reasoning layer (`ask()`, and the LLM-guided variants of `refine_plan()` and `create_cv()`).
+
+### Foundation models
+
+Installs the backend of Chronos-2, the default model of `ForecasterFoundation`, so it can run in `forecast()`, `backtest()` and `compare()`. Scripts that use it can be generated without it. Without this extra, `compare()` leaves `ForecasterFoundation` out of the automatic candidates with a `MissingBackendWarning`. Other foundation models (TimesFM, Moirai, TabICL, ...) need their own backend; skforecast names the package to install when it is missing.
+
+```bash
+pip install "skforecast-ai[foundation]"
+```
+
++ chronos-forecasting>=2.0
 
 ### LLM
 

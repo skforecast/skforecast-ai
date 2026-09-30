@@ -28,7 +28,7 @@ def test_build_comparison_context_output_when_all_candidates_succeed():
     assert "- Winner: winner" in context
     assert "<leaderboard>" in context
     assert "runner_up" in context
-    assert "<cross_validation>" in context
+    assert "<backtesting_strategy>" in context
     assert "- initial_train_size: 70" in context
     assert "<deterministic_summary>" in context
     assert "<winning_candidate>" in context
@@ -100,7 +100,7 @@ def test_build_comparison_context_states_shared_sections_once():
 
     assert context.count("<dataset>") == 1
     assert context.count("<profile_decision>") == 1
-    assert context.count("<cross_validation>") == 1
+    assert context.count("<backtesting_strategy>") == 1
     assert context.count("<forecast_plan>") == 1
 
 
@@ -122,7 +122,7 @@ def test_build_comparison_context_wraps_sections_in_single_block():
     assert context.count("</forecast_context>") == 1
 
     for tag in ["dataset", "profile_decision", "comparison_overview",
-                "leaderboard", "failed_candidates", "cross_validation",
+                "leaderboard", "failed_candidates", "backtesting_strategy",
                 "deterministic_summary", "winning_candidate",
                 "forecast_plan"]:
         assert context.count(f"<{tag}>") == 1

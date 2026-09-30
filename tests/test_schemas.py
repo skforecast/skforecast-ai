@@ -62,6 +62,47 @@ def test_forecast_plan_invalid_task_type():
         )
 
 
+@pytest.mark.parametrize(
+    "estimator, estimator_kwargs, interval, match",
+    [
+        (None, {}, None, "needs the Hugging Face model ID"),
+        ("Chronos-2", {}, None, "'Chronos-2' is not a foundation model"),
+        (
+            "autogluon/chronos-2-small",
+            {"model_id": "google/timesfm-3.0-pytorch"},
+            None,
+            "cannot contain 'model_id'",
+        ),
+        (
+            "google/timesfm-3.0-pytorch",
+            {},
+            [0.05, 0.95],
+            "only predicts the quantile levels",
+        ),
+    ],
+    ids=lambda dt: f"estimator, estimator_kwargs, interval, match: {dt}",
+)
+def test_forecast_plan_ValidationError_when_foundation_model_invalid(
+    estimator, estimator_kwargs, interval, match
+):
+    """
+    Test that a foundation ForecastPlan built by hand is validated like the
+    plans built by `plan()`: the estimator must be a supported model ID,
+    `estimator_kwargs` cannot hold the model ID, and the model must predict
+    the interval.
+    """
+    with pytest.raises(ValidationError, match=re.escape(match)):
+        ForecastPlan(
+            task_type        = "foundation",
+            forecaster       = "ForecasterFoundation",
+            estimator        = estimator,
+            estimator_kwargs = estimator_kwargs,
+            steps            = 10,
+            interval         = interval,
+            explanation      = "Test.",
+        )
+
+
 def test_forecast_plan_invalid_steps_zero():
     """
     Test ForecastPlan raises ValidationError when steps is 0.

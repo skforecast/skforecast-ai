@@ -288,12 +288,13 @@ class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
         Ordered list of compatible forecaster class names. The first
         item is the preferred default.
     estimator : str, default None
-        Selected scikit-learn compatible estimator name. `None` for
-        forecaster families that do not use an external estimator
-        (statistical, foundation).
+        Selected estimator: a scikit-learn compatible estimator name,
+        `'Arima'` for statistical tasks, or the Hugging Face model ID of
+        the foundation model for foundation tasks. `None` for the
+        baseline, which has no estimator.
     estimator_candidates : list
-        Ordered list of compatible estimator names. Empty when the
-        selected forecaster does not use an external estimator.
+        Ordered list of compatible estimator names. Empty for the
+        baseline.
     series_pacf : list of SeriesPacf
         Per-series PACF-significant lags (the forecaster-invariant lag
         primitive). Empty for statistical and foundation tasks. The

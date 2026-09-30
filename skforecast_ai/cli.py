@@ -60,7 +60,7 @@ DateColumnOption = Annotated[str | None, typer.Option("--date-column", "-d", hel
 SeriesIdColumnOption = Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")]
 StepsOption = Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")]
 ForecasterOption = Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")]
-EstimatorOption = Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")]
+EstimatorOption = Annotated[str | None, typer.Option("--estimator", help="Override estimator class, or the Hugging Face model ID for ForecasterFoundation (e.g. 'google/timesfm-3.0-pytorch').")]
 EstimatorKwargsOption = Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")]
 IntervalOption = Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")]
 LagsOption = Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3', or 'auto' to re-run the deterministic selection when refining a saved plan.")]
