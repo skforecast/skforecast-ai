@@ -39,6 +39,43 @@ def test_infer_frequency_output_when_irregular_series():
     assert result is None
 
 
+@pytest.mark.parametrize(
+    "freq, drop, expected",
+    [
+        ("h", [5, 6, 30], "h"),
+        ("D", [50, 51, 80], "D"),
+        ("B", [10, 40], "B"),
+        ("W", [10, 11], "W-SUN"),
+        ("MS", [20, 45], "MS"),
+        ("15min", [3, 70, 71, 72], "15min"),
+    ],
+    ids=lambda x: f"{x}",
+)
+def test_infer_frequency_output_when_regular_series_with_gaps(freq, drop, expected):
+    """
+    Test infer_frequency infers the frequency of a regular DatetimeIndex
+    with missing timestamps, which `pd.infer_freq` alone cannot, without
+    confusing business days with calendar days.
+    """
+    index = pd.date_range("2023-01-02", periods=100, freq=freq)
+    index = index.delete(drop)
+    result = infer_frequency(index)
+    assert result == expected
+
+
+def test_infer_frequency_output_when_most_of_the_grid_is_missing():
+    """
+    Test infer_frequency returns None when the regular stretches suggest a
+    frequency but less than half of its grid is observed: the spacing is
+    irregular rather than regular with gaps.
+    """
+    index = pd.date_range("2023-01-01", periods=10, freq="D").append(
+        pd.date_range("2023-03-01", periods=10, freq="D")
+    )
+    result = infer_frequency(index)
+    assert result is None
+
+
 def test_infer_frequency_output_when_too_few_observations():
     """
     Test infer_frequency returns None when the index has fewer than 3

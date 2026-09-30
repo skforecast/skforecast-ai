@@ -68,7 +68,13 @@ def _emit_backtesting_call(
     plan: ForecastPlan,
     profile: DataProfile,
 ) -> None:
-    """Append backtesting_forecaster call for single-series."""
+    """Append backtesting_forecaster call for a single series.
+
+    Shared by the ML forecasters and the baseline. The exogenous variables
+    are passed only when the plan uses them, and `interval_method` only
+    when it is not skforecast's default (`'bootstrapping'`), as for the
+    conformal intervals of the baseline.
+    """
 
     target = _get_target_str(profile)
     exog_columns = profile.exog_columns
@@ -87,6 +93,8 @@ def _emit_backtesting_call(
     bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
     if plan.interval is not None:
         bt_kwargs.append(("interval", repr(plan.interval)))
+        if plan.interval_method not in (None, "bootstrapping"):
+            bt_kwargs.append(("interval_method", f"'{plan.interval_method}'"))
     bt_kwargs.append(("n_jobs", "'auto'"))
     bt_kwargs.append(("verbose", "False"))
     bt_kwargs.append(("show_progress", "True"))
@@ -541,43 +549,29 @@ def render_backtesting_statistical(
     )
 
 
-def _emit_backtesting_call_baseline(
-    lines: list[str],
-    plan: ForecastPlan,
-    profile: DataProfile,
-) -> None:
-    """Append backtesting_forecaster call for ForecasterEquivalentDate."""
-
-    target = _get_target_str(profile)
-
-    lines.append("# Run backtesting")
-    bt_kwargs: list[tuple[str, str]] = []
-    bt_kwargs.append(("forecaster", "forecaster"))
-    bt_kwargs.append(("y", f"data[{repr(target)}]"))
-    bt_kwargs.append(("cv", "cv"))
-    bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
-    if plan.interval is not None:
-        bt_kwargs.append(("interval", repr(plan.interval)))
-        bt_kwargs.append(("interval_method", f"'{plan.interval_method}'"))
-    bt_kwargs.append(("n_jobs", "'auto'"))
-    bt_kwargs.append(("verbose", "False"))
-    bt_kwargs.append(("show_progress", "True"))
-    bt_kwargs.append(("suppress_warnings", "True"))
-
-    _emit_aligned_kwargs(
-        lines, "metrics, predictions = backtesting_forecaster(", bt_kwargs
-    )
-    lines.append("")
-    lines.append("print(metrics)")
-    lines.append("print(predictions.head())")
-
-
 def render_backtesting_baseline(
     plan: ForecastPlan,
     profile: DataProfile,
     cv: Any,
 ) -> RenderedScript:
-    """Render backtesting code for ForecasterEquivalentDate (baseline)."""
+    """
+    Render backtesting code for `ForecasterEquivalentDate` (baseline).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan with task type `'baseline'`. Its `forecaster_kwargs` hold the
+        `offset` and `n_offsets` of the forecaster.
+    profile : DataProfile
+        Data profile of the series.
+    cv : TimeSeriesFold
+        Cross-validation splitter rendered into the script.
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the backtesting script.
+    """
 
     import_lines: list[str] = []
     loading_lines: list[str] = []
@@ -599,7 +593,7 @@ def render_backtesting_baseline(
     _emit_cv_configuration(core_lines, cv)
 
     # --- Backtesting call ---
-    _emit_backtesting_call_baseline(core_lines, plan, profile)
+    _emit_backtesting_call(core_lines, plan, profile)
 
     return RenderedScript(
         imports="\n".join(import_lines),

@@ -163,11 +163,15 @@ TREE_BASED_ESTIMATORS: set[str] = {
     "ExtraTreesRegressor",
 }
 
+# Estimators that fit and predict with missing values. RandomForestRegressor
+# does since scikit-learn 1.4, the minimum skforecast requires. Among the
+# supported estimators only the linear model (Ridge) does not.
 NAN_TOLERANT_ESTIMATORS: set[str] = {
     "LGBMRegressor",
     "CatBoostRegressor",
     "XGBRegressor",
     "HistGradientBoostingRegressor",
+    "RandomForestRegressor",
 }
 
 # Rolling statistics supported by skforecast's `RollingFeatures`. Explicit

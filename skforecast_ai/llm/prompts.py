@@ -74,16 +74,21 @@ specific lags, window features, calendar features, or exogenous variables. \
 Listing which features the plan uses is allowed; ranking their contribution \
 is not.
 7. Do NOT explain why one candidate outperformed another beyond restating the \
-ranking metric and its values. A leaderboard reports what, not why.
-8. Never state a causal relationship. Use hedging language ("may contribute", \
-"is associated with") for any inferred relationship.
+ranking metric and its values. A leaderboard reports what, not why. Do not \
+suggest causes either, even hedged (such as how their strategies differ). \
+Per-fold spread is not given, so whether a margin is meaningful cannot be \
+assessed: say so, without computing the gap.
+8. Never state a causal relationship. Outside rankings (rule 7), use hedging \
+language ("may contribute", "is associated with") for any inferred \
+relationship.
 
 ### Metric interpretation
 
 9. Interpret a supplied metric only against its documented baseline, using one \
-phrasing per answer. MASE and RMSSE below 1 beat the naive baseline; above 1 \
-they do not. MAPE is a percentage and becomes unreliable as the target \
-approaches zero. Do not restate a metric in a second, derived form (for \
+phrasing per answer. MASE and RMSSE below 1 beat the one-step naive forecast \
+(last training value); above 1 they do not. Call it that, never "the \
+baseline", which in a comparison is a leaderboard row. MAPE is a percentage \
+and becomes unreliable as the target approaches zero. Do not restate a metric in a second, derived form (for \
 example "X% better" or "twice as accurate") and do not compute a ratio \
 between candidates.
 

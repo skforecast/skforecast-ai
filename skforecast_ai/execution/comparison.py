@@ -10,7 +10,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from .._constants import BASELINE_FORECASTERS, FORECASTER_TASK_TYPES
-from ..recommendation import select_baseline_config
+from ..recommendation import (
+    baseline_missing_values_note,
+    select_baseline_config,
+)
 from ..schemas import (
     CANDIDATE_CONFIG_KEYS,
     BacktestResult,
@@ -180,7 +183,9 @@ def add_baseline_candidate(
     Append the `ForecasterEquivalentDate` baseline to the candidates.
 
     The baseline is a single-series forecaster, so it is only added when
-    the candidates score a single series. When the caller already passed a
+    the candidates score a single series. It is also left out when the
+    target has missing values, which it would repeat as missing
+    predictions. When the caller already passed a
     `ForecasterEquivalentDate` candidate, that one is the baseline and
     nothing is appended.
 
@@ -210,15 +215,27 @@ def add_baseline_candidate(
         if config.get("forecaster") in BASELINE_FORECASTERS:
             return candidates, name, None
 
+    # An unknown forecaster has no family; it fails on its own when run,
+    # so it says nothing about whether the baseline is comparable.
     families = {
         _comparison_family(config.get("forecaster") or profile.forecaster)
         for _, config in candidates
-    }
+    } - {None}
+    if not families:
+        families = {_comparison_family(profile.forecaster)}
     if families != {"single-target"}:
         note = (
             "No baseline: ForecasterEquivalentDate forecasts a single series, "
             "so it cannot be ranked against multi-series or multivariate "
             "candidates."
+        )
+        return candidates, None, note
+
+    missing_note = baseline_missing_values_note(profile.data_profile)
+    if missing_note is not None:
+        note = (
+            f"No baseline: {missing_note}. Impute the target to compare "
+            f"the candidates against it."
         )
         return candidates, None, note
 
@@ -238,31 +255,40 @@ def add_baseline_candidate(
     return [*candidates, (baseline_name, baseline_config)], baseline_name, None
 
 
-def compare_sort_key(item: tuple[Any, Any, Any]) -> tuple[bool, float]:
+def compare_sort_key(
+    item: tuple[Any, Any, Any],
+    baseline_name: str | None = None,
+) -> tuple[bool, float, bool]:
     """
     Sort key placing NaN ranking values last while keeping order.
+
+    On a tie the baseline goes first, so a candidate ranks above the
+    baseline only when it beats it.
 
     Parameters
     ----------
     item : tuple
         A `(name, backtest, ranking_value)` tuple whose third element
         is the ranking value.
+    baseline_name : str, default None
+        Name of the baseline candidate, if any.
 
     Returns
     -------
-    key : tuple of (bool, float)
-        `(is_nan, value)` so NaN entries sort last and finite values
-        sort ascending.
+    key : tuple of (bool, float, bool)
+        `(is_nan, value, is_not_baseline)` so NaN entries sort last,
+        finite values sort ascending, and the baseline wins ties.
     """
 
     value = item[2]
     is_nan = bool(pd.isna(value))
-    return (is_nan, 0.0 if is_nan else float(value))
+    return (is_nan, 0.0 if is_nan else float(value), item[0] != baseline_name)
 
 def build_comparison_table(
     rows: list[tuple[dict, float]],
     metric_columns: list[str],
     any_error: bool,
+    baseline_name: str | None = None,
 ) -> pd.DataFrame:
     """
     Assemble and rank the `compare()` results table.
@@ -276,6 +302,9 @@ def build_comparison_table(
     any_error : bool
         Whether at least one candidate failed (controls the `'error'`
         column).
+    baseline_name : str, default None
+        Name of the baseline candidate. On a tie it ranks above the other
+        candidates, as in `compare_sort_key()`.
 
     Returns
     -------
@@ -286,8 +315,9 @@ def build_comparison_table(
 
     results = pd.DataFrame([row for row, _ in rows])
     results["_rank_value"] = [value for _, value in rows]
+    results["_not_baseline"] = results["name"] != baseline_name
     results = results.sort_values(
-        "_rank_value",
+        ["_rank_value", "_not_baseline"],
         ascending    = True,
         na_position  = "last",
         kind         = "stable",
@@ -379,7 +409,7 @@ def build_comparison_explanation(
         best_sentence,
     ]
     if baseline_name is not None:
-        parts.append(_baseline_sentence(ranked, baseline_name))
+        parts.append(_baseline_sentence(ranked, baseline_name, ranking_metric))
     if baseline_note is not None:
         parts.append(baseline_note)
     if any_error:
@@ -397,9 +427,15 @@ def build_comparison_explanation(
 def _baseline_sentence(
     ranked: list[tuple[str, BacktestResult, float]],
     baseline_name: str,
+    ranking_metric: str,
 ) -> str:
     """
     Describe how the ranked candidates compare with the baseline.
+
+    A candidate beats the baseline only when its ranking value is finite
+    and strictly lower, which is when it ranks above it (the baseline wins
+    ties, see `compare_sort_key()`). A non-finite baseline value ranks
+    last and cannot be compared.
 
     Parameters
     ----------
@@ -407,6 +443,8 @@ def _baseline_sentence(
         Successful candidates ordered best to worst.
     baseline_name : str
         Name of the baseline candidate.
+    ranking_metric : str
+        Name of the metric used to rank the candidates.
 
     Returns
     -------
@@ -414,37 +452,51 @@ def _baseline_sentence(
         One or two sentences comparing the candidates with the baseline.
     """
 
-    names = [name for name, _, _ in ranked]
-    if baseline_name not in names:
+    values = {name: value for name, _, value in ranked}
+    if baseline_name not in values:
         return (
             f"The baseline '{baseline_name}' failed to run, so the "
             f"candidates cannot be checked against it."
         )
 
-    position = names.index(baseline_name)
-    baseline_value = ranked[position][2]
-    n_models = len(ranked) - 1
-    if n_models == 0:
+    models = [(name, value) for name, value in values.items() if name != baseline_name]
+    if not models:
         return f"Only the baseline '{baseline_name}' ran successfully."
 
-    if position == 0:
+    baseline_value = values[baseline_name]
+    if not np.isfinite(baseline_value):
         return (
-            f"No configuration beats the baseline '{baseline_name}': the "
-            f"added complexity is not justified on this data."
+            f"The baseline '{baseline_name}' has no finite {ranking_metric}, "
+            f"so the candidates cannot be checked against it."
         )
 
-    best_name, _, best_value = ranked[0]
-    sentence = f"'{best_name}' beats the baseline '{baseline_name}'"
-    if np.isfinite(baseline_value):
-        sentence += f" ({baseline_value:.4f})"
-        if np.isfinite(best_value) and baseline_value != 0:
-            improvement = 100 * (baseline_value - best_value) / abs(baseline_value)
-            sentence += f" by {improvement:.1f}%"
+    beating = [
+        (name, value)
+        for name, value in models
+        if np.isfinite(value) and value < baseline_value
+    ]
+    if not beating:
+        return (
+            f"No configuration beats the baseline '{baseline_name}' "
+            f"({baseline_value:.4f}): the added complexity is not justified "
+            f"on this data."
+        )
+
+    # `ranked` is sorted ascending, so the first candidate that beats the
+    # baseline is the best one.
+    best_name, best_value = beating[0]
+    sentence = (
+        f"'{best_name}' beats the baseline '{baseline_name}' "
+        f"({baseline_value:.4f})"
+    )
+    if baseline_value != 0:
+        improvement = 100 * (baseline_value - best_value) / abs(baseline_value)
+        sentence += f" by {improvement:.1f}%"
     sentence += "."
 
-    n_behind = len(ranked) - 1 - position
-    if n_behind == 1:
+    n_not_beating = len(models) - len(beating)
+    if n_not_beating == 1:
         sentence += " 1 configuration does not beat it."
-    elif n_behind > 1:
-        sentence += f" {n_behind} configurations do not beat it."
+    elif n_not_beating > 1:
+        sentence += f" {n_not_beating} configurations do not beat it."
     return sentence

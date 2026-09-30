@@ -604,8 +604,12 @@ def render_comparison_overview_section(result: ComparisonResult) -> str:
     if result.baseline_name is not None:
         parts.append(
             f"- Baseline: {result.baseline_name} (ForecasterEquivalentDate, "
-            f"repeats past values). A candidate ranked below it does not "
-            f"beat the naive reference."
+            f"repeats past values). A candidate beats this naive reference "
+            f"only when it ranks above it (strictly lower "
+            f"{result.ranking_metric}; the baseline wins ties). This row is "
+            f"not the reference of MASE or RMSSE: those scale every row, this "
+            f"one included, against the one-step naive forecast on the "
+            f"training data, so the baseline row can also score below 1."
         )
     parts += [
         (

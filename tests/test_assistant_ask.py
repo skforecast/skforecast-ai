@@ -147,6 +147,47 @@ def test_ask_records_the_auto_routed_skills(monkeypatch):
     assert result.skills
 
 
+def test_ask_routes_skills_by_plan_task_type_when_baseline_plan(monkeypatch):
+    """
+    Test that the skills of the plan's task type are added to the ones of
+    the profile, so a baseline plan loads `baseline-forecasting` although
+    the profile recommends an ML forecaster.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    patch_agent(monkeypatch, assistant, output="answer")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    result = assistant.ask(prompt="Explain this plan.", context=profile, plan=plan)
+
+    assert result.skills == [
+        "choosing-a-forecaster",
+        "forecasting-single-series",
+        "baseline-forecasting",
+    ]
+
+
+def test_ask_routes_baseline_skill_when_comparison_has_baseline(monkeypatch):
+    """
+    Test that a comparison with a baseline row loads `baseline-forecasting`
+    even when the question does not mention the baseline and the winner is
+    an ML forecaster.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model", send_data_to_llm=True)
+    patch_agent(monkeypatch, assistant, output="answer")
+    comparison = make_comparison_result(assistant).model_copy(
+        update={"baseline_name": "runner_up"}
+    )
+
+    result = assistant.ask(prompt="Why did it win?", context=comparison)
+
+    assert result.skills == [
+        "choosing-a-forecaster",
+        "forecasting-single-series",
+        "baseline-forecasting",
+    ]
+
+
 def test_ask_records_the_skills_when_given_explicitly(monkeypatch):
     """
     Test that a caller-supplied skill list is reported unchanged, since

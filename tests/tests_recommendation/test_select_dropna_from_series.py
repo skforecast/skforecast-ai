@@ -77,3 +77,36 @@ def test_select_dropna_none_when_baseline():
 
     assert result is None
 
+
+
+def test_select_dropna_true_when_gaps_and_non_tolerant_estimator():
+    """
+    Test select_dropna_from_series returns True when there are no missing
+    values but the index has missing timestamps, which `asfreq()` turns
+    into missing values, and the estimator does not tolerate NaN (Ridge).
+    """
+    result = select_dropna_from_series(
+        estimator="Ridge",
+        missing_target={},
+        missing_exog={},
+        task_type="single_series",
+        has_gaps=True,
+    )
+
+    assert result is True
+
+
+def test_select_dropna_false_when_missing_and_random_forest():
+    """
+    Test select_dropna_from_series returns False for RandomForestRegressor,
+    which handles NaN natively since scikit-learn 1.4, so no rows are lost.
+    """
+    result = select_dropna_from_series(
+        estimator="RandomForestRegressor",
+        missing_target={"y": 3},
+        missing_exog={},
+        task_type="single_series",
+        has_gaps=True,
+    )
+
+    assert result is False

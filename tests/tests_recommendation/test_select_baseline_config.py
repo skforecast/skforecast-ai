@@ -25,6 +25,9 @@ def _make_profile(frequency: str | None, n_observations: int) -> DataProfile:
         ("h", 720, 24),
         ("MS", 120, 12),
         ("W-SUN", 520, 52),
+        ("15min", 2880, 96),
+        ("30min", 1440, 48),
+        ("2W", 260, 26),
     ],
     ids=lambda dt: f"frequency, n_observations, expected_offset: {dt}",
 )
@@ -32,8 +35,10 @@ def test_select_baseline_config_output_when_seasonal_period_fits(
     frequency, n_observations, expected_offset
 ):
     """
-    Test that the offset is the primary seasonal period of the frequency
-    when one period fits in the lag budget.
+    Test that the offset is the seasonal period of the frequency when one
+    period fits in the lag budget: the daily cycle for sub-hourly data (not
+    the hourly one), and the primary period of `estimate_seasonality()` for
+    frequencies missing from `FREQUENCY_TO_SEASONAL_PERIOD` (`'2W'`).
     """
     kwargs, explanation = select_baseline_config(
         _make_profile(frequency, n_observations)

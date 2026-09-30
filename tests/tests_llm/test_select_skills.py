@@ -29,14 +29,29 @@ from skforecast_ai.llm.skills import (
         ("multivariate", ["choosing-a-forecaster", "forecasting-multiple-series"]),
         ("statistical", ["statistical-models"]),
         ("foundation", ["foundation-forecasting"]),
+        ("baseline", ["baseline-forecasting"]),
         (None, ["choosing-a-forecaster"]),
+        ([], ["choosing-a-forecaster"]),
+        (
+            ["single_series", "baseline"],
+            [
+                "choosing-a-forecaster",
+                "forecasting-single-series",
+                "baseline-forecasting",
+            ],
+        ),
+        (
+            ["single_series", "statistical"],
+            ["choosing-a-forecaster", "statistical-models"],
+        ),
     ],
     ids=lambda v: f"task_type={v}" if not isinstance(v, list) else str(v),
 )
 def test_select_skills_base_routing(task_type, expected):
     """
-    Test that select_skills returns correct base skills for each task_type
-    when the question has no matching keywords.
+    Test that select_skills returns correct base skills for each task_type,
+    and the combined ones for a list of task types (with the suppression
+    rules applied), when the question has no matching keywords.
     """
     result = select_skills(task_type=task_type, question="general question")
     assert result == expected

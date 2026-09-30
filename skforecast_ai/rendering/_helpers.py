@@ -368,6 +368,23 @@ def _emit_end_train(
     )
 
 
+def _emit_split_dates(lines: list[str]) -> None:
+    """Emit the prints of the train and test date ranges of `data`."""
+    lines.append("print(")
+    lines.append(
+        '    f"Train dates : {data_train.index.min()} --- '
+        '{data_train.index.max()}  (n={len(data_train)})"'
+    )
+    lines.append(")")
+    lines.append("print(")
+    lines.append(
+        '    f"Test dates  : {data_test.index.min()} --- '
+        '{data_test.index.max()}  (n={len(data_test)})"'
+    )
+    lines.append(")")
+    lines.append("")
+
+
 def _emit_future_exog_loading(
     lines: list[str],
     profile: DataProfile,

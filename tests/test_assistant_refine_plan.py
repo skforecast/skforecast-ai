@@ -338,6 +338,67 @@ def test_refine_plan_output_when_switching_to_and_from_baseline():
     assert recursive.forecaster_kwargs["lags"] == plan.forecaster_kwargs["lags"]
 
 
+def test_refine_plan_output_does_not_carry_estimator_across_families():
+    """
+    Test that switching an ML plan to ForecasterStats re-derives the
+    statistical estimator instead of carrying the ML regressor over, and
+    that switching back re-derives the ML estimator of the profile.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    statistical = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
+    recursive = assistant.refine_plan(
+        profile, statistical, forecaster="ForecasterRecursive"
+    )
+
+    assert plan.estimator == "Ridge"
+    assert statistical.estimator == "Arima"
+    assert statistical.forecaster_kwargs == {}
+    assert recursive.estimator == "Ridge"
+    assert recursive.forecaster_kwargs["lags"] == plan.forecaster_kwargs["lags"]
+
+
+def test_refine_plan_output_keeps_estimator_within_ml_forecasters():
+    """
+    Test that switching between ML forecasters keeps the estimator, its
+    kwargs and the lags of the plan.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile,
+        steps=10,
+        estimator="Ridge",
+        estimator_kwargs={"alpha": 2.0},
+        lags=[1, 2, 7],
+    )
+
+    direct = assistant.refine_plan(profile, plan, forecaster="ForecasterDirect")
+
+    assert direct.estimator == "Ridge"
+    assert direct.estimator_kwargs == {"alpha": 2.0}
+    assert direct.forecaster_kwargs["lags"] == [1, 2, 7]
+
+
+def test_refine_plan_ValueError_when_statistical_with_explicit_lags():
+    """
+    Test that an explicit lags override is not silently dropped when the
+    plan is switched to ForecasterStats: plan() rejects it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    err_msg = re.escape(
+        "'ForecasterStats' models the past values itself: it takes no lag or "
+        "window features, so ['lags'] cannot be applied. Omit them."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.refine_plan(profile, plan, forecaster="ForecasterStats", lags=7)
+
+
 def test_refine_plan_ValueError_when_baseline_with_explicit_lags():
     """
     Test that an explicit lags override is not silently dropped when the

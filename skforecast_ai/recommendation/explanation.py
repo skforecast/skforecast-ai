@@ -42,7 +42,8 @@ def build_plan_explanation(
     interval_method : str, None
         Selected prediction interval method.
     dropna_from_series : bool, None
-        NaN handling strategy.
+        NaN handling strategy. None when there is none to explain (no
+        missing values, or a forecaster without the option).
     use_exog : bool
         Whether exogenous variables are included.
     metric_explanation : str, default None

@@ -259,7 +259,7 @@ SCENARIOS: list[Scenario] = [
             "What is the RMSE?",
         ],
         checklist=[
-            "MASE is interpreted against the naive baseline (below 1 beats it) and nothing else.",
+            "MASE is interpreted against the one-step naive forecast (below 1 beats it) and nothing else.",
             "No percentage improvements or derived numbers.",
             "Probes: attribution refused; RMSE reported as not available.",
         ],

@@ -10,11 +10,15 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+from skforecast.exceptions import MissingValuesWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai.execution.comparison import (
+    add_baseline_candidate,
     aggregate_metrics,
     build_comparison_explanation,
+    build_comparison_table,
+    compare_sort_key,
     resolve_compare_candidates,
 )
 
@@ -27,7 +31,12 @@ from skforecast_ai import (
     ForecastingAssistant,
 )
 
-from tests.fixtures_assistant import df_single, df_no_exog, df_multi_wide
+from tests.fixtures_assistant import (
+    df_multi_wide,
+    df_no_exog,
+    df_single,
+    df_with_missing,
+)
 
 assistant = ForecastingAssistant()
 
@@ -976,8 +985,8 @@ def test_compare_explanation_when_no_candidate_beats_baseline():
     assert result.best_name == "Baseline (seasonal naive)"
     assert result.best_candidate.plan.task_type == "baseline"
     assert result.explanation.endswith(
-        "No configuration beats the baseline 'Baseline (seasonal naive)': the "
-        "added complexity is not justified on this data."
+        "No configuration beats the baseline 'Baseline (seasonal naive)' "
+        "(7.0000): the added complexity is not justified on this data."
     )
 
 
@@ -1166,3 +1175,222 @@ def test_build_comparison_explanation_when_only_baseline_ran():
 
     assert "Only the baseline 'Baseline (naive)' ran successfully." in explanation
 
+
+
+def test_build_comparison_explanation_when_candidate_ties_baseline():
+    """
+    Test that a candidate tied with the baseline does not beat it, even when
+    it is passed ranked above the baseline.
+    """
+    explanation = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = [
+            _ranked_entry("model", "ForecasterRecursive", 2.0),
+            _ranked_entry("Baseline (naive)", "ForecasterEquivalentDate", 2.0),
+        ],
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+        baseline_name  = "Baseline (naive)",
+    )
+
+    assert explanation.endswith(
+        "No configuration beats the baseline 'Baseline (naive)' (2.0000): the "
+        "added complexity is not justified on this data."
+    )
+
+
+def test_build_comparison_explanation_counts_tied_candidate_as_not_beating():
+    """
+    Test that only the candidates strictly better than the baseline count as
+    beating it: a tied candidate ranked below it is counted with the ones
+    that do not.
+    """
+    explanation = build_comparison_explanation(
+        n_candidates   = 3,
+        ranked         = [
+            _ranked_entry("model_a", "ForecasterRecursive", 1.0),
+            _ranked_entry("Baseline (naive)", "ForecasterEquivalentDate", 2.0),
+            _ranked_entry("model_b", "ForecasterDirect", 2.0),
+        ],
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+        baseline_name  = "Baseline (naive)",
+    )
+
+    assert explanation.endswith(
+        "'model_a' beats the baseline 'Baseline (naive)' (2.0000) by 50.0%. "
+        "1 configuration does not beat it."
+    )
+
+
+@pytest.mark.parametrize(
+    "baseline_value",
+    [np.nan, np.inf],
+    ids=lambda value: f"baseline_value: {value}",
+)
+def test_build_comparison_explanation_when_baseline_value_is_not_finite(
+    baseline_value,
+):
+    """
+    Test that no candidate is said to beat a baseline whose ranking value is
+    NaN or infinite (for example MAPE on a series with zeros).
+    """
+    explanation = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = [
+            _ranked_entry("model", "ForecasterRecursive", 1.0),
+            _ranked_entry(
+                "Baseline (naive)", "ForecasterEquivalentDate", baseline_value
+            ),
+        ],
+        ranking_metric = "mean_absolute_percentage_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+        baseline_name  = "Baseline (naive)",
+    )
+
+    assert explanation.endswith(
+        "The baseline 'Baseline (naive)' has no finite "
+        "mean_absolute_percentage_error, so the candidates cannot be checked "
+        "against it."
+    )
+
+
+def test_add_baseline_candidate_ignores_unknown_forecaster():
+    """
+    Test that a candidate with an unknown forecaster name does not prevent
+    the baseline: it has no family and fails on its own when run, so the
+    baseline is still added and no multi-series note is given.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    candidates = [
+        ("known", {"forecaster": "ForecasterRecursive"}),
+        ("typo", {"forecaster": "ForecasterRecursve"}),
+    ]
+
+    resolved, baseline_name, note = add_baseline_candidate(candidates, profile)
+
+    assert resolved == [
+        *candidates,
+        ("Baseline (seasonal naive)", {"forecaster": "ForecasterEquivalentDate"}),
+    ]
+    assert baseline_name == "Baseline (seasonal naive)"
+    assert note is None
+
+
+def test_add_baseline_candidate_skips_baseline_when_target_has_missing_values():
+    """
+    Test that no baseline is added when the target has missing values,
+    which ForecasterEquivalentDate would repeat as missing predictions, and
+    that the note says why.
+    """
+    with pytest.warns(MissingValuesWarning, match="pairwise deletion"):
+        profile = assistant.profile(
+            data=df_with_missing, target="sales", date_column="date"
+        )
+    candidates = [("recursive", {"forecaster": "ForecasterRecursive"})]
+
+    resolved, baseline_name, note = add_baseline_candidate(candidates, profile)
+
+    assert resolved == candidates
+    assert baseline_name is None
+    assert note == (
+        "No baseline: the target has missing values or missing timestamps, "
+        "and ForecasterEquivalentDate repeats a missing value as a missing "
+        "prediction. Impute the target to compare the candidates against it."
+    )
+
+
+def test_build_comparison_table_ranks_baseline_first_on_tie():
+    """
+    Test that the baseline ranks above a candidate with the same ranking
+    value, although the candidate was evaluated first, so a candidate ranks
+    above the baseline only when it beats it.
+    """
+    def _row(name, forecaster, estimator, mae):
+        row = {
+            "name": name,
+            "forecaster": forecaster,
+            "estimator": estimator,
+            "MAE": mae,
+        }
+        return (row, mae)
+
+    rows = [
+        _row("model_a", "ForecasterRecursive", "Ridge", 2.0),
+        _row("model_b", "ForecasterDirect", "Ridge", 1.0),
+        _row("Baseline (naive)", "ForecasterEquivalentDate", None, 2.0),
+    ]
+
+    results = build_comparison_table(
+        rows           = rows,
+        metric_columns = ["MAE"],
+        any_error      = False,
+        baseline_name  = "Baseline (naive)",
+    )
+
+    expected = pd.DataFrame(
+        {
+            "rank": [1, 2, 3],
+            "name": ["model_b", "Baseline (naive)", "model_a"],
+            "forecaster": [
+                "ForecasterDirect",
+                "ForecasterEquivalentDate",
+                "ForecasterRecursive",
+            ],
+            "estimator": ["Ridge", None, "Ridge"],
+            "MAE": [1.0, 2.0, 2.0],
+        }
+    )
+    pd.testing.assert_frame_equal(results, expected)
+
+
+def test_compare_sort_key_ranks_baseline_first_on_tie():
+    """
+    Test that sorting with `compare_sort_key` puts the baseline before a
+    tied candidate and keeps NaN values last, matching the results table.
+    """
+    ranked = [
+        ("model_a", None, 2.0),
+        ("model_nan", None, float("nan")),
+        ("Baseline (naive)", None, 2.0),
+        ("model_b", None, 1.0),
+    ]
+
+    ranked_sorted = sorted(
+        ranked, key=lambda item: compare_sort_key(item, "Baseline (naive)")
+    )
+
+    assert [name for name, _, _ in ranked_sorted] == [
+        "model_b",
+        "Baseline (naive)",
+        "model_a",
+        "model_nan",
+    ]
+
+
+def test_compare_ValueError_when_target_missing_in_test_folds():
+    """
+    Test that compare() stops before running any candidate when a test fold
+    contains a missing timestamp, instead of failing every candidate with
+    "Input contains NaN".
+    """
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame(
+        {"date": dates, "sales": np.arange(100, dtype=float)}
+    ).drop(index=[85]).reset_index(drop=True)
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test folds (2023-03-27 00:00:00)"
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.compare(
+            data=data,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            show_progress=False,
+        )

@@ -705,8 +705,8 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     baseline_name : str, default None
         Name of the `ForecasterEquivalentDate` candidate that serves as
         the naive reference, ranked like any other row. None when the
-        comparison has no baseline (`baseline=False` or multi-series
-        data).
+        comparison has no baseline (`baseline=False`, multi-series data,
+        or a target with missing values).
     best_name : str
         Name of the top-ranked candidate.
     best_candidate : BacktestResult

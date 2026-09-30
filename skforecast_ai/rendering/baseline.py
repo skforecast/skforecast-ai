@@ -14,6 +14,7 @@ from ._helpers import (
     _emit_metrics_section,
     _emit_preprocessing_steps,
     _emit_production_note,
+    _emit_split_dates,
     _get_interval_repr,
     _get_target_str,
 )
@@ -42,7 +43,28 @@ def render_forecast_baseline(
     plan: ForecastPlan,
     profile: DataProfile,
 ) -> RenderedScript:
-    """Render code for ForecasterEquivalentDate (baseline)."""
+    """
+    Render forecasting code for `ForecasterEquivalentDate` (baseline).
+
+    In evaluation mode (`plan.end_train` set) the script fits on the
+    training split, predicts the test split and computes the metrics. In
+    prediction mode it fits on the whole series and forecasts the future.
+    No exogenous variables are loaded: the baseline only repeats past
+    values of the target.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan with task type `'baseline'`. Its `forecaster_kwargs` hold the
+        `offset` and `n_offsets` of the forecaster.
+    profile : DataProfile
+        Data profile of the series.
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the forecasting script.
+    """
 
     target = _get_target_str(profile)
 
@@ -68,19 +90,7 @@ def render_forecast_baseline(
         core_lines.append("data_train = data.loc[:end_train]")
         core_lines.append("data_test  = data.loc[data.index > end_train]")
         core_lines.append("")
-        core_lines.append("print(")
-        core_lines.append(
-            '    f"Train dates : {data_train.index.min()} --- '
-            '{data_train.index.max()}  (n={len(data_train)})"'
-        )
-        core_lines.append(")")
-        core_lines.append("print(")
-        core_lines.append(
-            '    f"Test dates  : {data_test.index.min()} --- '
-            '{data_test.index.max()}  (n={len(data_test)})"'
-        )
-        core_lines.append(")")
-        core_lines.append("")
+        _emit_split_dates(core_lines)
 
     # --- Create forecaster ---
     _emit_forecaster_creation_baseline(core_lines, plan)

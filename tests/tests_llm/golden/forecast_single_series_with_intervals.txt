@@ -24,7 +24,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Prediction interval: [0.1, 0.9] (80% coverage)
 - Interval method: bootstrapping
 - Primary metric: mean_absolute_error
-- Plan: ForecasterRecursive + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). Prediction intervals via bootstrapping. NaN rows kept (NaN-tolerant estimator). Exogenous variables included. MAE is interpretable, robust to outliers, and works at any scale.
+- Plan: ForecasterRecursive + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). Prediction intervals via bootstrapping. Exogenous variables included. MAE is interpretable, robust to outliers, and works at any scale.
 
 Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
 </forecast_plan>

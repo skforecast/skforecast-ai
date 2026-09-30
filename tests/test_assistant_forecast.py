@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
 
@@ -661,7 +662,7 @@ def test_forecast_ValueError_when_baseline_given_future_exog():
 
     err_msg = re.escape(
         "`exog` was provided but the plan does not use exogenous variables "
-        "(the baseline only repeats past target values). Remove `exog`."
+        "(`plan.use_exog` is False). Remove `exog`."
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.forecast(
@@ -673,3 +674,39 @@ def test_forecast_ValueError_when_baseline_given_future_exog():
             exog=future_exog,
         )
 
+
+
+def test_forecast_output_when_data_has_missing_timestamps():
+    """
+    Test that forecast() works on a series with missing timestamps: the
+    frequency is inferred despite the gaps, the script restores them with
+    `asfreq()`, and a Ridge plan drops the resulting NaN rows instead of
+    failing on them.
+    """
+    assistant = ForecastingAssistant()
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame(
+        {"date": dates, "sales": np.arange(100, dtype=float)}
+    ).drop(index=[40, 41, 70]).reset_index(drop=True)
+
+    # skforecast reports the rows it drops (from `y_train` and `X_train`)
+    # because of the restored gaps.
+    with pytest.warns(MissingValuesWarning, match="NaNs detected in"):
+        result = assistant.forecast(
+            data        = data,
+            target      = "sales",
+            date_column = "date",
+            steps       = 5,
+            estimator   = "Ridge",
+        )
+
+    assert result.profile.data_profile.frequency == "D"
+    assert result.profile.data_profile.has_gaps is True
+    assert result.plan.forecaster_kwargs["dropna_from_series"] is True
+    assert "data = data.asfreq('D')" in result.code
+    pd.testing.assert_index_equal(
+        result.predictions.index,
+        pd.date_range("2023-04-11", periods=5, freq="D"),
+        check_names=False,
+    )
+    assert not result.predictions["pred"].isna().any()
