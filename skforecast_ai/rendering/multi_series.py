@@ -20,7 +20,8 @@ from ._helpers import (
     _emit_preprocessing_steps,
     _emit_production_note,
     _emit_reshape_exog_long_to_dict,
-    _emit_reshape_series_long_to_dict,
+    _emit_series_dict,
+    _emit_train_test_split_multiseries,
     _format_lags,
     _get_estimator_constructor,
     _get_interval_repr,
@@ -126,29 +127,14 @@ def render_forecast_multi_series(
     _emit_preprocessing_steps(core_lines, plan, profile)
 
     # --- Reshape to dict ---
-    if is_wide:
-        core_lines.append(
+    _emit_series_dict(
+        core_lines,
+        profile,
+        comment=(
             "# Reshape to dict format"
             " (optimal for ForecasterRecursiveMultiSeries)"
-        )
-        if isinstance(profile.target, list):
-            target_cols_repr = repr(profile.target)
-            core_lines.append(
-                f"series_dict = data[{target_cols_repr}].to_dict('series')"
-            )
-        else:
-            core_lines.append(
-                "series_dict = data.to_dict('series')"
-            )
-    else:
-        _emit_reshape_series_long_to_dict(
-            core_lines,
-            profile,
-            comment=(
-                "# Reshape to dict format"
-                " (optimal for ForecasterRecursiveMultiSeries)"
-            ),
-        )
+        ),
+    )
     core_lines.append("")
 
     # --- Exog setup (multi-series) ---
@@ -169,29 +155,12 @@ def render_forecast_multi_series(
 
     # --- Train/test split (evaluation mode) ---
     if evaluate:
-        core_lines.append("# Train/test split")
-        _emit_end_train(core_lines, plan)
-        core_lines.append(
-            "series_dict_train = {k: v.loc[:end_train] for k, v in series_dict.items()}"
+        _emit_train_test_split_multiseries(
+            core_lines,
+            plan,
+            is_wide  = is_wide,
+            use_exog = bool(plan.use_exog and exog_columns),
         )
-        core_lines.append(
-            "series_dict_test  = {k: v.loc[v.index > end_train]"
-            " for k, v in series_dict.items()}"
-        )
-        if plan.use_exog and exog_columns:
-            if is_wide:
-                core_lines.append("exog_train = exog.loc[:end_train]")
-                core_lines.append("exog_test  = exog.loc[exog.index > end_train]")
-            else:
-                core_lines.append(
-                    "exog_dict_train = {k: v.loc[:end_train]"
-                    " for k, v in exog_dict.items()}"
-                )
-                core_lines.append(
-                    "exog_dict_test  = {k: v.loc[v.index > end_train]"
-                    " for k, v in exog_dict.items()}"
-                )
-        core_lines.append("")
     elif plan.use_exog and exog_columns and not is_wide:
         # Prediction mode, long format: reshape the future exogenous
         # variables into the dict format the forecaster expects.

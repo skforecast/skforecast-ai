@@ -534,7 +534,6 @@ def _emit_metrics_section_multiseries(
 def _emit_metrics_section_foundation(
     lines: list[str],
     is_multi_series: bool,
-    has_intervals: bool,
     test_var: str,
     train_var: str,
     metrics_to_compute: list[str] | None = None,
@@ -547,14 +546,14 @@ def _emit_metrics_section_foundation(
             "mean_absolute_scaled_error",
         ]
 
-    pred_col = "'q_0.5'" if has_intervals else "'pred'"
+    # `predict` and `predict_interval` both return the median as `pred`.
     if is_multi_series:
         lines.append("# Evaluate on test set (per series)")
         lines.append("metrics_list = []")
         lines.append("for level in predictions['level'].unique():")
         lines.append("    mask = predictions['level'] == level")
         lines.append(
-            f"    pred = predictions.loc[mask, {pred_col}].values"
+            "    pred = predictions.loc[mask, 'pred'].values"
         )
         lines.append(
             f"    actual = {test_var}[level].iloc[:steps]"
@@ -583,7 +582,7 @@ def _emit_metrics_section_foundation(
         lines.append("# Evaluate on test set")
         lines.append(f"actual = {test_var}.iloc[:steps]")
         lines.append(
-            f"pred = predictions[{pred_col}].values"
+            "pred = predictions['pred'].values"
         )
         for m in metrics_to_compute:
             info = _METRIC_REGISTRY.get(m)
@@ -736,6 +735,8 @@ def _emit_imports_foundation(
     plan: ForecastPlan,
     include_metrics: bool = False,
     include_backtesting: bool = False,
+    profile: DataProfile | None = None,
+    use_exog: bool = False,
 ) -> None:
     """Append import lines for foundation model forecasting scripts.
 
@@ -750,12 +751,25 @@ def _emit_imports_foundation(
     include_backtesting : bool, default False
         If True, append `TimeSeriesFold, backtesting_foundation` from
         `skforecast.model_selection` as the last import.
+    profile : DataProfile, default None
+        Profiled dataset metadata. Long-format data imports the helpers
+        that reshape it into one entry per series.
+    use_exog : bool, default False
+        Whether the script passes exogenous variables, which long-format
+        data reshapes with `reshape_exog_long_to_dict`.
 
     """
 
     lines.append("import pandas as pd")
     if include_metrics:
         lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    if profile is not None and profile.data_format == "long":
+        reshape_imports = ["reshape_series_long_to_dict"]
+        if use_exog:
+            reshape_imports.append("reshape_exog_long_to_dict")
+        lines.append(
+            "from skforecast.preprocessing import " + ", ".join(reshape_imports)
+        )
     lines.append(
         "from skforecast.foundation import FoundationModel, ForecasterFoundation"
     )
@@ -1049,12 +1063,105 @@ def _emit_reshape_series_long_to_dict(
     lines.append(")")
 
 
+def _emit_series_dict(
+    lines: list[str],
+    profile: DataProfile,
+    *,
+    comment: str,
+) -> None:
+    """
+    Append the code that builds `series_dict`, one entry per series.
+
+    Wide data is split by column; long data is reshaped with
+    `reshape_series_long_to_dict`.
+
+    Parameters
+    ----------
+    lines : list of str
+        Code lines to append to (modified in place).
+    profile : DataProfile
+        Profiled dataset metadata (wide or long format).
+    comment : str
+        Comment line emitted before the code.
+
+    Returns
+    -------
+    None
+    """
+
+    if profile.data_format == "wide":
+        lines.append(comment)
+        if isinstance(profile.target, list):
+            lines.append(
+                f"series_dict = data[{repr(profile.target)}].to_dict('series')"
+            )
+        else:
+            lines.append("series_dict = data.to_dict('series')")
+    else:
+        _emit_reshape_series_long_to_dict(lines, profile, comment=comment)
+
+
+def _emit_train_test_split_multiseries(
+    lines: list[str],
+    plan: ForecastPlan,
+    *,
+    is_wide: bool,
+    use_exog: bool,
+) -> None:
+    """
+    Append the train/test split of `series_dict` and its exogenous variables.
+
+    Wide data shares one `exog` frame across series; long data has one
+    exogenous frame per series in `exog_dict`.
+
+    Parameters
+    ----------
+    lines : list of str
+        Code lines to append to (modified in place).
+    plan : ForecastPlan
+        Plan in evaluation mode (`end_train` set).
+    is_wide : bool
+        Whether the data is in wide format.
+    use_exog : bool
+        Whether exogenous variables are split as well.
+
+    Returns
+    -------
+    None
+    """
+
+    lines.append("# Train/test split")
+    _emit_end_train(lines, plan)
+    lines.append(
+        "series_dict_train = {k: v.loc[:end_train] for k, v in series_dict.items()}"
+    )
+    lines.append(
+        "series_dict_test  = {k: v.loc[v.index > end_train]"
+        " for k, v in series_dict.items()}"
+    )
+    if use_exog:
+        if is_wide:
+            lines.append("exog_train = exog.loc[:end_train]")
+            lines.append("exog_test  = exog.loc[exog.index > end_train]")
+        else:
+            lines.append(
+                "exog_dict_train = {k: v.loc[:end_train]"
+                " for k, v in exog_dict.items()}"
+            )
+            lines.append(
+                "exog_dict_test  = {k: v.loc[v.index > end_train]"
+                " for k, v in exog_dict.items()}"
+            )
+    lines.append("")
+
+
 def _emit_reshape_exog_long_to_dict(
     lines: list[str],
     profile: DataProfile,
     *,
     var: str,
     data_expr: str,
+    columns: list[str] | None = None,
 ) -> None:
     """
     Append a `reshape_exog_long_to_dict` call assigning to `var`.
@@ -1069,6 +1176,9 @@ def _emit_reshape_exog_long_to_dict(
         Name of the variable receiving the dict, e.g. `'exog_dict'`.
     data_expr : str
         Expression of the long-format frame to reshape, e.g. `'data'`.
+    columns : list of str, default None
+        Exogenous columns to reshape. None reshapes every exogenous column
+        of the profile.
 
     Returns
     -------
@@ -1077,7 +1187,8 @@ def _emit_reshape_exog_long_to_dict(
 
     series_id = profile.series_id_column or "series_id"
     date_col = profile.date_column or "datetime"
-    exog_select_cols = [series_id, date_col] + list(profile.exog_columns)
+    exog_columns = profile.exog_columns if columns is None else columns
+    exog_select_cols = [series_id, date_col] + list(exog_columns)
 
     lines.append(f"{var} = reshape_exog_long_to_dict(")
     lines.append(f"    data      = {data_expr}[{repr(exog_select_cols)}],")

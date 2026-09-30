@@ -14,7 +14,12 @@ from skforecast_ai.schemas import (
     SingleRunResult,
 )
 
-from .fixtures_assistant import df_multi_long, df_no_exog, df_single
+from .fixtures_assistant import (
+    df_categorical_exog,
+    df_multi_long,
+    df_no_exog,
+    df_single,
+)
 
 assistant = ForecastingAssistant()
 
@@ -32,6 +37,9 @@ profile_single = assistant.profile(
 profile_exog = assistant.profile(
     data=df_single, target="sales", date_column="date"
 )
+profile_categorical_exog = assistant.profile(
+    data=df_categorical_exog, target="sales", date_column="date"
+)
 profile_multi = assistant.profile(
     data             = df_multi_long,
     target           = "value",
@@ -44,6 +52,28 @@ plan_interval = assistant.plan(profile_exog, steps=5, interval=[0.1, 0.9])
 plan_multi = assistant.plan(profile_multi, steps=3)
 plan_baseline = assistant.plan(
     profile_single, steps=5, forecaster="ForecasterEquivalentDate"
+)
+# Foundation models whose capabilities shape the plan: TimesFM 3.0 has a
+# non-commercial license and only accepts numeric covariates; Moirai has a
+# non-commercial license and accepts no covariates at all.
+plan_foundation_numeric_covariates = assistant.plan(
+    profile_categorical_exog,
+    steps      = 5,
+    forecaster = "ForecasterFoundation",
+    estimator  = "google/timesfm-3.0-pytorch",
+    interval   = [0.1, 0.9],
+)
+plan_foundation_multi = assistant.plan(
+    profile_multi,
+    steps      = 3,
+    forecaster = "ForecasterFoundation",
+    interval   = [0.1, 0.9],
+)
+plan_foundation_without_covariates = assistant.plan(
+    profile_exog,
+    steps      = 5,
+    forecaster = "ForecasterFoundation",
+    estimator  = "Salesforce/moirai-2.0-R-small",
 )
 
 
@@ -82,6 +112,21 @@ predictions_multi = pd.DataFrame(
         ["2023-04-11", "2023-04-12", "2023-04-13",
          "2023-04-11", "2023-04-12", "2023-04-13"]
     ),
+)
+
+# Backtest predictions of a foundation model with an interval:
+# `backtesting_foundation` returns quantiles only, so there is no `pred`
+# column and the median `q_0.5` is the point forecast. 40 rows, so the golden
+# captures the per-level summary of the median.
+predictions_quantiles_multi = pd.DataFrame(
+    {
+        "level": ["store_a", "store_b"] * 20,
+        "fold":  np.repeat(np.arange(4), 10),
+        "q_0.1": np.arange(40, dtype=float) * 2.5 + 900.0,
+        "q_0.5": np.arange(40, dtype=float) * 2.5 + 1000.0,
+        "q_0.9": np.arange(40, dtype=float) * 2.5 + 1100.0,
+    },
+    index=pd.date_range("2023-04-11", periods=20, freq="D").repeat(2),
 )
 
 # 40 rows, above `MAX_CONTEXT_DATAFRAME_ROWS`, so the golden captures the
@@ -161,9 +206,20 @@ def make_single_run_result() -> SingleRunResult:
     )
 
 
-def make_code_generation_result() -> CodeGenerationResult:
+def make_code_generation_result(
+    *,
+    profile = profile_single,
+    plan    = plan_single,
+) -> CodeGenerationResult:
     """
     Build a generated-script result.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile, default `profile_single`
+        Profile carried by the result.
+    plan : ForecastPlan, default `plan_single`
+        Plan carried by the result.
 
     Returns
     -------
@@ -172,8 +228,8 @@ def make_code_generation_result() -> CodeGenerationResult:
     """
 
     return CodeGenerationResult(
-        profile = profile_single,
-        plan    = plan_single,
+        profile = profile,
+        plan    = plan,
         code    = code_single,
     )
 
@@ -393,11 +449,22 @@ def make_comparison_result(
 GOLDEN_SCENARIOS = {
     "profile_only": lambda: profile_single,
     "code_generation_result": make_code_generation_result,
+    "code_generation_foundation_without_covariates": lambda: (
+        make_code_generation_result(
+            profile = profile_exog,
+            plan    = plan_foundation_without_covariates,
+        )
+    ),
     "cv_strategy": make_cv_result,
     "forecast_single_series_no_intervals": lambda: make_forecast_result(),
     "forecast_single_series_with_intervals": lambda: make_forecast_result(
         profile     = profile_exog,
         plan        = plan_interval,
+        predictions = predictions_interval,
+    ),
+    "forecast_foundation_numeric_covariates": lambda: make_forecast_result(
+        profile     = profile_categorical_exog,
+        plan        = plan_foundation_numeric_covariates,
         predictions = predictions_interval,
     ),
     "forecast_prediction_mode_no_metrics": lambda: make_forecast_result(
@@ -410,6 +477,12 @@ GOLDEN_SCENARIOS = {
         metrics     = metrics_multi,
     ),
     "backtest_single_series": lambda: make_backtest_result(),
+    "backtest_foundation_multi_series_quantiles": lambda: make_backtest_result(
+        profile     = profile_multi,
+        plan        = plan_foundation_multi,
+        predictions = predictions_quantiles_multi,
+        metrics     = metrics_multi,
+    ),
     "backtest_multi_series": lambda: make_backtest_result(
         profile     = profile_multi,
         plan        = plan_multi,

@@ -80,7 +80,7 @@ def test_section_renderer_output_when_input_is_empty(renderer, empty_input):
         (render_dataset_section(profile), "dataset"),
         (render_profile_decision_section(profile), "profile_decision"),
         (render_plan_section(plan), "forecast_plan"),
-        (render_cv_section(cv_config), "cross_validation"),
+        (render_cv_section(cv_config), "backtesting_strategy"),
         (render_deterministic_summary_section("Ran 4 folds."),
          "deterministic_summary"),
         (render_metrics_section(metrics), "evaluation_metrics"),
@@ -428,3 +428,30 @@ def test_build_context_message_matches_the_composed_sections():
     )
 
     assert result == composed
+
+
+def test_render_cv_section_omits_training_parameters_when_not_trained():
+    """
+    Test that the section of a forecaster that is not trained (a foundation
+    model) leaves out `refit` and `fixed_train_size`, which do not apply to
+    it, and keeps the other parameters.
+    """
+    cv_config = {
+        "steps": 5,
+        "initial_train_size": 70,
+        "refit": False,
+        "fixed_train_size": True,
+        "gap": 0,
+        "n_folds": 6,
+    }
+
+    section = render_cv_section(cv_config, trains=False)
+
+    assert section == (
+        "<backtesting_strategy>\n"
+        "- steps: 5\n"
+        "- initial_train_size: 70\n"
+        "- gap: 0\n"
+        "- n_folds: 6\n"
+        "</backtesting_strategy>"
+    )

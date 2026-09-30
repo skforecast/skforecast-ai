@@ -382,6 +382,59 @@ def test_refine_plan_output_keeps_estimator_within_ml_forecasters():
     assert direct.forecaster_kwargs["lags"] == [1, 2, 7]
 
 
+@pytest.mark.parametrize(
+    "forecaster, estimator, estimator_kwargs, new_estimator, new_kwargs",
+    [
+        (
+            "ForecasterRecursive",
+            "Ridge",
+            {"alpha": 2.0},
+            "LGBMRegressor",
+            {"n_estimators": 50},
+        ),
+        (
+            "ForecasterFoundation",
+            "autogluon/chronos-2-small",
+            {"cross_learning": True},
+            "google/timesfm-3.0-pytorch",
+            {"context_length": 1024},
+        ),
+    ],
+    ids=lambda dt: (
+        f"forecaster, estimator, estimator_kwargs, new_estimator, new_kwargs: {dt}"
+    ),
+)
+def test_refine_plan_output_drops_estimator_kwargs_when_estimator_changes(
+    forecaster, estimator, estimator_kwargs, new_estimator, new_kwargs
+):
+    """
+    Test that changing the estimator drops the kwargs written for the
+    previous one (a Chronos-2 `cross_learning` would make TimesFM fail),
+    while refining another field keeps them and new kwargs passed with the
+    new estimator are applied.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile,
+        steps            = 10,
+        forecaster       = forecaster,
+        estimator        = estimator,
+        estimator_kwargs = estimator_kwargs,
+    )
+
+    same_estimator = assistant.refine_plan(profile, plan, steps=5)
+    new = assistant.refine_plan(profile, plan, estimator=new_estimator)
+    new_with_kwargs = assistant.refine_plan(
+        profile, plan, estimator=new_estimator, estimator_kwargs=new_kwargs
+    )
+
+    assert same_estimator.estimator_kwargs == estimator_kwargs
+    assert new.estimator == new_estimator
+    assert new.estimator_kwargs == {}
+    assert new_with_kwargs.estimator_kwargs == new_kwargs
+
+
 def test_refine_plan_ValueError_when_statistical_with_explicit_lags():
     """
     Test that an explicit lags override is not silently dropped when the

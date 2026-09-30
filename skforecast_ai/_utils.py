@@ -13,6 +13,7 @@ import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import ALLOWED_WINDOW_STATS, MAX_FEATURE_FRACTION
+from ._foundation import resolve_foundation_model, validate_foundation_interval
 from .profiling.data_profile import _try_parse_first_date_column
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
 
@@ -251,9 +252,9 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
     """
     Validate that the input shape is compatible with the task type.
 
-    Single-series tasks (`single_series`, `statistical`, `foundation`,
-    `baseline`) accept exactly one series. The `multivariate` task requires all
-    series to share the same length.
+    Single-series tasks (`single_series`, `statistical`, `baseline`) accept
+    exactly one series. The `multivariate` task requires all series to share
+    the same length. `foundation` takes one or several series.
 
     Parameters
     ----------
@@ -275,7 +276,7 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
     n_series = len(series_lengths)
 
     if (
-        task_type in ("single_series", "statistical", "foundation", "baseline")
+        task_type in ("single_series", "statistical", "baseline")
         and n_series > 1
     ):
         raise ValueError(
@@ -425,9 +426,21 @@ def _apply_interval_to_plan(plan: ForecastPlan, interval: list[float]) -> Foreca
         The same plan when it already predicts `interval`, otherwise a
         copy with `interval`, `interval_method` and the explanation
         updated.
+
+    Raises
+    ------
+    ValueError
+        When the foundation model of the plan cannot predict `interval`.
     """
     if plan.interval == interval:
         return plan
+    # `model_copy` skips the plan validators, so the foundation model is
+    # checked against the new interval here.
+    if plan.task_type == "foundation":
+        validate_foundation_interval(
+            info     = resolve_foundation_model(plan.estimator),
+            interval = interval,
+        )
     interval_method = resolve_interval_method(plan.task_type, interval)
     explanation = plan.explanation
     if "Prediction intervals via" not in explanation:

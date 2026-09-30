@@ -72,6 +72,8 @@ def test_select_skills_base_routing(task_type, expected):
         ("How does feature selection work?", "feature-selection"),
         ("Can I use LSTM for forecasting?", "deep-learning-forecasting"),
         ("How to use Chronos model?", "foundation-forecasting"),
+        ("How do I forecast a cold-start product?", "foundation-forecasting"),
+        ("Can I use TabPFN-TS here?", "foundation-forecasting"),
         ("Fit an ARIMA model", "statistical-models"),
         ("I need drift detection", "drift-detection"),
         ("Give me a naive baseline", "baseline-forecasting"),

@@ -15,7 +15,11 @@ from .backtesting import (
     resolve_cv_config,
 )
 from .calendar import select_calendar_features, select_calendar_encoding
-from .explanation import _build_profile_explanation, build_plan_explanation
+from .explanation import (
+    _build_profile_explanation,
+    build_foundation_explanation,
+    build_plan_explanation,
+)
 from .forecaster_selection import (
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
@@ -36,6 +40,7 @@ __all__ = [
     "baseline_missing_values_note",
     "build_cv",
     "build_cv_explanation",
+    "build_foundation_explanation",
     "build_plan_explanation",
     "build_forecaster_kwargs",
     "check_exog_usage",

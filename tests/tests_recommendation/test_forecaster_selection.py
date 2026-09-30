@@ -56,8 +56,8 @@ def test_select_forecaster_and_candidates_output_when_single_series():
 def test_select_forecaster_and_candidates_output_when_multi_series():
     """
     Test that a multi-series profile recommends
-    ForecasterRecursiveMultiSeries first, with the multivariate
-    alternative as candidate.
+    ForecasterRecursiveMultiSeries first, with the multivariate and the
+    foundation alternatives as candidates.
     """
     preferred, candidates = select_forecaster_and_candidates(profile_multi)
 
@@ -65,6 +65,7 @@ def test_select_forecaster_and_candidates_output_when_multi_series():
     assert candidates == [
         "ForecasterRecursiveMultiSeries",
         "ForecasterDirectMultiVariate",
+        "ForecasterFoundation",
     ]
     assert candidates[0] == preferred
 
@@ -152,13 +153,13 @@ def test_select_estimator_and_candidates_output_when_statistical():
 
 def test_select_estimator_and_candidates_output_when_foundation():
     """
-    Test that the foundation task type always returns Chronos-2,
-    ignoring the number of observations.
+    Test that the foundation task type always returns the model ID of
+    Chronos-2 small, ignoring the number of observations.
     """
     preferred, candidates = select_estimator_and_candidates("foundation", n_observations=10000)
 
-    assert preferred == "Chronos-2"
-    assert candidates == ["Chronos-2"]
+    assert preferred == "autogluon/chronos-2-small"
+    assert candidates == ["autogluon/chronos-2-small"]
 
 
 def test_select_estimator_and_candidates_output_when_baseline():

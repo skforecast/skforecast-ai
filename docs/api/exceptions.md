@@ -9,6 +9,7 @@ Errors and warnings raised by `skforecast_ai`. All of them are importable from t
 | `ForecastExecutionError` | `forecast()`, `backtest()` | The generated script fails while running. The script and the full traceback are available as `generated_code` and `execution_traceback`. |
 | `AllCandidatesFailedError` | `compare()` | Every candidate configuration fails, so there is no leaderboard to return. The per-candidate reasons are in `failures`. |
 | `CandidateFailedWarning` | `compare()` | One candidate fails; the comparison continues with the rest and the failure is recorded in `ComparisonResult.failures`. |
+| `MissingBackendWarning` | `compare()` without `candidates` | The backend of the default foundation model (`chronos-forecasting` for Chronos-2) is not installed, so `ForecasterFoundation` is left out of the comparison instead of failing. Install it with `pip install skforecast-ai[foundation]`. |
 | `DataSentToLLMWarning` | `ask()` | A result with values of its own (predictions, metrics) is sent to the LLM while `send_data_to_llm=False`. Pass `send_data_to_llm=True` to acknowledge it. |
 | `UnrecommendedForecasterWarning` | `plan()` | The requested forecaster is supported but was not among the profile's candidates for this dataset (for example, Auto-ARIMA on high-frequency data). |
 

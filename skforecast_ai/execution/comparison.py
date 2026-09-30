@@ -9,7 +9,13 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 import pandas as pd
-from .._constants import BASELINE_FORECASTERS, FORECASTER_TASK_TYPES
+from .._constants import (
+    BASELINE_FORECASTERS,
+    DEFAULT_FOUNDATION_MODEL_ID,
+    FORECASTER_TASK_TYPES,
+    FOUNDATION_FORECASTERS,
+)
+from .._foundation import foundation_backend_installed, resolve_foundation_model
 from ..recommendation import (
     baseline_missing_values_note,
     select_baseline_config,
@@ -28,36 +34,100 @@ from ..schemas import (
 # A multivariate forecaster predicts one series only (skforecast:
 # `ForecasterDirectMultiVariate.level`, "Name of the time series to be
 # predicted"), so its metrics describe a different quantity and it is never
-# ranked against the other two families.
+# ranked against the other two families. A foundation model forecasts every
+# series it receives, so its family follows the data: single-target with one
+# series, multi-series (average across series) with several.
 _COMPARISON_FAMILY: dict[str, str] = {
     "single_series": "single-target",
     "statistical": "single-target",
-    "foundation": "single-target",
     "baseline": "single-target",
     "multi_series": "multi-series",
     "multivariate": "multivariate",
 }
 
 
-def _comparison_family(forecaster: str) -> str | None:
-    """Family a forecaster's metrics belong to; None for an unknown forecaster."""
+def _comparison_family(forecaster: str, n_series: int) -> str | None:
+    """
+    Family a forecaster's metrics belong to; None for an unknown forecaster.
+
+    Parameters
+    ----------
+    forecaster : str
+        Forecaster class name.
+    n_series : int
+        Number of series in the data, which decides the family of
+        `ForecasterFoundation`.
+
+    Returns
+    -------
+    family : str, None
+        `'single-target'`, `'multi-series'` or `'multivariate'`, or None
+        when `forecaster` is not a known forecaster.
+    """
     task_type = FORECASTER_TASK_TYPES.get(forecaster)
+    if task_type == "foundation":
+        return "multi-series" if n_series > 1 else "single-target"
     return _COMPARISON_FAMILY.get(task_type) if task_type else None
+
+
+def missing_foundation_backend(
+    profile: ForecastingProfile,
+) -> tuple[frozenset[str], str | None]:
+    """
+    Find the foundation candidate whose backend is not installed.
+
+    `compare()` without `candidates` includes `ForecasterFoundation` with
+    its default model. skforecast-ai does not install that model's backend
+    by default, so without this check the candidate would fail on every
+    call; it is left out instead, and the note says which package to
+    install.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile
+        Profile whose forecaster candidates feed the automatic comparison.
+
+    Returns
+    -------
+    excluded : frozenset of str
+        Forecasters to leave out of the automatic candidates: the
+        foundation forecaster when its backend is missing, else empty.
+    note : str, None
+        Sentence explaining the exclusion, or None when nothing is left out.
+    """
+
+    foundation = [
+        fc for fc in profile.forecaster_candidates if fc in FOUNDATION_FORECASTERS
+    ]
+    if not foundation:
+        return frozenset(), None
+    info = resolve_foundation_model(DEFAULT_FOUNDATION_MODEL_ID)
+    if foundation_backend_installed(info):
+        return frozenset(), None
+    note = (
+        f"ForecasterFoundation left out: its default model "
+        f"'{info.model_id}' needs the '{info.backend_package}' package, "
+        f"which is not installed (pip install skforecast-ai[foundation])."
+    )
+    return frozenset(foundation), note
 
 
 def resolve_compare_candidates(
     candidates: list[tuple[str, CandidateConfig]] | None,
     profile: ForecastingProfile,
+    exclude: frozenset[str] = frozenset(),
 ) -> list[tuple[str, CandidateConfig]]:
     """
     Resolve the candidate configurations for `ForecastingAssistant.compare()`.
 
     When `candidates` is None, the candidates are derived from the
     forecaster candidates of the profile that belong to the same family as
-    the recommended forecaster, each labelled by its class name. When that
-    leaves a single forecaster (multi-series data, where the multivariate
-    alternative is not comparable), its estimator candidates are compared
-    instead, labelled `'<forecaster>+<estimator>'`. Otherwise the
+    the recommended forecaster, each labelled by its class name (with
+    several series, `ForecasterRecursiveMultiSeries` and
+    `ForecasterFoundation`; the multivariate alternative is not
+    comparable). When that leaves a single forecaster, its estimator
+    candidates are compared instead, labelled
+    `'<forecaster>+<estimator>'`. Otherwise the
     user-supplied `(name, config)` tuples are validated: keys, unique
     names, and a single forecaster family, since a multivariate forecaster
     scores one series while a multi-series one scores the average across
@@ -69,6 +139,10 @@ def resolve_compare_candidates(
         User-supplied configurations, or None to auto-build.
     profile : ForecastingProfile
         Shared profile used to derive the auto candidates.
+    exclude : frozenset of str, default frozenset()
+        Forecasters left out of the auto candidates, for example the
+        foundation forecaster when its backend is not installed (see
+        `missing_foundation_backend()`). Ignored for explicit `candidates`.
 
     Returns
     -------
@@ -78,12 +152,13 @@ def resolve_compare_candidates(
 
     allowed_keys = CANDIDATE_CONFIG_KEYS
 
+    n_series = profile.data_profile.n_series
     resolved: list[tuple[str, CandidateConfig]] = []
     if candidates is None:
-        family = _comparison_family(profile.forecaster)
+        family = _comparison_family(profile.forecaster, n_series)
         forecasters = [
             fc for fc in profile.forecaster_candidates
-            if _comparison_family(fc) == family
+            if _comparison_family(fc, n_series) == family and fc not in exclude
         ]
         if not forecasters:
             raise ValueError(
@@ -125,7 +200,9 @@ def resolve_compare_candidates(
 
     families: dict[str, list[str]] = {}
     for name, config in resolved:
-        family = _comparison_family(config.get("forecaster") or profile.forecaster)
+        family = _comparison_family(
+            config.get("forecaster") or profile.forecaster, n_series
+        )
         if family is not None:
             families.setdefault(family, []).append(name)
     if len(families) > 1:
@@ -217,12 +294,13 @@ def add_baseline_candidate(
 
     # An unknown forecaster has no family; it fails on its own when run,
     # so it says nothing about whether the baseline is comparable.
+    n_series = profile.data_profile.n_series
     families = {
-        _comparison_family(config.get("forecaster") or profile.forecaster)
+        _comparison_family(config.get("forecaster") or profile.forecaster, n_series)
         for _, config in candidates
     } - {None}
     if not families:
-        families = {_comparison_family(profile.forecaster)}
+        families = {_comparison_family(profile.forecaster, n_series)}
     if families != {"single-target"}:
         note = (
             "No baseline: ForecasterEquivalentDate forecasts a single series, "
@@ -337,6 +415,7 @@ def build_comparison_explanation(
     cv_explanation: str,
     baseline_name: str | None = None,
     baseline_note: str | None = None,
+    backend_note: str | None = None,
 ) -> str:
     """
     Build the deterministic `compare()` summary explanation.
@@ -359,6 +438,9 @@ def build_comparison_explanation(
         whether the best configuration beats it and by how much.
     baseline_note : str, default None
         Sentence explaining why no baseline was added, appended as is.
+    backend_note : str, default None
+        Sentence explaining why a foundation candidate was left out,
+        appended as is.
 
     Returns
     -------
@@ -371,15 +453,18 @@ def build_comparison_explanation(
     if best_result.plan.estimator:
         label += f" / {best_result.plan.estimator}"
 
+    # Multi-series candidates are ranked on the skforecast `average` row
+    # (arithmetic mean of the per-series values), not on the `pooling` row,
+    # so the wording must not say "pooled": the model would repeat it.
     metrics = best_result.metrics
-    pooled = (
+    averaged = (
         metrics is not None
         and "levels" in metrics.columns
         and bool((metrics["levels"] == "average").any())
     )
     metric_desc = ranking_metric
-    if pooled:
-        metric_desc += " pooled across series"
+    if averaged:
+        metric_desc += " averaged across series"
 
     noun = "configuration" if n_candidates == 1 else "configurations"
     best_sentence = f"Best: '{best_name}' ({label}) = {best_value:.4f}"
@@ -406,12 +491,24 @@ def build_comparison_explanation(
         f"Compared {n_candidates} {noun}, ranked ascending by "
         f"{metric_desc}.",
         f"Shared cross-validation strategy: {cv_explanation}",
-        best_sentence,
     ]
+    # The shared strategy describes trained models; a foundation model is
+    # not trained, so its window and refit settings mean nothing for it.
+    if any(
+        result.plan.forecaster in FOUNDATION_FORECASTERS for _, result, _ in ranked
+    ):
+        parts.append(
+            "ForecasterFoundation is not trained: the window and refit "
+            "settings do not apply to it, each fold forecasts from the "
+            "observations before it."
+        )
+    parts.append(best_sentence)
     if baseline_name is not None:
         parts.append(_baseline_sentence(ranked, baseline_name, ranking_metric))
     if baseline_note is not None:
         parts.append(baseline_note)
+    if backend_note is not None:
+        parts.append(backend_note)
     if any_error:
         n_failed = n_candidates - len(ranked)
         if n_failed == 1:

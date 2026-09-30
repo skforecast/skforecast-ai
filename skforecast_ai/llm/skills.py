@@ -65,7 +65,7 @@ _KEYWORD_SKILLS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"feature.selection|rfecv|select.feature|select_features|selectfrommodel|feature.importance", re.I), "feature-selection"),
     (re.compile(r"metric|\bmae\b|\bmse\b|\bmape\b|\brmse\b|smape|\bmase\b|rmsse|pinball|\bcrps\b|coverage|scoring|loss.function", re.I), "metric-selection"),
     (re.compile(r"\brnn\b|lstm|\bgru\b|deep.learn|keras|tensorflow|neural|ForecasterRnn", re.I), "deep-learning-forecasting"),
-    (re.compile(r"chronos|timesfm|moirai|foundation|zero.shot|tabicl|pre.?trained|ForecasterFoundation", re.I), "foundation-forecasting"),
+    (re.compile(r"chronos|timesfm|moirai|foundation|zero.shot|cold.start|tabicl|tabpfn|pre.?trained|ForecasterFoundation", re.I), "foundation-forecasting"),
     (re.compile(r"arima|sarimax|\bets\b|\barar\b|\bstatistical\b|exponential.smoothing|seasonal.order|ForecasterStats", re.I), "statistical-models"),
     (re.compile(r"drift|monitor|deploy|production|distribution.shift|out.of.range|RangeDrift|PopulationDrift", re.I), "drift-detection"),
     (re.compile(r"\bbaselines?\b|\bnaive\b|seasonal.naive|\bbenchmark|equivalent.date|ForecasterEquivalentDate|grid_search_equivalent_date", re.I), "baseline-forecasting"),
@@ -107,23 +107,23 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "autocorrelation-and-lag-selection": 2035,
     "backtesting-configuration": 1822,
     "baseline-forecasting": 1929,
-    "choosing-a-forecaster": 2836,
-    "complete-api-reference": 12546,
+    "choosing-a-forecaster": 2851,
+    "complete-api-reference": 12627,
     "deep-learning-forecasting": 4175,
     "drift-detection": 1249,
-    "feature-engineering": 10937,
+    "feature-engineering": 10999,
     "feature-selection": 1534,
     "forecasting-multiple-series": 1766,
     "forecasting-single-series": 1505,
-    "foundation-forecasting": 9244,
+    "foundation-forecasting": 9853,
     "hyperparameter-optimization": 5771,
     "metric-selection": 5747,
     "prediction-intervals": 4487,
-    "statistical-models": 4056,
-    "troubleshooting-common-errors": 2559,
+    "statistical-models": 4263,
+    "troubleshooting-common-errors": 2587,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 8528  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 8806  # llms-base.txt measured size
 
 # Derived from the prompt rather than hardcoded. A hardcoded figure has to
 # be re-measured by hand after every prompt edit, and silently understates

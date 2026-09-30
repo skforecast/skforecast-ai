@@ -22,7 +22,7 @@ def test_build_plan_explanation_states_why_no_lags(task_type, expected):
     """
     explanation = build_plan_explanation(
         forecaster         = "ForecasterFoundation",
-        estimator          = "Chronos-2",
+        estimator          = "autogluon/chronos-2-small",
         lags               = None,
         window_features    = None,
         interval_method    = "native",

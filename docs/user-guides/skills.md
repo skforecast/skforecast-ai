@@ -37,7 +37,7 @@ print(ALL_SKILLS)
 | `feature-engineering` | Calendar features, holiday distances, rolling statistics with `RollingFeatures`, differencing, categorical exogenous variables. |
 | `forecasting-single-series` | `ForecasterRecursive` and `ForecasterDirect`: data preparation, training, prediction, backtesting, intervals. |
 | `forecasting-multiple-series` | Global models with `ForecasterRecursiveMultiSeries` and `ForecasterDirectMultiVariate`: data formats, encoding, per-series transformers. |
-| `foundation-forecasting` | Zero-shot forecasting with pre-trained foundation models (Chronos, TimesFM, Moirai, TabPFN-TS and others) through `ForecasterFoundation`. |
+| `foundation-forecasting` | Zero-shot forecasting with pre-trained foundation models (Chronos, TimesFM, Moirai, TabPFN-TS and others) through `ForecasterFoundation`: accurate forecasts without training, also for short or new (cold-start) series. |
 | `baseline-forecasting` | Seasonal-naive and equivalent-date baselines with `ForecasterEquivalentDate`, and how to benchmark a model against them. |
 | `metric-selection` | Which metric fits the forecaster type, the prediction output and multi-series aggregation; configuring `metric` in backtesting and search. |
 | `backtesting-configuration` | Mapping a deployment scenario (retraining frequency, horizon, data budget) to `TimeSeriesFold` parameters. |
@@ -79,7 +79,7 @@ When `skills` is not passed, `ask()` selects them in three steps.
 | feature selection, rfecv, feature importance | `feature-selection` |
 | metric, mae, mape, rmse, mase, pinball, coverage | `metric-selection` |
 | lstm, gru, rnn, keras, neural | `deep-learning-forecasting` |
-| chronos, timesfm, moirai, foundation, zero-shot | `foundation-forecasting` |
+| chronos, timesfm, moirai, tabpfn, foundation, zero-shot, cold start | `foundation-forecasting` |
 | arima, sarimax, ets, arar, statistical | `statistical-models` |
 | drift, monitor, production, distribution shift | `drift-detection` |
 | baseline, naive, benchmark, equivalent date | `baseline-forecasting` |

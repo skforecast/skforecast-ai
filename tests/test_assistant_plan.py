@@ -1,6 +1,7 @@
 # Unit test plan ForecastingAssistant
 
 import re
+import warnings
 
 import pytest
 
@@ -11,8 +12,10 @@ from skforecast_ai.exceptions import UnrecommendedForecasterWarning
 from skforecast_ai.schemas import ForecastPlan
 
 from tests.fixtures_assistant import (
+    df_categorical_exog,
     df_hourly,
     df_multi_long,
+    df_multi_wide,
     df_no_exog,
     df_single,
     df_with_missing,
@@ -208,8 +211,8 @@ def test_plan_output_when_statistical_has_no_lags():
 
 def test_plan_output_when_foundation_forecaster():
     """
-    Test that plan() assigns the foundation estimator and empty
-    forecaster_kwargs for a foundation forecaster override.
+    Test that plan() assigns the default foundation model ID as estimator
+    and empty forecaster_kwargs for a foundation forecaster override.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -218,8 +221,209 @@ def test_plan_output_when_foundation_forecaster():
     )
 
     assert plan.task_type == "foundation"
-    assert plan.estimator == "Chronos-2"
+    assert plan.estimator == "autogluon/chronos-2-small"
+    assert plan.estimator_kwargs == {}
     assert plan.forecaster_kwargs == {}
+    assert plan.use_exog is True
+
+
+@pytest.mark.parametrize(
+    "data, profile_kwargs",
+    [
+        (
+            df_multi_long,
+            {"target": "value", "date_column": "date", "series_id_column": "series_id"},
+        ),
+        (
+            df_multi_wide,
+            {"target": ["series_a", "series_b"], "date_column": "date"},
+        ),
+    ],
+    ids=["long", "wide"],
+)
+def test_plan_output_when_foundation_forecaster_with_multi_series(
+    data, profile_kwargs
+):
+    """
+    Test that plan() builds a ForecasterFoundation plan for multi-series data
+    in long and wide format, without an UnrecommendedForecasterWarning since
+    it is a candidate for several series, with the default model.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, **profile_kwargs)
+    assert "ForecasterFoundation" in profile.forecaster_candidates
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnrecommendedForecasterWarning)
+        plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+
+    assert plan.task_type == "foundation"
+    assert plan.estimator == "autogluon/chronos-2-small"
+    assert plan.forecaster_kwargs == {}
+    assert plan.use_exog is False
+
+
+def test_plan_output_when_foundation_model_id_given():
+    """
+    Test that plan() keeps an explicit foundation model ID as estimator, and
+    that the explanation names the model and its non-commercial license.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile          = profile,
+        steps            = 10,
+        forecaster       = "ForecasterFoundation",
+        estimator        = "google/timesfm-3.0-pytorch",
+        estimator_kwargs = {"context_length": 1024},
+        interval         = [0.1, 0.9],
+    )
+
+    assert plan.estimator == "google/timesfm-3.0-pytorch"
+    assert plan.estimator_kwargs == {"context_length": 1024}
+    assert plan.use_exog is True
+    assert plan.explanation.startswith(
+        "Plan: ForecasterFoundation + google/timesfm-3.0-pytorch."
+    )
+    assert (
+        "The weights of 'google/timesfm-3.0-pytorch' are released under "
+        "TimesFM Non-Commercial License v1.0, which restricts commercial use "
+        "(https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE)."
+    ) in plan.explanation
+
+
+def test_plan_output_when_foundation_model_without_covariates():
+    """
+    Test that plan() does not use the exogenous variables with a foundation
+    model that accepts no covariates, and says so in the explanation.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile    = profile,
+        steps      = 10,
+        forecaster = "ForecasterFoundation",
+        estimator  = "Salesforce/moirai-2.0-R-small",
+    )
+
+    assert plan.use_exog is False
+    assert "Exogenous variables included." not in plan.explanation
+    assert (
+        "Exogenous variables ['promo'] are not used: "
+        "'Salesforce/moirai-2.0-R-small' does not support covariates."
+    ) in plan.explanation
+
+
+def test_plan_output_when_foundation_model_requires_numeric_covariates():
+    """
+    Test that plan() keeps the numeric exogenous variables and adds a
+    non-blocking step that excludes the categorical ones when the foundation
+    model only accepts numeric covariates.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_categorical_exog, target="sales", date_column="date"
+    )
+    plan = assistant.plan(
+        profile    = profile,
+        steps      = 10,
+        forecaster = "ForecasterFoundation",
+        estimator  = "google/timesfm-3.0-pytorch",
+    )
+    step = next(
+        s for s in plan.preprocessing_steps
+        if s.action == "handle_categorical_exog"
+    )
+
+    assert plan.use_exog is True
+    assert step.blocking is False
+    assert step.reason == (
+        "Categorical exogenous variables detected: ['weekday']. "
+        "'google/timesfm-3.0-pytorch' only accepts numeric covariates, so "
+        "these columns are excluded. Encode them manually to include them."
+    )
+
+
+def test_plan_output_when_foundation_model_is_gated():
+    """
+    Test that the explanation warns that the weights of a gated foundation
+    model need an authenticated Hugging Face account.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile    = profile,
+        steps      = 10,
+        forecaster = "ForecasterFoundation",
+        estimator  = "theforecastingcompany/t0-alpha",
+    )
+
+    assert (
+        "The weights of 'theforecastingcompany/t0-alpha' are gated on the "
+        "Hugging Face Hub: log in with an account that has accepted the model "
+        "license before running the script."
+    ) in plan.explanation
+
+
+def test_plan_ValueError_when_foundation_model_not_supported():
+    """
+    Test that plan() rejects a foundation estimator that no skforecast
+    adapter serves, including the former 'Chronos-2' label.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "'Chronos-2' is not a foundation model supported by skforecast. "
+        "Pass its Hugging Face model ID as `estimator`, for example "
+        "'autogluon/chronos-2-small'."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=10, forecaster="ForecasterFoundation",
+            estimator="Chronos-2",
+        )
+
+
+def test_plan_ValueError_when_foundation_model_id_in_estimator_kwargs():
+    """
+    Test that plan() rejects a model ID passed in `estimator_kwargs`, which
+    would let the plan name one model and the script load another.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "`estimator_kwargs` cannot contain 'model_id' for "
+        "'ForecasterFoundation'. Pass the model ID as `estimator` instead, "
+        "e.g. estimator='google/timesfm-3.0-pytorch'."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=10, forecaster="ForecasterFoundation",
+            estimator_kwargs={"model_id": "google/timesfm-3.0-pytorch"},
+        )
+
+
+def test_plan_ValueError_when_foundation_model_cannot_predict_interval():
+    """
+    Test that plan() rejects an interval whose bounds are not in the
+    quantile grid of the foundation model.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "'google/timesfm-3.0-pytorch' (TimesFM3Adapter) only predicts the "
+        "quantile levels [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], so "
+        "`interval` [0.05, 0.95] cannot be computed: [0.05, 0.95] not in "
+        "that list."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=10, forecaster="ForecasterFoundation",
+            estimator="google/timesfm-3.0-pytorch", interval=[0.05, 0.95],
+        )
 
 
 def test_plan_output_when_baseline_forecaster():

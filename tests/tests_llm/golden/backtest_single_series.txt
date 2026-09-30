@@ -26,14 +26,14 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 
 Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
 </forecast_plan>
-<cross_validation>
+<backtesting_strategy>
 - steps: 5
 - initial_train_size: 70
 - refit: False
 - fixed_train_size: True
 - gap: 0
 - n_folds: 6
-</cross_validation>
+</backtesting_strategy>
 <deterministic_summary>
 Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting.
 </deterministic_summary>
