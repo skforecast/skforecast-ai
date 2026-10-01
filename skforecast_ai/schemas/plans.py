@@ -16,7 +16,17 @@ else:
     from typing_extensions import TypedDict
 from .._constants import WindowStat
 from .._foundation import validate_foundation_plan
-from .._validation import validate_estimator, validate_interval, validate_metrics
+from .._validation import (
+    _validate_lags,
+    _validate_window_features,
+    validate_estimator,
+    validate_forecaster,
+    validate_forecaster_kwargs,
+    validate_interval,
+    validate_metrics,
+    validate_preprocessing_step,
+    validate_steps,
+)
 from .._display import DisplayMixin, render_plan
 
 
@@ -123,8 +133,10 @@ class PreprocessingStep(BaseModel):
     reason : str
         Human-readable explanation of why this step is needed.
     code_snippet : str
-        Python code template that implements this step. May contain
-        format placeholders (e.g. `{frequency}`, `{date_column}`).
+        Python code template that implements this step. The snippet of a
+        blocking step must be one of the templates `plan()` generates (see
+        `ForecastPlan`), whose placeholders (`{series_id_column}`,
+        `{date_column}`) are filled when the script is rendered.
     blocking : bool, default True
         Whether skforecast will fail without this step. Blocking steps
         are emitted into the generated script; non-blocking steps are
@@ -226,9 +238,6 @@ class PlanOverrides(BaseModel):
         Apply `_validate_lags` before pydantic's coercion, so a boolean or a
         float is rejected instead of being turned into an int.
         """
-        # Deferred import: `_utils` imports the schemas package.
-        from .._utils import _validate_lags
-
         _validate_lags(value)
         return value
 
@@ -241,9 +250,6 @@ class PlanOverrides(BaseModel):
         Reject entries that pair the same statistic with the same window
         size, which `RollingFeatures` refuses once the entries are flattened.
         """
-        # Deferred import: `_utils` imports the schemas package.
-        from .._utils import _validate_window_features
-
         if value is not None:
             _validate_window_features([wf.model_dump() for wf in value])
         return value
@@ -352,11 +358,17 @@ class ForecastPlan(DisplayMixin, BaseModel):
         `'foundation'`, or `'baseline'` when the plan was built for
         `ForecasterEquivalentDate`.
     forecaster : str
-        Name of the skforecast forecaster class.
+        Name of the skforecast forecaster class. It must be a supported
+        forecaster whose task type is `task_type`.
     forecaster_kwargs : dict, default {}
         Keyword arguments for the forecaster constructor (e.g. `lags`,
         `steps`, `encoding`, `dropna_from_series`). Can be unpacked
-        directly into the constructor alongside `estimator`.
+        directly into the constructor alongside `estimator`. Only the
+        arguments `plan()` builds for the forecaster, plus
+        `differentiation`, are accepted, with the values the generated
+        scripts support (`categorical_features` only `'auto'` or None,
+        `dropna_from_series` a bool, `differentiation` an int of at least
+        1).
     estimator : str, default None
         Name of the scikit-learn compatible estimator. For `'foundation'`
         plans it is the Hugging Face model ID of the foundation model
@@ -369,7 +381,9 @@ class ForecastPlan(DisplayMixin, BaseModel):
         plans they are passed to `FoundationModel` on top of the default
         `context_length` of the model, and cannot contain `model_id`.
     steps : int
-        Number of steps ahead to predict. Must be greater than 0.
+        Number of steps ahead to predict: an integer of at least 1. An
+        integral float (`12.0`) is stored as an int; a bool, a string or a
+        non-integer raises.
     frequency : str, default None
         Pandas frequency string for the series.
     end_train : str, default None
@@ -395,6 +409,9 @@ class ForecastPlan(DisplayMixin, BaseModel):
         Whether to include exogenous variables.
     preprocessing_steps : list
         Ordered list of preprocessing steps required before forecasting.
+        A blocking step is written into the script, so its action and
+        snippet must be one of those `plan()` generates (the steps of
+        0.3.1 included).
     warnings : list
         Human-readable warnings about the plan.
     llm_refined_fields : list
@@ -435,15 +452,34 @@ class ForecastPlan(DisplayMixin, BaseModel):
     llm_refined_fields: list[str] = Field(default_factory=list)
     explanation: str
 
+    @field_validator("steps", mode="before")
+    @classmethod
+    def _check_steps(cls, value: Any) -> int:
+        """
+        Apply `validate_steps` before pydantic's coercion: an integral float
+        (`12.0`) becomes an int, and a bool, a string or a non-integer is
+        rejected instead of being coerced.
+        """
+        return validate_steps(value)
+
     @model_validator(mode="after")
     def _check_plan_inputs(self) -> ForecastPlan:
         """
         Validate the inputs that reach the generated script, so a plan built
-        by hand or loaded from JSON cannot name an estimator the script
-        cannot import (or write an arbitrary name into it), an interval or a
-        metric that would fail inside it, or a foundation model it would
-        fail to load or predict with.
+        by hand or loaded from JSON cannot name a forecaster or an estimator
+        the script cannot import (or write an arbitrary name into it), hold
+        forecaster arguments or blocking preprocessing steps outside the
+        closed sets the script templates accept, or carry an interval, a
+        metric or a foundation model that would fail inside the script.
         """
+        validate_forecaster(self.forecaster, self.task_type)
+        validate_forecaster_kwargs(self.forecaster_kwargs, self.forecaster)
+        for step in self.preprocessing_steps:
+            validate_preprocessing_step(
+                action       = step.action,
+                code_snippet = step.code_snippet,
+                blocking     = step.blocking,
+            )
         validate_estimator(
             estimator        = self.estimator,
             estimator_kwargs = self.estimator_kwargs,

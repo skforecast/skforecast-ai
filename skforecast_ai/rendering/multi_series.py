@@ -22,10 +22,13 @@ from ._helpers import (
     _emit_reshape_exog_long_to_dict,
     _emit_series_dict,
     _emit_train_test_split_multiseries,
+    _format_int,
     _format_lags,
     _get_estimator_constructor,
+    _get_interval_method_literal,
     _get_interval_repr,
     _get_target_str,
+    _get_transformer_constructor,
 )
 
 
@@ -57,7 +60,7 @@ def _emit_forecaster_creation_multi(
     if forecaster_class == "ForecasterDirectMultiVariate":
         level = _get_target_str(profile)
         forecaster_kwargs.append(("level", repr(level)))
-        forecaster_kwargs.append(("steps", str(plan.steps)))
+        forecaster_kwargs.append(("steps", _format_int(plan.steps, "steps")))
 
     forecaster_kwargs.append(("lags", _format_lags(lags)))
     if window_features:
@@ -67,21 +70,23 @@ def _emit_forecaster_creation_multi(
 
     if forecaster_class == "ForecasterRecursiveMultiSeries":
         encoding = kwargs.get("encoding", "ordinal")
-        forecaster_kwargs.append(("encoding", f"'{encoding}'"))
+        forecaster_kwargs.append(("encoding", repr(encoding)))
     
     if transformer_series is not None:
-        forecaster_kwargs.append(("transformer_series", f"{transformer_series}()"))
+        forecaster_kwargs.append(
+            ("transformer_series", _get_transformer_constructor(transformer_series))
+        )
     if transformer_exog is not None and use_exog:
         forecaster_kwargs.append(("transformer_exog", "transformer_exog"))
     if categorical_features is not None:
         if forecaster_class == "ForecasterRecursiveMultiSeries" or use_exog:
             forecaster_kwargs.append(
-                ("categorical_features", f"'{categorical_features}'")
+                ("categorical_features", repr(categorical_features))
             )
     if differentiation is not None:
-        forecaster_kwargs.append(("differentiation", str(differentiation)))
+        forecaster_kwargs.append(("differentiation", repr(differentiation)))
     if dropna is not None:
-        forecaster_kwargs.append(("dropna_from_series", str(dropna)))
+        forecaster_kwargs.append(("dropna_from_series", repr(dropna)))
 
     _emit_aligned_kwargs(
         lines,
@@ -209,12 +214,14 @@ def render_forecast_multi_series(
         core_lines.append("")
 
         core_lines.append("# Predict intervals")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if plan.use_exog and exog_columns:
             predict_kwargs.append(("exog", exog_pred_var))
-        predict_kwargs.append(("method", f"'{plan.interval_method}'"))
+        predict_kwargs.append(
+            ("method", _get_interval_method_literal(plan.interval_method))
+        )
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(
             core_lines, "predictions = forecaster.predict_interval(", predict_kwargs
@@ -229,7 +236,7 @@ def render_forecast_multi_series(
             core_lines.append(f"forecaster.fit(series={series_fit_var})")
         core_lines.append("")
         core_lines.append("# Predict")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         if plan.use_exog and exog_columns:
             core_lines.append(
                 f"predictions = forecaster.predict("
@@ -378,12 +385,14 @@ def render_forecast_multivariate(
 
         core_lines.append("")
         core_lines.append("# Predict intervals")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if use_exog:
             predict_kwargs.append(("exog", exog_pred_expr))
-        predict_kwargs.append(("method", f"'{plan.interval_method}'"))
+        predict_kwargs.append(
+            ("method", _get_interval_method_literal(plan.interval_method))
+        )
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(
             core_lines, "predictions = forecaster.predict_interval(", predict_kwargs
@@ -399,7 +408,7 @@ def render_forecast_multivariate(
             core_lines.append(f"forecaster.fit(series={series_fit_expr})")
         core_lines.append("")
         core_lines.append("# Predict")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         if use_exog:
             core_lines.append(
                 f"predictions = forecaster.predict("

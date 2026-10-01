@@ -8,7 +8,7 @@ import pytest
 
 
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.schemas import CodeGenerationResult
+from skforecast_ai.schemas import CodeGenerationResult, PreprocessingStep
 
 from tests.fixtures_assistant import df_single, df_multi_long, df_no_exog
 
@@ -382,3 +382,53 @@ def test_forecast_code_ValueError_when_neither_steps_nor_plan():
 
     with pytest.raises(ValueError, match="`steps` is required"):
         assistant.forecast_code(data=df_single, target="sales", date_column="date")
+
+
+def test_forecast_code_output_when_received_plan_is_valid():
+    """
+    Test that a valid received plan is used as it is: the result refers to
+    the object the caller passed.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile=profile, steps=5, estimator="Ridge")
+
+    result = assistant.forecast_code(profile=profile, plan=plan)
+
+    assert result.plan is plan
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"steps": 5.0},
+        {"preprocessing_steps": [
+            {
+                "action": "drop_duplicates",
+                "reason": "Timestamps repeated in identical rows.",
+                "code_snippet": "data = data[~data.index.duplicated(keep='first')]",
+                "blocking": True,
+            }
+        ]},
+    ],
+    ids=["steps as an integral float", "preprocessing steps as dicts"],
+)
+def test_forecast_code_output_when_received_plan_holds_values_of_another_type(update):
+    """
+    Test that a received plan whose values validation converts to another
+    type (set with `model_copy`) is replaced by the validated copy, so the
+    script is rendered from the validated values.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile=profile, steps=5, estimator="Ridge").model_copy(
+        update=update
+    )
+
+    result = assistant.forecast_code(profile=profile, plan=plan)
+
+    assert result.plan is not plan
+    assert type(result.plan.steps) is int
+    assert all(
+        isinstance(step, PreprocessingStep) for step in result.plan.preprocessing_steps
+    )

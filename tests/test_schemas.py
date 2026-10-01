@@ -47,6 +47,27 @@ def test_data_profile_invalid_index_type():
         )
 
 
+def test_data_profile_ValidationError_when_frequency_not_an_alias():
+    """
+    Test DataProfile loaded from JSON raises ValidationError when its
+    frequency, which the generated script writes into `asfreq()`, is not a
+    pandas frequency alias.
+    """
+    fields = {
+        "n_series": 1,
+        "series_lengths": {"y": 100},
+        "target": "y",
+        "index_type": "datetime",
+        "frequency": "D') or ('D",
+    }
+    err_msg = re.escape(
+        "`frequency` must be a pandas frequency alias made of letters, digits "
+        "and hyphens"
+    )
+    with pytest.raises(ValidationError, match=err_msg):
+        DataProfile.model_validate_json(json.dumps(fields))
+
+
 def test_forecast_plan_invalid_task_type():
     """
     Test ForecastPlan raises ValidationError when task_type is not a valid
@@ -122,15 +143,57 @@ def test_forecast_plan_ValidationError_when_foundation_model_invalid(
             {"estimator": "Ridge", "interval": [5, 95]},
             "`interval` must be `[lower, upper]` with 0 < lower < upper < 1",
         ),
+        (
+            {"estimator": "Ridge", "forecaster": "ForecasterRecursive\nimport os"},
+            "is not a supported forecaster",
+        ),
+        (
+            {"estimator": "Ridge", "forecaster_kwargs": {"encoding": "ordinal"}},
+            "`forecaster_kwargs` of 'ForecasterRecursive' cannot contain "
+            "['encoding']",
+        ),
+        (
+            {
+                "estimator": "Ridge",
+                "forecaster_kwargs": {"dropna_from_series": "False or True"},
+            },
+            "`forecaster_kwargs['dropna_from_series']` must be a bool",
+        ),
+        (
+            {
+                "estimator": "Ridge",
+                "preprocessing_steps": [
+                    {
+                        "action": "drop_duplicates",
+                        "reason": "Injected.",
+                        "code_snippet": "import os",
+                        "blocking": True,
+                    }
+                ],
+            },
+            "The blocking preprocessing step 'drop_duplicates' is not one of "
+            "the steps the scripts can contain",
+        ),
     ],
-    ids=["estimator", "estimator_kwargs key", "metric", "interval"],
+    ids=[
+        "estimator",
+        "estimator_kwargs key",
+        "metric",
+        "interval",
+        "forecaster",
+        "forecaster_kwargs key",
+        "forecaster_kwargs value",
+        "blocking preprocessing snippet",
+    ],
 )
 def test_forecast_plan_ValidationError_when_script_inputs_invalid(update, match):
     """
     Test that a machine-learning ForecastPlan built by hand or loaded from
-    JSON is validated like the plans built by `plan()`: the estimator must
-    be supported, the keyword argument keys valid parameter names, and the
-    metrics and interval valid, since all of them reach the script.
+    JSON is validated like the plans built by `plan()`: the forecaster and
+    the estimator must be supported, the keyword argument keys valid
+    parameter names, the forecaster arguments and the blocking
+    preprocessing steps within their closed sets, and the metrics and
+    interval valid, since all of them reach the script.
     """
     fields = {
         "task_type": "single_series",
@@ -141,6 +204,117 @@ def test_forecast_plan_ValidationError_when_script_inputs_invalid(update, match)
     }
     with pytest.raises(ValidationError, match=re.escape(match)):
         ForecastPlan.model_validate(json.loads(json.dumps(fields)))
+
+
+def test_forecast_plan_output_when_loaded_with_blocking_steps_of_version_0_3_1():
+    """
+    Test that a plan saved by skforecast-ai 0.3.1, with the three blocking
+    preprocessing steps it could generate and the forecaster arguments it
+    built, still loads.
+    """
+    fields = {
+        "task_type": "single_series",
+        "forecaster": "ForecasterRecursive",
+        "forecaster_kwargs": {
+            "lags": [1, 2, 3, 7],
+            "window_features": [{"stats": ["mean", "std"], "window_size": 7}],
+            "calendar_features": {
+                "features": ["day_of_week", "weekend", "month"],
+                "encoding": "cyclical",
+            },
+            "transformer_y": "StandardScaler",
+            "transformer_exog": "StandardScaler",
+            "categorical_features": "auto",
+            "dropna_from_series": False,
+        },
+        "estimator": "Ridge",
+        "estimator_kwargs": {},
+        "steps": 12,
+        "frequency": "D",
+        "interval": [0.1, 0.9],
+        "interval_method": "bootstrapping",
+        "use_exog": True,
+        "preprocessing_steps": [
+            {
+                "action": "drop_duplicates",
+                "reason": "Duplicate timestamps cause errors in skforecast.",
+                "code_snippet": "data = data[~data.index.duplicated(keep='first')]",
+                "blocking": True,
+            },
+            {
+                "action": "provide_datetime_index",
+                "reason": "Provide a DatetimeIndex or date column for "
+                          "time-based features.",
+                "code_snippet": (
+                    "# Set a DatetimeIndex:\n"
+                    "# data.index = pd.date_range(start=..., "
+                    "periods=len(data), freq=...)"
+                ),
+                "blocking": True,
+            },
+            {
+                "action": "encode_target",
+                "reason": "The target column is not numeric. Regression "
+                          "forecasters require a numeric target.",
+                "code_snippet": "# Convert target to numeric",
+                "blocking": True,
+            },
+            {
+                "action": "handle_missing_values",
+                "reason": "Impute or handle missing values before training.",
+                "code_snippet": "# Option 1: Use dropna_from_series=True",
+                "blocking": False,
+            },
+        ],
+        "explanation": "Plan saved by 0.3.1.",
+    }
+
+    plan = ForecastPlan.model_validate_json(json.dumps(fields))
+
+    assert [step.action for step in plan.preprocessing_steps] == [
+        "drop_duplicates",
+        "provide_datetime_index",
+        "encode_target",
+        "handle_missing_values",
+    ]
+    assert plan.forecaster_kwargs == fields["forecaster_kwargs"]
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [True, "12", 12.5],
+    ids=lambda steps: f"steps: {steps!r}",
+)
+def test_forecast_plan_ValidationError_when_steps_not_integer(steps):
+    """
+    Test ForecastPlan raises ValidationError for a bool, a string or a
+    non-integer `steps`, which pydantic would otherwise coerce.
+    """
+    err_msg = re.escape(
+        f"`steps` must be an integer greater than or equal to 1, got {steps!r}."
+    )
+    with pytest.raises(ValidationError, match=err_msg):
+        ForecastPlan(
+            task_type   = "single_series",
+            forecaster  = "ForecasterRecursive",
+            steps       = steps,
+            explanation = "Test.",
+        )
+
+
+def test_forecast_plan_steps_normalized_when_integral_float():
+    """
+    Test that an integral float `steps` (12.0) is stored as the int 12.
+    """
+    plan = ForecastPlan(
+        task_type   = "single_series",
+        forecaster  = "ForecasterRecursive",
+        steps       = 12.0,
+        explanation = "Test.",
+    )
+
+    assert plan.steps == 12
+    assert type(plan.steps) is int
 
 
 def test_forecast_plan_invalid_steps_zero():

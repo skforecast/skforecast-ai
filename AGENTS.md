@@ -128,6 +128,11 @@ Follow `.github/instructions/testing.instructions.md`. In short:
   `feature/<slug>`, `fix/<slug>`, `docs/<slug>` or `chore/<slug>`. Never push
   to `main` or a release branch (`X.Y.x`), never force push, and do not open
   a pull request unless asked.
+- Commits and pull requests carry only the author's identity: no
+  `Co-Authored-By` trailer for an AI agent, no session link trailer and no
+  "Generated with" line.
+  The author identity comes from git config or `GIT_AUTHOR_*` and
+  `GIT_COMMITTER_*`; do not override it.
 - Any user-visible change (API, CLI output, generated scripts, warnings)
   gets an entry in `docs/releases/releases.md` under the unreleased version.
 - A change to `llm/context.py`, `llm/prompts.py` or the rendered

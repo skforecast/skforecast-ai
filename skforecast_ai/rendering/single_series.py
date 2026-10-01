@@ -18,10 +18,15 @@ from ._helpers import (
     _emit_preprocessing_steps,
     _emit_production_note,
     _emit_split_dates,
+    _format_int,
     _format_lags,
     _get_estimator_constructor,
+    _get_forecaster_import,
+    _get_interval_method_literal,
     _get_interval_repr,
     _get_target_str,
+    _get_transformer_constructor,
+    _SINGLE_SERIES_FORECASTERS,
 )
 
 
@@ -32,6 +37,8 @@ def _emit_forecaster_creation_single(
 ) -> None:
     """Append ForecasterRecursive/ForecasterDirect construction code."""
 
+    # The class name is written only once the closed import map knows it.
+    _get_forecaster_import(plan.forecaster, _SINGLE_SERIES_FORECASTERS)
     is_direct = plan.forecaster == "ForecasterDirect"
     forecaster_class = plan.forecaster
     estimator_str = _get_estimator_constructor(plan.estimator, plan.estimator_kwargs)
@@ -53,7 +60,7 @@ def _emit_forecaster_creation_single(
 
     forecaster_kwargs.append(("estimator", estimator_str))
     if is_direct:
-        forecaster_kwargs.append(("steps", str(plan.steps)))
+        forecaster_kwargs.append(("steps", _format_int(plan.steps, "steps")))
     forecaster_kwargs.append(("lags", _format_lags(lags)))
 
     if window_features:
@@ -61,15 +68,17 @@ def _emit_forecaster_creation_single(
     if calendar_features:
         forecaster_kwargs.append(("calendar_features", "calendar_features"))
     if transformer_y is not None:
-        forecaster_kwargs.append(("transformer_y", f"{transformer_y}()"))
+        forecaster_kwargs.append(
+            ("transformer_y", _get_transformer_constructor(transformer_y))
+        )
     if transformer_exog is not None and plan.use_exog and exog_columns:
         forecaster_kwargs.append(("transformer_exog", "transformer_exog"))
     if categorical_features is not None:
-        forecaster_kwargs.append(("categorical_features", f"'{categorical_features}'"))
+        forecaster_kwargs.append(("categorical_features", repr(categorical_features)))
     if differentiation is not None:
-        forecaster_kwargs.append(("differentiation", str(differentiation)))
+        forecaster_kwargs.append(("differentiation", repr(differentiation)))
     if dropna is not None:
-        forecaster_kwargs.append(("dropna_from_series", str(dropna)))
+        forecaster_kwargs.append(("dropna_from_series", repr(dropna)))
 
     _emit_aligned_kwargs(
         lines,
@@ -150,12 +159,14 @@ def render_forecast_single_series(
         core_lines.append("")
 
         core_lines.append("# Predict intervals")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if use_exog:
             predict_kwargs.append(("exog", exog_pred))
-        predict_kwargs.append(("method", f"'{plan.interval_method}'"))
+        predict_kwargs.append(
+            ("method", _get_interval_method_literal(plan.interval_method))
+        )
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(core_lines, "predictions = forecaster.predict_interval(", predict_kwargs)
     else:
@@ -169,7 +180,7 @@ def render_forecast_single_series(
             core_lines.append(f"forecaster.fit(y={train_var}[{repr(target)}])")
         core_lines.append("")
         core_lines.append("# Predict")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         if use_exog:
             core_lines.append(
                 f"predictions = forecaster.predict(steps=steps, exog={exog_pred})"

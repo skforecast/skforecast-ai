@@ -5,7 +5,9 @@
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
 
+import numbers
 from typing import Any
+import pandas as pd
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
@@ -21,6 +23,9 @@ from ._helpers import (
     _emit_reshape_exog_long_to_dict,
     _emit_reshape_series_long_to_dict,
     _emit_series_dict,
+    _format_bool,
+    _format_int,
+    _get_interval_method_literal,
     _get_numeric_exog,
     _get_target_str,
 )
@@ -39,31 +44,77 @@ from .statistical import (
 )
 
 
+def _format_initial_train_size(initial_train_size: Any) -> str:
+    """
+    Render the `initial_train_size` of a `TimeSeriesFold` as a code literal.
+
+    An integer (numpy integers included) is written as a plain number and a
+    date string with `repr()`. A pandas Timestamp is rebuilt in the script
+    from the `repr()` of its string form, with a time zone kept as its UTC
+    offset, for example `pd.Timestamp('2020-03-31 00:00:00')`: `str()` alone
+    gives a line that does not compile, and the `repr()` of a Timestamp
+    writes the name of its time zone between quotes without escaping it, so
+    a name with a quote would close the string. Any other value is written
+    with `repr()`.
+
+    Parameters
+    ----------
+    initial_train_size : int, str, pandas Timestamp, None
+        Value stored in the `TimeSeriesFold`.
+
+    Returns
+    -------
+    literal : str
+        Code literal for the `initial_train_size` argument.
+    """
+
+    if isinstance(initial_train_size, numbers.Integral) and not isinstance(
+        initial_train_size, bool
+    ):
+        return str(int(initial_train_size))
+    if isinstance(initial_train_size, pd.Timestamp):
+        return f"pd.Timestamp({str(initial_train_size)!r})"
+    return repr(initial_train_size)
+
+
 def _emit_cv_configuration(
     lines: list[str],
     cv: Any,
 ) -> None:
     """Append TimeSeriesFold construction code."""
 
+    # `TimeSeriesFold` validates its arguments when it is created, not when
+    # an attribute is assigned later, so each value is checked again here.
     lines.append("# Time series cross-validation configuration")
     cv_kwargs: list[tuple[str, str]] = []
-    cv_kwargs.append(("steps", str(cv.steps)))
-    its = cv.initial_train_size
-    its_repr = repr(its) if isinstance(its, str) else str(its)
-    cv_kwargs.append(("initial_train_size", its_repr))
+    cv_kwargs.append(("steps", _format_int(cv.steps, "steps")))
+    cv_kwargs.append(
+        ("initial_train_size", _format_initial_train_size(cv.initial_train_size))
+    )
     if cv.fold_stride is not None and cv.fold_stride != cv.steps:
-        cv_kwargs.append(("fold_stride", str(cv.fold_stride)))
-    cv_kwargs.append(("refit", str(cv.refit)))
+        cv_kwargs.append(("fold_stride", _format_int(cv.fold_stride, "fold_stride")))
+    if isinstance(cv.refit, bool):
+        cv_kwargs.append(("refit", repr(cv.refit)))
+    else:
+        cv_kwargs.append(("refit", _format_int(cv.refit, "refit")))
     if cv.refit:
-        cv_kwargs.append(("fixed_train_size", str(cv.fixed_train_size)))
+        cv_kwargs.append(
+            ("fixed_train_size", _format_bool(cv.fixed_train_size, "fixed_train_size"))
+        )
     if cv.gap != 0:
-        cv_kwargs.append(("gap", str(cv.gap)))
+        cv_kwargs.append(("gap", _format_int(cv.gap, "gap")))
     if cv.skip_folds is not None:
-        cv_kwargs.append(("skip_folds", str(cv.skip_folds)))
+        if isinstance(cv.skip_folds, list):
+            skip_folds = [_format_int(fold, "skip_folds") for fold in cv.skip_folds]
+            cv_kwargs.append(("skip_folds", f"[{', '.join(skip_folds)}]"))
+        else:
+            cv_kwargs.append(("skip_folds", _format_int(cv.skip_folds, "skip_folds")))
     if cv.allow_incomplete_fold is False:
         cv_kwargs.append(("allow_incomplete_fold", "False"))
     if cv.differentiation is not None:
-        cv_kwargs.append(("differentiation", str(cv.differentiation)))
+        cv_kwargs.append(
+            ("differentiation", _format_int(cv.differentiation, "differentiation"))
+        )
 
     _emit_aligned_kwargs(lines, "cv = TimeSeriesFold(", cv_kwargs)
     lines.append("")
@@ -100,7 +151,9 @@ def _emit_backtesting_call(
     if plan.interval is not None:
         bt_kwargs.append(("interval", repr(plan.interval)))
         if plan.interval_method not in (None, "bootstrapping"):
-            bt_kwargs.append(("interval_method", f"'{plan.interval_method}'"))
+            bt_kwargs.append(
+                ("interval_method", _get_interval_method_literal(plan.interval_method))
+            )
     bt_kwargs.append(("n_jobs", "'auto'"))
     bt_kwargs.append(("verbose", "False"))
     bt_kwargs.append(("show_progress", "True"))

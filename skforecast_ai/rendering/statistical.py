@@ -6,7 +6,9 @@
 ################################################################################
 
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from .._validation import validate_kwarg_names
 from ._helpers import (
+    _comment_text,
     _emit_aligned_kwargs,
     _emit_end_train,
     _emit_future_exog_index_setup,
@@ -17,6 +19,7 @@ from ._helpers import (
     _emit_preprocessing_steps,
     _emit_production_note,
     _emit_split_dates,
+    _format_int,
     _get_interval_repr,
     _get_numeric_exog,
     _get_seasonal_period,
@@ -47,10 +50,10 @@ def _emit_exog_features_statistical(
     None
     """
     if profile.categorical_exog:
-        lines.append(
+        lines.append(_comment_text(
             f"# Categorical exog excluded ({', '.join(profile.categorical_exog)}): "
             f"statistical models only accept numeric exogenous variables"
-        )
+        ))
     lines.append(f"exog_features = {repr(_get_numeric_exog(profile))}")
 
 
@@ -65,6 +68,7 @@ def _emit_forecaster_creation_statistical(
     arima_defaults: dict[str, object] = {"order": None, "seasonal_order": None}
     if m is not None:
         arima_defaults["m"] = m
+    validate_kwarg_names(plan.estimator_kwargs)
     arima_kwargs = {**arima_defaults, **(plan.estimator_kwargs or {})}
     arima_params = ", ".join(f"{k}={repr(v)}" for k, v in arima_kwargs.items())
     estimator_str = f"Arima({arima_params})"
@@ -138,7 +142,7 @@ def render_forecast_statistical(
     if plan.interval_method is not None:
         interval_repr = _get_interval_repr(plan)
         core_lines.append("# Predict intervals (native)")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if use_exog:
@@ -149,7 +153,7 @@ def render_forecast_statistical(
         )
     else:
         core_lines.append("# Predict")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         if use_exog:
             core_lines.append(
                 f"predictions = forecaster.predict(steps=steps, exog={exog_pred})"

@@ -19,6 +19,10 @@ Claude Code harness in `.claude/`.
 
 ## Git
 
+- Attribution is off (`attribution` in `settings.json`), and the Bash guard
+  blocks a commit message or PR body that names Claude or Anthropic in a
+  `Co-Authored-By` trailer, carries a `Claude-Session` trailer or says
+  "Generated with Claude Code".
 - Local: no commits unless asked (`settings.local.json` makes
   `git commit` and `git push` ask for confirmation).
 - Cloud: create `<type>/<slug>` (type `feature`, `fix`, `docs` or `chore`)

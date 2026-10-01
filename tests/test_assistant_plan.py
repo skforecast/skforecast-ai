@@ -90,6 +90,27 @@ def test_plan_ValueError_when_lags_invalid(lags, match):
         assistant.plan(profile, steps=10, lags=lags)
 
 
+@pytest.mark.parametrize(
+    "steps",
+    [0, True, "12", 12.5],
+    ids=lambda steps: f"steps: {steps!r}",
+)
+def test_plan_ValueError_when_steps_not_positive_integer(steps):
+    """
+    Test that plan() rejects a horizon that is not an integer greater than
+    or equal to 1 before deriving the plan, instead of coercing a bool to a
+    one-step plan or failing later.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"`steps` must be an integer greater than or equal to 1, got {steps!r}."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=steps)
+
+
 def test_plan_ValueError_when_window_features_duplicate_pairs():
     """
     Test that plan() rejects explicit window_features that pair the same
@@ -130,6 +151,23 @@ def test_plan_output_when_single_series():
     assert plan.steps == 10
     assert plan.task_type == "single_series"
     assert plan.forecaster == profile.forecaster
+
+
+def test_plan_output_when_steps_is_integral_float():
+    """
+    Test that plan() accepts an integral float horizon with a direct
+    forecaster and stores it as an int, in the plan and in the forecaster
+    arguments.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan = assistant.plan(profile, steps=12.0, forecaster="ForecasterDirect")
+
+    assert plan.steps == 12
+    assert type(plan.steps) is int
+    assert plan.forecaster_kwargs["steps"] == 12
+    assert type(plan.forecaster_kwargs["steps"]) is int
 
 
 def test_plan_output_when_forecaster_override():

@@ -1,8 +1,8 @@
 # Preparativos para el servidor MCP de skforecast-ai
 
-Estado a 30/09/2026. Base: rama `0.4.x`, con la sección 2 commiteada en `f87e89f`. La auditoría de la fase 1 (resultados en las secciones 4, 5, 7 y 9, y propuestas en la 10) está en la rama `feature/mcp-audit` y no toca `skforecast_ai/`. Este documento sirve para retomar el trabajo en otra sesión: qué se decidió, qué está hecho, qué falta y en qué orden, y cómo verificarlo.
+Estado a 30/09/2026, actualizado el 01/10/2026 con la fase 2 (sección 11). Base: rama `0.4.x`, con la sección 2 commiteada en `f87e89f`. La auditoría de la fase 1 (resultados en las secciones 4, 5, 7 y 9, y propuestas en la 10) está en la rama `feature/mcp-audit` y no toca `skforecast_ai/`. Este documento sirve para retomar el trabajo en otra sesión: qué se decidió, qué está hecho, qué falta y en qué orden, y cómo verificarlo.
 
-**Cómo leerlo.** Las secciones 1 a 8 son el plan original. Cada punto pendiente lleva ahora el resultado de contrastarlo con el código, marcado como **Verificado**, **Corregido** o **Nuevo**. La sección 9 recoge lo que la auditoría encontró fuera de ese plan. La sección 10 propone decisiones y un orden de PRs, y está pendiente de revisión.
+**Cómo leerlo.** Las secciones 1 a 8 son el plan original. Cada punto pendiente lleva ahora el resultado de contrastarlo con el código, marcado como **Verificado**, **Corregido** o **Nuevo**. La sección 9 recoge lo que la auditoría encontró fuera de ese plan. La sección 10 propone decisiones y un orden de PRs, y está pendiente de revisión. La sección 11 recoge lo implementado en la fase 2 (PRs 0 a 4) y sus desviaciones respecto a la 10.
 
 **Cómo se hizo la fase 1.**
 - Once auditores independientes contrastaron cada punto con el código y reprodujeron los casos con scripts propios. Un segundo agente intentó refutar cada resultado; de unas 200 comprobaciones solo corrigió seis, y la más importante es la de `ForecasterStats` (sección 2).
@@ -441,7 +441,7 @@ Lo que no estaba en las secciones 4 y 5. Severidad para el MCP: **B** = bloquea 
 
 ## 10. Decisiones propuestas, pendientes de revisión
 
-Nada de esta sección está implementado: es una propuesta para revisar. Los números de PR remiten a la tabla de 10.8.
+Salvo los PRs 0 a 4, hechos en la fase 2 (sección 11), nada de esta sección está implementado: es una propuesta para revisar. Los números de PR remiten a la tabla de 10.8.
 
 **Criterio de "la opción más conservadora"**, aplicado en este orden:
 1. Cerrar en caso de duda todo lo que toca la seguridad.
@@ -804,7 +804,7 @@ Ordenadas por impacto, con la propuesta entre paréntesis.
 
    (Propuesta: mantener la regla literal y una sola ejecución.)
 3. **ForecasterStats:** ¿mantener la ventana fija que se ejecuta hoy, escrita explícitamente (no cambian las métricas), o pasar a ventana creciente como dice `cv_config`, lo que cambia las métricas? (Propuesta: mantener, y decidir aparte.)
-4. **Nombres con saltos de línea:** ¿rechazarlos solo en MCP (propuesto) o también en el núcleo? ¿Rechazar también `<` y `>`?
+4. **Nombres con saltos de línea:** ¿rechazarlos solo en MCP (propuesto) o también en el núcleo? ¿Rechazar también `<` y `>`? (Primera parte decidida en la fase 2: solo en MCP, ver la sección 11. La de `<` y `>` sigue abierta.)
 5. **CSV con formatos de fecha mezclados:** ¿rechazar (rompe `forecast()` que hoy funciona) o escribir `format='mixed'` en el script? ¿Opciones de lectura (`sep`, `decimal`, `encoding`, `dayfirst`) en `profile()`, el CLI y el MCP? (Propuesta: rechazar en la v1 y pedir ISO 8601 en el skill; las opciones de lectura, después.)
 6. **NaN en exógenas futuras o en la última ventana con estimadores que los toleran:** ¿aviso (propuesto) o error?
 7. **Datos frente a perfil guardado (SIL-1):** ¿refrescar con nota (propuesto) o error ante cualquier diferencia? ¿Una exógena nueva es error (propuesto)?
@@ -823,7 +823,7 @@ Ordenadas por impacto, con la propuesta entre paréntesis.
 13. **Candidatos inválidos en el `compare` de MCP:** ¿como fallos (propuesto, igual que en Python) o rechazados antes de ejecutar?
 14. **Entrega de errores:** ¿`ToolError` con JSON (propuesto) o `CallToolResult(is_error=True)` con `structured_content`?
 15. **Alias `result` de `ask()`:** ¿hasta 0.5.0 (propuesto) o eliminarlo ya, como anunció la 0.3.0?
-16. **Validador de `ForecastPlan`:**
+16. **Validador de `ForecastPlan`:** (decidida en la fase 2, ver la sección 11)
     - ¿los conjuntos de codificación de skforecast (propuesto) o solo lo que genera `plan()`?
     - ¿`categorical_features` como lista?
     - ¿un baseline con estimador?
@@ -866,3 +866,81 @@ Más preguntas menores:
   - `diagnose()`.
 
 Los scripts de reproducción de la fase 1 estaban en el scratchpad de la sesión y no se conservan. Cada hallazgo de este documento indica los datos y la llamada con que se reprodujo, para poder repetirlo.
+
+## 11. Fase 2: hecho
+
+Bloque de seguridad del MCP: los PRs 0 a 4 de la tabla 10.8, en la rama `fix/mcp-security`, creada desde `0.4.x` (`307de25`, que ya incluye `feature/mcp-audit`). Un commit por PR, en orden. Cada commit lleva su código, sus tests y su entrada en `docs/releases/releases.md` (0.4.0), salvo el PR 0, que es solo documentación. Antes de cada commit se pasaron `/verify` y el subagente `conventions-reviewer`, y en los PRs 1 a 3 también `/security-review`; cualquier prefijo de la rama se puede mergear.
+
+Decisiones del autor aplicadas (10.10):
+- pregunta 4: los nombres de columna no se rechazan en el núcleo; los saltos de línea se rechazarán en el tool `profile` del MCP (PR 18). La segunda parte (rechazar también `<` y `>`) no se decidió y sigue abierta;
+- pregunta 16: los conjuntos de codificación de skforecast, `categorical_features` solo `'auto'` o None, y un baseline con estimador no se rechaza.
+
+| Commit | PR | Contenido |
+|---|---|---|
+| `bd2863e` | 0 | `docs/user-guides/cli-usage.md:108` y `:122` dicen lo que se puede cambiar hoy |
+| `717f209` | 1 | Frontera de render (10.1) |
+| `c81c15c` | 2 | `validate_frequency` en `DataProfile` y sintaxis `owner/name` del id de Foundation |
+| `ffe2165` | 3 | Validación cerrada de `ForecastPlan`, revalidación del plan recibido y `steps` |
+| `eef1da5` | 4 | `compile()` dentro del `try`; `failed_line` y `failed_statement` |
+| `4d68cfa` | 1 (corrección) | Docstring de `_format_initial_train_size` |
+
+Lo que encontraron las revisiones de cada PR se corrigió antes de subirlo. Solo hubo una corrección posterior, `4d68cfa`: la revisión de esta sección vio que el docstring de `_format_initial_train_size` (PR 1) decía que el `repr()` de un Timestamp escribe el nombre del huso sin comillas, cuando lo escribe entre comillas sin escaparlo. El mensaje de `717f209` repite esa frase y no se reescribe, porque ya estaba subido.
+
+**Qué cubre cada capa.**
+- Render (PR 1): ningún valor de un plan, un perfil o un CV llega al script salvo de estas formas:
+  - con `repr()`;
+  - como constante de un mapa cerrado: imports de forecaster por familia de renderer, constructores de transformer, métodos de intervalo y plantillas de preprocesado;
+  - como entero o bool comprobado (`steps` y los campos de `TimeSeriesFold`);
+  - dentro de un comentario, con `_comment_text()`.
+
+  Lo que no está en un mapa lanza `ValueError` al renderizar.
+- Validadores (PRs 2 y 3): un perfil o un plan inválido cargado desde JSON se rechaza al cargarlo. `forecast()`, `forecast_code()`, `backtest()`, `backtest_code()` y `ask()` vuelven a validar el plan recibido.
+- Ejecución (PR 4): un script que no compila también sale como `ForecastExecutionError`, con la línea y la sentencia que fallan.
+- Regresiones: `tests/test_integration_code_injection.py` tiene una por cada vector de ejecución de código de 4.1 y 9.1, en cada plantilla, con datos hostiles construidos con `model_construct`. El payload crea un fichero marcador en `tmp_path`, y el test comprueba que no existe y que el error es el esperado.
+  - Contra `0.4.x` sin parches fallan 78 de sus 80 tests, y 57 crean el marcador.
+  - El resto, sin marcador: los métodos y comandos que solo devuelven el script (lo devolvían con el payload dentro), los casos que en `0.4.x` fallaban antes por otro motivo y la comprobación de rigor `steps=2.9`.
+  - Los 2 que pasan en `0.4.x` son la clave de `estimator_kwargs` en `forecast_code()` y `backtest_code()`, que ya cerraba la validación del resultado.
+
+**Desviaciones respecto a la sección 10, con su motivo.**
+- PR 0: va como primer commit de `fix/mcp-security`, no directo sobre `0.4.x` como decían 10.8 y 10.9, porque el encargo de esta fase pedía un commit por PR, en orden, en una sola rama.
+- PR 1, `initial_train_size` como `pd.Timestamp`: se escribe `pd.Timestamp(<repr de su texto>)` en lugar de `repr()` a secas. El `repr()` de un Timestamp es `Timestamp(...)`, que no existe en el script, y escribe el nombre del huso entre comillas sin escaparlo, así que un nombre con una comilla cierra la cadena (lo señaló `/security-review`; solo se alcanza desde Python). Así la línea compila y sigue siendo un literal.
+- PR 1, campos de `TimeSeriesFold` (`steps`, `fold_stride`, `refit`, `fixed_train_size`, `gap`, `skip_folds`, `differentiation`): pasan por formateadores estrictos de entero y bool, no por `str()`. El fold solo valida en su constructor, y un atributo asignado después llegaba al script (`conventions-reviewer`). Para valores válidos la salida es idéntica byte a byte.
+- PR 1, `int(plan.steps)`: se hace con un formateador estricto, que acepta `12.0` pero rechaza `'5'` y `2.9` en lugar de truncar en silencio.
+- PR 1, imports de forecaster: además del mapa cerrado, cada familia de renderer solo acepta sus forecasters. Cierra más sin cambiar ningún script.
+- PR 1, `interval_method`: el mapa solo tiene `'bootstrapping'` y `'conformal'`, los que se escriben; `'native'` nunca se escribe como método y lanza error si le llega a una plantilla ML.
+- PR 1, plantillas de preprocesado: las cuatro viven como constantes en `_constants.py` y el recomendador las usa, de modo que la generación, el render y el validador comparten una sola fuente.
+- PR 2: la sintaxis `owner/name` se comprueba después del prefijo de skforecast, para que un id no soportado (`'Chronos-2'`) conserve su mensaje. Un test usaba la frecuencia ficticia `'unknown_freq'`, que no es sintaxis de alias; pasa a `'unknown'`, con la misma intención.
+- PR 3, revalidación: el plan se valida a partir de su volcado. Si la validación no cambia ningún valor (comparando también los tipos), se sigue usando el objeto recibido, y `result.plan is plan` se mantiene. Si convierte alguno (`steps=12.0`, un intervalo en cadenas o pasos de preprocesado como dicts, puestos con `model_copy`), se usa la copia validada, para que el script ejecute lo que se comprobó.
+- PR 3, `ask()` con perfil y plan también revalida antes de renderizar: devuelve el script igual que `forecast_code()`.
+- PR 3, `forecaster_kwargs` solo acepta enteros de Python donde espera un entero: un entero de numpy se escribiría como `np.int64(...)` y el plan no se podría guardar en JSON.
+- PR 3, `forecaster_kwargs['steps']` de los forecasters directos se comprueba como entero, pero no se exige que coincida con `plan.steps`: ningún código lo lee, y exigirlo rechazaría bundles que hoy funcionan.
+- PR 3, `steps` como cadena (`'12'`) se rechaza por no ser un entero. Antes pydantic la convertía en `ForecastPlan`, mientras `plan()` fallaba con Direct.
+- PR 3, ajustes de tests que no son goldens: `tests/test_display.py` usaba el nombre antiguo `'ForecasterAutoreg'` en un plan, y el helper de `tests/tests_recommendation/test_backtesting.py` construía planes deliberadamente incoherentes para un helper defensivo; ahora con `model_construct`. Los tests de `_validate_lags` y `_validate_window_features` pasan a `tests/test_validation.py`, y la reexportación desde `_utils.py` tiene un test propio.
+- PR 4: `str(exc)` no cambia; la línea y la sentencia van solo en atributos (criterio 3).
+  - `failed_statement` es la sentencia entera, o solo la cabecera de un `for`, `if` o `with`.
+  - Es solo la línea cuando el código no compila, cuando la línea tiene varias sentencias o en una cláusula de `try` o `match`.
+  - El código se analiza una sola vez, y el árbol se reutiliza para localizar la sentencia.
+
+**Tests.**
+- Suite completa: de 1714 tests (más 1 omitido) en `0.4.x` a 1952 (más 1 omitido), es decir, 238 más.
+- Por commit, con `/verify`: 1714 (PR 0), 1803 (PR 1), 1829 (PR 2), 1934 (PR 3) y 1952 (PR 4).
+- `tests/test_integration_code_injection.py`: 80 tests.
+- Los goldens del LLM no cambian. De los scripts generados solo cambiaron los 2 tests que fijaban la plantilla larga de `drop_duplicates`, que no se había publicado.
+
+**Pendiente o anotado, fuera de esta fase.**
+- `_comment_text` no escapa la categoría Cf (controles bidireccionales). Solo cambia cómo se ve la línea del comentario, no lo que se ejecuta; lo señalaron `/security-review` y `conventions-reviewer`, y el encargo nombra Cc, Zl y Zp.
+- Frontera de confianza (para la documentación del servidor, 10.7): los validadores cubren datos (JSON, CSV, overrides tipados), no objetos de Python hostiles. Una subclase de `str` con `__eq__` y `__repr__` propios pasa por `model_copy`, pero exige ya poder ejecutar Python en el proceso.
+- `backtest()` y `compare()` con un `TimeSeriesFold` cuyo `initial_train_size` es un `pd.Timestamp` siguen fallando antes de renderizar, con un `TypeError` sin envolver de `build_cv_explanation`. `backtest_code()` ya escribe una línea válida. Es de las comprobaciones tempranas (PR 23).
+- El tool `profile` del MCP debe rechazar los saltos de línea en los nombres (pregunta 4; PR 18).
+- La última nota de 4.1 no se cubre en esta fase: un salto de línea en un nombre de columna o en un id de serie puede falsificar etiquetas de sección (`</dataset>`) en el contexto que recibe el LLM de `ask()`. No ejecuta código, y tocarlo exige cambiar `llm/context.py`, que esta fase no debía tocar; va con la pregunta 17 de 10.10 y con el rechazo en el tool `profile`.
+- El PR 5 (jerarquía de excepciones) no se hizo. Sigue abierto cuándo entra: justo después de este bloque o después del servidor, porque toca unos 95 sitios de los mismos ficheros que los PRs 6 a 11 (10.8).
+
+**Pendiente para la fase 3** (PRs 6 a 13 de la tabla 10.8):
+- PR 6: el perfil ordena las filas por fecha antes de inferir, y la entrada del PACF se deduplica y ordena;
+- PR 7: fechas CSV vacías y husos horarios mezclados (los formatos mezclados y el largo sin fecha, aparte);
+- PR 8: frecuencia por serie en formato largo y series que acaban antes;
+- PR 9: ForecasterStats escribe, explica y cuenta el CV que se ejecuta;
+- PR 10: validar las exógenas futuras y compartir el cargador del CLI;
+- PR 11: última ventana del target;
+- PR 12: `describe()` sin las instrucciones del LLM de `ask()`;
+- PR 13: `interval_method` en los backtests multiserie (usará el mapa cerrado de métodos del PR 1).

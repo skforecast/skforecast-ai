@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.execution.forecast_runner import run_forecast
 from skforecast_ai.schemas import ForecastPlan
 
@@ -172,6 +173,24 @@ def test_run_forecast_ValueError_when_estimator_not_supported():
     err_msg = re.escape("'NonExistentEstimator' is not a supported estimator.")
     with pytest.raises(ValueError, match=err_msg):
         run_forecast(data=df_single, profile=profile_single, plan=plan_bad)
+
+
+def test_run_forecast_ForecastExecutionError_when_exog_column_is_missing():
+    """
+    Test that a script failing while it runs (the data lacks the exogenous
+    column of the profile) raises ForecastExecutionError with the line and
+    the statement of the executed code that failed.
+    """
+    data = df_single.rename(columns={"promo": "discount"})
+
+    with pytest.raises(ForecastExecutionError, match=re.escape("KeyError")) as exc_info:
+        run_forecast(data=data, profile=profile_single, plan=plan_single)
+
+    error = exc_info.value
+    statement = "forecaster.fit(y=data_train['sales'], exog=data_train[exog_features])"
+    assert isinstance(error.original_error, KeyError)
+    assert error.failed_statement == statement
+    assert error.generated_code.splitlines()[error.failed_line - 1] == statement
 
 
 

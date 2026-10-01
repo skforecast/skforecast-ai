@@ -3,15 +3,40 @@
 import re
 import warnings
 
+import numpy as np
 import pytest
+from skforecast.preprocessing import CalendarFeatures
+from skforecast.recursive import ForecasterRecursiveMultiSeries
+from sklearn.linear_model import Ridge
 
+from skforecast_ai import _utils as utils_module
 from skforecast_ai import _validation as validation_module
+from skforecast_ai._constants import FORECASTER_TASK_TYPES, SUPPORTED_TRANSFORMERS
+from skforecast_ai.recommendation.baseline import select_baseline_config
+from skforecast_ai.recommendation.calendar import (
+    CALENDAR_FEATURE_RELEVANCE,
+    select_calendar_encoding,
+)
+from skforecast_ai.recommendation.preprocessing import build_forecaster_kwargs
+from skforecast_ai.schemas import DataProfile
 from skforecast_ai._validation import (
+    _CALENDAR_ENCODINGS,
+    _CALENDAR_FEATURES,
+    _FORECASTER_KWARGS_KEYS,
+    _SERIES_ENCODINGS,
+    _validate_lags,
+    _validate_window_features,
     check_estimator_installed,
     validate_estimator,
     validate_estimator_kwargs,
+    validate_forecaster,
+    validate_forecaster_kwargs,
+    validate_frequency,
     validate_interval,
+    validate_kwarg_names,
     validate_metrics,
+    validate_preprocessing_step,
+    validate_steps,
 )
 
 _SUPPORTED = (
@@ -283,3 +308,572 @@ def test_validate_metrics_ValueError_when_metric_not_supported(metric):
     err_msg = re.escape(f"Unknown metric {metric!r}. Supported metrics:")
     with pytest.raises(ValueError, match=err_msg):
         validate_metrics(["mean_absolute_error", metric])
+
+
+# =============================================================================
+# Tests: validate_kwarg_names
+# =============================================================================
+@pytest.mark.parametrize(
+    "key",
+    ["alpha=1); import os; (x", "lambda", "1alpha", "", 3],
+    ids=["code", "keyword", "starts with a digit", "empty", "not a string"],
+)
+def test_validate_kwarg_names_ValueError_when_key_not_parameter_name(key):
+    """
+    Test that a key that is not a string, not an identifier or a Python
+    keyword is rejected, since the keys are written into the script.
+    """
+    err_msg = re.escape(
+        f"`estimator_kwargs` keys must be valid Python parameter names, got {key!r}."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        validate_kwarg_names({key: 1})
+
+
+@pytest.mark.parametrize(
+    "estimator_kwargs",
+    [None, {}, {"alpha": 1.0, "max_depth": 3, "_private": True}],
+    ids=["None", "empty", "parameter names"],
+)
+def test_validate_kwarg_names_output_when_parameter_names(estimator_kwargs):
+    """
+    Test that Python parameter names (and no kwargs at all) pass.
+    """
+    assert validate_kwarg_names(estimator_kwargs) is None
+
+
+# =============================================================================
+# Tests: validate_frequency
+# =============================================================================
+@pytest.mark.parametrize(
+    "frequency",
+    ["D\n", "D ", "D') or (1", "1.5h", "\u00b5s", "", ["D"]],
+    ids=lambda frequency: f"frequency: {frequency!r}",
+)
+def test_validate_frequency_ValueError_when_not_an_alias(frequency):
+    """
+    Test that a frequency with anything other than letters, digits and
+    hyphens is rejected, including a trailing newline or space that
+    `to_offset` would accept.
+    """
+    err_msg = re.escape(
+        f"`frequency` must be a pandas frequency alias made of letters, "
+        f"digits and hyphens, for example 'D', '15min' or 'W-SUN', got "
+        f"{frequency!r}."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        validate_frequency(frequency)
+
+
+@pytest.mark.parametrize(
+    "frequency",
+    [None, "D", "h", "15min", "MS", "W-SUN", "QS-OCT", "-1MS", "unknown"],
+    ids=lambda frequency: f"frequency: {frequency!r}",
+)
+def test_validate_frequency_output_when_alias(frequency):
+    """
+    Test that pandas frequency aliases (and None) pass. The syntax is
+    checked, not whether pandas knows the alias.
+    """
+    assert validate_frequency(frequency) is None
+
+
+# =============================================================================
+# Tests: validate_steps
+# =============================================================================
+@pytest.mark.parametrize(
+    "steps",
+    [True, False, 0, -3, 12.5, "12", float("nan"), None],
+    ids=lambda steps: f"steps: {steps!r}",
+)
+def test_validate_steps_ValueError_when_not_positive_integer(steps):
+    """
+    Test that a bool, a non-integer (a string included) and a value lower
+    than 1 are rejected instead of being coerced.
+    """
+    err_msg = re.escape(
+        f"`steps` must be an integer greater than or equal to 1, got {steps!r}."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        validate_steps(steps)
+
+
+@pytest.mark.parametrize(
+    "steps, expected",
+    [(12, 12), (12.0, 12), (np.int64(5), 5), (1, 1)],
+    ids=lambda steps: f"steps: {steps!r}",
+)
+def test_validate_steps_output_when_integral(steps, expected):
+    """
+    Test that an integer, a numpy integer or an integral float is returned
+    as a Python int.
+    """
+    result = validate_steps(steps)
+
+    assert result == expected
+    assert type(result) is int
+
+
+# =============================================================================
+# Tests: validate_forecaster
+# =============================================================================
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterAutoreg", "ForecasterRecursive\nimport os", None],
+    ids=lambda forecaster: f"forecaster: {forecaster!r}",
+)
+def test_validate_forecaster_ValueError_when_not_supported(forecaster):
+    """
+    Test that a forecaster outside the supported ones is rejected.
+    """
+    err_msg = re.escape(
+        f"{forecaster!r} is not a supported forecaster. Supported forecasters: "
+        f"['ForecasterRecursive', 'ForecasterDirect', "
+        f"'ForecasterRecursiveMultiSeries', 'ForecasterDirectMultiVariate', "
+        f"'ForecasterStats', 'ForecasterFoundation', 'ForecasterEquivalentDate']."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        validate_forecaster(forecaster, "single_series")
+
+
+def test_validate_forecaster_ValueError_when_task_type_does_not_match():
+    """
+    Test that a forecaster whose task type differs from the plan's is
+    rejected, since the script template follows the task type.
+    """
+    err_msg = re.escape(
+        "'ForecasterRecursiveMultiSeries' plans have task_type 'multi_series', "
+        "got task_type='single_series'."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        validate_forecaster("ForecasterRecursiveMultiSeries", "single_series")
+
+
+# =============================================================================
+# Tests: validate_forecaster_kwargs
+# =============================================================================
+@pytest.mark.parametrize(
+    "forecaster, forecaster_kwargs, err_msg",
+    [
+        (
+            "ForecasterRecursive",
+            {"lags": 3, "encoding": "ordinal"},
+            "`forecaster_kwargs` of 'ForecasterRecursive' cannot contain "
+            "['encoding'].",
+        ),
+        (
+            "ForecasterStats",
+            {"lags": 3},
+            "`forecaster_kwargs` of 'ForecasterStats' cannot contain ['lags']. "
+            "Allowed keys: [].",
+        ),
+        (
+            "ForecasterRecursive",
+            {"dropna_from_series": "False or True"},
+            "`forecaster_kwargs['dropna_from_series']` must be a bool, got "
+            "'False or True'.",
+        ),
+        (
+            "ForecasterRecursive",
+            {"categorical_features": ["weekday"]},
+            "`forecaster_kwargs['categorical_features']` must be 'auto' or None, "
+            "got ['weekday'].",
+        ),
+        (
+            "ForecasterRecursive",
+            {"differentiation": True},
+            "`forecaster_kwargs['differentiation']` must be None or an integer "
+            "greater than or equal to 1, got True.",
+        ),
+        (
+            "ForecasterRecursive",
+            {"transformer_y": "MinMaxScaler"},
+            "`forecaster_kwargs['transformer_y']` must be None or one of "
+            "['StandardScaler'], got 'MinMaxScaler'.",
+        ),
+        (
+            "ForecasterRecursiveMultiSeries",
+            {"encoding": "label"},
+            "`forecaster_kwargs['encoding']` must be one of ['ordinal', "
+            "'ordinal_category', 'onehot', None], got 'label'.",
+        ),
+        (
+            "ForecasterRecursive",
+            {"calendar_features": {"features": "['month']", "encoding": None}},
+            "`forecaster_kwargs['calendar_features']['features']` must be a "
+            "non-empty list of calendar features",
+        ),
+        (
+            "ForecasterRecursive",
+            {"calendar_features": {"features": ["month"], "encoding": "sine"}},
+            "`forecaster_kwargs['calendar_features']['encoding']` must be one of "
+            "['cyclical', 'onehot', 'spline', None], got 'sine'.",
+        ),
+        (
+            "ForecasterRecursive",
+            {"calendar_features": {"features": ["month"], "order": 1}},
+            "`forecaster_kwargs['calendar_features']` must be None or a dict "
+            "with the keys 'features' and 'encoding'",
+        ),
+        (
+            "ForecasterRecursive",
+            {"lags": "3"},
+            "`lags` must be an int or a list of ints, got '3'.",
+        ),
+        (
+            "ForecasterDirect",
+            {"steps": 0},
+            "`forecaster_kwargs['steps']` must be an integer greater than or "
+            "equal to 1, got 0.",
+        ),
+        (
+            "ForecasterEquivalentDate",
+            {"offset": "7", "n_offsets": 1},
+            "`forecaster_kwargs['offset']` must be an integer greater than or "
+            "equal to 1, got '7'.",
+        ),
+        (
+            "ForecasterRecursive",
+            {"differentiation": np.int64(1)},
+            "`forecaster_kwargs['differentiation']` must be None or an integer "
+            "greater than or equal to 1, got np.int64(1).",
+        ),
+    ],
+    ids=[
+        "key of another forecaster",
+        "key for a forecaster without arguments",
+        "dropna_from_series string",
+        "categorical_features list",
+        "differentiation bool",
+        "transformer outside the map",
+        "series encoding",
+        "calendar features string",
+        "calendar encoding",
+        "calendar extra key",
+        "lags string",
+        "direct steps",
+        "baseline offset",
+        "numpy integer",
+    ],
+)
+def test_validate_forecaster_kwargs_ValueError_when_outside_closed_set(
+    forecaster, forecaster_kwargs, err_msg
+):
+    """
+    Test that a key that does not apply to the forecaster, or a value
+    outside its closed set or type, is rejected.
+    """
+    with pytest.raises(ValueError, match=re.escape(err_msg)):
+        validate_forecaster_kwargs(forecaster_kwargs, forecaster)
+
+
+@pytest.mark.parametrize(
+    "forecaster, forecaster_kwargs",
+    [
+        (
+            "ForecasterRecursive",
+            {
+                "lags": [1, 2, 3, 7],
+                "window_features": [{"stats": ["mean", "std"], "window_size": 7}],
+                "calendar_features": {
+                    "features": ["day_of_week", "month"],
+                    "encoding": "cyclical",
+                },
+                "transformer_y": "StandardScaler",
+                "transformer_exog": "StandardScaler",
+                "categorical_features": "auto",
+                "dropna_from_series": False,
+                "differentiation": 1,
+            },
+        ),
+        (
+            "ForecasterDirect",
+            {"lags": 7, "steps": 12, "calendar_features": None, "transformer_y": None},
+        ),
+        (
+            "ForecasterRecursiveMultiSeries",
+            {"lags": 7, "encoding": None, "transformer_series": "StandardScaler"},
+        ),
+        ("ForecasterDirectMultiVariate", {"lags": 7, "steps": 5}),
+        ("ForecasterStats", {}),
+        ("ForecasterFoundation", {}),
+        ("ForecasterEquivalentDate", {"offset": 7, "n_offsets": 1}),
+    ],
+    ids=lambda x: f"{x}",
+)
+def test_validate_forecaster_kwargs_output_when_valid(forecaster, forecaster_kwargs):
+    """
+    Test that the arguments `plan()` builds for each forecaster, and the
+    values skforecast accepts for them, pass.
+    """
+    assert validate_forecaster_kwargs(forecaster_kwargs, forecaster) is None
+
+
+# =============================================================================
+# Tests: validate_preprocessing_step
+# =============================================================================
+def test_validate_preprocessing_step_ValueError_when_blocking_snippet_unknown():
+    """
+    Test that a blocking step whose snippet is not one of the closed
+    templates is rejected, even under a known action.
+    """
+    err_msg = re.escape(
+        "The blocking preprocessing step 'drop_duplicates' is not one of the "
+        "steps the scripts can contain: its code snippet differs from the one "
+        "`plan()` generates. Build the plan with `plan()`, or remove the step."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        validate_preprocessing_step(
+            action       = "drop_duplicates",
+            code_snippet = "import os",
+            blocking     = True,
+        )
+
+
+@pytest.mark.parametrize(
+    "action, code_snippet, blocking",
+    [
+        ("drop_duplicates", "data = data[~data.index.duplicated(keep='first')]", True),
+        (
+            "drop_duplicates",
+            "data = data.drop_duplicates(subset=[{series_id_column}, "
+            "{date_column}], keep='first')",
+            True,
+        ),
+        (
+            "provide_datetime_index",
+            "# Set a DatetimeIndex:\n# data.index = pd.date_range(start=..., "
+            "periods=len(data), freq=...)",
+            True,
+        ),
+        ("encode_target", "# Convert target to numeric", True),
+        ("handle_gaps", "anything, never written", False),
+    ],
+    ids=["dedup index", "dedup rows", "datetime index", "encode target", "non-blocking"],
+)
+def test_validate_preprocessing_step_output_when_template_or_not_blocking(
+    action, code_snippet, blocking
+):
+    """
+    Test that the blocking templates (those of 0.3.1 included) and any
+    non-blocking step, which is never written into the script, pass.
+    """
+    assert validate_preprocessing_step(action, code_snippet, blocking) is None
+
+
+# =============================================================================
+# Tests: _validate_lags
+# =============================================================================
+@pytest.mark.parametrize(
+    "lags",
+    [None, 1, 7, [1], [1, 2, 7], [7, 2, 1]],
+    ids=lambda lags: f"lags: {lags}",
+)
+def test_validate_lags_passes_when_valid(lags):
+    """
+    Test that None, a positive int and a non-empty list of unique positive
+    ints (in any order) pass validation without raising.
+    """
+    assert _validate_lags(lags) is None
+
+
+@pytest.mark.parametrize(
+    "lags, match",
+    [
+        (0, "must be positive integers"),
+        (-1, "must be positive integers"),
+        (True, "must be an int or a list of ints"),
+        ("3", "must be an int or a list of ints"),
+        (3.0, "must be an int or a list of ints"),
+        ((1, 2), "must be an int or a list of ints"),
+        ([], "must not be an empty list"),
+        ([0, 1], "must be positive integers"),
+        ([-3], "must be positive integers"),
+        ([1.5], "must contain ints only"),
+        ([1, "3"], "must contain ints only"),
+        ([True], "must contain ints only"),
+        ([2, 2], "must not contain duplicates"),
+        ([1, 2, 1], "must not contain duplicates"),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_validate_lags_ValueError_when_invalid(lags, match):
+    """
+    Test that non-positive, non-int, boolean, empty or duplicated lags
+    raise ValueError with a message naming the violated rule.
+    """
+    with pytest.raises(ValueError, match=match):
+        _validate_lags(lags)
+
+
+# =============================================================================
+# Tests: _validate_window_features
+# =============================================================================
+@pytest.mark.parametrize(
+    "window_features",
+    [
+        None,
+        [{"stats": ["mean"], "window_size": 7}],
+        [{"stats": ["mean", "std"], "window_size": 3}],
+        [
+            {"stats": ["mean", "std"], "window_size": 3},
+            {"stats": ["mean"], "window_size": 24},
+            {"stats": ["ratio_min_max", "coef_variation", "ewm"], "window_size": 168},
+        ],
+        [
+            {"stats": ["mean"], "window_size": 7},
+            {"stats": ["mean"], "window_size": 14},
+        ],
+    ],
+    ids=lambda wf: f"window_features: {wf}",
+)
+def test_validate_window_features_passes_when_valid(window_features):
+    """
+    Test that valid window_features configurations (including None,
+    multi-stat scalar-window entries and the same statistic at different
+    window sizes) pass validation without raising.
+    """
+    assert _validate_window_features(window_features) is None
+
+
+@pytest.mark.parametrize(
+    "window_features, match",
+    [
+        ({"stats": ["mean"], "window_size": 7}, "must be a list of dicts"),
+        ([["mean", 7]], "must be a dict"),
+        ([{"stats": ["mean"]}], "missing required key"),
+        ([{"window_size": 7}], "missing required key"),
+        ([{"stats": "mean", "window_size": 7}], "non-empty list"),
+        ([{"stats": [], "window_size": 7}], "non-empty list"),
+        ([{"stats": ["mean", "variance"], "window_size": 7}], "unsupported"),
+        ([{"stats": ["mean"], "window_size": [3, 7]}], "must be a scalar int"),
+        ([{"stats": ["mean"], "window_size": 7.0}], "must be a scalar int"),
+        ([{"stats": ["mean"], "window_size": True}], "must be a scalar int"),
+        ([{"stats": ["mean"], "window_size": 0}], "must be a positive int"),
+        (
+            [
+                {"stats": ["mean"], "window_size": 7},
+                {"stats": ["mean", "std"], "window_size": 7},
+            ],
+            re.escape("duplicate (stat, window_size) pairs: [('mean', 7)]"),
+        ),
+    ],
+)
+def test_validate_window_features_raises_when_invalid(window_features, match):
+    """
+    Test that malformed window_features (wrong container, missing keys,
+    unsupported stats, non-scalar/invalid window_size, or the same statistic
+    paired twice with the same window size) raise ValueError.
+    """
+    with pytest.raises(ValueError, match=match):
+        _validate_window_features(window_features)
+
+
+# =============================================================================
+# Tests: closed sets of validate_forecaster_kwargs
+# =============================================================================
+def test_forecaster_kwargs_keys_cover_every_supported_forecaster():
+    """
+    Test that the allowed `forecaster_kwargs` keys are defined for exactly
+    the supported forecasters, so a forecaster added to one table but not
+    the other fails here instead of raising a KeyError during validation.
+    """
+    assert set(_FORECASTER_KWARGS_KEYS) == set(FORECASTER_TASK_TYPES)
+
+
+@pytest.mark.parametrize(
+    "forecaster",
+    [
+        "ForecasterRecursive",
+        "ForecasterDirect",
+        "ForecasterRecursiveMultiSeries",
+        "ForecasterDirectMultiVariate",
+    ],
+    ids=lambda forecaster: f"forecaster: {forecaster}",
+)
+def test_forecaster_kwargs_keys_include_every_argument_plan_builds(forecaster):
+    """
+    Test that every argument the recommender builds for a forecaster, with
+    every option set, is an allowed key with an accepted value, so no plan
+    built by `plan()` is rejected.
+    """
+    kwargs = build_forecaster_kwargs(
+        forecaster         = forecaster,
+        task_type          = FORECASTER_TASK_TYPES[forecaster],
+        steps              = 5,
+        lags               = [1, 2],
+        window_features    = [{"stats": ["mean", "std"], "window_size": 3}],
+        calendar_features  = {"features": ["day_of_week"], "encoding": "cyclical"},
+        transformer_series = "StandardScaler",
+        transformer_exog   = "StandardScaler",
+        dropna_from_series = False,
+    )
+
+    assert set(kwargs) <= _FORECASTER_KWARGS_KEYS[forecaster]
+    validate_forecaster_kwargs(kwargs, forecaster)
+
+
+def test_closed_sets_match_skforecast():
+    """
+    Test that the calendar features and encodings and the series encodings
+    accepted by the validator are the values skforecast accepts: each one
+    builds the skforecast object, and a value outside the sets is refused
+    by skforecast too.
+    """
+    for encoding in _CALENDAR_ENCODINGS:
+        CalendarFeatures(features=list(_CALENDAR_FEATURES), encoding=encoding)
+    for encoding in _SERIES_ENCODINGS:
+        ForecasterRecursiveMultiSeries(estimator=Ridge(), lags=3, encoding=encoding)
+
+    with pytest.raises(ValueError, match=re.escape("are not supported")):
+        CalendarFeatures(features=["fortnight"])
+    with pytest.raises(ValueError, match=re.escape("Encoding must be one of")):
+        CalendarFeatures(features=["month"], encoding="sine")
+    with pytest.raises(ValueError, match=re.escape("`encoding` must be one of")):
+        ForecasterRecursiveMultiSeries(estimator=Ridge(), lags=3, encoding="label")
+
+
+def test_closed_sets_include_what_plan_builds():
+    """
+    Test that the calendar features and encodings `plan()` can choose and
+    the arguments of the baseline are inside the closed sets, so a plan it
+    builds never fails its own validator.
+    """
+    recommended = {
+        feature
+        for features in CALENDAR_FEATURE_RELEVANCE.values()
+        for feature in features
+    }
+    assert recommended | {"month"} <= set(_CALENDAR_FEATURES)
+    for estimator in [None, "Ridge", "LGBMRegressor"]:
+        for task_type in ["single_series", "multi_series", "multivariate"]:
+            assert select_calendar_encoding(estimator, task_type) in _CALENDAR_ENCODINGS
+
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        frequency      = "D",
+    )
+    config, _ = select_baseline_config(profile)
+    assert set(config) <= _FORECASTER_KWARGS_KEYS["ForecasterEquivalentDate"]
+    validate_forecaster_kwargs(config, "ForecasterEquivalentDate")
+
+
+def test_lag_and_window_validators_reexported_from_utils():
+    """
+    Test that `_utils` re-exports the validators moved to `_validation`,
+    which the CLI and the assistant still import from there.
+    """
+    assert utils_module._validate_lags is _validate_lags
+    assert utils_module._validate_window_features is _validate_window_features
+
+
+def test_supported_transformers_is_standard_scaler():
+    """
+    Test the set of transformers a plan can name: the scripts import
+    `StandardScaler` directly and always use it for the exogenous
+    variables, so adding a name needs the renderers to follow.
+    """
+    assert SUPPORTED_TRANSFORMERS == ("StandardScaler",)

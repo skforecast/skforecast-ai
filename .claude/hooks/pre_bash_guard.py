@@ -1,5 +1,5 @@
 """
-PreToolUse hook for Bash: branch policy and paid calls.
+PreToolUse hook for Bash: branch policy, attribution and paid calls.
 
 - `tools/ai/check_ask_context.py` without `--dry-run` calls a real LLM and
   costs money; only the user launches it.
@@ -8,6 +8,12 @@ PreToolUse hook for Bash: branch policy and paid calls.
 - Never force push, in any form (`-f`, `--force`, `--force-with-lease`, a
   `+` refspec, `--mirror`); the deny rules in `settings.json` only catch the
   command prefixes they list.
+- Commits and pull requests are authored by the user alone: no
+  `Co-Authored-By` trailer naming Claude or Anthropic, no `Claude-Session`
+  trailer and no "Generated with Claude Code" line, in the command text (`-m`, heredoc) or in a
+  message file (`git commit -F`, `gh pr create --body-file`). The
+  `attribution` setting in `settings.json` already turns them off; this
+  catches messages written by hand.
 - In Claude Code on the web (`CLAUDE_CODE_REMOTE=true`), commits and pushes
   only happen on a branch named `feature/...`, `fix/...`, `docs/...` or
   `chore/...`.
@@ -23,6 +29,7 @@ import re
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 PROTECTED_BRANCH = re.compile(r"^(main|master|\d+\.\d+\.x)$")
 ALLOWED_BRANCH = re.compile(r"^(feature|fix|docs|chore)/[A-Za-z0-9._/-]+$")
@@ -33,6 +40,20 @@ GIT_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 FORCE_OPTIONS = ("--force", "--force-with-lease", "--force-if-includes")
 # Push every local branch (or mirror the repository), protected ones included.
 ALL_BRANCH_OPTIONS = {"--all", "--branches", "--mirror"}
+AI_ATTRIBUTION = re.compile(
+    r"co-authored-by:[^\n]*(claude|anthropic)|generated with \[?claude code"
+    r"|^claude-session:",
+    re.IGNORECASE | re.MULTILINE,
+)
+# A `git commit` at the start of a command, found on the raw text because
+# `shlex` cannot parse a first line such as `git commit -m "$(cat <<'EOF'`.
+COMMIT_COMMAND = re.compile(
+    r"(?:^|[;&|(])\s*(?:[A-Za-z_]\w*=\S*\s+)*git(?:\s+-\S+(?:\s+[^-\s]\S*)?)*"
+    r"\s+commit(?![\w-])",
+    re.MULTILINE,
+)
+# Options that read a commit message or a PR body from a file.
+MESSAGE_FILE_OPTIONS = ("-F", "--file", "--body-file")
 
 
 def segments(command: str) -> list[list[str]]:
@@ -107,6 +128,58 @@ def forces(args: list[str]) -> bool:
     return any(refspec.startswith("+") for refspec in positional[1:])
 
 
+def message_files(args: list[str]) -> list[str]:
+    """
+    Paths given to `-F`, `--file` or `--body-file`, in the forms `-F path`,
+    `-Fpath` and `--file=path`. `-` (stdin) is skipped.
+    """
+
+    paths = []
+    for i, arg in enumerate(args):
+        for option in MESSAGE_FILE_OPTIONS:
+            if arg == option and i + 1 < len(args):
+                paths.append(args[i + 1])
+            elif arg.startswith(option + "="):
+                paths.append(arg.split("=", 1)[1])
+            elif option == "-F" and arg.startswith("-F") and len(arg) > 2:
+                paths.append(arg[2:])
+    return [p for p in paths if p != "-"]
+
+
+def writes_message(words: list[str]) -> bool:
+    """Whether a simple command writes a commit message or a PR body."""
+
+    program = os.path.basename(words[0])
+    if program == "gh":
+        return words[1:2] == ["pr"] and words[2:3] in (["create"], ["edit"])
+    return False
+
+
+def has_ai_attribution(command: str, cwd: str) -> bool:
+    """
+    Whether a command that writes a commit message or a PR body carries an
+    AI attribution line, in its own text (which includes any heredoc) or in
+    the message files it reads.
+    """
+
+    writers = [
+        args for sub, args in git_invocations(command) if sub == "commit"
+    ] + [words[3:] for words in segments(command) if writes_message(words)]
+    if not writers and not COMMIT_COMMAND.search(command):
+        return False
+    if AI_ATTRIBUTION.search(command):
+        return True
+    for args in writers:
+        for path in message_files(args):
+            try:
+                text = (Path(cwd) / path).read_text(errors="ignore")
+            except OSError:
+                continue
+            if AI_ATTRIBUTION.search(text):
+                return True
+    return False
+
+
 def current_branch(cwd: str) -> str:
     """Return the checked out branch, or an empty string when detached."""
 
@@ -137,15 +210,29 @@ def main() -> int:
             )
             return 2
 
+    cwd = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or "."
+    if has_ai_attribution(command, cwd):
+        print(
+            "Blocked: commits and pull requests are authored by the user "
+            "alone (AGENTS.md). Remove the Co-Authored-By trailer naming "
+            "Claude or Anthropic, the Claude-Session trailer and any "
+            "'Generated with Claude Code' line.",
+            file=sys.stderr,
+        )
+        return 2
+
     invocations = [
         (sub, args)
         for sub, args in git_invocations(command)
         if sub in {"commit", "push"}
     ]
+    if COMMIT_COMMAND.search(command) and not any(
+        sub == "commit" for sub, _ in invocations
+    ):
+        invocations.append(("commit", []))
     if not invocations:
         return 0
 
-    cwd = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or "."
     branch = current_branch(cwd)
     remote = os.environ.get("CLAUDE_CODE_REMOTE", "").lower() == "true"
 

@@ -1,6 +1,13 @@
 # Unit test render_backtesting rendering
 
+from datetime import timedelta, timezone
+
+import numpy as np
+import pandas as pd
+import pytest
+
 from skforecast_ai.rendering.backtesting import (
+    _format_initial_train_size,
     render_backtesting_baseline,
     render_backtesting_foundation,
     render_backtesting_multi_series,
@@ -789,3 +796,49 @@ def test_render_backtesting_baseline_output_when_intervals_requested():
         "print(predictions.head())"
     )
     assert result.full_script == expected
+
+
+# =============================================================================
+# Tests: _format_initial_train_size
+# =============================================================================
+@pytest.mark.parametrize(
+    "initial_train_size, expected",
+    [
+        (80, "80"),
+        (np.int64(80), "80"),
+        ("2020-03-31", "'2020-03-31'"),
+        (pd.Timestamp("2020-03-31"), "pd.Timestamp('2020-03-31 00:00:00')"),
+        (
+            pd.Timestamp("2020-03-31", tz="UTC"),
+            "pd.Timestamp('2020-03-31 00:00:00+00:00')",
+        ),
+        (
+            pd.Timestamp("2020-03-31").tz_localize(
+                timezone(timedelta(hours=1), name="x') ; import os ; ('")
+            ),
+            "pd.Timestamp('2020-03-31 00:00:00+01:00')",
+        ),
+        (None, "None"),
+        ("2020') ; import os ; x = ('", "\"2020') ; import os ; x = ('\""),
+    ],
+    ids=[
+        "int",
+        "numpy int",
+        "date string",
+        "Timestamp",
+        "Timestamp with time zone",
+        "Timestamp with a time zone name holding code",
+        "None",
+        "string with code",
+    ],
+)
+def test_format_initial_train_size_output_when_different_types(
+    initial_train_size, expected
+):
+    """
+    Test that the `initial_train_size` of a TimeSeriesFold is written as a
+    plain integer when it is one (numpy integers included), as a pandas
+    Timestamp built from a string literal (the time zone as its offset, never
+    its name), and with repr otherwise, so a string stays a string literal.
+    """
+    assert _format_initial_train_size(initial_train_size) == expected
