@@ -10,17 +10,24 @@ import re
 import warnings
 from pathlib import Path
 import pandas as pd
+from pydantic import BaseModel
 from skforecast.exceptions import LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import (
-    ALLOWED_WINDOW_STATS,
     DIRECT_FORECASTERS,
     LONG_TRAINING_FITS,
     MAX_FEATURE_FRACTION,
 )
 from ._foundation import resolve_foundation_model, validate_foundation_interval
-from ._validation import validate_interval
+# `_validate_lags` and `_validate_window_features` live in `_validation`,
+# which the plan schema imports; they are re-exported here for the callers
+# that import them from `_utils`.
+from ._validation import (
+    _validate_lags as _validate_lags,
+    _validate_window_features as _validate_window_features,
+    validate_interval,
+)
 from .profiling.data_profile import _try_parse_first_date_column
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
 
@@ -105,153 +112,6 @@ def _validate_max_window_size(
             f"({int(MAX_FEATURE_FRACTION * 100)}% of "
             f"{span_index_length} observations). "
             f"Reduce the largest lag or window size."
-        )
-
-
-def _validate_lags(lags: int | list[int] | None) -> None:
-    """
-    Validate the structure of an explicit `lags` override.
-
-    `lags` must be a positive int (consecutive lags `1..lags`) or a
-    non-empty list of unique positive ints. The rules mirror what
-    skforecast's `initialize_lags` requires, with two additions that
-    skforecast accepts silently: an empty list, which skforecast treats as
-    `lags=None` and trains without lag features, and duplicated lags, which
-    produce repeated feature columns. A `bool` is rejected explicitly
-    because it subclasses `int`. A `ValueError` is raised on the first
-    violation.
-
-    Parameters
-    ----------
-    lags : int, list of int, None
-        Explicit lags override. When None, no validation is performed.
-
-    Returns
-    -------
-    None
-    """
-    if lags is None:
-        return
-
-    # `bool` is a subclass of `int`; reject it explicitly.
-    if isinstance(lags, bool) or not isinstance(lags, (int, list)):
-        raise ValueError(
-            f"`lags` must be an int or a list of ints, got {lags!r}."
-        )
-
-    if isinstance(lags, int):
-        if lags < 1:
-            raise ValueError(
-                f"`lags` must be positive integers (>= 1), got {lags!r}."
-            )
-        return
-
-    if not lags:
-        raise ValueError(
-            "`lags` must not be an empty list; pass None to keep the "
-            "deterministic lag selection."
-        )
-
-    if any(isinstance(lag, bool) or not isinstance(lag, int) for lag in lags):
-        raise ValueError(f"`lags` must contain ints only, got {lags!r}.")
-
-    if any(lag < 1 for lag in lags):
-        raise ValueError(
-            f"`lags` must be positive integers (>= 1), got {lags!r}."
-        )
-
-    if len(set(lags)) != len(lags):
-        raise ValueError(f"`lags` must not contain duplicates, got {lags!r}.")
-
-
-def _validate_window_features(window_features: list[dict] | None) -> None:
-    """
-    Validate the structure of an explicit `window_features` override.
-
-    Each entry must be a dict with a `'stats'` key (a non-empty list whose
-    members are all in `ALLOWED_WINDOW_STATS`) and a `'window_size'` key
-    holding a scalar positive int. A scalar is required because the code
-    generator pairs every statistic in an entry with that entry's single
-    window size; a list would be emitted as a nested list and rejected by
-    `RollingFeatures`. To combine several window sizes, add one entry per
-    size. The same statistic must not be paired with the same window size
-    in two entries: the code generator flattens the entries into a single
-    `RollingFeatures`, which rejects duplicate pairs. A `ValueError` is
-    raised on the first violation.
-
-    Parameters
-    ----------
-    window_features : list of dict, None
-        Explicit window features override. When None, no validation is
-        performed.
-
-    Returns
-    -------
-    None
-    """
-    if window_features is None:
-        return
-
-    if not isinstance(window_features, list):
-        raise ValueError(
-            f"`window_features` must be a list of dicts, got "
-            f"{type(window_features).__name__}."
-        )
-
-    for i, wf in enumerate(window_features):
-        if not isinstance(wf, dict):
-            raise ValueError(
-                f"`window_features[{i}]` must be a dict with keys 'stats' "
-                f"and 'window_size', got {type(wf).__name__}."
-            )
-
-        missing = {"stats", "window_size"} - wf.keys()
-        if missing:
-            raise ValueError(
-                f"`window_features[{i}]` is missing required key(s): "
-                f"{sorted(missing)}. Each entry must have 'stats' and "
-                f"'window_size'."
-            )
-
-        stats = wf["stats"]
-        if not isinstance(stats, list) or not stats:
-            raise ValueError(
-                f"`window_features[{i}]['stats']` must be a non-empty list "
-                f"of statistic names, got {stats!r}."
-            )
-        invalid_stats = [s for s in stats if s not in ALLOWED_WINDOW_STATS]
-        if invalid_stats:
-            raise ValueError(
-                f"`window_features[{i}]['stats']` contains unsupported "
-                f"statistic(s): {invalid_stats}. Allowed statistics are: "
-                f"{sorted(ALLOWED_WINDOW_STATS)}."
-            )
-
-        window_size = wf["window_size"]
-        # `bool` is a subclass of `int`; reject it explicitly.
-        if not isinstance(window_size, int) or isinstance(window_size, bool):
-            raise ValueError(
-                f"`window_features[{i}]['window_size']` must be a scalar "
-                f"int, got {window_size!r}. Within a single entry 'stats' "
-                f"may be a list but 'window_size' must be a scalar applied "
-                f"to all of them; add one entry per window size to use "
-                f"several sizes."
-            )
-        if window_size < 1:
-            raise ValueError(
-                f"`window_features[{i}]['window_size']` must be a positive "
-                f"int, got {window_size}."
-            )
-
-    pairs = [
-        (stat, wf["window_size"]) for wf in window_features for stat in wf["stats"]
-    ]
-    duplicates = sorted({pair for pair in pairs if pairs.count(pair) > 1})
-    if duplicates:
-        raise ValueError(
-            f"`window_features` contains duplicate (stat, window_size) "
-            f"pairs: {duplicates}. Merge the entries or change the window "
-            f"size."
         )
 
 
@@ -408,6 +268,82 @@ def resolve_interval_method(task_type: str, interval: list[float] | None) -> str
     if task_type == "baseline":
         return "conformal"
     return "bootstrapping"
+
+
+def _same_values(first: object, second: object) -> bool:
+    """
+    Compare two field values, types included.
+
+    Unlike `==`, `12` and `12.0`, or a model and the dict of its fields, are
+    different: `_revalidate_plan` uses it to tell whether validation
+    converted a value of the plan it received.
+
+    Parameters
+    ----------
+    first : object
+        Value of the received plan.
+    second : object
+        Value of the validated plan.
+
+    Returns
+    -------
+    same : bool
+        Whether both values have the same type and compare equal, recursively
+        for models, dicts, lists and tuples. Values that cannot be compared
+        (numpy arrays) count as different.
+    """
+    if type(first) is not type(second):
+        return False
+    if isinstance(first, BaseModel):
+        return _same_values(dict(first), dict(second))
+    if isinstance(first, dict):
+        return first.keys() == second.keys() and all(
+            _same_values(first[key], second[key]) for key in first
+        )
+    if isinstance(first, (list, tuple)):
+        return len(first) == len(second) and all(map(_same_values, first, second))
+    try:
+        return bool(first == second)
+    except (TypeError, ValueError):
+        return False
+
+
+def _revalidate_plan(plan: ForecastPlan | None) -> ForecastPlan | None:
+    """
+    Run the validators of a received plan again before it is rendered.
+
+    A plan edited with `model_copy(update=...)`, by assignment or built with
+    `model_construct` skips the validators of `ForecastPlan`, and every one
+    of its fields can reach the generated script. Validating a dump of it
+    checks the plan as if it had been loaded from JSON.
+
+    Parameters
+    ----------
+    plan : ForecastPlan, None
+        Plan supplied by the caller. None when the plan is built here.
+
+    Returns
+    -------
+    plan : ForecastPlan, None
+        The plan the caller passed when it validates unchanged, so a result
+        still refers to that object (`result.plan is plan`). The validated
+        copy when validation converted a value (for example `steps=12.0`, or
+        `interval=['0.1', '0.9']` set with `model_copy`), so the script uses
+        the values that were checked. None when `plan` is None.
+
+    Raises
+    ------
+    pydantic.ValidationError
+        When a field of `plan` does not pass the validators (a subclass of
+        `ValueError`).
+    """
+    if plan is None:
+        return None
+    # `warnings=False`: a field holding a value of the wrong type is reported
+    # by the validators, not by the serializer.
+    validated = ForecastPlan.model_validate(plan.model_dump(warnings=False))
+
+    return plan if _same_values(dict(plan), dict(validated)) else validated
 
 
 def _apply_interval_to_plan(plan: ForecastPlan, interval: list[float]) -> ForecastPlan:

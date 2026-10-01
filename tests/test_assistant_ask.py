@@ -6,6 +6,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from skforecast.model_selection import TimeSeriesFold
 
@@ -800,3 +801,21 @@ def test_ask_output_when_context_is_baseline_backtest(monkeypatch):
     assert result.code == backtest.code
     assert result.explanation == "A seasonal naive baseline."
 
+
+def test_ask_ValidationError_when_received_plan_skipped_validation(monkeypatch):
+    """
+    Test that `ask()` with a profile and a plan edited with
+    `model_copy(update=...)` validates the plan again before rendering the
+    script it explains, and never calls the LLM with it.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    capture = {}
+    patch_agent(monkeypatch, assistant, output="Explained.", capture=capture)
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile=profile, steps=5, estimator="Ridge").model_copy(
+        update={"forecaster": "ForecasterRecursive\nimport os\nForecasterRecursive"}
+    )
+
+    with pytest.raises(ValidationError, match=re.escape("is not a supported forecaster")):
+        assistant.ask(prompt="Explain this plan.", context=profile, plan=plan)
+    assert capture == {}

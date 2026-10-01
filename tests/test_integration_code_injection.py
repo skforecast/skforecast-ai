@@ -10,6 +10,8 @@ import re
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
+from skforecast.model_selection import TimeSeriesFold
 from typer.testing import CliRunner
 
 from skforecast_ai import ForecastingAssistant
@@ -698,23 +700,135 @@ def test_run_forecast_ValueError_when_foundation_model_id_skipped_validation(
 
 
 # =============================================================================
+# Plans received by the public methods
+# =============================================================================
+@pytest.mark.parametrize(
+    "update, err_msg",
+    [
+        (
+            {"preprocessing_steps": [
+                PreprocessingStep(
+                    action       = "drop_duplicates",
+                    reason       = "Injected.",
+                    code_snippet = PAYLOAD,
+                    blocking     = True,
+                )
+            ]},
+            "The blocking preprocessing step 'drop_duplicates' is not one of "
+            "the steps the scripts can contain",
+        ),
+        (
+            {"forecaster": f"ForecasterRecursive\n{PAYLOAD}\nForecasterRecursive"},
+            "is not a supported forecaster",
+        ),
+        (
+            {"forecaster_kwargs": {"lags": 7, "dropna_from_series": f"{PAYLOAD} or False"}},
+            "`forecaster_kwargs['dropna_from_series']` must be a bool",
+        ),
+        (
+            {"forecaster_kwargs": {"lags": 7, "categorical_features": f"auto' if {PAYLOAD} is None else '"}},
+            "`forecaster_kwargs['categorical_features']` must be 'auto' or None",
+        ),
+        (
+            {"estimator_kwargs": {f"alpha=({PAYLOAD}) or 1.0, fit_intercept": True}},
+            "`estimator_kwargs` keys must be valid Python parameter names",
+        ),
+        (
+            {"steps": f"5 if {PAYLOAD} is None else 5"},
+            "`steps` must be an integer greater than or equal to 1",
+        ),
+    ],
+    ids=[
+        "preprocessing snippet",
+        "forecaster",
+        "dropna_from_series",
+        "categorical_features",
+        "estimator_kwargs key",
+        "steps",
+    ],
+)
+@pytest.mark.parametrize(
+    "method",
+    ["forecast", "forecast_code", "backtest", "backtest_code"],
+    ids=lambda method: f"{method}()",
+)
+def test_methods_ValidationError_when_received_plan_skipped_validation(
+    monkeypatch, tmp_path, method, update, err_msg
+):
+    """
+    Test that a plan edited with `model_copy(update=...)`, which skips the
+    validators, is validated again by `forecast()`, `forecast_code()`,
+    `backtest()` and `backtest_code()` before rendering. Each case raises
+    ValidationError and nothing runs, including a `dropna_from_series`
+    string, which the rendering alone would write as a literal and run.
+    """
+    monkeypatch.chdir(tmp_path)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile=profile, steps=5, estimator="Ridge").model_copy(
+        update=update
+    )
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+    calls = {
+        "forecast": lambda: assistant.forecast(
+            data=df_no_exog, profile=profile, plan=plan, test_size=5
+        ),
+        "forecast_code": lambda: assistant.forecast_code(
+            profile=profile, plan=plan, test_size=5
+        ),
+        "backtest": lambda: assistant.backtest(
+            data=df_no_exog, cv=cv, profile=profile, plan=plan, show_progress=False
+        ),
+        "backtest_code": lambda: assistant.backtest_code(
+            data=None, cv=cv, profile=profile, plan=plan
+        ),
+    }
+
+    with pytest.raises(ValidationError, match=re.escape(err_msg)):
+        calls[method]()
+    assert not (tmp_path / MARKER).exists()
+
+
+# =============================================================================
 # CLI with a saved plan
 # =============================================================================
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        {
+            "preprocessing_steps": [
+                {
+                    "action": "drop_duplicates",
+                    "reason": "Injected.",
+                    "code_snippet": PAYLOAD,
+                    "blocking": True,
+                }
+            ]
+        },
+        {"forecaster_kwargs": {"lags": 7, "dropna_from_series": f"{PAYLOAD} or False"}},
+        {"forecaster": f"ForecasterRecursive\n{PAYLOAD}\nForecasterRecursive"},
+    ],
+    ids=["preprocessing snippet", "forecaster_kwargs value", "forecaster"],
+)
 @pytest.mark.parametrize(
     "command",
     [
         ["forecast", "data.csv", "--from-plan", "plan.json", "--test-size", "5"],
+        ["backtest", "data.csv", "--from-plan", "plan.json"],
         ["forecast-code", "--from-plan", "plan.json"],
+        ["backtest-code", "--from-plan", "plan.json"],
     ],
-    ids=["forecast", "forecast-code"],
+    ids=["forecast", "backtest", "forecast-code", "backtest-code"],
 )
-def test_cli_exits_with_error_when_plan_bundle_carries_a_snippet(
-    monkeypatch, tmp_path, command
+def test_cli_exits_with_error_when_plan_bundle_is_tampered(
+    monkeypatch, tmp_path, command, tamper
 ):
     """
-    Test that a plan bundle edited to carry a blocking preprocessing step
-    with arbitrary code exits with code 1, without running the code
-    (`forecast`) or printing it inside a script (`forecast-code`).
+    Test that a plan bundle edited to carry code (a blocking preprocessing
+    step, a forecaster argument, the forecaster name) is rejected when it
+    is loaded: the command exits with code 1 and "Invalid input data",
+    without running the code (`forecast`, `backtest`) or printing a script
+    (`forecast-code`, `backtest-code`).
     """
     monkeypatch.chdir(tmp_path)
     df_no_exog.to_csv(tmp_path / "data.csv", index=False)
@@ -725,22 +839,15 @@ def test_cli_exits_with_error_when_plan_bundle_carries_a_snippet(
     plan = assistant.plan(profile=profile, steps=5, estimator="Ridge")
     bundle = {
         "profile": profile.model_dump(mode="json"),
-        "plan": plan.model_dump(mode="json"),
+        "plan": {**plan.model_dump(mode="json"), **tamper},
     }
-    bundle["plan"]["preprocessing_steps"].append(
-        {
-            "action": "drop_duplicates",
-            "reason": "Injected.",
-            "code_snippet": PAYLOAD,
-            "blocking": True,
-        }
-    )
     (tmp_path / "plan.json").write_text(json.dumps(bundle))
 
     result = runner.invoke(app, command)
 
     assert result.exit_code == 1
-    assert PAYLOAD not in result.output
+    assert "Invalid input data" in result.output
+    assert "import pandas as pd" not in result.output
     assert not (tmp_path / MARKER).exists()
 
 

@@ -829,3 +829,22 @@ def test_forecast_ValueError_when_estimator_package_not_installed(monkeypatch):
             steps       = 5,
             estimator   = "LGBMRegressor",
         )
+
+
+def test_forecast_output_when_received_plan_holds_values_validation_converts():
+    """
+    Test that a received plan holding values the validators convert (an
+    interval given as strings, set with `model_copy`) runs with the
+    validated values, not the original ones.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile=profile, steps=5, estimator="Ridge", interval=[0.1, 0.9]
+    ).model_copy(update={"interval": ["0.1", "0.9"]})
+
+    result = assistant.forecast(data=df_no_exog, profile=profile, plan=plan, test_size=5)
+
+    assert result.plan.interval == [0.1, 0.9]
+    assert "    interval = [0.1, 0.9]," in result.code.splitlines()
+    assert list(result.predictions.columns) == ["pred", "lower_bound", "upper_bound"]

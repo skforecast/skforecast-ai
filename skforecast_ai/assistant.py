@@ -30,6 +30,7 @@ from ._validation import (
     validate_estimator_kwargs,
     validate_interval,
     validate_metrics,
+    validate_steps,
 )
 from .exceptions import (
     AllCandidatesFailedError,
@@ -129,6 +130,7 @@ from ._utils import (
     _validate_window_features,
     _apply_interval_to_plan,
     _check_plan_overrides,
+    _revalidate_plan,
     warn_long_training,
 )
 
@@ -361,7 +363,9 @@ class ForecastingAssistant:
         profile : ForecastingProfile
             Output of `profile()`.
         steps : int
-            Forecast horizon (number of steps ahead to predict).
+            Forecast horizon (number of steps ahead to predict): an integer
+            greater than or equal to 1. An integral float (`12.0`) is
+            accepted and stored as an int.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
@@ -420,7 +424,8 @@ class ForecastingAssistant:
         Raises
         ------
         ValueError
-            If `forecaster` is not supported, if the input does not fit its
+            If `steps` is not an integer greater than or equal to 1, if
+            `forecaster` is not supported, if the input does not fit its
             task type, or if an argument does not apply to it: `lags` and
             `window_features` for `ForecasterStats`, `ForecasterFoundation`
             and `ForecasterEquivalentDate`, and also `estimator` and
@@ -429,6 +434,10 @@ class ForecastingAssistant:
             supported by skforecast, if `estimator_kwargs` contains
             `'model_id'`, or if the model cannot predict `interval`.
         """
+
+        # Checked first, so an invalid horizon fails before anything is
+        # derived from it (a bool or a string would otherwise be coerced).
+        steps = validate_steps(steps)
 
         data_profile = profile.data_profile
 
@@ -1150,7 +1159,10 @@ class ForecastingAssistant:
             provided. `forecaster`, `estimator`, `estimator_kwargs`,
             `lags` and `window_features` are fixed by the plan: a value
             equal to the plan's is accepted and a different one raises
-            `ValueError`, pointing to `refine_plan()`.
+            `ValueError`, pointing to `refine_plan()`. The plan is validated
+            again before the script is rendered, so one edited with
+            `model_copy(update=...)` or by assignment raises
+            `ValidationError` unless it is still a valid `ForecastPlan`.
 
         Returns
         -------
@@ -1334,7 +1346,10 @@ class ForecastingAssistant:
             provided. `forecaster`, `estimator`, `estimator_kwargs`,
             `lags` and `window_features` are fixed by the plan: a value
             equal to the plan's is accepted and a different one raises
-            `ValueError`, pointing to `refine_plan()`.
+            `ValueError`, pointing to `refine_plan()`. The plan is validated
+            again before the script is rendered, so one edited with
+            `model_copy(update=...)` or by assignment raises
+            `ValidationError` unless it is still a valid `ForecastPlan`.
 
         Returns
         -------
@@ -1679,7 +1694,10 @@ class ForecastingAssistant:
             Pre-computed plan to skip planning. `forecaster`, `estimator`
             and `estimator_kwargs` are fixed by the plan: a value equal
             to the plan's is accepted and a different one raises
-            `ValueError`, pointing to `refine_plan()`.
+            `ValueError`, pointing to `refine_plan()`. The plan is validated
+            again before the script is rendered, so one edited with
+            `model_copy(update=...)` or by assignment raises
+            `ValidationError` unless it is still a valid `ForecastPlan`.
 
         Returns
         -------
@@ -1812,7 +1830,10 @@ class ForecastingAssistant:
             Pre-computed plan to skip planning. `forecaster`, `estimator`
             and `estimator_kwargs` are fixed by the plan: a value equal
             to the plan's is accepted and a different one raises
-            `ValueError`, pointing to `refine_plan()`.
+            `ValueError`, pointing to `refine_plan()`. The plan is validated
+            again before the script is rendered, so one edited with
+            `model_copy(update=...)` or by assignment raises
+            `ValidationError` unless it is still a valid `ForecastPlan`.
         show_progress : bool, default True
             Whether to display a progress bar during backtesting.
 
@@ -2329,6 +2350,10 @@ class ForecastingAssistant:
             `forecast_code()` would produce, so the LLM sees the plan and
             the returned `code` is that script. Not accepted with any
             other kind of context, which already carries its own plan.
+            The plan is validated again before the script is rendered, so
+            one edited with `model_copy(update=...)` or by assignment
+            raises `ValidationError` unless it is still a valid
+            `ForecastPlan`.
         skills : list of str, default None
             List of skill names to include in the agent system prompt.
             If None, skills are selected automatically based on the
@@ -2372,6 +2397,9 @@ class ForecastingAssistant:
             not: pass `context=profile, plan=plan`), if `plan` accompanies
             a context other than a `ForecastingProfile`, or if `context`
             and the deprecated `result` are both given.
+        pydantic.ValidationError
+            If `plan` does not pass the validators of `ForecastPlan` (a
+            subclass of `ValueError`).
 
         Warns
         -----
@@ -2424,8 +2452,10 @@ class ForecastingAssistant:
             )
 
         # A profile with a plan is explained through the script the two
-        # produce together, exactly as `forecast_code()` would render it.
+        # produce together, exactly as `forecast_code()` would render it,
+        # after validating the plan again as `forecast_code()` does.
         if isinstance(context, ForecastingProfile) and plan is not None:
+            plan = _revalidate_plan(plan)
             context = CodeGenerationResult(
                 profile = context,
                 plan    = plan,
@@ -2726,6 +2756,7 @@ class ForecastingAssistant:
             Resolved plan, carrying `end_train` when `test_size` is set.
         """
 
+        plan = _revalidate_plan(plan)
         _check_plan_overrides(
             plan             = plan,
             forecaster       = forecaster,
@@ -2881,6 +2912,7 @@ class ForecastingAssistant:
             Resolved plan.
         """
 
+        plan = _revalidate_plan(plan)
         _check_plan_overrides(
             plan             = plan,
             forecaster       = forecaster,

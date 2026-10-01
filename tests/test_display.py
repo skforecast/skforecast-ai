@@ -73,7 +73,7 @@ def sample_profile():
 @pytest.fixture
 def sample_plan():
     return ForecastPlan(
-        forecaster="ForecasterAutoreg",
+        forecaster="ForecasterRecursive",
         estimator="RandomForestRegressor",
         estimator_kwargs={"n_estimators": 100},
         steps=10,
@@ -411,7 +411,7 @@ def test_render_plan_includes_fields_and_explanation(sample_plan):
     assert isinstance(result, Group)
     text = _render_to_text(result)
     assert "Forecast Plan" in text
-    assert "ForecasterAutoreg" in text
+    assert "ForecasterRecursive" in text
     assert "Sample explanation" in text
 
 

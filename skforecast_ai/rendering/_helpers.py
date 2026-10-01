@@ -14,6 +14,7 @@ from .._constants import (
     BLOCKING_PREPROCESSING_TEMPLATES,
     FREQUENCY_TO_SEASONAL_PERIOD,
     SUPPORTED_ESTIMATORS,
+    SUPPORTED_TRANSFORMERS,
 )
 from .._validation import validate_kwarg_names
 
@@ -51,7 +52,7 @@ _MULTI_SERIES_FORECASTERS: tuple[str, ...] = (
 
 # Target transformers a plan can name (`transformer_y`, `transformer_series`).
 _TRANSFORMER_CONSTRUCTORS: dict[str, str] = {
-    "StandardScaler": "StandardScaler()",
+    name: f"{name}()" for name in SUPPORTED_TRANSFORMERS
 }
 
 # Interval methods written into `predict_interval` and the backtesting call.

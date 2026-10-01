@@ -180,6 +180,14 @@ SUPPORTED_ESTIMATORS: dict[str, str] = {
     "HistGradientBoostingRegressor": "sklearn.ensemble",
 }
 
+# Transformers a plan can name. The scripts write the constructor of the
+# target transformer (`transformer_y`, `transformer_series`) from a closed
+# map built from this tuple; `transformer_exog` is checked against it too,
+# but the scripts always scale the numeric exogenous variables with
+# `StandardScaler`, which they import directly. Adding a name here needs
+# those imports and the exogenous transformer to follow.
+SUPPORTED_TRANSFORMERS: tuple[str, ...] = ("StandardScaler",)
+
 # Estimators whose constructor takes `**kwargs` and forwards unknown names to
 # the library as extra parameters (LightGBM also accepts parameter aliases),
 # so an unknown keyword argument is warned about rather than rejected.

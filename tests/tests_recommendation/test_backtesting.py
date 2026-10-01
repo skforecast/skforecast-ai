@@ -6,8 +6,11 @@ from skforecast_ai.schemas import ForecastPlan
 
 
 def _make_plan(task_type: str, steps: int, forecaster_kwargs: dict) -> ForecastPlan:
-    """Build a minimal ForecastPlan for window-size computation."""
-    return ForecastPlan(
+    """
+    Build a minimal ForecastPlan for window-size computation, without
+    validation, so the helper is also tested on hand-built plans.
+    """
+    return ForecastPlan.model_construct(
         task_type         = task_type,
         forecaster        = "ForecasterRecursive",
         forecaster_kwargs = forecaster_kwargs,
