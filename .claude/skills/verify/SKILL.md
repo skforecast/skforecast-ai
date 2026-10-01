@@ -13,7 +13,10 @@ the output.
 ## 0. How to run Python
 
 - Cloud session (`CLAUDE_CODE_REMOTE=true`): `python -m pytest`,
-  `ruff`, `mkdocs` directly.
+  `ruff`, `mkdocs` directly. The SessionStart hook installs the docs extra
+  and exports `SKFORECAST_AI_DOCS_PRIVACY=false`, so `mkdocs build` skips
+  the privacy plugin, whose downloads the network policy may block. If
+  `mkdocs` is missing, install the extra first: `pip install -e ".[docs]"`.
 - Local session: use the environment and the command prefix in
   `CLAUDE.local.md` (`PYTHONPATH=.` and the conda env binaries). If it does
   not exist, ask which conda environment to use.
@@ -71,6 +74,8 @@ project, so a new warning fails here too.
   If goldens differ on purpose, follow `/llm-context-change`.
 - Docs changed: `PYTHONPATH=. mkdocs build -q -d <scratchpad>/site` (never
   into the repo). Report warnings about broken links or references.
+- Harness changed (`.claude/hooks/`): `PY -m pytest .claude/hooks -q -p
+  no:cacheprovider` (outside `testpaths`, so the full suite does not run it).
 - User-visible change (API, CLI output, generated scripts, warnings) and no
   entry in `docs/releases/releases.md`: add one with `/release-note`.
 
