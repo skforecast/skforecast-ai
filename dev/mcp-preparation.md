@@ -336,7 +336,11 @@ PYTHONPATH=. $E/python tools/ai/check_ask_context.py --dry-run
   - `items_sales`: multi-series, también en formato largo con `melt`;
   - `store_sales`: escala.
 - Estado de la suite al terminar la sesión: 1718 tests, todos en verde.
-- **En una sesión en la nube** (claude.ai/code): el hook de inicio instala el paquete con `[test,llm]` y ruff mediante pip o uv. Se usa `python -m pytest -n auto` directamente, sin conda. `mkdocs` no se instala: para construir la documentación hay que instalar antes el extra `[docs]`.
+- **En una sesión en la nube** (claude.ai/code):
+  - el hook de inicio instala el paquete con `[test,llm,docs]` y ruff, mediante pip o uv;
+  - exporta `SKFORECAST_AI_DOCS_PRIVACY=false`, de modo que `mkdocs build` funciona sin el plugin de privacidad, cuyas descargas (unpkg.com, avatares de GitHub) bloquea la política de red por defecto;
+  - se usa `python -m pytest -n auto` directamente, sin conda;
+  - los hooks tienen sus propios tests: `python -m pytest .claude/hooks -q -p no:cacheprovider`.
 
 ## 9. Hallazgos nuevos de la auditoría (fase 1)
 

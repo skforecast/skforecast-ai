@@ -3,7 +3,11 @@ PreToolUse hook for Bash: branch policy and paid calls.
 
 - `tools/ai/check_ask_context.py` without `--dry-run` calls a real LLM and
   costs money; only the user launches it.
-- Never push to `main` or a release branch (`X.Y.x`), in any environment.
+- Never push to `main` or a release branch (`X.Y.x`), in any environment,
+  also through `HEAD`, `@` or `--all`.
+- Never force push, in any form (`-f`, `--force`, `--force-with-lease`, a
+  `+` refspec, `--mirror`); the deny rules in `settings.json` only catch the
+  command prefixes they list.
 - In Claude Code on the web (`CLAUDE_CODE_REMOTE=true`), commits and pushes
   only happen on a branch named `feature/...`, `fix/...`, `docs/...` or
   `chore/...`.
@@ -26,6 +30,9 @@ SEGMENT_SEPARATOR = re.compile(r"\n|&&|\|\||;|\|")
 ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 # git options that take a separate value before the subcommand.
 GIT_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
+FORCE_OPTIONS = ("--force", "--force-with-lease", "--force-if-includes")
+# Push every local branch (or mirror the repository), protected ones included.
+ALL_BRANCH_OPTIONS = {"--all", "--branches", "--mirror"}
 
 
 def segments(command: str) -> list[list[str]]:
@@ -70,18 +77,34 @@ def git_invocations(command: str) -> list[tuple[str, list[str]]]:
 def push_targets(args: list[str], branch: str) -> list[str]:
     """
     Branch names a `git push` may write to. Flags and the remote name are
-    skipped; in `src:dst` the destination wins. No refspec means the
-    current branch.
+    skipped; in `src:dst` the destination wins, and `HEAD` or `@` stand for
+    the current branch. No refspec means the current branch.
     """
 
     positional = [a for a in args if not a.startswith("-")]
     refspecs = positional[1:]  # positional[0] is the remote
     if not refspecs:
         return [branch]
-    return [
-        r.split(":", 1)[-1].lstrip("+").removeprefix("refs/heads/")
-        for r in refspecs
-    ]
+    targets = []
+    for refspec in refspecs:
+        target = refspec.split(":", 1)[-1].lstrip("+").removeprefix("refs/heads/")
+        targets.append(branch if target in {"", "HEAD", "@"} else target)
+    return targets
+
+
+def forces(args: list[str]) -> bool:
+    """
+    Whether a `git push` rewrites remote history: a force option, `-f` in a
+    cluster of short options (`-uf`), or a refspec starting with `+`.
+    """
+
+    for arg in args:
+        if arg.startswith(FORCE_OPTIONS):
+            return True
+        if arg.startswith("-") and not arg.startswith("--") and "f" in arg[1:]:
+            return True
+    positional = [a for a in args if not a.startswith("-")]
+    return any(refspec.startswith("+") for refspec in positional[1:])
 
 
 def current_branch(cwd: str) -> str:
@@ -129,6 +152,22 @@ def main() -> int:
     for sub, args in invocations:
         if sub != "push":
             continue
+        if forces(args):
+            print(
+                "Blocked: force pushes rewrite published history and are not "
+                "allowed (AGENTS.md). Push new commits on top instead; merge "
+                "the base branch rather than rebasing a pushed branch.",
+                file=sys.stderr,
+            )
+            return 2
+        if ALL_BRANCH_OPTIONS.intersection(args):
+            print(
+                "Blocked: --all, --branches and --mirror push every local "
+                "branch, protected ones included. Push the current branch: "
+                f"`git push -u origin {branch or '<branch>'}`.",
+                file=sys.stderr,
+            )
+            return 2
         targets = push_targets(args, branch)
         blocked = [t for t in targets if PROTECTED_BRANCH.match(t)]
         if blocked:
