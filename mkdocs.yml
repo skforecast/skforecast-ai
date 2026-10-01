@@ -112,6 +112,9 @@ plugins:
   # excluded hosts are loaded as usual: Plotly and MathJax of the notebooks
   # and live badges. Downloads are cached in .cache/ (git ignored).
   - privacy:
+      # SKFORECAST_AI_DOCS_PRIVACY=false builds without it, for checks in
+      # environments whose network policy blocks those hosts (cloud sessions).
+      enabled: !ENV [SKFORECAST_AI_DOCS_PRIVACY, true]
       assets_exclude:
         - cdn.plot.ly/*
         - cdnjs.cloudflare.com/ajax/libs/mathjax/*
