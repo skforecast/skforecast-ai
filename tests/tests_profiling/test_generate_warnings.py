@@ -129,3 +129,29 @@ def test_generate_warnings_output_when_rows_were_sorted(long_format, expected):
     )
 
     assert warnings == [expected]
+
+
+def test_generate_warnings_output_when_series_end_early():
+    """
+    Test that series ending before the last date of the data produce a note
+    naming them with their own last date, five at most.
+    """
+    early = {f"s{i}": f"2023-01-0{i}" for i in range(1, 8)}
+
+    warnings = generate_warnings(
+        n_observations      = 100,
+        frequency           = "D",
+        missing_target      = {},
+        missing_exog        = {},
+        index_type          = "datetime",
+        series_ending_early = ("2023-01-31", early),
+    )
+
+    assert warnings == [
+        "Series ending early: 7 series end before the last date of the data "
+        "(2023-01-31): 's1' (2023-01-01), 's2' (2023-01-02), 's3' (2023-01-03), "
+        "'s4' (2023-01-04), 's5' (2023-01-05) and 2 more. "
+        "ForecasterRecursiveMultiSeries does not predict them, and "
+        "ForecasterFoundation predicts each one from its own last date, inside "
+        "the range of the data."
+    ]

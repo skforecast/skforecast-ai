@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
@@ -828,3 +829,320 @@ def test_create_data_profile_passes_date_column_to_csv_loader(tmp_path):
     assert profile.date_column == "date"
     assert profile.frequency == "MS"
     assert profile.exog_columns == ["contract_end"]
+
+
+# =============================================================================
+# Tests: frequency of each series in long format
+# =============================================================================
+_LONG_KWARGS = {"target": "value", "date_column": "date", "series_id_column": "series"}
+
+
+def _weekly(data: pd.DataFrame, series: str) -> pd.DataFrame:
+    """Keep only the Sundays of one series of `df_items_sales_long`."""
+    return data[(data["series"] != series) | (data["date"].dt.dayofweek == 6)]
+
+
+@pytest.mark.parametrize(
+    "data, err_msg",
+    [
+        (
+            _weekly(df_items_sales_long, "item_3"),
+            "The series do not share one frequency: 'D' (series 'item_1'), "
+            "'W-SUN' (series 'item_3'). Every series of long-format data must "
+            "have the same frequency; forecast the series of each frequency "
+            "separately.",
+        ),
+        (
+            _weekly(df_items_sales_long, "item_1"),
+            "The series do not share one frequency: 'D' (series 'item_2'), "
+            "'W-SUN' (series 'item_1'). Every series of long-format data must "
+            "have the same frequency; forecast the series of each frequency "
+            "separately.",
+        ),
+    ],
+    ids=["weekly_last", "weekly_first"],
+)
+def test_create_data_profile_InvalidInputError_when_long_series_frequencies_differ(
+    data, err_msg
+):
+    """
+    Test that long-format series of different frequencies (one weekly series
+    among daily ones in items_sales) raise, with the same frequencies named
+    whatever the order of the series. Before, the frequency of the first
+    series was used for all: a weekly series after daily ones was filled
+    with missing values, and daily series after a weekly one were resampled
+    to weekly, with only the warning of skforecast that a series is
+    incomplete.
+    """
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert exc_info.value.field == "data"
+
+
+def test_create_data_profile_InvalidInputError_when_long_timestamp_off_grid():
+    """
+    Test that a timestamp of a long-format series that is off the grid of
+    the frequency of the other series raises, instead of being dropped by
+    the generated script, which said nothing about it.
+    """
+    data = df_items_sales_long.copy()
+    data.loc[130, "date"] = pd.Timestamp("2012-01-11 12:00")
+
+    err_msg = re.escape(
+        "Series 'item_2' has timestamps off the 'D' grid, for example "
+        "2012-01-11 12:00:00. Every series of long-format data must have the "
+        "same frequency on the same grid: correct or drop those timestamps, or "
+        "forecast those series separately."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        create_data_profile(data=data, **_LONG_KWARGS)
+
+
+def test_create_data_profile_InvalidInputError_when_long_weekly_series_has_gap():
+    """
+    Test that a weekly series with a missing week among daily ones, which is
+    not regular on its own and too short to infer with gaps, raises as one
+    of another frequency (every step a multiple of 7 days), instead of being
+    read as a daily series with gaps.
+    """
+    weekly = df_items_sales_long[
+        (df_items_sales_long["series"] == "item_3")
+        & (df_items_sales_long["date"].dt.dayofweek == 6)
+    ].drop(index=[261])
+    data = pd.concat(
+        [df_items_sales_long[df_items_sales_long["series"] != "item_3"], weekly]
+    )
+
+    err_msg = re.escape(
+        "The series do not share one frequency: 'D' (series 'item_1'), "
+        "'W-SUN' (series 'item_3')."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        create_data_profile(data=data, **_LONG_KWARGS)
+
+
+def test_create_data_profile_InvalidInputError_when_long_aware_weekly_series():
+    """
+    Test that time zone aware long-format dates are checked too: a weekly
+    series among daily ones raises, where the first series alone set the
+    frequency.
+    """
+    data = df_items_sales_long.assign(
+        date=df_items_sales_long["date"].dt.tz_localize("Europe/Madrid")
+    )
+    weekly = data[(data["series"] == "item_3") & (data["date"].dt.dayofweek == 6)]
+    data = pd.concat([data[data["series"] != "item_3"], weekly])
+
+    err_msg = re.escape(
+        "The series do not share one frequency: 'D' (series 'item_1'), "
+        "'W-SUN' (series 'item_3')."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        create_data_profile(data=data, **_LONG_KWARGS)
+
+
+def test_create_data_profile_counts_missing_timestamps_of_every_long_series():
+    """
+    Test that the missing timestamps of every long-format series are
+    counted, not only those of the first series: 20 dates removed from
+    item_2 were reported as no gaps.
+    """
+    data = df_items_sales_long.drop(index=range(130, 150))
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.frequency == "D"
+    assert profile.has_gaps is True
+    assert profile.warnings == [
+        "Missing timestamps: 20 timestamps of frequency 'D' are missing from "
+        "the date range. asfreq() inserts them as rows with missing values."
+    ]
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [range(0, 118), range(240, 358)],
+    ids=["first_series_short", "last_series_short"],
+)
+def test_create_data_profile_output_when_long_series_too_short_to_infer(rows):
+    """
+    Test that a long-format series whose frequency cannot be inferred on its
+    own (two dates left) takes the frequency of the other series when its
+    dates are on their grid, first or last. Before, a first series too short
+    to infer gave no frequency at all.
+    """
+    data = df_items_sales_long.drop(index=rows)
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.frequency == "D"
+
+
+def test_create_data_profile_note_when_long_series_ends_early():
+    """
+    Test that a long-format series that ends before the last date of the
+    data gets a note: a forecast of the future leaves it out without any
+    warning (item_3 ending 30 days before the others).
+    """
+    data = df_items_sales_long.drop(index=range(330, 360))
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.series_lengths["item_3"].end == "2012-03-30"
+    assert profile.warnings == [
+        "Series ending early: 1 series ends before the last date of the data "
+        "(2012-04-29): 'item_3' (2012-03-30). ForecasterRecursiveMultiSeries does "
+        "not predict them, and ForecasterFoundation predicts each one from its "
+        "own last date, inside the range of the data."
+    ]
+
+
+def test_create_data_profile_note_when_long_series_ends_with_missing_values():
+    """
+    Test that a series whose last 30 rows have no value (skforecast drops
+    them, so the series is not predicted) gets the note on series ending
+    early, at the date of its last value.
+    """
+    data = df_items_sales_long.copy()
+    data.loc[330:359, "value"] = np.nan
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.warnings[0] == (
+        "Series ending early: 1 series ends before the last date of the data "
+        "(2012-04-29): 'item_3' (2012-03-30). ForecasterRecursiveMultiSeries does "
+        "not predict them, and ForecasterFoundation predicts each one from its "
+        "own last date, inside the range of the data."
+    )
+
+
+def test_create_data_profile_output_when_long_series_share_frequency():
+    """
+    Test that long-format series that share one frequency and end on the
+    same date keep their profile (items_sales, 120 days).
+    """
+    profile = create_data_profile(data=df_items_sales_long, **_LONG_KWARGS)
+
+    assert profile.frequency == "D"
+    assert profile.has_gaps is False
+    assert profile.start_date == "2012-01-01"
+    assert profile.span_index_length == 120
+    assert profile.warnings == []
+
+
+def test_create_data_profile_output_when_first_long_row_has_no_series_id():
+    """
+    Test that a first row without a series id is left out, as the generated
+    script leaves it out: the frequency and the start date come from the
+    series. Before, the first series was the empty one, so the frequency
+    and the start date were None.
+    """
+    first = pd.DataFrame(
+        {"date": [pd.Timestamp("2012-01-05")], "series": [None], "value": [1.0]}
+    )
+    data = pd.concat([first, df_items_sales_long], ignore_index=True)
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.frequency == "D"
+    assert profile.start_date == "2012-01-01"
+    assert profile.has_gaps is False
+
+
+@pytest.mark.parametrize("unit", ["ns", "us", "s"], ids=lambda dt: f"unit: {dt}")
+def test_create_data_profile_output_when_long_dates_in_other_units(unit):
+    """
+    Test that long-format dates stored in microseconds or seconds give the
+    same daily frequency as in nanoseconds.
+    """
+    data = df_items_sales_long.assign(
+        date=df_items_sales_long["date"].astype(f"datetime64[{unit}]")
+    )
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.frequency == "D"
+    assert profile.has_gaps is False
+
+
+def test_create_data_profile_output_when_long_dates_time_zone_aware():
+    """
+    Test that time zone aware long-format daily dates across a daylight
+    saving time change (days of 23 hours) are read in local time: a daily
+    frequency without gaps.
+    """
+    data = df_items_sales_long.assign(
+        date=df_items_sales_long["date"].dt.tz_localize("Europe/Madrid")
+    )
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.frequency == "D"
+    assert profile.has_gaps is False
+
+
+def test_create_data_profile_output_when_long_hourly_dates_time_zone_aware():
+    """
+    Test that time zone aware long-format hourly dates across the change to
+    summer time are read in UTC, where the hour skipped by the clocks is not
+    missing, and that the two hours missing from the second series are
+    counted.
+    """
+    dates = pd.date_range(
+        "2023-03-24", "2023-03-28 23:00", freq="h", tz="Europe/Madrid"
+    )
+    data = pd.concat([
+        pd.DataFrame({"series": "a", "date": dates, "value": np.arange(119.0)}),
+        pd.DataFrame({
+            "series": "b", "date": dates.delete([30, 31]), "value": np.arange(117.0)
+        }),
+    ])
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.frequency == "h"
+    assert profile.has_gaps is True
+    assert profile.warnings == [
+        "Missing timestamps: 2 timestamps of frequency 'h' are missing from the "
+        "date range. asfreq() inserts them as rows with missing values."
+    ]
+
+
+def test_create_data_profile_output_when_long_dates_all_missing():
+    """
+    Test that long-format data without any row with both a date and a series
+    id has no frequency, without an error.
+    """
+    data = df_items_sales_long.assign(date=pd.NaT)
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.frequency is None
+
+
+def test_create_data_profile_note_when_long_dates_beyond_nanoseconds():
+    """
+    Test that long-format dates after the year 2262, kept in seconds, are
+    profiled from the first series, as before, with a note that the other
+    series were not checked.
+    """
+    dates = np.array(
+        [f"{year}-01-01" for year in range(2300, 2340)], dtype="datetime64[s]"
+    )
+    data = pd.DataFrame({
+        "series": np.repeat(["a", "b"], 40),
+        "date": np.concatenate([dates, dates]),
+        "value": np.arange(80.0),
+    })
+
+    profile = create_data_profile(data=data, **_LONG_KWARGS)
+
+    assert profile.frequency == "YS-JAN"
+    assert profile.warnings == [
+        "Short series: only 40 observations. Results may be unreliable with "
+        "fewer than 50 observations.",
+        "Long-format dates outside the years 1677 to 2262: the frequency and "
+        "the missing timestamps were read from the first series only, so the "
+        "other series were not checked."
+    ]

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast.exceptions import MissingValuesWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant
@@ -374,3 +375,34 @@ def test_standalone_script_matches_forecast_when_csv_dates_are_day_first(tmp_pat
     assert profile.data_profile.warnings == []
     assert str(executed.predictions.index[0]) == "2012-04-30 00:00:00"
     _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)
+
+
+def test_standalone_script_matches_forecast_when_csv_long_series_has_gaps(tmp_path):
+    """
+    Test that a long-format CSV whose second series has missing dates is
+    profiled with gaps (only the first series was checked before) and that
+    the script run as a file yields the same predictions as forecast().
+    """
+    csv_path = tmp_path / "items.csv"
+    df_items_sales_long.drop(index=range(130, 150)).to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    kwargs = {
+        "data": csv_path, "target": "value", "date_column": "date",
+        "series_id_column": "series", "steps": 7,
+    }
+
+    code = assistant.forecast_code(**kwargs).code
+    # skforecast warns when the missing dates become NaN, and again when the
+    # NaN rows are dropped from the training matrices.
+    with pytest.warns(MissingValuesWarning) as record:
+        executed = assistant.forecast(**kwargs)
+
+    assert "Series 'item_2' is incomplete" in {
+        str(warning.message).split(".")[0] for warning in record
+    }
+    assert executed.profile.data_profile.has_gaps is True
+    standalone = _run_standalone(code, tmp_path)
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )

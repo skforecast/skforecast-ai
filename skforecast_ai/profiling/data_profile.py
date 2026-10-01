@@ -5,6 +5,7 @@
 ################################################################################
 
 import datetime
+import functools
 import os
 import re
 import sys
@@ -32,10 +33,6 @@ from ..exceptions import InvalidInputError, InvalidInputTypeError
 # before parsing the whole column. `pd.to_datetime` with `format="mixed"` is
 # computationally expensive and can accidentally parse categorical text IDs as dates.
 
-# TODO: Long Format Robustness - Fallback Series ID
-# In `_extract_datetime_index`, if frequency inference fails on the first series ID,
-# iterate through a few alternative series IDs before defaulting to None.
-
 # TODO: Memory Optimization - Mask Filtering
 # Optimize `_extract_datetime_index` to avoid creating heavy boolean masks 
 # (e.g., `data[data[series_id] == id]`) on the entire DataFrame. Consider using
@@ -58,6 +55,22 @@ _MAX_FREQUENCY_WINDOWS = 200
 # frequency inferred despite gaps. Below it the spacing is irregular rather
 # than regular with missing timestamps.
 _MIN_FREQUENCY_COVERAGE = 0.5
+# Dates of a series of long-format data read to infer its own frequency. A
+# series with fewer dates than a window above does not tell a frequency of
+# its own: a few rows a week apart may be a sparse daily series.
+_OWN_FREQUENCY_DATES = 30
+# Series with gaps, longest first, on which a frequency is inferred with gaps
+# until one gives it, to bound the cost when none does.
+_MAX_SERIES_WITH_GAPS = 10
+# A sparse series of n dates whose steps are all multiples of k steps of the
+# grid has them by chance with a probability of about k ** -(n - 1). It is
+# taken for a series of a coarser frequency only when that probability, over
+# all the series of the data, is below one in a million, so a few sales on
+# even days are not.
+_COARSER_EVIDENCE = np.log(1e6)
+# Candidate frequencies checked against every series, to bound the cost when
+# the series have many frequencies of their own.
+_MAX_CANDIDATES = 20
 
 
 def infer_frequency(index: pd.DatetimeIndex) -> str | None:
@@ -195,6 +208,15 @@ def create_data_profile(
 
     A CSV date column with empty cells, or whose dates mix UTC offsets,
     raises a `ValueError` that says so (see `_try_parse_first_date_column`).
+
+    In long format, the frequency of every series is read: series of
+    different frequencies, or with timestamps off the grid of the others,
+    raise a `ValueError` (see `_infer_long_frequency`); the missing
+    timestamps of every series are counted, and a note in `warnings` names
+    the series whose last value comes before the last date of the data,
+    which `ForecasterRecursiveMultiSeries` does not predict. Time zone aware
+    dates are read in local time for a frequency of a day or coarser and in
+    UTC for a finer one, as pandas puts them on a grid.
     """
     if isinstance(data, (str, Path)):
         data = pd.read_csv(data)
@@ -238,9 +260,10 @@ def create_data_profile(
         data = data[keep_mask]
     has_duplicate_timestamps = n_duplicate_timestamps > 0
 
-    # Extract a datetime index suitable for quality checks (frequency,
-    # gaps, duplicates, monotonicity). For long format, use a single
-    # representative series to avoid stacked dates breaking inference.
+    # Extract a datetime index suitable for quality checks (monotonicity,
+    # the start date, and the frequency and gaps of single and wide data).
+    # For long format, a single representative series avoids stacked dates;
+    # the frequency and the gaps of every series are read further down.
     datetime_index = _extract_datetime_index(
         data, date_col, index_type, data_format, series_id_column
     )
@@ -268,7 +291,36 @@ def create_data_profile(
             data, date_col, index_type, data_format, series_id_column
         )
 
-    frequency = infer_frequency(datetime_index) if datetime_index is not None else None
+    long_series = (
+        data_format == "long"
+        and index_type == "datetime"
+        and series_id_column is not None
+        and series_id_column in data.columns
+    )
+    long_dates = row_dates(data, date_col) if long_series else None
+    series_dates = (
+        _long_series_dates(long_dates, data[series_id_column])
+        if long_dates is not None else None
+    )
+    if series_dates is not None:
+        # Every series is read: the frequency of the first one alone
+        # resampled the others to it, with only the warning of skforecast
+        # that a series is incomplete, and their gaps were not counted.
+        if long_dates.tz is None:
+            frequency, n_missing_timestamps = _infer_long_frequency(series_dates)
+        else:
+            frequency, n_missing_timestamps = _infer_aware_long_frequency(
+                local_dates = series_dates,
+                utc_dates   = _long_series_dates(
+                                  long_dates.tz_convert("UTC"), data[series_id_column]
+                              ),
+            )
+    else:
+        frequency = (
+            infer_frequency(datetime_index) if datetime_index is not None else None
+        )
+        n_missing_timestamps = count_missing_timestamps(datetime_index, frequency)
+    has_gaps = n_missing_timestamps > 0
 
     # Compute n_series and per-series ranges (start, end, length)
     n_series, series_lengths = _compute_series_metrics(
@@ -282,9 +334,6 @@ def create_data_profile(
     # Target dtype (use first target column for multi)
     first_target = target[0] if isinstance(target, list) else target
     target_dtype = detect_target_dtype(data, first_target)
-
-    n_missing_timestamps = count_missing_timestamps(datetime_index, frequency)
-    has_gaps = n_missing_timestamps > 0
 
     # Early stop: constant target makes forecasting meaningless
     if _check_target_is_constant(data, first_target):
@@ -313,7 +362,21 @@ def create_data_profile(
         n_duplicate_timestamps = n_duplicate_timestamps,
         rows_sorted            = rows_sorted,
         long_format            = data_format == "long",
+        series_ending_early    = (
+            _series_ending_early(
+                dates  = long_dates,
+                ids    = data[series_id_column],
+                values = data[first_target],
+            )
+            if series_dates is not None else None
+        ),
     )
+    if long_dates is not None and series_dates is None:
+        warnings.append(
+            "Long-format dates outside the years 1677 to 2262: the frequency "
+            "and the missing timestamps were read from the first series only, "
+            "so the other series were not checked."
+        )
 
     # Compute start_date: the reference start for position-to-date
     # conversion.  For long format with multiple series that may have
@@ -1128,6 +1191,720 @@ def _compute_series_metrics(
     return 1, series_lengths
 
 
+def _long_series_dates(
+    dates: pd.DatetimeIndex,
+    ids: pd.Series,
+) -> dict[object, np.ndarray] | None:
+    """
+    Return the sorted, distinct dates of each series of long-format data, as
+    nanoseconds since the epoch, in order of first appearance.
+
+    Rows without a date or a series id, and series without rows (unused
+    categories), are left out, as the generated script leaves them out.
+    Time zone aware dates are read in their local time (pass them converted
+    to UTC to read them in UTC).
+
+    Parameters
+    ----------
+    dates : pandas DatetimeIndex
+        Date of each row.
+    ids : pandas Series
+        Series id of each row.
+
+    Returns
+    -------
+    series_dates : dict, None
+        Dates of each series, keyed by its id. None when the dates do not
+        fit in nanoseconds (before 1677 or after 2262), which leaves the
+        frequency to the first series, with a note.
+    """
+    if dates.tz is not None:
+        dates = dates.tz_localize(None)
+    try:
+        dates = dates.as_unit("ns")
+    except pd.errors.OutOfBoundsDatetime:
+        return None
+    codes, names = pd.factorize(ids)
+    keep = (codes >= 0) & ~np.asarray(dates.isna())
+    if not keep.any():
+        return {}
+    codes, positions = codes[keep], dates.asi8[keep]
+    order = np.lexsort((positions, codes))
+    codes, positions = codes[order], positions[order]
+    repeated = np.r_[
+        False, (codes[1:] == codes[:-1]) & (positions[1:] == positions[:-1])
+    ]
+    codes, positions = codes[~repeated], positions[~repeated]
+    starts = np.r_[0, np.flatnonzero(np.diff(codes)) + 1]
+
+    return {
+        names[code]: chunk
+        for code, chunk in zip(codes[starts], np.split(positions, starts[1:]))
+    }
+
+
+def _series_ending_early(
+    dates: pd.DatetimeIndex,
+    ids: pd.Series,
+    values: pd.Series,
+) -> tuple[str, dict[str, str]] | None:
+    """
+    Find the series of long-format data whose last value comes before the
+    last date of the data.
+
+    Rows without a value are left out, as skforecast drops the missing
+    values at the end of a series, and so are rows without a date or a
+    series id.
+
+    Parameters
+    ----------
+    dates : pandas DatetimeIndex
+        Date of each row.
+    ids : pandas Series
+        Series id of each row.
+    values : pandas Series
+        Target value of each row.
+
+    Returns
+    -------
+    series_ending_early : tuple, None
+        Last date with a value in the data and the series whose last value
+        comes before it, mapped to the date of that value. None when every
+        series reaches the last date.
+    """
+    codes, names = pd.factorize(ids)
+    keep = (codes >= 0) & ~np.asarray(dates.isna()) & values.notna().to_numpy()
+    if not keep.any():
+        return None
+    ends = pd.Series(dates[keep]).groupby(codes[keep]).max()
+    last = ends.max()
+    early = {
+        str(names[code]): _fmt_timestamp(end)
+        for code, end in ends.items() if end < last
+    }
+    if not early:
+        return None
+
+    return _fmt_timestamp(last), early
+
+
+def _finer_than_a_day(frequency: str | None) -> bool:
+    """
+    Return whether a frequency is a fixed step shorter than a day (hours,
+    minutes).
+    """
+    if frequency is None:
+        return False
+    offset = pd.tseries.frequencies.to_offset(frequency)
+
+    return (
+        isinstance(offset, pd.offsets.Tick)
+        and offset.nanos < pd.Timedelta(days=1).value
+    )
+
+
+@functools.lru_cache(maxsize=256)
+def _periods_per_year(frequency: str) -> float:
+    """
+    Return how many timestamps of a frequency fall in a year, to tell a finer
+    frequency from a coarser one.
+    """
+    offset = pd.tseries.frequencies.to_offset(frequency)
+    if isinstance(offset, pd.offsets.Tick):
+        return pd.Timedelta(days=365).value / offset.nanos
+
+    # Forty years, so that steps of several years are counted too.
+    return len(pd.date_range("2001-01-01", "2040-12-31", freq=offset)) / 40
+
+
+def _own_frequencies(series_dates: dict[object, np.ndarray]) -> dict[object, str]:
+    """
+    Return the frequency of each series that pandas infers on its first
+    dates (`_OWN_FREQUENCY_DATES`), when they are regular and the whole
+    series fills at least half of its grid.
+
+    Reading only the first dates bounds the cost on long series, and the
+    results are reused for series whose first dates have the same steps and
+    start on the same weekday and time of day, and for periods of half a
+    month or more on the same day of the month and month (the series of a
+    panel usually do). Series with steps of several lengths that
+    no frequency pandas infers can have (gaps) are not passed to pandas. A
+    series whose later dates are sparser or denser than its first ones
+    (daily then weekly, every two hours then hourly) has no frequency of its
+    own. The other dates are checked against the grid of the frequency of
+    the data.
+    """
+    day = pd.Timedelta(days=1).value
+    year = pd.Timedelta(days=365.2425).value
+    cache: dict[tuple, str | None] = {}
+    own = {}
+    for name, dates in series_dates.items():
+        if len(dates) < _FREQUENCY_WINDOW:
+            continue
+        head = dates[:_OWN_FREQUENCY_DATES]
+        steps = np.diff(head)
+        # Steps of several lengths are regular only for business days (one
+        # or three days) and for calendar periods of half a month or more;
+        # other ones are gaps, which pandas would reject at a cost.
+        if steps.min() != steps.max() and not (
+            ((steps == day) | (steps == 3 * day)).all()
+            or (steps.min() >= 13 * day and not (steps % day).any())
+        ):
+            continue
+        # What pandas infers depends on the steps, the weekday and the time of
+        # day of the first date, and for periods of half a month or more on
+        # its day of the month and month.
+        first = pd.Timestamp(head[0])
+        key = (steps.tobytes(), first.dayofweek, int(head[0] % day)) + (
+            (first.day, first.month) if steps.min() >= 13 * day else ()
+        )
+        if key not in cache:
+            cache[key] = pd.infer_freq(pd.DatetimeIndex(head))
+        frequency = cache[key]
+        if frequency is None:
+            continue
+        # The whole series must fill at least half of the grid of that
+        # frequency, and not hold many more dates than the grid (a few stray
+        # ones at most): a series that turns sparser (daily, then weekly) or
+        # finer (every two hours, then hourly) has no frequency of its own.
+        size = (dates[-1] - dates[0]) / year * _periods_per_year(frequency) + 1
+        if _MIN_FREQUENCY_COVERAGE * size <= len(dates) <= 1.1 * size + 2:
+            own[name] = frequency
+
+    return own
+
+
+def _grid(
+    dates: np.ndarray,
+    frequency: str,
+) -> tuple[pd.DateOffset, np.ndarray | int]:
+    """
+    Return the grid of `frequency` that most of the dates lie on.
+
+    For a fixed step, the grid is the phase shared by most dates (an int, in
+    nanoseconds). For a calendar frequency (business days, weeks, months),
+    it is the timestamps of the grid at the time of day shared by most
+    dates and, for a multiple (every second week), on the one of its grids
+    that holds most dates. `dates` holds the dates of every series, repeated
+    ones included, so a long series off the grid of many shorter ones does
+    not set the grid.
+    """
+    offset = pd.tseries.frequencies.to_offset(frequency)
+    if isinstance(offset, pd.offsets.Tick):
+        phases, counts = np.unique(dates % offset.nanos, return_counts=True)
+        return offset, int(phases[np.argmax(counts)])
+
+    day = pd.Timedelta(days=1).value
+    times, counts = np.unique(dates % day, return_counts=True)
+    first, last = pd.Timestamp(dates.min()), pd.Timestamp(dates.max())
+    start = first.normalize() + pd.Timedelta(int(times[np.argmax(counts)]))
+    if start > first:
+        start -= pd.Timedelta(days=1)
+    grid = pd.date_range(start, last, freq=offset.base).asi8
+    if offset.n > 1:
+        positions, on_grid = _grid_positions(dates, grid)
+        phases, counts = np.unique(positions[on_grid] % offset.n, return_counts=True)
+        if len(phases):
+            grid = grid[int(phases[np.argmax(counts)])::offset.n]
+
+    return offset, grid
+
+
+def _grid_positions(
+    dates: np.ndarray,
+    grid: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Return the position of each date in the timestamps of a calendar grid,
+    and whether the date lies on it.
+    """
+    positions = np.searchsorted(grid, dates)
+    if len(grid) == 0:
+        return positions, np.zeros(len(dates), dtype=bool)
+    on_grid = grid[np.minimum(positions, len(grid) - 1)] == dates
+
+    return positions, on_grid
+
+
+def _longest_series(
+    series_dates: dict[object, np.ndarray],
+    names: list,
+) -> object:
+    """
+    Return the series with the most dates among `names`; on a tie, the one
+    that starts first, then ends first, then comes first by name, so the
+    order of the rows does not decide.
+    """
+
+    return min(
+        names,
+        key=lambda name: (
+            -len(series_dates[name]), series_dates[name][0], series_dates[name][-1],
+            str(name),
+        ),
+    )
+
+
+def _coarser_frequency(
+    dates: np.ndarray,
+    positions: np.ndarray,
+    own_frequency: str | None,
+    offset: pd.DateOffset,
+    frequency: str,
+    evidence: float,
+) -> str | None:
+    """
+    Return the coarser frequency of a series whose dates lie on the grid of
+    `frequency`, or None when the series is of that frequency with gaps.
+
+    A series is of a coarser frequency when it has one of its own with no
+    two of its first dates one step of the grid apart (a weekly series,
+    also with a stray date later on). Otherwise a series with two dates one
+    step apart (business days among daily ones), or with fewer than
+    `_FREQUENCY_WINDOW` dates (three rows a week apart may be a sparse
+    daily series), is of the frequency of the grid. The others are of a
+    coarser frequency when they are made of month starts or month ends
+    only (named by the step in months), when all their steps are multiples
+    of one step and chance cannot explain it (`evidence`, see
+    `_COARSER_EVIDENCE`), or when pandas infers one with gaps on calendar
+    steps (half a month or more). Sparse series that none of these names
+    count as gaps.
+
+    Parameters
+    ----------
+    dates : numpy ndarray
+        Dates of the series, in nanoseconds.
+    positions : numpy ndarray
+        Position of each date on the grid.
+    own_frequency : str, None
+        Frequency of the series on its first dates (see `_own_frequencies`).
+    offset : pandas DateOffset
+        Offset of `frequency`.
+    frequency : str
+        Candidate frequency of the data.
+    evidence : float
+        Threshold of `(n - 1) * log(k)` for a series of n dates whose steps
+        are all multiples of k steps of the grid.
+
+    Returns
+    -------
+    coarser_frequency : str, None
+        Frequency of the series, or None when it is `frequency`.
+    """
+    if len(dates) < _FREQUENCY_WINDOW:
+        return None
+    steps = np.diff(positions)
+    if own_frequency is not None and steps[:_OWN_FREQUENCY_DATES - 1].min() > 1:
+        return own_frequency
+    if steps.min() == 1:
+        return None
+
+    day = pd.Timedelta(days=1).value
+    timestamps = pd.DatetimeIndex(dates)
+    coarser = None
+    if (dates % day == dates[0] % day).all():
+        anchor = (
+            "MS" if timestamps.is_month_start.all()
+            else "ME" if timestamps.is_month_end.all()
+            else None
+        )
+        if anchor is not None:
+            months = np.diff(timestamps.year * 12 + timestamps.month)
+            coarser = _frequency_name(
+                timestamps[0], pd.tseries.frequencies.to_offset(anchor) * int(
+                    np.gcd.reduce(months)
+                )
+            )
+    if coarser is None:
+        step = int(np.gcd.reduce(steps))
+        if step > 1 and (len(dates) - 1) * np.log(step) > evidence:
+            coarser = _frequency_name(timestamps[0], offset * step)
+    if coarser is None:
+        # pandas infers a frequency with gaps from calendar steps that the
+        # checks above do not name (half months, business month ends).
+        raw_steps = np.diff(dates)
+        if raw_steps.min() >= 13 * day and not (raw_steps % day).any():
+            coarser = infer_frequency(timestamps)
+    if coarser is not None and _periods_per_year(coarser) < _periods_per_year(
+        frequency
+    ):
+        return coarser
+
+    return None
+
+
+def _frequency_name(start: pd.Timestamp, offset: pd.DateOffset) -> str:
+    """
+    Return the name pandas gives to the frequency of dates from `start` every
+    `offset` (`'W-MON'` for five business days, `'YS-JAN'` for twelve month
+    starts), or the name of the offset when pandas gives none.
+    """
+    name = pd.infer_freq(pd.date_range(start, periods=3, freq=offset))
+
+    return name if name is not None else offset.freqstr
+
+
+def _check_long_frequency(
+    series_dates: dict[object, np.ndarray],
+    all_dates: np.ndarray,
+    own: dict[object, str],
+    frequency: str,
+) -> tuple[int | None, str | None, list[str], int, bool]:
+    """
+    Check that every series fits the grid of `frequency`.
+
+    Every date must lie on the grid, and no series may be of a coarser
+    frequency (see `_coarser_frequency`). A series off the grid is of
+    another frequency when it has one of its own; the others off the grid
+    are, when pandas infers one with gaps on the longest of them, and have
+    stray timestamps otherwise.
+
+    Parameters
+    ----------
+    series_dates : dict
+        Dates of each series (see `_long_series_dates`).
+    all_dates : numpy ndarray
+        Dates of every series, together.
+    own : dict
+        Frequency of each series that is regular on its first dates (see
+        `_own_frequencies`).
+    frequency : str
+        Candidate frequency of the data.
+
+    Returns
+    -------
+    n_missing : int, None
+        Timestamps missing from the grid within the range of each series,
+        summed, or None when the series do not fit.
+    message : str, None
+        Why the series do not fit, or None.
+    others : list of str
+        Frequencies of the series that do not fit, to try instead.
+    n_blamed : int
+        Number of dates of the series that do not fit, to report the error
+        that blames the fewest.
+    differ : bool
+        Whether the message is about series of another frequency, rather
+        than about stray timestamps.
+    """
+    offset, grid = _grid(all_dates, frequency)
+    tick = isinstance(offset, pd.offsets.Tick)
+    evidence = _COARSER_EVIDENCE + np.log(len(series_dates))
+
+    n_missing = 0
+    other_frequencies: dict[object, str] = {}
+    off_grid: dict[object, np.ndarray] = {}
+    for name, dates in series_dates.items():
+        if tick:
+            on_grid = dates % offset.nanos == grid
+            positions = (dates - grid) // offset.nanos
+        else:
+            positions, on_grid = _grid_positions(dates, grid)
+        if not on_grid.all():
+            if own.get(name, frequency) != frequency:
+                other_frequencies[name] = own[name]
+            else:
+                off_grid[name] = dates[~on_grid]
+            continue
+        other = _coarser_frequency(
+            dates         = dates,
+            positions     = positions,
+            own_frequency = own.get(name),
+            offset        = offset,
+            frequency     = frequency,
+            evidence      = evidence,
+        )
+        if other is not None:
+            other_frequencies[name] = other
+            continue
+        n_missing += int(positions[-1] - positions[0]) + 1 - len(dates)
+
+    if not other_frequencies and not off_grid:
+        return n_missing, None, [], 0, False
+
+    # The series off the grid are of another frequency when pandas infers
+    # one with gaps on the longest of them (daily series off the grid of
+    # business days); otherwise they have stray timestamps.
+    if off_grid:
+        longest = _longest_series(series_dates, list(off_grid))
+        found = infer_frequency(pd.DatetimeIndex(series_dates[longest]))
+        if found is not None and found != frequency:
+            other_frequencies.setdefault(longest, found)
+
+    failing = set(other_frequencies) | set(off_grid)
+    n_blamed = sum(len(series_dates[name]) for name in failing)
+    others = sorted(
+        set(other_frequencies.values()),
+        key=lambda freq: (-_periods_per_year(freq), freq),
+    )
+    if other_frequencies:
+        name = _longest_series(series_dates, list(other_frequencies))
+        # Named next to the longest series that fits, preferring one regular
+        # at `frequency`.
+        fitting = [key for key in series_dates if key not in failing]
+        pool = fitting or [key for key in series_dates if key != name] or [name]
+        regular = [key for key in pool if own.get(key) == frequency]
+        reference = _longest_series(series_dates, regular or pool)
+        message = _frequencies_differ(
+            frequency, reference, other_frequencies[name], name
+        )
+        return None, message, others, n_blamed, True
+
+    name = _longest_series(series_dates, list(off_grid))
+    which = (
+        f"Series {str(name)!r} has" if len(off_grid) == 1
+        else f"{len(off_grid)} series, such as {str(name)!r}, have"
+    )
+    example = _fmt_timestamp(pd.Timestamp(off_grid[name][0]))
+    message = (
+        f"{which} timestamps off the {frequency!r} grid, for example "
+        f"{example}. Every series of long-format data must have the same "
+        f"frequency on the same grid: correct or drop those timestamps, or "
+        f"forecast those series separately."
+    )
+
+    return None, message, others, n_blamed, False
+
+
+def _in_hours(frequency: str | None) -> str | None:
+    """
+    Return a fixed step (days, weeks) as a number of hours (`'24h'`,
+    `'168h'`), which pandas keeps in UTC on time zone aware dates, or None
+    when the frequency is not a fixed step (months, business days).
+    """
+    if frequency is None:
+        return None
+    offset = pd.tseries.frequencies.to_offset(frequency)
+    hour = pd.Timedelta(hours=1).value
+    if isinstance(offset, pd.offsets.Tick):
+        nanos = offset.nanos
+    elif isinstance(offset, pd.offsets.Week):
+        nanos = offset.n * pd.Timedelta(weeks=1).value
+    else:
+        return None
+    if nanos % hour:
+        return None
+
+    return f"{nanos // hour}h"
+
+
+def _infer_long_frequency(
+    series_dates: dict[object, np.ndarray],
+) -> tuple[str | None, int]:
+    """
+    Infer the frequency shared by the series of long-format data and count
+    their missing timestamps, raising an `InvalidInputError` when they do
+    not share one (see `_search_long_frequency`).
+
+    Parameters
+    ----------
+    series_dates : dict
+        Dates of each series (see `_long_series_dates`).
+
+    Returns
+    -------
+    frequency : str, None
+        Frequency of the data, or None when it cannot be inferred.
+    n_missing_timestamps : int
+        Number of timestamps missing from the grid between the first and the
+        last date of each series, summed over the series. 0 when the
+        frequency is None.
+    """
+    frequency, n_missing, error = _search_long_frequency(series_dates)
+    if error is not None:
+        raise InvalidInputError(error[1], field="data")
+
+    return frequency, n_missing
+
+
+def _search_long_frequency(
+    series_dates: dict[object, np.ndarray],
+) -> tuple[str | None, int, tuple[int, str, bool] | None]:
+    """
+    Search the frequency shared by the series of long-format data and count
+    their missing timestamps.
+
+    Parameters
+    ----------
+    series_dates : dict
+        Dates of each series (see `_long_series_dates`).
+
+    Returns
+    -------
+    frequency : str, None
+        Frequency of the data, or None when it cannot be inferred.
+    n_missing_timestamps : int
+        Number of timestamps missing from the grid between the first and the
+        last date of each series, summed over the series. 0 when the
+        frequency is None.
+    error : tuple, None
+        When no candidate fits: the number of dates blamed, the message and
+        whether it is about series of another frequency (see
+        `_check_long_frequency`). None otherwise.
+
+    Notes
+    -----
+    The candidates are the frequencies of the series that are regular on
+    their first dates and the one inferred with gaps on the longest of the
+    other series that gives one (or, when none does, on the dates of every
+    series), ranked by the number of dates of their series (the finest one
+    on a tie, so the order of the series does not matter). The first
+    candidate that every series fits is the frequency of the data (see
+    `_check_long_frequency`); the frequency of a series off its grid is
+    also tried (its own, or the one inferred with gaps on the longest such
+    series), so daily series next to business-day ones are daily whatever
+    their order and gaps, up to `_MAX_CANDIDATES` candidates. When no
+    candidate fits, the error that blames the
+    fewest dates is returned: the generated script puts every series on one
+    frequency, so a series of another frequency was resampled to it (with
+    only the warning of skforecast that the series is incomplete), and
+    timestamps off its grid were dropped.
+    """
+    if not series_dates:
+        return None, 0, None
+    all_dates = np.concatenate(list(series_dates.values()))
+    own = _own_frequencies(series_dates)
+    weights: dict[str, int] = {}
+    for name, frequency in own.items():
+        weights[frequency] = weights.get(frequency, 0) + len(series_dates[name])
+    # Longest first; on a tie, by their dates, so the order of the rows does
+    # not decide.
+    with_gaps = sorted(
+        (name for name in series_dates if name not in own),
+        key=lambda name: (
+            -len(series_dates[name]), series_dates[name][0], series_dates[name][-1],
+            str(name),
+        ),
+    )
+    for name in with_gaps[:_MAX_SERIES_WITH_GAPS]:
+        frequency = infer_frequency(pd.DatetimeIndex(series_dates[name]))
+        if frequency is not None:
+            weights[frequency] = weights.get(frequency, 0) + len(series_dates[name])
+            break
+    if not weights:
+        union = np.unique(all_dates)
+        frequency = infer_frequency(pd.DatetimeIndex(union))
+        if frequency is None:
+            return None, 0, None
+        weights[frequency] = len(union)
+
+    candidates = sorted(
+        weights, key=lambda freq: (-weights[freq], -_periods_per_year(freq), freq)
+    )
+    error = None
+    tried = set()
+    while candidates and len(tried) < _MAX_CANDIDATES:
+        frequency = candidates.pop(0)
+        if frequency in tried:
+            continue
+        tried.add(frequency)
+        n_missing, message, others, n_blamed, differ = _check_long_frequency(
+            series_dates = series_dates,
+            all_dates    = all_dates,
+            own          = own,
+            frequency    = frequency,
+        )
+        if message is None:
+            return frequency, n_missing, None
+        if error is None or n_blamed < error[0]:
+            error = (n_blamed, message, differ)
+        candidates += [other for other in others if other not in tried]
+
+    return None, 0, error
+
+
+def _infer_aware_long_frequency(
+    local_dates: dict[object, np.ndarray],
+    utc_dates: dict[object, np.ndarray] | None,
+) -> tuple[str | None, int]:
+    """
+    Infer the frequency of long-format data with time zone aware dates.
+
+    pandas keeps the local time of a daily or coarser grid across a daylight
+    saving time change, but puts a step shorter than a day, or a step given
+    in hours, in UTC. So the dates are read in both: in UTC when that gives
+    a step shorter than a day (raising a series of another frequency found
+    in local time, such as a daily series among hourly ones, whose steps of
+    23 to 25 hours hide it in UTC), and in local time otherwise. A step
+    shorter than a day found only in local time (dates at the same local
+    hours) raises the error of the UTC reading, as `asfreq` would drop rows
+    across the change, or gives no frequency when that reading found none
+    without an error; days or weeks found only in UTC (dates at the same UTC
+    hour) are given in hours (`'24h'`, `'168h'`). When neither reading
+    fits, the error that blames the fewest dates is raised.
+
+    Parameters
+    ----------
+    local_dates : dict
+        Dates of each series in local time (see `_long_series_dates`).
+    utc_dates : dict, None
+        Dates of each series in UTC.
+
+    Returns
+    -------
+    frequency : str, None
+        Frequency of the data, or None when it cannot be inferred.
+    n_missing_timestamps : int
+        Number of missing timestamps, summed over the series.
+    """
+    utc_note = (
+        " The timestamps are in UTC: pandas puts a step shorter than a day on "
+        "a grid in UTC, so dates at the same local hours change step across a "
+        "daylight saving time change."
+    )
+    utc_frequency, utc_missing, utc_error = (
+        _search_long_frequency(utc_dates) if utc_dates is not None
+        else (None, 0, None)
+    )
+    local_frequency, local_missing, local_error = _search_long_frequency(
+        local_dates
+    )
+    if _finer_than_a_day(utc_frequency):
+        if local_error is not None and local_error[2]:
+            raise InvalidInputError(local_error[1], field="data")
+        return utc_frequency, utc_missing
+    if local_frequency is not None:
+        if not _finer_than_a_day(local_frequency):
+            return local_frequency, local_missing
+        if utc_error is not None:
+            raise InvalidInputError(utc_error[1] + utc_note, field="data")
+        return None, 0
+    hours = _in_hours(utc_frequency)
+    if hours is not None:
+        return hours, utc_missing
+    # The timestamps of a message of the UTC reading are in UTC.
+    errors = [
+        (error[0], index, error[1] + ("" if error[2] else note))
+        for index, (error, note) in enumerate(
+            [(local_error, ""), (utc_error, " The timestamps are in UTC.")]
+        )
+        if error is not None
+    ]
+    if errors:
+        raise InvalidInputError(min(errors)[2], field="data")
+
+    return None, 0
+
+
+def _frequencies_differ(
+    frequency: str,
+    reference: object,
+    other_frequency: str,
+    other: object,
+) -> str:
+    """
+    Return the message for series of long-format data of different
+    frequencies.
+    """
+
+    return (
+        f"The series do not share one frequency: {frequency!r} (series "
+        f"{str(reference)!r}), {other_frequency!r} (series {str(other)!r}). "
+        f"Every series of long-format data must have the same frequency; "
+        f"forecast the series of each frequency separately."
+    )
+
+
 def _parse_text_date_column(data: pd.DataFrame, date_col: str | None) -> pd.DataFrame:
     """
     Return `data` with its text date column parsed as the generated script
@@ -1250,9 +2027,10 @@ def _extract_datetime_index(
     Extract a representative DatetimeIndex for quality checks.
 
     For single and wide formats, the index comes directly from the
-    DataFrame's index or a detected date column. For long format,
-    uses the first series to avoid stacked dates from multiple series
-    breaking frequency inference and duplicate detection.
+    DataFrame's index or a detected date column. For long format, it is
+    the first series with a series id, so stacked dates from several series
+    do not break the checks that read one index (the frequency and the gaps
+    of every series are read by `_infer_long_frequency`).
 
     Parameters
     ----------
@@ -1277,10 +2055,13 @@ def _extract_datetime_index(
         return None
 
     if data_format == "long" and series_id_column is not None:
-        # Extract dates from the first series only
+        # Extract dates from the first series only. Rows without a series id
+        # are left out, as the generated script leaves them out.
         if series_id_column in data.columns:
-            first_id = data[series_id_column].iloc[0]
-            sample = data[data[series_id_column] == first_id]
+            ids = data[series_id_column].dropna()
+            if ids.empty:
+                return None
+            sample = data[data[series_id_column] == ids.iloc[0]]
             if date_col is not None and date_col in sample.columns:
                 return pd.DatetimeIndex(sample[date_col])
             if isinstance(sample.index, pd.DatetimeIndex):
@@ -1568,6 +2349,7 @@ def generate_warnings(
     n_duplicate_timestamps: int = 0,
     rows_sorted: bool = False,
     long_format: bool = False,
+    series_ending_early: tuple[str, dict[str, str]] | None = None,
 ) -> list[str]:
     """
     Generate human-readable warnings about potential data issues.
@@ -1594,6 +2376,10 @@ def generate_warnings(
         format) and were sorted before profiling.
     long_format : bool, default False
         Whether the data is in long format, to word the note on sorting.
+    series_ending_early : tuple, default None
+        Last date with a value of long-format data and the series whose last
+        value comes before it, mapped to the date of that value (see
+        `_series_ending_early`).
 
     Returns
     -------
@@ -1640,6 +2426,20 @@ def generate_warnings(
         warnings.append(
             f"Rows not in date order{within}: they were sorted by date before "
             f"profiling, as the generated code sorts them."
+        )
+
+    if series_ending_early:
+        last_date, early = series_ending_early
+        shown = ", ".join(f"{name!r} ({end})" for name, end in list(early.items())[:5])
+        if len(early) > 5:
+            shown += f" and {len(early) - 5} more"
+        verb = "ends" if len(early) == 1 else "end"
+        warnings.append(
+            f"Series ending early: {len(early)} series {verb} before the last "
+            f"date of the data ({last_date}): {shown}. "
+            f"ForecasterRecursiveMultiSeries does not predict them, and "
+            f"ForecasterFoundation predicts each one from its own last date, "
+            f"inside the range of the data."
         )
 
     total_target_missing = sum(missing_target.values())

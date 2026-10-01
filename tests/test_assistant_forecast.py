@@ -14,7 +14,7 @@ from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
-from tests.fixtures_datasets import df_h2o_text
+from tests.fixtures_datasets import df_h2o_text, df_items_sales_long
 from tests.fixtures_assistant import (
     df_calendar_named_exog,
     df_single,
@@ -947,3 +947,28 @@ def test_forecast_ValueError_when_profile_given_and_csv_date_has_an_empty_cell(
         assistant.forecast(data=csv_path, profile=profile, steps=12)
 
     assert profile.data_profile.date_column == "date"
+
+
+def test_forecast_note_when_long_series_ends_early():
+    """
+    Test that forecasting long-format data where a series (item_3) ends 30
+    days before the others says so in the profile: the forecast covers only
+    the series that reach the last date, which happened without any warning.
+    """
+    data = df_items_sales_long.drop(index=range(330, 360))
+
+    result = ForecastingAssistant().forecast(
+        data             = data,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+        steps            = 7,
+    )
+
+    assert result.profile.data_profile.warnings == [
+        "Series ending early: 1 series ends before the last date of the data "
+        "(2012-04-29): 'item_3' (2012-03-30). ForecasterRecursiveMultiSeries does "
+        "not predict them, and ForecasterFoundation predicts each one from its "
+        "own last date, inside the range of the data."
+    ]
+    assert sorted(result.predictions["level"].unique()) == ["item_1", "item_2"]
