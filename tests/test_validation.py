@@ -10,6 +10,7 @@ from skforecast_ai._validation import (
     check_estimator_installed,
     validate_estimator,
     validate_estimator_kwargs,
+    validate_frequency,
     validate_interval,
     validate_kwarg_names,
     validate_metrics,
@@ -316,3 +317,39 @@ def test_validate_kwarg_names_output_when_parameter_names(estimator_kwargs):
     Test that Python parameter names (and no kwargs at all) pass.
     """
     assert validate_kwarg_names(estimator_kwargs) is None
+
+
+# =============================================================================
+# Tests: validate_frequency
+# =============================================================================
+@pytest.mark.parametrize(
+    "frequency",
+    ["D\n", "D ", "D') or (1", "1.5h", "\u00b5s", "", ["D"]],
+    ids=lambda frequency: f"frequency: {frequency!r}",
+)
+def test_validate_frequency_ValueError_when_not_an_alias(frequency):
+    """
+    Test that a frequency with anything other than letters, digits and
+    hyphens is rejected, including a trailing newline or space that
+    `to_offset` would accept.
+    """
+    err_msg = re.escape(
+        f"`frequency` must be a pandas frequency alias made of letters, "
+        f"digits and hyphens, for example 'D', '15min' or 'W-SUN', got "
+        f"{frequency!r}."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        validate_frequency(frequency)
+
+
+@pytest.mark.parametrize(
+    "frequency",
+    [None, "D", "h", "15min", "MS", "W-SUN", "QS-OCT", "-1MS", "unknown"],
+    ids=lambda frequency: f"frequency: {frequency!r}",
+)
+def test_validate_frequency_output_when_alias(frequency):
+    """
+    Test that pandas frequency aliases (and None) pass. The syntax is
+    checked, not whether pandas knows the alias.
+    """
+    assert validate_frequency(frequency) is None

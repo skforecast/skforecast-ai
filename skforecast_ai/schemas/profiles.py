@@ -10,6 +10,7 @@ from typing import ClassVar, Literal
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .._display import DisplayMixin, render_profile
+from .._validation import validate_frequency
 from .explainable import ExplainableResult
 
 class SeriesLengthInfo(BaseModel):
@@ -206,6 +207,16 @@ class DataProfile(BaseModel):
                 key: ({"length": v} if isinstance(v, int) else v)
                 for key, v in value.items()
             }
+        return value
+
+    @field_validator("frequency")
+    @classmethod
+    def _check_frequency(cls, value: str | None) -> str | None:
+        """
+        Check that `frequency` is a pandas frequency alias: it is written
+        into the generated script, also from a profile loaded from JSON.
+        """
+        validate_frequency(value)
         return value
 
     @model_validator(mode="after")

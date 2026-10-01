@@ -47,6 +47,27 @@ def test_data_profile_invalid_index_type():
         )
 
 
+def test_data_profile_ValidationError_when_frequency_not_an_alias():
+    """
+    Test DataProfile loaded from JSON raises ValidationError when its
+    frequency, which the generated script writes into `asfreq()`, is not a
+    pandas frequency alias.
+    """
+    fields = {
+        "n_series": 1,
+        "series_lengths": {"y": 100},
+        "target": "y",
+        "index_type": "datetime",
+        "frequency": "D') or ('D",
+    }
+    err_msg = re.escape(
+        "`frequency` must be a pandas frequency alias made of letters, digits "
+        "and hyphens"
+    )
+    with pytest.raises(ValidationError, match=err_msg):
+        DataProfile.model_validate_json(json.dumps(fields))
+
+
 def test_forecast_plan_invalid_task_type():
     """
     Test ForecastPlan raises ValidationError when task_type is not a valid

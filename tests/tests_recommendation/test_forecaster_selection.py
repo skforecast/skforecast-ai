@@ -81,7 +81,7 @@ def test_select_forecaster_and_candidates_output_when_multi_series():
         ("MS", True),
         ("QS", True),
         (None, True),
-        ("unknown_freq", True),
+        ("unknown", True),
     ],
     ids = lambda v: f"frequency: {v}",
 )

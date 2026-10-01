@@ -7,6 +7,7 @@
 ################################################################################
 
 from __future__ import annotations
+import re
 from importlib.metadata import PackageNotFoundError, distribution
 from skforecast.foundation import FoundationModelInfo, get_model_info, list_adapters
 
@@ -16,6 +17,12 @@ from ._validation import validate_interval
 # Same tolerance skforecast uses to match a quantile level against the grid
 # of a backend, so a level accepted here is never rejected at prediction.
 _QUANTILE_TOLERANCE = 1e-9
+
+# Hugging Face model ID: 'owner/name', each part starting with a letter or
+# a digit and made of letters, digits, '-', '_' and '.'.
+_MODEL_ID_PATTERN = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*"
+)
 
 
 def resolve_foundation_model(model_id: str) -> FoundationModelInfo:
@@ -42,7 +49,8 @@ def resolve_foundation_model(model_id: str) -> FoundationModelInfo:
     TypeError
         When `model_id` is not a string.
     ValueError
-        When no skforecast adapter serves `model_id`.
+        When no skforecast adapter serves `model_id`, or when it is not a
+        Hugging Face model ID of the form `'owner/name'`.
     """
     if not isinstance(model_id, str):
         raise TypeError(
@@ -50,7 +58,7 @@ def resolve_foundation_model(model_id: str) -> FoundationModelInfo:
             f"model ID (str), got {type(model_id).__name__}."
         )
     try:
-        return get_model_info(model_id)
+        info = get_model_info(model_id)
     except ValueError:
         prefixes = [
             prefix
@@ -63,6 +71,16 @@ def resolve_foundation_model(model_id: str) -> FoundationModelInfo:
             f"'{DEFAULT_FOUNDATION_MODEL_ID}'. Supported model ID prefixes: "
             f"{prefixes}."
         ) from None
+    # skforecast matches the adapter by prefix only, so anything may follow
+    # a supported prefix; the ID is written into the generated script.
+    if not _MODEL_ID_PATTERN.fullmatch(model_id):
+        raise ValueError(
+            f"{model_id!r} is not a valid Hugging Face model ID. It must have "
+            f"the form 'owner/name', with letters, digits, '-', '_' and '.' "
+            f"only, for example '{DEFAULT_FOUNDATION_MODEL_ID}'."
+        )
+
+    return info
 
 
 def foundation_backend_installed(info: FoundationModelInfo) -> bool:

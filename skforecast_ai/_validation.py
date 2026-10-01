@@ -16,6 +16,7 @@ import importlib.util
 import inspect
 import keyword
 import numbers
+import re
 import warnings
 from ._constants import (
     ALLOWED_METRICS,
@@ -36,6 +37,46 @@ _MAX_LISTED_PARAMS = 30
 
 # Distribution name to `pip install` when it differs from the module name.
 _PIP_NAMES = {"sklearn": "scikit-learn"}
+
+# A pandas frequency alias is made of letters, digits and hyphens ('D',
+# '15min', 'W-SUN', 'QS-OCT'), as is everything `pd.infer_freq` returns,
+# including '-1MS' for a descending index. `to_offset` is not used for the
+# check: it accepts trailing whitespace and newlines ('D\n') and emits a
+# FutureWarning for deprecated aliases.
+_FREQUENCY_PATTERN = re.compile(r"[A-Za-z0-9-]+")
+
+
+def validate_frequency(frequency: str | None) -> None:
+    """
+    Check the syntax of a pandas frequency alias.
+
+    The frequency of a profile is written into the generated script
+    (`asfreq()`, `reshape_series_long_to_dict(freq=...)`), so a profile
+    loaded from JSON must hold an alias and nothing else.
+
+    Parameters
+    ----------
+    frequency : str, None
+        Frequency of the profile. None means unknown, which is always valid.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    A `ValueError` is raised unless `frequency` is made only of letters,
+    digits and hyphens. Whether pandas knows the alias is not checked here.
+    """
+
+    if frequency is None:
+        return
+    if not isinstance(frequency, str) or not _FREQUENCY_PATTERN.fullmatch(frequency):
+        raise ValueError(
+            f"`frequency` must be a pandas frequency alias made of letters, "
+            f"digits and hyphens, for example 'D', '15min' or 'W-SUN', got "
+            f"{frequency!r}."
+        )
 
 
 def validate_kwarg_names(estimator_kwargs: dict | None) -> None:

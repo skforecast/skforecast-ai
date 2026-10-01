@@ -62,6 +62,33 @@ def test_resolve_foundation_model_ValueError_when_model_not_supported(model_id):
         resolve_foundation_model(model_id)
 
 
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "autogluon/chronos-2-small\nimport os\n#",
+        "autogluon/chronos-2-small\n",
+        "autogluon/chronos-2-small extra",
+        "autogluon/chronos-2-small/../weights",
+        "autogluon/chronos-2-small')",
+    ],
+    ids=["newline", "trailing newline", "space", "path", "quote"],
+)
+def test_resolve_foundation_model_ValueError_when_model_id_not_owner_name(model_id):
+    """
+    Test that an ID that starts with a supported prefix but is not a
+    Hugging Face model ID of the form 'owner/name' raises ValueError:
+    skforecast matches the adapter by prefix only, and the ID is written
+    into the generated script.
+    """
+    err_msg = re.escape(
+        f"{model_id!r} is not a valid Hugging Face model ID. It must have the "
+        f"form 'owner/name', with letters, digits, '-', '_' and '.' only, for "
+        f"example 'autogluon/chronos-2-small'."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        resolve_foundation_model(model_id)
+
+
 def test_resolve_foundation_model_TypeError_when_model_id_not_str():
     """
     Test that a model ID that is not a string raises TypeError.

@@ -617,34 +617,18 @@ class _FoundationModelStub:
         raise RuntimeError("Foundation model not loaded in this test.")
 
 
-@pytest.mark.parametrize(
-    "column, estimator, expected_comment",
-    [
-        (
-            f"weekday\n{PAYLOAD}\n#",
-            "soda-inria/tabicl",
-            f"# Categorical exog excluded (weekday\\n{PAYLOAD}\\n#): "
-            f"'soda-inria/tabicl' only accepts numeric covariates",
-        ),
-        (
-            "weekday",
-            f"autogluon/chronos-2-small\n{PAYLOAD}\n#",
-            f"# Create foundation model (chronos-2-small\\n{PAYLOAD}\\n#)",
-        ),
-    ],
-    ids=["categorical exog name", "model ID"],
-)
-def test_forecast_ForecastExecutionError_when_foundation_comments_hold_newlines(
-    monkeypatch, tmp_path, column, estimator, expected_comment
+def test_forecast_ForecastExecutionError_when_foundation_categorical_exog_name_holds_newlines(
+    monkeypatch, tmp_path
 ):
     """
-    Test that a categorical exogenous column name (from a CSV) or a model ID
-    (an override) holding newlines and a payload is written escaped in the
-    comments of the ForecasterFoundation script, which runs up to the model
-    creation without running the payload.
+    Test that a categorical exogenous column name (from a CSV) holding
+    newlines and a payload is written escaped in the comment of the
+    ForecasterFoundation script, which runs up to the model creation
+    without running the payload.
     """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("skforecast.foundation.FoundationModel", _FoundationModelStub)
+    column = f"weekday\n{PAYLOAD}\n#"
     df_categorical_exog.rename(columns={"weekday": column}).to_csv(
         tmp_path / "data.csv", index=False
     )
@@ -658,10 +642,58 @@ def test_forecast_ForecastExecutionError_when_foundation_comments_hold_newlines(
             steps       = 5,
             test_size   = 5,
             forecaster  = "ForecasterFoundation",
-            estimator   = estimator,
+            estimator   = "soda-inria/tabicl",
         )
+    expected_comment = (
+        "# Categorical exog excluded (weekday\\nopen('pwned', 'w').close()\\n#): "
+        "'soda-inria/tabicl' only accepts numeric covariates"
+    )
     assert isinstance(exc_info.value.original_error, RuntimeError)
     assert expected_comment in exc_info.value.generated_code.splitlines()
+    assert not (tmp_path / MARKER).exists()
+
+
+def test_forecast_ValueError_when_foundation_model_id_carries_a_payload(
+    monkeypatch, tmp_path
+):
+    """
+    Test that a foundation model ID made of a supported prefix followed by
+    newlines and a payload (an `estimator` override) raises ValueError when
+    the plan is built, before any script is rendered or run.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("skforecast.foundation.FoundationModel", _FoundationModelStub)
+    estimator = f"autogluon/chronos-2-small\n{PAYLOAD}\n#"
+
+    err_msg = re.escape(f"{estimator!r} is not a valid Hugging Face model ID.")
+    with pytest.raises(ValueError, match=err_msg):
+        ForecastingAssistant().forecast(
+            data        = df_no_exog,
+            target      = "sales",
+            date_column = "date",
+            steps       = 5,
+            test_size   = 5,
+            forecaster  = "ForecasterFoundation",
+            estimator   = estimator,
+        )
+    assert not (tmp_path / MARKER).exists()
+
+
+def test_run_forecast_ValueError_when_foundation_model_id_skipped_validation(
+    monkeypatch, tmp_path
+):
+    """
+    Test that a foundation plan built without validation, whose model ID is
+    a supported prefix followed by newlines and a payload, raises ValueError
+    when the script is rendered, which checks the ID again.
+    """
+    monkeypatch.chdir(tmp_path)
+    estimator = f"autogluon/chronos-2-small\n{PAYLOAD}\n#"
+    plan = _hostile(plan_foundation, estimator=estimator)
+
+    err_msg = re.escape(f"{estimator!r} is not a valid Hugging Face model ID.")
+    with pytest.raises(ValueError, match=err_msg):
+        run_forecast(data=df_single, profile=profile_single, plan=plan)
     assert not (tmp_path / MARKER).exists()
 
 
@@ -709,4 +741,45 @@ def test_cli_exits_with_error_when_plan_bundle_carries_a_snippet(
 
     assert result.exit_code == 1
     assert PAYLOAD not in result.output
+    assert not (tmp_path / MARKER).exists()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["forecast", "data.csv", "--from-plan", "plan.json", "--test-size", "5"],
+        ["backtest", "data.csv", "--from-plan", "plan.json"],
+        ["compare", "data.csv", "--from-profile", "profile.json", "--steps", "5"],
+    ],
+    ids=["forecast", "backtest", "compare"],
+)
+def test_cli_exits_with_error_when_saved_profile_frequency_carries_a_payload(
+    monkeypatch, tmp_path, command
+):
+    """
+    Test that a saved profile (in a plan bundle or on its own) whose
+    frequency was edited to carry a payload is rejected when it is loaded:
+    the command exits with code 1 and "Invalid input data", and runs
+    nothing.
+    """
+    monkeypatch.chdir(tmp_path)
+    df_no_exog.to_csv(tmp_path / "data.csv", index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=tmp_path / "data.csv", target="sales", date_column="date"
+    )
+    plan = assistant.plan(profile=profile, steps=5, estimator="Ridge")
+    profile_json = profile.model_dump(mode="json")
+    profile_json["data_profile"]["frequency"] = (
+        f"D') if {PAYLOAD} is None else data.asfreq('D"
+    )
+    (tmp_path / "plan.json").write_text(
+        json.dumps({"profile": profile_json, "plan": plan.model_dump(mode="json")})
+    )
+    (tmp_path / "profile.json").write_text(json.dumps(profile_json))
+
+    result = runner.invoke(app, command)
+
+    assert result.exit_code == 1
+    assert "Invalid input data" in result.output
     assert not (tmp_path / MARKER).exists()
