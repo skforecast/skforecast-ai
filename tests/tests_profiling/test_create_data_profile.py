@@ -9,6 +9,7 @@ import pytest
 from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
+from ..fixtures_datasets import df_h2o, df_items_sales_long
 from .fixtures_profiling import (
     df_long_duplicate_values_series_b,
     df_long_identical_duplicates_series_b,
@@ -646,3 +647,157 @@ def test_create_data_profile_start_date_keeps_time_when_not_midnight():
     profile = create_data_profile(df, target="y")
 
     assert profile.start_date == "2023-01-01 06:00:00"
+
+
+# =============================================================================
+# Tests: rows not in date order
+# =============================================================================
+_SORTED_NOTE = (
+    "Rows not in date order: they were sorted by date before profiling, as "
+    "the generated code sorts them."
+)
+
+
+@pytest.mark.parametrize(
+    "order, source",
+    [
+        ("descending", "index"),
+        ("shuffled", "index"),
+        ("descending", "date_column"),
+        ("shuffled", "date_column"),
+    ],
+    ids=lambda dt: f"{dt}",
+)
+def test_create_data_profile_sorts_rows_when_not_in_date_order(order, source):
+    """
+    Test that rows out of date order (h2o in descending or shuffled order)
+    are profiled as the sorted data, with a note, `index_is_monotonic`
+    False and no frequency set on the index. Before, descending dates gave
+    the frequency '-1MS', a span of 0 and the last date as start date, and
+    shuffled rows a wrong start date.
+    """
+    data = df_h2o.iloc[::-1] if order == "descending" else df_h2o.sample(
+        frac=1, random_state=1
+    )
+    kwargs = {}
+    if source == "date_column":
+        data = data.reset_index()
+        kwargs = {"date_column": "fecha"}
+
+    profile = create_data_profile(data=data, target="x", **kwargs)
+
+    assert profile.frequency == "MS"
+    assert profile.start_date == "1991-07-01"
+    assert profile.span_index_length == 204
+    assert profile.n_total_observations == 204
+    assert profile.series_lengths["x"].start == "1991-07-01"
+    assert profile.series_lengths["x"].end == "2008-06-01"
+    assert profile.series_lengths["x"].length == 204
+    assert profile.has_gaps is False
+    assert profile.has_duplicate_timestamps is False
+    assert profile.index_is_monotonic is False
+    assert profile.frequency_is_set is False
+    assert profile.warnings == [_SORTED_NOTE]
+
+
+def test_create_data_profile_sorts_rows_when_long_format_not_in_date_order():
+    """
+    Test that long-format rows out of date order within a series are sorted
+    per series, with a note, and profiled as the sorted data.
+    """
+    shuffled = df_multi_long.sample(frac=1, random_state=0)
+
+    profile = create_data_profile(
+        data             = shuffled,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+
+    assert profile.frequency == "D"
+    assert profile.start_date == "2023-01-01"
+    assert profile.span_index_length == 100
+    assert {
+        name: (info.start, info.end, info.length)
+        for name, info in profile.series_lengths.items()
+    } == {
+        "A": ("2023-01-01", "2023-04-10", 100),
+        "B": ("2023-01-01", "2023-04-10", 100),
+        "C": ("2023-01-01", "2023-04-10", 100),
+    }
+    assert profile.has_gaps is False
+    assert profile.index_is_monotonic is False
+    assert profile.warnings == [
+        "Rows not in date order within each series: they were sorted by date "
+        "before profiling, as the generated code sorts them."
+    ]
+
+
+@pytest.mark.parametrize(
+    "data, kwargs",
+    [
+        (df_h2o, {"target": "x"}),
+        (
+            df_multi_long.sort_values(["date", "series_id"]),
+            {"target": "value", "date_column": "date", "series_id_column": "series_id"},
+        ),
+        (
+            df_multi_long,
+            {"target": "value", "date_column": "date", "series_id_column": "series_id"},
+        ),
+    ],
+    ids=["single", "long_by_date", "long_by_series"],
+)
+def test_create_data_profile_no_sort_note_when_rows_in_date_order(data, kwargs):
+    """
+    Test that data in date order (long format by date or by series, which
+    are both in date order within each series) gets no note and keeps
+    `index_is_monotonic` True.
+    """
+    profile = create_data_profile(data=data, **kwargs)
+
+    assert profile.index_is_monotonic is True
+    assert profile.warnings == []
+
+
+def test_create_data_profile_reads_text_dates_day_first_in_order():
+    """
+    Test that day-first text dates in an in-memory column are read with the
+    format of the first date, as the generated script reads them: in date
+    order, daily, without notes. Read one by one, '01/02/2012' was the
+    second of January, so the frequency could not be inferred.
+    """
+    data = df_items_sales_long[df_items_sales_long["series"] == "item_1"]
+    data = data.drop(columns="series").iloc[12:]
+    data = data.assign(date=data["date"].dt.strftime("%d/%m/%Y"))
+
+    profile = create_data_profile(data=data, target="value", date_column="date")
+
+    assert profile.frequency == "D"
+    assert profile.index_is_monotonic is True
+    assert profile.start_date == "2012-01-13"
+    assert profile.series_lengths["value"].end == "2012-04-29"
+    assert profile.warnings == []
+
+
+def test_create_data_profile_sorts_rows_when_text_dates_day_first_descending():
+    """
+    Test that day-first text dates in descending order (an in-memory column,
+    latest first: '29/04/2012') are sorted with the dates parsed from the
+    whole column, as the generated script reads them, instead of being
+    parsed again from the new first row, '01/01/2012', which is read
+    month-first and makes '13/01/2012' fail.
+    """
+    data = df_items_sales_long[df_items_sales_long["series"] == "item_1"]
+    data = data.drop(columns="series").assign(
+        date=data["date"].dt.strftime("%d/%m/%Y")
+    )
+
+    profile = create_data_profile(
+        data=data.iloc[::-1], target="value", date_column="date"
+    )
+
+    assert profile.frequency == "D"
+    assert profile.start_date == "2012-01-01"
+    assert profile.series_lengths["value"].end == "2012-04-29"
+    assert profile.warnings == [_SORTED_NOTE]

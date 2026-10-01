@@ -13,6 +13,7 @@ from skforecast.model_selection import TimeSeriesFold
 from skforecast_ai import ForecastingAssistant
 
 from tests.fixtures_assistant import df_multi_long, df_multi_wide, df_no_exog, df_single
+from tests.fixtures_datasets import df_h2o, df_items_sales_long
 
 
 def _run_standalone(script: str, workdir) -> pd.DataFrame:
@@ -305,3 +306,71 @@ def test_standalone_backtesting_script_matches_backtest(tmp_path):
         standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+@pytest.mark.parametrize(
+    "order", ["descending", "shuffled"], ids=lambda dt: f"order: {dt}"
+)
+def test_standalone_script_matches_forecast_when_csv_rows_not_in_date_order(
+    tmp_path, order
+):
+    """
+    Test that a CSV whose rows are not in date order (h2o descending or
+    shuffled) gets the plan and the predictions of the sorted data, and
+    that the script run as a file yields the same predictions as
+    forecast(). Before, descending rows gave the lags [1] and a script that
+    failed inside skforecast, and shuffled rows other lags and predictions.
+    """
+    data = df_h2o.iloc[::-1] if order == "descending" else df_h2o.sample(
+        frac=1, random_state=1
+    )
+    csv_path = tmp_path / "h2o.csv"
+    data.to_csv(csv_path)
+    assistant = ForecastingAssistant()
+
+    code = assistant.forecast_code(data=csv_path, target="x", steps=12).code
+    executed = assistant.forecast(data=csv_path, target="x", steps=12)
+    expected = assistant.forecast(data=df_h2o, target="x", steps=12)
+
+    assert executed.plan.forecaster_kwargs["lags"] == [1, 9, 10, 11, 12, 13, 14]
+    assert str(executed.predictions.index[0]) == "2008-07-01 00:00:00"
+    np.testing.assert_allclose(
+        executed.predictions["pred"].to_numpy()[:3],
+        [0.97755777, 1.07009966, 1.0921686],
+        rtol=1e-6,
+    )
+    assert executed.plan == expected.plan
+    pd.testing.assert_frame_equal(executed.predictions, expected.predictions)
+    _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)
+
+
+def test_standalone_script_matches_forecast_when_csv_dates_are_day_first(tmp_path):
+    """
+    Test that a CSV in date order with day-first text dates (items_sales
+    item_1 from 13/01/2012) is read as the script reads it, with the format
+    guessed from the first date: no rows are taken for out of order, the
+    start date is the first date of the file, and the script run as a file
+    yields the same predictions as forecast(). Each date used to be parsed
+    on its own, so '01/02/2012' was read as 2 January.
+    """
+    data = df_items_sales_long[df_items_sales_long["series"] == "item_1"]
+    data = data[data["date"] >= "2012-01-13"].drop(columns="series")
+    data = data.assign(date=data["date"].dt.strftime("%d/%m/%Y"))
+    csv_path = tmp_path / "item_1.csv"
+    data.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    kwargs = {
+        "data": csv_path, "target": "value", "date_column": "date",
+        "steps": 7, "estimator": "Ridge",
+    }
+
+    profile = assistant.profile(data=csv_path, target="value", date_column="date")
+    code = assistant.forecast_code(**kwargs).code
+    executed = assistant.forecast(**kwargs)
+
+    assert profile.data_profile.start_date == "2012-01-13"
+    assert profile.data_profile.frequency == "D"
+    assert profile.data_profile.index_is_monotonic is True
+    assert profile.data_profile.warnings == []
+    assert str(executed.predictions.index[0]) == "2012-04-30 00:00:00"
+    _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)

@@ -7,6 +7,7 @@
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from .._dates import date_positions, parse_text_dates, row_dates
 from ..schemas import DataProfile
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
@@ -167,6 +168,14 @@ def create_data_profile(
     profiled without `series_id_column`). Timestamps repeated in identical
     rows are dropped (the first row is kept, as in the generated script)
     and reported in `warnings`.
+
+    Rows that are not in date order (within each series, for long format)
+    are sorted before the frequency, the start date and the gaps are
+    inferred, as the generated script sorts them, and a note is added to
+    `warnings`. `index_is_monotonic` describes the input as given (False in
+    that case), and `frequency_is_set` is False too: a frequency the input
+    index carried (negative for descending dates) is not the one of the
+    data.
     """
     if isinstance(data, (str, Path)):
         data = pd.read_csv(data)
@@ -188,6 +197,11 @@ def create_data_profile(
     _validate_target_exists(data, target)
 
     date_col, index_type = detect_date_column(data, date_column)
+
+    # Text dates are parsed once, as the generated script parses the whole
+    # column, so every check below reads the same dates. Parsed one by one,
+    # '01/02/2012' is read month-first in a column of day-first dates.
+    data = _parse_text_date_column(data, date_col)
 
     # Repeated timestamps are resolved before anything is measured: rows
     # that differ cannot be merged without losing data, and identical rows
@@ -211,6 +225,29 @@ def create_data_profile(
     datetime_index = _extract_datetime_index(
         data, date_col, index_type, data_format, series_id_column
     )
+    # Both describe the index as it was given; see below for sorted rows.
+    index_is_monotonic = _check_monotonic(datetime_index, data)
+    frequency_is_set = _check_frequency_is_set(datetime_index, data)
+
+    # Rows out of date order are sorted before anything is measured, as the
+    # generated script sorts them: inferring the frequency, the start date
+    # or the PACF on unsorted rows gives a wrong answer without any error
+    # (a negative frequency and a zero span on descending dates).
+    data, rows_sorted = _sort_rows_by_date(
+                            data             = data,
+                            date_col         = date_col,
+                            index_type       = index_type,
+                            data_format      = data_format,
+                            series_id_column = series_id_column,
+                        )
+    if rows_sorted:
+        # The index given was not in order, so a frequency it carried (a
+        # negative one for descending dates) is not the one of the data.
+        index_is_monotonic = False
+        frequency_is_set = False
+        datetime_index = _extract_datetime_index(
+            data, date_col, index_type, data_format, series_id_column
+        )
 
     frequency = infer_frequency(datetime_index) if datetime_index is not None else None
 
@@ -229,8 +266,6 @@ def create_data_profile(
 
     n_missing_timestamps = count_missing_timestamps(datetime_index, frequency)
     has_gaps = n_missing_timestamps > 0
-    index_is_monotonic = _check_monotonic(datetime_index, data)
-    frequency_is_set = _check_frequency_is_set(datetime_index, data)
 
     # Early stop: constant target makes forecasting meaningless
     if _check_target_is_constant(data, first_target):
@@ -257,6 +292,8 @@ def create_data_profile(
         index_type,
         n_missing_timestamps   = n_missing_timestamps,
         n_duplicate_timestamps = n_duplicate_timestamps,
+        rows_sorted            = rows_sorted,
+        long_format            = data_format == "long",
     )
 
     # Compute start_date: the reference start for position-to-date
@@ -318,7 +355,9 @@ def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
     becomes a regular column with object or string dtype (e.g. `"Unnamed: 0"` or
     `"date"`). `pd.read_csv(parse_dates=True)` often fails to
     auto-parse these. This helper converts the first parseable column
-    in-place so that downstream `detect_date_column` can identify it.
+    in-place so that downstream `detect_date_column` can identify it. The
+    dates are parsed as the generated script parses them (see
+    `parse_text_dates`).
 
     Parameters
     ----------
@@ -333,7 +372,7 @@ def _try_parse_first_date_column(data: pd.DataFrame) -> pd.DataFrame:
     for col in data.columns:
         if pd.api.types.is_object_dtype(data[col]) or pd.api.types.is_string_dtype(data[col]):
             try:
-                parsed = pd.to_datetime(data[col], format="mixed")
+                parsed = parse_text_dates(data[col])
                 if parsed.notna().all():
                     data[col] = parsed
                     break
@@ -687,6 +726,117 @@ def _compute_series_metrics(
     return 1, series_lengths
 
 
+def _parse_text_date_column(data: pd.DataFrame, date_col: str | None) -> pd.DataFrame:
+    """
+    Return `data` with its text date column parsed as the generated script
+    parses it, or `data` itself when the dates are not text.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    date_col : str, None
+        Resolved date column name.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        A copy with the parsed dates, or the same object.
+    """
+    if date_col is None or date_col not in data.columns:
+        return data
+    values = data[date_col]
+    if not (
+        pd.api.types.is_object_dtype(values) or pd.api.types.is_string_dtype(values)
+    ):
+        return data
+
+    data = data.copy()
+    data[date_col] = parse_text_dates(values, mixed=False)
+
+    return data
+
+
+def _sort_rows_by_date(
+    data: pd.DataFrame,
+    date_col: str | None,
+    index_type: str,
+    data_format: str,
+    series_id_column: str | None,
+) -> tuple[pd.DataFrame, bool]:
+    """
+    Sort the rows by date when they are not in date order.
+
+    Rows count as unsorted when a date is earlier than a previous one (of
+    the same series, for long format); missing dates are ignored. Sorted
+    data is returned unchanged, so profiling it gives the same result as
+    before. Unsorted data is sorted with a stable sort: by date, and for
+    long format by series (in order of first appearance, rows without a
+    series id last) and then by date, so the first series stays the same.
+    When the rows are sorted, those without a date go last.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset, without repeated timestamps.
+    date_col : str, None
+        Resolved date column name. When None, the DataFrame index is used.
+    index_type : str
+        One of `'datetime'`, `'range'`, `'other'`.
+    data_format : str
+        One of `'single'`, `'wide'`, `'long'`.
+    series_id_column : str, None
+        Series identifier column (only relevant for long format).
+
+    Returns
+    -------
+    data : pandas DataFrame
+        The input, sorted by date when it was not.
+    rows_sorted : bool
+        Whether the rows were out of date order and were sorted.
+    """
+    dates = row_dates(data, date_col) if index_type == "datetime" else None
+    if dates is None:
+        return data, False
+
+    missing = np.asarray(dates.isna())
+    positions = date_positions(dates)
+    if (
+        data_format == "long"
+        and series_id_column is not None
+        and series_id_column in data.columns
+    ):
+        # Rows without a series id (code -1) belong to no series: they are
+        # left out of the check, as the series ignore them.
+        codes = pd.factorize(data[series_id_column])[0]
+        checked = ~missing & (codes >= 0)
+        steps = (
+            pd.Series(positions[checked])
+            .groupby(codes[checked])
+            .diff()
+        )
+        unsorted = bool((steps < 0).any())
+        # Rows without an id go after every series, so the series of the
+        # first row, which stands for the data, is still a real one.
+        keys = (positions, np.where(codes < 0, codes.max() + 1, codes))
+    else:
+        unsorted = bool((np.diff(positions[~missing]) < 0).any())
+        keys = (positions,)
+    if not unsorted:
+        return data, False
+
+    # `np.lexsort` sorts by the last key first and is stable.
+    order = np.lexsort(keys)
+    data = data.iloc[order]
+    if date_col is not None and date_col in data.columns:
+        # The parsed dates are kept: text dates parsed again from another
+        # first row could be read with another format.
+        data = data.copy()
+        data[date_col] = dates[order]
+
+    return data, True
+
+
 def _extract_datetime_index(
     data: pd.DataFrame,
     date_col: str | None,
@@ -1014,6 +1164,8 @@ def generate_warnings(
     index_type: str,
     n_missing_timestamps: int = 0,
     n_duplicate_timestamps: int = 0,
+    rows_sorted: bool = False,
+    long_format: bool = False,
 ) -> list[str]:
     """
     Generate human-readable warnings about potential data issues.
@@ -1035,6 +1187,11 @@ def generate_warnings(
     n_duplicate_timestamps : int, default 0
         Number of timestamps (per series) repeated in identical rows, which
         the generated code drops.
+    rows_sorted : bool, default False
+        Whether the rows were not in date order (within a series, for long
+        format) and were sorted before profiling.
+    long_format : bool, default False
+        Whether the data is in long format, to word the note on sorting.
 
     Returns
     -------
@@ -1074,6 +1231,13 @@ def generate_warnings(
             f"{n_duplicate_timestamps} "
             f"timestamp{'s' if n_duplicate_timestamps != 1 else ''}. The "
             f"generated code keeps the first row of each."
+        )
+
+    if rows_sorted:
+        within = " within each series" if long_format else ""
+        warnings.append(
+            f"Rows not in date order{within}: they were sorted by date before "
+            f"profiling, as the generated code sorts them."
         )
 
     total_target_missing = sum(missing_target.values())
@@ -1264,11 +1428,8 @@ def _check_duplicate_timestamps(
     if index_type != "datetime":
         return 0, None
 
-    if date_col is not None and date_col in data.columns:
-        dates = pd.DatetimeIndex(pd.to_datetime(data[date_col]))
-    elif isinstance(data.index, pd.DatetimeIndex):
-        dates = data.index
-    else:
+    dates = row_dates(data, date_col)
+    if dates is None:
         return 0, None
 
     long_format = (

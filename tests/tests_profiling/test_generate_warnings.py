@@ -1,5 +1,7 @@
 # Unit test generate_warnings
 
+import pytest
+
 from skforecast_ai.profiling.data_profile import generate_warnings
 
 
@@ -93,3 +95,37 @@ def test_generate_warnings_output_when_frequency_cannot_be_inferred():
         "Could not infer frequency from the datetime index: the spacing is "
         "irregular, or there are too few timestamps."
     ]
+
+
+@pytest.mark.parametrize(
+    "long_format, expected",
+    [
+        (
+            False,
+            "Rows not in date order: they were sorted by date before "
+            "profiling, as the generated code sorts them.",
+        ),
+        (
+            True,
+            "Rows not in date order within each series: they were sorted by "
+            "date before profiling, as the generated code sorts them.",
+        ),
+    ],
+    ids=["single", "long"],
+)
+def test_generate_warnings_output_when_rows_were_sorted(long_format, expected):
+    """
+    Test that rows sorted before profiling produce a note, worded per series
+    for long format.
+    """
+    warnings = generate_warnings(
+        n_observations = 100,
+        frequency      = "D",
+        missing_target = {},
+        missing_exog   = {},
+        index_type     = "datetime",
+        rows_sorted    = True,
+        long_format    = long_format,
+    )
+
+    assert warnings == [expected]
