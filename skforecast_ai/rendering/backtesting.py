@@ -53,7 +53,8 @@ def _format_initial_train_size(initial_train_size: Any) -> str:
     from the `repr()` of its string form, with a time zone kept as its UTC
     offset, for example `pd.Timestamp('2020-03-31 00:00:00')`: `str()` alone
     gives a line that does not compile, and the `repr()` of a Timestamp
-    writes the name of its time zone unquoted. Any other value is written
+    writes the name of its time zone between quotes without escaping it, so
+    a name with a quote would close the string. Any other value is written
     with `repr()`.
 
     Parameters
