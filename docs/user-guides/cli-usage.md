@@ -105,7 +105,7 @@ skforecast-ai forecast-code "$DATA" --target y --date-column fecha --steps 12 --
 
 ## Adjust the plan
 
-`plan` shows the modeling decisions without running anything: forecaster, estimator, lags, window features, calendar features, metric and interval. Each decision can be overridden, and the assistant fills in the rest.
+`plan` shows the modeling decisions without running anything: forecaster, estimator, lags, window features, calendar features, metric and interval. The forecaster, the estimator and its hyperparameters, the lags, the window features and the interval can be overridden, and the assistant fills in the rest. The calendar features and the metric are always decided by the assistant (`compare` takes its own `--metric`).
 
 ```bash
 skforecast-ai plan "$DATA" --target y --date-column fecha --steps 12
@@ -119,7 +119,7 @@ skforecast-ai plan "$DATA" --target y --date-column fecha --steps 12 \
   --lags "1,2,3,12" --window-features '[{"stats": ["mean"], "window_size": 12}]'
 ```
 
-The commands that build a plan (`forecast`, `forecast-code`, `backtest`, `backtest-code`) take the same overrides; `--help` of each command lists the ones it supports.
+`forecast-code` and `backtest-code` take the same overrides. `forecast` and `backtest` take `--forecaster`, `--estimator`, `--estimator-kwargs` and `--interval`, but not `--lags` or `--window-features`: to run explicit lags or window features, save the plan with `plan --format json` and run it with `--from-plan` (see [Save, reuse and chain](#save-reuse-and-chain)). `--help` of each command lists the options it supports.
 
 ---
 
