@@ -56,6 +56,12 @@ def run_hook(
     )
 
 
+HEREDOC_COMMIT = (
+    "git commit -m \"$(cat <<'EOF'\nfix: x\n\n{trailer}\nEOF\n)\""
+)
+CLAUDE_TRAILER = "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+
+
 @pytest.mark.parametrize(
     "branch, command, remote, expected",
     [
@@ -80,6 +86,17 @@ def run_hook(
         ("0.4.x", "git commit -m 'x'", True, 2),
         ("claude/some-session", "git commit -m 'x'", True, 2),
         ("0.4.x", "git commit -m 'x'", False, 0),
+        ("0.4.x", HEREDOC_COMMIT.format(trailer="Body."), True, 2),
+        ("feature/x", HEREDOC_COMMIT.format(trailer="Body."), True, 0),
+        ("feature/x", HEREDOC_COMMIT.format(trailer=CLAUDE_TRAILER), True, 2),
+        ("feature/x", HEREDOC_COMMIT.format(trailer=CLAUDE_TRAILER), False, 2),
+        ("feature/x", f"git commit -m 'x' -m '{CLAUDE_TRAILER}'", False, 2),
+        ("feature/x", "git commit -m 'x' -m 'Co-authored-by: Ana <a@b.c>'", False, 0),
+        ("feature/x", HEREDOC_COMMIT.format(trailer="Claude-Session: https://x"), False, 2),
+        ("feature/x", "gh pr create --body 'Generated with [Claude Code](u)'", False, 2),
+        ("feature/x", "gh pr create --title t --body 'Adds x.'", False, 0),
+        ("feature/x", f"grep -rn '{CLAUDE_TRAILER}' .", False, 0),
+        ("0.4.x", f"git commit-tree t -m \"$(grep -v '{CLAUDE_TRAILER}' m)\"", True, 0),
         ("feature/x", "python tools/ai/check_ask_context.py", False, 2),
         ("feature/x", "python tools/ai/check_ask_context.py --dry-run", False, 0),
     ],
@@ -88,7 +105,9 @@ def test_pre_bash_guard_exit_code(tmp_path, branch, command, remote, expected):
     """
     Test that the Bash guard blocks pushes to protected branches (also through
     HEAD, @ and --all), every form of force push, commits outside the naming
-    convention in the cloud and the paid context check, and lets the rest run.
+    convention in the cloud (also with a heredoc message), AI attribution in
+    commit messages and PR bodies, and the paid context check, and lets the
+    rest run.
     """
 
     repo = make_repo(tmp_path / "repo", branch)
@@ -97,6 +116,26 @@ def test_pre_bash_guard_exit_code(tmp_path, branch, command, remote, expected):
     )
 
     assert result.returncode == expected, result.stderr
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["git commit -F msg.txt", "git commit --file=msg.txt", "gh pr create --body-file msg.txt"],
+)
+def test_pre_bash_guard_blocks_attribution_in_message_file(tmp_path, command):
+    """
+    Test that the Bash guard reads the message file of `git commit -F` and
+    `gh pr create --body-file` and blocks an AI attribution line in it.
+    """
+
+    repo = make_repo(tmp_path / "repo", "feature/x")
+    (repo / "msg.txt").write_text(f"fix: x\n\n{CLAUDE_TRAILER}\n")
+    result = run_hook(
+        "pre_bash_guard.py", {"tool_input": {"command": command}}, repo, False
+    )
+
+    assert result.returncode == 2
+    assert "authored by the user alone" in result.stderr
 
 
 @pytest.fixture
