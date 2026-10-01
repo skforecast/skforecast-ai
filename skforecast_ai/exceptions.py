@@ -69,28 +69,44 @@ class LLMCallError(Exception):
 
 class ForecastExecutionError(Exception):
     """
-    Raised when the generated forecasting code fails during exec().
+    Raised when the generated forecasting code fails to compile or fails
+    during exec().
 
     The short message surfaces the original error. The full generated
-    code and traceback are available as attributes for debugging.
+    code and traceback are available as attributes for debugging, together
+    with the line and the statement of the generated code that failed.
 
     Parameters
     ----------
     original_error : Exception
-        The exception raised during code execution.
+        The exception raised while compiling or executing the code.
     generated_code : str
         The generated Python code that was executed.
     execution_traceback : str
         The full formatted traceback from execution.
+    failed_line : int, default None
+        Line of `generated_code` (1-based) where the error was raised. None
+        when it cannot be located. `generated_code` is the code that ran,
+        without the CSV loading of the script that `forecast_code()` and
+        `backtest_code()` return, so the numbering differs from that script.
+    failed_statement : str, default None
+        Source of the statement of `generated_code` that failed, all its
+        lines included (only the header of a `for`, `if` or `with`
+        statement, and only the line when the code does not compile). None
+        when it cannot be located.
 
     Attributes
     ----------
     original_error : Exception
-        The exception raised during code execution.
+        The exception raised while compiling or executing the code.
     generated_code : str
         The generated Python code that was executed.
     execution_traceback : str
         The full formatted traceback from execution.
+    failed_line : int, None
+        Line of `generated_code` (1-based) where the error was raised.
+    failed_statement : str, None
+        Source of the statement of `generated_code` that failed.
     """
 
     def __init__(
@@ -98,10 +114,14 @@ class ForecastExecutionError(Exception):
         original_error: Exception,
         generated_code: str,
         execution_traceback: str,
+        failed_line: int | None = None,
+        failed_statement: str | None = None,
     ) -> None:
         self.original_error = original_error
         self.generated_code = generated_code
         self.execution_traceback = execution_traceback
+        self.failed_line = failed_line
+        self.failed_statement = failed_statement
 
         error_type = type(original_error).__name__
         error_msg = str(original_error)

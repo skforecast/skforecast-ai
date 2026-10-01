@@ -6,7 +6,7 @@ Errors and warnings raised by `skforecast_ai`. All of them are importable from t
 |---|---|---|
 | `LLMRequiredError` | `ask()`, `refine_plan()` and `create_cv()` with a prompt | The method needs an LLM and none was configured at init time. |
 | `LLMCallError` | `ask()` | The call to the LLM fails. There is no deterministic answer to fall back on, so the provider error is raised (chained as `original_error`) instead of returned as text. |
-| `ForecastExecutionError` | `forecast()`, `backtest()` | The generated script fails while running. The script and the full traceback are available as `generated_code` and `execution_traceback`. |
+| `ForecastExecutionError` | `forecast()`, `backtest()` | The generated script does not compile or fails while running. The script and the full traceback are available as `generated_code` and `execution_traceback`, and the line and the statement that failed as `failed_line` and `failed_statement`. |
 | `AllCandidatesFailedError` | `compare()` | Every candidate configuration fails, so there is no leaderboard to return. The per-candidate reasons are in `failures`. |
 | `CandidateFailedWarning` | `compare()` | One candidate fails; the comparison continues with the rest and the failure is recorded in `ComparisonResult.failures`. |
 | `MissingBackendWarning` | `compare()` without `candidates` | The backend of the default foundation model (`chronos-forecasting` for Chronos-2) is not installed, so `ForecasterFoundation` is left out of the comparison instead of failing. Install it with `pip install skforecast-ai[foundation]`. |
