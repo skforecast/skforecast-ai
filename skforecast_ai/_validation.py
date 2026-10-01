@@ -38,6 +38,41 @@ _MAX_LISTED_PARAMS = 30
 _PIP_NAMES = {"sklearn": "scikit-learn"}
 
 
+def validate_kwarg_names(estimator_kwargs: dict | None) -> None:
+    """
+    Check that every key of `estimator_kwargs` is a Python parameter name.
+
+    The keys are written into the generated script as `key=value`, so this
+    runs in the plan validator and again when the script is rendered, for a
+    plan that skipped the validator.
+
+    Parameters
+    ----------
+    estimator_kwargs : dict, None
+        Keyword arguments for the estimator.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    A `ValueError` is raised for a key that is not a string, not an
+    identifier, or a Python keyword.
+    """
+
+    for key in estimator_kwargs or {}:
+        if (
+            not isinstance(key, str)
+            or not key.isidentifier()
+            or keyword.iskeyword(key)
+        ):
+            raise ValueError(
+                f"`estimator_kwargs` keys must be valid Python parameter "
+                f"names, got {key!r}."
+            )
+
+
 def validate_estimator(
     estimator: str | None,
     estimator_kwargs: dict | None,
@@ -74,16 +109,7 @@ def validate_estimator(
     estimators are validated elsewhere.
     """
 
-    for key in estimator_kwargs or {}:
-        if (
-            not isinstance(key, str)
-            or not key.isidentifier()
-            or keyword.iskeyword(key)
-        ):
-            raise ValueError(
-                f"`estimator_kwargs` keys must be valid Python parameter "
-                f"names, got {key!r}."
-            )
+    validate_kwarg_names(estimator_kwargs)
 
     # None reaches here only from a plan built by hand, never from `plan()`;
     # rendering such a plan raises instead of writing a name into the script.

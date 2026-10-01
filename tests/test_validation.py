@@ -11,6 +11,7 @@ from skforecast_ai._validation import (
     validate_estimator,
     validate_estimator_kwargs,
     validate_interval,
+    validate_kwarg_names,
     validate_metrics,
 )
 
@@ -283,3 +284,35 @@ def test_validate_metrics_ValueError_when_metric_not_supported(metric):
     err_msg = re.escape(f"Unknown metric {metric!r}. Supported metrics:")
     with pytest.raises(ValueError, match=err_msg):
         validate_metrics(["mean_absolute_error", metric])
+
+
+# =============================================================================
+# Tests: validate_kwarg_names
+# =============================================================================
+@pytest.mark.parametrize(
+    "key",
+    ["alpha=1); import os; (x", "lambda", "1alpha", "", 3],
+    ids=["code", "keyword", "starts with a digit", "empty", "not a string"],
+)
+def test_validate_kwarg_names_ValueError_when_key_not_parameter_name(key):
+    """
+    Test that a key that is not a string, not an identifier or a Python
+    keyword is rejected, since the keys are written into the script.
+    """
+    err_msg = re.escape(
+        f"`estimator_kwargs` keys must be valid Python parameter names, got {key!r}."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        validate_kwarg_names({key: 1})
+
+
+@pytest.mark.parametrize(
+    "estimator_kwargs",
+    [None, {}, {"alpha": 1.0, "max_depth": 3, "_private": True}],
+    ids=["None", "empty", "parameter names"],
+)
+def test_validate_kwarg_names_output_when_parameter_names(estimator_kwargs):
+    """
+    Test that Python parameter names (and no kwargs at all) pass.
+    """
+    assert validate_kwarg_names(estimator_kwargs) is None

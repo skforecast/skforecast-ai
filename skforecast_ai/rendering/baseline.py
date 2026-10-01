@@ -15,6 +15,8 @@ from ._helpers import (
     _emit_preprocessing_steps,
     _emit_production_note,
     _emit_split_dates,
+    _format_int,
+    _get_interval_method_literal,
     _get_interval_repr,
     _get_target_str,
 )
@@ -34,7 +36,7 @@ def _emit_forecaster_creation_baseline(
     _emit_aligned_kwargs(
         lines,
         "forecaster = ForecasterEquivalentDate(",
-        [("offset", str(offset)), ("n_offsets", str(n_offsets))],
+        [("offset", repr(offset)), ("n_offsets", repr(n_offsets))],
     )
     lines.append("")
 
@@ -112,13 +114,13 @@ def render_forecast_baseline(
         core_lines.append("")
 
         core_lines.append("# Predict intervals (conformal)")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         _emit_aligned_kwargs(
             core_lines,
             "predictions = forecaster.predict_interval(",
             [
                 ("steps", "steps"),
-                ("method", f"'{plan.interval_method}'"),
+                ("method", _get_interval_method_literal(plan.interval_method)),
                 ("interval", interval_repr),
             ],
         )
@@ -127,7 +129,7 @@ def render_forecast_baseline(
         core_lines.append(f"forecaster.fit(y={train_var}[{repr(target)}])")
         core_lines.append("")
         core_lines.append("# Predict")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         core_lines.append("predictions = forecaster.predict(steps=steps)")
     core_lines.append("print(predictions)")
     core_lines.append("")

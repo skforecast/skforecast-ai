@@ -176,8 +176,18 @@ def test_standalone_script_matches_forecast_when_multi_series_long(tmp_path):
             pd.concat([df_multi_long, df_multi_long.iloc[[-10]]], ignore_index=True),
             {"target": "value", "date_column": "date", "series_id_column": "series_id"},
         ),
+        (
+            pd.concat(
+                [df_multi_long, df_multi_long.iloc[[-10]]], ignore_index=True
+            ).rename(columns={"series_id": "store's id", "date": 'day "local"'}),
+            {
+                "target": "value",
+                "date_column": 'day "local"',
+                "series_id_column": "store's id",
+            },
+        ),
     ],
-    ids=["single", "long"],
+    ids=["single", "long", "long, quotes in column names"],
 )
 def test_standalone_script_matches_forecast_when_duplicate_rows_are_identical(
     tmp_path, data, kwargs
@@ -186,7 +196,8 @@ def test_standalone_script_matches_forecast_when_duplicate_rows_are_identical(
     Test that data with a timestamp repeated in an identical row produces a
     script that drops the copy and runs (for long format it deduplicates on
     the series identifier and date columns, without asfreq on its
-    RangeIndex), with the same predictions as forecast().
+    RangeIndex), with the same predictions as forecast(). Column names with
+    single and double quotes are written as string literals.
     """
     csv_path = tmp_path / "data.csv"
     data.to_csv(csv_path, index=False)

@@ -7,7 +7,9 @@
 
 from .._foundation import foundation_exog_columns, resolve_foundation_model
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from .._validation import validate_kwarg_names
 from ._helpers import (
+    _comment_text,
     _emit_aligned_kwargs,
     _emit_end_train,
     _emit_future_exog_index_setup,
@@ -20,6 +22,7 @@ from ._helpers import (
     _emit_reshape_exog_long_to_dict,
     _emit_series_dict,
     _emit_train_test_split_multiseries,
+    _format_int,
     _get_target_str,
 )
 
@@ -74,10 +77,10 @@ def _emit_excluded_categorical_note(
 ) -> None:
     """Document in the script the categorical exog the model cannot take."""
     if excluded_categorical:
-        lines.append(
+        lines.append(_comment_text(
             f"# Categorical exog excluded ({', '.join(excluded_categorical)}): "
             f"'{plan.estimator}' only accepts numeric covariates"
-        )
+        ))
 
 
 def _emit_forecaster_creation_foundation(
@@ -94,6 +97,7 @@ def _emit_forecaster_creation_foundation(
     """
 
     info = resolve_foundation_model(plan.estimator)
+    validate_kwarg_names(plan.estimator_kwargs)
     foundation_kwargs = {
         "model_id": plan.estimator,
         "context_length": info.default_context_length,
@@ -101,7 +105,9 @@ def _emit_forecaster_creation_foundation(
     }
     model_id = plan.estimator
 
-    lines.append(f"# Create foundation model ({str(model_id).split('/')[-1]})")
+    lines.append(
+        _comment_text(f"# Create foundation model ({str(model_id).split('/')[-1]})")
+    )
     model_kwargs_pairs: list[tuple[str, str]] = [
         (k, repr(v)) for k, v in foundation_kwargs.items()
     ]
@@ -231,7 +237,7 @@ def render_forecast_foundation(
     if plan.interval_method is not None:
         interval = list(plan.interval) if plan.interval is not None else [0.1, 0.9]
         core_lines.append("# Predict intervals (native quantiles)")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         predict_kwargs: list[tuple[str, str]] = [("steps", "steps")]
         if use_exog:
             predict_kwargs.append(("exog", exog_pred_var))
@@ -241,7 +247,7 @@ def render_forecast_foundation(
         )
     else:
         core_lines.append("# Predict")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         predict_args = ["steps=steps"]
         if use_exog:
             predict_args.append(f"exog={exog_pred_var}")

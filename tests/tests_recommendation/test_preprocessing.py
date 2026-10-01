@@ -61,8 +61,8 @@ def test_derive_steps_no_sort_index_step():
                 "series_id_column": "series_id",
             },
             "ForecasterRecursiveMultiSeries",
-            "data = data.drop_duplicates(subset=['{series_id_column}', "
-            "'{date_column}'], keep='first')",
+            "data = data.drop_duplicates(subset=[{series_id_column}, "
+            "{date_column}], keep='first')",
         ),
     ],
     ids=["single, dates in the index", "long, dates in a column"],

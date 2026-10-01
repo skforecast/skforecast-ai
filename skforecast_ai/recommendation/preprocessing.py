@@ -13,6 +13,10 @@ from .._constants import (
     DIRECT_FORECASTERS,
     CATEGORICAL_FORECASTERS,
     DROPNA_FORECASTERS,
+    DROP_DUPLICATE_INDEX_SNIPPET,
+    DROP_DUPLICATE_ROWS_SNIPPET,
+    ENCODE_TARGET_SNIPPET,
+    PROVIDE_DATETIME_INDEX_SNIPPET,
     REQUIRES_DATETIME_FREQ,
     TREE_BASED_ESTIMATORS,
     NAN_TOLERANT_ESTIMATORS,
@@ -323,12 +327,9 @@ def derive_preprocessing_steps(
             and profile.series_id_column is not None
             and profile.date_column is not None
         ):
-            code_snippet = (
-                "data = data.drop_duplicates(subset=['{series_id_column}', "
-                "'{date_column}'], keep='first')"
-            )
+            code_snippet = DROP_DUPLICATE_ROWS_SNIPPET
         else:
-            code_snippet = "data = data[~data.index.duplicated(keep='first')]"
+            code_snippet = DROP_DUPLICATE_INDEX_SNIPPET
         steps.append(PreprocessingStep(
             action="drop_duplicates",
             reason=(
@@ -348,11 +349,7 @@ def derive_preprocessing_steps(
                     "Provide a DatetimeIndex or date column for "
                     "time-based features."
                 ),
-                code_snippet=(
-                    "# Set a DatetimeIndex:\n"
-                    "# data.index = pd.date_range(start=..., "
-                    "periods=len(data), freq=...)"
-                ),
+                code_snippet=PROVIDE_DATETIME_INDEX_SNIPPET,
                 blocking=True,
             ))
 
@@ -378,9 +375,7 @@ def derive_preprocessing_steps(
                 "The target column is not numeric. Regression forecasters "
                 "require a numeric target."
             ),
-            code_snippet=(
-                "# Convert target to numeric"
-            ),
+            code_snippet=ENCODE_TARGET_SNIPPET,
             blocking=True,
         ))
 
