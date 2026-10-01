@@ -14,6 +14,7 @@ from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
+from tests.fixtures_datasets import df_h2o_text
 from tests.fixtures_assistant import (
     df_calendar_named_exog,
     df_single,
@@ -895,3 +896,54 @@ def test_forecast_error_code_and_field_when_test_size_invalid(
     assert isinstance(exc_info.value, InvalidInputError)
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "test_size"
+
+
+def test_forecast_ValueError_when_csv_date_column_has_an_empty_cell(tmp_path):
+    """
+    Test that forecast() on a CSV whose date column has one empty cell raises
+    the error of profile() before anything runs. Before, it asked for future
+    exogenous values, as the date had become an exogenous variable.
+    """
+    data = df_h2o_text.copy()
+    data.loc[100, "date"] = None
+    csv_path = tmp_path / "h2o.csv"
+    data.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "100"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        ForecastingAssistant().forecast(data=csv_path, target="x", steps=12)
+
+
+def test_forecast_ValueError_when_profile_given_and_csv_date_has_an_empty_cell(
+    tmp_path
+):
+    """
+    Test that forecast() with a profile, on a CSV whose date column (the one
+    of the profile) has one empty cell, raises before running the script,
+    even when a later column holds complete dates. The dates used to stay
+    as text and the script failed ('Input X contains NaN').
+    """
+    data = df_h2o_text.copy()
+    data["period_end"] = (
+        pd.to_datetime(data["date"]) + pd.offsets.MonthEnd(0)
+    ).dt.strftime("%Y-%m-%d")
+    clean_path = tmp_path / "clean.csv"
+    data.to_csv(clean_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=clean_path, target="x")
+    data.loc[100, "date"] = None
+    csv_path = tmp_path / "h2o.csv"
+    data.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "100 (counting from 0, header excluded): every row needs a date. Fill "
+        "in or drop those rows."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$"):
+        assistant.forecast(data=csv_path, profile=profile, steps=12)
+
+    assert profile.data_profile.date_column == "date"

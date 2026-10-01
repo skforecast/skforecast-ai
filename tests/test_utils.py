@@ -2,6 +2,7 @@
 
 import re
 import urllib.error
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,7 @@ from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
 from tests.fixtures_assistant import df_single, series_single
+from tests.fixtures_datasets import df_h2o_text
 
 
 # =============================================================================
@@ -208,6 +210,57 @@ def test_resolve_data_and_target_parses_date_column(tmp_path):
     data, _ = _resolve_data_and_target(csv_path, target="value")
 
     assert pd.api.types.is_datetime64_any_dtype(data["date"])
+
+
+def test_resolve_data_and_target_passes_date_column_to_csv_loader(tmp_path):
+    """
+    Test that `date_column` reaches the CSV loader: a column of dates with
+    empty cells before the date column ('contract_end') is left as text
+    with a warning without it, and without a warning with it.
+    """
+    df = df_h2o_text.copy()
+    df.insert(0, "contract_end", df["date"])
+    df.loc[list(range(10)), "contract_end"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    warn_msg = re.escape(
+        "The dates of column 'contract_end' have 10 empty cell(s)"
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        data_without, _ = _resolve_data_and_target(csv_path, target="x")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        data_with, _ = _resolve_data_and_target(
+                           data        = csv_path,
+                           target      = "x",
+                           date_column = "date",
+                       )
+
+    for data in (data_without, data_with):
+        assert pd.api.types.is_object_dtype(data["contract_end"])
+        assert pd.api.types.is_datetime64_any_dtype(data["date"])
+
+
+def test_resolve_data_and_target_ValueError_when_csv_date_column_has_empty_cell(
+    tmp_path
+):
+    """
+    Test that the `date_column` of a CSV with an empty cell raises, without
+    the advice to pass `date_column`.
+    """
+    df = df_h2o_text.copy()
+    df.loc[100, "date"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "100 (counting from 0, header excluded): every row needs a date. Fill "
+        "in or drop those rows."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$"):
+        _resolve_data_and_target(csv_path, target="x", date_column="date")
 
 
 # =============================================================================
@@ -604,3 +657,122 @@ def test_resolve_data_and_target_code_when_url_cannot_be_read(
 
     assert exc_info.value.code == expected_code
     assert exc_info.value.field == "data"
+
+
+def test_resolve_inputs_with_profile_ValueError_when_csv_date_column_has_empty_cell(
+    tmp_path
+):
+    """
+    Test that a profile reused on a CSV whose date column (the one of the
+    profile) has an empty cell raises, even when a later column holds
+    complete dates, instead of leaving the dates as text for the generated
+    script to fail on.
+    """
+    df = df_h2o_text.copy()
+    df["period_end"] = (
+        pd.to_datetime(df["date"]) + pd.offsets.MonthEnd(0)
+    ).dt.strftime("%Y-%m-%d")
+    clean_path = tmp_path / "clean.csv"
+    df.to_csv(clean_path, index=False)
+    profile = ForecastingAssistant().profile(data=clean_path, target="x")
+    df.loc[100, "date"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "100 (counting from 0, header excluded): every row needs a date. Fill "
+        "in or drop those rows."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$"):
+        _resolve_inputs_with_profile(csv_path, None, None, None, profile=profile)
+
+
+def test_resolve_data_and_target_passes_date_column_to_loader_of_url(monkeypatch):
+    """
+    Test that `date_column` reaches the CSV loader also for a URL: the named
+    column with an empty cell raises, without the advice to pass
+    `date_column`.
+    """
+    df = df_h2o_text.copy()
+    df.loc[100, "date"] = None
+    monkeypatch.setattr(pd, "read_csv", lambda *args, **kwargs: df.copy())
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "100 (counting from 0, header excluded): every row needs a date. Fill "
+        "in or drop those rows."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$"):
+        _resolve_data_and_target(
+            data        = "https://example.com/data.csv",
+            target      = "x",
+            date_column = "date",
+        )
+
+
+def test_resolve_inputs_with_profile_passes_date_column_when_no_profile(tmp_path):
+    """
+    Test that, without a profile, `date_column` reaches the CSV loader: a
+    column of dates with empty cells before it is left as text without a
+    warning.
+    """
+    df = df_h2o_text.copy()
+    df.insert(0, "contract_end", df["date"])
+    df.loc[list(range(10)), "contract_end"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        data, _, date_column, _ = _resolve_inputs_with_profile(
+            csv_path, "x", "date", None, profile=None
+        )
+
+    assert date_column == "date"
+    assert pd.api.types.is_object_dtype(data["contract_end"])
+    assert pd.api.types.is_datetime64_any_dtype(data["date"])
+
+
+def test_resolve_inputs_with_profile_ValueError_when_date_column_conflicts(tmp_path):
+    """
+    Test that a `date_column` that does not match the profile raises the
+    mismatch error, as the CSV loader checks the date column of the profile
+    (here complete), not the one passed.
+    """
+    clean_path = tmp_path / "clean.csv"
+    df_h2o_text.to_csv(clean_path, index=False)
+    profile = ForecastingAssistant().profile(data=clean_path, target="x")
+    df = df_h2o_text.copy()
+    df["period_end"] = df["date"]
+    df.loc[100, "period_end"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "`date_column` 'period_end' does not match the value recorded in "
+        "`profile` ('date'). Pass the value the profile was built with, or "
+        "omit it."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        _resolve_inputs_with_profile(
+            csv_path, None, "period_end", None, profile=profile
+        )
+
+
+def test_resolve_inputs_with_profile_DataNotFoundError_before_date_column_conflict(
+    tmp_path
+):
+    """
+    Test that a missing CSV is reported before a `date_column` that does not
+    match the profile.
+    """
+    clean_path = tmp_path / "clean.csv"
+    df_h2o_text.to_csv(clean_path, index=False)
+    profile = ForecastingAssistant().profile(data=clean_path, target="x")
+
+    err_msg = re.escape("CSV file not found: '")
+    with pytest.raises(DataNotFoundError, match=err_msg):
+        _resolve_inputs_with_profile(
+            tmp_path / "missing.csv", None, "other", None, profile=profile
+        )

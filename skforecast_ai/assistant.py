@@ -289,7 +289,7 @@ class ForecastingAssistant:
         """
 
         data_path = str(data) if isinstance(data, (str, Path)) else "data.csv"
-        data, target = _resolve_data_and_target(data, target)
+        data, target = _resolve_data_and_target(data, target, date_column)
 
         data_profile = create_data_profile(
             data             = data,

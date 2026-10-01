@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import re
 import warnings
 import numpy as np
 import pandas as pd
@@ -44,16 +45,7 @@ def parse_text_dates(values: pd.Series, mixed: bool = True) -> pd.Series:
     dates : pandas Series
         Parsed dates.
     """
-    first = _first_date(values)
-    date_format = None
-    # pandas guesses a format only when its first date is exactly a str (not
-    # a numpy str, a Timestamp or a date), and so does the script.
-    if type(first) is str:
-        # The guess warns about day-first formats; the script parses with
-        # the same guess, and the warning would only repeat it here.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            date_format = guess_datetime_format(first)
+    date_format = guessed_date_format(values)
     if date_format is not None:
         try:
             return pd.to_datetime(values, format=date_format)
@@ -61,6 +53,35 @@ def parse_text_dates(values: pd.Series, mixed: bool = True) -> pd.Series:
             pass
 
     return pd.to_datetime(values, format="mixed") if mixed else pd.to_datetime(values)
+
+
+def guessed_date_format(values: pd.Series) -> str | None:
+    """
+    Return the format pandas guesses for text dates, from their first date.
+
+    pandas guesses a format only when its first date is exactly a str (not a
+    numpy str, a Timestamp or a date), and so does the generated script.
+
+    Parameters
+    ----------
+    values : pandas Series
+        Text dates.
+
+    Returns
+    -------
+    date_format : str, None
+        The guessed format, or None when there is none.
+    """
+    first = _first_date(values)
+    if type(first) is not str:
+        return None
+    # The guess warns about day-first formats; the script parses with the
+    # same guess, and the warning would only repeat it here.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        date_format = guess_datetime_format(first)
+
+    return date_format
 
 
 def _first_date(values: pd.Series | pd.Index) -> object:
@@ -153,3 +174,154 @@ def date_positions(dates: pd.DatetimeIndex) -> np.ndarray:
     positions[np.asarray(dates.isna())] = np.iinfo(np.int64).max
 
     return positions
+
+
+# A time zone written after the time of a date ('10:00:00+01:00', '10:00 AM
+# -0500', '10:00 GMT+01:00', 'T100000+0100', '10:00:00 +0100 2012'): 'Z', a
+# UTC offset or a name of UTC that pandas reads ('UTC', 'GMT'). The time
+# before it tells an offset from the year of a date such as '25-03-2012'.
+_WRITTEN_ZONE = re.compile(
+    r"(?::\d{2}|T\d{4,6})(?:[.,]\d+)?\s*(?:[AaPp]\.?[Mm]\.?\s*)?"
+    r"(?:(?:GMT|UTC)\s*(?=[+-]))?([Zz]|[+-]\d{1,2}(?::?\d{2})?|[A-Za-z]{2,5})"
+    r"(?:\s+\d{4})?$"
+)
+# Endings that may hold a time zone, a cheap filter before the pattern above.
+_ZONE_ENDING = re.compile(
+    r"(?:[Zz]|[+-]\d{1,2}:?\d{0,2}|[A-Za-z]{2,5})(?:\s+\d{4})?$"
+)
+# Characters of the ending read to find the zone: an offset and a year.
+_ENDING_LENGTH = 11
+# Names that stand for UTC itself. Other zone names ('CET') are left to
+# pandas, which drops them with a warning of its own.
+_UTC_NAMES = {"Z", "UTC", "GMT"}
+# Text that pandas reads as a missing date.
+_MISSING_TEXT = {"", "nat", "nan"}
+
+
+def is_text(values: pd.Series | pd.Index) -> bool:
+    """
+    Return whether a column holds text (object or string dtype).
+
+    Parameters
+    ----------
+    values : pandas Series, pandas Index
+        Values of a column.
+
+    Returns
+    -------
+    text : bool
+        True for object or string dtype.
+    """
+
+    return pd.api.types.is_object_dtype(values) or pd.api.types.is_string_dtype(values)
+
+
+def missing_dates(values: pd.Series) -> np.ndarray:
+    """
+    Return which values hold no date.
+
+    Missing values (NaN, None, NaT) hold no date, and so does text made only
+    of blanks, or reading 'NaT' or 'nan' (which pandas parses as a missing
+    date).
+
+    Parameters
+    ----------
+    values : pandas Series
+        Values of a date column.
+
+    Returns
+    -------
+    missing : numpy ndarray
+        Boolean mask, True where the value holds no date.
+    """
+    missing = values.isna().to_numpy()
+    if not is_text(values):
+        return missing
+    try:
+        text = values.str.strip().str.lower()
+    except AttributeError:
+        # No text in the column: nothing can be blank.
+        return missing
+
+    return missing | text.isin(_MISSING_TEXT).to_numpy(dtype=bool)
+
+
+def is_missing_date(value: object) -> bool:
+    """
+    Return whether one value holds no date, as `missing_dates` reads it.
+
+    Parameters
+    ----------
+    value : object
+        Value of a date column.
+
+    Returns
+    -------
+    missing : bool
+        True when the value holds no date.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in _MISSING_TEXT
+
+    return bool(pd.api.types.is_scalar(value) and pd.isna(value))
+
+
+def time_zones(values: pd.Series) -> list[str]:
+    """
+    Return the distinct time zones written in text dates, in order of use.
+
+    The zone is read as written after the time: a UTC offset (`'Z'`,
+    `'UTC'`, `'GMT'` and `'-00:00'` count as `'+00:00'`, `'+0100'` as
+    `'+01:00'`). A word (a zone name such as `'CET'`, which pandas drops with
+    a warning of its own, or a weekday) is not read as a time zone. Dates
+    without a time zone count as `'no time zone'`. Values that are not text
+    (datetime objects) are left out: pandas reads their time zones when it
+    parses them.
+
+    Parameters
+    ----------
+    values : pandas Series
+        Values of a date column without missing values.
+
+    Returns
+    -------
+    zones : list of str
+        Distinct time zones, such as `'+01:00'` or `'no time zone'`.
+    """
+    zones: dict[str, None] = {}
+    texts = pd.Series(
+        [
+            value.rstrip() for value in pd.unique(values.to_numpy())
+            if isinstance(value, str)
+        ],
+        dtype=object,
+    )
+    if len(texts) > 0:
+        # The zone of a date depends only on its last characters, so one
+        # date per distinct ending is read with the full pattern.
+        endings = texts.str[-_ENDING_LENGTH:]
+        for ending, text in texts.groupby(endings, sort=False).first().items():
+            if _ZONE_ENDING.search(ending):
+                zones[_written_zone(text)] = None
+            else:
+                zones["no time zone"] = None
+
+    return list(zones)
+
+
+def _written_zone(text: str) -> str:
+    """
+    Return the time zone written after the time of a date: an offset as
+    `'+HH:MM'`, or `'no time zone'` (also for a zone name other than UTC).
+    """
+    match = _WRITTEN_ZONE.search(text)
+    if match is None:
+        return "no time zone"
+    zone = match.group(1).upper()
+    if zone.isalpha():
+        return "+00:00" if zone in _UTC_NAMES else "no time zone"
+    digits = zone[1:].replace(":", "")
+    hours, minutes = (digits[:-2], digits[-2:]) if len(digits) > 2 else (digits, "00")
+    offset = f"{zone[0]}{int(hours):02d}:{minutes}"
+
+    return "+00:00" if offset == "-00:00" else offset

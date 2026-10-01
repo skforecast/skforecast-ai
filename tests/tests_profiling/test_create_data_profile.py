@@ -1,6 +1,7 @@
 # Unit test create_data_profile
 
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -801,3 +802,29 @@ def test_create_data_profile_sorts_rows_when_text_dates_day_first_descending():
     assert profile.start_date == "2012-01-01"
     assert profile.series_lengths["value"].end == "2012-04-29"
     assert profile.warnings == [_SORTED_NOTE]
+
+
+def test_create_data_profile_passes_date_column_to_csv_loader(tmp_path):
+    """
+    Test that, from a CSV path, `date_column` reaches the loader: a column of
+    dates with empty cells before it ('contract_end') is left as an
+    exogenous variable without a warning, and the named column is the date
+    column.
+    """
+    data = df_h2o.reset_index().rename(columns={"fecha": "date"})
+    data.insert(0, "contract_end", data["date"])
+    data.loc[list(range(10)), "contract_end"] = None
+    csv_path = tmp_path / "h2o.csv"
+    data.to_csv(csv_path, index=False)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        profile = create_data_profile(
+                      data        = str(csv_path),
+                      target      = "x",
+                      date_column = "date",
+                  )
+
+    assert profile.date_column == "date"
+    assert profile.frequency == "MS"
+    assert profile.exog_columns == ["contract_end"]

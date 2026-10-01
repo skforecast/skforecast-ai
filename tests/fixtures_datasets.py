@@ -130,3 +130,20 @@ df_items_sales_long = pd.DataFrame({
     "series": np.repeat(["item_1", "item_2", "item_3"], 120),
     "value": np.concatenate([_item_1_values, _item_2_values, _item_3_values]),
 })
+
+# h2o with its dates as text in the column 'date', as `pandas.read_csv`
+# reads them.
+df_h2o_text = pd.DataFrame({
+    "date": df_h2o.index.strftime("%Y-%m-%d"),
+    "x": _h2o_values,
+})
+
+# Three days of hourly values in the local time of Madrid, as text, across
+# the change to summer time of 2012-03-25: the offset goes from '+01:00' to
+# '+02:00' and the hour 02:00 of that day does not exist.
+df_madrid_hourly_text = pd.DataFrame({
+    "date": pd.date_range(
+        "2012-03-24", periods=71, freq="h", tz="Europe/Madrid"
+    ).astype(str),
+    "users": np.arange(71, dtype=float) % 24,
+})

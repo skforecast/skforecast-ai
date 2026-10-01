@@ -511,6 +511,7 @@ def _validate_forecast_mode(
 def _resolve_data_and_target(
     data: pd.Series | pd.DataFrame | str | Path,
     target: str | list[str] | None,
+    date_column: str | None = None,
 ) -> tuple[pd.DataFrame, str | list[str]]:
     """
     Coerce the input to a DataFrame and resolve the target column name.
@@ -530,6 +531,11 @@ def _resolve_data_and_target(
     target : str, list, None
         Name of the column(s) to forecast. Optional only when `data` is a
         Series (the name is used instead).
+    date_column : str, default None
+        Name of the date column, when the caller gives it. A CSV column of
+        dates with empty cells or mixed time zones raises an error when it is
+        this column, or when it is not given and no later column holds
+        complete dates (see `_try_parse_first_date_column`).
 
     Returns
     -------
@@ -542,8 +548,9 @@ def _resolve_data_and_target(
     ------
     ValueError
         When `data` is a Series and `target` is provided but does not
-        match the Series name, or when `data` is not a Series and
-        `target` is None.
+        match the Series name, when `data` is not a Series and `target` is
+        None, or when the dates of a CSV have empty cells or mixed time
+        zones (see `date_column`).
     FileNotFoundError
         When `data` is a path or URL that cannot be read.
     """
@@ -587,7 +594,7 @@ def _resolve_data_and_target(
                     code  = None if isinstance(e, OSError) else "data_unreadable",
                     field = "data",
                 ) from e
-            return _try_parse_first_date_column(df), target
+            return _try_parse_first_date_column(df, date_column), target
         path = Path(data_str)
         if not path.is_file():
             raise DataNotFoundError(
@@ -595,7 +602,7 @@ def _resolve_data_and_target(
                 field = "data",
             )
         df = pd.read_csv(path)
-        return _try_parse_first_date_column(df), target
+        return _try_parse_first_date_column(df, date_column), target
 
     return data, target
 
@@ -679,7 +686,7 @@ def _resolve_inputs_with_profile(
     """
 
     if profile is None:
-        data_df, target = _resolve_data_and_target(data, target)
+        data_df, target = _resolve_data_and_target(data, target, date_column)
         return data_df, target, date_column, series_id_column
 
     dp = profile.data_profile
@@ -689,7 +696,13 @@ def _resolve_inputs_with_profile(
     # explicit `target`. For any other input the profile fills the gap.
     if not isinstance(data, pd.Series) and target is None:
         target = dp.target
-    data_df, target = _resolve_data_and_target(data, target)
+    # The CSV loader checks the date column of the profile, which the script
+    # reads, and reports it when its dates cannot be used.
+    data_df, target = _resolve_data_and_target(
+                          data        = data,
+                          target      = target,
+                          date_column = dp.date_column,
+                      )
     if target != dp.target:
         raise InvalidInputError(
             f"`target` {target!r} does not match the target recorded in "
