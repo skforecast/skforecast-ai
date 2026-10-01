@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from .exceptions import InvalidInputError
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -117,9 +118,10 @@ def set_config_value(key: str, value: str) -> None:
     None
     """
     if key not in VALID_KEYS:
-        raise ValueError(
+        raise InvalidInputError(
             f"Unknown config key: '{key}'. "
-            f"Valid keys: {', '.join(sorted(VALID_KEYS))}"
+            f"Valid keys: {', '.join(sorted(VALID_KEYS))}",
+            field = "key",
         )
     parts = key.split(".", 1)
     config = load_config()

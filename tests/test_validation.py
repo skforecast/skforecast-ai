@@ -12,6 +12,7 @@ from sklearn.linear_model import Ridge
 from skforecast_ai import _utils as utils_module
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import FORECASTER_TASK_TYPES, SUPPORTED_TRANSFORMERS
+from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.recommendation.baseline import select_baseline_config
 from skforecast_ai.recommendation.calendar import (
     CALENDAR_FEATURE_RELEVANCE,
@@ -219,6 +220,28 @@ def test_check_estimator_installed_ValueError_when_package_missing(monkeypatch):
     )
     with pytest.raises(ValueError, match=err_msg):
         check_estimator_installed("XGBRegressor", "single_series")
+
+
+def test_check_estimator_installed_code_and_field_when_package_missing(
+    monkeypatch,
+):
+    """
+    Test that a missing estimator package raises InvalidInputError with the
+    code 'missing_dependency' and `estimator` as field.
+    """
+    monkeypatch.setattr(
+        validation_module.importlib.util, "find_spec", lambda name: None
+    )
+
+    err_msg = re.escape(
+        "XGBRegressor needs the 'xgboost' package, which is not installed "
+        "(pip install xgboost)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        check_estimator_installed("XGBRegressor", "single_series")
+
+    assert exc_info.value.code == "missing_dependency"
+    assert exc_info.value.field == "estimator"
 
 
 def test_check_estimator_installed_output_when_not_machine_learning(monkeypatch):

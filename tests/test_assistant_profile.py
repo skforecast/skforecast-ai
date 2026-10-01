@@ -1,5 +1,6 @@
 # Unit test profile ForecastingAssistant
 
+import re
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.exceptions import DataNotFoundError, InvalidInputError
 from skforecast_ai.schemas import DataProfile, ForecastingProfile
 
 from tests.fixtures_assistant import (
@@ -228,3 +230,46 @@ def test_profile_output_when_csv_path(tmp_path, path_type):
     assert isinstance(profile, ForecastingProfile)
     assert profile.data_profile.target == "sales"
     assert profile.data_profile.series_lengths["sales"].length == 100
+
+
+# =============================================================================
+# Tests: error code and field
+# =============================================================================
+@pytest.mark.parametrize(
+    "kwargs, error_class, expected_code, expected_field, err_msg",
+    [
+        (
+            {"data": df_single, "target": "missing", "date_column": "date"},
+            InvalidInputError, "invalid_argument", "target",
+            "Target column(s) ['missing'] not found in the DataFrame. "
+            "Available columns: ['date', 'sales', 'promo']",
+        ),
+        (
+            {"data": df_single, "target": "sales", "date_column": "missing"},
+            InvalidInputError, "invalid_argument", "date_column",
+            "date_column='missing' was not found in the data. It matches "
+            "neither a column ['date', 'sales', 'promo'] nor the index name "
+            "('None'). Pass a valid column name, set it as the index, or omit "
+            "date_column to use an existing DatetimeIndex.",
+        ),
+        (
+            {"data": "/nonexistent/data.csv", "target": "sales"},
+            DataNotFoundError, "data_not_found", "data",
+            "CSV file not found: '/nonexistent/data.csv'. Please provide a "
+            "valid file path.",
+        ),
+    ],
+    ids=["target", "date_column", "csv_path"],
+)
+def test_profile_error_code_and_field(
+    kwargs, error_class, expected_code, expected_field, err_msg
+):
+    """
+    Test that the errors of profile() carry the code of the error and the
+    argument at fault, with the message they had before.
+    """
+    with pytest.raises(error_class, match=re.escape(err_msg)) as exc_info:
+        ForecastingAssistant().profile(**kwargs)
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.field == expected_field

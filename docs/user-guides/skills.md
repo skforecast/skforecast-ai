@@ -84,7 +84,7 @@ When `skills` is not passed, `ask()` selects them in three steps.
 | drift, monitor, production, distribution shift | `drift-detection` |
 | baseline, naive, benchmark, equivalent date | `baseline-forecasting` |
 | api, signature, kwargs, "parameters of", "default value" | `complete-api-reference` |
-| traceback, debug, exception, fails, TypeError, ValueError | `troubleshooting-common-errors` |
+| traceback, debug, exception, fails, TypeError, ValueError, InvalidInputError | `troubleshooting-common-errors` |
 
 **3. Conflict resolution and budget.** Some skills suppress others whose guidance would be misleading next to them: `foundation-forecasting` removes the lag, feature and interval skills (a foundation model needs none of them), `deep-learning-forecasting` removes the single and multi-series workflow skills, and `statistical-models` removes them together with feature engineering and selection. The remaining skills are sorted by the `ALL_SKILLS` priority and trimmed to a token budget: a fixed ceiling for hosted providers, and for local `ollama:` models also the space left in the context window after the role prompt, the rendered context and the room reserved for the answer. Trimming drops the last (least foundational) skills first.
 

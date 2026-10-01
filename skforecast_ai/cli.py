@@ -40,7 +40,9 @@ from .config import (
 )
 from .exceptions import (
     AllCandidatesFailedError,
+    DataNotFoundError,
     ForecastExecutionError,
+    InvalidInputError,
     LLMCallError,
     LLMRequiredError,
 )
@@ -311,12 +313,15 @@ def _read_json_input(source: str) -> dict:
     else:
         path = Path(source)
         if not path.is_file():
-            raise FileNotFoundError(f"File not found: '{source}'.")
+            raise DataNotFoundError(f"File not found: '{source}'.")
         raw = path.read_text()
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON input: {e}") from e
+        raise InvalidInputError(
+            f"Invalid JSON input: {e}",
+            code = "data_unreadable",
+        ) from e
 
 
 def _parse_target(target_str: str) -> str | list[str]:
@@ -579,7 +584,10 @@ def _load_exog(
     if path is None:
         return None
     if not path.is_file():
-        raise FileNotFoundError(f"Exog CSV not found: '{path}'.")
+        raise DataNotFoundError(
+            f"Exog CSV not found: '{path}'.",
+            field = "exog",
+        )
 
     if date_column is not None:
         exog = pd.read_csv(path)

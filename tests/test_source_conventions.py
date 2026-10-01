@@ -1,5 +1,6 @@
 # Unit test source conventions shared by the whole package
 
+import ast
 import re
 from pathlib import Path
 
@@ -75,3 +76,39 @@ def test_claude_instructions_import_agents_instructions():
 
     assert claude.splitlines()[0] == "@AGENTS.md"
     assert (REPO_ROOT / "AGENTS.md").is_file()
+
+
+# Built-in exceptions still raised on purpose: they signal a broken internal
+# invariant or a missing resource of the package, not an invalid input, so
+# `ErrorInfo` reports them as 'internal_error'. Any other raise must use the
+# hierarchy of `skforecast_ai.exceptions`.
+BUILTIN_RAISES_ALLOWED = {
+    ("skforecast_ai/exceptions.py", "ValueError"): 1,
+    ("skforecast_ai/llm/skills.py", "FileNotFoundError"): 3,
+    ("skforecast_ai/recommendation/preprocessing.py", "ValueError"): 1,
+}
+
+
+def test_package_raises_errors_of_the_hierarchy():
+    """
+    Test that the package raises `ValueError`, `TypeError` and
+    `FileNotFoundError` only through the hierarchy of
+    `skforecast_ai.exceptions` (which derives from them), so every error a
+    user can trigger carries a code and a field. The few built-in raises
+    left are listed in `BUILTIN_RAISES_ALLOWED`.
+    """
+
+    builtins = {"ValueError", "TypeError", "FileNotFoundError"}
+    found = {}
+    for path in _python_files(REPO_ROOT / "skforecast_ai"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or node.exc is None:
+                continue
+            exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+            if isinstance(exc, ast.Name) and exc.id in builtins:
+                key = (path.relative_to(REPO_ROOT).as_posix(), exc.id)
+                found[key] = found.get(key, 0) + 1
+
+    assert found == BUILTIN_RAISES_ALLOWED
+

@@ -258,7 +258,7 @@ If nothing may leave your machine at all, run a [local model with Ollama](#local
 |---|---|---|
 | `LLMRequiredError: ask() requires an LLM` | The assistant was created without `llm` | Pass `llm="provider:model"` (CLI: `--llm`, `SKFORECAST_AI_LLM` or `config set llm.provider`) |
 | `ModuleNotFoundError: No module named 'pydantic_ai'` | The LLM extra is not installed | `pip install "skforecast-ai[llm]"` (`[bedrock]` for Bedrock) |
-| `ValueError: Invalid LLM string ...` or `Model name is empty ...` | No colon, or nothing after it | Use `provider:model` |
+| `InvalidInputError: Invalid LLM string ...` or `Model name is empty ...` (a `ValueError`) | No colon, or nothing after it | Use `provider:model` |
 | `LLMCallError` wrapping `ConnectionError: Ollama is not reachable` | The Ollama server is down or `base_url` is wrong | `ollama serve`; check the URL ends in `/v1` |
 | `LLMCallError` wrapping a `401` or `UserError: Set the OPENAI_API_KEY environment variable` | Missing or wrong key, or the wrong variable name | Set the variable of the provider, or pass `api_key`; run `check_llm()` |
 | `LLMCallError` wrapping a `404` | Unknown model name, or an OpenAI-compatible server without `/v1` in `base_url` | Check the model list of the provider and the URL |

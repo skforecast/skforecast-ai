@@ -36,6 +36,8 @@ from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
     DataSentToLLMWarning,
+    InvalidInputError,
+    InvalidInputTypeError,
     LLMCallError,
     LLMRequiredError,
     MissingBackendWarning,
@@ -448,10 +450,11 @@ class ForecastingAssistant:
                 and forecaster not in BASELINE_FORECASTERS
             ):
                 if forecaster not in FORECASTER_TASK_TYPES:
-                    raise ValueError(
+                    raise InvalidInputError(
                         f"Forecaster '{forecaster}' is not compatible with this "
                         f"profile. Available candidates: "
-                        f"{profile.forecaster_candidates}."
+                        f"{profile.forecaster_candidates}.",
+                        field = "forecaster",
                     )
                 warnings.warn(
                     f"Forecaster '{forecaster}' is not among the recommended "
@@ -490,8 +493,9 @@ class ForecastingAssistant:
                 )
             given = [name for name, value in inapplicable if value is not None]
             if given:
-                raise ValueError(
-                    f"'{fc}' {reason}, so {given} cannot be applied. Omit them."
+                raise InvalidInputError(
+                    f"'{fc}' {reason}, so {given} cannot be applied. Omit them.",
+                    field = given[0],
                 )
 
         if task_type == "baseline":
@@ -553,13 +557,14 @@ class ForecastingAssistant:
             and data_profile.index_type == "datetime"
             and data_profile.frequency is None
         ):
-            raise ValueError(
+            raise InvalidInputError(
                 f"The frequency of the datetime index could not be inferred "
                 f"(the timestamps are irregular or too few), and '{fc}' needs "
                 f"a regular DatetimeIndex. Check the dates: day-first values "
                 f"such as '13/02/2023' are read month-first unless parsed "
                 f"explicitly, for example with "
-                f"pandas.to_datetime(..., dayfirst=True)."
+                f"pandas.to_datetime(..., dayfirst=True).",
+                field = "profile",
             )
 
         # The baseline cannot take exogenous variables; the explanation says
@@ -842,9 +847,10 @@ class ForecastingAssistant:
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
         invalid_keys = set(overrides) - allowed_keys
         if invalid_keys:
-            raise ValueError(
+            raise InvalidInputError(
                 f"Invalid override keys: {sorted(invalid_keys)}. "
-                f"Allowed keys: {sorted(allowed_keys)}."
+                f"Allowed keys: {sorted(allowed_keys)}.",
+                field = sorted(invalid_keys)[0],
             )
         # Snapshot taken before the LLM branch injects its suggestions into
         # `overrides`, so that an inherited LLM mark is dropped only for a
@@ -2156,7 +2162,10 @@ class ForecastingAssistant:
         else:
             metric_override = [metric] if isinstance(metric, str) else list(metric)
             if not metric_override:
-                raise ValueError("`metric` must not be an empty list.")
+                raise InvalidInputError(
+                    "`metric` must not be an empty list.",
+                    field = "metric",
+                )
             validate_metrics(metric_override)
             ranking_metric = metric_override[0]
             metric_columns = metric_override
@@ -2426,29 +2435,33 @@ class ForecastingAssistant:
                 stacklevel=2,
             )
             if context is not None:
-                raise TypeError(
+                raise InvalidInputTypeError(
                     "Pass the object to explain as `context`; `result` is a "
-                    "deprecated alias of it and cannot be combined with it."
+                    "deprecated alias of it and cannot be combined with it.",
+                    field = "result",
                 )
             context = result
 
         if isinstance(context, ForecastPlan):
-            raise TypeError(
+            raise InvalidInputTypeError(
                 "A `ForecastPlan` cannot be explained on its own: it does not "
                 "carry the dataset it was derived from. Pass "
-                "`context=profile, plan=plan`."
+                "`context=profile, plan=plan`.",
+                field = "context",
             )
         if context is not None and not isinstance(context, ExplainableResult):
-            raise TypeError(
+            raise InvalidInputTypeError(
                 f"`context` must be a `ForecastingProfile` or a workflow "
                 f"result (for example `ForecastResult`, `BacktestResult`, "
                 f"`ComparisonResult`, `CodeGenerationResult`, or `CVResult`), "
-                f"got {type(context).__name__}."
+                f"got {type(context).__name__}.",
+                field = "context",
             )
         if plan is not None and not isinstance(context, ForecastingProfile):
-            raise TypeError(
+            raise InvalidInputTypeError(
                 "`plan` only accompanies a `ForecastingProfile` passed as "
-                "`context`; any other context already carries its own plan."
+                "`context`; any other context already carries its own plan.",
+                field = "plan",
             )
 
         # A profile with a plan is explained through the script the two
@@ -2779,14 +2792,18 @@ class ForecastingAssistant:
         # Mirror `_prepare_backtest`, which rejects `cv.steps != plan.steps`.
         if plan is not None:
             if steps is not None and steps != plan.steps:
-                raise ValueError(
+                raise InvalidInputError(
                     f"`steps` ({steps}) does not match `plan.steps` "
                     f"({plan.steps}). Omit `steps` to use the plan's horizon, "
-                    f"or refine the plan with `refine_plan(steps=...)`."
+                    f"or refine the plan with `refine_plan(steps=...)`.",
+                    field = "steps",
                 )
             steps = plan.steps
         elif steps is None:
-            raise ValueError("`steps` is required when `plan` is not provided.")
+            raise InvalidInputError(
+                "`steps` is required when `plan` is not provided.",
+                field = "steps",
+            )
 
         has_exog = bool(profile.data_profile.exog_columns)
         # Evaluation mode is driven by `test_size`, or by a pre-built plan
@@ -2844,13 +2861,14 @@ class ForecastingAssistant:
                 end_train      = plan.end_train,
             )
             if n_test is not None and n_test != plan.steps:
-                raise ValueError(
+                raise InvalidInputError(
                     f"The test set has {n_test} observations but `steps` is "
                     f"{plan.steps}. forecast() evaluates one forecast of "
                     f"`steps` observations, so the test set must have the "
                     f"same length: pass test_size={plan.steps}. To evaluate "
                     f"over a longer period, use backtest() (create_cv() "
-                    f"builds the folds)."
+                    f"builds the folds).",
+                    field = "test_size",
                 )
 
         return profile, plan
@@ -2921,7 +2939,10 @@ class ForecastingAssistant:
         )
 
         if data is None and profile is None:
-            raise ValueError("`data` is required when `profile` is not provided.")
+            raise InvalidInputError(
+                "`data` is required when `profile` is not provided.",
+                field = "data",
+            )
         if data is not None:
             _, target, date_column, series_id_column = (
                 _resolve_inputs_with_profile(
@@ -2952,11 +2973,12 @@ class ForecastingAssistant:
             )
         else:
             if cv.steps != plan.steps:
-                raise ValueError(
+                raise InvalidInputError(
                     f"cv.steps ({cv.steps}) does not match plan.steps "
                     f"({plan.steps}). These must be equal: "
                     f"ForecasterDirect and ForecasterDirectMultiVariate "
-                    f"model architectures depend on steps."
+                    f"model architectures depend on steps.",
+                    field = "cv",
                 )
             if interval is not None:
                 plan = _apply_interval_to_plan(plan, interval)

@@ -36,6 +36,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-enhancement">Enhancement</span> Better answers from [<code>ForecastingAssistant.ask()</code>][assistant]. Skills and `llms-base.txt` are synced from skforecast 0.26.x, and the skills are chosen by the plan being asked about, so `ForecasterStats`, `ForecasterEquivalentDate` and a `compare()` baseline get `statistical-models` or `baseline-forecasting`, and questions about cold-start series or TabPFN-TS get `foundation-forecasting`. To measure accuracy or choose between models it points to `assistant.backtest()` and `assistant.compare()` instead of the lower-level skforecast functions, and it no longer suggests reasons why one `compare()` candidate beat another.
 
++ <span class="badge text-bg-feature">Feature</span> The errors of skforecast-ai derive from the new `SkforecastAIError`, with a stable `code` and the argument at fault in `field`, so a program can react to it without parsing the message: invalid inputs raise `InvalidInputError`, `InvalidInputTypeError` or `DataNotFoundError`, which are still a `ValueError`, a `TypeError` and a `FileNotFoundError` with the same messages (`InvalidInputTypeError` is also a `ValueError`, so an `except ValueError` now catches it too), and `ErrorInfo.from_exception()` in `skforecast_ai.schemas` turns any error into plain data (see [Exceptions and warnings][exceptions]).
+
 + <span class="badge text-bg-docs">Docs</span> New documentation home page, and new animations in the [Agentic forecasting][agentic-guide] user guide: what reaches the LLM and how its suggestions are validated, how `create_cv()` and `backtest()` [validate the way you deploy][agentic-guide-backtesting], and how `compare()` [picks the model by measured performance][agentic-guide-compare].
 
 
@@ -203,6 +205,7 @@ First public release. `skforecast-ai` wraps the [`skforecast`](https://skforecas
 <!-- Links to API Reference -->
 [assistant]: ../api/assistant.md
 [cli]: ../api/cli.md
+[exceptions]: ../api/exceptions.md
 [cli-guide]: ../user-guides/cli-usage.md
 [config]: ../user-guides/cli-usage.md#configuration
 [llm-config]: ../user-guides/llm-configuration.md

@@ -13,6 +13,7 @@ from .._constants import (
     MAX_STATS_SEASONAL_PERIOD,
 )
 from ..schemas import DataProfile
+from ..exceptions import InvalidInputError
 
 
 def _auto_arima_is_practical(frequency: str | None) -> bool:
@@ -117,7 +118,10 @@ def select_task_type_from_forecaster(
         Forecasting task category associated with `forecaster`.
     """
     if forecaster not in FORECASTER_TASK_TYPES:
-        raise ValueError(f"Unknown forecaster '{forecaster}'.")
+        raise InvalidInputError(
+            f"Unknown forecaster '{forecaster}'.",
+            field = "forecaster",
+        )
 
     return FORECASTER_TASK_TYPES[forecaster]
 

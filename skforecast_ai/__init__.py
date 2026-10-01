@@ -17,11 +17,15 @@ from .assistant import ForecastingAssistant
 from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
+    DataNotFoundError,
     DataSentToLLMWarning,
     ForecastExecutionError,
+    InvalidInputError,
+    InvalidInputTypeError,
     LLMCallError,
     LLMRequiredError,
     MissingBackendWarning,
+    SkforecastAIError,
     UnrecommendedForecasterWarning,
 )
 from .llm.skills import ALL_SKILLS
@@ -54,6 +58,7 @@ __all__ = [
     "CandidateFailure",
     "ComparisonResult",
     "CVResult",
+    "DataNotFoundError",
     "DataProfile",
     "DataSentToLLMWarning",
     "ExplainableResult",
@@ -61,6 +66,8 @@ __all__ = [
     "ForecastingProfile",
     "ForecastingAssistant",
     "ForecastPlan",
+    "InvalidInputError",
+    "InvalidInputTypeError",
     "LLMCheckResult",
     "LLMContext",
     "RenderedScript",
@@ -72,6 +79,7 @@ __all__ = [
     "ForecastResult",
     "SeriesPacf",
     "SingleRunResult",
+    "SkforecastAIError",
     "UnrecommendedForecasterWarning",
     "__version__",
 ]

@@ -1,6 +1,7 @@
 # Unit test _utils
 
 import re
+import urllib.error
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,7 @@ from skforecast_ai._utils import (
     _validate_task_input,
 )
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.exceptions import DataNotFoundError, InvalidInputError
 from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
@@ -419,6 +421,35 @@ def test_validate_max_window_size_ValueError_when_span_exceeds_budget(
         _validate_max_window_size(lags, window_features, 100)
 
 
+@pytest.mark.parametrize(
+    "lags, window_features, expected_field",
+    [
+        (34, None, "lags"),
+        ([1, 2, 34], [{"stats": ["mean"], "window_size": 7}], "lags"),
+        (3, [{"stats": ["mean"], "window_size": 34}], "window_features"),
+    ],
+    ids=lambda value: f"{value!r}",
+)
+def test_validate_max_window_size_code_and_field_when_span_exceeds_budget(
+    lags, window_features, expected_field
+):
+    """
+    Test that a span longer than the data allows has the code
+    'insufficient_data' and names as field the override with the largest
+    span.
+    """
+    err_msg = re.escape(
+        "Explicit lags/window_features span up to 34 observations, exceeding "
+        "the maximum of 33 (33% of 100 observations). Reduce the largest lag "
+        "or window size."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_max_window_size(lags, window_features, 100)
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == expected_field
+
+
 def test_apply_interval_to_plan_uses_native_method_for_foundation_plan():
     """
     Test that applying an interval to a foundation plan without intervals
@@ -541,3 +572,35 @@ def test_check_evaluated_target_ValueError_when_gap_in_test_split():
         end_train    = "2023-03-20",
         steps        = 5,
     ) is None
+
+
+@pytest.mark.parametrize(
+    "error, expected_code",
+    [
+        (urllib.error.URLError("unreachable"), "data_not_found"),
+        (pd.errors.ParserError("bad row"), "data_unreadable"),
+    ],
+    ids=["unreachable", "not_a_csv"],
+)
+def test_resolve_data_and_target_code_when_url_cannot_be_read(
+    monkeypatch, error, expected_code
+):
+    """
+    Test that a URL that cannot be read raises DataNotFoundError (a
+    FileNotFoundError) with the code 'data_not_found' when it cannot be
+    reached, and 'data_unreadable' when it was downloaded but is not a CSV.
+    """
+
+    def _read_csv(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(pd, "read_csv", _read_csv)
+
+    err_msg = re.escape(
+        f"Could not read CSV from URL: 'https://example.com/a.csv'. {error}"
+    )
+    with pytest.raises(DataNotFoundError, match=err_msg) as exc_info:
+        _resolve_data_and_target("https://example.com/a.csv", "y")
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.field == "data"

@@ -8,7 +8,10 @@ import pytest
 from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.exceptions import UnrecommendedForecasterWarning
+from skforecast_ai.exceptions import (
+    InvalidInputError,
+    UnrecommendedForecasterWarning,
+)
 from skforecast_ai.schemas import ForecastPlan
 
 from tests.fixtures_assistant import (
@@ -896,3 +899,87 @@ def test_plan_ValueError_when_datetime_index_has_no_frequency(tmp_path):
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.plan(profile, steps=5)
+
+
+# =============================================================================
+# Tests: error code and field
+# =============================================================================
+@pytest.mark.parametrize(
+    "kwargs, expected_field, err_msg",
+    [
+        (
+            {"steps": 0}, "steps",
+            "`steps` must be an integer greater than or equal to 1, got 0.",
+        ),
+        (
+            {"steps": 7, "lags": "12"}, "lags",
+            "`lags` must be an int or a list of ints, got '12'.",
+        ),
+        (
+            {"steps": 7, "estimator": "Unknown"}, "estimator",
+            "'Unknown' is not a supported estimator. Supported estimators: "
+            "['LGBMRegressor', 'Ridge', 'XGBRegressor', 'CatBoostRegressor', "
+            "'RandomForestRegressor', 'HistGradientBoostingRegressor'].",
+        ),
+        (
+            {"steps": 7, "interval": [0.9, 0.1]}, "interval",
+            "`interval` must be `[lower, upper]` with 0 < lower < upper < 1, "
+            "got [0.9, 0.1].",
+        ),
+        (
+            {"steps": 7, "window_features": "mean"}, "window_features",
+            "`window_features` must be a list of dicts, got str.",
+        ),
+        (
+            {"steps": 7, "forecaster": "ForecasterStats", "lags": 3}, "lags",
+            "'ForecasterStats' models the past values itself: it takes no lag "
+            "or window features, so ['lags'] cannot be applied. Omit them.",
+        ),
+    ],
+    ids=[
+        "steps", "lags", "estimator", "interval", "window_features",
+        "inapplicable_lags",
+    ],
+)
+def test_plan_InvalidInputError_code_and_field(kwargs, expected_field, err_msg):
+    """
+    Test that the errors of plan() are InvalidInputError (a ValueError)
+    with the code 'invalid_argument', the argument at fault as field and
+    the message they had before.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        assistant.plan(profile, **kwargs)
+
+    assert isinstance(exc_info.value, ValueError)
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == expected_field
+
+
+def test_plan_InvalidInputError_field_when_datetime_index_has_no_frequency(
+    tmp_path,
+):
+    """
+    Test that a profile without an inferable frequency raises
+    InvalidInputError with `profile` as field, the argument plan() received
+    the dates through.
+    """
+    csv_path = tmp_path / "dayfirst.csv"
+    df_single.assign(
+        date=df_single["date"].dt.strftime("%d/%m/%Y")
+    ).to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "The frequency of the datetime index could not be inferred (the "
+        "timestamps are irregular or too few), and 'ForecasterRecursive' needs "
+        "a regular DatetimeIndex."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.plan(profile, steps=5)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "profile"

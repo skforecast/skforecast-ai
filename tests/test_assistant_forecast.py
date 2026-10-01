@@ -10,6 +10,7 @@ import pytest
 from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
+from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
@@ -848,3 +849,49 @@ def test_forecast_output_when_received_plan_holds_values_validation_converts():
     assert result.plan.interval == [0.1, 0.9]
     assert "    interval = [0.1, 0.9]," in result.code.splitlines()
     assert list(result.predictions.columns) == ["pred", "lower_bound", "upper_bound"]
+
+
+# =============================================================================
+# Tests: error code and field
+# =============================================================================
+@pytest.mark.parametrize(
+    "test_size, error_class, err_msg",
+    [
+        (
+            True, InvalidInputTypeError,
+            "`test_size` must be an int, float, str or Timestamp, not bool.",
+        ),
+        (
+            1.5, InvalidInputError,
+            "Float `test_size` must be in the open interval (0, 1), got 1.5.",
+        ),
+        (
+            3, InvalidInputError,
+            "The test set has 3 observations but `steps` is 7. forecast() "
+            "evaluates one forecast of `steps` observations, so the test set "
+            "must have the same length: pass test_size=7. To evaluate over a "
+            "longer period, use backtest() (create_cv() builds the folds).",
+        ),
+    ],
+    ids=["bool", "float_out_of_range", "length_differs_from_steps"],
+)
+def test_forecast_error_code_and_field_when_test_size_invalid(
+    test_size, error_class, err_msg
+):
+    """
+    Test that an invalid `test_size` raises an error with the code
+    'invalid_argument' and `test_size` as field; a bool keeps raising a
+    TypeError, now also an InvalidInputError.
+    """
+    with pytest.raises(error_class, match=re.escape(err_msg)) as exc_info:
+        ForecastingAssistant().forecast(
+            data        = df_no_exog,
+            target      = "sales",
+            date_column = "date",
+            steps       = 7,
+            test_size   = test_size,
+        )
+
+    assert isinstance(exc_info.value, InvalidInputError)
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "test_size"

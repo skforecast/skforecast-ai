@@ -72,7 +72,7 @@ _KEYWORD_SKILLS: list[tuple[re.Pattern[str], str]] = [
     # Signature-shaped questions only: the skill is the most expensive one and
     # the workflow skills already carry idiomatic usage.
     (re.compile(r"\bapi\b|\bsignatures?\b|\bkwargs\b|\bparameters?\s+(of|for|does|to)\b|\barguments?\s+(of|for|does|to)\b|\bdefault\s+value", re.I), "complete-api-reference"),
-    (re.compile(r"traceback|\bdebug\b|troubleshoot|exception|\bfails?\b|not.working|TypeError|ValueError|KeyError|IndexError", re.I), "troubleshooting-common-errors"),
+    (re.compile(r"traceback|\bdebug\b|troubleshoot|exception|\bfails?\b|not.working|TypeError|ValueError|KeyError|IndexError|InvalidInputError|DataNotFoundError", re.I), "troubleshooting-common-errors"),
 ]
 
 # When a skill in the key set is selected, the skills in the value set are

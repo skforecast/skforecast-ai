@@ -13,6 +13,7 @@ from skforecast.foundation import FoundationModelInfo, get_model_info, list_adap
 
 from ._constants import DEFAULT_FOUNDATION_MODEL_ID
 from ._validation import validate_interval
+from .exceptions import InvalidInputError, InvalidInputTypeError
 
 # Same tolerance skforecast uses to match a quantile level against the grid
 # of a backend, so a level accepted here is never rejected at prediction.
@@ -53,9 +54,10 @@ def resolve_foundation_model(model_id: str) -> FoundationModelInfo:
         Hugging Face model ID of the form `'owner/name'`.
     """
     if not isinstance(model_id, str):
-        raise TypeError(
+        raise InvalidInputTypeError(
             f"The estimator of 'ForecasterFoundation' must be a Hugging Face "
-            f"model ID (str), got {type(model_id).__name__}."
+            f"model ID (str), got {type(model_id).__name__}.",
+            field = "estimator",
         )
     try:
         info = get_model_info(model_id)
@@ -65,19 +67,21 @@ def resolve_foundation_model(model_id: str) -> FoundationModelInfo:
             for adapter in list_adapters()
             for prefix in adapter.model_id_prefixes
         ]
-        raise ValueError(
+        raise InvalidInputError(
             f"'{model_id}' is not a foundation model supported by skforecast. "
             f"Pass its Hugging Face model ID as `estimator`, for example "
             f"'{DEFAULT_FOUNDATION_MODEL_ID}'. Supported model ID prefixes: "
-            f"{prefixes}."
+            f"{prefixes}.",
+            field = "estimator",
         ) from None
     # skforecast matches the adapter by prefix only, so anything may follow
     # a supported prefix; the ID is written into the generated script.
     if not _MODEL_ID_PATTERN.fullmatch(model_id):
-        raise ValueError(
+        raise InvalidInputError(
             f"{model_id!r} is not a valid Hugging Face model ID. It must have "
             f"the form 'owner/name', with letters, digits, '-', '_' and '.' "
-            f"only, for example '{DEFAULT_FOUNDATION_MODEL_ID}'."
+            f"only, for example '{DEFAULT_FOUNDATION_MODEL_ID}'.",
+            field = "estimator",
         )
 
     return info
@@ -133,10 +137,11 @@ def validate_foundation_estimator_kwargs(estimator_kwargs: dict | None) -> None:
         When `estimator_kwargs` contains `'model_id'`.
     """
     if estimator_kwargs and "model_id" in estimator_kwargs:
-        raise ValueError(
+        raise InvalidInputError(
             f"`estimator_kwargs` cannot contain 'model_id' for "
             f"'ForecasterFoundation'. Pass the model ID as `estimator` "
-            f"instead, e.g. estimator='{estimator_kwargs['model_id']}'."
+            f"instead, e.g. estimator='{estimator_kwargs['model_id']}'.",
+            field = "estimator_kwargs",
         )
 
 
@@ -181,11 +186,12 @@ def validate_foundation_interval(
         if not any(abs(bound - level) < _QUANTILE_TOLERANCE for level in grid)
     ]
     if unsupported:
-        raise ValueError(
+        raise InvalidInputError(
             f"'{info.model_id}' ({info.adapter}) only predicts the quantile "
             f"levels {list(grid)}, so `interval` {interval} cannot be "
             f"computed: {unsupported} not in that list. Choose both bounds "
-            f"from it, e.g. [0.1, 0.9]."
+            f"from it, e.g. [0.1, 0.9].",
+            field = "interval",
         )
 
 
@@ -250,10 +256,11 @@ def validate_foundation_plan(
         `interval`.
     """
     if estimator is None:
-        raise ValueError(
+        raise InvalidInputError(
             f"A 'ForecasterFoundation' plan needs the Hugging Face model ID "
             f"of the foundation model as `estimator`, e.g. "
-            f"'{DEFAULT_FOUNDATION_MODEL_ID}'."
+            f"'{DEFAULT_FOUNDATION_MODEL_ID}'.",
+            field = "estimator",
         )
     info = resolve_foundation_model(estimator)
     validate_foundation_estimator_kwargs(estimator_kwargs)

@@ -30,6 +30,7 @@ from ._validation import (
 )
 from .profiling.data_profile import _try_parse_first_date_column
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
+from .exceptions import DataNotFoundError, InvalidInputError
 
 _CODE_BLOCK_RE = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
 _CODE_BLOCK_REPLACEMENT = "(See `result.code` for the validated implementation.)"
@@ -106,12 +107,17 @@ def _validate_max_window_size(
     max_span = _max_window_size(lags, window_features)
     max_allowed = int(span_index_length * MAX_FEATURE_FRACTION)
     if max_span > max_allowed:
-        raise ValueError(
+        raise InvalidInputError(
             f"Explicit lags/window_features span up to {max_span} "
             f"observations, exceeding the maximum of {max_allowed} "
             f"({int(MAX_FEATURE_FRACTION * 100)}% of "
             f"{span_index_length} observations). "
-            f"Reduce the largest lag or window size."
+            f"Reduce the largest lag or window size.",
+            code  = "insufficient_data",
+            field = (
+                "lags" if _max_window_size(lags, None) == max_span
+                else "window_features"
+            ),
         )
 
 
@@ -146,11 +152,12 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
         task_type in ("single_series", "statistical", "baseline")
         and n_series > 1
     ):
-        raise ValueError(
+        raise InvalidInputError(
             f"Task type '{task_type}' supports a single series only, but the "
             f"input contains {n_series} series ({list(series_lengths)}). "
             f"Use a multi-series forecaster (e.g. "
-            f"'ForecasterRecursiveMultiSeries') or provide a single series."
+            f"'ForecasterRecursiveMultiSeries') or provide a single series.",
+            field = "forecaster",
         )
 
     if task_type == "multivariate":
@@ -159,11 +166,12 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
             detail = {
                 name: info.length for name, info in series_lengths.items()
             }
-            raise ValueError(
+            raise InvalidInputError(
                 f"Task type 'multivariate' (ForecasterDirectMultiVariate) "
                 f"requires all series to have the same length, but got "
                 f"{detail}. Align the series to a common index or use "
-                f"'ForecasterRecursiveMultiSeries'."
+                f"'ForecasterRecursiveMultiSeries'.",
+                field = "forecaster",
             )
 
 
@@ -235,10 +243,11 @@ def _check_plan_overrides(
         if value is not None and value != plan_value
     ]
     if conflicts:
-        raise ValueError(
+        raise InvalidInputError(
             f"A pre-built `plan` was provided and the following argument(s) "
             f"differ from what it holds: {conflicts}. Omit them to use the "
-            f"plan as is, or refine the plan with `refine_plan()` first."
+            f"plan as is, or refine the plan with `refine_plan()` first.",
+            field = conflicts[0],
         )
 
 
@@ -458,10 +467,11 @@ def _validate_forecast_mode(
     """
     if evaluate:
         if exog is not None:
-            raise ValueError(
+            raise InvalidInputError(
                 "`exog` is only used for future prediction (`test_size=None`). "
                 "In evaluation mode the test-set exogenous values are taken "
-                "from the train/test split, so `exog` must not be provided."
+                "from the train/test split, so `exog` must not be provided.",
+                field = "exog",
             )
         return
 
@@ -470,27 +480,31 @@ def _validate_forecast_mode(
 
     # Prediction mode.
     if require_exog and uses_exog and exog is None:
-        raise ValueError(
+        raise InvalidInputError(
             "`exog` is required for future prediction because the data "
             "contains exogenous variables. Provide future exogenous "
             "values covering the forecast horizon, or pass `test_size` "
-            "to run in evaluation mode instead."
+            "to run in evaluation mode instead.",
+            field = "exog",
         )
     if not has_exog and exog is not None:
-        raise ValueError(
+        raise InvalidInputError(
             "`exog` was provided but the data contains no exogenous "
             "variables. Remove `exog` or add exogenous columns to the "
-            "data."
+            "data.",
+            field = "exog",
         )
     if has_exog and not uses_exog and exog is not None:
-        raise ValueError(
+        raise InvalidInputError(
             "`exog` was provided but the plan does not use exogenous "
-            "variables (`plan.use_exog` is False). Remove `exog`."
+            "variables (`plan.use_exog` is False). Remove `exog`.",
+            field = "exog",
         )
     if exog is not None and len(exog) < steps:
-        raise ValueError(
+        raise InvalidInputError(
             f"`exog` must cover the forecast horizon: {steps} rows are "
-            f"required but only {len(exog)} were provided."
+            f"required but only {len(exog)} were provided.",
+            field = "exog",
         )
 
 
@@ -536,11 +550,12 @@ def _resolve_data_and_target(
     if isinstance(data, pd.Series):
         name = data.name
         if target is not None and target != name:
-            raise ValueError(
+            raise InvalidInputError(
                 f"When `data` is a pandas Series and `target` is provided, "
                 f"`target` must match the Series name. Got target={target!r} "
                 f"and series.name={name!r}. Omit `target` to use the Series "
-                f"name, or rename the Series."
+                f"name, or rename the Series.",
+                field = "target",
             )
         if name is None:
             warnings.warn(
@@ -554,8 +569,9 @@ def _resolve_data_and_target(
         return data.to_frame(name=resolved_target), resolved_target
 
     if target is None:
-        raise ValueError(
-            "`target` is required when `data` is not a pandas Series."
+        raise InvalidInputError(
+            "`target` is required when `data` is not a pandas Series.",
+            field = "target",
         )
 
     if isinstance(data, (str, Path)):
@@ -564,14 +580,19 @@ def _resolve_data_and_target(
             try:
                 df = pd.read_csv(data_str)
             except Exception as e:
-                raise FileNotFoundError(
-                    f"Could not read CSV from URL: '{data_str}'. {e}"
+                # An unreachable URL is an OSError (urllib's HTTPError and
+                # URLError); anything else was downloaded but is not a CSV.
+                raise DataNotFoundError(
+                    f"Could not read CSV from URL: '{data_str}'. {e}",
+                    code  = None if isinstance(e, OSError) else "data_unreadable",
+                    field = "data",
                 ) from e
             return _try_parse_first_date_column(df), target
         path = Path(data_str)
         if not path.is_file():
-            raise FileNotFoundError(
-                f"CSV file not found: '{path}'. Please provide a valid file path."
+            raise DataNotFoundError(
+                f"CSV file not found: '{path}'. Please provide a valid file path.",
+                field = "data",
             )
         df = pd.read_csv(path)
         return _try_parse_first_date_column(df), target
@@ -605,10 +626,11 @@ def _match_profile_column(
     if value is None:
         return recorded
     if value != recorded:
-        raise ValueError(
+        raise InvalidInputError(
             f"`{name}` {value!r} does not match the value recorded in "
             f"`profile` ({recorded!r}). Pass the value the profile was built "
-            f"with, or omit it."
+            f"with, or omit it.",
+            field = name,
         )
     return value
 
@@ -669,10 +691,11 @@ def _resolve_inputs_with_profile(
         target = dp.target
     data_df, target = _resolve_data_and_target(data, target)
     if target != dp.target:
-        raise ValueError(
+        raise InvalidInputError(
             f"`target` {target!r} does not match the target recorded in "
             f"`profile` ({dp.target!r}). Pass the target the profile was "
-            f"built with, or omit it."
+            f"built with, or omit it.",
+            field = "target",
         )
 
     date_column = _match_profile_column("date_column", date_column, dp.date_column)
@@ -689,10 +712,11 @@ def _resolve_inputs_with_profile(
     }
     missing = [col for col in required if col not in available]
     if missing:
-        raise ValueError(
+        raise InvalidInputError(
             f"`data` does not contain the column(s) {missing} recorded in "
             f"`profile`. Available columns: {list(data_df.columns)}. Pass the "
-            f"dataset the profile was built from."
+            f"dataset the profile was built from.",
+            field = "data",
         )
 
     return data_df, target, date_column, series_id_column
@@ -810,11 +834,12 @@ def _check_evaluated_target(
     shown = ", ".join(str(date) for date in missing[:5])
     if len(missing) > 5:
         shown += f" and {len(missing) - 5} more"
-    raise ValueError(
+    raise InvalidInputError(
         f"The target has {len(missing)} missing value(s) {where} ({shown}), "
         f"counting the missing timestamps that asfreq() restores. skforecast "
         f"cannot compute the metrics on them, whatever the estimator. Impute "
-        f"the target, or evaluate on dates without missing values."
+        f"the target, or evaluate on dates without missing values.",
+        field = "data",
     )
 
 

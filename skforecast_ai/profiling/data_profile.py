@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from ..schemas import DataProfile
+from ..exceptions import InvalidInputError, InvalidInputTypeError
 
 # TODO: Performance & Data Integrity - Lookahead Sampling
 # Refactor `_try_parse_first_date_column` to test a small sample (e.g., 50 rows)
@@ -233,9 +234,10 @@ def create_data_profile(
 
     # Early stop: constant target makes forecasting meaningless
     if _check_target_is_constant(data, first_target):
-        raise ValueError(
+        raise InvalidInputError(
             f"Target column '{first_target}' is constant (zero variance). "
-            "Forecasting a constant series is not meaningful."
+            "Forecasting a constant series is not meaningful.",
+            field = "target",
         )
 
     exog_columns = detect_exog_columns(
@@ -439,11 +441,12 @@ def detect_date_column(
         if date_column in data.columns:
             if _is_datetime_like(data[date_column]):
                 return date_column, "datetime"
-            raise ValueError(
+            raise InvalidInputError(
                 f"date_column='{date_column}' does not hold dates: values "
                 f"such as {_unparsable_dates(data[date_column])} could not be "
                 f"parsed as timestamps. Pass the column that holds the dates, "
-                f"or convert it with pandas.to_datetime before profiling."
+                f"or convert it with pandas.to_datetime before profiling.",
+                field = "date_column",
             )
         if data.index.name == date_column:
             # The user pointed `date_column` at the index (e.g. after
@@ -451,20 +454,22 @@ def detect_date_column(
             # when it is a real DatetimeIndex.
             if isinstance(data.index, pd.DatetimeIndex):
                 return None, "datetime"
-            raise ValueError(
+            raise InvalidInputError(
                 f"date_column='{date_column}' names the index, which is not a "
                 f"DatetimeIndex (values such as "
                 f"{_unparsable_dates(data.index.to_series())}). Convert it "
                 f"with pandas.to_datetime before profiling, or omit "
-                f"date_column."
+                f"date_column.",
+                field = "date_column",
             )
         available = list(data.columns)
-        raise ValueError(
+        raise InvalidInputError(
             f"date_column='{date_column}' was not found in the data. It "
             f"matches neither a column {available} nor the index name "
             f"('{data.index.name}'). Pass a valid column name, set it as "
             "the index, or omit date_column to use an existing "
-            "DatetimeIndex."
+            "DatetimeIndex.",
+            field = "date_column",
         )
 
     if isinstance(data.index, pd.DatetimeIndex):
@@ -1102,9 +1107,10 @@ def _validate_target_exists(data: pd.DataFrame, target: str | list[str]) -> None
     targets = target if isinstance(target, list) else [target]
     missing = [col for col in targets if col not in data.columns]
     if missing:
-        raise ValueError(
+        raise InvalidInputError(
             f"Target column(s) {missing} not found in the DataFrame. "
-            f"Available columns: {list(data.columns)}"
+            f"Available columns: {list(data.columns)}",
+            field = "target",
         )
 
 
@@ -1305,7 +1311,7 @@ def _check_duplicate_timestamps(
         conflicts = repeated_keys
 
     if not conflicts.empty:
-        raise ValueError(
+        raise InvalidInputError(
             _duplicate_timestamps_message(
                 conflicts   = conflicts,
                 data        = data,
@@ -1314,7 +1320,8 @@ def _check_duplicate_timestamps(
                 date_col    = date_col,
                 data_format = data_format,
                 long_format = long_format,
-            )
+            ),
+            field = "data",
         )
 
     keep_mask = ~(keys.duplicated(keep="first").to_numpy() & valid)
@@ -1617,10 +1624,11 @@ def resolve_end_train(
         out of range or leaves an empty train or test set.
     """
     if start_date is None or frequency is None:
-        raise ValueError(
+        raise InvalidInputError(
             "`test_size` requires a datetime index with a known frequency. "
             "Set the index frequency (e.g. `data.asfreq(...)`) before "
-            "forecasting."
+            "forecasting.",
+            field = "test_size",
         )
 
     index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
@@ -1628,22 +1636,25 @@ def resolve_end_train(
 
     # bool is a subclass of int; reject it explicitly to avoid silent misuse.
     if isinstance(test_size, bool):
-        raise TypeError(
-            "`test_size` must be an int, float, str or Timestamp, not bool."
+        raise InvalidInputTypeError(
+            "`test_size` must be an int, float, str or Timestamp, not bool.",
+            field = "test_size",
         )
 
     if isinstance(test_size, int):
         if not 1 <= test_size < n:
-            raise ValueError(
+            raise InvalidInputError(
                 f"Integer `test_size` must be between 1 and {n - 1} "
-                f"(number of observations is {n}), got {test_size}."
+                f"(number of observations is {n}), got {test_size}.",
+                field = "test_size",
             )
         boundary_idx = n - test_size - 1
     elif isinstance(test_size, float):
         if not 0.0 < test_size < 1.0:
-            raise ValueError(
+            raise InvalidInputError(
                 f"Float `test_size` must be in the open interval (0, 1), "
-                f"got {test_size}."
+                f"got {test_size}.",
+                field = "test_size",
             )
         n_test = round(n * test_size)
         n_test = max(1, min(n_test, n - 1))
@@ -1651,17 +1662,19 @@ def resolve_end_train(
     elif isinstance(test_size, (str, pd.Timestamp)):
         ts = pd.Timestamp(test_size)
         if not index[0] < ts <= index[-1]:
-            raise ValueError(
+            raise InvalidInputError(
                 f"Timestamp `test_size` ({ts}) must fall within the data "
                 f"range, after {index[0]} and no later than {index[-1]}, so "
-                f"that both train and test sets are non-empty."
+                f"that both train and test sets are non-empty.",
+                field = "test_size",
             )
         train_positions = (index < ts).nonzero()[0]
         boundary_idx = int(train_positions[-1])
     else:
-        raise TypeError(
+        raise InvalidInputTypeError(
             f"`test_size` must be an int, float, str or Timestamp, "
-            f"got {type(test_size).__name__}."
+            f"got {type(test_size).__name__}.",
+            field = "test_size",
         )
 
     return _format_split_ts(index[boundary_idx])

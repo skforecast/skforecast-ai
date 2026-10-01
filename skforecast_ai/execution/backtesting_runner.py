@@ -21,6 +21,7 @@ from ..rendering.backtesting import (
     render_backtesting_statistical,
 )
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ..exceptions import InvalidInputError
 from .comparison import aggregate_metrics
 from ._exec import exec_rendered
 
@@ -123,9 +124,10 @@ def render_backtesting_script(
     render_fn = _RENDER_DISPATCH.get(plan.task_type)
     if render_fn is None:
         supported = list(_RENDER_DISPATCH.keys())
-        raise ValueError(
+        raise InvalidInputError(
             f"Unsupported task_type '{plan.task_type}'. "
-            f"Supported types: {supported}"
+            f"Supported types: {supported}",
+            field = "task_type",
         )
     return render_fn(plan, profile, cv)
 
