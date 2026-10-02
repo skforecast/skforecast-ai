@@ -185,3 +185,49 @@ def test_build_comparison_context_shared_cv_note_when_identical():
         assert (
             "<backtesting_strategy>\nApplied identically to every candidate.\n"
         ) in context
+
+
+def _with_foundation(comparison, name):
+    """
+    Return a copy of `comparison` whose candidate `name` has a
+    ForecasterFoundation plan (only the forecaster name is read by the note).
+    """
+    candidate = comparison.candidates[name]
+    plan = candidate.plan.model_copy(
+        update={"forecaster": "ForecasterFoundation", "task_type": "foundation"}
+    )
+    candidates = {
+        **comparison.candidates, name: candidate.model_copy(update={"plan": plan})
+    }
+    return comparison.model_copy(update={"candidates": candidates})
+
+
+def test_build_comparison_context_shared_cv_note_when_foundation_runs():
+    """
+    Test that the strategy is not said to apply identically to every
+    candidate when a ForecasterFoundation candidate ran: it is not trained,
+    so only the folds apply to it. With a ForecasterStats candidate that
+    refits on its own too, the note names both.
+    """
+    comparison = make_comparison_result(assistant)
+    stats_cv_config = {
+        **comparison.cv_config, "refit": True, "fixed_train_size": True,
+        "n_fits": 6,
+    }
+    with_stats = make_comparison_with_stats(assistant, comparison, stats_cv_config)
+    other = next(name for name in comparison.candidates if name != "runner_up")
+
+    foundation_only = build_comparison_context(_with_foundation(comparison, other))
+    both = build_comparison_context(_with_foundation(with_stats, other))
+
+    assert (
+        "<backtesting_strategy>\nApplied to every candidate, except "
+        "ForecasterFoundation: it is not trained, so only the folds apply to "
+        "it.\n"
+    ) in foundation_only
+    assert (
+        "<backtesting_strategy>\nApplied to every candidate, except "
+        "ForecasterStats: skforecast refits it in every fold, on a fixed "
+        "window (6 trainings); and ForecasterFoundation: it is not trained, "
+        "so only the folds apply to it.\n"
+    ) in both

@@ -990,6 +990,8 @@ def _shared_cv_note(result: ComparisonResult) -> str:
     says, so when one ran with a strategy that does not refit (or does so
     on another window), the strategy is not applied identically to it and
     the note says what ran for it, as the comparison explanation does.
+    `ForecasterFoundation` is not trained, so only the folds of the
+    strategy apply to it, and the note says so too.
 
     Parameters
     ----------
@@ -1003,6 +1005,10 @@ def _shared_cv_note(result: ComparisonResult) -> str:
     """
 
     shared = result.cv_config
+    forecasters = [
+        candidate.plan.forecaster for candidate in result.candidates.values()
+    ]
+    exceptions = []
     for candidate in result.candidates.values():
         if candidate.plan.forecaster != "ForecasterStats":
             continue
@@ -1013,13 +1019,20 @@ def _shared_cv_note(result: ComparisonResult) -> str:
         ):
             break
         window = "fixed" if stats["fixed_train_size"] else "expanding"
-        return (
-            f"Applied to every candidate, except ForecasterStats: skforecast "
-            f"refits it in every fold, on a {window} window "
-            f"({stats['n_fits']} trainings)."
+        exceptions.append(
+            f"ForecasterStats: skforecast refits it in every fold, on a "
+            f"{window} window ({stats['n_fits']} trainings)"
         )
+        break
+    if "ForecasterFoundation" in forecasters:
+        exceptions.append(
+            "ForecasterFoundation: it is not trained, so only the folds apply "
+            "to it"
+        )
+    if not exceptions:
+        return "Applied identically to every candidate."
 
-    return "Applied identically to every candidate."
+    return f"Applied to every candidate, except {'; and '.join(exceptions)}."
 
 
 def render_leaderboard_section(
