@@ -7,11 +7,19 @@ Run it with the `skforecast-ai mcp` command, or build it with
 `create_server()`.
 """
 
-from .models import CodeResult, ObjectInfo, ObjectList, ToolNotice, ToolResult
+from .models import (
+    CodeResult,
+    FailureResult,
+    ObjectInfo,
+    ObjectList,
+    ToolNotice,
+    ToolResult,
+)
 from .server import create_server, run_server
 
 __all__ = [
     "CodeResult",
+    "FailureResult",
     "ObjectInfo",
     "ObjectList",
     "ToolNotice",

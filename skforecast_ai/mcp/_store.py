@@ -11,8 +11,8 @@ import secrets
 import sys
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel
 from ._errors import ServerError
@@ -73,6 +73,13 @@ class Entry:
     code_file : str, None
         File with the whole script, written when it is longer than a
         response of `get_code` may be.
+    candidate_code_files : dict
+        For a comparison, the files with the whole script of the candidates
+        whose script is that long, by candidate.
+    candidate_failures : dict
+        For a comparison, the failures of its candidates by name: their text
+        cut to the limit of `get_failure`, and the file with the full text,
+        if any.
     nbytes : int
         Estimated memory the entry takes.
     """
@@ -88,6 +95,8 @@ class Entry:
     data_warnings: tuple[str, ...] = ()
     code: str | None = None
     code_file: str | None = None
+    candidate_code_files: dict[str, str] = field(default_factory=dict)
+    candidate_failures: dict[str, tuple[str, str | None]] = field(default_factory=dict)
     nbytes: int = 0
 
 
@@ -131,14 +140,14 @@ class Store:
         self._bytes = 0
         self._lock = threading.RLock()
 
-    def new_id(self, kind: ObjectKind) -> str:
+    def new_id(self, kind: ObjectKind | Literal["failure"]) -> str:
         """
-        Reserve the id of a new object.
+        Reserve the id of a new object, or of a failure.
 
         Parameters
         ----------
         kind : str
-            Kind of the object.
+            Kind of the object, or `'failure'`.
 
         Returns
         -------

@@ -24,25 +24,36 @@ def test_stdio_server_runs_the_planning_workflow(tmp_path):
     path = write_csv(data, "h2o.csv", df_h2o_csv)
     output_dir = tmp_path / "out"
     parameters = StdioServerParameters(
-        command = sys.executable,
-        args    = [
-            "-c", "from skforecast_ai.cli import app; app()", "mcp",
-            "--allow-dir", str(data), "--output-dir", str(output_dir),
+        command=sys.executable,
+        args=[
+            "-c",
+            "from skforecast_ai.cli import app; app()",
+            "mcp",
+            "--allow-dir",
+            str(data),
+            "--output-dir",
+            str(output_dir),
         ],
-        env     = dict(os.environ),
-        cwd     = str(tmp_path),
+        env=dict(os.environ),
+        cwd=str(tmp_path),
     )
 
     async def main():
         async with Client(parameters) as client:
-            profile = content_of(await client.call_tool(
-                "profile", {"data_path": path, "target": "x"}
-            ))
-            plan = content_of(await client.call_tool(
-                "plan", {"profile_id": profile["id"], "steps": 12}
-            ))
-            cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
-            code = content_of(await client.call_tool("get_code", {"object_id": plan["id"]}))
+            profile = content_of(
+                await client.call_tool("profile", {"data_path": path, "target": "x"})
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan", {"profile_id": profile["id"], "steps": 12}
+                )
+            )
+            cv = content_of(
+                await client.call_tool("create_cv", {"plan_id": plan["id"]})
+            )
+            code = content_of(
+                await client.call_tool("get_code", {"object_id": plan["id"]})
+            )
             error = await client.call_tool("plan", {"profile_id": "x", "steps": 12})
             return profile, plan, cv, code, error
 
@@ -61,3 +72,100 @@ def test_stdio_server_runs_the_planning_workflow(tmp_path):
     assert code["code"] == script.code
     assert error_of(error, "plan")["code"] == "unknown_id"
     assert output_dir.is_dir()
+
+
+@pytest.mark.slow
+def test_stdio_server_runs_executes_reports_progress_and_cancels(tmp_path):
+    """
+    Test over stdio that a backtest writes its files, that `compare` sends
+    growing progress notifications, and that a comparison cancelled by the
+    client after its first event registers nothing while the server keeps
+    answering.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    path = write_csv(data, "h2o.csv", df_h2o_csv)
+    parameters = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "-c",
+            "from skforecast_ai.cli import app; app()",
+            "mcp",
+            "--allow-dir",
+            str(data),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+        env=dict(os.environ),
+        cwd=str(tmp_path),
+    )
+    candidates = [
+        {"name": f"lags_{lags}", "config": {"estimator": "Ridge", "lags": lags}}
+        for lags in range(1, 13)
+    ]
+
+    async def main():
+        async with Client(parameters) as client:
+            profile = content_of(
+                await client.call_tool("profile", {"data_path": path, "target": "x"})
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan", {"profile_id": profile["id"], "steps": 12}
+                )
+            )
+            cv = content_of(
+                await client.call_tool(
+                    "create_cv", {"plan_id": plan["id"], "refit": True}
+                )
+            )
+            backtest = content_of(
+                await client.call_tool("backtest", {"cv_id": cv["id"]})
+            )
+            events = []
+
+            async def record(progress, total, message):
+                events.append((progress, total))
+
+            comparison = content_of(
+                await client.call_tool(
+                    "compare",
+                    {"cv_id": cv["id"], "candidates": candidates[:2]},
+                    progress_callback=record,
+                )
+            )
+            first = anyio.Event()
+
+            async def first_event(progress, total, message):
+                first.set()
+
+            with anyio.CancelScope() as scope:
+                async with anyio.create_task_group() as group:
+
+                    async def cancel():
+                        await first.wait()
+                        scope.cancel()
+
+                    group.start_soon(cancel)
+                    await client.call_tool(
+                        "compare",
+                        {"cv_id": cv["id"], "candidates": candidates},
+                        progress_callback=first_event,
+                    )
+            objects = content_of(await client.call_tool("list_objects", {}))["objects"]
+            return backtest, comparison, events, scope.cancelled_caught, objects
+
+    backtest, comparison, events, cancelled, objects = anyio.run(main)
+
+    assert sorted(backtest["files"]) == ["metrics", "predictions"]
+    assert comparison["kind"] == "comparison"
+    assert events == [
+        (1.0, 6.0),
+        (2.0, 6.0),
+        (3.0, 6.0),
+        (4.0, 6.0),
+        (5.0, 6.0),
+        (6.0, 6.0),
+    ]
+    assert cancelled is True
+    assert [o["kind"] for o in objects].count("comparison") == 1

@@ -4,7 +4,10 @@ import logging
 import warnings
 from skforecast.exceptions import LongTrainingWarning, MissingValuesWarning
 
-from skforecast_ai.exceptions import CandidateFailedWarning, UnrecommendedForecasterWarning
+from skforecast_ai.exceptions import (
+    CandidateFailedWarning,
+    UnrecommendedForecasterWarning,
+)
 from skforecast_ai.mcp._runtime import build_notices
 from skforecast_ai.mcp.models import ToolNotice
 
@@ -38,19 +41,29 @@ def test_build_notices_output_deduplicated_with_sources():
 
     notices, omitted = build_notices(
         records,
-        plan_warnings = ["Not recommended."],
-        data_warnings = ["Dates skipped."],
+        plan_warnings=["Not recommended."],
+        data_warnings=["Dates skipped."],
     )
 
     assert notices == [
-        ToolNotice(source="plan", category="UnrecommendedForecasterWarning",
-                   message="Not recommended.", count=1),
-        ToolNotice(source="data", category="UserWarning",
-                   message="Dates skipped.", count=1),
-        ToolNotice(source="runtime", category="MissingValuesWarning",
-                   message="Missing values.", count=2),
-        ToolNotice(source="plan", category="UserWarning",
-                   message="Not recommended.", count=1),
+        ToolNotice(
+            source="plan",
+            category="UnrecommendedForecasterWarning",
+            message="Not recommended.",
+            count=1,
+        ),
+        ToolNotice(
+            source="data", category="UserWarning", message="Dates skipped.", count=1
+        ),
+        ToolNotice(
+            source="runtime",
+            category="MissingValuesWarning",
+            message="Missing values.",
+            count=2,
+        ),
+        ToolNotice(
+            source="plan", category="UserWarning", message="Not recommended.", count=1
+        ),
     ]
     assert omitted == 0
 
@@ -71,12 +84,14 @@ def test_build_notices_leaves_out_candidate_failures_and_logs_deprecations(caplo
         notices, omitted = build_notices(records)
 
     assert notices == [
-        ToolNotice(source="runtime", category="LongTrainingWarning",
-                   message="Long.", count=1),
+        ToolNotice(
+            source="runtime", category="LongTrainingWarning", message="Long.", count=1
+        ),
     ]
     assert omitted == 0
     assert [r.getMessage() for r in caplog.records] == [
-        "DeprecationWarning: Old API.", "PendingDeprecationWarning: Soon old.",
+        "DeprecationWarning: Old API.",
+        "PendingDeprecationWarning: Soon old.",
     ]
 
 
@@ -92,7 +107,9 @@ def test_build_notices_limits_count_and_length():
 
     notices, omitted = build_notices(records, default_source="data")
 
-    assert [notice.message for notice in notices] == [f"Warning {i}." for i in range(20)]
+    assert [notice.message for notice in notices] == [
+        f"Warning {i}." for i in range(20)
+    ]
     assert all(notice.source == "data" for notice in notices)
     assert omitted == 6
 

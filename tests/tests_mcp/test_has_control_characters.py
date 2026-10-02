@@ -19,7 +19,7 @@ from skforecast_ai.mcp._inputs import has_control_characters
         ("a b", True),
         ("a b", True),
     ],
-    ids=lambda dt: f"{dt!r}"
+    ids=lambda dt: f"{dt!r}",
 )
 def test_has_control_characters_output(text, expected):
     """

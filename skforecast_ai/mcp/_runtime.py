@@ -7,10 +7,11 @@
 
 from __future__ import annotations
 import logging
+import os
 import threading
 import warnings
-from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
+from collections.abc import Awaitable, Callable, Iterable, Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 import anyio
@@ -61,9 +62,37 @@ class CallControl:
     ----------
     cancelled : threading.Event
         Set when the request of the call is cancelled.
+    report : Callable, None
+        Sends a progress notification to the client, `report(progress, total,
+        message)`. None when the call reports no progress.
+    written : list of str
+        Files the work wrote, removed when the call is cancelled before it
+        returns, since nothing is then registered that names them.
     """
 
     cancelled: threading.Event
+    report: Callable[[float, float, str], None] | None = None
+    written: list[str] = field(default_factory=list)
+
+    def wrote(self, *files: dict[str, str] | str | None) -> None:
+        """
+        Record files written by the work.
+
+        Parameters
+        ----------
+        *files : dict, str, None
+            Paths, or dicts of paths by role; None is skipped.
+
+        Returns
+        -------
+        None
+        """
+
+        for item in files:
+            if isinstance(item, dict):
+                self.written.extend(item.values())
+            elif item is not None:
+                self.written.append(item)
 
     def check(self) -> None:
         """
@@ -76,6 +105,42 @@ class CallControl:
 
         if self.cancelled.is_set():
             raise CallCancelled()
+
+    def progress(self, progress: float, total: float, message: str) -> None:
+        """
+        Report progress to the client, or stop the call when its request was
+        cancelled or the client can no longer be reached.
+
+        Called from the worker thread. The notification is sent in the event
+        loop with `anyio.from_thread.run`, without taking any lock, so it
+        never waits for another call.
+
+        Parameters
+        ----------
+        progress : float
+            Progress so far; it grows with every notification.
+        total : float
+            Progress at the end.
+        message : str
+            What is running.
+
+        Returns
+        -------
+        None
+        """
+
+        self.check()
+        if self.report is None:
+            return
+        try:
+            self.report(progress, total, message)
+        except Exception as exc:
+            # A notification that cannot be sent because the request was
+            # cancelled stops the call; any other failure is an error of its
+            # own, reported as such.
+            if self.cancelled.is_set():
+                raise CallCancelled() from exc
+            raise
 
 
 @dataclass
@@ -143,20 +208,28 @@ def _record_warnings() -> Iterator[list[warnings.WarningMessage]]:
         yield records
 
 
-async def run_call(work: Callable[[CallControl], T]) -> CallOutcome[T]:
+async def run_call(
+    work: Callable[[CallControl], T],
+    report: Callable[[float, float, str], Awaitable[None]] | None = None,
+) -> CallOutcome[T]:
     """
     Run the work of a tool in a worker thread, under the process lock, with
     its warnings captured.
 
     A cancelled request sets `CallControl.cancelled`; the work stops at its
-    next check, and never starts when it was waiting for its turn. The
-    worker thread always runs to its end before this returns, so the lock is
-    never released while the core is still running.
+    next check (between the candidates of a comparison), and never starts
+    when it was waiting for its turn. The worker thread always runs to its
+    end before this returns, so the lock is never released while the core
+    is still running.
 
     Parameters
     ----------
     work : Callable
         Function run in the worker thread with a `CallControl`.
+    report : Callable, default None
+        Async function that sends a progress notification (the
+        `report_progress` of the MCP context), called through
+        `CallControl.progress`.
 
     Returns
     -------
@@ -166,6 +239,11 @@ async def run_call(work: Callable[[CallControl], T]) -> CallOutcome[T]:
 
     cancelled = threading.Event()
     control = CallControl(cancelled=cancelled)
+    if report is not None:
+        def send(progress: float, total: float, message: str) -> None:
+            anyio.from_thread.run(report, progress, total, message)
+
+        control.report = send
     result: dict[str, Any] = {}
     finished = False
 
@@ -175,9 +253,14 @@ async def run_call(work: Callable[[CallControl], T]) -> CallOutcome[T]:
                 control.check()
                 with _record_warnings() as records:
                     value = work(control)
+                # Cancelled while the work ended: nothing will name its files.
+                control.check()
                 result["outcome"] = CallOutcome(value=value, warnings=records)
             except CallCancelled:
                 result["cancelled"] = True
+                for path in control.written:
+                    with suppress(OSError):
+                        os.remove(path)
             except Exception as exc:
                 result["error"] = exc
 

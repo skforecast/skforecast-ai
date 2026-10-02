@@ -8,7 +8,7 @@
 from __future__ import annotations
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, with_config
-from ..schemas.plans import RefinePlanOverrides
+from ..schemas.plans import CandidateConfig, RefinePlanOverrides
 
 ObjectKind = Literal["profile", "plan", "cv", "backtest", "comparison", "forecast"]
 """Kinds of the objects the server registers, the first part of their id."""
@@ -24,6 +24,36 @@ class RefinePlanArgs(RefinePlanOverrides, total=False):
     passed as null asks for the deterministic default, as in
     `ForecastingAssistant.refine_plan()`.
     """
+
+
+@with_config(ConfigDict(extra="forbid", strict=True))
+class CandidateArgs(CandidateConfig, total=False):
+    """
+    Configuration of a candidate of the `compare` tool.
+
+    The keys of `CandidateConfig`, with unknown keys rejected and no type
+    coercion. An omitted key keeps the recommendation of the profile.
+    """
+
+
+class CandidateArg(BaseModel):
+    """
+    A candidate of the `compare` tool.
+
+    Attributes
+    ----------
+    name : str
+        Name of the candidate, unique, that labels its row of the
+        leaderboard.
+    config : dict
+        Its configuration: `forecaster`, `estimator`, `estimator_kwargs`,
+        `lags` and `window_features`, as in `ForecastingAssistant.compare()`.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    name: str
+    config: CandidateArgs = Field(default_factory=dict)
 
 
 class ToolNotice(BaseModel):
@@ -66,9 +96,10 @@ class ToolResult(BaseModel):
         Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,
         `'comparison'` or `'forecast'`.
     links : dict
-        Ids of the objects it was built from, keyed by the argument that
-        takes them (`profile_id`, `plan_id`, `cv_id`), plus
-        `parent_plan_id` for a refined plan.
+        Ids of related objects: those it was built from (`profile_id`,
+        `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the
+        plan of the winner of a comparison (`best_plan_id`), and the
+        comparison a winning plan comes from (`comparison_id`).
     summary : str
         Plain-text description of the object (`describe()` of the core),
         cut to 20,000 characters.
@@ -82,16 +113,20 @@ class ToolResult(BaseModel):
     notices_omitted : int
         Number of distinct warnings left out of `notices`.
     files : dict
-        Absolute paths of the files written for the object, by role.
+        Absolute paths of the files written for the object, by role:
+        `predictions` and `metrics` (CSV with the index) of a backtest or a
+        forecast, `leaderboard`, `best_predictions` and `best_metrics` of a
+        comparison, and `summary` when the summary was cut.
     values_included : bool
         Always False: the response holds no rows of the data, the
         predictions or the metrics. The summary carries statistics of the
         predictions and the metrics; the rows are in `files`.
     cost : dict, None
-        Cost of a cross-validation strategy: `n_folds`, `n_fits` (trainings
-        of the forecaster) and `estimator_fits` (fits of an estimator,
-        which a direct forecaster multiplies by `steps`). None for the
-        other kinds.
+        Cost of a cross-validation strategy, a backtest or a comparison:
+        `n_folds`, `n_fits` (trainings of the forecaster in the shared
+        strategy) and `estimator_fits` (fits of an estimator, which a
+        direct forecaster multiplies by `steps`; for a comparison, the sum
+        over its candidates). None for the other kinds.
     changeable : list of str
         Arguments of `refine_plan` (for a plan) or of `create_cv` (for a
         cross-validation strategy) that build a variant of the object.
@@ -123,6 +158,8 @@ class CodeResult(BaseModel):
         Id of the object.
     kind : str
         Kind of the object.
+    candidate : str, None
+        Candidate of a comparison whose script it is.
     code : str
         Python code, cut to 20,000 characters.
     code_truncated : bool
@@ -135,8 +172,38 @@ class CodeResult(BaseModel):
 
     id: str
     kind: ObjectKind
+    candidate: str | None = None
     code: str
     code_truncated: bool = False
+    files: dict[str, str] = Field(default_factory=dict)
+
+
+class FailureResult(BaseModel):
+    """
+    Full description of a failure, returned by the `get_failure` tool.
+
+    Attributes
+    ----------
+    id : str
+        Id of the failure, or of the comparison whose candidate failed.
+    candidate : str, None
+        Candidate of the comparison that failed.
+    text : str
+        Error, line and statement that failed, traceback and code that ran,
+        cut to 20,000 characters. Like the messages of the errors, it can
+        quote values of the data, and the code names the path of the data.
+    text_truncated : bool
+        Whether `text` was cut; the full text is then in `files['failure']`.
+    files : dict
+        Absolute path of the file with the full text, when it was cut.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    candidate: str | None = None
+    text: str
+    text_truncated: bool = False
     files: dict[str, str] = Field(default_factory=dict)
 
 

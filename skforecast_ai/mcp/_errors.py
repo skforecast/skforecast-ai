@@ -10,11 +10,16 @@ import json
 from typing import Any, Literal, get_args
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
-from ..exceptions import ERROR_CODES
+from ..exceptions import (
+    ERROR_CODES,
+    AllCandidatesFailedError,
+    ForecastExecutionError,
+)
 from ..schemas.errors import ErrorInfo, _format_location, _is_union_label
 
 ServerErrorCode = Literal[
     "unknown_id",
+    "inconsistent_ids",
     "invalid_path",
     "path_not_allowed",
     "url_not_allowed",
@@ -97,6 +102,94 @@ class ServerError(Exception):
         self.details = details
 
 
+# Attribute an exception of the core gets when the server adds details to
+# its error (the id of the failure that keeps its traceback).
+_DETAILS_ATTRIBUTE = "_skforecast_ai_mcp_details"
+
+
+def attach_details(exc: Exception, details: dict[str, Any]) -> None:
+    """
+    Add details to the error an exception of the core is reported as.
+
+    Parameters
+    ----------
+    exc : Exception
+        Exception raised by the core.
+    details : dict
+        Plain data to send in `details`.
+
+    Returns
+    -------
+    None
+    """
+
+    setattr(exc, _DETAILS_ATTRIBUTE, details)
+
+
+def failure_text(exc: Exception) -> str | None:
+    """
+    Describe in full a failed run of a generated script: what failed, where,
+    the traceback and the code that ran. Never sent in a response; the
+    `get_failure` tool returns it on request.
+
+    Parameters
+    ----------
+    exc : Exception
+        Exception raised by the core.
+
+    Returns
+    -------
+    text : str, None
+        The description, or None when the exception is not the failure of a
+        script (`ForecastExecutionError`) or of every candidate of a
+        comparison (`AllCandidatesFailedError`).
+    """
+
+    if isinstance(exc, ForecastExecutionError):
+        parts = [str(exc)]
+        if exc.failed_line is not None:
+            parts.append(f"Failed line of the code that ran: {exc.failed_line}")
+        if exc.failed_statement is not None:
+            parts.append(f"Failed statement:\n{exc.failed_statement}")
+        parts.append(f"Traceback:\n{exc.execution_traceback}")
+        parts.append(f"Code that ran:\n{exc.generated_code}")
+        return "\n\n".join(parts)
+    if isinstance(exc, AllCandidatesFailedError):
+        return "\n\n".join(
+            candidate_failure_text(name, failure)
+            for name, failure in exc.failures.items()
+        )
+
+    return None
+
+
+def candidate_failure_text(name: str, failure: Any) -> str:
+    """
+    Describe in full the failure of one candidate of a comparison.
+
+    Parameters
+    ----------
+    name : str
+        Name of the candidate.
+    failure : CandidateFailure
+        Its failure.
+
+    Returns
+    -------
+    text : str
+        Error, traceback and code that ran.
+    """
+
+    parts = [
+        f"Candidate {name!r} failed: {failure.error_type}: {failure.message}",
+        f"Traceback:\n{failure.traceback}",
+    ]
+    if failure.generated_code is not None:
+        parts.append(f"Code that ran:\n{failure.generated_code}")
+
+    return "\n\n".join(parts)
+
+
 def _cut(text: str | None, max_chars: int) -> str | None:
     """
     Cut a text to `max_chars` characters, saying how many were left out.
@@ -137,7 +230,7 @@ def error_payload(exc: Exception) -> dict[str, Any]:
     else:
         info = ErrorInfo.from_exception(exc)
         code, message, field, hint = info.code, info.message, info.field, info.hint
-        details = None
+        details = getattr(exc, _DETAILS_ATTRIBUTE, None)
         if field is not None:
             head, _, rest = field.partition(".")
             if head in FIELD_RENAMES:

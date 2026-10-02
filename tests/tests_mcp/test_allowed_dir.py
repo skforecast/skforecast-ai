@@ -47,8 +47,7 @@ def test_AllowedDir_from_path_InvalidInputError_when_not_a_directory(tmp_path):
     """
     missing = tmp_path / "missing"
     err_msg = re.escape(
-        f"The allowed directory {str(missing)!r} does not exist or is not a "
-        f"directory."
+        f"The allowed directory {str(missing)!r} does not exist or is not a directory."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as excinfo:
         AllowedDir.from_path(missing)

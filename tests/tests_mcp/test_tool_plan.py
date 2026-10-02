@@ -19,7 +19,9 @@ def _profiled(tmp_path):
     Return a server, the path of the h2o file and the id of its profile.
     """
     server, path = h2o_server(tmp_path)
-    profile_id = content_of(call(server, "profile", {"data_path": path, "target": "x"}))["id"]
+    profile_id = content_of(
+        call(server, "profile", {"data_path": path, "target": "x"})
+    )["id"]
 
     return server, path, profile_id
 
@@ -29,12 +31,16 @@ def _profiled(tmp_path):
     [
         {"steps": 12},
         {"steps": 12, "interval": [0.1, 0.9], "lags": [1, 2, 12]},
-        {"steps": 6, "forecaster": "ForecasterDirect", "estimator": "Ridge",
-         "estimator_kwargs": {"alpha": 0.5},
-         "window_features": [{"stats": ["mean"], "window_size": 6}]},
+        {
+            "steps": 6,
+            "forecaster": "ForecasterDirect",
+            "estimator": "Ridge",
+            "estimator_kwargs": {"alpha": 0.5},
+            "window_features": [{"stats": ["mean"], "window_size": 6}],
+        },
         {"steps": 12, "forecaster": "ForecasterStats"},
     ],
-    ids=lambda dt: f"{dt}"
+    ids=lambda dt: f"{dt}",
 )
 def test_tool_plan_output_matches_python_api(tmp_path, arguments):
     """
@@ -58,13 +64,22 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
     assert result["summary"] == script.describe()
     assert result["notices"] == []
     assert result["changeable"] == [
-        "estimator", "estimator_kwargs", "forecaster", "interval", "lags",
-        "steps", "window_features",
+        "estimator",
+        "estimator_kwargs",
+        "forecaster",
+        "interval",
+        "lags",
+        "steps",
+        "window_features",
     ]
     assert result["cost"] is None
     assert code == {
-        "id": result["id"], "kind": "plan", "code": script.code,
-        "code_truncated": False, "files": {},
+        "id": result["id"],
+        "kind": "plan",
+        "candidate": None,
+        "code": script.code,
+        "code_truncated": False,
+        "files": {},
     }
 
 
@@ -75,10 +90,19 @@ def test_tool_plan_notices_of_the_plan(tmp_path):
     """
     server, _, profile_id = _profiled(tmp_path)
 
-    result = content_of(call(server, "plan", {
-        "profile_id": profile_id, "steps": 12, "forecaster": "ForecasterRecursive",
-        "estimator": "LGBMRegressor", "estimator_kwargs": {"not_a_param": 1},
-    }))
+    result = content_of(
+        call(
+            server,
+            "plan",
+            {
+                "profile_id": profile_id,
+                "steps": 12,
+                "forecaster": "ForecasterRecursive",
+                "estimator": "LGBMRegressor",
+                "estimator_kwargs": {"not_a_param": 1},
+            },
+        )
+    )
 
     assert [ToolNotice(**n) for n in result["notices"]] == [
         ToolNotice(source="plan", category="UserWarning", message=LGBM_WARNING, count=1)
@@ -94,10 +118,14 @@ def test_tool_plan_notices_of_the_plan(tmp_path):
         ({"steps": 0}, "invalid_argument", "steps"),
         ({"steps": 12, "metric": "mean_absolute_error"}, "invalid_argument", "metric"),
         ({"steps": 12, "lags": ["1"]}, "invalid_argument", "lags"),
-        ({"steps": 12, "forecaster": "ForecasterStats", "lags": 3}, "invalid_argument", "lags"),
+        (
+            {"steps": 12, "forecaster": "ForecasterStats", "lags": 3},
+            "invalid_argument",
+            "lags",
+        ),
         ({"steps": 12, "estimator": "os.system"}, "invalid_argument", "estimator"),
     ],
-    ids=lambda dt: f"{dt}"
+    ids=lambda dt: f"{dt}",
 )
 def test_tool_plan_invalid_argument(tmp_path, arguments, code, field):
     """
@@ -107,7 +135,9 @@ def test_tool_plan_invalid_argument(tmp_path, arguments, code, field):
     """
     server, _, profile_id = _profiled(tmp_path)
 
-    error = error_of(call(server, "plan", {"profile_id": profile_id, **arguments}), "plan")
+    error = error_of(
+        call(server, "plan", {"profile_id": profile_id, **arguments}), "plan"
+    )
 
     assert error["code"] == code
     assert error["field"] == field
@@ -119,9 +149,13 @@ def test_tool_plan_unknown_or_wrong_id(tmp_path):
     passed as a profile is `invalid_argument`, both naming `profile_id`.
     """
     server, _, profile_id = _profiled(tmp_path)
-    plan_id = content_of(call(server, "plan", {"profile_id": profile_id, "steps": 12}))["id"]
+    plan_id = content_of(call(server, "plan", {"profile_id": profile_id, "steps": 12}))[
+        "id"
+    ]
 
-    unknown = error_of(call(server, "plan", {"profile_id": "profile-99-000000", "steps": 12}), "plan")
+    unknown = error_of(
+        call(server, "plan", {"profile_id": "profile-99-000000", "steps": 12}), "plan"
+    )
     wrong = error_of(call(server, "plan", {"profile_id": plan_id, "steps": 12}), "plan")
 
     assert (unknown["code"], unknown["field"]) == ("unknown_id", "profile_id")

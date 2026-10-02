@@ -8,8 +8,13 @@ from skforecast_ai.mcp.models import ToolNotice
 from .fixtures_mcp import call, content_of, error_of, h2o_server, profile_and_plan
 
 CV_ARGUMENTS = [
-    "initial_train_size", "fold_stride", "refit", "fixed_train_size", "gap",
-    "skip_folds", "allow_incomplete_fold",
+    "initial_train_size",
+    "fold_stride",
+    "refit",
+    "fixed_train_size",
+    "gap",
+    "skip_folds",
+    "allow_incomplete_fold",
 ]
 
 
@@ -27,18 +32,32 @@ def _planned(tmp_path, **plan_arguments):
     "plan_arguments, cv_arguments, cost",
     [
         ({"steps": 12}, {}, {"n_folds": 6, "n_fits": 1, "estimator_fits": 1}),
-        ({"steps": 12}, {"initial_train_size": 120, "refit": True},
-         {"n_folds": 7, "n_fits": 7, "estimator_fits": 7}),
-        ({"steps": 12}, {"initial_train_size": "2005-06-01", "refit": 2, "fixed_train_size": True},
-         {"n_folds": 3, "n_fits": 2, "estimator_fits": 2}),
-        ({"steps": 6, "forecaster": "ForecasterDirect"}, {"refit": True},
-         {"n_folds": 11, "n_fits": 11, "estimator_fits": 66}),
-        ({"steps": 12, "forecaster": "ForecasterStats"}, {},
-         {"n_folds": 6, "n_fits": 6, "estimator_fits": 6}),
+        (
+            {"steps": 12},
+            {"initial_train_size": 120, "refit": True},
+            {"n_folds": 7, "n_fits": 7, "estimator_fits": 7},
+        ),
+        (
+            {"steps": 12},
+            {"initial_train_size": "2005-06-01", "refit": 2, "fixed_train_size": True},
+            {"n_folds": 3, "n_fits": 2, "estimator_fits": 2},
+        ),
+        (
+            {"steps": 6, "forecaster": "ForecasterDirect"},
+            {"refit": True},
+            {"n_folds": 11, "n_fits": 11, "estimator_fits": 66},
+        ),
+        (
+            {"steps": 12, "forecaster": "ForecasterStats"},
+            {},
+            {"n_folds": 6, "n_fits": 6, "estimator_fits": 6},
+        ),
     ],
-    ids=lambda dt: f"{dt}"
+    ids=lambda dt: f"{dt}",
 )
-def test_tool_create_cv_output_matches_python_api(tmp_path, plan_arguments, cv_arguments, cost):
+def test_tool_create_cv_output_matches_python_api(
+    tmp_path, plan_arguments, cv_arguments, cost
+):
     """
     Test that `create_cv` registers the strategy the Python API builds for
     the plan, states its cost (a direct forecaster fits one estimator per
@@ -76,14 +95,14 @@ def test_tool_create_cv_notices_of_the_runtime(tmp_path):
 
     assert [ToolNotice(**n) for n in result["notices"]] == [
         ToolNotice(
-            source   = "runtime",
-            category = "IgnoredArgumentWarning",
-            message  = (
+            source="runtime",
+            category="IgnoredArgumentWarning",
+            message=(
                 "`refit=False` do not apply to ForecasterStats: skforecast refits "
                 "it in every fold, so its backtest runs with `refit=True` and "
                 "`fixed_train_size=True`. Pass those values to avoid this warning."
             ),
-            count    = 1,
+            count=1,
         )
     ]
 
@@ -102,7 +121,7 @@ def test_tool_create_cv_notices_of_the_runtime(tmp_path):
         ({"initial_train_size": 0}, "initial_train_size"),
         ({"folds": 3}, "folds"),
     ],
-    ids=lambda dt: f"{dt}"
+    ids=lambda dt: f"{dt}",
 )
 def test_tool_create_cv_invalid_argument(tmp_path, arguments, field):
     """
@@ -112,7 +131,9 @@ def test_tool_create_cv_invalid_argument(tmp_path, arguments, field):
     """
     server, _, _, plan_id = _planned(tmp_path, steps=12)
 
-    error = error_of(call(server, "create_cv", {"plan_id": plan_id, **arguments}), "create_cv")
+    error = error_of(
+        call(server, "create_cv", {"plan_id": plan_id, **arguments}), "create_cv"
+    )
 
     assert error["code"] == "invalid_argument"
     assert error["field"] == field

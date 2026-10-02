@@ -11,6 +11,7 @@ import anyio
 import pytest
 
 from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.mcp._errors import ServerError
 from skforecast_ai.mcp._runtime import PROCESS_LOCK, run_call
 
 
@@ -35,6 +36,7 @@ def test_run_call_runs_one_call_at_a_time_with_its_own_warnings():
             warnings.warn(f"warning of call {i}", UserWarning)
             active.remove(i)
             return i
+
         return work
 
     async def main():
@@ -61,6 +63,7 @@ def test_run_call_raises_the_error_of_the_work():
     """
     Test that an exception of the work is raised by `run_call`.
     """
+
     def work(control):
         raise InvalidInputError("Bad input.", field="steps")
 
@@ -112,3 +115,41 @@ def test_run_call_cancelled_while_waiting_for_the_lock_never_runs_the_work():
     assert ran == []
     assert PROCESS_LOCK.acquire(timeout=1)
     PROCESS_LOCK.release()
+
+
+def test_run_call_reports_progress_and_removes_files_of_a_cancelled_call(tmp_path):
+    """
+    Test that `report` receives the progress the work sends, and that the
+    files a cancelled work wrote are removed, since nothing registered names
+    them.
+    """
+    received = []
+    written = tmp_path / "result.csv"
+
+    async def report(progress, total, message):
+        received.append((progress, total, message))
+
+    def reporting(control):
+        control.progress(1, 2, "half")
+        return "done"
+
+    def cancelled_after_writing(control):
+        written.write_text("x")
+        control.wrote(str(written))
+        control.cancelled.set()
+        return "done"
+
+    async def main():
+        outcome = await run_call(reporting, report=report)
+        with pytest.raises(
+            ServerError,
+            match=re.escape("The call was cancelled. Nothing was registered."),
+        ):
+            await run_call(cancelled_after_writing)
+        return outcome
+
+    outcome = anyio.run(main)
+
+    assert outcome.value == "done"
+    assert received == [(1, 2, "half")]
+    assert not written.exists()

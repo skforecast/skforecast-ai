@@ -31,7 +31,7 @@ def _planned(tmp_path, **plan_arguments):
         {"forecaster": "ForecasterDirect", "estimator": "Ridge"},
         {"estimator_kwargs": None},
     ],
-    ids=lambda dt: f"overrides: {dt}"
+    ids=lambda dt: f"overrides: {dt}",
 )
 def test_tool_refine_plan_output_matches_python_api(tmp_path, overrides):
     """
@@ -45,7 +45,9 @@ def test_tool_refine_plan_output_matches_python_api(tmp_path, overrides):
     )
     original = content_of(call(server, "describe_object", {"object_id": plan_id}))
 
-    result = content_of(call(server, "refine_plan", {"plan_id": plan_id, "overrides": overrides}))
+    result = content_of(
+        call(server, "refine_plan", {"plan_id": plan_id, "overrides": overrides})
+    )
 
     assistant = ForecastingAssistant()
     refined = assistant.refine_plan(profile=profile, plan=plan, **overrides)
@@ -54,8 +56,13 @@ def test_tool_refine_plan_output_matches_python_api(tmp_path, overrides):
     assert result["kind"] == "plan"
     assert result["links"] == {"profile_id": profile_id, "parent_plan_id": plan_id}
     assert result["summary"] == script.describe()
-    assert content_of(call(server, "get_code", {"object_id": result["id"]}))["code"] == script.code
-    assert content_of(call(server, "describe_object", {"object_id": plan_id})) == original
+    assert (
+        content_of(call(server, "get_code", {"object_id": result["id"]}))["code"]
+        == script.code
+    )
+    assert (
+        content_of(call(server, "describe_object", {"object_id": plan_id})) == original
+    )
 
 
 def test_tool_refine_plan_keeps_omitted_and_resets_null_keys(tmp_path):
@@ -65,10 +72,19 @@ def test_tool_refine_plan_keeps_omitted_and_resets_null_keys(tmp_path):
     """
     server, _, _, _, plan_id = _planned(tmp_path, interval=[0.1, 0.9])
 
-    kept = content_of(call(server, "refine_plan", {"plan_id": plan_id, "overrides": {"lags": 3}}))
-    removed = content_of(call(server, "refine_plan", {
-        "plan_id": plan_id, "overrides": {"lags": 3, "interval": None},
-    }))
+    kept = content_of(
+        call(server, "refine_plan", {"plan_id": plan_id, "overrides": {"lags": 3}})
+    )
+    removed = content_of(
+        call(
+            server,
+            "refine_plan",
+            {
+                "plan_id": plan_id,
+                "overrides": {"lags": 3, "interval": None},
+            },
+        )
+    )
 
     assert "Prediction interval: [0.1, 0.9]" in kept["summary"]
     assert "Prediction interval" not in removed["summary"]
@@ -84,7 +100,7 @@ def test_tool_refine_plan_keeps_omitted_and_resets_null_keys(tmp_path):
         ({"steps": 0}, "overrides.steps"),
         ({"forecaster": None}, "overrides.forecaster"),
     ],
-    ids=lambda dt: f"{dt}"
+    ids=lambda dt: f"{dt}",
 )
 def test_tool_refine_plan_invalid_argument(tmp_path, overrides, field):
     """

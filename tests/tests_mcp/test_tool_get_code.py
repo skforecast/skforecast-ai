@@ -19,7 +19,8 @@ def test_tool_get_code_invalid_argument_when_object_has_no_code(tmp_path):
         "code": "invalid_argument",
         "message": (
             f"{profile_id!r} is a profile, which has no code: pass the id of a "
-            f"plan or a cross-validation strategy."
+            f"plan, a cross-validation strategy, a backtest, a forecast or a "
+            f"comparison."
         ),
         "field": "object_id",
         "hint": None,
@@ -46,7 +47,11 @@ def test_tool_get_code_cut_with_full_code_in_a_file(tmp_path, monkeypatch):
     code_path = tmp_path / "out" / f"{plan_id}-code.py"
 
     assert result == {
-        "id": plan_id, "kind": "plan", "code": full[:50], "code_truncated": True,
+        "id": plan_id,
+        "kind": "plan",
+        "candidate": None,
+        "code": full[:50],
+        "code_truncated": True,
         "files": {"code": str(code_path)},
     }
     assert again == result

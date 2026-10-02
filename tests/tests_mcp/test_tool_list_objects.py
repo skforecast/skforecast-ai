@@ -18,16 +18,34 @@ def test_tool_list_objects_output_most_recent_first_and_by_kind(tmp_path):
     )
 
     async def steps(client):
-        profile = content_of(await client.call_tool("profile", {"data_path": path, "target": "x"}))
-        first = content_of(await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12}))
-        second = content_of(await client.call_tool("plan", {"profile_id": profile["id"], "steps": 6}))
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        first = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        second = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 6})
+        )
         everything = content_of(await client.call_tool("list_objects", {}))
         plans = content_of(await client.call_tool("list_objects", {"kind": "plan"}))
-        third = content_of(await client.call_tool("plan", {"profile_id": profile["id"], "steps": 3}))
+        third = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 3})
+        )
         after = content_of(await client.call_tool("list_objects", {}))
-        return profile["id"], first["id"], second["id"], third["id"], everything, plans, after
+        return (
+            profile["id"],
+            first["id"],
+            second["id"],
+            third["id"],
+            everything,
+            plans,
+            after,
+        )
 
-    profile_id, first, second, third, everything, plans, after = run_session(server, steps)
+    profile_id, first, second, third, everything, plans, after = run_session(
+        server, steps
+    )
     links = {"profile_id": profile_id}
 
     assert everything == {

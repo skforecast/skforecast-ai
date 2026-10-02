@@ -2,7 +2,14 @@
 
 from skforecast_ai.mcp import create_server
 
-from .fixtures_mcp import call, content_of, df_data_warning, error_of, run_session, write_csv
+from .fixtures_mcp import (
+    call,
+    content_of,
+    df_data_warning,
+    error_of,
+    run_session,
+    write_csv,
+)
 
 
 def test_tool_describe_object_returns_the_response_that_created_it(tmp_path):
@@ -14,8 +21,12 @@ def test_tool_describe_object_returns_the_response_that_created_it(tmp_path):
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 
     async def steps(client):
-        created = content_of(await client.call_tool("profile", {"data_path": path, "target": "y"}))
-        described = content_of(await client.call_tool("describe_object", {"object_id": created["id"]}))
+        created = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "y"})
+        )
+        described = content_of(
+            await client.call_tool("describe_object", {"object_id": created["id"]})
+        )
         return created, described
 
     created, described = run_session(server, steps)
@@ -30,7 +41,9 @@ def test_tool_describe_object_unknown_id(tmp_path):
     """
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 
-    error = error_of(call(server, "describe_object", {"object_id": "cv-one"}), "describe_object")
+    error = error_of(
+        call(server, "describe_object", {"object_id": "cv-one"}), "describe_object"
+    )
 
     assert error == {
         "code": "unknown_id",

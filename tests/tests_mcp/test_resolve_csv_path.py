@@ -58,9 +58,11 @@ def test_resolve_csv_path_output_when_file_inside_allowed_dir(tmp_path):
         ("/tmp/data.txt", "invalid_path"),
         ("/tmp/data.csv.gz", "invalid_path"),
     ],
-    ids=lambda dt: f"raw: {dt!r}"
+    ids=lambda dt: f"raw: {dt!r}",
 )
-def test_resolve_csv_path_ServerError_when_path_is_not_an_absolute_csv(tmp_path, raw, code):
+def test_resolve_csv_path_ServerError_when_path_is_not_an_absolute_csv(
+    tmp_path, raw, code
+):
     """
     Test that URLs, relative paths, paths with a control character and paths
     that do not end in '.csv' are rejected with their code, naming the field.
@@ -77,7 +79,7 @@ def test_resolve_csv_path_ServerError_when_path_is_not_an_absolute_csv(tmp_path,
 @pytest.mark.parametrize(
     "relative",
     ["../outside/secret.csv", "../outside/missing.csv", "../../etc/passwd.csv"],
-    ids=lambda dt: f"relative: {dt}"
+    ids=lambda dt: f"relative: {dt}",
 )
 def test_resolve_csv_path_ServerError_when_path_outside_allowed_dir(tmp_path, relative):
     """
@@ -88,9 +90,12 @@ def test_resolve_csv_path_ServerError_when_path_outside_allowed_dir(tmp_path, re
     allowed, _ = _layout(tmp_path)
     raw = str(allowed) + os.sep + relative
 
-    with pytest.raises(ServerError, match=re.escape(
-        f"The path {raw!r} is outside the directory the server may read."
-    )) as excinfo:
+    with pytest.raises(
+        ServerError,
+        match=re.escape(
+            f"The path {raw!r} is outside the directory the server may read."
+        ),
+    ) as excinfo:
         resolve_csv_path(raw, AllowedDir.from_path(allowed), "exog_path")
 
     assert excinfo.value.code == "path_not_allowed"

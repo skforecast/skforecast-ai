@@ -1,0 +1,324 @@
+# Unit test tool compare
+
+import importlib.util
+import re
+import threading
+import time
+import warnings
+import anyio
+import pytest
+from mcp import Client
+
+from skforecast_ai import (
+    CandidateFailedWarning,
+    ForecastingAssistant,
+    MissingBackendWarning,
+)
+from skforecast_ai.mcp import create_server
+
+from ..fixtures_datasets import df_items_sales_long
+
+from .fixtures_mcp import (
+    COMPARE_CANDIDATES,
+    call,
+    content_of,
+    cv_of,
+    error_of,
+    h2o_server,
+    run_session,
+    text_of,
+    write_csv,
+)
+
+
+def _python_comparison(path):
+    """
+    Return the profile and the comparison of `COMPARE_CANDIDATES` of the Python API.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="x")
+    cv = assistant.create_cv(
+        profile=profile, plan=assistant.plan(profile=profile, steps=12)
+    )
+    with pytest.warns(UserWarning, match=re.escape("Candidate 'bad' failed")):
+        result = assistant.compare(
+            data=path,
+            cv=cv,
+            profile=profile,
+            show_progress=False,
+            candidates=[(c["name"], dict(c["config"])) for c in COMPARE_CANDIDATES],
+        )
+
+    return profile, result
+
+
+def test_tool_compare_output_matches_python_api(tmp_path):
+    """
+    Test that `compare` ranks the candidates as the Python API does (same
+    summary, leaderboard, best predictions and metrics, the invalid
+    candidate as a failure ranked last), registers the plan of the winner
+    and states the cost summed over the candidates that ran.
+    """
+    server, path = h2o_server(tmp_path)
+    profile_id, _, cv_id = cv_of(server, path)
+
+    result = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES})
+    )
+    best_plan = content_of(
+        call(server, "describe_object", {"object_id": result["links"]["best_plan_id"]})
+    )
+    profile, expected = _python_comparison(path)
+    best = expected.best_candidate
+    script = ForecastingAssistant().forecast_code(profile=profile, plan=best.plan)
+
+    assert result["kind"] == "comparison"
+    assert result["links"] == {
+        "profile_id": profile_id,
+        "cv_id": cv_id,
+        "best_plan_id": result["links"]["best_plan_id"],
+    }
+    assert result["summary"] == expected.describe()
+    assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()
+    assert text_of(result["files"]["best_predictions"]) == best.predictions.to_csv()
+    assert text_of(result["files"]["best_metrics"]) == best.metrics.to_csv()
+    # Ridge 1, the direct forecaster one per step (12) and the baseline 0;
+    # the candidate that failed trained nothing.
+    assert result["cost"] == {"n_folds": 6, "n_fits": 1, "estimator_fits": 13}
+    assert result["notices"] == []
+    assert best_plan["kind"] == "plan"
+    assert best_plan["links"] == {
+        "profile_id": profile_id,
+        "comparison_id": result["id"],
+    }
+    assert best_plan["summary"] == script.describe()
+
+
+def test_tool_compare_code_and_failures_of_the_candidates(tmp_path):
+    """
+    Test that `get_code` returns the script of the best candidate or of the
+    one named, and that `get_failure` returns the traceback of a failed
+    candidate; unknown candidates are `invalid_argument`.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    comparison_id = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES})
+    )["id"]
+    _, expected = _python_comparison(path)
+
+    best = content_of(call(server, "get_code", {"object_id": comparison_id}))
+    direct = content_of(
+        call(server, "get_code", {"object_id": comparison_id, "candidate": "direct"})
+    )
+    failure = content_of(
+        call(server, "get_failure", {"object_id": comparison_id, "candidate": "bad"})
+    )
+    no_code = error_of(
+        call(server, "get_code", {"object_id": comparison_id, "candidate": "bad"}),
+        "get_code",
+    )
+    no_failure = error_of(
+        call(server, "get_failure", {"object_id": comparison_id, "candidate": "ridge"}),
+        "get_failure",
+    )
+
+    assert best["code"] == expected.best_candidate.code
+    assert best["candidate"] is None
+    assert direct["code"] == expected.candidates["direct"].code
+    assert failure["candidate"] == "bad"
+    assert failure["text"].startswith(
+        "Candidate 'bad' failed: ValueError: 'NoSuchEstimator' is not a "
+        "supported estimator."
+    )
+    assert "Traceback:\n" in failure["text"]
+    assert (no_code["code"], no_code["field"]) == ("invalid_argument", "candidate")
+    assert no_failure["message"] == (
+        f"The comparison {comparison_id!r} has no failed candidate named 'ridge'. "
+        f"Failed candidates: ['bad']."
+    )
+
+
+def test_tool_compare_reports_monotonic_progress(tmp_path):
+    """
+    Test that `compare` reports progress when each candidate starts and
+    ends: `2 * completed + started` over `2 * total`, always growing, the
+    baseline included.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    events = []
+
+    async def steps(client):
+        async def record(progress, total, message):
+            events.append((progress, total, message))
+
+        return await client.call_tool(
+            "compare",
+            {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES[:2]},
+            progress_callback=record,
+        )
+
+    content_of(run_session(server, steps))
+
+    assert events == [
+        (1.0, 6.0, "ridge: started"),
+        (2.0, 6.0, "ridge: succeeded"),
+        (3.0, 6.0, "bad: started"),
+        (4.0, 6.0, "bad: failed"),
+        (5.0, 6.0, "Baseline (seasonal naive): started"),
+        (6.0, 6.0, "Baseline (seasonal naive): succeeded"),
+    ]
+
+
+def test_tool_compare_cancelled_between_candidates(tmp_path, monkeypatch):
+    """
+    Test that cancelling a comparison while a candidate runs stops it before
+    the next candidate, registers nothing, and leaves the server ready for
+    the next call. The first candidate waits until the client has cancelled.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    ran = []
+    client_cancelled = threading.Event()
+    backtest = ForecastingAssistant.backtest
+
+    def recorded_backtest(self, *args, **kwargs):
+        ran.append(kwargs["plan"].forecaster)
+        if len(ran) == 1:
+            client_cancelled.wait(10)
+            # Time for the cancellation to reach the handler of the server.
+            time.sleep(0.5)
+        return backtest(self, *args, **kwargs)
+
+    monkeypatch.setattr(ForecastingAssistant, "backtest", recorded_backtest)
+
+    async def main():
+        async with Client(server) as client:
+            started = anyio.Event()
+
+            async def record(progress, total, message):
+                started.set()
+
+            with anyio.CancelScope() as scope:
+                async with anyio.create_task_group() as group:
+
+                    async def cancel_when_started():
+                        await started.wait()
+                        scope.cancel()
+                        client_cancelled.set()
+
+                    group.start_soon(cancel_when_started)
+                    await client.call_tool(
+                        "compare",
+                        {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES},
+                        progress_callback=record,
+                    )
+            objects = content_of(await client.call_tool("list_objects", {}))["objects"]
+            after = content_of(await client.call_tool("backtest", {"cv_id": cv_id}))
+            return scope.cancelled_caught, objects, after
+
+    cancelled, objects, after = anyio.run(main)
+
+    assert cancelled is True
+    # The first candidate, then the backtest called after the cancellation.
+    assert ran == ["ForecasterRecursive", "ForecasterRecursive"]
+    assert [o["kind"] for o in objects] == ["cv", "plan", "profile"]
+    assert after["kind"] == "backtest"
+
+
+@pytest.mark.parametrize(
+    "arguments, field",
+    [
+        ({"metric": "mean_squared_error"}, "metric"),
+        ({"candidates": [{"name": "a\nb", "config": {}}]}, "candidates[0].name"),
+        (
+            {"candidates": [{"name": "a", "config": {"steps": 3}}]},
+            "candidates[0].config.steps",
+        ),
+        ({"candidates": [{"name": "a"}, {"name": "a"}]}, "candidates"),
+        ({"interval": [0.9, 0.1]}, "interval"),
+    ],
+    ids=lambda dt: f"{dt}",
+)
+def test_tool_compare_invalid_argument(tmp_path, arguments, field):
+    """
+    Test that `compare` takes no `metric` in this version, rejects a
+    candidate name with a control character, an unknown key of a candidate,
+    repeated names and an invalid interval, before any candidate runs.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+
+    error = error_of(call(server, "compare", {"cv_id": cv_id, **arguments}), "compare")
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == field
+
+
+def test_tool_compare_all_candidates_failed_keeps_the_failures(tmp_path):
+    """
+    Test that a comparison whose candidates all fail is
+    `all_candidates_failed`, with the id of a failure that holds the
+    traceback of every candidate.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+
+    error = error_of(
+        call(
+            server,
+            "compare",
+            {
+                "cv_id": cv_id,
+                "candidates": COMPARE_CANDIDATES[1:2],
+                "baseline": False,
+            },
+        ),
+        "compare",
+    )
+    failure = content_of(
+        call(server, "get_failure", {"object_id": error["details"]["failure_id"]})
+    )
+
+    assert error["code"] == "all_candidates_failed"
+    assert error["message"].startswith("All 1 candidate configuration(s) failed to run")
+    assert failure["text"].startswith("Candidate 'bad' failed: ValueError:")
+
+
+def test_tool_compare_default_candidates_of_the_profile(tmp_path):
+    """
+    Test that without `candidates` the comparison uses those of the profile,
+    as the Python API does (several series: the estimators of
+    ForecasterRecursiveMultiSeries, the foundation model being left out when
+    its backend is missing).
+    """
+    if importlib.util.find_spec("chronos") is not None:
+        pytest.skip("With its backend installed the default set runs Chronos-2.")
+    path = write_csv(tmp_path, "items.csv", df_items_sales_long)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target="value",
+        steps=7,
+        profile_arguments={"series_id_column": "series"},
+    )
+
+    result = content_of(call(server, "compare", {"cv_id": cv_id}))
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="value", series_id_column="series")
+    cv = assistant.create_cv(
+        profile=profile, plan=assistant.plan(profile=profile, steps=7)
+    )
+    # A candidate whose library is not installed (XGBoost) fails, as it may.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=CandidateFailedWarning)
+        with pytest.warns(MissingBackendWarning):
+            expected = assistant.compare(
+                data=path, cv=cv, profile=profile, show_progress=False
+            )
+
+    assert result["summary"] == expected.describe()
+    assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()

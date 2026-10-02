@@ -64,7 +64,9 @@ def test_security_url_is_never_requested(tmp_path):
     thread.start()
     try:
         url = f"http://127.0.0.1:{http.server_address[1]}/data.csv"
-        error = error_of(call(server, "profile", {"data_path": url, "target": "x"}), "profile")
+        error = error_of(
+            call(server, "profile", {"data_path": url, "target": "x"}), "profile"
+        )
     finally:
         http.shutdown()
         http.server_close()
@@ -76,12 +78,15 @@ def test_security_url_is_never_requested(tmp_path):
 @pytest.mark.parametrize(
     "make_path, code",
     [
-        (lambda tmp: str(tmp / "data" / ".." / "outside" / "secret.csv"), "path_not_allowed"),
+        (
+            lambda tmp: str(tmp / "data" / ".." / "outside" / "secret.csv"),
+            "path_not_allowed",
+        ),
         (lambda tmp: str(tmp / "outside" / "secret.csv"), "path_not_allowed"),
         (lambda tmp: str(tmp / "data" / "link.csv"), "path_not_allowed"),
         (lambda tmp: "outside/secret.csv", "invalid_path"),
     ],
-    ids=["dot-dot", "absolute outside", "symlink outside", "relative"]
+    ids=["dot-dot", "absolute outside", "symlink outside", "relative"],
 )
 def test_security_files_outside_allowed_dir_are_never_read(tmp_path, make_path, code):
     """
@@ -96,7 +101,8 @@ def test_security_files_outside_allowed_dir_are_never_read(tmp_path, make_path, 
     os.symlink(outside / "secret.csv", tmp_path / "data" / "link.csv")
 
     error = error_of(
-        call(server, "profile", {"data_path": make_path(tmp_path), "target": "x"}), "profile"
+        call(server, "profile", {"data_path": make_path(tmp_path), "target": "x"}),
+        "profile",
     )
 
     assert error["code"] == code
@@ -109,14 +115,21 @@ def test_security_files_outside_allowed_dir_are_never_read(tmp_path, make_path, 
     [
         ({"forecaster": "ForecasterRecursive" + INJECTION}, "forecaster"),
         ({"estimator": "Ridge" + INJECTION}, "estimator"),
-        ({"estimator": "Ridge", "estimator_kwargs": {"alpha=1" + INJECTION + "#": 1}},
-         "estimator_kwargs"),
-        ({"window_features": [{"stats": ["mean" + INJECTION], "window_size": 3}]},
-         "window_features"),
+        (
+            {
+                "estimator": "Ridge",
+                "estimator_kwargs": {"alpha=1" + INJECTION + "#": 1},
+            },
+            "estimator_kwargs",
+        ),
+        (
+            {"window_features": [{"stats": ["mean" + INJECTION], "window_size": 3}]},
+            "window_features",
+        ),
         ({"lags": INJECTION}, "lags"),
         ({"interval": [INJECTION, 0.9]}, "interval[0]"),
     ],
-    ids=["forecaster", "estimator", "kwargs key", "window stat", "lags", "interval"]
+    ids=["forecaster", "estimator", "kwargs key", "window stat", "lags", "interval"],
 )
 def test_security_plan_arguments_never_reach_code(tmp_path, arguments, field):
     """
@@ -124,10 +137,13 @@ def test_security_plan_arguments_never_reach_code(tmp_path, arguments, field):
     never written into a script.
     """
     server, path, marker = _server(tmp_path)
-    profile_id = content_of(call(server, "profile", {"data_path": path, "target": "x"}))["id"]
+    profile_id = content_of(
+        call(server, "profile", {"data_path": path, "target": "x"})
+    )["id"]
 
     error = error_of(
-        call(server, "plan", {"profile_id": profile_id, "steps": 12, **arguments}), "plan"
+        call(server, "plan", {"profile_id": profile_id, "steps": 12, **arguments}),
+        "plan",
     )
 
     assert error["code"] == "invalid_argument"
@@ -138,12 +154,18 @@ def test_security_plan_arguments_never_reach_code(tmp_path, arguments, field):
 @pytest.mark.parametrize(
     "overrides, field",
     [
-        ({"preprocessing_steps": [{"action": "x", "reason": "x", "code_snippet": INJECTION}]},
-         "overrides.preprocessing_steps"),
+        (
+            {
+                "preprocessing_steps": [
+                    {"action": "x", "reason": "x", "code_snippet": INJECTION}
+                ]
+            },
+            "overrides.preprocessing_steps",
+        ),
         ({"forecaster_kwargs": {"lags": INJECTION}}, "overrides.forecaster_kwargs"),
         ({"estimator": INJECTION}, "overrides.estimator"),
     ],
-    ids=["preprocessing", "forecaster kwargs", "estimator"]
+    ids=["preprocessing", "forecaster kwargs", "estimator"],
 )
 def test_security_refine_plan_overrides_never_reach_code(tmp_path, overrides, field):
     """
@@ -189,7 +211,11 @@ def test_security_initial_train_size_payload(tmp_path):
     _, plan_id = profile_and_plan(server, path)
 
     error = error_of(
-        call(server, "create_cv", {"plan_id": plan_id, "initial_train_size": "2005" + INJECTION}),
+        call(
+            server,
+            "create_cv",
+            {"plan_id": plan_id, "initial_train_size": "2005" + INJECTION},
+        ),
         "create_cv",
     )
 
@@ -207,25 +233,47 @@ def test_security_hostile_names_and_values_are_quoted_in_the_script(tmp_path):
     """
     data = tmp_path / "data"
     data.mkdir()
-    frame = df_h2o_csv.rename(columns={"fecha": "date" + INJECTION, "x": "y" + INJECTION})
+    frame = df_h2o_csv.rename(
+        columns={"fecha": "date" + INJECTION, "x": "y" + INJECTION}
+    )
     path = write_csv(data, "h2o" + INJECTION + ".csv", frame)
     server = create_server(allow_dir=data, output_dir=tmp_path / "out")
 
     async def steps(client):
-        profile = content_of(await client.call_tool("profile", {
-            "data_path": path, "target": "y" + INJECTION, "date_column": "date" + INJECTION,
-        }))
-        plan = content_of(await client.call_tool("plan", {
-            "profile_id": profile["id"], "steps": 12, "forecaster": "ForecasterRecursive",
-            "estimator": "Ridge", "estimator_kwargs": {"solver": "auto" + INJECTION},
-        }))
-        return content_of(await client.call_tool("get_code", {"object_id": plan["id"]}))["code"]
+        profile = content_of(
+            await client.call_tool(
+                "profile",
+                {
+                    "data_path": path,
+                    "target": "y" + INJECTION,
+                    "date_column": "date" + INJECTION,
+                },
+            )
+        )
+        plan = content_of(
+            await client.call_tool(
+                "plan",
+                {
+                    "profile_id": profile["id"],
+                    "steps": 12,
+                    "forecaster": "ForecasterRecursive",
+                    "estimator": "Ridge",
+                    "estimator_kwargs": {"solver": "auto" + INJECTION},
+                },
+            )
+        )
+        return content_of(
+            await client.call_tool("get_code", {"object_id": plan["id"]})
+        )["code"]
 
     code = run_session(server, steps)
     script = tmp_path / "script.py"
     script.write_text(code, encoding="utf-8")
     proc = subprocess.run(
-        [sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True,
+        [sys.executable, str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
         timeout=300,
     )
 
@@ -234,3 +282,213 @@ def test_security_hostile_names_and_values_are_quoted_in_the_script(tmp_path):
     assert "InvalidParameterError" in proc.stderr
     assert not (tmp_path / "pwned").exists()
     assert not Path("pwned").exists()
+
+
+@pytest.mark.parametrize(
+    "make_path, code",
+    [
+        (
+            lambda tmp: str(tmp / "data" / ".." / "outside" / "future.csv"),
+            "path_not_allowed",
+        ),
+        (lambda tmp: str(tmp / "data" / "future_link.csv"), "path_not_allowed"),
+        (lambda tmp: "future.csv", "invalid_path"),
+        (lambda tmp: "https://example.org/future.csv", "url_not_allowed"),
+    ],
+    ids=["dot-dot", "symlink outside", "relative", "url"],
+)
+def test_security_exog_files_outside_allowed_dir_are_never_read(
+    tmp_path, make_path, code
+):
+    """
+    Test that `exog_path` follows the same rules as `data_path`: a file
+    outside the allowed directory, a relative path or a URL is rejected and
+    no forecast is registered.
+    """
+    server, path, _ = _server(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    write_csv(outside, "future.csv", df_h2o_csv.iloc[:12])
+    os.symlink(outside / "future.csv", tmp_path / "data" / "future_link.csv")
+    _, plan_id = profile_and_plan(server, path)
+
+    error = error_of(
+        call(
+            server, "forecast", {"plan_id": plan_id, "exog_path": make_path(tmp_path)}
+        ),
+        "forecast",
+    )
+    kinds = [o["kind"] for o in content_of(call(server, "list_objects", {}))["objects"]]
+
+    assert error["code"] == code
+    assert error["field"] == "exog_path"
+    assert "forecast" not in kinds
+
+
+def test_security_executed_scripts_keep_hostile_values_quoted(tmp_path):
+    """
+    Test that the tools that run scripts (forecast, backtest, compare) run
+    them with hostile column names, file name and estimator argument values
+    quoted: the marker is never created, and the estimator rejects the value
+    as a parameter it does not know.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    frame = df_h2o_csv.rename(
+        columns={"fecha": "date" + INJECTION, "x": "y" + INJECTION}
+    )
+    path = write_csv(data, "h2o" + INJECTION + ".csv", frame)
+    server = create_server(allow_dir=data, output_dir=tmp_path / "out")
+    kwargs = {"solver": "auto" + INJECTION}
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool(
+                "profile",
+                {
+                    "data_path": path,
+                    "target": "y" + INJECTION,
+                    "date_column": "date" + INJECTION,
+                },
+            )
+        )
+        clean = content_of(
+            await client.call_tool(
+                "plan",
+                {
+                    "profile_id": profile["id"],
+                    "steps": 12,
+                    "forecaster": "ForecasterRecursive",
+                    "estimator": "Ridge",
+                },
+            )
+        )
+        hostile = content_of(
+            await client.call_tool(
+                "plan",
+                {
+                    "profile_id": profile["id"],
+                    "steps": 12,
+                    "forecaster": "ForecasterRecursive",
+                    "estimator": "Ridge",
+                    "estimator_kwargs": kwargs,
+                },
+            )
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": clean["id"]}))
+        return [
+            await client.call_tool("forecast", {"plan_id": clean["id"]}),
+            await client.call_tool(
+                "forecast", {"plan_id": hostile["id"], "test_size": 12}
+            ),
+            await client.call_tool(
+                "backtest", {"cv_id": cv["id"], "plan_id": hostile["id"]}
+            ),
+            await client.call_tool(
+                "compare",
+                {
+                    "cv_id": cv["id"],
+                    "candidates": [
+                        {
+                            "name": "hostile" + INJECTION,
+                            "config": {
+                                "estimator": "Ridge",
+                                "estimator_kwargs": kwargs,
+                            },
+                        },
+                        {"name": "clean", "config": {"estimator": "Ridge"}},
+                    ],
+                },
+            ),
+        ]
+
+    forecast, hostile_forecast, hostile_backtest, comparison = run_session(
+        server, steps
+    )
+
+    assert not forecast.is_error
+    assert error_of(hostile_forecast, "forecast")["code"] == "execution_failed"
+    assert error_of(hostile_backtest, "backtest")["code"] == "execution_failed"
+    assert not comparison.is_error
+    assert not (tmp_path / "pwned").exists()
+    assert not Path("pwned").exists()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"estimator_kwargs": {"device_map": "cpu"}},
+        {"estimator": "priorlabs/tabpfn-ts", "estimator_kwargs": {"mode": "client"}},
+    ],
+    ids=["chronos device", "tabpfn client mode"],
+)
+def test_security_foundation_kwargs_outside_the_allowlist_in_plan(tmp_path, arguments):
+    """
+    Test that keyword arguments of a foundation model outside the allowlist
+    of the server (which could send the data to a remote service or
+    download files) are `invalid_argument` in `plan`, while an allowed one
+    builds the plan.
+    """
+    server, path, _ = _server(tmp_path)
+    profile_id, _ = profile_and_plan(server, path)
+    base = {"profile_id": profile_id, "steps": 12, "forecaster": "ForecasterFoundation"}
+
+    error = error_of(call(server, "plan", {**base, **arguments}), "plan")
+    allowed = call(server, "plan", {**base, "estimator_kwargs": {"context_length": 64}})
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "estimator_kwargs"
+    assert error["hint"] == "Use the Python API of skforecast-ai to pass them."
+    assert content_of(allowed)["kind"] == "plan"
+
+
+def test_security_foundation_kwargs_outside_the_allowlist_in_refine_and_compare(
+    tmp_path,
+):
+    """
+    Test that the allowlist also applies to `refine_plan` and to the
+    candidates of `compare`, before anything runs.
+    """
+    server, path, _ = _server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, forecaster="ForecasterFoundation")
+    cv_id = content_of(call(server, "create_cv", {"plan_id": plan_id}))["id"]
+
+    refined = error_of(
+        call(
+            server,
+            "refine_plan",
+            {
+                "plan_id": plan_id,
+                "overrides": {"estimator_kwargs": {"mode": "client"}},
+            },
+        ),
+        "refine_plan",
+    )
+    compared = error_of(
+        call(
+            server,
+            "compare",
+            {
+                "cv_id": cv_id,
+                "candidates": [
+                    {
+                        "name": "remote",
+                        "config": {
+                            "forecaster": "ForecasterFoundation",
+                            "estimator_kwargs": {"mode": "client"},
+                        },
+                    },
+                ],
+            },
+        ),
+        "compare",
+    )
+
+    assert (refined["code"], refined["field"]) == (
+        "invalid_argument",
+        "overrides.estimator_kwargs",
+    )
+    assert (compared["code"], compared["field"]) == (
+        "invalid_argument",
+        "candidates[0].config.estimator_kwargs",
+    )

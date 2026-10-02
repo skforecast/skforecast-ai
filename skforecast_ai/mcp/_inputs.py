@@ -235,7 +235,12 @@ def file_sha256(path: str) -> str:
     return digest.hexdigest()
 
 
-def check_unchanged(path: str, expected: str, field: str) -> None:
+def check_unchanged(
+    path: str,
+    expected: str,
+    field: str,
+    profiled: bool = False,
+) -> None:
     """
     Raise `data_changed` when a file no longer has the expected fingerprint.
 
@@ -247,22 +252,44 @@ def check_unchanged(path: str, expected: str, field: str) -> None:
         SHA-256 the file had.
     field : str
         Argument of the tool the file came from.
+    profiled : bool, default False
+        Whether `expected` is the fingerprint the file had when it was
+        profiled (checked before a call reads it again), rather than at the
+        start of the call.
 
     Returns
     -------
     None
     """
 
-    if file_sha256(path) != expected:
-        raise ServerError(
+    if file_sha256(path) == expected:
+        return
+    if profiled:
+        message = (
+            f"The file {path!r} changed since it was profiled, so its profile "
+            f"and the objects built from it no longer describe it. Nothing was "
+            f"run."
+        )
+    else:
+        message = (
             f"The file {path!r} changed while the server was using it, so the "
             f"result would not describe one version of the data. Nothing was "
-            f"registered.",
-            code    = "data_changed",
-            field   = field,
-            hint    = "Call `profile` again on the file as it is now.",
-            details = {"path": path},
+            f"registered."
         )
+
+    # The data is profiled; the future exogenous values are only read.
+    if field == "data_path":
+        hint = "Call `profile` again on the file as it is now."
+    else:
+        hint = "Call the tool again once the file no longer changes."
+
+    raise ServerError(
+        message,
+        code    = "data_changed",
+        field   = field,
+        hint    = hint,
+        details = {"path": path},
+    )
 
 
 def check_not_numeric_text(value: object, field: str) -> None:

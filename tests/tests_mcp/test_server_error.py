@@ -12,16 +12,26 @@ def test_ServerError_attributes_correctly_stored():
     details, with a code of the server or of the core.
     """
     error = ServerError(
-        "Gone.", code="unknown_id", field="plan_id", hint="List them.",
+        "Gone.",
+        code="unknown_id",
+        field="plan_id",
+        hint="List them.",
         details={"id": "x"},
     )
     core = ServerError("Bad.", code="invalid_argument")
 
     assert (str(error), error.code, error.field, error.hint, error.details) == (
-        "Gone.", "unknown_id", "plan_id", "List them.", {"id": "x"}
+        "Gone.",
+        "unknown_id",
+        "plan_id",
+        "List them.",
+        {"id": "x"},
     )
     assert (core.code, core.field, core.hint, core.details) == (
-        "invalid_argument", None, None, None
+        "invalid_argument",
+        None,
+        None,
+        None,
     )
 
 

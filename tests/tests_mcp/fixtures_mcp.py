@@ -20,11 +20,13 @@ _n_obs = 60
 _dates = pd.date_range("2023-01-01", periods=_n_obs, freq="D")
 _event = pd.Series(_dates.strftime("%Y-%m-%d"), dtype=object)
 _event[[3, 10]] = None
-df_data_warning = pd.DataFrame({
-    "event": _event,
-    "date": _dates.strftime("%Y-%m-%d"),
-    "y": np.arange(_n_obs, dtype=float) % 7 + np.arange(_n_obs) * 0.1,
-})
+df_data_warning = pd.DataFrame(
+    {
+        "event": _event,
+        "date": _dates.strftime("%Y-%m-%d"),
+        "y": np.arange(_n_obs, dtype=float) % 7 + np.arange(_n_obs) * 0.1,
+    }
+)
 
 DATA_WARNING = (
     "The dates of column 'event' have 2 empty cell(s), at row position(s) 3, "
@@ -32,7 +34,33 @@ DATA_WARNING = (
     "column instead; pass `date_column` to choose another one."
 )
 
-ID_PATTERN = re.compile(r"(profile|plan|cv|backtest|comparison|forecast)-\d+-[0-9a-f]{6}")
+# Ten future values of `promo` after the last date of `df_single`.
+df_single_future_exog = pd.DataFrame(
+    {
+        "date": pd.date_range("2023-04-11", periods=10, freq="D").strftime("%Y-%m-%d"),
+        "promo": np.tile([0.0, 1.0], 5),
+    }
+)
+
+# Candidates of `compare` for h2o: two that run and one that fails.
+COMPARE_CANDIDATES = [
+    {
+        "name": "ridge",
+        "config": {"forecaster": "ForecasterRecursive", "estimator": "Ridge"},
+    },
+    {
+        "name": "bad",
+        "config": {
+            "forecaster": "ForecasterRecursive",
+            "estimator": "NoSuchEstimator",
+        },
+    },
+    {"name": "direct", "config": {"forecaster": "ForecasterDirect", "lags": 3}},
+]
+
+ID_PATTERN = re.compile(
+    r"(profile|plan|cv|backtest|comparison|forecast|failure)-\d+-[0-9a-f]{6}"
+)
 
 # Python code that creates the file at {marker} when it runs, for the
 # regressions of code injection: a payload that ran would leave the file.
@@ -48,7 +76,9 @@ def h2o_server(directory: Path, **limits):
     from skforecast_ai.mcp import create_server
 
     path = write_csv(directory, "h2o.csv", df_h2o_csv)
-    server = create_server(allow_dir=directory, output_dir=Path(directory) / "out", **limits)
+    server = create_server(
+        allow_dir=directory, output_dir=Path(directory) / "out", **limits
+    )
 
     return server, path
 
@@ -66,7 +96,9 @@ def profile_and_plan(server, path: str, target: str = "x", **plan_arguments):
             await client.call_tool("profile", {"data_path": path, "target": target})
         )
         plan = content_of(
-            await client.call_tool("plan", {"profile_id": profile["id"], **plan_arguments})
+            await client.call_tool(
+                "plan", {"profile_id": profile["id"], **plan_arguments}
+            )
         )
         return profile["id"], plan["id"]
 
@@ -118,7 +150,7 @@ def error_of(result, tool: str) -> dict:
     prefix = f"Error executing tool {tool}: "
     assert text.startswith(prefix), text
 
-    return json.loads(text[len(prefix):])
+    return json.loads(text[len(prefix) :])
 
 
 def content_of(result) -> dict:
@@ -171,3 +203,48 @@ def write_golden_schemas(directory: str) -> None:
         json.dumps(tool_schemas(server), indent=2, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
+
+
+def text_of(path: str) -> str:
+    """
+    Return the text of a file written by the server.
+    """
+
+    return Path(path).read_text(encoding="utf-8")
+
+
+def cv_of(
+    server,
+    path: str,
+    target: str = "x",
+    cv_arguments: dict | None = None,
+    profile_arguments: dict | None = None,
+    **plan_arguments,
+):
+    """
+    Profile `path`, build a plan and a cross-validation strategy in the
+    server; return the ids of the profile, the plan and the strategy.
+    """
+
+    plan_arguments.setdefault("steps", 12)
+    profile_arguments = {
+        "data_path": path,
+        "target": target,
+        **(profile_arguments or {}),
+    }
+
+    async def steps(client):
+        profile = content_of(await client.call_tool("profile", profile_arguments))
+        plan = content_of(
+            await client.call_tool(
+                "plan", {"profile_id": profile["id"], **plan_arguments}
+            )
+        )
+        cv = content_of(
+            await client.call_tool(
+                "create_cv", {"plan_id": plan["id"], **(cv_arguments or {})}
+            )
+        )
+        return profile["id"], plan["id"], cv["id"]
+
+    return run_session(server, steps)

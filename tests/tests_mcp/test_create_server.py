@@ -27,10 +27,21 @@ def test_create_server_tool_schemas_match_golden(tmp_path):
     golden = json.loads(GOLDEN_SCHEMAS.read_text(encoding="utf-8"))
 
     assert [tool["name"] for tool in schemas] == [
-        "profile", "plan", "refine_plan", "create_cv", "get_code",
-        "list_objects", "describe_object",
+        "profile",
+        "plan",
+        "refine_plan",
+        "create_cv",
+        "backtest",
+        "compare",
+        "forecast",
+        "get_code",
+        "get_failure",
+        "list_objects",
+        "describe_object",
     ]
-    assert all(tool["input_schema"]["additionalProperties"] is False for tool in schemas)
+    assert all(
+        tool["input_schema"]["additionalProperties"] is False for tool in schemas
+    )
     assert schemas == golden
 
 
@@ -47,7 +58,9 @@ def test_create_server_name_version_and_instructions(tmp_path):
     info, instructions = run_session(server, steps)
 
     assert (info.name, info.version) == ("skforecast-ai", __version__)
-    assert instructions.startswith("Deterministic time series forecasting with skforecast.")
+    assert instructions.startswith(
+        "Deterministic time series forecasting with skforecast."
+    )
 
 
 def test_create_server_output_dir_created_or_temporary(tmp_path, monkeypatch):
@@ -66,7 +79,9 @@ def test_create_server_output_dir_created_or_temporary(tmp_path, monkeypatch):
     create_server(allow_dir=tmp_path)
 
     assert output_dir.is_dir()
-    assert [name.startswith("skforecast-ai-mcp-") for name in os.listdir(temp_dir)] == [True]
+    assert [name.startswith("skforecast-ai-mcp-") for name in os.listdir(temp_dir)] == [
+        True
+    ]
     err_msg = re.escape(
         f"The output directory {str(tmp_path / 'file' / 'out')!r} cannot be created"
     )
@@ -79,12 +94,20 @@ def test_create_server_output_dir_created_or_temporary(tmp_path, monkeypatch):
     "arguments, message",
     [
         ({"max_objects": 0}, "`max_objects` must be an integer of at least 1, got 0."),
-        ({"max_memory_mb": True}, "`max_memory_mb` must be an integer of at least 1, got True."),
-        ({"max_objects": 2.5}, "`max_objects` must be an integer of at least 1, got 2.5."),
+        (
+            {"max_memory_mb": True},
+            "`max_memory_mb` must be an integer of at least 1, got True.",
+        ),
+        (
+            {"max_objects": 2.5},
+            "`max_objects` must be an integer of at least 1, got 2.5.",
+        ),
     ],
-    ids=lambda dt: f"{dt}"
+    ids=lambda dt: f"{dt}",
 )
-def test_create_server_InvalidInputError_when_limits_invalid(tmp_path, arguments, message):
+def test_create_server_InvalidInputError_when_limits_invalid(
+    tmp_path, arguments, message
+):
     """
     Test that the limits of the store must be integers of at least 1.
     """

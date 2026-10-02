@@ -20,7 +20,7 @@ from skforecast_ai.schemas import ForecastPlan
         ("lags", "lags"),
         (None, None),
     ],
-    ids=lambda dt: f"{dt}"
+    ids=lambda dt: f"{dt}",
 )
 def test_error_payload_renames_the_fields_of_the_python_api(field, expected):
     """
@@ -45,23 +45,35 @@ def test_error_payload_output_of_server_core_and_internal_errors():
     not raise (its type and first line, never a traceback).
     """
     server = ServerError(
-        "Gone.", code="unknown_id", field="plan_id", hint="List them.",
+        "Gone.",
+        code="unknown_id",
+        field="plan_id",
+        hint="List them.",
         details={"id": "plan-1-abcdef"},
     )
     missing = DataNotFoundError("No file.", field="data")
     internal = RuntimeError("first line\nsecond line")
 
     assert error_payload(server) == {
-        "code": "unknown_id", "message": "Gone.", "field": "plan_id",
-        "hint": "List them.", "details": {"id": "plan-1-abcdef"},
+        "code": "unknown_id",
+        "message": "Gone.",
+        "field": "plan_id",
+        "hint": "List them.",
+        "details": {"id": "plan-1-abcdef"},
     }
     assert error_payload(missing) == {
-        "code": "data_not_found", "message": "No file.", "field": "data_path",
-        "hint": None, "details": None,
+        "code": "data_not_found",
+        "message": "No file.",
+        "field": "data_path",
+        "hint": None,
+        "details": None,
     }
     assert error_payload(internal) == {
-        "code": "internal_error", "message": "RuntimeError: first line", "field": None,
-        "hint": None, "details": None,
+        "code": "internal_error",
+        "message": "RuntimeError: first line",
+        "field": None,
+        "hint": None,
+        "details": None,
     }
 
 
@@ -72,8 +84,12 @@ def test_error_payload_output_of_a_validation_error():
     """
     with pytest.raises(ValidationError) as excinfo:
         ForecastPlan.model_validate(
-            {"task_type": "single_series", "forecaster": "ForecasterRecursive",
-             "steps": "twelve", "explanation": ""}
+            {
+                "task_type": "single_series",
+                "forecaster": "ForecasterRecursive",
+                "steps": "twelve",
+                "explanation": "",
+            }
         )
 
     payload = error_payload(excinfo.value)
@@ -90,11 +106,16 @@ def test_error_payload_cuts_long_messages_and_hints():
     """
     payload = error_payload(
         ServerError(
-            "m" * 4_010, code="invalid_argument", hint="h" * 1_005,
+            "m" * 4_010,
+            code="invalid_argument",
+            hint="h" * 1_005,
             details={"id": "i" * 503, "removed": False},
         )
     )
 
     assert payload["message"] == "m" * 4_000 + " ... (10 more characters)"
     assert payload["hint"] == "h" * 1_000 + " ... (5 more characters)"
-    assert payload["details"] == {"id": "i" * 500 + " ... (3 more characters)", "removed": False}
+    assert payload["details"] == {
+        "id": "i" * 500 + " ... (3 more characters)",
+        "removed": False,
+    }

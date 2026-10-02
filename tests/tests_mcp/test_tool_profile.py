@@ -34,9 +34,17 @@ def test_tool_profile_output_matches_python_api(tmp_path):
     assert ID_PATTERN.fullmatch(result["id"])
     assert result["id"].startswith("profile-1-")
     assert result == {
-        "id": result["id"], "kind": "profile", "links": {}, "summary": expected,
-        "summary_truncated": False, "notices": [], "notices_omitted": 0,
-        "files": {}, "values_included": False, "cost": None, "changeable": [],
+        "id": result["id"],
+        "kind": "profile",
+        "links": {},
+        "summary": expected,
+        "summary_truncated": False,
+        "notices": [],
+        "notices_omitted": 0,
+        "files": {},
+        "values_included": False,
+        "cost": None,
+        "changeable": [],
     }
 
 
@@ -89,12 +97,22 @@ def test_tool_profile_output_long_format(tmp_path):
     path = write_csv(tmp_path, "items.csv", df_items_sales_long)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 
-    result = content_of(call(server, "profile", {
-        "data_path": path, "target": "value", "series_id_column": "series",
-    }))
-    expected = ForecastingAssistant().profile(
-        path, target="value", series_id_column="series"
-    ).describe()
+    result = content_of(
+        call(
+            server,
+            "profile",
+            {
+                "data_path": path,
+                "target": "value",
+                "series_id_column": "series",
+            },
+        )
+    )
+    expected = (
+        ForecastingAssistant()
+        .profile(path, target="value", series_id_column="series")
+        .describe()
+    )
 
     assert result["summary"] == expected
 
@@ -136,16 +154,27 @@ def test_tool_profile_summary_cut_with_full_text_in_a_file(tmp_path, monkeypatch
 @pytest.mark.parametrize(
     "arguments, field, message",
     [
-        ({"target": "nope"}, "target",
-         "Target column(s) ['nope'] not found in the DataFrame. Available columns: ['fecha', 'x']"),
-        ({"target": "x\n"}, "target",
-         "`target` holds a line break or another control character: 'x\\n'."),
-        ({"target": ["x"], "date_column": "fe\u2028cha"}, "date_column",
-         "`date_column` holds a line break or another control character: 'fe\\u2028cha'."),
+        (
+            {"target": "nope"},
+            "target",
+            "Target column(s) ['nope'] not found in the DataFrame. Available "
+            "columns: ['fecha', 'x']",
+        ),
+        (
+            {"target": "x\n"},
+            "target",
+            "`target` holds a line break or another control character: 'x\\n'.",
+        ),
+        (
+            {"target": ["x"], "date_column": "fe\u2028cha"},
+            "date_column",
+            "`date_column` holds a line break or another control character: "
+            "'fe\\u2028cha'.",
+        ),
         ({"target": 1}, "target", None),
         ({"target": "x", "date": "fecha"}, "date", "Extra inputs are not permitted"),
     ],
-    ids=lambda dt: f"{dt}"
+    ids=lambda dt: f"{dt}",
 )
 def test_tool_profile_invalid_argument(tmp_path, arguments, field, message):
     """
@@ -156,7 +185,9 @@ def test_tool_profile_invalid_argument(tmp_path, arguments, field, message):
     path = write_csv(tmp_path, "h2o.csv", df_h2o_csv)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 
-    error = error_of(call(server, "profile", {"data_path": path, **arguments}), "profile")
+    error = error_of(
+        call(server, "profile", {"data_path": path, **arguments}), "profile"
+    )
 
     assert error["code"] == "invalid_argument"
     assert error["field"] == field
@@ -176,11 +207,19 @@ def test_tool_profile_rejects_column_names_with_line_breaks(tmp_path):
     long_path = write_csv(tmp_path, "long.csv", long)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 
-    error = error_of(call(server, "profile", {"data_path": path, "target": "x"}), "profile")
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "x"}), "profile"
+    )
     error_long = error_of(
-        call(server, "profile", {
-            "data_path": long_path, "target": "value", "series_id_column": "series",
-        }),
+        call(
+            server,
+            "profile",
+            {
+                "data_path": long_path,
+                "target": "value",
+                "series_id_column": "series",
+            },
+        ),
         "profile",
     )
 
@@ -221,7 +260,9 @@ def test_tool_profile_data_changed_while_profiling(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ForecastingAssistant, "profile", profile_and_append)
 
-    error = error_of(call(server, "profile", {"data_path": path, "target": "x"}), "profile")
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "x"}), "profile"
+    )
 
     assert error["code"] == "data_changed"
     assert error["field"] == "data_path"
@@ -241,11 +282,12 @@ def test_tool_profile_text_arguments_are_never_decoded_as_json(tmp_path):
 
     result = content_of(call(server, "profile", {"data_path": path, "target": "null"}))
     error = error_of(
-        call(server, "profile", {"data_path": path, "target": '["null", "fecha"]'}), "profile"
+        call(server, "profile", {"data_path": path, "target": '["null", "fecha"]'}),
+        "profile",
     )
 
     assert "- Target: null\n" in result["summary"]
     assert error["field"] == "target"
     assert error["message"].startswith(
-        "Target column(s) ['[\"null\", \"fecha\"]'] not found in the DataFrame."
+        'Target column(s) [\'["null", "fecha"]\'] not found in the DataFrame.'
     )

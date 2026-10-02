@@ -6,33 +6,47 @@
 ################################################################################
 
 from __future__ import annotations
+import copy
 import functools
 import json
 import logging
 import os
 import tempfile
+import threading
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args, get_origin
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.server.mcpserver.tools import Tool
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata
 from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, Field, ValidationError
 from .. import __version__
+from .._constants import FORECASTER_TASK_TYPES
+from .._utils import load_exog
 from ..assistant import ForecastingAssistant
 from ..exceptions import InvalidInputError, SkforecastAIError
 from ..recommendation import count_estimator_fits
 from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
 from . import _inputs
-from ._errors import ServerError, argument_error_payload, tool_error
+from ._errors import (
+    ServerError,
+    argument_error_payload,
+    attach_details,
+    candidate_failure_text,
+    failure_text,
+    tool_error,
+)
 from ._inputs import AllowedDir
 from ._runtime import CallControl, build_notices, notice_text, run_call
 from ._store import Entry, Store, estimate_nbytes
 from .models import (
+    CandidateArg,
     CodeResult,
+    FailureResult,
     ObjectInfo,
     ObjectKind,
     ObjectList,
@@ -42,9 +56,26 @@ from .models import (
 
 logger = logging.getLogger("skforecast_ai.mcp")
 
-# Longest summary and code a response carries; the full text goes to a file.
+# Longest summary, code and failure a response carries; the full text goes
+# to a file.
 MAX_SUMMARY_CHARS = 20_000
 MAX_CODE_CHARS = 20_000
+MAX_FAILURE_CHARS = 20_000
+
+# Keyword arguments of a foundation model the server accepts: the ones that
+# only change how the model reads the history. The adapters of skforecast
+# take others that leave the machine or the model repository (TabPFN
+# `mode='client'` sends the data to a remote service, TSICL
+# `checkpoint_version` names a file to download) or that take Python
+# objects, which a tool cannot pass.
+FOUNDATION_KWARGS = frozenset({
+    "context_length",
+    "cross_learning",
+    "point_estimate",
+    "max_horizon",
+    "add_calendar_features",
+    "n_fourier_terms",
+})
 
 DEFAULT_MAX_OBJECTS = 256
 DEFAULT_MAX_MEMORY_MB = 1024
@@ -71,11 +102,13 @@ never from a language model, and is reproducible.
 
 Workflow: `profile` a CSV file (absolute path inside the directory the server \
 may read) -> `plan` with a horizon (`steps`) -> optionally `refine_plan` -> \
-`create_cv`. Each tool returns an `id`; later tools take ids, never objects. \
+`create_cv` (check its `cost`) -> `backtest` -> optionally `compare` -> \
+`forecast`. Each tool returns an `id`; later tools take ids, never objects. \
 Every response has a plain-text `summary` and the warnings of the call in \
-`notices`; it never holds rows of data. `get_code` returns the script of a \
-plan or a cross-validation strategy, `describe_object` the response that \
-created an object, `list_objects` the ids registered now.
+`notices`; it never holds rows of data, which go to CSV files (`files`). \
+`get_code` returns the script that ran, `get_failure` the traceback of a \
+failure, `describe_object` the response that created an object, \
+`list_objects` the ids registered now.
 
 Errors are JSON objects with `code`, `message`, `field`, `hint` and \
 `details`. Dates are ISO 8601 text ('2012-01-01'); counts are numbers.\
@@ -259,12 +292,103 @@ class _ServerState:
         Registered objects.
     assistant : ForecastingAssistant
         Assistant without LLM that runs every call.
+    failures : OrderedDict
+        Failures of runs by id: their text cut to `MAX_FAILURE_CHARS` and the
+        file with the full text, if any. `get_failure` returns them.
+    failures_lock : threading.Lock
+        Guards `failures`.
     """
 
     allowed: AllowedDir
     output_dir: Path
     store: Store
     assistant: ForecastingAssistant
+    failures: OrderedDict[str, tuple[str, str | None]] = field(
+        default_factory=OrderedDict
+    )
+    failures_lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def add_failure(self, text: str) -> str:
+        """
+        Keep a failure and return its id: its text cut to
+        `MAX_FAILURE_CHARS`, with the full text in a file when it is longer.
+        Only the most recent ones are kept, as many as the objects of the
+        store.
+
+        Parameters
+        ----------
+        text : str
+            Full description of the failure.
+
+        Returns
+        -------
+        failure_id : str
+            `'failure-<sequence>-<token>'`.
+        """
+
+        failure_id = self.store.new_id("failure")
+        kept = self.long_text(f"{failure_id}-failure.txt", text, MAX_FAILURE_CHARS)
+        with self.failures_lock:
+            self.failures[failure_id] = kept
+            while len(self.failures) > self.store.max_objects:
+                self.failures.popitem(last=False)
+
+        return failure_id
+
+    def long_text(self, name: str, text: str, max_chars: int) -> tuple[str, str | None]:
+        """
+        Cut a text to `max_chars` characters, writing the full text to a
+        file of the output directory when it is longer.
+
+        Parameters
+        ----------
+        name : str
+            File name, built from an id.
+        text : str
+            Full text.
+        max_chars : int
+            Most characters kept.
+
+        Returns
+        -------
+        text : str
+            The text, cut.
+        path : str, None
+            Path of the file with the full text, or None when it was not cut.
+        """
+
+        if len(text) <= max_chars:
+            return text, None
+
+        return text[:max_chars], self.write_text(name, text)
+
+    def write_frame(self, object_id: str, role: str, frame: Any) -> dict[str, str]:
+        """
+        Write a DataFrame to a CSV file of the output directory, with its
+        index.
+
+        Parameters
+        ----------
+        object_id : str
+            Id of the object it belongs to.
+        role : str
+            What it holds (`'predictions'`, `'metrics'`, `'leaderboard'`),
+            the key of the path in `files`.
+        frame : pandas DataFrame, None
+            Data to write. None writes nothing.
+
+        Returns
+        -------
+        files : dict
+            `{role: path}`, or empty when `frame` is None.
+        """
+
+        if frame is None:
+            return {}
+        path = self.output_dir / f"{object_id}-{role.replace('_', '-')}.csv"
+        frame.to_csv(path)
+
+        return {role: str(path)}
 
     def write_text(self, name: str, text: str) -> str:
         """
@@ -341,12 +465,70 @@ class _ServerState:
         return text[:MAX_SUMMARY_CHARS], True, {"summary": path}
 
 
+@dataclass(frozen=True)
+class _Described:
+    """
+    A result with the code that `_finish_run` writes: a comparison has no
+    code of its own, its script is the one of the winner.
+    """
+
+    result: Any
+    code: str
+
+    def describe(self) -> str:
+        """
+        Describe the wrapped result.
+        """
+
+        return self.result.describe()
+
+
 def _copy(obj: Any) -> Any:
     """
     Deep copy of a registered object, so no call of the core can change it.
     """
 
     return obj.model_copy(deep=True)
+
+
+def _check_foundation_kwargs(
+    forecaster: str | None,
+    estimator_kwargs: dict | None,
+    argument: str,
+) -> None:
+    """
+    Reject keyword arguments of a foundation model outside `FOUNDATION_KWARGS`.
+
+    Checked where a plan or a candidate is built and again before any script
+    runs, so no tool runs a foundation model with other arguments.
+
+    Parameters
+    ----------
+    forecaster : str, None
+        Forecaster of the plan or the candidate.
+    estimator_kwargs : dict, None
+        Its keyword arguments of the estimator.
+    argument : str
+        Argument of the tool that holds them.
+
+    Returns
+    -------
+    None
+    """
+
+    if FORECASTER_TASK_TYPES.get(forecaster) != "foundation" or not estimator_kwargs:
+        return
+    rejected = sorted(set(estimator_kwargs) - FOUNDATION_KWARGS)
+    if rejected:
+        raise ServerError(
+            f"The server does not pass {rejected} to a foundation model: it "
+            f"accepts {sorted(FOUNDATION_KWARGS)}. Other arguments of the "
+            f"adapters of skforecast can send the data to a remote service, "
+            f"download files or take Python objects.",
+            code  = "invalid_argument",
+            field = argument,
+            hint  = "Use the Python API of skforecast-ai to pass them.",
+        )
 
 
 def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
@@ -383,6 +565,10 @@ def _register(
     source: Entry | None,
     code: str | None = None,
     code_file: str | None = None,
+    candidate_code_files: dict[str, str] | None = None,
+    candidate_failures: dict[str, tuple[str, str | None]] | None = None,
+    files: dict[str, str] | None = None,
+    nbytes: int | None = None,
     cost: dict[str, int] | None = None,
     changeable: list[str] | None = None,
     data_path: str | None = None,
@@ -394,9 +580,13 @@ def _register(
 
     `source` is the entry the object was built from, whose profile and data
     the new entry records; None for a profile, which records its own.
+    `files` are the files written for the object, besides the full summary.
+    `nbytes` is the memory of the object when the worker thread measured it
+    (large results), so the event loop does not.
     """
 
-    text, truncated, files = summary
+    text, truncated, summary_files = summary
+    files = {**(files or {}), **summary_files}
     envelope = ToolResult(
         id                = object_id,
         kind              = kind,
@@ -417,20 +607,24 @@ def _register(
         data_warnings = source.data_warnings
     else:
         profile, profile_id = obj, object_id
+    if nbytes is None:
+        nbytes = estimate_nbytes(obj)
     state.store.add(
         Entry(
-            id            = object_id,
-            kind          = kind,
-            obj           = obj,
-            envelope      = envelope,
-            profile       = profile,
-            profile_id    = profile_id,
-            data_path     = data_path,
-            data_sha256   = data_sha256,
-            data_warnings = data_warnings,
-            code          = code,
-            code_file     = code_file,
-            nbytes        = estimate_nbytes(obj) + len(text) + len(code or ""),
+            id                   = object_id,
+            kind                 = kind,
+            obj                  = obj,
+            envelope             = envelope,
+            profile              = profile,
+            profile_id           = profile_id,
+            data_path            = data_path,
+            data_sha256          = data_sha256,
+            data_warnings        = data_warnings,
+            code                 = code,
+            code_file            = code_file,
+            candidate_code_files = candidate_code_files or {},
+            candidate_failures   = candidate_failures or {},
+            nbytes               = nbytes + len(text) + len(code or ""),
         )
     )
 
@@ -480,7 +674,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             _inputs.check_unchanged(path, digest, "data_path")
             object_id = store.new_id("profile")
             summary = state.summary(object_id, result.describe())
-            control.check()
+            control.wrote(summary[2])
             return object_id, result, path, digest, summary
 
         outcome = await run_call(work)
@@ -508,7 +702,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         links: dict[str, str],
         summary: tuple[str, bool, dict[str, str]],
         code: tuple[str, str | None],
+        notices: tuple[list, int] | None = None,
     ) -> ToolResult:
+        if notices is None:
+            notices = build_notices(
+                outcome_warnings,
+                plan_warnings = new_plan.warnings,
+                data_warnings = source.data_warnings,
+            )
         return _register(
             state,
             object_id  = object_id,
@@ -516,11 +717,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             obj        = new_plan,
             links      = links,
             summary    = summary,
-            notices    = build_notices(
-                             outcome_warnings,
-                             plan_warnings = new_plan.warnings,
-                             data_warnings = source.data_warnings,
-                         ),
+            notices    = notices,
             source     = source,
             code       = code[0],
             code_file  = code[1],
@@ -528,11 +725,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         )
 
     def _describe_plan(control: CallControl, profile_obj: Any, new_plan: Any):
-        script = assistant.forecast_code(profile=_copy(profile_obj), plan=new_plan)
+        script = assistant.forecast_code(
+            profile = _copy(profile_obj),
+            plan    = _copy(new_plan),
+        )
         object_id = store.new_id("plan")
         summary = state.summary(object_id, script.describe())
         code_file = state.code_file(object_id, script.code)
-        control.check()
+        control.wrote(summary[2], code_file)
         return object_id, summary, (script.code, code_file)
 
     @_reported
@@ -582,6 +782,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 lags             = lags,
                 window_features  = window_features,
             )
+            _check_foundation_kwargs(
+                new_plan.forecaster, new_plan.estimator_kwargs, "estimator_kwargs"
+            )
             return new_plan, *_describe_plan(control, profile_entry.obj, new_plan)
 
         outcome = await run_call(work)
@@ -618,6 +821,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 if exc.field in REFINE_PLAN_OVERRIDE_KEYS:
                     exc.field = f"overrides.{exc.field}"
                 raise
+            _check_foundation_kwargs(
+                new_plan.forecaster,
+                new_plan.estimator_kwargs,
+                "overrides.estimator_kwargs",
+            )
             return new_plan, *_describe_plan(control, plan_entry.profile, new_plan)
 
         outcome = await run_call(work)
@@ -678,7 +886,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
-            control.check()
+            control.wrote(summary[2], code_file)
             return object_id, result, summary, code_file
 
         outcome = await run_call(work)
@@ -705,30 +913,452 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             changeable    = list(CV_ARGUMENTS),
         )
 
+    def _data_of(entry: Entry) -> str:
+        # The file the profile was read from, checked again before it is
+        # read: inside the allowed directory after resolving links, and as it
+        # was when it was profiled.
+        path = _inputs.resolve_csv_path(entry.data_path, state.allowed, "data_path")
+        _inputs.check_unchanged(path, entry.data_sha256, "data_path", profiled=True)
+        return path
+
+    def _run_plan_locally(plan_obj: Any, argument: str) -> None:
+        # Every tool that runs a plan checks it here, besides the check made
+        # when the plan was built.
+        _check_foundation_kwargs(
+            plan_obj.forecaster, plan_obj.estimator_kwargs, argument
+        )
+
+    def _keep_failure(exc: Exception) -> None:
+        # The traceback and the code of a failed script never go in the
+        # response: they are kept for `get_failure`, named in the details.
+        text = failure_text(exc)
+        if text is not None:
+            attach_details(exc, {"failure_id": state.add_failure(text)})
+
+    def _finish_run(
+        control: CallControl,
+        kind: ObjectKind,
+        result: Any,
+        frames: dict[str, Any],
+    ) -> tuple[str, dict[str, str], tuple[str, bool, dict[str, str]], str | None, int]:
+        # What every run writes once it ended: its CSV files, its summary and
+        # its script when they are long, and the memory it takes, measured
+        # here rather than in the event loop.
+        control.check()
+        object_id = store.new_id(kind)
+        files: dict[str, str] = {}
+        for role, frame in frames.items():
+            files.update(state.write_frame(object_id, role, frame))
+            control.wrote(files)
+        summary = state.summary(object_id, result.describe())
+        code_file = state.code_file(object_id, result.code)
+        control.wrote(summary[2], code_file)
+        return object_id, files, summary, code_file, estimate_nbytes(result)
+
+    @_reported
+    async def backtest(
+        cv_id: Annotated[str, Field(description="Id returned by `create_cv`.")],
+        plan_id: Annotated[str | None, Field(description=(
+            "Plan to backtest, built from the same profile. Null for the plan "
+            "the cross-validation strategy was built for."
+        ))] = None,
+    ) -> ToolResult:
+        cv_entry = store.get(cv_id, "cv_id", ("cv",))
+        cv_result = cv_entry.obj
+        if plan_id is None:
+            backtested, plan_link = cv_result.plan, cv_entry.envelope.links["plan_id"]
+        else:
+            plan_entry = store.get(plan_id, "plan_id", ("plan",))
+            if plan_entry.profile_id != cv_entry.profile_id:
+                raise ServerError(
+                    f"The plan {plan_id!r} and the cross-validation strategy "
+                    f"{cv_id!r} come from different profiles "
+                    f"({plan_entry.profile_id!r} and {cv_entry.profile_id!r}).",
+                    code    = "inconsistent_ids",
+                    field   = "plan_id",
+                    hint    = "Call `create_cv` with this plan.",
+                    details = {"plan_id": plan_id, "cv_id": cv_id},
+                )
+            backtested, plan_link = plan_entry.obj, plan_entry.id
+        _run_plan_locally(backtested, "plan_id")
+
+        def work(control: CallControl):
+            path = _data_of(cv_entry)
+            try:
+                result = assistant.backtest(
+                    data          = path,
+                    cv            = copy.deepcopy(cv_result.cv),
+                    profile       = _copy(cv_entry.profile),
+                    plan          = _copy(backtested),
+                    show_progress = False,
+                )
+            except SkforecastAIError as exc:
+                _keep_failure(exc)
+                raise
+            _inputs.check_unchanged(path, cv_entry.data_sha256, "data_path")
+            frames = {"predictions": result.predictions, "metrics": result.metrics}
+            return result, *_finish_run(control, "backtest", result, frames)
+
+        outcome = await run_call(work)
+        result, object_id, files, summary, code_file, nbytes = outcome.value
+        links = {
+            "profile_id": cv_entry.profile_id, "plan_id": plan_link, "cv_id": cv_id,
+        }
+        cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
+
+        return _register(
+            state,
+            object_id = object_id,
+            kind      = "backtest",
+            obj       = result,
+            links     = links,
+            summary   = summary,
+            notices   = build_notices(
+                            outcome.warnings,
+                            plan_warnings = result.plan.warnings,
+                            data_warnings = cv_entry.data_warnings,
+                        ),
+            source    = cv_entry,
+            code      = result.code,
+            code_file = code_file,
+            files     = files,
+            nbytes    = nbytes,
+            cost      = cost,
+        )
+
+    @_reported
+    async def compare(
+        cv_id: Annotated[str, Field(description=(
+            "Id returned by `create_cv`: every candidate is backtested on its "
+            "folds."
+        ))],
+        candidates: Annotated[list[CandidateArg] | None, Field(description=(
+            "Configurations to compare, each {'name': ..., 'config': "
+            "{'forecaster': ..., 'estimator': ..., 'estimator_kwargs': ..., "
+            "'lags': ..., 'window_features': ...}}. Null for the candidates "
+            "recommended by the profile. A candidate that fails is ranked last "
+            "with its error."
+        ))] = None,
+        interval: Annotated[list[float] | None, Field(description=(
+            "Prediction interval computed for every candidate, e.g. [0.1, 0.9]."
+        ))] = None,
+        baseline: Annotated[bool, Field(description=(
+            "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) "
+            "to the ranking."
+        ))] = True,
+        ctx: Context = None,
+    ) -> ToolResult:
+        cv_entry = store.get(cv_id, "cv_id", ("cv",))
+        profile_obj = cv_entry.profile
+        configs = None
+        if candidates is not None:
+            configs = []
+            for position, candidate in enumerate(candidates):
+                prefix = f"candidates[{position}]"
+                _inputs.check_text_argument(candidate.name, f"{prefix}.name")
+                config = dict(candidate.config)
+                _check_foundation_kwargs(
+                    config.get("forecaster") or profile_obj.forecaster,
+                    config.get("estimator_kwargs"),
+                    f"{prefix}.config.estimator_kwargs",
+                )
+                configs.append((candidate.name, config))
+
+        def work(control: CallControl):
+            path = _data_of(cv_entry)
+
+            def on_progress(event):
+                # The start of a candidate repeats the count of the end of the
+                # previous one, so it counts as a half step: the progress then
+                # grows with every notification.
+                control.progress(
+                    2 * event.completed + (event.status == "started"),
+                    2 * event.total,
+                    f"{event.candidate}: {event.status}",
+                )
+
+            try:
+                result = assistant.compare(
+                    data              = path,
+                    cv                = copy.deepcopy(cv_entry.obj.cv),
+                    profile           = _copy(profile_obj),
+                    candidates        = copy.deepcopy(configs),
+                    interval          = interval,
+                    show_progress     = False,
+                    baseline          = baseline,
+                    progress_callback = on_progress,
+                )
+            except SkforecastAIError as exc:
+                _keep_failure(exc)
+                raise
+            _inputs.check_unchanged(path, cv_entry.data_sha256, "data_path")
+            best = result.best_candidate
+            frames = {
+                "leaderboard": result.results,
+                "best_predictions": best.predictions,
+                "best_metrics": best.metrics,
+            }
+            object_id, files, summary, code_file, nbytes = _finish_run(
+                control, "comparison", _Described(result, best.code), frames
+            )
+            # Long scripts and failures of the candidates, written once; file
+            # names hold the position of a candidate, never its name.
+            code_files = {}
+            for position, (name, candidate) in enumerate(result.candidates.items()):
+                name_code = state.code_file(
+                    f"{object_id}-candidate-{position}", candidate.code
+                )
+                if name_code is not None:
+                    code_files[name] = name_code
+            failures = {}
+            for position, (name, failure) in enumerate(result.failures.items()):
+                failures[name] = state.long_text(
+                    f"{object_id}-failure-{position}.txt",
+                    candidate_failure_text(name, failure),
+                    MAX_FAILURE_CHARS,
+                )
+            control.wrote(code_files, *(path for _, path in failures.values()))
+            # The plan of the winner, registered so `forecast` can use it.
+            best_plan = _describe_plan(control, profile_obj, best.plan)
+            return (
+                result, object_id, files, summary, code_file, code_files, failures,
+                nbytes, best_plan,
+            )
+
+        report = None if ctx is None else ctx.report_progress
+        outcome = await run_call(work, report=report)
+        (
+            result, object_id, files, summary, code_file, code_files, failures,
+            nbytes, best_plan,
+        ) = outcome.value
+        best = result.best_candidate
+        best_plan_id, best_summary, best_code = best_plan
+        plan_warnings = [
+            text for candidate in result.candidates.values()
+            for text in candidate.plan.warnings
+        ]
+        best_texts = set(best.plan.warnings)
+        _plan_envelope(
+            best_plan_id,
+            best.plan,
+            cv_entry,
+            [r for r in outcome.warnings if notice_text(r) in best_texts],
+            {"profile_id": cv_entry.profile_id, "comparison_id": object_id},
+            best_summary,
+            best_code,
+        )
+        # The cost of the candidates that ran, each with the strategy it ran.
+        estimator_fits = sum(
+            _cost(candidate.cv_config, candidate.plan.forecaster, candidate.plan.steps)[
+                "estimator_fits"
+            ]
+            for candidate in result.candidates.values()
+        )
+        cost = {
+            "n_folds": int(result.cv_config["n_folds"]),
+            "n_fits": int(result.cv_config["n_fits"]),
+            "estimator_fits": estimator_fits,
+        }
+
+        return _register(
+            state,
+            object_id            = object_id,
+            kind                 = "comparison",
+            obj                  = result,
+            links                = {
+                "profile_id": cv_entry.profile_id,
+                "cv_id": cv_id,
+                "best_plan_id": best_plan_id,
+            },
+            summary              = summary,
+            notices              = build_notices(
+                                       outcome.warnings,
+                                       plan_warnings = plan_warnings,
+                                       data_warnings = cv_entry.data_warnings,
+                                   ),
+            source               = cv_entry,
+            code                 = best.code,
+            code_file            = code_file,
+            candidate_code_files = code_files,
+            candidate_failures   = failures,
+            files                = files,
+            nbytes               = nbytes,
+            cost                 = cost,
+        )
+
+    @_reported
+    async def forecast(
+        plan_id: Annotated[str, Field(description=(
+            "Id of the plan to run (from `plan`, `refine_plan` or "
+            "`links.best_plan_id` of `compare`)."
+        ))],
+        test_size: Annotated[int | float | str | None, Field(description=(
+            "Null to forecast the future. To evaluate instead, the test set: "
+            "the last n observations (an integer, which must equal `steps`), "
+            "a fraction in (0, 1), or the ISO 8601 date it starts at."
+        ))] = None,
+        exog_path: Annotated[str | None, Field(description=(
+            "Absolute path of a CSV file with the future values of the "
+            "exogenous variables, one row per date (and series) of the "
+            "horizon. Required to forecast the future when the data has "
+            "exogenous variables. The script of `get_code` reads them from "
+            "'exog_future.csv' in its working directory."
+        ))] = None,
+    ) -> ToolResult:
+        _inputs.check_not_numeric_text(test_size, "test_size")
+        plan_entry = store.get(plan_id, "plan_id", ("plan",))
+        _run_plan_locally(plan_entry.obj, "plan_id")
+
+        def work(control: CallControl):
+            path = _data_of(plan_entry)
+            exog, exog_file, exog_digest = None, None, None
+            if exog_path is not None:
+                exog_file = _inputs.resolve_csv_path(
+                    exog_path, state.allowed, "exog_path"
+                )
+                exog_digest = _inputs.file_sha256(exog_file)
+                data_profile = plan_entry.profile.data_profile
+                exog = load_exog(
+                    exog_file,
+                    date_column      = data_profile.date_column,
+                    series_id_column = data_profile.series_id_column,
+                )
+            try:
+                result = assistant.forecast(
+                    data      = path,
+                    exog      = exog,
+                    test_size = test_size,
+                    profile   = _copy(plan_entry.profile),
+                    plan      = _copy(plan_entry.obj),
+                )
+            except SkforecastAIError as exc:
+                _keep_failure(exc)
+                raise
+            _inputs.check_unchanged(path, plan_entry.data_sha256, "data_path")
+            if exog_file is not None:
+                _inputs.check_unchanged(exog_file, exog_digest, "exog_path")
+            frames = {"predictions": result.predictions, "metrics": result.metrics}
+            return result, *_finish_run(control, "forecast", result, frames)
+
+        outcome = await run_call(work)
+        result, object_id, files, summary, code_file, nbytes = outcome.value
+
+        # The plan of an evaluation (with `end_train`) is never registered as
+        # a plan: the forecast links the plan it was given.
+        return _register(
+            state,
+            object_id = object_id,
+            kind      = "forecast",
+            obj       = result,
+            links     = {"profile_id": plan_entry.profile_id, "plan_id": plan_id},
+            summary   = summary,
+            notices   = build_notices(
+                            outcome.warnings,
+                            plan_warnings = result.plan.warnings,
+                            data_warnings = plan_entry.data_warnings,
+                        ),
+            source    = plan_entry,
+            code      = result.code,
+            code_file = code_file,
+            files     = files,
+            nbytes    = nbytes,
+        )
+
+    @_reported
+    async def get_failure(
+        object_id: Annotated[str, Field(description=(
+            "`details.failure_id` of an error, or the id of a comparison "
+            "whose candidate failed."
+        ))],
+        candidate: Annotated[str | None, Field(description=(
+            "Name of the failed candidate of a comparison."
+        ))] = None,
+    ) -> FailureResult:
+        with state.failures_lock:
+            kept = state.failures.get(object_id)
+        if kept is None and object_id.startswith("failure-"):
+            raise ServerError(
+                f"No failure is kept with the id {object_id!r}: the server keeps "
+                f"the last {store.max_objects}, and none from a previous run.",
+                code    = "unknown_id",
+                field   = "object_id",
+                details = {"id": object_id},
+            )
+        if kept is not None and candidate is not None:
+            raise ServerError(
+                f"{object_id!r} is the failure of one call: `candidate` only "
+                f"applies to the id of a comparison.",
+                code  = "invalid_argument",
+                field = "candidate",
+            )
+        if kept is None:
+            entry = store.get(object_id, "object_id", ("comparison",))
+            if candidate not in entry.candidate_failures:
+                raise ServerError(
+                    f"The comparison {object_id!r} has no failed candidate named "
+                    f"{candidate!r}. Failed candidates: "
+                    f"{sorted(entry.candidate_failures)}.",
+                    code  = "invalid_argument",
+                    field = "candidate",
+                )
+            kept = entry.candidate_failures[candidate]
+        text, path = kept
+
+        return FailureResult(
+            id             = object_id,
+            candidate      = candidate,
+            text           = text,
+            text_truncated = path is not None,
+            files          = {} if path is None else {"failure": path},
+        )
+
     @_reported
     async def get_code(
         object_id: Annotated[str, Field(description=(
-            "Id of a plan (its forecasting script) or of a cross-validation "
-            "strategy (the code that builds it)."
+            "Id of a plan (its forecasting script), a cross-validation strategy "
+            "(the code that builds it), a backtest, a forecast or a comparison "
+            "(the script that ran)."
         ))],
+        candidate: Annotated[str | None, Field(description=(
+            "For a comparison, the candidate whose script to return. Null for "
+            "the best one."
+        ))] = None,
     ) -> CodeResult:
         entry = store.get(object_id, "object_id")
         if entry.code is None:
             raise ServerError(
                 f"{object_id!r} is a {entry.kind}, which has no code: pass the id "
-                f"of a plan or a cross-validation strategy.",
+                f"of a plan, a cross-validation strategy, a backtest, a forecast "
+                f"or a comparison.",
                 code  = "invalid_argument",
                 field = "object_id",
             )
-        if entry.code_file is None:
-            return CodeResult(id=entry.id, kind=entry.kind, code=entry.code)
+        code, code_file = entry.code, entry.code_file
+        if candidate is not None:
+            if entry.kind != "comparison" or candidate not in entry.obj.candidates:
+                names = []
+                if entry.kind == "comparison":
+                    names = sorted(entry.obj.candidates)
+                raise ServerError(
+                    f"{object_id!r} has no candidate {candidate!r} that ran. "
+                    f"Candidates that ran: {names}.",
+                    code  = "invalid_argument",
+                    field = "candidate",
+                )
+            code = entry.obj.candidates[candidate].code
+            code_file = entry.candidate_code_files.get(candidate)
+        if code_file is None:
+            return CodeResult(
+                id=entry.id, kind=entry.kind, candidate=candidate, code=code
+            )
 
         return CodeResult(
             id             = entry.id,
             kind           = entry.kind,
-            code           = entry.code[:MAX_CODE_CHARS],
+            candidate      = candidate,
+            code           = code[:MAX_CODE_CHARS],
             code_truncated = True,
-            files          = {"code": entry.code_file},
+            files          = {"code": code_file},
         )
 
     @_reported
@@ -774,9 +1404,30 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Build a time series cross-validation strategy (TimeSeriesFold) for "
             "a plan. The response states its cost in `cost`. Returns a cv id."
         )),
+        _StrictTool.build(backtest, "backtest", (
+            "Backtest a plan with a cross-validation strategy: metrics over the "
+            "folds, with the predictions and metrics in CSV files. Returns a "
+            "backtest id."
+        )),
+        _StrictTool.build(compare, "compare", (
+            "Backtest several configurations on the same folds and rank them by "
+            "the metric of the profile. Reports progress per candidate and can "
+            "be cancelled between candidates. Returns a comparison id and the "
+            "plan of the winner in `links.best_plan_id`."
+        )),
+        _StrictTool.build(forecast, "forecast", (
+            "Run a plan: forecast the future, or evaluate on a test set with "
+            "`test_size`. Predictions and metrics go to CSV files. Returns a "
+            "forecast id."
+        )),
         _StrictTool.build(get_code, "get_code", (
-            "Return the Python code of a plan or a cross-validation strategy."
+            "Return the Python script of an object: the one that ran, or that "
+            "would run for a plan."
         ), read_only=True),
+        _StrictTool.build(get_failure, "get_failure", (
+            "Return the traceback and the code of a failed run or of a failed "
+            "candidate of a comparison."
+        )),
         _StrictTool.build(list_objects, "list_objects", (
             "List the ids of the objects the server keeps."
         ), read_only=True),
@@ -863,9 +1514,10 @@ def create_server(
         Directory the server may read data from. Only absolute paths of CSV
         files inside it are accepted, also after resolving symbolic links.
     output_dir : str, Path, default None
-        Directory of the files the server writes (long summaries and code).
-        It is created if it does not exist. When None, a new temporary
-        directory.
+        Directory of the files the server writes: predictions, metrics and
+        leaderboards as CSV, and summaries, scripts and failures too long for
+        a response. It is created if it does not exist. When None, a new
+        temporary directory, kept when the server stops.
     max_objects : int, default 256
         Most objects the server keeps; the least recently used ones are
         removed beyond it.
@@ -903,8 +1555,10 @@ def run_server(
         Directory the server may read data from. Only absolute paths of CSV
         files inside it are accepted, also after resolving symbolic links.
     output_dir : str, Path, default None
-        Directory of the files the server writes. It is created if it does
-        not exist. When None, a new temporary directory.
+        Directory of the files the server writes: predictions, metrics and
+        leaderboards as CSV, and summaries, scripts and failures too long for
+        a response. It is created if it does not exist. When None, a new
+        temporary directory, kept when the server stops.
     max_objects : int, default 256
         Most objects the server keeps.
     max_memory_mb : int, default 1024

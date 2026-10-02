@@ -16,11 +16,11 @@ def _entry(store, kind="profile", nbytes=10):
     object_id = store.new_id(kind)
     store.add(
         Entry(
-            id       = object_id,
-            kind     = kind,
-            obj      = None,
-            envelope = ToolResult(id=object_id, kind=kind, summary=""),
-            nbytes   = nbytes,
+            id=object_id,
+            kind=kind,
+            obj=None,
+            envelope=ToolResult(id=object_id, kind=kind, summary=""),
+            nbytes=nbytes,
         )
     )
 
@@ -30,14 +30,22 @@ def _entry(store, kind="profile", nbytes=10):
 def test_Store_new_id_output_kind_sequence_and_token():
     """
     Test that ids are '<kind>-<sequence>-<token>', with a sequence shared by
-    every kind and a token of the store.
+    every kind (failures included) and a token of the store.
     """
     store = Store(max_objects=10, max_bytes=1000)
 
-    ids = [store.new_id("profile"), store.new_id("plan"), store.new_id("cv")]
+    ids = [
+        store.new_id("profile"),
+        store.new_id("plan"),
+        store.new_id("failure"),
+        store.new_id("cv"),
+    ]
 
     assert ids == [
-        f"profile-1-{store.token}", f"plan-2-{store.token}", f"cv-3-{store.token}"
+        f"profile-1-{store.token}",
+        f"plan-2-{store.token}",
+        f"failure-3-{store.token}",
+        f"cv-4-{store.token}",
     ]
     assert all(ID_PATTERN.fullmatch(object_id) for object_id in ids)
     assert Store(max_objects=10, max_bytes=1000).token != store.token
@@ -89,10 +97,14 @@ def test_Store_add_removes_entries_beyond_max_bytes_and_keeps_the_newest():
 @pytest.mark.parametrize(
     "object_id, message",
     [
-        ("profile-1-abcdef", "'profile-1-abcdef' comes from another run of the server: ids do not survive a restart. Create the object again."),
+        (
+            "profile-1-abcdef",
+            "'profile-1-abcdef' comes from another run of the server: ids do not "
+            "survive a restart. Create the object again.",
+        ),
         ("not an id", "No object has the id 'not an id'."),
     ],
-    ids=lambda dt: f"{dt}"
+    ids=lambda dt: f"{dt}",
 )
 def test_Store_get_ServerError_when_id_unknown(object_id, message):
     """
