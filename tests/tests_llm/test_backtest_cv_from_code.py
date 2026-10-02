@@ -90,15 +90,21 @@ def test_backtest_cv_from_code_output_when_literal_arguments(cv_call, expected):
         _script("TimeSeriesFold(steps=n_steps, initial_train_size=10)"),
         _script("TimeSeriesFold(steps=3, initial_train_size=pd.Timestamp(day))"),
         _script("TimeSeriesFold(steps=0, initial_train_size=10)"),
+        _script("TimeSeriesFold(steps=3, initial_train_size=pd.Timestamp('garbage'))"),
         "cv = TimeSeriesFold(\n",
     ],
-    ids=["no splitter", "variable", "timestamp of a variable", "invalid", "syntax error"],
+    ids=[
+        "no splitter", "variable", "timestamp of a variable", "invalid",
+        "timestamp that does not parse", "syntax error",
+    ],
 )
 def test_backtest_cv_from_code_returns_none_when_not_readable(code):
     """
     Test that a script without a splitter, with an argument that is not a
-    literal, with arguments `TimeSeriesFold` rejects, or that does not
-    compile gives None instead of running anything or raising.
+    literal, with arguments `TimeSeriesFold` rejects, with a date edited by
+    hand that does not parse (it raised `DateParseError` from describe()),
+    or that does not compile gives None instead of running anything or
+    raising.
     """
     assert backtest_cv_from_code(code) is None
 

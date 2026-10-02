@@ -901,3 +901,22 @@ def test_with_data_path_output_when_dataframe_and_profile_of_file(tmp_path):
     assert in_run.data_profile.data_path == "run.csv"
     assert _with_data_path(profile, None) is profile
     assert profile.data_profile.data_path == str(csv_path)
+
+
+def test_apply_interval_to_plan_does_not_share_lists():
+    """
+    Test that the plan with the new interval does not share its lists
+    (`warnings`, `forecaster_kwargs`) with the plan passed: changing one
+    changed the other.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    plan.warnings.append("A warning.")
+
+    new_plan = _apply_interval_to_plan(plan, [0.1, 0.9])
+    new_plan.warnings.append("Another warning.")
+
+    assert plan.warnings == ["A warning."]
+    assert new_plan.warnings == ["A warning.", "Another warning."]
+    assert new_plan.forecaster_kwargs is not plan.forecaster_kwargs

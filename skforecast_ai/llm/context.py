@@ -615,7 +615,12 @@ def backtest_cv_from_code(code: str) -> Any:
                 and isinstance(value.args[0], ast.Constant)
                 and isinstance(value.args[0].value, str)
             ):
-                kwargs[keyword.arg] = pd.Timestamp(value.args[0].value)
+                # A date edited by hand may not parse; then the folds are
+                # not counted, as for any other value that cannot be read.
+                try:
+                    kwargs[keyword.arg] = pd.Timestamp(value.args[0].value)
+                except (ValueError, TypeError):
+                    return None
                 continue
             try:
                 kwargs[keyword.arg] = ast.literal_eval(value)
@@ -689,7 +694,8 @@ def render_script_section(
             )
             mode = (
                 f"backtesting: predicts {n_folds} fold"
-                f"{'s' if n_folds != 1 else ''} of {cv_config['steps']} steps, "
+                f"{'s' if n_folds != 1 else ''} of {cv_config['steps']} step"
+                f"{'s' if cv_config['steps'] != 1 else ''}, "
                 f"{trained}, and scores the predictions of every fold against "
                 f"the held-out observations"
             )

@@ -3032,7 +3032,7 @@ class ForecastingAssistant:
                 n_observations = profile.data_profile.span_index_length,
                 test_size      = test_size,
             )
-            plan = plan.model_copy(update={"end_train": end_train})
+            plan = plan.model_copy(update={"end_train": end_train}, deep=True)
 
         # One forecast of `steps` observations is evaluated, so a longer test
         # set would be scored on its first `steps` rows only (without saying

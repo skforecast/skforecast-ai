@@ -435,12 +435,15 @@ def _apply_interval_to_plan(plan: ForecastPlan, interval: list[float]) -> Foreca
     explanation = plan.explanation
     if "Prediction intervals via" not in explanation:
         explanation = f"{explanation} Prediction intervals via {interval_method}."
+    # A deep copy, so the lists of the new plan (its warnings, its
+    # forecaster arguments) are not shared with the plan passed.
     return plan.model_copy(
         update={
             "interval": interval,
             "interval_method": interval_method,
             "explanation": explanation,
-        }
+        },
+        deep=True,
     )
 
 
