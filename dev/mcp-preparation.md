@@ -441,7 +441,7 @@ Lo que no estaba en las secciones 4 y 5. Severidad para el MCP: **B** = bloquea 
 
 ## 10. Decisiones propuestas, pendientes de revisión
 
-Salvo los PRs 0 a 4, hechos en la fase 2 (sección 11), y los PRs 5, 6, 7, 8, 10 y 11, hechos en la fase 3a (sección 12), nada de esta sección está implementado: es una propuesta para revisar. Los números de PR remiten a la tabla de 10.8.
+Salvo los PRs 0 a 4, hechos en la fase 2 (sección 11), los PRs 5, 6, 7, 8, 10 y 11, hechos en la fase 3a (sección 12), y los PRs 9, 12, 13 y 14, hechos en la fase 3b (sección 13), nada de esta sección está implementado: es una propuesta para revisar. Los números de PR remiten a la tabla de 10.8.
 
 **Criterio de "la opción más conservadora"**, aplicado en este orden:
 1. Cerrar en caso de duda todo lo que toca la seguridad.
@@ -1111,3 +1111,82 @@ Antes de mergear la fase 3a, una verificación independiente comparó `0.4.x` an
   - con numpy 2.5 y pandas 2.3.3, `pd.Timedelta(days=1)` emitía un `DeprecationWarning` que, con `filterwarnings = error`, paraba la recogida de los tests: ahora hay un `ignore` específico en `pyproject.toml`;
   - tres tests de `tests/tests_profiling` dependían de la zona horaria de la máquina (con `Europe/Madrid` pandas lee `'CET'` como hora local): `tests/conftest.py` ejecuta la suite en UTC.
 - Los tests no se ejecutan en GitHub para las PRs a las ramas de versión (`unit-tests.yml` solo se lanza en PRs a `main`), y el autor decidió no cambiar CI: la suite se ejecuta en local o en las sesiones remotas, con `/verify`.
+
+## 13. Fase 3b: hecho
+
+CV de ForecasterStats, `describe()` e `interval_method`: los PRs 9, 13, 12 y 14 de la tabla 10.8, en ese orden, y un commit que quita `ForecasterDirectMultiVariate` de `profile.forecaster_candidates` para datos largos de varias series (pendiente de 12.1), en la rama `feature/mcp-describe`, creada desde `0.4.x` (`39825dc`, que ya incluye `fix/mcp-data`). Un commit por PR, cada uno con su código, sus tests y su entrada en `docs/releases/releases.md` (0.4.0); cualquier prefijo de la rama se puede mergear. Antes de cada commit se pasaron `/verify` (lint, tests afectados, suite completa y, según el caso, build de la documentación, goldens del LLM y `check_ask_context.py --dry-run`), el subagente `conventions-reviewer` y `/code-review`; lo que encontraron se corrigió antes del commit o quedó anotado en su mensaje y aquí. Ningún commit subido se reescribió y ninguno necesitó una corrección posterior.
+
+Decisiones del autor aplicadas:
+- pregunta 2 de 10.10: regla literal de `AGENTS.md` y una sola ejecución del check de pago antes de la release; no se lanzó en esta fase (los cambios para ese check, abajo);
+- pregunta 3: `ForecasterStats` mantiene la ventana fija que ya ejecutaba, escrita de forma explícita en el script; las métricas no cambian.
+
+| Commit | PR | Contenido |
+|---|---|---|
+| `2405a60` | 9 | ForecasterStats escribe, explica y cuenta el CV que ejecuta skforecast |
+| `8b21529` | 13 | Los backtests multiserie escriben el `interval_method` del plan |
+| `513fd11` | 12 | `describe()` sin las frases dirigidas al LLM de `ask()` |
+| `0de31af` | 14 | Límites de `describe()` |
+| `e8bd99e` | (12.1, parte del PR 24) | Sin `ForecasterDirectMultiVariate` entre los candidatos de datos largos de varias series |
+
+**Qué cubre cada PR.**
+- PR 9: `recommendation.backtesting.cv_as_executed(cv, forecaster)` devuelve, para `ForecasterStats` con un `refit` distinto de `True` (o 1), una copia con `refit=True` y `fixed_train_size=True` tras un `refit` falso (el valor del usuario tras un `refit` entero, que el script ya escribía); en cualquier otro caso, el mismo `cv`. La usan el script del backtest Stats, `resolve_cv_config` (`cv_config` con `refit` True, la ventana que se ejecuta y `n_fits == n_folds`), `build_cv_explanation` (frase nueva), el fragmento `code` de `create_cv()` y, a través de `count_estimator_fits(n_folds=...)`, el presupuesto y el aviso de `compare()` y `backtest()`. `CVResult.cv` conserva los parámetros dados. El aviso `LongTrainingWarning` de Stats propone menos folds en lugar de `refit=False`, y la explicación de `compare()` añade una frase cuando corre un candidato Stats.
+- PR 13: `_emit_backtesting_call_multiseries` escribe `interval_method` cuando el plan tiene intervalo y su método no es el valor por defecto de `backtesting_forecaster_multiseries` (`'conformal'`); los planes multiserie y multivariante tienen `'bootstrapping'`.
+- PR 12: `ExplainableResult.describe()` es `_build_llm_context(send_data=False, for_describe=True).text`; `for_describe` recorre las 5 implementaciones y los renderers que tienen una instrucción; las 4 frases dirigidas al LLM son constantes de `llm/context.py` (`PLAN_CODE_NOTE`, `SCRIPT_NOTE`, `RANKING_NOTE`, `LEADERBOARD_NOTE`); `tools/ai/update_golden_contexts.py` escribe también los goldens de `describe()`, y `docs/api/schemas/results.md` muestra su docstring.
+- PR 14: solo con `for_describe=True`, 15 elementos por lista con "(first N of M)" (columnas objetivo, exógenas y categóricas, lags y window features del plan, avisos de datos, candidatos fallidos), los valores ausentes por serie o columna con los totales, y las métricas de las 5 primeras series más las filas agregadas (`average`, `weighted_average`, `pooling`), con una línea que lo dice; las estadísticas y los lags significativos, ya limitados a 5 series en `ask()`, dicen en `describe()` cuántas series hay. Con 500 series (ancho, 20 exógenas, 30 lags) `describe()` de un backtest ocupa 4.105 caracteres frente a 30.281 del contexto de `ask()`.
+- Candidatos (`e8bd99e`): `select_forecaster_and_candidates` deja fuera `ForecasterDirectMultiVariate` con varias series en formato largo; `plan()` emite `UnrecommendedForecasterWarning` después de `_validate_task_input`, para no anunciar como usado un forecaster que rechaza a continuación.
+
+**Desviaciones respecto a la sección 10, con su motivo.**
+- PR 9:
+  - `create_cv()` con un plan Stats: `cv_config`, la explicación y `code` describen el CV que se ejecuta, pero `CVResult.cv` conserva los parámetros dados. Pasarlo a `refit=True` haría reajustar en cada fold a cualquier otro forecaster con el que se reutilice (por ejemplo en `compare()`), lo que cambia resultados de llamadas que funcionan (criterio 3). Los docstrings de `CVResult` y `create_cv()` lo dicen.
+  - Sin aviso de Python cuando el usuario pide `refit=False` o `fixed_train_size=False` para Stats: el documento no lo pide; el script, `cv_config` y la explicación ya dicen lo que se ejecuta (pregunta abajo).
+  - No previsto por el documento: una frase en la explicación de `compare()` cuando corre un candidato Stats (la estrategia compartida decía "trained once"), y el remedio propio de Stats en `LongTrainingWarning`, porque `refit=False` no reduce sus ajustes.
+- PR 13: `interval_method` solo se escribe cuando difiere del valor por defecto de skforecast, como en la llamada de una serie, para que ningún script existente cambie.
+- PR 12: los dos añadidos de 10.5 (la ruta `send_data=False` deja de resumir la columna `fold` y da un bloque por serie; el contexto de `backtest_code()` deja de describirse como predicción) cambiarían el contexto de `ask()` con `send_data=False`, que el autor exige idéntico byte a byte, y el test de que `describe()` es ese contexto sin las frases. Se aplicó la alternativa que permite 10.5: las Notes de `describe()` avisan de las dos limitaciones, y un test fija la de `backtest_code()` para que su arreglo se note (pregunta abajo).
+- PR 14: los textos de las explicaciones (perfil, plan, CV, comparación) no se recortan: habría que analizar texto libre. La explicación del plan nombra todos los lags; el docstring de `describe()` lo dice. El golden de 500 series sale de `GOLDEN_DESCRIBE_SCENARIOS` (los escenarios de siempre más ese backtest), para no añadir un golden de `ask()` en un PR que no debe cambiarlos.
+- Candidatos: el cambio de orden del aviso no lo pide 12.1, pero sin él la llamada que rechaza el PR 24 avisaría "used as requested" justo antes del error, y con avisos como errores el aviso sustituiría al `InvalidInputError`.
+
+**Cambios para quien usa la librería** (respecto a 0.3.1):
+- PR 9, con un plan `ForecasterStats`:
+  - el script del backtest (`backtest()`, `backtest_code()`, `compare()`, CLI) escribe `refit = True` y `fixed_train_size = True` cuando el CV no reajusta (0.3.1 escribía `refit = False` sin `fixed_train_size`; su CV por defecto reajustaba con ventana creciente, que `refit=True` sigue dando);
+  - `cv_config` de `create_cv()` y `backtest()`: `refit` True, la ventana que se ejecuta y `n_fits == n_folds`; `CVResult.code` con ese `TimeSeriesFold`; `CVResult.cv` sin cambios;
+  - una frase más en la explicación del CV, y en la de `compare()` cuando corre un candidato Stats;
+  - `compare()` sin `candidates` deja fuera ForecasterStats por encima de 500 folds, con el aviso y la nota del presupuesto, y `LongTrainingWarning` por encima de 50 folds;
+  - métricas y predicciones idénticas (comprobado con h2o y cuatro CV distintos; `Arima.fit` se llama `n_fits` veces).
+- PR 13: los backtests de `ForecasterRecursiveMultiSeries` y `ForecasterDirectMultiVariate` con intervalo escriben `interval_method = 'bootstrapping'`; cambian `lower_bound` y `upper_bound`, no `pred` ni las métricas (comprobado con items_sales ancho y largo; el backtest no es más lento).
+- PR 12 y 14: método público nuevo `describe()` en `ForecastingProfile`, `CodeGenerationResult`, `CVResult`, `ForecastResult`, `BacktestResult` y `ComparisonResult`; el contexto de `ask()` no cambia.
+- Candidatos: `profile.forecaster_candidates` (y la tabla del perfil en el CLI) ya no lista `ForecasterDirectMultiVariate` para datos largos de varias series, y la explicación del perfil tampoco lo nombra; `plan()` con un forecaster rechazado por la forma de los datos lanza el error sin el `UnrecommendedForecasterWarning` previo.
+
+**Tests.**
+- Suite completa: de 2698 tests (más 1 omitido) en `0.4.x` a 2790 (más 1 omitido), es decir, 92 más.
+- Por commit, con `/verify`: 2724 (PR 9), 2729 (PR 13), 2776 (PR 12), 2786 (PR 14) y 2790 (candidatos).
+- Goldens de render: solo cambia el del backtest de ForecasterStats (PR 9); el PR 13 añade tres (multiserie ancho y largo y multivariante, con intervalo).
+- Goldens del LLM: no cambian en los PRs 9, 13, 12 y 14 (en el PR 9 porque ninguno cubre ForecasterStats; en los PRs 12 y 14 porque el contexto de `ask()` no cambia); cambian 3 en el commit de los candidatos. El PR 12 añade 15 goldens de `describe()` en `tests/tests_llm/golden_describe/` y el PR 14 uno más (500 series); el commit de los candidatos cambia 3 de ellos.
+- El contexto de `ask()` de los 15 escenarios y de los 6 constructores por defecto, con `send_data` True y False, es idéntico byte a byte al de `0.4.x` en los PRs 12 y 14.
+
+**Para el check de pago** (no se lanzó en esta fase). Lista completa de lo que cambia en lo que recibe el LLM:
+- PR 9 (sin golden, porque ninguno cubre ForecasterStats):
+  - `<backtesting_strategy>` de `CVResult` y `BacktestResult` con un plan Stats: `refit: True`, `fixed_train_size: True` tras un `refit` falso, `n_fits` igual a `n_folds`;
+  - `<deterministic_summary>` de esos resultados: la frase "ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models.";
+  - `<deterministic_summary>` de `ComparisonResult` cuando corre un candidato Stats: "ForecasterStats is refitted in every fold on a fixed (o expanding) window (N trainings): skforecast requires it for ARIMA models."; la nota "Applied identically to every candidate." de `<backtesting_strategy>` no cambia (pregunta abajo).
+- PR 13: ningún texto; con intervalo, las estadísticas de `lower_bound` y `upper_bound` en `<predictions>` de un backtest multiserie salen de otros intervalos.
+- PRs 12 y 14: cambia `llm/context.py` (las 4 frases pasan a constantes, y los renderers reciben `for_describe`), sin cambiar ni un byte de lo que envía `ask()`. Entran por la regla literal.
+- Candidatos: en `<profile_decision>` de datos largos de varias series, "Alternative forecasters: ['ForecasterFoundation']" en lugar de "['ForecasterDirectMultiVariate', 'ForecasterFoundation']".
+- Siguen pendientes los de las secciones 3 y 12 (notas de `DataProfile.warnings` de los PRs 6 y 8).
+
+**Preguntas nuevas para el autor.**
+1. PR 9: cuando el usuario pide `refit=False` (o `fixed_train_size=False`) para ForecasterStats, ¿basta con que el script, `cv_config` y la explicación digan lo que se ejecuta (implementado), o también un aviso de Python?
+2. PR 12: los dos añadidos de 10.5 (columna `fold` y un bloque por serie con `send_data=False`; `backtest_code()` descrito como predicción). Arreglarlos cambia el contexto de `ask()` (de pago). ¿Se arreglan en ambos a la vez, junto al PR 36, o solo en `describe()`, renunciando a que sea el contexto de `ask()` sin las frases?
+3. `compare()` con un candidato Stats: ¿cambiar también la nota "Applied identically to every candidate." del contexto (de pago), o basta con la frase de la explicación?
+4. `describe()`: ¿recortar también las listas dentro de los textos de explicación (por ejemplo los lags del plan), que hoy crecen con los lags pedidos? Cambia explicaciones (de pago).
+5. Un plan escrito a mano o cargado de JSON con `interval` e `interval_method=None`: el backtest multiserie usa conformal y el script de predicción no calcula intervalos. ¿El validador de `ForecastPlan` exige `interval_method` cuando hay `interval` (rechaza planes que hoy cargan) o el render toma el método de la tarea?
+6. `UnrecommendedForecasterWarning` sigue saliendo antes de otros rechazos de `plan()` (`lags` con ForecasterStats, un id de modelo foundation, un intervalo), como en 0.3.1. ¿Se mueve al final de `plan()`, cambiando su orden respecto a los demás avisos?
+
+**Pendiente o anotado, fuera de esta fase.**
+- Las preguntas 2 a 6 de arriba.
+- El check de pago, con todo lo de la lista anterior más lo de las secciones 3 y 12.
+- La fixture `plan_multivariate` de `tests/tests_rendering` (y la nueva con intervalo) tiene `steps=5` y se renderiza con un CV de 10 pasos: solo se compara como texto, no se ejecuta.
+
+**Lo que falta antes del servidor.** Con esta fase entran todos los PRs mínimos antes del PR 18 (1, 2, 3, 6, 7, 8, 9, 12, 13 y 14) y, de los mínimos antes del 19, el 10 y el 11. Faltan:
+- PR 15: `progress_callback` y `CompareProgress` en `compare()` (mínimo antes del PR 19);
+- PR 16: `ForecastPlan.warnings` y el panel "Plan Warnings" (muy recomendable);
+- PR 17: el script carga el mismo fichero que la ejecución con rutas (muy recomendable; cambia scripts, y arregla el `exog_future.csv` de formato largo anotado en 12).
