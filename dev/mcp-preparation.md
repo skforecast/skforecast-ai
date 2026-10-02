@@ -1307,13 +1307,12 @@ Suma con lo pendiente de las secciones anteriores, que no cambia: la regla 4 de 
 4. PR 15: ¿se confirman dos eventos por candidato y la cancelación lanzando una excepción desde el callback, que sale de `compare()` tal cual, como contrato para el PR 19?
 5. 4b: el resumen sin datos de las predicciones multiserie sigue sumando las series; ¿un bloque por serie, como 10.5 proponía, en el lote de pago?
 6. 4c: "Applied identically to every candidate." sigue cuando corre un candidato que no se entrena (ForecasterFoundation, baseline); la explicación de `compare()` ya lo dice para foundation. ¿Se ajusta también la nota?
-7. skforecast: el fallo del backtest de ForecasterStats con `gap > 0` sin intervalo (backlog de 13.1) está corregido en la rama `0.26.x` de skforecast (comprobado con su punta: h2o, `gap=2`, sin error), pero esa rama sigue llamándose 0.26.0 y el skforecast instalado en el entorno de la sesión, también 0.26.0, es anterior a la corrección y sigue fallando. ¿Se exige en `pyproject.toml` la versión de skforecast que la publique?
 
 **Pendiente o anotado, fuera de esta fase.**
 - Las preguntas de arriba y las abiertas de 10.10 y de las secciones 11 a 13.
 - `describe()` de un `backtest_code()` con `initial_train_size` de tipo `pd.Timestamp` no cuenta los folds mientras `build_cv_explanation` falle con ese tipo (PR 23).
 - El comentario del script de ForecasterStats y foundation ("# Categorical exog excluded (...)") y la línea del perfil de `ask()` siguen nombrando todas las columnas categóricas; 4a solo recorta la razón del paso.
-- El backlog de 13.1 sobre el fallo de skforecast con `gap > 0` queda resuelto en origen (pregunta 7).
+- El backlog de 13.1 sobre el fallo de skforecast con `gap > 0` queda resuelto en origen: está corregido en la rama `0.26.x` de skforecast (comprobado con su punta: h2o, `gap=2`, sin error) y lo incluirá la 0.26.0, aún en desarrollo, así que basta con `skforecast>=0.26.0`. El skforecast instalado en el entorno de la sesión es anterior a la corrección y sigue fallando; se arregla al reinstalarlo desde la rama.
 
 **Qué queda para empezar el servidor (PRs 18 y 19).** Con esta fase entran todos los PRs mínimos (1, 2, 3, 6, 7, 8, 9, 12, 13 y 14 antes del 18; 10, 11 y 15 antes del 19) y los muy recomendables (4, 5, 16 y 17). Para empezar:
 - PR 18: la decisión 4 de 12.1 (el MCP reenvía los mensajes tal cual, con un máximo de 5 valores y el límite de tamaño del servidor, y lo dicen el SKILL.md y la documentación del servidor); `values_included=False` significa sin filas, mientras las estadísticas de las predicciones y las métricas sí van (13.1); el tool `profile` rechaza saltos de línea en los nombres (pregunta 4 de 10.10). Siguen abiertas para el autor las preguntas 1 (versión), 12 (valores por defecto del servidor), 13, 14 y 18 de 10.10.
