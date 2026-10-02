@@ -26,6 +26,8 @@ from .fixtures_rendering import (
     plan_multi_series,
     plan_multi_series_exog,
     plan_multivariate,
+    plan_multi_series_with_intervals,
+    plan_multivariate_with_intervals,
     plan_single_recursive_no_exog,
     plan_statistical,
     plan_statistical_exog,
@@ -222,7 +224,9 @@ def test_render_backtesting_multivariate_output_when_wide_format():
 def test_render_backtesting_statistical_output_when_auto_arima():
     """
     Test that render_backtesting_statistical produces the expected
-    full script with backtesting_stats call and freeze_params.
+    full script with backtesting_stats call and freeze_params, and writes
+    the CV that skforecast runs: a `refit=False` splitter becomes
+    `refit=True` with a fixed training window.
     """
     result = render_backtesting_statistical(plan_statistical, profile_single_no_exog, cv_basic)
 
@@ -251,7 +255,8 @@ def test_render_backtesting_statistical_output_when_auto_arima():
         "cv = TimeSeriesFold(\n"
         "    steps              = 10,\n"
         "    initial_train_size = 80,\n"
-        "    refit              = False,\n"
+        "    refit              = True,\n"
+        "    fixed_train_size   = True,\n"
         ")\n"
         "\n"
         "# Run backtesting\n"
@@ -842,3 +847,189 @@ def test_format_initial_train_size_output_when_different_types(
     its name), and with repr otherwise, so a string stays a string literal.
     """
     assert _format_initial_train_size(initial_train_size) == expected
+
+
+# =============================================================================
+# Tests: multi-series and multivariate backtesting: interval method
+# =============================================================================
+def test_render_backtesting_multi_series_output_when_wide_format_with_intervals():
+    """
+    Test that render_backtesting_multi_series passes the interval together
+    with `interval_method='bootstrapping'`, the method of the plan, since
+    skforecast defaults to conformal intervals in
+    backtesting_forecaster_multiseries.
+    """
+    result = render_backtesting_multi_series(
+        plan_multi_series_with_intervals, profile_multi_wide, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursiveMultiSeries(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        "    encoding  = 'ordinal',\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster_multiseries(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = data[['series_a', 'series_b']],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    interval          = [0.1, 0.9],\n"
+        "    interval_method   = 'bootstrapping',\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_multi_series_output_when_long_format_with_intervals():
+    """
+    Test that render_backtesting_multi_series passes `interval_method` with
+    the interval for long-format data too, where the series are reshaped
+    into a dict.
+    """
+    result = render_backtesting_multi_series(
+        plan_multi_series_with_intervals, profile_multi_long, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.preprocessing import reshape_series_long_to_dict\n"
+        "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.sort_values('date')\n"
+        "\n"
+        "# Reshape to dict format (required for backtesting multi-series)\n"
+        "series_dict = reshape_series_long_to_dict(\n"
+        "    data      = data,\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    values    = 'value',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursiveMultiSeries(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        "    encoding  = 'ordinal',\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster_multiseries(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = series_dict,\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    interval          = [0.1, 0.9],\n"
+        "    interval_method   = 'bootstrapping',\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_multivariate_output_when_wide_format_with_intervals():
+    """
+    Test that render_backtesting_multivariate passes the interval together
+    with `interval_method='bootstrapping'`, the method of the plan.
+    """
+    result = render_backtesting_multivariate(
+        plan_multivariate_with_intervals, profile_multi_wide, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.direct import ForecasterDirectMultiVariate\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterDirectMultiVariate(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    level     = 'series_a',\n"
+        "    steps     = 5,\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster_multiseries(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = data[['series_a', 'series_b']],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    interval          = [0.1, 0.9],\n"
+        "    interval_method   = 'bootstrapping',\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected

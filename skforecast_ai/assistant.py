@@ -15,7 +15,7 @@ if sys.version_info >= (3, 12):
     from typing import Unpack
 else:
     from typing_extensions import Unpack
-from skforecast.exceptions import LongTrainingWarning
+from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
     AUTOREG_FORECASTERS,
@@ -84,6 +84,7 @@ from .recommendation import (
     check_exog_usage,
     compute_series_pacf,
     count_estimator_fits,
+    cv_as_executed,
     derive_cv_defaults,
     derive_preprocessing_steps,
     drop_colliding_calendar_features,
@@ -446,6 +447,7 @@ class ForecastingAssistant:
         data_profile = profile.data_profile
 
         fc = profile.forecaster
+        unrecommended = False
         if forecaster is not None:
             if (
                 forecaster not in profile.forecaster_candidates
@@ -458,20 +460,14 @@ class ForecastingAssistant:
                         f"{profile.forecaster_candidates}.",
                         field = "forecaster",
                     )
-                warnings.warn(
-                    f"Forecaster '{forecaster}' is not among the recommended "
-                    f"candidates for this profile "
-                    f"({profile.forecaster_candidates}), but it is used as "
-                    f"requested. It may be slow or perform poorly on this data.",
-                    UnrecommendedForecasterWarning,
-                )
+                unrecommended = True
             fc = forecaster
 
         task_type = select_task_type_from_forecaster(fc)
 
         # Reject inputs incompatible with the resolved task type
         # (single-series tasks with multi-series input; multivariate with
-        # series of different lengths).
+        # series of different lengths or on long-format data).
         _validate_task_input(data_profile, task_type)
 
         # Arguments the forecaster has no use for are rejected rather than
@@ -744,7 +740,7 @@ class ForecastingAssistant:
                     f"not used: the baseline only repeats past target values."
                 )
 
-        return ForecastPlan(
+        plan = ForecastPlan(
             task_type           = task_type,
             forecaster          = fc,
             forecaster_kwargs   = forecaster_kwargs,
@@ -760,6 +756,22 @@ class ForecastingAssistant:
             preprocessing_steps = preprocessing_steps,
             explanation         = explanation,
         )
+
+        # Warned once the plan exists, so a forecaster that a later check
+        # rejects (the shape of the data, an argument it has no use for, a
+        # foundation model or an interval it cannot serve) is never said to
+        # be "used as requested", and with warnings raised as errors the
+        # warning never hides that error.
+        if unrecommended:
+            warnings.warn(
+                f"Forecaster '{forecaster}' is not among the recommended "
+                f"candidates for this profile "
+                f"({profile.forecaster_candidates}), but it is used as "
+                f"requested. It may be slow or perform poorly on this data.",
+                UnrecommendedForecasterWarning,
+            )
+
+        return plan
 
     def refine_plan(
         self,
@@ -1551,8 +1563,12 @@ class ForecastingAssistant:
             - plan: plan the strategy was derived from.
             - cv: configured `TimeSeriesFold` fold splitter.
             - cv_config: resolved `TimeSeriesFold` parameters plus the
-            resulting `n_folds`.
-            - code: Python snippet that builds the same `TimeSeriesFold`.
+            resulting `n_folds`. For a `ForecasterStats` plan, the
+            strategy skforecast runs: `refit=True` (it refits ARIMA in
+            every fold) and, when `cv` does not refit,
+            `fixed_train_size=True`.
+            - code: Python snippet that builds the `TimeSeriesFold` of
+            `cv_config`, the one the backtesting script embeds.
             - explanation: human-readable explanation of the chosen
             configuration (LLM reasoning first when a prompt was used).
 
@@ -1634,10 +1650,37 @@ class ForecastingAssistant:
         if reasoning:
             cv_explanation = f"{reasoning} {cv_explanation}"
 
+        # skforecast refits ForecasterStats in every fold whatever `refit`
+        # says. The script, `cv_config` and the explanation say what runs;
+        # an argument the user passed and that does not run is also warned
+        # about, so it is not replaced without notice.
+        executed = cv_as_executed(cv, plan.forecaster)
+        ignored = [
+            f"`{name}={value!r}`"
+            for name, value, ran in (
+                ("refit", refit, executed.refit),
+                ("fixed_train_size", fixed_train_size, executed.fixed_train_size),
+            )
+            if value is not None and value != ran
+        ]
+        if ignored:
+            warnings.warn(
+                f"{' and '.join(ignored)} do not apply to ForecasterStats: "
+                f"skforecast refits it in every fold, so its backtest runs "
+                f"with `refit=True` and "
+                f"`fixed_train_size={executed.fixed_train_size}`. Pass those "
+                f"values to avoid this warning.",
+                IgnoredArgumentWarning,
+                stacklevel = 2,
+            )
+
         # The same snippet the backtesting script embeds, so the strategy
-        # can be inspected and reproduced on its own.
+        # can be inspected and reproduced on its own. For ForecasterStats it
+        # is the strategy skforecast runs, while `cv` keeps the parameters
+        # as given, so reusing it with another forecaster does not change
+        # how that one is trained.
         code_lines = ["from skforecast.model_selection import TimeSeriesFold", ""]
-        _emit_cv_configuration(code_lines, cv)
+        _emit_cv_configuration(code_lines, executed)
 
         return CVResult(
             profile     = profile,
@@ -2217,6 +2260,7 @@ class ForecastingAssistant:
                 preferred         = profile.forecaster,
                 n_fits            = n_fits,
                 steps             = steps,
+                n_folds           = cv_config["n_folds"],
             )
             if budget_note is not None:
                 warnings.warn(budget_note, LongTrainingWarning, stacklevel=2)
@@ -2226,7 +2270,12 @@ class ForecastingAssistant:
         for _, config in candidate_configs:
             forecaster = config.get("forecaster") or profile.forecaster
             warn_long_training(
-                estimator_fits = count_estimator_fits(n_fits, forecaster, steps),
+                estimator_fits = count_estimator_fits(
+                                     n_fits     = n_fits,
+                                     forecaster = forecaster,
+                                     steps      = steps,
+                                     n_folds    = cv_config["n_folds"],
+                                 ),
                 n_fits         = n_fits,
                 forecaster     = forecaster,
                 steps          = steps,

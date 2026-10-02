@@ -13,6 +13,7 @@ from .backtesting import (
     count_cv_fits,
     count_cv_folds,
     count_estimator_fits,
+    cv_as_executed,
     derive_cv_defaults,
     resolve_cv_config,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "count_cv_fits",
     "count_cv_folds",
     "count_estimator_fits",
+    "cv_as_executed",
     "derive_cv_defaults",
     "derive_preprocessing_steps",
     "drop_colliding_calendar_features",

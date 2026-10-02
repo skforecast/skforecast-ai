@@ -1119,6 +1119,45 @@ def test_compare_LongTrainingWarning_when_automatic_candidate_exceeds_fit_budget
     assert result.explanation.endswith(budget_note)
 
 
+def test_compare_LongTrainingWarning_when_automatic_stats_exceeds_fit_budget(
+    monkeypatch,
+):
+    """
+    Test that compare() without candidates counts one fit per fold for an
+    automatic ForecasterStats candidate, which skforecast refits in every
+    fold: with `refit=False` (1 training) and 6 folds it costs 6 fits, above
+    a budget patched to 5, so it is left out with LongTrainingWarning while
+    ForecasterRecursive, trained once, is kept.
+    """
+    monkeypatch.setattr(comparison_module, "COMPARE_FIT_BUDGET", 5)
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    profile.forecaster_candidates = ["ForecasterRecursive", "ForecasterStats"]
+    profile.estimator_candidates = ["Ridge"]
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, refit=False, verbose=False)
+
+    budget_note = (
+        "Left out of the automatic candidates because this cross-validation "
+        "strategy exceeds the budget of 5 estimator fits: 'ForecasterStats': "
+        "ForecasterStats will be fit 6 times. "
+        "Pass them in `candidates` to include them."
+    )
+    with pytest.warns(LongTrainingWarning, match=re.escape(budget_note)):
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv,
+            target        = "sales",
+            date_column   = "date",
+            profile       = profile,
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert list(result.results["name"]) == ["ForecasterRecursive"]
+    assert result.cv_config["n_fits"] == 1
+    assert result.cv_config["n_folds"] == 6
+    assert result.explanation.endswith(budget_note)
+
+
 def test_compare_LongTrainingWarning_once_when_explicit_candidate_is_costly(
     monkeypatch,
 ):
@@ -1177,6 +1216,44 @@ def test_build_comparison_explanation_notes_foundation_is_not_trained():
         "fixed window, no refit. ForecasterFoundation is not trained: the "
         "window and refit settings do not apply to it, each fold forecasts "
         "from the observations before it. Best: 'foundation'"
+    ) in explanation
+
+
+@pytest.mark.parametrize(
+    "fixed_train_size, window",
+    [(True, "fixed"), (False, "expanding")],
+    ids=["fixed window", "expanding window"],
+)
+def test_build_comparison_explanation_notes_stats_is_refitted_in_every_fold(
+    fixed_train_size, window
+):
+    """
+    Test that the explanation states that ForecasterStats is refitted in
+    every fold, with its window type and number of trainings, before the
+    best configuration sentence.
+    """
+    stats_backtest = SimpleNamespace(
+        plan=SimpleNamespace(forecaster="ForecasterStats", estimator=None),
+        metrics=None,
+        cv_config={"fixed_train_size": fixed_train_size, "n_fits": 6},
+    )
+    ranked = [
+        ("stats", stats_backtest, 1.0),
+        _ranked_entry("recursive", "ForecasterRecursive", 2.0),
+    ]
+
+    explanation = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = ranked,
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+    )
+
+    assert (
+        "Shared cross-validation strategy: Folds. ForecasterStats is "
+        f"refitted in every fold on a {window} window (6 trainings): "
+        "skforecast requires it for ARIMA models. Best: 'stats'"
     ) in explanation
 
 

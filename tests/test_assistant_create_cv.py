@@ -7,6 +7,7 @@ import warnings
 import pandas as pd
 import pytest
 
+from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
@@ -18,6 +19,7 @@ from tests.fixtures_assistant import (
     df_range_index,
     df_short,
 )
+from tests.fixtures_datasets import df_h2o
 
 
 # =============================================================================
@@ -549,6 +551,91 @@ def test_create_cv_explanation_contains_key_params():
 
     assert "10-step horizon" in explanation
     assert "Initial training up to" in explanation
+
+
+def test_create_cv_output_when_forecaster_is_stats():
+    """
+    Test that for a ForecasterStats plan the splitter keeps the parameters
+    given, while `cv_config`, the snippet and the explanation state what
+    skforecast runs: refit in every fold on a fixed window, one training
+    per fold.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.cv.refit is False
+    assert result.cv.fixed_train_size is False
+    assert result.cv_config["refit"] is True
+    assert result.cv_config["fixed_train_size"] is True
+    assert result.cv_config["n_folds"] == 6
+    assert result.cv_config["n_fits"] == 6
+    assert "refit              = True,\n" in result.code
+    assert "fixed_train_size   = True,\n" in result.code
+    assert result.explanation == (
+        "Initial training up to 2003-04-01, fixed window, refit every fold "
+        "(6 trainings), 12-step horizon, 6 folds. ForecasterStats is "
+        "refitted in every fold whatever `refit` says: skforecast requires "
+        "it for ARIMA models."
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, ignored, fixed",
+    [
+        ({"refit": False}, "`refit=False`", True),
+        (
+            {"refit": False, "fixed_train_size": False},
+            "`refit=False` and `fixed_train_size=False`",
+            True,
+        ),
+        ({"refit": 2}, "`refit=2`", False),
+    ],
+    ids=["refit_false", "refit_false_expanding", "refit_integer"],
+)
+def test_create_cv_IgnoredArgumentWarning_when_stats_arguments_do_not_run(
+    kwargs, ignored, fixed
+):
+    """
+    Test that an explicit `refit` or `fixed_train_size` that ForecasterStats
+    does not run is warned about: skforecast refits it in every fold, which
+    `cv_config` and the explanation already state.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    warn_msg = re.escape(
+        f"{ignored} do not apply to ForecasterStats: skforecast refits it in "
+        f"every fold, so its backtest runs with `refit=True` and "
+        f"`fixed_train_size={fixed}`. Pass those values to avoid this warning."
+    )
+    with pytest.warns(IgnoredArgumentWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, **kwargs)
+
+    assert result.cv.refit == kwargs["refit"]
+    assert result.cv_config["refit"] is True
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"refit": True}, {"refit": True, "fixed_train_size": False}],
+    ids=["defaults", "refit_true", "refit_true_expanding"],
+)
+def test_create_cv_no_warning_when_stats_arguments_run(kwargs):
+    """
+    Test that ForecasterStats gives no warning with the default strategy or
+    with arguments it runs as given.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assistant.create_cv(profile, plan, **kwargs)
 
 
 def test_create_cv_output_when_initial_train_size_timestamp():

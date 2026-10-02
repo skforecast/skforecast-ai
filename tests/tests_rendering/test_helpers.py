@@ -75,6 +75,7 @@ def test_get_interval_repr_output_when_interval_set_or_none(interval, expected):
         forecaster="ForecasterRecursive",
         steps=10,
         interval=interval,
+        interval_method="bootstrapping" if interval else None,
         explanation="test",
     )
     assert _get_interval_repr(plan) == expected

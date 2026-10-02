@@ -78,6 +78,7 @@ def sample_plan():
         estimator_kwargs={"n_estimators": 100},
         steps=10,
         interval=[0.1, 0.9],
+        interval_method="bootstrapping",
         lag_selection="lags=10",
         preprocessing=["StandardScaler()"],
         explanation="Sample explanation",

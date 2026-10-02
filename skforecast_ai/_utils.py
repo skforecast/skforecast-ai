@@ -1126,11 +1126,24 @@ def warn_long_training(
     if estimator_fits <= LONG_TRAINING_FITS:
         return
 
+    # skforecast refits ForecasterStats in every fold whatever `refit`
+    # says, so only fewer folds make its backtest shorter.
+    if forecaster == "ForecasterStats":
+        remedy = (
+            "skforecast refits it in every fold whatever `refit` says, so use "
+            "a cross-validation strategy with fewer folds (a later "
+            "`initial_train_size` or a larger `fold_stride`; `skip_folds` is "
+            "not allowed for it)"
+        )
+    else:
+        remedy = (
+            "use a cross-validation strategy with `refit=False` (train once) "
+            "or an integer `refit` (retrain every n folds)"
+        )
     warnings.warn(
         f"{long_training_message(estimator_fits, n_fits, forecaster, steps)}. "
-        f"This can take substantial amounts of time. If not feasible, use a "
-        f"cross-validation strategy with `refit=False` (train once) or an "
-        f"integer `refit` (retrain every n folds).",
+        f"This can take substantial amounts of time. If not feasible, "
+        f"{remedy}.",
         LongTrainingWarning,
         stacklevel=3,
     )

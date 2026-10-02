@@ -1006,6 +1006,72 @@ def test_plan_InvalidInputError_when_multivariate_on_long_format():
         assistant.plan(profile, steps=7, forecaster="ForecasterDirectMultiVariate")
 
 
+@pytest.mark.parametrize(
+    "forecaster, err_msg",
+    [
+        (
+            "ForecasterDirectMultiVariate",
+            "ForecasterDirectMultiVariate cannot forecast long-format data with "
+            "several series.",
+        ),
+        ("ForecasterStats", "supports a single series only"),
+    ],
+    ids=lambda value: f"{value}"[:30],
+)
+def test_plan_InvalidInputError_without_UnrecommendedForecasterWarning_when_rejected(
+    forecaster, err_msg
+):
+    """
+    Test that a forecaster left out of the candidates of long-format data
+    with several series, and rejected for that data, raises without first
+    warning that it is used as requested: the warning is only emitted for a
+    forecaster that accepts the data. ForecasterDirectMultiVariate is not a
+    candidate there, since plan() rejects it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_long, target="value", date_column="date",
+        series_id_column="series_id",
+    )
+
+    assert profile.forecaster_candidates == [
+        "ForecasterRecursiveMultiSeries",
+        "ForecasterFoundation",
+    ]
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        with pytest.raises(InvalidInputError, match=re.escape(err_msg)):
+            assistant.plan(profile, steps=7, forecaster=forecaster)
+
+    assert not [w for w in record if w.category is UnrecommendedForecasterWarning]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"lags": 3}, {"estimator": "Ridge"}, {"interval": [0.1, 0.8]}],
+    ids=["lags", "estimator", "asymmetric_interval"],
+)
+def test_plan_InvalidInputError_without_UnrecommendedForecasterWarning_when_argument_rejected(
+    kwargs,
+):
+    """
+    Test that ForecasterStats, not a candidate for hourly data, raises for an
+    argument it cannot use without first warning that it is used as
+    requested: the warning is only emitted once the plan is built, so with
+    warnings raised as errors it no longer hides the error.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly, target="sales", date_column="date")
+
+    assert "ForecasterStats" not in profile.forecaster_candidates
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        with pytest.raises(InvalidInputError):
+            assistant.plan(profile, steps=24, forecaster="ForecasterStats", **kwargs)
+
+    assert not [w for w in record if w.category is UnrecommendedForecasterWarning]
+
+
 def test_plan_InvalidInputError_when_long_format_dated_by_index():
     """
     Test that plan() rejects long-format data with several series whose

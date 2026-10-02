@@ -427,6 +427,7 @@ def exclude_costly_candidates(
     n_fits: int,
     steps: int,
     budget: int | None = None,
+    n_folds: int | None = None,
 ) -> tuple[list[tuple[str, CandidateConfig]], str | None]:
     """
     Leave out the automatic candidates that would fit too many estimators.
@@ -451,6 +452,10 @@ def exclude_costly_candidates(
     budget : int, default None
         Largest number of estimator fits a candidate may cost. None uses
         `COMPARE_FIT_BUDGET`.
+    n_folds : int, default None
+        Number of folds of the shared strategy. skforecast refits
+        `ForecasterStats` in every fold, so its cost is `n_folds` when
+        given, see `count_estimator_fits`.
 
     Returns
     -------
@@ -466,7 +471,12 @@ def exclude_costly_candidates(
     costs = []
     for name, config in candidate_configs:
         forecaster = config.get("forecaster") or preferred
-        estimator_fits = count_estimator_fits(n_fits, forecaster, steps)
+        estimator_fits = count_estimator_fits(
+                             n_fits     = n_fits,
+                             forecaster = forecaster,
+                             steps      = steps,
+                             n_folds    = n_folds,
+                         )
         if forecaster != preferred and estimator_fits > budget:
             costs.append(
                 f"'{name}': "
@@ -585,6 +595,20 @@ def build_comparison_explanation(
             "ForecasterFoundation is not trained: the window and refit "
             "settings do not apply to it, each fold forecasts from the "
             "observations before it."
+        )
+    # skforecast refits ForecasterStats in every fold whatever the shared
+    # strategy says, so its own trainings are stated.
+    stats_results = [
+        result for _, result, _ in ranked
+        if result.plan.forecaster == "ForecasterStats"
+    ]
+    if stats_results:
+        stats_cv = stats_results[0].cv_config
+        window = "fixed" if stats_cv["fixed_train_size"] else "expanding"
+        parts.append(
+            f"ForecasterStats is refitted in every fold on a {window} window "
+            f"({stats_cv['n_fits']} trainings): skforecast requires it for "
+            f"ARIMA models."
         )
     parts.append(best_sentence)
     if baseline_name is not None:

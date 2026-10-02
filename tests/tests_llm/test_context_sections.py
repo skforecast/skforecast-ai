@@ -24,6 +24,7 @@ from skforecast_ai.llm.context import (
 )
 
 from tests.fixtures_assistant import df_single, make_comparison_result
+from tests.fixtures_llm import plan_single, profile_single
 
 assistant = ForecastingAssistant()
 
@@ -361,6 +362,150 @@ def test_render_failures_section_withholds_tracebacks():
     assert "<failed_candidates>" in section
     assert "- broken: ImportError: No module named 'lightgbm'" in section
     assert "Traceback" not in section
+
+
+def test_render_failures_section_output_when_for_describe_cuts_the_list():
+    """
+    Test that with `for_describe=True` only the first 15 failures are
+    listed, followed by a line with the total, while the context of ask()
+    lists all of them.
+    """
+    failure = make_comparison_result(assistant, with_failure=True).failures["broken"]
+    failures = {f"broken_{i:02d}": failure for i in range(20)}
+
+    section = render_failures_section(failures, for_describe=True)
+    section_ask = render_failures_section(failures)
+
+    assert "- broken_14: ImportError: No module named 'lightgbm'" in section
+    assert "broken_15" not in section
+    assert "Failures shown: the first 15 of 20" in section
+    assert "- broken_19: ImportError: No module named 'lightgbm'" in section_ask
+    assert "Failures shown" not in section_ask
+
+
+# =============================================================================
+# Tests: limits applied only for describe()
+# =============================================================================
+def _profile_with(**fields):
+    """Copy of `profile_single` whose data profile has `fields` replaced."""
+    data_profile = profile_single.data_profile.model_copy(update=fields)
+    return profile_single.model_copy(update={"data_profile": data_profile})
+
+
+def test_render_metrics_section_output_when_for_describe_and_forecast_metrics():
+    """
+    Test that with `for_describe=True` the per-series metrics of a forecast
+    (a `series` column, no aggregated rows) keep the rows of the first 5
+    series and say so without mentioning aggregated rows.
+    """
+    metrics = pd.DataFrame({
+        "series": [f"s{i}" for i in range(8)],
+        "MAE":    [float(i) for i in range(8)],
+    })
+
+    section = render_metrics_section(metrics, for_describe=True)
+
+    expected = (
+        "<evaluation_metrics>\n"
+        "Rows of the first 5 of 8 series.\n"
+        "series  MAE\n"
+        "    s0  0.0\n"
+        "    s1  1.0\n"
+        "    s2  2.0\n"
+        "    s3  3.0\n"
+        "    s4  4.0\n"
+        "</evaluation_metrics>"
+    )
+    assert section == expected
+    assert render_metrics_section(metrics) == (
+        f"<evaluation_metrics>\n{metrics.to_string(index=False)}\n"
+        f"</evaluation_metrics>"
+    )
+
+
+@pytest.mark.parametrize(
+    "metrics",
+    [
+        pd.DataFrame({
+            "levels": ["a", "b", "c", "d", "e", "average", "pooling"],
+            "MAE":    [1.0, 2.0, 3.0, 4.0, 5.0, 3.0, 3.0],
+        }),
+        pd.DataFrame({"MAE": [float(i) for i in range(8)]}),
+    ],
+    ids=["five series", "no series column"],
+)
+def test_render_metrics_section_output_when_for_describe_keeps_whole_table(
+    metrics,
+):
+    """
+    Test that with `for_describe=True` a table of at most 5 series, or one
+    without a `levels` or `series` column, is rendered whole.
+    """
+    section = render_metrics_section(metrics, for_describe=True)
+
+    assert section == render_metrics_section(metrics)
+
+
+def test_render_dataset_section_output_when_for_describe_at_the_limit():
+    """
+    Test that with `for_describe=True` lists of exactly 15 items are not
+    cut, and that 16 exogenous columns with missing values are cut to 15,
+    the categorical ones too, with the totals stated.
+    """
+    columns_15 = [f"x{i:02d}" for i in range(15)]
+    columns_16 = [f"x{i:02d}" for i in range(16)]
+    profile_15 = _profile_with(
+        exog_columns     = columns_15,
+        categorical_exog = columns_15,
+        missing_exog     = dict.fromkeys(columns_15, 2),
+    )
+    profile_16 = _profile_with(
+        exog_columns     = columns_16,
+        categorical_exog = columns_16,
+        missing_exog     = dict.fromkeys(columns_16, 2),
+    )
+
+    section_15 = render_dataset_section(profile_15, for_describe=True)
+    section_16 = render_dataset_section(profile_16, for_describe=True)
+
+    assert section_15 == render_dataset_section(profile_15)
+    shown = ", ".join(columns_15)
+    assert f"- Exogenous columns: {shown} (first 15 of 16)\n" in section_16
+    assert (
+        f"- Categorical exogenous columns: {shown} (first 15 of 16)\n"
+        in section_16
+    )
+    assert (
+        f"- Missing in exog: {dict.fromkeys(columns_15, 2)} "
+        f"(first 15 of 16 columns, 32 missing values in all)\n"
+        in section_16
+    )
+
+
+def test_render_plan_section_output_when_for_describe_cuts_window_features():
+    """
+    Test that with `for_describe=True` the plan keeps the first 15 window
+    features and says how many there are, while ask() lists all of them.
+    """
+    window_features = [
+        {"stats": ["mean"], "window_size": size} for size in range(2, 18)
+    ]
+    plan = plan_single.model_copy(
+        update={
+            "forecaster_kwargs": {
+                **plan_single.forecaster_kwargs,
+                "window_features": window_features,
+            }
+        }
+    )
+
+    section = render_plan_section(plan, for_describe=True)
+
+    assert (
+        f"- Window features: {window_features[:15]} (first 15 of 16)\n"
+        in section
+    )
+    assert f"- Window features: {window_features}\n" in render_plan_section(plan)
 
 
 # =============================================================================

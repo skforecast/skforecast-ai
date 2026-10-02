@@ -121,7 +121,9 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
     plan: ForecastPlan
     code: str
 
-    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+    def _build_llm_context(
+        self, *, send_data: bool, for_describe: bool = False
+    ) -> LLMContext:
         """
         Describe the generated script to the LLM.
 
@@ -132,6 +134,9 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
             a generated script carries no predictions, only the profile
             and plan it was rendered from. The parameter is part of the
             `ExplainableResult` interface.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -154,10 +159,20 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
         # packages) is, so "what do I need to run it" has an answer.
         return LLMContext(
             text                = join_sections([
-                                      render_dataset_section(self.profile),
-                                      render_profile_decision_section(self.profile),
-                                      render_plan_section(self.plan),
-                                      render_script_section(self.plan, self.code),
+                                      render_dataset_section(
+                                          self.profile, for_describe=for_describe
+                                      ),
+                                      render_profile_decision_section(
+                                          self.profile, for_describe=for_describe
+                                      ),
+                                      render_plan_section(
+                                          self.plan, for_describe=for_describe
+                                      ),
+                                      render_script_section(
+                                          self.plan,
+                                          self.code,
+                                          for_describe = for_describe,
+                                      ),
                                   ]),
             profile             = self.profile,
             plan                = self.plan,
@@ -212,7 +227,9 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
     predictions: JSONFrame
     metrics: OptionalJSONFrame
 
-    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+    def _build_llm_context(
+        self, *, send_data: bool, for_describe: bool = False
+    ) -> LLMContext:
         """
         Describe a single run to the LLM.
 
@@ -220,6 +237,9 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
         ----------
         send_data : bool
             Whether raw prediction values may be included.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -251,9 +271,15 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
 
         return LLMContext(
             text    = join_sections([
-                          render_dataset_section(self.profile),
-                          render_profile_decision_section(self.profile),
-                          render_plan_section(self.plan),
+                          render_dataset_section(
+                              self.profile, for_describe=for_describe
+                          ),
+                          render_profile_decision_section(
+                              self.profile, for_describe=for_describe
+                          ),
+                          render_plan_section(
+                              self.plan, for_describe=for_describe
+                          ),
                           render_cv_section(
                               cv_config,
                               trains=self.plan.task_type != "foundation",
@@ -262,6 +288,7 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
                           render_metrics_section(
                               self.metrics,
                               has_predictions = self.predictions is not None,
+                              for_describe    = for_describe,
                           ),
                           render_predictions_section(
                               self.predictions, send_data=send_data
@@ -368,8 +395,12 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
         Configured cross-validation fold splitter.
     cv_config : dict
         Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`.
+        For a `ForecasterStats` plan, the strategy skforecast runs:
+        `refit=True` (it refits ARIMA in every fold) and, when `cv` does
+        not refit, `fixed_train_size=True`.
     code : str
-        Python snippet that builds the same `TimeSeriesFold`.
+        Python snippet that builds the `TimeSeriesFold` of `cv_config`,
+        the one the backtesting script embeds.
     explanation : str
         Human-readable explanation of the chosen configuration. When the
         strategy was derived from a prompt, the LLM reasoning comes first.
@@ -403,7 +434,9 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
             "`backtest()`, `backtest_code()` or `compare()`."
         )
 
-    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+    def _build_llm_context(
+        self, *, send_data: bool, for_describe: bool = False
+    ) -> LLMContext:
         """
         Describe the cross-validation strategy to the LLM.
 
@@ -413,6 +446,9 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
             Whether raw data values may be included. Has no effect here:
             a strategy carries no predictions or metrics. The parameter is
             part of the `ExplainableResult` interface.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -428,10 +464,11 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
 
         return LLMContext(
             text                = build_context_message(
-                                      profile     = self.profile,
-                                      plan        = self.plan,
-                                      cv_config   = self.cv_config,
-                                      explanation = self.explanation,
+                                      profile      = self.profile,
+                                      plan         = self.plan,
+                                      cv_config    = self.cv_config,
+                                      explanation  = self.explanation,
+                                      for_describe = for_describe,
                                   ),
             profile             = self.profile,
             plan                = self.plan,
@@ -771,7 +808,9 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
         """Return the `BacktestResult` of the top-ranked candidate."""
         return self.candidates[self.best_name]
 
-    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+    def _build_llm_context(
+        self, *, send_data: bool, for_describe: bool = False
+    ) -> LLMContext:
         """
         Describe the comparison to the LLM.
 
@@ -790,6 +829,9 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
             a comparison renders aggregated leaderboard metrics only,
             never row-level predictions. The parameter is part of the
             `ExplainableResult` interface.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -806,7 +848,9 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
         best = self.best_candidate
 
         return LLMContext(
-            text    = build_comparison_context(self),
+            text    = build_comparison_context(
+                          self, for_describe=for_describe
+                      ),
             profile = self.profile,
             plan    = best.plan,
             code    = best.code,

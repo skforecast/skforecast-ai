@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import copy
 import warnings
 import pandas as pd
 from skforecast.exceptions import IgnoredArgumentWarning
@@ -102,8 +103,9 @@ def build_cv_explanation(
     forecaster : str, default None
         Name of the forecaster the strategy is applied to. For a direct
         forecaster, which fits one estimator per step, the total number of
-        estimator fits is also stated. None when the strategy is shared by
-        several forecasters.
+        estimator fits is also stated, and for `ForecasterStats` that it is
+        refitted in every fold (see `cv_as_executed`). None when the
+        strategy is shared by several forecasters.
 
     Returns
     -------
@@ -170,6 +172,11 @@ def build_cv_explanation(
         parts.append(f"differentiation order {differentiation}")
 
     explanation = ", ".join(parts) + "."
+    if forecaster == "ForecasterStats":
+        explanation += (
+            " ForecasterStats is refitted in every fold whatever `refit` "
+            "says: skforecast requires it for ARIMA models."
+        )
     if forecaster in DIRECT_FORECASTERS and n_fits is not None:
         explanation += (
             f" {forecaster} fits one estimator per step, so each training "
@@ -342,6 +349,7 @@ def count_estimator_fits(
     n_fits: int,
     forecaster: str,
     steps: int,
+    n_folds: int | None = None,
 ) -> int:
     """
     Count the estimator fits of a backtest, the measure of its cost.
@@ -355,6 +363,11 @@ def count_estimator_fits(
         Name of the skforecast forecaster class.
     steps : int
         Forecast horizon of each fold.
+    n_folds : int, default None
+        Number of folds of the strategy, see `count_cv_folds`. skforecast
+        refits `ForecasterStats` in every fold whatever `refit` says (see
+        `cv_as_executed`), so its count is `n_folds` when given. None when
+        `n_fits` already counts the folds of the strategy as executed.
 
     Returns
     -------
@@ -362,15 +375,61 @@ def count_estimator_fits(
         Number of times an estimator is fitted: `n_fits * steps` for the
         direct forecasters, which fit one estimator per step, 0 for
         `ForecasterFoundation` (never trained) and
-        `ForecasterEquivalentDate` (no estimator), and `n_fits` otherwise.
+        `ForecasterEquivalentDate` (no estimator), `n_folds` (or `n_fits`
+        when it is None) for `ForecasterStats`, and `n_fits` otherwise.
     """
 
     if forecaster in ("ForecasterFoundation", "ForecasterEquivalentDate"):
         return 0
     if forecaster in DIRECT_FORECASTERS:
         return n_fits * steps
+    if forecaster == "ForecasterStats" and n_folds is not None:
+        return n_folds
 
     return n_fits
+
+
+def cv_as_executed(
+    cv: TimeSeriesFold,
+    forecaster: str | None,
+) -> TimeSeriesFold:
+    """
+    Return the splitter that skforecast runs for a forecaster.
+
+    `backtesting_stats` refits in every fold unless all the estimators are
+    `skforecast.stats.Sarimax`, and `ForecasterStats` plans always use
+    `Arima`: a `refit` other than `True` (or 1) is replaced by `True`, with
+    the warning silenced by `suppress_warnings=True` in the script. The
+    script writes `fixed_train_size` only when `refit` is set, so after a
+    `refit=False` the training window has the fixed size that is the
+    default of `TimeSeriesFold`. The copy returned states both, so the
+    script, `cv_config` and the explanation describe what runs; the
+    metrics do not change. Any other forecaster runs `cv` as it is.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter. It is not modified.
+    forecaster : str, None
+        Name of the forecaster the strategy is applied to. None when the
+        strategy is shared by several forecasters.
+
+    Returns
+    -------
+    cv : TimeSeriesFold
+        `cv` itself, or for `ForecasterStats` with a `refit` other than
+        `True` (or 1) a shallow copy with `refit=True` and the
+        `fixed_train_size` that runs.
+    """
+
+    if forecaster != "ForecasterStats" or cv.refit == 1:
+        return cv
+
+    executed = copy.copy(cv)
+    executed.fixed_train_size = bool(cv.fixed_train_size) if cv.refit else True
+    executed.refit = True
+
+    return executed
 
 
 def build_cv(
@@ -544,8 +603,10 @@ def resolve_cv_config(
         whose explanation does not describe a training window or refits.
     forecaster : str, default None
         Name of the forecaster the strategy is applied to, used to state
-        the estimator fits of a direct forecaster. None when the strategy
-        is shared by several forecasters.
+        the estimator fits of a direct forecaster. For `ForecasterStats`
+        the strategy is described as skforecast runs it, refitted in every
+        fold (see `cv_as_executed`). None when the strategy is shared by
+        several forecasters.
 
     Returns
     -------
@@ -560,6 +621,7 @@ def resolve_cv_config(
         `build_cv_explanation`.
     """
 
+    cv = cv_as_executed(cv, forecaster)
     span_index_length = data_profile.span_index_length
     folds = _split_folds(
                 cv             = cv,

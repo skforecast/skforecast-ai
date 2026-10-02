@@ -71,6 +71,36 @@ def test_select_forecaster_and_candidates_output_when_multi_series():
 
 
 @pytest.mark.parametrize(
+    "data_format, expected",
+    [
+        (
+            "wide",
+            [
+                "ForecasterRecursiveMultiSeries",
+                "ForecasterDirectMultiVariate",
+                "ForecasterFoundation",
+            ],
+        ),
+        ("long", ["ForecasterRecursiveMultiSeries", "ForecasterFoundation"]),
+    ],
+    ids = lambda v: f"{v}",
+)
+def test_select_forecaster_and_candidates_output_when_multi_series_format(
+    data_format, expected
+):
+    """
+    Test that ForecasterDirectMultiVariate is a candidate for several series
+    in wide format and not in long format, which plan() rejects for it.
+    """
+    profile = profile_multi.model_copy(update={"data_format": data_format})
+
+    preferred, candidates = select_forecaster_and_candidates(profile)
+
+    assert preferred == "ForecasterRecursiveMultiSeries"
+    assert candidates == expected
+
+
+@pytest.mark.parametrize(
     "frequency, expected",
     [
         ("h", False),

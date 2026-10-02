@@ -163,6 +163,41 @@ def test_forecaster_recursive_multiseries_full_workflow():
     ast.parse(result.code)
 
 
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterRecursiveMultiSeries", "ForecasterDirectMultiVariate"],
+)
+def test_forecaster_multiseries_backtest_uses_interval_method_of_plan(forecaster):
+    """
+    Test that a multi-series or multivariate backtest with an interval
+    writes and runs the interval method of the plan (bootstrapping) instead
+    of the conformal default of backtesting_forecaster_multiseries, and
+    that its predictions carry the bounds.
+    """
+    data = df_multi_wide
+    target = ["series_a", "series_b"]
+    profile = assistant.profile(data=data, target=target, date_column="date")
+    plan = assistant.plan(
+        profile, steps=5, forecaster=forecaster, interval=[0.1, 0.9]
+    )
+    cv = assistant.create_cv(profile, plan).cv
+
+    result = assistant.backtest(
+        data          = data,
+        target        = target,
+        date_column   = "date",
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert result.plan.interval_method == "bootstrapping"
+    assert "    interval_method   = 'bootstrapping',\n" in result.code
+    assert {"pred", "lower_bound", "upper_bound"} <= set(result.predictions.columns)
+    assert result.predictions[["pred", "lower_bound", "upper_bound"]].notna().all().all()
+
+
 # =============================================================================
 # Tests: ForecasterDirectMultiVariate (multivariate)
 # =============================================================================
@@ -233,6 +268,14 @@ def test_forecaster_stats_full_workflow():
     assert len(result.predictions) > 0
     assert "backtesting_stats" in result.code
     ast.parse(result.code)
+
+    # skforecast refits ForecasterStats in every fold: the config and the
+    # script state it even though the splitter was created with refit=False.
+    assert cv.refit is False
+    assert result.cv_config["refit"] is True
+    assert result.cv_config["fixed_train_size"] is True
+    assert result.cv_config["n_fits"] == result.cv_config["n_folds"]
+    assert "refit              = True," in result.code
 
 
 # =============================================================================

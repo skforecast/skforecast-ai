@@ -156,3 +156,39 @@ def test_resolve_cv_config_states_training_cost(
 
     assert cv_config["n_fits"] == expected_n_fits
     assert explanation == expected_explanation
+
+
+def test_resolve_cv_config_output_when_stats_does_not_refit():
+    """
+    Test that for ForecasterStats a `refit=False` splitter is described as
+    skforecast runs it: refit in every fold on a fixed window, with one
+    training per fold and the sentence saying why. The splitter passed in
+    is not modified.
+    """
+    cv = TimeSeriesFold(steps=10, initial_train_size=60, refit=False)
+
+    cv_config, explanation = resolve_cv_config(
+        cv, profile_single_daily_100, forecaster="ForecasterStats"
+    )
+
+    expected = {
+        "steps": 10,
+        "initial_train_size": 60,
+        "refit": True,
+        "fixed_train_size": True,
+        "gap": 0,
+        "fold_stride": 10,
+        "skip_folds": None,
+        "allow_incomplete_fold": True,
+        "differentiation": None,
+        "n_folds": 4,
+        "n_fits": 4,
+    }
+    assert cv_config == expected
+    assert explanation == (
+        "Using 60% of data (60 observations) for initial training, fixed "
+        "window, refit every fold (4 trainings), 10-step horizon, 4 folds. "
+        "ForecasterStats is refitted in every fold whatever `refit` says: "
+        "skforecast requires it for ARIMA models."
+    )
+    assert cv.refit is False

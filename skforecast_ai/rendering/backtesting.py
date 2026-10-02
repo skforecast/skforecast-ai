@@ -8,6 +8,7 @@
 import numbers
 from typing import Any
 import pandas as pd
+from ..recommendation.backtesting import cv_as_executed
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
@@ -174,7 +175,14 @@ def _emit_backtesting_call_multiseries(
     series_expr: str,
     exog_expr: str | None,
 ) -> None:
-    """Append backtesting_forecaster_multiseries call."""
+    """
+    Append backtesting_forecaster_multiseries call.
+
+    `interval_method` is written when it is not skforecast's default for
+    this function (`'conformal'`), so the intervals are computed with the
+    method of the plan (`'bootstrapping'` for the multi-series and
+    multivariate forecasters), as in the forecast script.
+    """
 
     lines.append("# Run backtesting")
     bt_kwargs: list[tuple[str, str]] = []
@@ -186,6 +194,10 @@ def _emit_backtesting_call_multiseries(
     bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
     if plan.interval is not None:
         bt_kwargs.append(("interval", repr(plan.interval)))
+        if plan.interval_method not in (None, "conformal"):
+            bt_kwargs.append(
+                ("interval_method", _get_interval_method_literal(plan.interval_method))
+            )
     bt_kwargs.append(("n_jobs", "'auto'"))
     bt_kwargs.append(("verbose", "False"))
     bt_kwargs.append(("show_progress", "True"))
@@ -586,7 +598,27 @@ def render_backtesting_statistical(
     profile: DataProfile,
     cv: Any,
 ) -> RenderedScript:
-    """Render backtesting code for ForecasterStats (Auto-ARIMA)."""
+    """
+    Render backtesting code for ForecasterStats (Auto-ARIMA).
+
+    The `TimeSeriesFold` written is the one skforecast runs (see
+    `cv_as_executed`): `refit=True`, and `fixed_train_size=True` when `cv`
+    does not refit, so the script states what `backtesting_stats` does.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan with task type `'statistical'`.
+    profile : DataProfile
+        Data profile of the series.
+    cv : TimeSeriesFold
+        Cross-validation splitter. It is not modified.
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the backtesting script.
+    """
 
     import_lines: list[str] = []
     loading_lines: list[str] = []
@@ -605,7 +637,7 @@ def render_backtesting_statistical(
     _emit_forecaster_creation_statistical(core_lines, plan, profile)
 
     # --- CV configuration ---
-    _emit_cv_configuration(core_lines, cv)
+    _emit_cv_configuration(core_lines, cv_as_executed(cv, plan.forecaster))
 
     # --- Backtesting call ---
     _emit_backtesting_call_statistical(core_lines, plan, profile)
