@@ -1361,3 +1361,27 @@ Antes de mergear la fase 3c, una verificación independiente comparó `0.4.x` an
 - Avisos (PR 18): con los filtros por defecto, llamadas repetidas muestran un aviso una vez, pero cada plan lo lleva; capturar con `simplefilter('always')` y deduplicar contra `plan.warnings` por texto para darles origen `plan`.
 - Privacidad: el JSON de los resultados (`model_dump_json`) y `result.code` llevan ahora la ruta absoluta o la URL de los datos (que puede llevar un token). `describe()` no la lleva; decirlo en la documentación del servidor.
 - Tamaños: `ask()` y los scripts pueden pasar de 20k caracteres con cientos de columnas (la línea de exógenas categóricas del perfil, `exog = data[[...]]`); `describe()` no. El tool `get_code` necesita su propio límite.
+
+## 15. Fase 3d: hecho
+
+Cierre del contexto del LLM antes del servidor, en la rama `fix/describe-closing`, creada desde `0.4.x` (`73c5cde`). Hecha en una sesión local, un commit por punto.
+
+| Commit | Contenido |
+|---|---|
+| `fd30ed1` | Pregunta 5 de 14.1: el resumen de predicciones de `describe()` añade el bloque por serie (las 5 primeras) que ya daba `ask()`; solo cambian 5 goldens de `describe()`, ninguno de `ask()` |
+| `3113be9` | Pregunta 6: la nota de la estrategia compartida de `compare()` nombra a ForecasterFoundation, que no se entrena, junto a la excepción de ForecasterStats |
+| `689186b` | Encontrado al añadir escenarios: valores de numpy en `estimator_kwargs` (por ejemplo de `np.logspace`) se escribían como `np.float64(...)` en un script sin numpy y fallaban con `NameError`, y el plan no se podía guardar en JSON (también en 0.3.1). El validador de `ForecastPlan` los convierte en valores de Python |
+| `20bba94` | `check_ask_context.py` cubre la lista de pago: datasets `items_sales_long` y `h2o`, y los escenarios `backtest_code`, `stats_backtest`, `compare_default`, `compare_many` y `many_categorical` |
+| `1edd266` | El hook de Bash ya no comprueba como comandos las líneas de un heredoc (bloqueaba un README que citaba `check_ask_context.py`) |
+
+**Decisiones del autor para 0.4.0 (preguntas de 10.10).**
+- Pregunta 1: el servidor y el lote de overrides (PRs 30 a 38) salen en 0.4.0. El check de pago se lanza una sola vez, al final, cuando hayan entrado todos los PRs de pago (también los overrides).
+- Pregunta 12: los valores por defecto del servidor de 10.7.
+- Preguntas 13 y 14: candidatos inválidos como fallos; errores como `ToolError` con JSON.
+- Pregunta 18: el SKILL.md vive en skforecast-ai, dentro del paquete y en la documentación.
+
+**Para el check de pago.** Esta fase añade a la lista la nota de ForecasterFoundation en `<backtesting_strategy>` (pregunta 6). La pregunta 5 solo afecta a `describe()`. Antes de lanzarlo, ejecutar los cuatro datasets de `check_ask_context.py` (ver su README).
+
+**Tests.** De 2905 a 2907. `mcp` 2.2.0 está en PyPI, como asume 10.7; el entorno local tiene 1.29.0, instalado antes, y hay que actualizarlo para probar el servidor en local.
+
+**Siguiente:** la fase 4, el servidor (PRs 18, 19 y 19b), y después los PRs 20 a 38 de 0.4.0.
