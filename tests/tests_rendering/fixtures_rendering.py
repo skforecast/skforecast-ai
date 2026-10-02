@@ -315,6 +315,36 @@ plan_multivariate = ForecastPlan(
     explanation="Multivariate forecasting.",
 )
 
+plan_multi_series_with_intervals = ForecastPlan(
+    task_type="multi_series",
+    forecaster="ForecasterRecursiveMultiSeries",
+    forecaster_kwargs={"lags": 7, "encoding": "ordinal"},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    interval=[0.1, 0.9],
+    interval_method="bootstrapping",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Multi-series forecasting with bootstrapped intervals.",
+)
+
+plan_multivariate_with_intervals = ForecastPlan(
+    task_type="multivariate",
+    forecaster="ForecasterDirectMultiVariate",
+    forecaster_kwargs={"lags": 7},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=5,
+    frequency="D",
+    interval=[0.1, 0.9],
+    interval_method="bootstrapping",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Multivariate forecasting with bootstrapped intervals.",
+)
+
 plan_statistical = ForecastPlan(
     task_type="statistical",
     forecaster="ForecasterStats",

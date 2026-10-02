@@ -175,7 +175,14 @@ def _emit_backtesting_call_multiseries(
     series_expr: str,
     exog_expr: str | None,
 ) -> None:
-    """Append backtesting_forecaster_multiseries call."""
+    """
+    Append backtesting_forecaster_multiseries call.
+
+    `interval_method` is written when it is not skforecast's default for
+    this function (`'conformal'`), so the intervals are computed with the
+    method of the plan (`'bootstrapping'` for the multi-series and
+    multivariate forecasters), as in the forecast script.
+    """
 
     lines.append("# Run backtesting")
     bt_kwargs: list[tuple[str, str]] = []
@@ -187,6 +194,10 @@ def _emit_backtesting_call_multiseries(
     bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
     if plan.interval is not None:
         bt_kwargs.append(("interval", repr(plan.interval)))
+        if plan.interval_method not in (None, "conformal"):
+            bt_kwargs.append(
+                ("interval_method", _get_interval_method_literal(plan.interval_method))
+            )
     bt_kwargs.append(("n_jobs", "'auto'"))
     bt_kwargs.append(("verbose", "False"))
     bt_kwargs.append(("show_progress", "True"))
