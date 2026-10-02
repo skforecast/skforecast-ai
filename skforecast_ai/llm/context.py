@@ -11,6 +11,7 @@ from typing import Any
 from .._constants import (
     CONTEXT_HEAD_TAIL_ROWS,
     MAX_CONTEXT_DATAFRAME_ROWS,
+    MAX_DESCRIBE_ITEMS,
     MAX_LEADERBOARD_ROWS,
 )
 from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
@@ -22,11 +23,10 @@ MAX_STATS_SERIES = 5
 MAX_PACF_LAGS = 15
 
 # Limits that only `describe()` applies (`for_describe=True`), so its text
-# stays short with hundreds of series: at most 15 items of any list, and
-# the first `MAX_STATS_SERIES` series of the metrics plus the aggregated
-# rows. Each cut says how many items there were. The context of `ask()`
-# keeps its own limits.
-MAX_DESCRIBE_ITEMS = 15
+# stays short with hundreds of series: at most `MAX_DESCRIBE_ITEMS` items
+# of any list, and the first `MAX_STATS_SERIES` series of the metrics plus
+# the aggregated rows. Each cut says how many items there were. The
+# context of `ask()` keeps its own limits.
 _AGGREGATED_METRIC_ROWS = ("average", "weighted_average", "pooling")
 
 # Sentences addressed to the LLM of `ask()`: they tell it how to use the

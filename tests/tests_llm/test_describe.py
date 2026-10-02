@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from skforecast_ai import ForecastingAssistant
@@ -328,3 +330,43 @@ def test_describe_output_when_many_data_warnings():
     assert "- Data warning: Note number 19.\n" in (
         profile.to_llm_context(send_data=False).text
     )
+
+
+def test_describe_output_when_many_categorical_exog_cuts_preprocessing_reason():
+    """
+    Test that, with 500 categorical exogenous columns, the reason of the
+    categorical preprocessing step names the first 15 and their total, in
+    describe() and in the context of ask(), since it is cut where the plan
+    is built: describe() of the plan stays under 3,000 characters (7,855
+    when the reason listed every column).
+    """
+    rng = np.random.default_rng(0)
+    index = pd.date_range("2023-01-01", periods=120, freq="D", name="date")
+    data = pd.concat(
+        [
+            pd.DataFrame({"y": rng.normal(100, 10, 120).round(2)}, index=index),
+            pd.DataFrame(
+                {f"cat_{i:03d}": rng.choice(["a", "b"], 120) for i in range(500)},
+                index=index,
+            ),
+        ],
+        axis=1,
+    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target="y")
+    plan = assistant.plan(profile, steps=3)
+    result = assistant.forecast_code(profile=profile, plan=plan)
+
+    description = result.describe()
+    context = result.to_llm_context(send_data=False).text
+
+    expected = (
+        "Categorical exogenous variables detected: ['cat_000', 'cat_001', "
+        "'cat_002', 'cat_003', 'cat_004', 'cat_005', 'cat_006', 'cat_007', "
+        "'cat_008', 'cat_009', 'cat_010', 'cat_011', 'cat_012', 'cat_013', "
+        "'cat_014'] (first 15 of 500)."
+    )
+    assert expected in description
+    assert expected in context
+    assert "'cat_015'" not in description
+    assert len(description) < 3000

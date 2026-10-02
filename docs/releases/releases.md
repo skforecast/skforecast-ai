@@ -73,6 +73,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.plan()</code>][assistant], every method that builds a plan and the CLI raise `ValueError` when `lags` or `window_features` are passed for `ForecasterStats`, `ForecasterFoundation` or `ForecasterEquivalentDate`, which do not use them, and when `estimator` or `estimator_kwargs` are passed for `ForecasterEquivalentDate`. `ForecasterStats` and `ForecasterFoundation` ignored them silently, so the plan differed from what was asked.
 
++ <span class="badge text-bg-enhancement">Enhancement</span> The reason of the categorical preprocessing step of a plan names at most 15 columns, followed by "(first 15 of N)", instead of all of them, so `describe()` of a plan stays short with hundreds of categorical columns.
+
 + <span class="badge text-bg-docs">Docs</span> The Quick start section is reorganized into [Installation](../quick-start/how-to-install.md), [Your first forecast](../quick-start/first-forecast.ipynb), now a notebook with its outputs, and the new [Ask the assistant](../quick-start/ask-the-assistant.md), on what the LLM layer adds. The [API reference][assistant] opens with a table of the methods of `ForecastingAssistant`, what each one returns and whether it uses the LLM.
 
 + <span class="badge text-bg-docs">Docs</span> [Using the CLI][cli-guide] is rewritten as a shorter guide organized by task, with an example for every command. The options of each command are listed in the [CLI reference][cli], generated from the code.

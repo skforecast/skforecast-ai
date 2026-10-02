@@ -30,6 +30,11 @@ CONTEXT_HEAD_TAIL_ROWS = 5
 # ranking question needs; the tail carries no extra information.
 MAX_LEADERBOARD_ROWS = 15
 
+# Items of a list that `describe()` shows, with "(first N of M)" when the
+# list is longer. The reason of the categorical preprocessing step is cut
+# at the same length where it is built, so it is cut for `ask()` too.
+MAX_DESCRIBE_ITEMS = 15
+
 # ---------------------------------------------------------------------------
 # Prompt budgeting
 # ---------------------------------------------------------------------------
