@@ -479,8 +479,9 @@ def _emit_data_loading(
     no `date_column` in wide format and the index is stored in the file:
     for the future exogenous variables (`path` given), for a datetime
     index, and for data passed in memory (the placeholder `data_path`,
-    the frame saved with `to_csv()`). A CSV read by path without dates
-    holds no index, so it is read as is.
+    the frame saved with `to_csv()`). Without dates, the integer index
+    read is then turned into a RangeIndex, which skforecast requires. A
+    CSV read by path without dates holds no index, so it is read as is.
 
     Parameters
     ----------
@@ -514,7 +515,8 @@ def _emit_data_loading(
     # it does not store, so its first column is data and not an index. Data
     # passed in memory (the placeholder path) keeps the index read, the
     # frame saved with `to_csv()`, and so do the future exogenous variables,
-    # which must carry the positions that follow the data.
+    # which must carry the positions that follow the data; without dates,
+    # that index is turned back into the RangeIndex skforecast needs.
     index_read = not date_col and (
         path is not None
         or profile.index_type == "datetime"
@@ -528,6 +530,14 @@ def _emit_data_loading(
         lines.append(
             f"{var} = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
         )
+        if profile.index_type == "range":
+            # A row index saved with `to_csv()` is read back as integers,
+            # which skforecast rejects: it needs a RangeIndex, from the
+            # first position saved.
+            lines.append(
+                f"{var}.index = pd.RangeIndex({var}.index[0], "
+                f"{var}.index[0] + len({var}))"
+            )
     lines.append("")
 
 

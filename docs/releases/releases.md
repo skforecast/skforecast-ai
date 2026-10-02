@@ -86,7 +86,7 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` given a CSV path returned a script that loaded `'data.csv'` instead of that file. The script now loads the CSV path or URL passed, in these methods and in `forecast_code()` and `backtest_code()` (and in the CLI, also with `--from-plan`), also when the `profile` passed was built from another file.
 
-+ <span class="badge text-bg-danger">Fix</span> The script generated for a CSV without dates turned its first column into the index, so it failed when run as a file. It now reads the file as `forecast()` does.
++ <span class="badge text-bg-danger">Fix</span> The script generated for data without dates failed when run as a file: a CSV read by path had its first column turned into the index, and data passed in memory (and its `exog_future.csv`) was read with an integer index that skforecast rejects. It now reads them as `forecast()` does.
 
 + <span class="badge text-bg-danger">Fix</span> For long-format data with exogenous variables, the prediction script read the dates of `exog_future.csv` as text, so run as a file it predicted with missing exogenous values and gave other predictions than `forecast()`. It now parses them as it parses the data.
 

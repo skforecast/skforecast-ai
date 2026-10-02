@@ -523,3 +523,61 @@ def test_standalone_script_matches_forecast_when_long_format_future_exog(tmp_pat
         standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+_N_RANGE = 120
+_y_range = 10.0 + np.sin(np.arange(_N_RANGE) / 4)
+
+
+@pytest.mark.parametrize(
+    "data, target, kwargs",
+    [
+        (pd.DataFrame({"y": _y_range}), "y", {}),
+        (
+            pd.DataFrame({"y": _y_range}, index=pd.RangeIndex(50, 50 + _N_RANGE)),
+            "y", {},
+        ),
+        (pd.DataFrame({"a": _y_range, "b": 2 * _y_range}), ["a", "b"], {}),
+        (
+            pd.DataFrame({"a": _y_range, "b": 2 * _y_range}), ["a", "b"],
+            {"forecaster": "ForecasterDirectMultiVariate"},
+        ),
+        (
+            pd.DataFrame({"y": _y_range, "x": np.cos(np.arange(_N_RANGE))}), "y",
+            {"exog": pd.DataFrame(
+                {"x": np.cos(np.arange(_N_RANGE, _N_RANGE + 5))},
+                index=pd.RangeIndex(_N_RANGE, _N_RANGE + 5),
+            )},
+        ),
+    ],
+    ids=["single", "offset_index", "multi_series", "multivariate", "future_exog"],
+)
+def test_standalone_script_matches_forecast_when_in_memory_data_has_no_dates(
+    tmp_path, data, target, kwargs
+):
+    """
+    Test that the script of data passed in memory without dates (a
+    RangeIndex), saved with `to_csv()`, runs as a file and gives the
+    predictions and positions of forecast(): the row index read back from
+    the CSV is turned into the RangeIndex skforecast requires, for the data
+    and for `exog_future.csv`. Before, every one of these scripts failed
+    with an unsupported index type.
+    """
+    executed = ForecastingAssistant().forecast(
+        data=data, target=target, steps=5, **kwargs
+    )
+    data.to_csv(tmp_path / "data.csv")
+    if "exog" in kwargs:
+        kwargs["exog"].to_csv(tmp_path / "exog_future.csv")
+
+    assert "data.index = pd.RangeIndex(data.index[0], data.index[0] + len(data))" in (
+        executed.code
+    )
+    standalone = _run_standalone(executed.code, tmp_path)
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+    # `_run_standalone` parses the index as dates; integers come back as
+    # nanoseconds from the epoch.
+    assert list(standalone.index.asi8) == list(executed.predictions.index)
