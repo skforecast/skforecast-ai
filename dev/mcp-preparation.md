@@ -1,8 +1,8 @@
 # Preparativos para el servidor MCP de skforecast-ai
 
-Estado a 30/09/2026, actualizado el 01/10/2026 con la fase 2 (sección 11) y el 02/10/2026 con la fase 3a (sección 12). Base: rama `0.4.x`, con la sección 2 commiteada en `f87e89f`. La auditoría de la fase 1 (resultados en las secciones 4, 5, 7 y 9, y propuestas en la 10) está en la rama `feature/mcp-audit` y no toca `skforecast_ai/`. Este documento sirve para retomar el trabajo en otra sesión: qué se decidió, qué está hecho, qué falta y en qué orden, y cómo verificarlo.
+Estado a 30/09/2026, actualizado el 01/10/2026 con la fase 2 (sección 11) y el 02/10/2026 con las fases 3a, 3b y 3c (secciones 12, 13 y 14). Base: rama `0.4.x`, con la sección 2 commiteada en `f87e89f`. La auditoría de la fase 1 (resultados en las secciones 4, 5, 7 y 9, y propuestas en la 10) está en la rama `feature/mcp-audit` y no toca `skforecast_ai/`. Este documento sirve para retomar el trabajo en otra sesión: qué se decidió, qué está hecho, qué falta y en qué orden, y cómo verificarlo.
 
-**Cómo leerlo.** Las secciones 1 a 8 son el plan original. Cada punto pendiente lleva ahora el resultado de contrastarlo con el código, marcado como **Verificado**, **Corregido** o **Nuevo**. La sección 9 recoge lo que la auditoría encontró fuera de ese plan. La sección 10 propone decisiones y un orden de PRs, y está pendiente de revisión. La sección 11 recoge lo implementado en la fase 2 (PRs 0 a 4) y sus desviaciones respecto a la 10, y la sección 12 lo mismo para la fase 3a (PRs 5, 6, 7, 8, 10 y 11).
+**Cómo leerlo.** Las secciones 1 a 8 son el plan original. Cada punto pendiente lleva ahora el resultado de contrastarlo con el código, marcado como **Verificado**, **Corregido** o **Nuevo**. La sección 9 recoge lo que la auditoría encontró fuera de ese plan. La sección 10 propone decisiones y un orden de PRs, y está pendiente de revisión. La sección 11 recoge lo implementado en la fase 2 (PRs 0 a 4) y sus desviaciones respecto a la 10; la sección 12 lo mismo para la fase 3a (PRs 5, 6, 7, 8, 10 y 11), la 13 para la fase 3b (PRs 9, 12, 13 y 14) y la 14 para la fase 3c (PRs 15, 16 y 17 y los pendientes de `describe()` de 13.1).
 
 **Cómo se hizo la fase 1.**
 - Once auditores independientes contrastaron cada punto con el código y reprodujeron los casos con scripts propios. Un segundo agente intentó refutar cada resultado; de unas 200 comprobaciones solo corrigió seis, y la más importante es la de `ForecasterStats` (sección 2).
@@ -441,7 +441,7 @@ Lo que no estaba en las secciones 4 y 5. Severidad para el MCP: **B** = bloquea 
 
 ## 10. Decisiones propuestas, pendientes de revisión
 
-Salvo los PRs 0 a 4, hechos en la fase 2 (sección 11), los PRs 5, 6, 7, 8, 10 y 11, hechos en la fase 3a (sección 12), y los PRs 9, 12, 13 y 14, hechos en la fase 3b (sección 13), nada de esta sección está implementado: es una propuesta para revisar. Los números de PR remiten a la tabla de 10.8.
+Salvo los PRs 0 a 4, hechos en la fase 2 (sección 11), los PRs 5, 6, 7, 8, 10 y 11, hechos en la fase 3a (sección 12), los PRs 9, 12, 13 y 14, hechos en la fase 3b (sección 13), y los PRs 15, 16 y 17, hechos en la fase 3c (sección 14), nada de esta sección está implementado: es una propuesta para revisar. Los números de PR remiten a la tabla de 10.8.
 
 **Criterio de "la opción más conservadora"**, aplicado en este orden:
 1. Cerrar en caso de duda todo lo que toca la seguridad.
@@ -1226,3 +1226,96 @@ Antes de mergear la fase 3b, una verificación independiente comparó `0.4.x` an
 **Backlog (no lo causó esta fase).**
 - Las cotas de los backtests multiserie cubren mucho menos de lo nominal (80 %): 56 % con ForecasterRecursiveMultiSeries y 14 % con ForecasterDirectMultiVariate en `items_sales`, por usar residuos dentro de muestra.
 - skforecast falla en un backtest de ForecasterStats con `gap > 0` sin intervalo (`IndexingError` en `pred.iloc[forecaster.n_estimators * gap:, :]`): para reportar en skforecast.
+
+## 14. Fase 3c: hecho
+
+Requisitos previos al servidor: los PRs 15, 16 y 17 de la tabla 10.8 y los cuatro pendientes de `describe()` de 13.1 (4a a 4d), en ese orden, en la rama `feature/mcp-prereqs`, creada desde `0.4.x` (`a253a93`, que ya incluye `feature/mcp-describe`). Un commit por punto, cada uno con su código, sus tests y, si el cambio se ve, su entrada en `docs/releases/releases.md` (0.4.0); cualquier prefijo de la rama se puede mergear. Antes de cada commit se pasaron `/verify` (lint, tests afectados, suite completa, build de la documentación y, en 4a a 4d, goldens del LLM y `check_ask_context.py --dry-run`), el subagente `conventions-reviewer` y `/code-review`; el PR 17, que lee ficheros por ruta, también `/security-review` (sin hallazgos). Lo que encontraron se corrigió antes del commit; ningún commit subido se reescribió y ninguno necesitó una corrección posterior. El check de pago no se lanzó.
+
+Decisiones del autor aplicadas: las de las secciones 6, 12.1 y 13.1 (en particular la pregunta 3 de 13: la nota "Applied identically to every candidate." se ajusta cuando corre ForecasterStats), y el orden de `UnrecommendedForecasterWarning` al final de `plan()` (`808cb9f`), que el invariante del PR 16 respeta.
+
+| Commit | Punto | Contenido |
+|---|---|---|
+| `1d7c915` | PR 15 | `compare(progress_callback=...)` y `CompareProgress` |
+| `8840782` | PR 16 | `ForecastPlan.warnings` y el panel "Plan Warnings" |
+| `8753613` | PR 17 | El script carga el fichero que se ejecutó, también con rutas; `exog_future.csv` en formato largo |
+| `a5ec6a8` | 4a | La razón del paso de categóricas nombra 15 columnas y "(first 15 of N)" |
+| `eb7c613` | 4b | El script de `backtest_code()` se describe como backtest; la columna `fold` no se resume como medida |
+| `c7d5c90` | 4c | Nota de ForecasterStats en la estrategia de `compare()`, clasificación recortada sin "were not provided" y una sola forma de marcador |
+| `cdfd0e4` | 4d | Goldens de ForecasterStats y de formato largo multiserie para `ask()` y `describe()` |
+
+**Qué cubre cada commit.**
+- PR 15: `compare()` llama a `progress_callback` con un `CompareProgress(candidate, status, completed, total, error)` congelado al empezar cada candidato (`'started'`) y al terminar (`'succeeded'` o `'failed'`, con el mismo texto que la columna `error`). `total` cuenta los candidatos que corren (tras el presupuesto y con el baseline). Una excepción del callback no se registra como fallo de candidato: sale de `compare()` sin correr el siguiente, que es la cancelación cooperativa del PR 19, y antes se cierra la barra de progreso. Un callback que no es invocable lanza `InvalidInputTypeError` (`field='progress_callback'`) antes de perfilar. `CompareProgress` se exporta desde `skforecast_ai` y `skforecast_ai.schemas`.
+- PR 16: `plan()` guarda en `plan.warnings` el texto exacto de los tres avisos que emite (baseline con valores ausentes, kwargs de LightGBM o XGBoost que la librería puede ignorar, `UnrecommendedForecasterWarning`), en el orden en que se emiten; el aviso de Python se mantiene. `validate_estimator_kwargs` devuelve la lista de sus mensajes. El display de un plan (y de los resultados que lo llevan) muestra el panel "Plan Warnings"; el validador no toca la lista y el contexto del LLM no la lee (PR 35).
+- PR 17:
+  - `_utils._with_data_path` sella en el perfil, con `model_copy` y sin leer el CSV otra vez, la ruta o URL con que se llamó a `forecast_code()`, `forecast()`, `backtest_code()`, `backtest()` y `compare()` (una vez, para todos sus candidatos). Con un perfil guardado y otra ruta, el script carga la ruta pasada.
+  - `index_col=0, parse_dates=True` solo cuando el índice está en el fichero: exógenas futuras, índice de fechas o datos en memoria (la ruta marcador `data.csv`, ahora `PLACEHOLDER_DATA_PATH`). Un CSV sin fechas leído por ruta se lee tal cual.
+  - En formato largo, `exog_future.csv` recibe `to_datetime` y `sort_values` como los datos (ForecasterRecursiveMultiSeries y ForecasterFoundation), en el código común, así que el script ejecutado y el fichero corren las mismas líneas.
+  - La sustitución de `show_progress` se ancla a la línea de la llamada de backtesting.
+  - Tests de determinismo con CSV y de scripts ejecutados como fichero.
+- 4a: la razón del paso `handle_categorical_exog` se recorta donde se construye (`recommendation/preprocessing.py`), con el mismo límite y la misma forma que `describe()` (`MAX_DESCRIBE_ITEMS`, que pasa a `_constants.py`). Con 500 columnas categóricas, `describe()` del plan baja de 7.855 a 2.538 caracteres.
+- 4b: `llm.context.backtest_cv_from_code` lee con `ast` (sin ejecutar nada) los literales del `TimeSeriesFold` que escribe el script, y `CodeGenerationResult` lo cuenta con `resolve_cv_config`, como `backtest()`. El contexto gana la sección `<backtesting_strategy>` y el modo "backtesting: predicts N folds of S steps, training the forecaster K times...". Con `send_data=False` (`describe()` y `ask()` sin datos), la columna `fold` da "Folds: N" en lugar de sus estadísticas.
+- 4c: `_shared_cv_note` dice "Applied to every candidate, except ForecasterStats: skforecast refits it in every fold, on a fixed window (N trainings)." cuando un candidato Stats corrió con otro `refit`, otra ventana u otro número de ajustes que la estrategia compartida. La clasificación recortada dice "Rows shown (first N of M): the K lower-ranked rows are omitted." una sola vez. Todos los marcadores de recorte usan la forma "(first N of M[ noun])".
+- 4d: siete escenarios nuevos en `GOLDEN_SCENARIOS`, cada uno con golden de `ask()` y de `describe()`: `cv_strategy_stats`, `backtest_stats`, `code_generation_stats_backtest`, `comparison_with_stats` (ForecasterStats sobre h2o con la estrategia de `create_cv()`, sin ajustar ningún ARIMA), y `profile_multi_series_long_exog`, `code_generation_multi_series_long_exog`, `backtest_multi_series_long_exog` (tres series en largo con una exógena numérica y una categórica y una serie que termina antes).
+
+**Desviaciones respecto a la sección 10, con su motivo.**
+- PR 15: 10.7 solo nombra el callback y la cancelación. Se eligieron dos eventos por candidato (el de inicio es el que permite cancelar antes de un candidato caro como Auto-ARIMA), la cancelación por excepción sin envolver (el servidor decide qué excepción lanza) y el parámetro al final de la firma (las llamadas posicionales de 0.3.1 siguen igual). El tiempo de `compare()` con callback queda dentro del ruido (h2o, tres candidatos: 0,49 a 0,54 s sin callback y 0,49 a 0,58 s con él) y los resultados son idénticos.
+- PR 16:
+  - La tabla del CLI (`plan`, `refine-plan`) no muestra el panel: el CLI ya imprime cada aviso, y los avisos del plan en las tablas del CLI son una pregunta menor abierta de 10.10, así que su salida en tabla queda como en 0.3.1 (criterio 3). `--format json` sí lleva la lista, porque vuelca el plan.
+  - `refine_plan()` reconstruye el plan con `plan()`, así que sus avisos son los de esa llamada; los suyos sobre el `prompt` (modos con LLM, fuera del MCP) no se añaden. Docstring y test lo dicen.
+- PR 17:
+  - El sello se aplica también en `forecast_code()` y `backtest_code()` con un perfil guardado y otra ruta: 10.6 decía "se escribe la ruta de los datos realmente usados" y era el único caso en que estos métodos escribían otra.
+  - Con un DataFrame y un perfil guardado, el script sigue cargando la ruta del perfil, como en 0.3.1: un DataFrame no tiene ruta y escribir el marcador cambiaría el script de una llamada que funciona (pregunta abajo).
+  - El marcador `data.csv` decide la lectura con índice: los datos en memoria con índice de filas conservan `index_col=0` (lo encontró `/code-review`: quitarlo rompía el script de un DataFrame guardado con `to_csv()`). Un CSV real llamado exactamente `data.csv` y sin fechas se toma por el marcador y conserva la lectura de 0.3.1 (falla con `KeyError`, como antes; pregunta abajo).
+  - El script sigue leyendo `exog_future.csv`, no el fichero real de exógenas (pregunta menor de 10.10), y los formatos de fecha mezclados quedan fuera (pregunta 5 de 10.10).
+- 4b: se lee la estrategia del script en lugar de añadir un campo `cv_config` a `CodeGenerationResult`, para no cambiar el esquema público ni su JSON (criterio 3); la sección ya leía su contrato del código. Sin refits el script no escribe `fixed_train_size` (no tiene efecto), así que esa línea se omite en lugar de suponer un valor; las demás coinciden con las de `backtest()`. Un `initial_train_size` de tipo `pd.Timestamp`, que ya falla en `build_cv_explanation` (PR 23), da el modo backtest con "(its folds could not be counted from the script)" en lugar de fallar. El bloque por serie del resumen sin datos (10.5) no entra en el punto: con varias series el resumen sigue sumándolas, como dicen las Notes de `describe()`.
+- 4c: la nota de ForecasterStats solo cambia cuando su estrategia difiere de la compartida; con una estrategia que ya reajusta en cada fold sigue "Applied identically...". El aviso de cabeza y cola de las predicciones con `send_data=True` ("interior rows were not provided") no es un recorte "first N" y queda como estaba (solo en `ask()`).
+- 4d: un escenario más de lo previsto, `code_generation_multi_series_long_exog`, para fijar también el contexto del script real de formato largo con exógenas.
+
+**Cambios para quien usa la librería** (respecto a 0.3.1):
+- PR 15: argumento nuevo `compare(progress_callback=None)` y modelo público `CompareProgress`; sin callback nada cambia.
+- PR 16: `ForecastPlan.warnings`, siempre vacío antes, lleva los avisos de `plan()` en todo plan construido por `plan()`, `refine_plan()`, `forecast()`, `backtest()`, `compare()` y el CLI, y en su JSON; dos planes que solo difieren en ella ya no son iguales. El display de un plan (y de los resultados que lo llevan) muestra el panel "Plan Warnings".
+- PR 17:
+  - scripts: `forecast()`, `backtest()`, `compare()` (cada candidato) y el CLI con una ruta o URL cargan ese fichero en lugar de `'data.csv'`; cualquier método con un perfil guardado y otra ruta carga la ruta pasada; un CSV sin fechas se lee sin `index_col`; los scripts de predicción en formato largo con exógenas parsean las fechas de `exog_future.csv` (dos líneas nuevas);
+  - resultados: `result.profile.data_profile.data_path` es la ruta que se ejecutó;
+  - ejecutados como fichero, esos scripts dan ahora las predicciones de la llamada;
+  - `backtest(show_progress=False)` con una columna llamada como la línea de la llamada ya no falla.
+- 4a: la razón del paso de categóricas nombra como mucho 15 columnas y "(first 15 of N)" (display del plan, tabla del CLI, `describe()` y `ask()`).
+- 4b: `ask()` y `describe()` de un resultado de `backtest_code()` lo describen como backtest, con su estrategia, folds y ajustes; con `send_data_to_llm=False`, "Folds: N" en lugar de estadísticas de `fold`.
+- 4c: `ask()` y `describe()` de un `compare()` en que corrió ForecasterStats con una estrategia que no reajusta dicen que se reajustó en cada fold; la clasificación recortada de `ask()` se dice una vez; los marcadores de `describe()` (nuevo en 0.4.0) usan "(first N of M ...)".
+- 4d: ninguno (solo tests).
+
+**Tests.**
+- Suite completa: de 2802 pasados y 1 omitido en `0.4.x` (2803 con `chronos` instalado, como dice 13.1) a 2891 pasados y 1 omitido, es decir, 89 más.
+- Por commit, con `/verify` (tests pasados, más 1 omitido): 2809 (PR 15), 2820 (PR 16), 2842 (PR 17), 2845 (4a), 2868 (4b), 2870 (4c) y 2891 (4d). El mensaje de `1d7c915` dice "2803 -> 2809": la base son 2802 pasados más el omitido.
+- Goldens de render: solo cambia `test_render_forecast_foundation_output_when_multi_series_long_format_prediction_mode` (PR 17, dos líneas que parsean las fechas de `exog_future`); se añaden el mismo caso para ForecasterRecursiveMultiSeries y la lectura sin fechas por ruta y en memoria.
+- Goldens del LLM: no cambian en los PRs 15, 16 y 17 ni en 4a; en 4b se añade `code_generation_backtest` y cambian dos de `describe()` (`backtest_foundation_multi_series_quantiles` y `backtest_many_series`, "Folds: N"); en 4c cambia uno de `describe()` (`backtest_many_series`, marcadores); en 4d se añaden siete escenarios. Ningún golden de `ask()` existente cambia en la fase.
+- Paridad del PR 17 con los datasets de la documentación: h2o (ForecasterRecursive y ForecasterStats), bike_sharing (`users`, `holiday`, `weather`, `temp`), items_sales ancho y largo (`melt`), items_sales largo con una exógena en largo, y store_sales largo (tienda 1, artículos 1 a 5) con y sin exógena en largo. En cada uno, `forecast()` en predicción (con `exog_future.csv` si hay exógenas) y en evaluación, y `backtest()` con el CV de `create_cv()`: el script devuelto por la llamada, ejecutado como fichero, da las mismas predicciones y es idéntico al de `forecast_code()` y `backtest_code()`, 24 de 24. En la base fallan los 24 (leen `'data.csv'`), y con los scripts de `forecast_code()` la predicción en largo con exógenas da otras predicciones.
+
+**Para el check de pago** (no se lanzó en esta fase). Lista completa de lo que cambia en lo que recibe el LLM en esta fase:
+- PR 17: la sección `<script>` de un `CodeGenerationResult` lista el fichero que lee el script, así que con un perfil guardado y otra ruta nombra esa ruta (ningún golden lo cubre).
+- 4a: la razón del paso de categóricas en `<forecast_plan>` cuando hay más de 15 columnas categóricas.
+- 4b: el contexto de un resultado de `backtest_code()` gana `<backtesting_strategy>` y el modo backtesting en `<script>`; con `send_data_to_llm=False`, "Folds: N" en `<predictions>` de un backtest.
+- 4c: la nota de `<backtesting_strategy>` de un `compare()` en que corrió ForecasterStats con otra estrategia, y la frase de la clasificación recortada en `<leaderboard>` (con más de 15 candidatos).
+- PRs 15 y 16 y 4d: nada.
+
+Suma con lo pendiente de las secciones anteriores, que no cambia: la regla 4 de `llm/prompts.py` y las explicaciones del plan y del CV (sección 3); las notas de `DataProfile.warnings` de los PRs 6 y 8 (sección 12); y lo de la sección 13 (estrategia y frases de ForecasterStats del PR 9, cotas del PR 13, `llm/context.py` de los PRs 12 y 14, candidatos de datos largos). Una sola ejecución antes de la release, como decidió el autor.
+
+**Preguntas nuevas para el autor.**
+1. PR 17: con un DataFrame y un perfil guardado de un fichero, el script carga la ruta del perfil, como en 0.3.1, aunque se ejecutó el DataFrame. ¿Se mantiene (implementado), se escribe el marcador `data.csv` o se avisa?
+2. PR 17: un CSV real llamado exactamente `data.csv` (ruta relativa) y sin fechas se confunde con el marcador de datos en memoria y su script falla como en 0.3.1. ¿Basta así, o se añade al perfil un campo que distinga los datos leídos por ruta (cambia el esquema y su JSON)?
+3. PR 16: los avisos del plan no aparecen en la tabla del CLI porque el CLI ya los imprime (pregunta menor de 10.10). ¿Se confirma?
+4. PR 15: ¿se confirman dos eventos por candidato y la cancelación lanzando una excepción desde el callback, que sale de `compare()` tal cual, como contrato para el PR 19?
+5. 4b: el resumen sin datos de las predicciones multiserie sigue sumando las series; ¿un bloque por serie, como 10.5 proponía, en el lote de pago?
+6. 4c: "Applied identically to every candidate." sigue cuando corre un candidato que no se entrena (ForecasterFoundation, baseline); la explicación de `compare()` ya lo dice para foundation. ¿Se ajusta también la nota?
+7. skforecast: el fallo del backtest de ForecasterStats con `gap > 0` sin intervalo (backlog de 13.1) está corregido en la rama `0.26.x` de skforecast (comprobado con su punta: h2o, `gap=2`, sin error), pero esa rama sigue llamándose 0.26.0 y el skforecast instalado en el entorno de la sesión, también 0.26.0, es anterior a la corrección y sigue fallando. ¿Se exige en `pyproject.toml` la versión de skforecast que la publique?
+
+**Pendiente o anotado, fuera de esta fase.**
+- Las preguntas de arriba y las abiertas de 10.10 y de las secciones 11 a 13.
+- `describe()` de un `backtest_code()` con `initial_train_size` de tipo `pd.Timestamp` no cuenta los folds mientras `build_cv_explanation` falle con ese tipo (PR 23).
+- El comentario del script de ForecasterStats y foundation ("# Categorical exog excluded (...)") y la línea del perfil de `ask()` siguen nombrando todas las columnas categóricas; 4a solo recorta la razón del paso.
+- El backlog de 13.1 sobre el fallo de skforecast con `gap > 0` queda resuelto en origen (pregunta 7).
+
+**Qué queda para empezar el servidor (PRs 18 y 19).** Con esta fase entran todos los PRs mínimos (1, 2, 3, 6, 7, 8, 9, 12, 13 y 14 antes del 18; 10, 11 y 15 antes del 19) y los muy recomendables (4, 5, 16 y 17). Para empezar:
+- PR 18: la decisión 4 de 12.1 (el MCP reenvía los mensajes tal cual, con un máximo de 5 valores y el límite de tamaño del servidor, y lo dicen el SKILL.md y la documentación del servidor); `values_included=False` significa sin filas, mientras las estadísticas de las predicciones y las métricas sí van (13.1); el tool `profile` rechaza saltos de línea en los nombres (pregunta 4 de 10.10). Siguen abiertas para el autor las preguntas 1 (versión), 12 (valores por defecto del servidor), 13, 14 y 18 de 10.10.
+- PR 19: usa `progress_callback` para `Context.report_progress` y la cancelación entre candidatos, y `plan.warnings` junto a la captura de avisos por llamada de 10.2 para los `ToolNotice` de origen `plan`.
+- El check de pago, una sola vez antes de la release, con la lista de arriba.
