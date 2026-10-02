@@ -470,19 +470,6 @@ class ForecastingAssistant:
         # series of different lengths or on long-format data).
         _validate_task_input(data_profile, task_type)
 
-        # Warned once the forecaster is known to accept the shape of the
-        # data, so a forecaster rejected for it just above (such as
-        # ForecasterDirectMultiVariate on long-format data, left out of the
-        # candidates for that reason) is not said to be "used as requested".
-        if unrecommended:
-            warnings.warn(
-                f"Forecaster '{forecaster}' is not among the recommended "
-                f"candidates for this profile "
-                f"({profile.forecaster_candidates}), but it is used as "
-                f"requested. It may be slow or perform poorly on this data.",
-                UnrecommendedForecasterWarning,
-            )
-
         # Arguments the forecaster has no use for are rejected rather than
         # silently ignored, so the plan never differs from what was asked.
         if task_type in ("statistical", "foundation", "baseline"):
@@ -753,7 +740,7 @@ class ForecastingAssistant:
                     f"not used: the baseline only repeats past target values."
                 )
 
-        return ForecastPlan(
+        plan = ForecastPlan(
             task_type           = task_type,
             forecaster          = fc,
             forecaster_kwargs   = forecaster_kwargs,
@@ -769,6 +756,22 @@ class ForecastingAssistant:
             preprocessing_steps = preprocessing_steps,
             explanation         = explanation,
         )
+
+        # Warned once the plan exists, so a forecaster that a later check
+        # rejects (the shape of the data, an argument it has no use for, a
+        # foundation model or an interval it cannot serve) is never said to
+        # be "used as requested", and with warnings raised as errors the
+        # warning never hides that error.
+        if unrecommended:
+            warnings.warn(
+                f"Forecaster '{forecaster}' is not among the recommended "
+                f"candidates for this profile "
+                f"({profile.forecaster_candidates}), but it is used as "
+                f"requested. It may be slow or perform poorly on this data.",
+                UnrecommendedForecasterWarning,
+            )
+
+        return plan
 
     def refine_plan(
         self,
