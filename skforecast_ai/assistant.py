@@ -15,7 +15,7 @@ if sys.version_info >= (3, 12):
     from typing import Unpack
 else:
     from typing_extensions import Unpack
-from skforecast.exceptions import LongTrainingWarning
+from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
     AUTOREG_FORECASTERS,
@@ -1650,13 +1650,37 @@ class ForecastingAssistant:
         if reasoning:
             cv_explanation = f"{reasoning} {cv_explanation}"
 
+        # skforecast refits ForecasterStats in every fold whatever `refit`
+        # says. The script, `cv_config` and the explanation say what runs;
+        # an argument the user passed and that does not run is also warned
+        # about, so it is not replaced without notice.
+        executed = cv_as_executed(cv, plan.forecaster)
+        ignored = [
+            f"`{name}={value!r}`"
+            for name, value, ran in (
+                ("refit", refit, executed.refit),
+                ("fixed_train_size", fixed_train_size, executed.fixed_train_size),
+            )
+            if value is not None and value != ran
+        ]
+        if ignored:
+            warnings.warn(
+                f"{' and '.join(ignored)} do not apply to ForecasterStats: "
+                f"skforecast refits it in every fold, so its backtest runs "
+                f"with `refit=True` and "
+                f"`fixed_train_size={executed.fixed_train_size}`. Pass those "
+                f"values to avoid this warning.",
+                IgnoredArgumentWarning,
+                stacklevel = 2,
+            )
+
         # The same snippet the backtesting script embeds, so the strategy
         # can be inspected and reproduced on its own. For ForecasterStats it
         # is the strategy skforecast runs, while `cv` keeps the parameters
         # as given, so reusing it with another forecaster does not change
         # how that one is trained.
         code_lines = ["from skforecast.model_selection import TimeSeriesFold", ""]
-        _emit_cv_configuration(code_lines, cv_as_executed(cv, plan.forecaster))
+        _emit_cv_configuration(code_lines, executed)
 
         return CVResult(
             profile     = profile,
