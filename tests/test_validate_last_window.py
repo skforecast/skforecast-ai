@@ -745,6 +745,13 @@ def test_validate_last_window_dates_equal_those_of_generated_script(data, kwargs
     # the script inserts the missing dates; nothing else may warn.
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always")
+        # The upstream numpy 2.5 deprecation ignored in pyproject.toml, which
+        # "always" would record.
+        warnings.filterwarnings(
+            "ignore",
+            message  = "The 'generic' unit for NumPy timedelta is deprecated",
+            category = DeprecationWarning,
+        )
         profile = assistant.profile(
             data,
             target           = (
