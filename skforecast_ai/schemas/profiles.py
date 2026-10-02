@@ -359,7 +359,7 @@ class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
     def _rich_body(self, console, options):
         yield render_profile(self)
 
-    def _build_llm_context(self, *, send_data: bool):
+    def _build_llm_context(self, *, send_data: bool, for_describe: bool = False):
         """
         Describe the profile to the LLM.
 
@@ -372,6 +372,9 @@ class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
             Whether raw data values may be included. Has no effect here:
             a profile holds summary statistics only. The parameter is part
             of the `ExplainableResult` interface.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -384,7 +387,10 @@ class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
         from .results import LLMContext
 
         return LLMContext(
-            text                = build_context_message(profile=self),
+            text                = build_context_message(
+                                      profile      = self,
+                                      for_describe = for_describe,
+                                  ),
             profile             = self,
             sends_result_values = False,
         )

@@ -27,11 +27,46 @@ class ExplainableResult:
     """
 
     def _build_llm_context(
-        self, *, send_data: bool
+        self, *, send_data: bool, for_describe: bool = False
     ) -> LLMContext:  # pragma: no cover - overridden by subclasses
         raise NotImplementedError(
             f"{type(self).__name__} must implement _build_llm_context"
         )
+
+    def describe(self) -> str:
+        """
+        Describe the result in plain text.
+
+        The text is the one `ask()` sends to the LLM about this result when
+        `send_data_to_llm=False`, without the sentences that only tell the
+        LLM how to answer. It is deterministic and needs no LLM, so it can
+        be shown to a user or passed to an agent as it is. A plan is
+        described through the script rendered from it:
+        `assistant.forecast_code(profile=profile, plan=plan).describe()`.
+
+        Returns
+        -------
+        description : str
+            Sections wrapped in XML-style tags (`<dataset>`,
+            `<forecast_plan>`, ...), the same ones `ask()` sends.
+
+        Notes
+        -----
+        It never includes values row by row: predictions are summarized
+        by their shape, columns, minimum, maximum, mean and standard
+        deviation, and metrics are included as computed. Two limitations,
+        shared with the context of `ask()`:
+
+        - The summary of the predictions is computed over all their rows:
+        with several series it pools them, and the `fold` column of a
+        backtest is summarized like the other numeric columns.
+        - For a result of `backtest_code()`, the `<script>` section
+        describes the script as the one of the plan in prediction mode
+        (it trains on all the data and computes no metrics), although the
+        script backtests the plan.
+        """
+
+        return self._build_llm_context(send_data=False, for_describe=True).text
 
     def to_llm_context(self, *, send_data: bool = False) -> LLMContext:
         """

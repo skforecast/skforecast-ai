@@ -21,6 +21,27 @@ from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
 MAX_STATS_SERIES = 5
 MAX_PACF_LAGS = 15
 
+# Sentences addressed to the LLM of `ask()`: they tell it how to use the
+# context, they state nothing about the result. `describe()` leaves them
+# out (`for_describe=True`); with `for_describe=False` every renderer
+# writes them exactly where it always did.
+PLAN_CODE_NOTE = (
+    "Note: A validated Python script implementing this plan is "
+    "generated separately. Do not generate code yourself."
+)
+SCRIPT_NOTE = (
+    "The script is available to the user as `result.code`; describe it "
+    "from this summary and the plan, do not reproduce it."
+)
+RANKING_NOTE = (
+    "Do not re-rank the candidates or recompute the table, and do not "
+    "suggest reasons for the ranking beyond the metric values: the "
+    "leaderboard reports what happened, not why."
+)
+LEADERBOARD_NOTE = (
+    "Do not name, count, or score a candidate that does not appear below."
+)
+
 
 def _fmt(value: float) -> str:
     """Format a statistic with four significant digits."""
@@ -354,7 +375,10 @@ def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
     return _tag("profile_decision", "\n".join(parts))
 
 
-def render_plan_section(plan: ForecastPlan | None) -> str:
+def render_plan_section(
+    plan: ForecastPlan | None,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<forecast_plan>` section.
 
@@ -362,6 +386,9 @@ def render_plan_section(plan: ForecastPlan | None) -> str:
     ----------
     plan : ForecastPlan, None
         Plan to describe. None renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which leaves out
+        `PLAN_CODE_NOTE`, addressed to the LLM of `ask()`.
 
     Returns
     -------
@@ -404,16 +431,18 @@ def render_plan_section(plan: ForecastPlan | None) -> str:
             )
             parts.append(f"  - {prefix} {step.reason}")
     parts.append(f"- {plan.explanation}")
-    parts.append("")
-    parts.append(
-        "Note: A validated Python script implementing this plan is "
-        "generated separately. Do not generate code yourself."
-    )
+    if not for_describe:
+        parts.append("")
+        parts.append(PLAN_CODE_NOTE)
 
     return _tag("forecast_plan", "\n".join(parts))
 
 
-def render_script_section(plan: ForecastPlan | None, code: str | None) -> str:
+def render_script_section(
+    plan: ForecastPlan | None,
+    code: str | None,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<script>` section describing a generated script.
 
@@ -429,6 +458,9 @@ def render_script_section(plan: ForecastPlan | None, code: str | None) -> str:
         Plan the script was rendered from. None renders nothing.
     code : str, None
         Generated script. None renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which leaves out
+        `SCRIPT_NOTE`, addressed to the LLM of `ask()`.
 
     Returns
     -------
@@ -465,9 +497,9 @@ def render_script_section(plan: ForecastPlan | None, code: str | None) -> str:
         f"- Variables defined: {outputs}",
         f"- Packages imported: {', '.join(packages) if packages else 'none'}",
         f"- Length: {len(code.splitlines())} lines",
-        "The script is available to the user as `result.code`; describe it "
-        "from this summary and the plan, do not reproduce it.",
     ]
+    if not for_describe:
+        parts.append(SCRIPT_NOTE)
 
     return _tag("script", "\n".join(parts))
 
@@ -605,7 +637,10 @@ def render_predictions_section(predictions: Any, send_data: bool = False) -> str
     return _tag("predictions", body)
 
 
-def render_comparison_overview_section(result: ComparisonResult) -> str:
+def render_comparison_overview_section(
+    result: ComparisonResult,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<comparison_overview>` section.
 
@@ -613,6 +648,9 @@ def render_comparison_overview_section(result: ComparisonResult) -> str:
     ----------
     result : ComparisonResult
         Completed comparison to describe.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which leaves out
+        `RANKING_NOTE`, addressed to the LLM of `ask()`.
 
     Returns
     -------
@@ -636,21 +674,21 @@ def render_comparison_overview_section(result: ComparisonResult) -> str:
             f"one included, against the one-step naive forecast on the "
             f"training data, so the baseline row can also score below 1."
         )
-    parts += [
-        (
-            f"The ranking is a deterministic ascending sort of the "
-            f"{result.ranking_metric} column (lower is better). Do not "
-            f"re-rank the candidates or recompute the table, and do not "
-            f"suggest reasons for the ranking beyond the metric values: the "
-            f"leaderboard reports what happened, not why."
-        ),
-    ]
+    ranking = (
+        f"The ranking is a deterministic ascending sort of the "
+        f"{result.ranking_metric} column (lower is better)."
+    )
+    if not for_describe:
+        ranking += f" {RANKING_NOTE}"
+    parts.append(ranking)
 
     return _tag("comparison_overview", "\n".join(parts))
 
 
 def render_leaderboard_section(
-    results: Any, max_rows: int = MAX_LEADERBOARD_ROWS
+    results: Any,
+    max_rows: int = MAX_LEADERBOARD_ROWS,
+    for_describe: bool = False,
 ) -> str:
     """
     Render the `<leaderboard>` section of a comparison.
@@ -668,6 +706,9 @@ def render_leaderboard_section(
         Ranked comparison table, sorted best first.
     max_rows : int, default `MAX_LEADERBOARD_ROWS`
         Top rows kept in full.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which leaves out
+        `LEADERBOARD_NOTE`, addressed to the LLM of `ask()`.
 
     Returns
     -------
@@ -680,11 +721,11 @@ def render_leaderboard_section(
         body = f"Candidates listed: {n_rows} (all shown below).\n{results.to_string()}"
     else:
         omitted = n_rows - max_rows
+        note = "" if for_describe else f" {LEADERBOARD_NOTE}"
         body = (
             f"Candidates listed: {n_rows}. Only the top {max_rows} rows are "
             f"shown; the remaining {omitted} ranked below them and were not "
-            f"provided. Do not name, count, or score a candidate that does "
-            f"not appear below.\n\n"
+            f"provided.{note}\n\n"
             f"{results.head(max_rows).to_string()}\n"
             f"... ({omitted} lower-ranked candidates omitted) ..."
         )
@@ -722,7 +763,9 @@ def render_failures_section(failures: dict | None) -> str:
 
 
 def render_winning_candidate_section(
-    best_name: str, plan: ForecastPlan | None
+    best_name: str,
+    plan: ForecastPlan | None,
+    for_describe: bool = False,
 ) -> str:
     """
     Render the `<winning_candidate>` section of a comparison.
@@ -736,6 +779,9 @@ def render_winning_candidate_section(
         Name of the top-ranked candidate.
     plan : ForecastPlan, None
         The winner's plan.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, passed on to
+        `render_plan_section`.
 
     Returns
     -------
@@ -749,7 +795,7 @@ def render_winning_candidate_section(
             "Only the winning configuration is detailed below. The other "
             "candidates are represented by their leaderboard rows."
         ),
-        render_plan_section(plan),
+        render_plan_section(plan, for_describe=for_describe),
     ]
 
     return _tag("winning_candidate", "\n".join(p for p in parts if p))
@@ -763,6 +809,7 @@ def build_context_message(
     cv_config: dict | None = None,
     explanation: str | None = None,
     send_data: bool = False,
+    for_describe: bool = False,
 ) -> str:
     """
     Serialize a single forecasting run into a context block for the LLM.
@@ -800,6 +847,9 @@ def build_context_message(
         Whether raw data values may be included. When False, only
         aggregate statistics are shown for predictions. Metrics
         (already aggregated) are always included.
+    for_describe : bool, default False
+        Whether the block is rendered for `describe()`, which leaves out
+        the sentences addressed to the LLM of `ask()`.
 
     Returns
     -------
@@ -810,7 +860,7 @@ def build_context_message(
     return join_sections([
         render_dataset_section(profile),
         render_profile_decision_section(profile),
-        render_plan_section(plan),
+        render_plan_section(plan, for_describe=for_describe),
         render_cv_section(
             cv_config,
             trains=plan is None or plan.task_type != "foundation",
@@ -821,7 +871,10 @@ def build_context_message(
     ])
 
 
-def build_comparison_context(result: ComparisonResult) -> str:
+def build_comparison_context(
+    result: ComparisonResult,
+    for_describe: bool = False,
+) -> str:
     """
     Serialize a forecaster comparison into a context block for the LLM.
 
@@ -849,6 +902,9 @@ def build_comparison_context(result: ComparisonResult) -> str:
     ----------
     result : ComparisonResult
         Completed comparison to describe.
+    for_describe : bool, default False
+        Whether the block is rendered for `describe()`, which leaves out
+        the sentences addressed to the LLM of `ask()`.
 
     Returns
     -------
@@ -861,8 +917,8 @@ def build_comparison_context(result: ComparisonResult) -> str:
         # instead of being repeated inside every candidate's own block.
         render_dataset_section(result.profile),
         render_profile_decision_section(result.profile),
-        render_comparison_overview_section(result),
-        render_leaderboard_section(result.results),
+        render_comparison_overview_section(result, for_describe=for_describe),
+        render_leaderboard_section(result.results, for_describe=for_describe),
         render_failures_section(result.failures),
         render_cv_section(
             result.cv_config,
@@ -870,7 +926,9 @@ def build_comparison_context(result: ComparisonResult) -> str:
         ),
         render_deterministic_summary_section(result.explanation),
         render_winning_candidate_section(
-            result.best_name, result.best_candidate.plan
+            result.best_name,
+            result.best_candidate.plan,
+            for_describe = for_describe,
         ),
     ])
 
