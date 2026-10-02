@@ -14,7 +14,7 @@ from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
-from tests.fixtures_datasets import df_h2o_text, df_items_sales_long
+from tests.fixtures_datasets import df_h2o, df_h2o_text, df_items_sales_long
 from tests.fixtures_assistant import (
     df_calendar_named_exog,
     df_single,
@@ -1065,3 +1065,119 @@ def test_forecast_note_when_long_series_ends_early():
         "own last date, inside the range of the data."
     ]
     assert sorted(result.predictions["level"].unique()) == ["item_1", "item_2"]
+
+
+# =============================================================================
+# Tests: last window of the target
+# =============================================================================
+@pytest.mark.parametrize("with_exog", [True, False], ids=["exog", "no_exog"])
+@pytest.mark.parametrize("estimator", ["Ridge", "LGBMRegressor"])
+def test_forecast_InvalidInputError_when_final_rows_without_target(
+    estimator, with_exog
+):
+    """
+    Test that forecast() of data with future rows appended to carry the
+    exogenous variables (no target value) raises, whatever the estimator,
+    before the future `exog` is checked: it raised that `exog` started before
+    the first date to forecast (the day after the appended rows) or, without
+    `exog`, that `exog` was required.
+    """
+    future = pd.DataFrame({
+        "date": pd.date_range("2023-04-11", periods=5, freq="D"),
+        "sales": np.nan,
+        "promo": [0.0, 1.0, 0.0, 1.0, 0.0],
+    })
+    data = pd.concat([df_single, future], ignore_index=True)
+    exog = future[["date", "promo"]].set_index("date")
+
+    err_msg = re.escape(
+        "The data has no target value after 2023-04-10: drop its last 5 row(s) "
+        "(2023-04-11 to 2023-04-15), so that it ends with the last value of the "
+        "target; to forecast their dates, pass their exogenous variables in "
+        "`exog`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=data, target="sales", date_column="date", steps=5,
+            exog=exog if with_exog else None, estimator=estimator,
+        )
+
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_InvalidInputError_when_last_window_missing_value_and_ridge():
+    """
+    Test that forecast() with Ridge and a missing value of h2o that lag 13
+    reads (2007-06-01) raises before running: the three predictions were
+    missing without an error.
+    """
+    data = df_h2o.copy()
+    data.iloc[-13, 0] = np.nan
+
+    err_msg = re.escape(
+        "The forecaster reads missing values of the target to predict ('x': 1 "
+        "value(s), such as '2007-06-01'). ForecasterRecursive with Ridge cannot "
+        "use them, so its predictions would be missing: fill them in."
+    )
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(InvalidInputError, match=err_msg):
+            ForecastingAssistant().forecast(
+                data=data, target="x", steps=3, estimator="Ridge"
+            )
+
+
+def test_forecast_UserWarning_when_last_window_missing_value_and_lightgbm():
+    """
+    Test that forecast() with LightGBM, which tolerates missing values, and a
+    missing value of h2o that lag 13 reads warns, naming it, and forecasts as
+    before.
+    """
+    data = df_h2o.copy()
+    data.iloc[-13, 0] = np.nan
+
+    warn_msg = re.escape(
+        "The forecaster reads missing values of the target to predict ('x': 1 "
+        "value(s), such as '2007-06-01'). LGBMRegressor treats them as missing "
+        "values; check that they are meant to be missing."
+    )
+    # skforecast warns too, when profiling and from the executed script.
+    with pytest.warns(MissingValuesWarning):
+        with pytest.warns(UserWarning, match=warn_msg) as record:
+            result = ForecastingAssistant().forecast(
+                data=data, target="x", steps=3, estimator="LGBMRegressor"
+            )
+
+    expected = pd.DataFrame(
+        {"pred": [0.9933306508753204, 0.9629531895209908, 1.0539713022220016]},
+        index=pd.date_range("2008-07-01", periods=3, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+    # The warning points at the call of the user.
+    filenames = [
+        warning.filename for warning in record
+        if "reads missing values of the target" in str(warning.message)
+    ]
+    assert filenames == [__file__]
+
+
+def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
+    """
+    Test that the last window is not checked in evaluation mode, where the
+    forecaster is trained on the training split (left for the checks of the
+    evaluation split): a missing value of the training split that a lag
+    reads gives LightGBM predictions without the warning.
+    """
+    data = df_h2o.copy()
+    data.iloc[-16, 0] = np.nan
+
+    # skforecast warns about the missing value, when profiling and fitting.
+    with pytest.warns(MissingValuesWarning) as record:
+        result = ForecastingAssistant().forecast(
+            data=data, target="x", steps=3, test_size=3, estimator="LGBMRegressor"
+        )
+
+    assert not [
+        warning for warning in record
+        if "reads missing values of the target" in str(warning.message)
+    ]
+    assert result.predictions["pred"].notna().all()

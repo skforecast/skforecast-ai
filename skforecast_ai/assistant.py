@@ -119,6 +119,7 @@ from .schemas import (
 )
 from ._foundation import foundation_exog_columns, validate_foundation_plan
 from ._future_exog import as_exog_frame, validate_future_exog
+from ._last_window import validate_last_window
 from ._utils import (
     _check_evaluated_target,
     _resolve_data_and_target,
@@ -1256,6 +1257,11 @@ class ForecastingAssistant:
         future. No metrics are returned because there is no ground
         truth to compare against. When the data contains exogenous
         variables, future values must be supplied through `exog`.
+        Before running, final rows without a target value raise
+        `InvalidInputError`, and so does a missing value of the target
+        that the lags read when the estimator does not tolerate missing
+        values (a warning when it does), or that `ForecasterEquivalentDate`
+        or the inverse of the differentiation reads.
 
         Parameters
         ----------
@@ -2774,8 +2780,9 @@ class ForecastingAssistant:
             Pre-computed plan.
         require_exog : bool
             Whether prediction mode must be given `exog` when the data has
-            exogenous columns. True when the workflow executes the script,
-            False when it only renders it.
+            exogenous columns, after the last values of the target are
+            checked (`validate_last_window`). True when the workflow executes
+            the script, False when it only renders it.
 
         Returns
         -------
@@ -2842,6 +2849,16 @@ class ForecastingAssistant:
             )
         elif interval is not None:
             plan = _apply_interval_to_plan(plan, interval)
+
+        if require_exog and not evaluate:
+            # Before `exog` is required: final rows without a target value
+            # are the usual reason it is missing (future rows appended to
+            # carry the exogenous variables).
+            validate_last_window(
+                data    = data,
+                profile = profile.data_profile,
+                plan    = plan,
+            )
 
         # Validated once the plan is known: whether future `exog` is needed
         # depends on the plan using it, not only on the data having it.

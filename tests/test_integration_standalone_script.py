@@ -1,5 +1,6 @@
 # Integration test: the standalone script reproduces the executed workflow
 
+import re
 import subprocess
 import sys
 import textwrap
@@ -406,3 +407,36 @@ def test_standalone_script_matches_forecast_when_csv_long_series_has_gaps(tmp_pa
         standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+def test_standalone_script_matches_forecast_when_csv_last_window_has_missing_value(
+    tmp_path,
+):
+    """
+    Test that a CSV of h2o with an empty target cell that lag 13 reads
+    (2007-06-01) gives, with LightGBM, the warning of the last window and
+    the predictions of the script run as a file: the check does not change
+    what runs.
+    """
+    data = df_h2o.copy()
+    data.iloc[-13, 0] = np.nan
+    csv_path = tmp_path / "h2o.csv"
+    data.to_csv(csv_path)
+    assistant = ForecastingAssistant()
+    kwargs = {"data": csv_path, "target": "x", "steps": 3, "estimator": "LGBMRegressor"}
+
+    # skforecast warns about the missing value when the lags are selected.
+    with pytest.warns(MissingValuesWarning):
+        code = assistant.forecast_code(**kwargs).code
+    with pytest.warns(MissingValuesWarning):
+        with pytest.warns(
+            UserWarning, match=re.escape("reads missing values of the target")
+        ):
+            executed = assistant.forecast(**kwargs)
+
+    np.testing.assert_allclose(
+        executed.predictions["pred"].to_numpy(),
+        [0.9933306508753204, 0.9629531895209908, 1.0539713022220016],
+        rtol=1e-6,
+    )
+    _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)

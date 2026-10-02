@@ -240,6 +240,27 @@ def test_forecast_code_does_not_require_exog_in_prediction_mode():
     assert "exog_future" in result.code
 
 
+def test_forecast_code_output_when_data_has_final_rows_without_target():
+    """
+    Test that forecast_code() renders the script for data with final rows
+    without a target value: only forecast(), which runs the script, checks
+    the last values of the target.
+    """
+    future = pd.DataFrame({
+        "date": pd.date_range("2023-04-11", periods=5, freq="D"),
+        "sales": np.nan,
+        "promo": 0.0,
+    })
+    data = pd.concat([df_single, future], ignore_index=True)
+
+    result = ForecastingAssistant().forecast_code(
+        data=data, target="sales", date_column="date", steps=5
+    )
+
+    assert isinstance(result, CodeGenerationResult)
+    assert "predictions = forecaster.predict(" in result.code
+
+
 def test_forecast_code_ValueError_when_test_size_and_exog_combined():
     """
     Test that forecast_code() rejects `test_size` and `exog` supplied

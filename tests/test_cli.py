@@ -4,6 +4,7 @@ import ast
 import json
 import re
 
+import numpy as np
 import pandas as pd
 import pytest
 import typer
@@ -694,6 +695,32 @@ class TestForecast:
         assert result.exit_code == 1
         assert "`exog` has no row for 1 of the 5 dates to forecast, such as " \
             "2023-04-13." in " ".join(result.output.split())
+
+    def test_forecast_error_when_data_has_final_rows_without_target(self, tmp_path):
+        """
+        A CSV with future rows appended to carry the exogenous variables (an
+        empty target) raises, naming those rows, before --exog is checked: it
+        said that the exog started before the first date to forecast.
+        """
+        future = pd.DataFrame({
+            "date": pd.date_range("2023-04-11", periods=5, freq="D"),
+            "sales": np.nan,
+            "promo": [0.0, 1.0, 0.0, 1.0, 0.0],
+        })
+        csv_path = _write_csv(tmp_path, pd.concat([df_single, future]))
+        exog_path = _write_csv(
+            tmp_path, future[["date", "promo"]], name="future_exog.csv"
+        )
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog", exog_path, "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert (
+            "The data has no target value after 2023-04-10: drop its last 5 "
+            "row(s) (2023-04-11 to 2023-04-15)" in " ".join(result.output.split())
+        )
 
 
 
