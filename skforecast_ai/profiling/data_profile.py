@@ -477,7 +477,7 @@ def _try_parse_first_date_column(
             if col == date_column:
                 raise InvalidInputError("".join(issue), field="data")
             if date_column is None:
-                skipped.append(issue)
+                skipped.append((col, issue))
             continue
         if parsed is None or parsed.isna().any():
             continue
@@ -489,7 +489,7 @@ def _try_parse_first_date_column(
         if skipped:
             # The skipped columns may be exogenous variables, so the warning
             # says what was found and not how to fix a date column.
-            found = " ".join(f"{summary}." for summary, _ in skipped)
+            found = " ".join(f"{summary}." for _, (summary, _) in skipped)
             _warnings.warn(
                 f"{found} Column {col!r} is used as the date column instead; "
                 f"pass `date_column` to choose another one.",
@@ -499,9 +499,14 @@ def _try_parse_first_date_column(
         break
     else:
         if skipped:
+            # A sparse column of dates may be an exogenous variable of data
+            # without dates, which only a DataFrame can pass.
+            col, issue = skipped[0]
             raise InvalidInputError(
-                f"{''.join(skipped[0])} If the dates are in another column, "
-                f"pass its name as `date_column`.",
+                f"{''.join(issue)} If the dates are in another column, pass its "
+                f"name as `date_column`; if {col!r} is an exogenous variable "
+                f"and the data has no dates, read the CSV with pandas and pass "
+                f"the DataFrame instead of its path.",
                 field = "data",
             )
 

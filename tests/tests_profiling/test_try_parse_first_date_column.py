@@ -81,7 +81,9 @@ def test_try_parse_first_date_column_ValueError_when_dates_have_empty_cells(
         "The dates of column 'date' have 1 empty cell(s), at row position(s) "
         "100 (counting from 0, header excluded): every row needs a date. Fill "
         "in or drop those rows. If the dates are in another column, pass its "
-        "name as `date_column`."
+        "name as `date_column`; if 'date' is an exogenous variable and the data "
+        "has no dates, read the CSV with pandas and pass the DataFrame instead "
+        "of its path."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         _try_parse_first_date_column(data)

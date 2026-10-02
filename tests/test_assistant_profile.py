@@ -287,7 +287,9 @@ def test_profile_error_code_and_field(
         (
             None,
             " If the dates are in another column, pass its name as "
-            "`date_column`.",
+            "`date_column`; if 'date' is an exogenous variable and the data has "
+            "no dates, read the CSV with pandas and pass the DataFrame instead "
+            "of its path.",
         ),
         ("date", ""),
     ],
