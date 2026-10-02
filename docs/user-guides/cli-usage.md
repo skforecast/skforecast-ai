@@ -267,7 +267,7 @@ pip install "skforecast-ai[mcp]"
 skforecast-ai mcp --allow-dir /path/to/data
 ```
 
-The tools, their errors and the limits of the server are described in the [MCP server reference](../api/mcp.md).
+How to connect an agent, the skill that teaches it the workflow, what the agent sees and the limits of the server are in [MCP server for coding agents](mcp-server.md); the tools and their errors, in the [MCP server reference](../api/mcp.md).
 
 ---
 

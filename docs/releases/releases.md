@@ -16,7 +16,7 @@ All significant changes to this project are documented in this release file.
 
 **Added**
 
-+ <span class="badge text-bg-feature">Feature</span> New MCP server, so coding agents (Claude Code, Cursor, Claude Desktop) can run the deterministic workflow as tools: `skforecast-ai mcp --allow-dir DIR`, with the new `mcp` extra (`pip install "skforecast-ai[mcp]"`, also in `all`). It profiles a CSV file given by its absolute path inside `DIR` (no URLs), builds and refines plans and cross-validation strategies, backtests, compares and forecasts, and returns ids, plain-text summaries, warnings and code, never rows of data: predictions, metrics and leaderboards go to CSV files. `compare` reports its progress and can be cancelled between candidates. Errors are JSON objects with a `code`. `skforecast_ai.mcp.create_server()` builds it in Python (see [MCP server][mcp]).
++ <span class="badge text-bg-feature">Feature</span> New MCP server, so coding agents (Claude Code, Cursor, Claude Desktop) can run the deterministic workflow as tools: `skforecast-ai mcp --allow-dir DIR`, with the new `mcp` extra (`pip install "skforecast-ai[mcp]"`, also in `all`). It profiles a CSV file given by its absolute path inside `DIR` (no URLs), builds and refines plans and cross-validation strategies, backtests, compares and forecasts, and returns ids, plain-text summaries, warnings and code, never rows of data: predictions, metrics and leaderboards go to CSV files. `compare` reports its progress and can be cancelled between candidates. Errors are JSON objects with a `code`. `skforecast_ai.mcp.create_server()` builds it in Python. The package ships a skill (`SKILL.md`) that teaches an agent the workflow; see [MCP server for coding agents][mcp-guide] and the [reference][mcp].
 
 + <span class="badge text-bg-enhancement">Enhancement</span> The cross-validation explanation of [<code>ForecastingAssistant.create_cv()</code>][assistant], `backtest()` and `compare()` states how many times the forecaster is trained (`cv_config['n_fits']`, once per fold for `ForecasterStats`) and, for a direct forecaster, how many estimators that fits. `backtest()` and `compare()` warn with skforecast's `LongTrainingWarning` before running a backtest with more than 50 estimator fits, and `compare()` without `candidates` leaves out the alternatives above 500 fits (the recommended forecaster is always kept), saying so in the warning and the explanation. Pass them in `candidates` to run them anyway.
 
@@ -245,6 +245,7 @@ First public release. `skforecast-ai` wraps the [`skforecast`](https://skforecas
 [cli]: ../api/cli.md
 [exceptions]: ../api/exceptions.md
 [mcp]: ../api/mcp.md
+[mcp-guide]: ../user-guides/mcp-server.md
 [cli-guide]: ../user-guides/cli-usage.md
 [config]: ../user-guides/cli-usage.md#configuration
 [llm-config]: ../user-guides/llm-configuration.md

@@ -7,7 +7,7 @@ pip install "skforecast-ai[mcp]"
 skforecast-ai mcp --allow-dir /path/to/data
 ```
 
-Importing `skforecast_ai` never imports the server or the `mcp` package. The options of the command are in the [CLI reference](cli.md).
+Importing `skforecast_ai` never imports the server or the `mcp` package. The options of the command are in the [CLI reference](cli.md); how to connect an agent and give it the skill that ships with the package, in [MCP server for coding agents](../user-guides/mcp-server.md).
 
 ## Tools
 
@@ -45,7 +45,7 @@ The `notices` of a response are the warnings the call emitted, deduplicated, wit
 - Calls run one at a time; a call waits for the previous one to end.
 - The output directory (`--output-dir`, by default a new temporary directory that is kept when the server stops) is also the working directory of the server.
 - The scripts run in the process of the server, with the permissions of the user who started it. The server trusts the agent as much as that user: it limits what the agent can read (`--allow-dir`) and pass, not what the scripts it builds can do.
-- The JSON of the results and their scripts name the path of the data file; the summaries do not.
+- The JSON of the results, their scripts and the summary of a plan (its script lists the file it reads) name the path of the data file; the other summaries do not.
 
 ## Errors
 
@@ -62,7 +62,7 @@ A failure of a tool reaches the agent as an error result whose text is `Error ex
 
 When a script fails (`execution_failed`) or every candidate of a comparison fails (`all_candidates_failed`), `details.failure_id` names the full failure, which `get_failure` returns: it never goes in the error itself. Like the messages, a failure can quote values of the data, and the code it holds names the path of the data file.
 
-The messages of the core are forwarded as they are: they can name columns, series ids and values of the data, such as categories or dates (at most 5 values each). An error that skforecast-ai did not raise itself is an `internal_error` with its type and the first line of its message (at most 200 characters), which can also quote a value. The server cuts a message to 4,000 characters.
+The messages of the core are forwarded as they are: they can name columns, series ids and values of the data, such as categories or dates (at most 5 values each). An error that skforecast-ai did not raise itself is an `internal_error` with its type and the first line of its message (at most 200 characters), which can also quote a value. The server cuts a message to 4,000 characters, a hint to 1,000 and each text of `details` to 500, and a response carries at most 20 notices of 1,000 characters each (`notices_omitted` counts the rest).
 
 ::: skforecast_ai.mcp.create_server
 
