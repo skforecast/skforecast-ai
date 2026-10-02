@@ -1134,6 +1134,39 @@ def test_forecast_InvalidInputError_when_final_rows_without_target(
     assert exc_info.value.field == "data"
 
 
+@pytest.mark.parametrize("estimator", ["Ridge", "LGBMRegressor"])
+def test_forecast_UserWarning_when_multiseries_final_rows_without_target(estimator):
+    """
+    Test that forecast() of wide data with future rows appended to every
+    series (no target value) warns with ForecasterRecursiveMultiSeries, which
+    drops them, and gives the predictions of the data without them.
+    """
+    future = pd.DataFrame(
+        np.nan,
+        index   = pd.date_range("2012-04-30", periods=3, freq="D"),
+        columns = df_items_sales_wide.columns,
+    )
+    data = pd.concat([df_items_sales_wide, future])
+    target = list(df_items_sales_wide.columns)
+    assistant = ForecastingAssistant()
+
+    warn_msg = re.escape(
+        "The data has no target value after 2012-04-29: "
+        "ForecasterRecursiveMultiSeries ignores its last 3 row(s) (2012-04-30 to "
+        "2012-05-02) and forecasts the dates after 2012-04-29. Drop those rows to "
+        "avoid this warning."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.forecast(
+            data=data, target=target, steps=7, estimator=estimator
+        )
+    expected = assistant.forecast(
+        data=df_items_sales_wide, target=target, steps=7, estimator=estimator
+    )
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+
+
 def test_forecast_InvalidInputError_when_last_window_missing_value_and_ridge():
     """
     Test that forecast() with Ridge and a missing value of h2o that lag 13

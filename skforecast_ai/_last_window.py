@@ -42,10 +42,14 @@ def validate_last_window(
     predictions, both without an error. The checks, in prediction mode:
 
     - Final rows: dates at the end of the data with no target value (in any
-      series) raise, whatever the forecaster and the estimator. A series
-      that ends before the others is not one of them:
-      ForecasterRecursiveMultiSeries does not predict it, which the note
-      "Series ending early" of the profile says.
+      series) raise, whatever the estimator, except for
+      ForecasterRecursiveMultiSeries, which drops them and forecasts the
+      dates after the last value, as without them: a warning names them and
+      the rest of the window is checked. A series that ends before the
+      others is not one of them: ForecasterRecursiveMultiSeries does not
+      predict it, which the note "Series ending early" of the profile says.
+      When the final dates are weekend days that never have a value in
+      daily data, the message suggests dropping every weekend row instead.
     - Missing values that the predictions read: those a lag reads at some
       step (with the differentiation, the values each differenced value is
       made of), those of a window feature whose values are all missing (the
@@ -107,10 +111,18 @@ def _check_wide(
     # after the last value.
     last_value = frame.index[with_value[-1]]
     if with_value[-1] < len(frame) - 1:
-        raise _final_rows_error(
-            last_value, present_index[present_index > last_value], profile, plan,
-            long_format=False,
+        _final_rows(
+            last_value  = last_value,
+            after       = present_index[present_index > last_value],
+            has_value   = pd.Series(present.any(axis=1), index=frame.index),
+            profile     = profile,
+            plan        = plan,
+            long_format = False,
         )
+        # ForecasterRecursiveMultiSeries drops them: its window ends on the
+        # last value.
+        frame = frame.iloc[:with_value[-1] + 1]
+        present = present[:with_value[-1] + 1]
 
     positions, order, size = _read_positions(plan, limit=len(frame))
     if not size:
@@ -247,9 +259,13 @@ def _check_long(
     if (rows["date"] > last_value).any():
         # Every row after the last value is to drop, repeated or off the grid.
         after = every_date[every_date > last_value]
-        raise _final_rows_error(
-            last_value, pd.DatetimeIndex(after.sort_values()), profile, plan,
-            long_format=True,
+        _final_rows(
+            last_value  = last_value,
+            after       = pd.DatetimeIndex(after.sort_values()),
+            has_value   = rows.groupby("date")["value"].any(),
+            profile     = profile,
+            plan        = plan,
+            long_format = True,
         )
 
     # A foundation model reads no lags, and without a frequency there is no
@@ -541,18 +557,23 @@ def _where(dates: pd.Index) -> str:
     return f"{len(dates)} value(s), such as {shown}"
 
 
-def _final_rows_error(
+def _final_rows(
     last_value: object,
     after: pd.Index,
+    has_value: pd.Series,
     profile: DataProfile,
     plan: ForecastPlan,
     long_format: bool,
-) -> InvalidInputError:
+) -> None:
     """
-    Return the error for final rows of the data without a target value:
+    Raise for final rows of the data without a target value, or warn for
+    ForecasterRecursiveMultiSeries, which drops them and forecasts the dates
+    after the last value, the same predictions as without them.
     `last_value` is the date (or index) of the last value, `after` the date
-    (or index) of every row of the data after it. The advice on `exog` is
-    given when the plan uses exogenous variables.
+    (or index) of every row of the data after it, and `has_value` whether
+    each date of the target, as the generated code reads it, has a value in
+    some series. The advice on `exog` is given when the plan uses exogenous
+    variables.
     """
     if isinstance(after, pd.DatetimeIndex):
         shown = [_fmt_timestamp(value) for value in (last_value, after[0], after[-1])]
@@ -562,14 +583,60 @@ def _final_rows_error(
         prefix, their = "index ", "them"
     span = shown[1] if after[0] == after[-1] else f"{shown[1]} to {shown[2]}"
     where = " in any series" if long_format else ""
+    uses_exog = plan.use_exog and profile.exog_columns
+    weekends = _weekends_without_value(after, has_value, profile)
+
+    if plan.forecaster == "ForecasterRecursiveMultiSeries":
+        exog = (
+            ", reading their exogenous variables from `exog`" if uses_exog else ""
+        )
+        warnings.warn(
+            f"The data has no target value{where} after {prefix}{shown[0]}: "
+            f"{plan.forecaster} ignores its last {len(after)} row(s) "
+            f"({prefix}{span}) and forecasts the dates after "
+            f"{prefix}{shown[0]}{exog}. Drop those rows to avoid this "
+            f"warning.{weekends}",
+            UserWarning,
+            stacklevel = _caller_stacklevel(),
+        )
+        return
+
     exog = (
         f"; to forecast {their}, pass their exogenous variables in `exog`"
-        if plan.use_exog and profile.exog_columns else ""
+        if uses_exog else ""
     )
-
-    return InvalidInputError(
+    raise InvalidInputError(
         f"The data has no target value{where} after {prefix}{shown[0]}: drop "
         f"its last {len(after)} row(s) ({prefix}{span}), so that it ends with "
-        f"the last value of the target{exog}.",
+        f"the last value of the target{exog}.{weekends}",
         field = "data",
+    )
+
+
+def _weekends_without_value(
+    after: pd.Index,
+    has_value: pd.Series,
+    profile: DataProfile,
+) -> str:
+    """
+    Return the advice to drop every weekend row when the final rows of daily
+    data are weekend days and no weekend day has a value (at least two of
+    them before the last value): dropping only the final rows forecasts the
+    weekend first, from its missing values, while the business days alone
+    have a frequency of their own ('B'). An empty string otherwise.
+    """
+    if profile.frequency != "D" or not isinstance(after, pd.DatetimeIndex):
+        return ""
+    if not (after.dayofweek >= 5).all():
+        return ""
+    dates = pd.DatetimeIndex(has_value.index)
+    weekend = np.asarray(dates.dayofweek >= 5)
+    values = has_value.to_numpy(dtype=bool)
+    if weekend.sum() - len(after.unique()) < 2 or values[weekend].any():
+        return ""
+
+    return (
+        " Saturdays and Sundays never have a value: to forecast the business "
+        "days, drop every Saturday and Sunday row instead, so that the data "
+        "has a business-day frequency."
     )

@@ -50,6 +50,25 @@ def _final_rows_message(last: str, rows: str, where: str = "") -> str:
     )
 
 
+def _ignored_rows_message(last: str, rows: str, where: str = "") -> str:
+    """
+    Return the message of the warning for final rows without a target that
+    ForecasterRecursiveMultiSeries ignores.
+    """
+    return (
+        f"The data has no target value{where} after {last}: "
+        f"ForecasterRecursiveMultiSeries ignores its last {rows} and forecasts "
+        f"the dates after {last}. Drop those rows to avoid this warning."
+    )
+
+
+_WEEKEND_ADVICE = (
+    " Saturdays and Sundays never have a value: to forecast the business days, "
+    "drop every Saturday and Sunday row instead, so that the data has a "
+    "business-day frequency."
+)
+
+
 def _no_warning(data, profile, plan) -> None:
     """Run the check, failing on any warning."""
     with warnings.catch_warnings():
@@ -136,7 +155,8 @@ def test_validate_last_window_InvalidInputError_when_final_row_repeated():
 
 def test_validate_last_window_InvalidInputError_when_final_rows_without_target_wide():
     """
-    Test that, in wide format, final dates where no series has a value raise.
+    Test that, in wide format, final dates where no series has a value raise
+    for ForecasterDirectMultiVariate, which forecasts after them.
     """
     data = data_wide.copy()
     data.iloc[-2:, :] = np.nan
@@ -145,19 +165,15 @@ def test_validate_last_window_InvalidInputError_when_final_rows_without_target_w
         _final_rows_message("2012-04-27", "2 row(s) (2012-04-28 to 2012-04-29)")
     )
     with pytest.raises(InvalidInputError, match=err_msg):
-        validate_last_window(data=data, profile=profile_wide, plan=plan_wide_ridge)
+        validate_last_window(
+            data=data, profile=profile_wide, plan=plan_wide_multivariate
+        )
 
 
-@pytest.mark.parametrize(
-    "plan", [plan_long_ridge, plan_long_foundation], ids=["multiseries", "foundation"]
-)
-def test_validate_last_window_InvalidInputError_when_final_rows_without_target_long(
-    plan,
-):
+def test_validate_last_window_InvalidInputError_when_final_rows_without_target_long():
     """
     Test that, in long format, final dates where no series has a value raise
-    for ForecasterRecursiveMultiSeries (which drops them) and a foundation
-    model (which forecasts after them).
+    for a foundation model, which forecasts after them.
     """
     data = data_long.copy()
     data.loc[data["date"] >= "2012-04-28", "value"] = np.nan
@@ -168,7 +184,113 @@ def test_validate_last_window_InvalidInputError_when_final_rows_without_target_l
         )
     )
     with pytest.raises(InvalidInputError, match=err_msg):
-        validate_last_window(data=data, profile=profile_long, plan=plan)
+        validate_last_window(data=data, profile=profile_long, plan=plan_long_foundation)
+
+
+def test_validate_last_window_UserWarning_when_multiseries_final_rows_wide():
+    """
+    Test that, in wide format, final dates where no series has a value give a
+    warning for ForecasterRecursiveMultiSeries: it drops them and forecasts
+    the dates after the last value, as without them.
+    """
+    data = data_wide.copy()
+    data.iloc[-2:, :] = np.nan
+
+    warn_msg = re.escape(
+        _ignored_rows_message("2012-04-27", "2 row(s) (2012-04-28 to 2012-04-29)")
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        validate_last_window(data=data, profile=profile_wide, plan=plan_wide_ridge)
+
+
+def test_validate_last_window_UserWarning_when_multiseries_final_rows_long():
+    """
+    Test that, in long format, final dates where no series has a value give a
+    warning for ForecasterRecursiveMultiSeries, which drops them.
+    """
+    data = data_long.copy()
+    data.loc[data["date"] >= "2012-04-28", "value"] = np.nan
+
+    warn_msg = re.escape(
+        _ignored_rows_message(
+            "2012-04-27", "6 row(s) (2012-04-28 to 2012-04-29)", " in any series"
+        )
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        validate_last_window(data=data, profile=profile_long, plan=plan_long_ridge)
+
+
+def test_validate_last_window_InvalidInputError_when_multiseries_final_rows_and_lag_reads_missing_value():
+    """
+    Test that, after ignoring the final rows, the window of
+    ForecasterRecursiveMultiSeries ends on the last value and its missing
+    values are checked: lag 5 reads the missing value of 'item_1' two dates
+    before the last date with a value.
+    """
+    data = data_wide.copy()
+    data.iloc[-2:, :] = np.nan
+    data.iloc[-5, 0] = np.nan
+
+    err_msg = re.escape(
+        "The forecaster reads missing values of the target to predict ('item_1': 1 "
+        "value(s), such as '2012-04-25')."
+    )
+    with pytest.warns(UserWarning, match="ignores its last 2 row"):
+        with pytest.raises(InvalidInputError, match=err_msg):
+            validate_last_window(
+                data=data, profile=profile_wide, plan=plan_wide_ridge
+            )
+
+
+def _weekend_profile(data: pd.DataFrame):
+    """Profile `data`, whose PACF warns on the missing weekend values."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MissingValuesWarning)
+        return ForecastingAssistant().profile(
+            data, target="y", date_column="date"
+        ).data_profile
+
+
+def _weekend_data(last: str) -> pd.DataFrame:
+    """
+    Return daily data whose Saturdays and Sundays never have a value, ending
+    on `last`.
+    """
+    dates = pd.date_range("2023-01-02", last, freq="D")
+    y = 10.0 + np.sin(np.arange(len(dates)))
+    y[dates.dayofweek >= 5] = np.nan
+    return pd.DataFrame({"date": dates, "y": y})
+
+
+def test_validate_last_window_InvalidInputError_advises_business_days_when_weekends_empty():
+    """
+    Test that final rows that are weekend days, in daily data whose weekends
+    never have a value, raise with the advice to drop every weekend row:
+    dropping only the final rows forecasts the weekend first.
+    """
+    data = _weekend_data("2023-03-05")
+    profile = _weekend_profile(data)
+
+    err_msg = re.escape(
+        _final_rows_message("2023-03-03", "2 row(s) (2023-03-04 to 2023-03-05)")[:-1]
+        + "." + _WEEKEND_ADVICE
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        validate_last_window(data=data, profile=profile, plan=plan_single_lgbm)
+
+
+def test_validate_last_window_no_weekend_advice_when_a_weekend_has_value():
+    """
+    Test that the advice to drop every weekend row is not given when some
+    weekend day of the data has a value.
+    """
+    data = _weekend_data("2023-03-05")
+    data.loc[data["date"] == "2023-01-07", "y"] = 1.0
+    profile = _weekend_profile(data)
+
+    with pytest.raises(InvalidInputError) as exc_info:
+        validate_last_window(data=data, profile=profile, plan=plan_single_lgbm)
+    assert "Saturdays and Sundays" not in str(exc_info.value)
 
 
 def test_validate_last_window_InvalidInputError_when_final_rows_without_dates():
@@ -958,8 +1080,9 @@ def test_validate_last_window_InvalidInputError_when_last_row_off_grid():
 def test_validate_last_window_InvalidInputError_when_wide_last_row_off_grid():
     """
     Test that, in wide format, a last row off the grid of the frequency ends
-    every series without a value on the grid, which raises instead of taking
-    every series for one that ends early.
+    every series without a value on the grid: ForecasterRecursiveMultiSeries
+    ignores it with a warning, instead of taking every series for one that
+    ends early, and the lags of item_1 then read its missing value.
     """
     future = pd.DataFrame(
         {"item_1": [1.0], "item_2": [2.0], "item_3": [3.0]},
@@ -968,11 +1091,21 @@ def test_validate_last_window_InvalidInputError_when_wide_last_row_off_grid():
     data = pd.concat([data_wide, future])
     data.iloc[-4, 0] = np.nan
 
-    with pytest.raises(InvalidInputError, match=re.escape("after 2012-04-29")):
-        validate_last_window(data=data, profile=profile_wide, plan=plan_wide_ridge)
+    warn_msg = re.escape(
+        _ignored_rows_message("2012-04-29", "1 row(s) (2012-04-30 12:00:00)")
+    )
+    err_msg = re.escape(
+        "The forecaster reads missing values of the target to predict ('item_1': 1 "
+        "value(s), such as '2012-04-27')."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        with pytest.raises(InvalidInputError, match=err_msg):
+            validate_last_window(
+                data=data, profile=profile_wide, plan=plan_wide_ridge
+            )
 
 
-def test_validate_last_window_InvalidInputError_when_long_series_starts_off_grid():
+def test_validate_last_window_UserWarning_when_long_series_starts_off_grid():
     """
     Test that, in long format, each series is put on the grid of its own first
     date (as `asfreq` does in `reshape_series_long_to_dict`): a row off the
@@ -990,11 +1123,16 @@ def test_validate_last_window_InvalidInputError_when_long_series_starts_off_grid
     })
     data = pd.concat([data_long, stray, future], ignore_index=True)
 
-    with pytest.raises(InvalidInputError, match=re.escape("after 2012-04-29")):
+    warn_msg = re.escape(
+        _ignored_rows_message(
+            "2012-04-29", "9 row(s) (2012-04-30 to 2012-05-02)", " in any series"
+        )
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
         validate_last_window(data=data, profile=profile_long, plan=plan_long_ridge)
 
 
-def test_validate_last_window_InvalidInputError_when_long_repeated_date_first_empty():
+def test_validate_last_window_UserWarning_when_long_repeated_date_first_empty():
     """
     Test that, of a repeated date of a series, the first row is the one read
     (as the generated code drops the others): an empty first row and a value
@@ -1007,10 +1145,10 @@ def test_validate_last_window_InvalidInputError_when_long_repeated_date_first_em
     })
     data = pd.concat([data_long, future], ignore_index=True)
 
-    err_msg = re.escape(
-        _final_rows_message("2012-04-29", "2 row(s) (2012-04-30)", " in any series")
+    warn_msg = re.escape(
+        _ignored_rows_message("2012-04-29", "2 row(s) (2012-04-30)", " in any series")
     )
-    with pytest.raises(InvalidInputError, match=err_msg):
+    with pytest.warns(UserWarning, match=warn_msg):
         validate_last_window(data=data, profile=profile_long, plan=plan_long_ridge)
 
 
