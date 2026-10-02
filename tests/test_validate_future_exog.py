@@ -1080,3 +1080,89 @@ def test_validate_future_exog_output_when_valid_exog_read_by_generated_code(
         expected = pd.date_range(first, periods=plan.steps, freq=profile.frequency)
         pd.testing.assert_index_equal(rows.index, expected, check_names=False)
         assert rows[columns].notna().all(axis=None)
+
+
+def _category_data(extra_x: int | None = None) -> pd.DataFrame:
+    """
+    Return daily data whose categorical exogenous variable holds 'X' only in
+    its first 3 rows (and at position `extra_x`, when given).
+    """
+    n = 120
+    cat = np.where(np.arange(n) % 2, "A", "B").astype(object)
+    cat[:3] = "X"
+    if extra_x is not None:
+        cat[extra_x] = "X"
+    return pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=n, freq="D"),
+        "y": 10.0 + np.sin(np.arange(n) / 3),
+        "cat": cat,
+    })
+
+
+_FUTURE_CATEGORIES = pd.DataFrame(
+    {"cat": ["X", "A", "B"]},
+    index=pd.date_range("2024-04-30", periods=3, freq="D", name="date"),
+)
+
+
+@pytest.mark.parametrize("estimator", ["Ridge", "LGBMRegressor"])
+def test_validate_future_exog_UserWarning_when_category_only_in_first_rows(estimator):
+    """
+    Test that a category the data holds only in its first rows, which the
+    lags take up, gives a warning whatever the estimator: the encoder knows
+    it, but the estimator is never trained on a row with it.
+    """
+    data = _category_data()
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data, target="y", date_column="date")
+    plan = assistant.plan(profile, steps=3, estimator=estimator, lags=7)
+
+    warn_msg = re.escape(
+        "`exog` holds categories that the data has only in its first rows, which "
+        "the lags and window features take up ('cat': 'X'): ForecasterRecursive "
+        "is not trained on them, so the predictions cannot use them; check them."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        validate_future_exog(_FUTURE_CATEGORIES, data, profile.data_profile, plan)
+
+
+def test_validate_future_exog_no_warning_when_category_also_after_first_rows():
+    """
+    Test that a category the data also holds after its first rows gives no
+    warning: the estimator is trained on it.
+    """
+    data = _category_data(extra_x=50)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data, target="y", date_column="date")
+    plan = assistant.plan(profile, steps=3, estimator="Ridge", lags=7)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        validate_future_exog(_FUTURE_CATEGORIES, data, profile.data_profile, plan)
+
+
+def test_validate_future_exog_UserWarning_when_category_only_in_first_rows_long():
+    """
+    Test that, in long format, the first rows are those of each series: 'X'
+    in the first rows of both series gives the warning for
+    ForecasterRecursiveMultiSeries.
+    """
+    data = pd.concat(
+        [_category_data().assign(series=name) for name in ("a", "b")],
+        ignore_index=True,
+    )
+    exog = pd.concat(
+        [_FUTURE_CATEGORIES.reset_index().assign(series=name) for name in ("a", "b")],
+        ignore_index=True,
+    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data, target="y", date_column="date", series_id_column="series"
+    )
+    plan = assistant.plan(profile, steps=3, estimator="Ridge", lags=7)
+
+    warn_msg = re.escape(
+        "('cat': 'X'): ForecasterRecursiveMultiSeries is not trained on them"
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        validate_future_exog(exog, data, profile.data_profile, plan)

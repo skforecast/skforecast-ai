@@ -22,6 +22,15 @@ from .schemas import DataProfile, ForecastPlan
 # Values listed in a message, at most.
 _SHOWN = 5
 
+# Forecasters trained on rows built from lags and window features: the first
+# `window_size` values of each series only feed the lags of later rows.
+_LAG_FORECASTERS = {
+    "ForecasterRecursive",
+    "ForecasterDirect",
+    "ForecasterRecursiveMultiSeries",
+    "ForecasterDirectMultiVariate",
+}
+
 
 def as_exog_frame(exog: object) -> pd.DataFrame | None:
     """
@@ -787,6 +796,7 @@ def _check_values(
     foundation = plan.forecaster == "ForecasterFoundation"
     tolerant = plan.estimator in NAN_TOLERANT_ESTIMATORS or foundation
     fitted = _fitted_rows(data, profile, plan)
+    learned = _learned_rows(data, profile, plan)
     # With a column of categories or objects, skforecast reads the exog as
     # objects and fails on pd.NA of a nullable numeric dtype too.
     with_categories = any(
@@ -797,6 +807,7 @@ def _check_values(
     with_missing = {}
     with_infinite = []
     with_new = {}
+    with_unlearned = {}
     for column in columns:
         future = rows[column]
         if isinstance(future.dtype, pd.SparseDtype):
@@ -845,6 +856,15 @@ def _check_values(
                 # The encoder reads a new category as a missing value, which
                 # the estimator tolerates (question 6 of the plan).
                 with_new[column] = new
+            if learned is not None:
+                rows_learned = learned if fitted is None else learned & fitted
+                taught = trained[rows_learned].dropna()
+                unlearned = _categories(
+                    present[present.isin(known) & ~present.isin(taught)]
+                )
+                if unlearned:
+                    # Encoded, but in no row the estimator is trained on.
+                    with_unlearned[column] = unlearned
         elif not categorical:
             # pd.NA of a column of objects or text makes skforecast fail; a
             # nullable numeric dtype reads it as NaN, unless the exog also
@@ -947,6 +967,19 @@ def _check_values(
             UserWarning,
             stacklevel = _caller_stacklevel(),
         )
+    if with_unlearned:
+        found = "; ".join(
+            f"{column!r}: {_shown(categories)}"
+            for column, categories in with_unlearned.items()
+        )
+        warnings.warn(
+            f"`exog` holds categories that the data has only in its first "
+            f"rows, which the lags and window features take up ({found}): "
+            f"{plan.forecaster} is not trained on them, so the predictions "
+            f"cannot use them; check them.",
+            UserWarning,
+            stacklevel = _caller_stacklevel(),
+        )
     if with_infinite:
         warnings.warn(
             f"`exog` column(s) {_shown(with_infinite)} hold infinite values in "
@@ -970,7 +1003,8 @@ def _fitted_rows(
     fitted on every row, and when the rows have no dates.
 
     The first rows of each series, which the lags and window features take
-    up, are not left out: a category seen only there is taken as known.
+    up, are not left out: a category seen only there is known to the
+    encoder (see `_learned_rows`).
     """
     if plan.task_type != "multi_series":
         return None
@@ -996,6 +1030,75 @@ def _fitted_rows(
             fitted |= ((dates >= valid.min()) & (dates <= valid.max())).to_numpy()
 
     return fitted
+
+
+def _learned_rows(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+) -> np.ndarray | None:
+    """
+    Return the rows of the data the estimator of a lag forecaster is trained
+    on: skforecast builds its training rows from the value after the first
+    `window_size` values of each series (from its first value), so the
+    categories of the rows before are encoded but never learned. None for
+    the forecasters without lags and when the rows have neither dates nor a
+    RangeIndex. Without dates, the rows are in the order of the index.
+    """
+    size = _window_size(plan)
+    if not size:
+        return None
+    dates = row_dates(data, profile.date_column)
+    if dates is not None:
+        order = pd.Series(dates, index=data.index)
+    elif isinstance(data.index, pd.RangeIndex):
+        order = pd.Series(np.asarray(data.index), index=data.index)
+    else:
+        return None
+    if profile.data_format == "long":
+        if profile.target not in data.columns:
+            return None
+        ids = pd.Series(_row_ids(data, profile.series_id_column), index=data.index)
+        first = order.where(data[profile.target].notna()).groupby(ids).transform("min")
+        rank = order.where(order >= first).groupby(ids).rank(method="dense")
+        return (rank > size).to_numpy()
+    targets = profile.target if isinstance(profile.target, list) else [profile.target]
+    learned = np.zeros(len(data), dtype=bool)
+    for target in targets:
+        if target not in data.columns:
+            continue
+        first = order[data[target].notna()].min()
+        rank = order.where(order >= first).rank(method="dense")
+        learned |= (rank > size).to_numpy()
+
+    return learned
+
+
+def _window_size(plan: ForecastPlan) -> int:
+    """
+    Return the number of first values of each series that a lag forecaster
+    reads but does not train on, as skforecast computes its `window_size`:
+    the largest lag or window feature, plus the order of the
+    differentiation. 0 for the other forecasters.
+    """
+    if plan.forecaster not in _LAG_FORECASTERS:
+        return 0
+    kwargs = plan.forecaster_kwargs
+    lags = kwargs.get("lags")
+    if isinstance(lags, int) and not isinstance(lags, bool):
+        sizes = [lags]
+    else:
+        sizes = [int(lag) for lag in lags or []]
+    for entry in kwargs.get("window_features") or []:
+        size = entry.get("window_size") if isinstance(entry, dict) else None
+        if isinstance(size, int) and not isinstance(size, bool):
+            sizes.append(size)
+        elif isinstance(size, (list, tuple)):
+            sizes.extend(int(value) for value in size)
+    if not sizes:
+        return 0
+
+    return max(sizes) + int(kwargs.get("differentiation") or 0)
 
 
 def _categories(values: pd.Series) -> list:

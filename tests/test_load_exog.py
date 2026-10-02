@@ -70,10 +70,23 @@ def test_load_exog_DataNotFoundError_when_file_missing(tmp_path):
             "have more fields than its header (often separators at the end of "
             "the rows).",
         ),
+        (
+            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
+            None,
+            "have more fields than its header (often separators at the end of "
+            "the rows).",
+        ),
+        (
+            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
+            "date",
+            "have more fields than its header (often separators at the end of "
+            "the rows).",
+        ),
     ],
     ids=["empty_date_cell", "mixed_offsets", "missing_date_column",
          "date_column_without_dates", "mixed_formats", "mixed_formats_named",
-         "more_fields_than_header"],
+         "more_fields_than_header", "separator_at_row_end",
+         "separator_at_row_end_named"],
 )
 def test_load_exog_InvalidInputError_when_dates_wrong(
     tmp_path, text, date_column, err_msg
@@ -83,7 +96,9 @@ def test_load_exog_InvalidInputError_when_dates_wrong(
     an empty date cell and offsets that change raise, and so do a named date
     column that is missing or holds no dates, instead of a raw `KeyError`,
     dates in mixed formats, which the generated script cannot read, and rows
-    with more fields than the header (instead of a raw `TypeError`).
+    with more fields than the header (instead of a raw `TypeError`), also
+    one more field that leaves the last column empty (a separator at the
+    end of every row), which was read as a header one field short.
     """
     path = tmp_path / "exog.csv"
     path.write_text(text)

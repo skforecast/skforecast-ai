@@ -664,8 +664,10 @@ def load_exog(
     index before, except for long-format data (`series_id_column`), whose
     first column may hold the series ids. Dates in mixed formats, which the
     generated script cannot read, raise. A header one field short
-    (`to_csv(index_label=False)`, R's `write.csv`) is read as before, and
-    rows made only of separators (a spreadsheet saved as CSV) are dropped,
+    (`to_csv(index_label=False)`, R's `write.csv`) is read as before, unless
+    its last column is then empty, which comes from a separator at the end
+    of every row and raises; rows made only of separators (a spreadsheet
+    saved as CSV) are dropped,
     as they hold no date and no value. The dates become the index, sorted.
 
     Parameters
@@ -693,7 +695,13 @@ def load_exog(
         )
 
     exog = pd.read_csv(path)
-    if isinstance(exog.index, pd.MultiIndex):
+    # Rows one field longer than the header shift every column; when the
+    # last column is then empty, the extra field is a separator at the end
+    # of each row, not the index of `to_csv(index_label=False)`.
+    shifted = not isinstance(exog.index, pd.RangeIndex) and (
+        len(exog.columns) and exog.iloc[:, -1].isna().all()
+    )
+    if isinstance(exog.index, pd.MultiIndex) or shifted:
         raise InvalidInputError(
             f"The rows of the exog CSV '{path}' have more fields than its header "
             f"(often separators at the end of the rows).",
