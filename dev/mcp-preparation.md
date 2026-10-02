@@ -1190,3 +1190,39 @@ Decisiones del autor aplicadas:
 - PR 15: `progress_callback` y `CompareProgress` en `compare()` (mínimo antes del PR 19);
 - PR 16: `ForecastPlan.warnings` y el panel "Plan Warnings" (muy recomendable);
 - PR 17: el script carga el mismo fichero que la ejecución con rutas (muy recomendable; cambia scripts, y arregla el `exog_future.csv` de formato largo anotado en 12).
+
+### 13.1 Revisión del autor y correcciones
+
+Antes de mergear la fase 3b, una verificación independiente comparó `0.4.x` antes de la fase (`39825dc`) con la rama, y el autor decidió las preguntas abiertas. Las correcciones van como commits nuevos al final de `feature/mcp-describe`; ninguno subido se reescribió.
+
+**Verificación.**
+- Ejemplos de la documentación que no necesitan LLM (Python y CLI): predicciones y métricas idénticas a la base. Solo cambia lo que lista la sección 13: la frase de ForecasterStats en `compare()`, los candidatos de datos largos y `refit=True` de Stats en el script y en `cv_config`.
+- PR 9: predicciones y métricas idénticas en 15 variantes de CV; `n_fits` coincide con las llamadas reales a `Arima.fit`; cada `backtest_code()` ejecutado como fichero da lo mismo que `backtest()`. El presupuesto de 500 ajustes solo excluye Stats en casos extremos (datos diarios con `steps=1` y 907 folds, donde Stats no terminó en 40 minutos).
+- PR 13: `pred` y métricas idénticas; solo cambian las cotas, y `forecast()` coincide ahora con un backtest de un fold.
+- PRs 12 y 14: el contexto de `ask()` es idéntico a la base en 82 contextos reales, salvo lo listado en la sección 13; `describe()` no tiene valores fila a fila y ocupa de 1,8k a 5,5k caracteres con 500 series.
+
+**Decisiones del autor.**
+
+| Pregunta | Decisión | Commit |
+|---|---|---|
+| 1 | `create_cv()` avisa con `IgnoredArgumentWarning` cuando un `refit` o `fixed_train_size` explícito no se ejecuta con ForecasterStats; los valores por defecto y `backtest()` con un `TimeSeriesFold` no avisan | `bdab512` |
+| 3 | La nota "Applied identically to every candidate." se ajusta cuando corre Stats, en el bloque de `describe()` previo al servidor (cambia el contexto de `ask()`) | (pendiente) |
+| 5 | El validador de `ForecastPlan` exige `interval_method` cuando hay `interval`; ningún plan generado por ninguna versión se ve afectado | `1186e57` |
+| 6 | `UnrecommendedForecasterWarning` se emite al final de `plan()`, con el plan construido | `808cb9f` |
+
+**Otros commits.**
+- `6260207`: el `LongTrainingWarning` de Stats ya no propone `skip_folds`, que skforecast rechaza para ForecasterStats.
+- `0a54cda`: la entrada de `create_cv()` decía que las métricas de Stats no cambiaban. Respecto a 0.3.1 sí cambian (su CV por defecto era `refit=True` con ventana creciente y ahora es fija); la entrada lo dice y cómo mantener lo anterior. Se acortan las entradas de `describe()` y de `n_fits`, y `bdab512` añade el Fix del síntoma de 0.3.1.
+
+**Tests.** De 2790 a 2803 (con `chronos` instalado no hay omitidos).
+
+**Pendiente antes del servidor (PR 18)**, en un bloque de `describe()` que cambia el contexto de `ask()` y entra en el único check de pago:
+- La razón del paso de preprocesado "Categorical exogenous variables detected" lista todas las columnas: con 500 columnas categóricas `describe()` llega a 24k caracteres, por encima del límite de 20k de 10.7. Recortarla en origen con el mismo "(first N of M)".
+- `describe()` (y `ask()`) describen el script de `backtest_code()` como una predicción, sin folds ni ajustes (pregunta 2 de la sección 13), y resumen la columna `fold` como una medida. Arreglarlo en el pipeline común.
+- Pregunta 3 (arriba), "were not provided" en la tabla de clasificación, y marcadores de recorte con una sola forma.
+- Goldens de ForecasterStats y de formato largo, que hoy no cubre ninguno.
+- En la documentación del servidor: `values_included=False` significa sin filas; las estadísticas de las predicciones y las métricas sí van.
+
+**Backlog (no lo causó esta fase).**
+- Las cotas de los backtests multiserie cubren mucho menos de lo nominal (80 %): 56 % con ForecasterRecursiveMultiSeries y 14 % con ForecasterDirectMultiVariate en `items_sales`, por usar residuos dentro de muestra.
+- skforecast falla en un backtest de ForecasterStats con `gap > 0` sin intervalo (`IndexingError` en `pred.iloc[forecaster.n_estimators * gap:, :]`): para reportar en skforecast.
