@@ -284,14 +284,14 @@ def test_describe_output_when_many_series_cuts_each_list():
         "- Exogenous columns: exog_00, exog_01, exog_02, exog_03, exog_04, "
         "exog_05, exog_06, exog_07, exog_08, exog_09, exog_10, exog_11, "
         "exog_12, exog_13, exog_14 (first 15 of 20)",
-        "- Target statistics shown for the first 5 of 500 series",
+        "- Target statistics shown (first 5 of 500 series)",
         "- Missing in target: {'series_000': 1, 'series_001': 1, "
         "'series_002': 1, 'series_003': 1, 'series_004': 1, 'series_005': 1, "
         "'series_006': 1, 'series_007': 1, 'series_008': 1, 'series_009': 1, "
         "'series_010': 1, 'series_011': 1, 'series_012': 1, 'series_013': 1, "
         "'series_014': 1} (first 15 of 30 series, 30 missing values in all)",
-        "- Significant lags shown only for the first 5 of 500 series (a series "
-        "without significant lags has no line)",
+        "- Significant lags shown (first 5 of 500 series; a series without "
+        "significant lags has no line)",
         "- Lags: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] "
         "(first 15 of 30)",
     ]
@@ -300,7 +300,7 @@ def test_describe_output_when_many_series_cuts_each_list():
 
     expected_metrics = (
         "<evaluation_metrics>\n"
-        "Rows of the first 5 of 500 series, plus the aggregated rows.\n"
+        "Rows shown (first 5 of 500 series, plus the aggregated rows).\n"
         "          levels  mean_absolute_error\n"
         "      series_000                 5.00\n"
         "      series_001                 5.01\n"
@@ -348,7 +348,7 @@ def test_describe_output_when_many_data_warnings():
 
     assert "- Data warning: Note number 14.\n" in description
     assert "Note number 15." not in description
-    assert "- Data warnings shown: the first 15 of 20\n" in description
+    assert "- Data warnings shown (first 15 of 20)\n" in description
     assert "- Data warning: Note number 19.\n" in (
         profile.to_llm_context(send_data=False).text
     )

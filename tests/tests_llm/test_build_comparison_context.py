@@ -3,7 +3,10 @@
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.llm.context import build_comparison_context
 
-from tests.fixtures_assistant import make_comparison_result
+from tests.fixtures_assistant import (
+    make_comparison_result,
+    make_comparison_with_stats,
+)
 
 assistant = ForecastingAssistant()
 
@@ -139,3 +142,46 @@ def test_build_comparison_context_no_markdown_headings():
     context = build_comparison_context(comparison)
 
     assert "##" not in context
+
+
+# =============================================================================
+# Tests: shared strategy note
+# =============================================================================
+def test_build_comparison_context_shared_cv_note_when_stats_refits_on_its_own():
+    """
+    Test that the strategy is not said to apply identically to every
+    candidate when a ForecasterStats candidate ran with a refit or window
+    that the shared strategy does not have: the note says what ran for it.
+    """
+    comparison = make_comparison_result(assistant)
+    stats_cv_config = {
+        **comparison.cv_config, "refit": True, "fixed_train_size": True,
+        "n_fits": 6,
+    }
+
+    context = build_comparison_context(
+        make_comparison_with_stats(assistant, comparison, stats_cv_config)
+    )
+
+    assert (
+        "<backtesting_strategy>\nApplied to every candidate, except "
+        "ForecasterStats: skforecast refits it in every fold, on a fixed "
+        "window (6 trainings).\n"
+    ) in context
+    assert "Applied identically to every candidate." not in context
+
+
+def test_build_comparison_context_shared_cv_note_when_identical():
+    """
+    Test that the note stays "Applied identically to every candidate."
+    without a ForecasterStats candidate, and with one whose strategy is the
+    shared one (a strategy that already refits in every fold).
+    """
+    comparison = make_comparison_result(assistant)
+    same_cv = make_comparison_with_stats(assistant, comparison, dict(comparison.cv_config))
+
+    for result in (comparison, same_cv):
+        context = build_comparison_context(result)
+        assert (
+            "<backtesting_strategy>\nApplied identically to every candidate.\n"
+        ) in context

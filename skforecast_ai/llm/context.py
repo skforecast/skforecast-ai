@@ -364,8 +364,8 @@ def render_dataset_section(
         )
     if for_describe and len(dp.target_stats) > MAX_STATS_SERIES:
         parts.append(
-            f"- Target statistics shown for the first {MAX_STATS_SERIES} of "
-            f"{len(dp.target_stats)} series"
+            f"- Target statistics shown (first {MAX_STATS_SERIES} of "
+            f"{len(dp.target_stats)} series)"
         )
 
     # Missing values are stated even when there are none: "not mentioned"
@@ -397,10 +397,7 @@ def render_dataset_section(
     for warning in warnings_shown:
         parts.append(f"- Data warning: {warning}")
     if suffix:
-        parts.append(
-            f"- Data warnings shown: the first {MAX_DESCRIBE_ITEMS} of "
-            f"{len(dp.warnings)}"
-        )
+        parts.append(f"- Data warnings shown{suffix}")
 
     return _tag("dataset", "\n".join(parts))
 
@@ -480,8 +477,8 @@ def render_profile_decision_section(
         parts.append(f"- {label} (partial autocorrelation, strongest first): {lags}{suffix}")
     if for_describe and len(profile.series_pacf) > MAX_STATS_SERIES:
         parts.append(
-            f"- Significant lags shown only for the first {MAX_STATS_SERIES} "
-            f"of {len(profile.series_pacf)} series (a series without "
+            f"- Significant lags shown (first {MAX_STATS_SERIES} of "
+            f"{len(profile.series_pacf)} series; a series without "
             f"significant lags has no line)"
         )
     if profile.window_features:
@@ -882,8 +879,8 @@ def _first_series_metrics(metrics: Any) -> str:
     aggregated = ", plus the aggregated rows" if is_aggregated.any() else ""
 
     return (
-        f"Rows of the first {MAX_STATS_SERIES} of {len(series)} series"
-        f"{aggregated}.\n"
+        f"Rows shown (first {MAX_STATS_SERIES} of {len(series)} series"
+        f"{aggregated}).\n"
         f"{metrics.loc[keep].to_string(index=False)}"
     )
 
@@ -966,6 +963,47 @@ def render_comparison_overview_section(
     return _tag("comparison_overview", "\n".join(parts))
 
 
+def _shared_cv_note(result: ComparisonResult) -> str:
+    """
+    State how the shared cross-validation strategy applies to the
+    candidates of a comparison.
+
+    skforecast refits `ForecasterStats` in every fold whatever `refit`
+    says, so when one ran with a strategy that does not refit (or does so
+    on another window), the strategy is not applied identically to it and
+    the note says what ran for it, as the comparison explanation does.
+
+    Parameters
+    ----------
+    result : ComparisonResult
+        Completed comparison.
+
+    Returns
+    -------
+    note : str
+        Line prepended to the strategy.
+    """
+
+    shared = result.cv_config
+    for candidate in result.candidates.values():
+        if candidate.plan.forecaster != "ForecasterStats":
+            continue
+        stats = candidate.cv_config
+        if all(
+            stats.get(key) == shared.get(key)
+            for key in ("refit", "fixed_train_size", "n_fits")
+        ):
+            break
+        window = "fixed" if stats["fixed_train_size"] else "expanding"
+        return (
+            f"Applied to every candidate, except ForecasterStats: skforecast "
+            f"refits it in every fold, on a {window} window "
+            f"({stats['n_fits']} trainings)."
+        )
+
+    return "Applied identically to every candidate."
+
+
 def render_leaderboard_section(
     results: Any,
     max_rows: int = MAX_LEADERBOARD_ROWS,
@@ -1004,11 +1042,10 @@ def render_leaderboard_section(
         omitted = n_rows - max_rows
         note = "" if for_describe else f" {LEADERBOARD_NOTE}"
         body = (
-            f"Candidates listed: {n_rows}. Only the top {max_rows} rows are "
-            f"shown; the remaining {omitted} ranked below them and were not "
-            f"provided.{note}\n\n"
-            f"{results.head(max_rows).to_string()}\n"
-            f"... ({omitted} lower-ranked candidates omitted) ..."
+            f"Candidates listed: {n_rows}. Rows shown (first {max_rows} of "
+            f"{n_rows}): the {omitted} lower-ranked "
+            f"{'rows are' if omitted != 1 else 'row is'} omitted.{note}\n\n"
+            f"{results.head(max_rows).to_string()}"
         )
 
     return _tag("leaderboard", body)
@@ -1045,9 +1082,7 @@ def render_failures_section(
     shown, suffix = _first_items(list(failures.items()), for_describe)
     parts = [f"- {name}: {failure.summary()}" for name, failure in shown]
     if suffix:
-        parts.append(
-            f"Failures shown: the first {MAX_DESCRIBE_ITEMS} of {len(failures)}"
-        )
+        parts.append(f"- Failures shown{suffix}")
 
     return _tag("failed_candidates", "\n".join(parts))
 
@@ -1216,7 +1251,7 @@ def build_comparison_context(
         render_failures_section(result.failures, for_describe=for_describe),
         render_cv_section(
             result.cv_config,
-            note="Applied identically to every candidate.",
+            note=_shared_cv_note(result),
         ),
         render_deterministic_summary_section(result.explanation),
         render_winning_candidate_section(

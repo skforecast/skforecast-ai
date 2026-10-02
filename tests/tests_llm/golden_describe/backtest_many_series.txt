@@ -12,13 +12,13 @@
 - Target statistics (series_002): min 78.57, max 121, mean 98.99, std 9.194
 - Target statistics (series_003): min 74, max 124.7, mean 101.7, std 10.6
 - Target statistics (series_004): min 70.73, max 127, mean 99.71, std 10.53
-- Target statistics shown for the first 5 of 500 series
+- Target statistics shown (first 5 of 500 series)
 - Missing in target: {'series_000': 1, 'series_001': 1, 'series_002': 1, 'series_003': 1, 'series_004': 1, 'series_005': 1, 'series_006': 1, 'series_007': 1, 'series_008': 1, 'series_009': 1, 'series_010': 1, 'series_011': 1, 'series_012': 1, 'series_013': 1, 'series_014': 1} (first 15 of 30 series, 30 missing values in all)
 - Index irregularities: none detected
 </dataset>
 <profile_decision>
 The dataset contains 500 series, so a multi-series forecaster (ForecasterRecursiveMultiSeries) is recommended. Data: 60000 observations pooled across 500 series, 'D' frequency. Alternative forecasters: ['ForecasterDirectMultiVariate', 'ForecasterFoundation']. Estimator: LGBMRegressor. A gradient boosting model is preferred for a dataset of this size (60000 observations). Alternative estimators: ['XGBRegressor', 'Ridge']. 20 exogenous variables available as predictors.
-- Significant lags shown only for the first 5 of 500 series (a series without significant lags has no line)
+- Significant lags shown (first 5 of 500 series; a series without significant lags has no line)
 - Suggested window features: mean(window=3), std(window=3), mean(window=7), mean(window=21)
 - Suggested calendar features: day_of_week, weekend, month
 </profile_decision>
@@ -43,7 +43,7 @@ The dataset contains 500 series, so a multi-series forecaster (ForecasterRecursi
 Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting.
 </deterministic_summary>
 <evaluation_metrics>
-Rows of the first 5 of 500 series, plus the aggregated rows.
+Rows shown (first 5 of 500 series, plus the aggregated rows).
           levels  mean_absolute_error
       series_000                 5.00
       series_001                 5.01
