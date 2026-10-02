@@ -49,7 +49,8 @@ Claude Code harness in `.claude/`.
   layer, rendering or execution.
 - Definition of done: run `/verify` before reporting a task as finished.
 - Skills: `/verify`, `/release-note`, `/llm-context-change`,
-  `/sync-skforecast-assets` (user only), `/handoff` (user only).
+  `/sync-skforecast-assets` (user only), `/handoff` (user only),
+  `/open-pr` (user only).
 - Subagents: `conventions-reviewer` (read-only review of the diff against
   the core principles) and `test-author` (writes tests under `tests/`).
 - Files synced from skforecast are denied for Edit and Write in
