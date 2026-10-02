@@ -368,8 +368,12 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
         Configured cross-validation fold splitter.
     cv_config : dict
         Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`.
+        For a `ForecasterStats` plan, the strategy skforecast runs:
+        `refit=True` (it refits ARIMA in every fold) and, when `cv` does
+        not refit, `fixed_train_size=True`.
     code : str
-        Python snippet that builds the same `TimeSeriesFold`.
+        Python snippet that builds the `TimeSeriesFold` of `cv_config`,
+        the one the backtesting script embeds.
     explanation : str
         Human-readable explanation of the chosen configuration. When the
         strategy was derived from a prompt, the LLM reasoning comes first.

@@ -18,6 +18,7 @@ from tests.fixtures_assistant import (
     df_range_index,
     df_short,
 )
+from tests.fixtures_datasets import df_h2o
 
 
 # =============================================================================
@@ -549,6 +550,35 @@ def test_create_cv_explanation_contains_key_params():
 
     assert "10-step horizon" in explanation
     assert "Initial training up to" in explanation
+
+
+def test_create_cv_output_when_forecaster_is_stats():
+    """
+    Test that for a ForecasterStats plan the splitter keeps the parameters
+    given, while `cv_config`, the snippet and the explanation state what
+    skforecast runs: refit in every fold on a fixed window, one training
+    per fold.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.cv.refit is False
+    assert result.cv.fixed_train_size is False
+    assert result.cv_config["refit"] is True
+    assert result.cv_config["fixed_train_size"] is True
+    assert result.cv_config["n_folds"] == 6
+    assert result.cv_config["n_fits"] == 6
+    assert "refit              = True,\n" in result.code
+    assert "fixed_train_size   = True,\n" in result.code
+    assert result.explanation == (
+        "Initial training up to 2003-04-01, fixed window, refit every fold "
+        "(6 trainings), 12-step horizon, 6 folds. ForecasterStats is "
+        "refitted in every fold whatever `refit` says: skforecast requires "
+        "it for ARIMA models."
+    )
 
 
 def test_create_cv_output_when_initial_train_size_timestamp():

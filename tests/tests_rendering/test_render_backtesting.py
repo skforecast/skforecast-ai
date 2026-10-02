@@ -222,7 +222,9 @@ def test_render_backtesting_multivariate_output_when_wide_format():
 def test_render_backtesting_statistical_output_when_auto_arima():
     """
     Test that render_backtesting_statistical produces the expected
-    full script with backtesting_stats call and freeze_params.
+    full script with backtesting_stats call and freeze_params, and writes
+    the CV that skforecast runs: a `refit=False` splitter becomes
+    `refit=True` with a fixed training window.
     """
     result = render_backtesting_statistical(plan_statistical, profile_single_no_exog, cv_basic)
 
@@ -251,7 +253,8 @@ def test_render_backtesting_statistical_output_when_auto_arima():
         "cv = TimeSeriesFold(\n"
         "    steps              = 10,\n"
         "    initial_train_size = 80,\n"
-        "    refit              = False,\n"
+        "    refit              = True,\n"
+        "    fixed_train_size   = True,\n"
         ")\n"
         "\n"
         "# Run backtesting\n"

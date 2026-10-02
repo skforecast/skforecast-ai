@@ -8,6 +8,7 @@
 import numbers
 from typing import Any
 import pandas as pd
+from ..recommendation.backtesting import cv_as_executed
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
@@ -586,7 +587,27 @@ def render_backtesting_statistical(
     profile: DataProfile,
     cv: Any,
 ) -> RenderedScript:
-    """Render backtesting code for ForecasterStats (Auto-ARIMA)."""
+    """
+    Render backtesting code for ForecasterStats (Auto-ARIMA).
+
+    The `TimeSeriesFold` written is the one skforecast runs (see
+    `cv_as_executed`): `refit=True`, and `fixed_train_size=True` when `cv`
+    does not refit, so the script states what `backtesting_stats` does.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan with task type `'statistical'`.
+    profile : DataProfile
+        Data profile of the series.
+    cv : TimeSeriesFold
+        Cross-validation splitter. It is not modified.
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the backtesting script.
+    """
 
     import_lines: list[str] = []
     loading_lines: list[str] = []
@@ -605,7 +626,7 @@ def render_backtesting_statistical(
     _emit_forecaster_creation_statistical(core_lines, plan, profile)
 
     # --- CV configuration ---
-    _emit_cv_configuration(core_lines, cv)
+    _emit_cv_configuration(core_lines, cv_as_executed(cv, plan.forecaster))
 
     # --- Backtesting call ---
     _emit_backtesting_call_statistical(core_lines, plan, profile)

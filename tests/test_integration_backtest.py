@@ -234,6 +234,14 @@ def test_forecaster_stats_full_workflow():
     assert "backtesting_stats" in result.code
     ast.parse(result.code)
 
+    # skforecast refits ForecasterStats in every fold: the config and the
+    # script state it even though the splitter was created with refit=False.
+    assert cv.refit is False
+    assert result.cv_config["refit"] is True
+    assert result.cv_config["fixed_train_size"] is True
+    assert result.cv_config["n_fits"] == result.cv_config["n_folds"]
+    assert "refit              = True," in result.code
+
 
 # =============================================================================
 # Tests: ForecasterEquivalentDate (baseline)

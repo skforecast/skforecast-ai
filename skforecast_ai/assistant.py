@@ -84,6 +84,7 @@ from .recommendation import (
     check_exog_usage,
     compute_series_pacf,
     count_estimator_fits,
+    cv_as_executed,
     derive_cv_defaults,
     derive_preprocessing_steps,
     drop_colliding_calendar_features,
@@ -1551,8 +1552,12 @@ class ForecastingAssistant:
             - plan: plan the strategy was derived from.
             - cv: configured `TimeSeriesFold` fold splitter.
             - cv_config: resolved `TimeSeriesFold` parameters plus the
-            resulting `n_folds`.
-            - code: Python snippet that builds the same `TimeSeriesFold`.
+            resulting `n_folds`. For a `ForecasterStats` plan, the
+            strategy skforecast runs: `refit=True` (it refits ARIMA in
+            every fold) and, when `cv` does not refit,
+            `fixed_train_size=True`.
+            - code: Python snippet that builds the `TimeSeriesFold` of
+            `cv_config`, the one the backtesting script embeds.
             - explanation: human-readable explanation of the chosen
             configuration (LLM reasoning first when a prompt was used).
 
@@ -1635,9 +1640,12 @@ class ForecastingAssistant:
             cv_explanation = f"{reasoning} {cv_explanation}"
 
         # The same snippet the backtesting script embeds, so the strategy
-        # can be inspected and reproduced on its own.
+        # can be inspected and reproduced on its own. For ForecasterStats it
+        # is the strategy skforecast runs, while `cv` keeps the parameters
+        # as given, so reusing it with another forecaster does not change
+        # how that one is trained.
         code_lines = ["from skforecast.model_selection import TimeSeriesFold", ""]
-        _emit_cv_configuration(code_lines, cv)
+        _emit_cv_configuration(code_lines, cv_as_executed(cv, plan.forecaster))
 
         return CVResult(
             profile     = profile,
@@ -2217,6 +2225,7 @@ class ForecastingAssistant:
                 preferred         = profile.forecaster,
                 n_fits            = n_fits,
                 steps             = steps,
+                n_folds           = cv_config["n_folds"],
             )
             if budget_note is not None:
                 warnings.warn(budget_note, LongTrainingWarning, stacklevel=2)
@@ -2226,7 +2235,12 @@ class ForecastingAssistant:
         for _, config in candidate_configs:
             forecaster = config.get("forecaster") or profile.forecaster
             warn_long_training(
-                estimator_fits = count_estimator_fits(n_fits, forecaster, steps),
+                estimator_fits = count_estimator_fits(
+                                     n_fits     = n_fits,
+                                     forecaster = forecaster,
+                                     steps      = steps,
+                                     n_folds    = cv_config["n_folds"],
+                                 ),
                 n_fits         = n_fits,
                 forecaster     = forecaster,
                 steps          = steps,
