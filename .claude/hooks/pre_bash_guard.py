@@ -17,10 +17,13 @@ PreToolUse hook for Bash: branch policy, attribution and paid calls.
 - In Claude Code on the web (`CLAUDE_CODE_REMOTE=true`), commits and pushes
   only happen on a branch named `feature/...`, `fix/...`, `docs/...` or
   `chore/...`.
+- Merging a pull request asks the user, also through `gh api` (the REST
+  merge endpoint or the `mergePullRequest` GraphQL mutation), which the
+  `Bash(gh pr merge *)` ask rule in `settings.json` does not match.
 
-Exit code 2 blocks the command and sends the reason back to Claude. Local
-sessions without an explicit request to commit are handled by the `ask`
-rules in `.claude/settings.local.json`, not here.
+Exit code 2 blocks the command and sends the reason back to Claude; a
+merge prints an `ask` decision instead. Confirming a local push is the
+`ask` rule in `.claude/settings.local.json`, not here.
 """
 
 import json
@@ -56,6 +59,8 @@ COMMIT_COMMAND = re.compile(
 )
 # Options that read a commit message or a PR body from a file.
 MESSAGE_FILE_OPTIONS = ("-F", "--file", "--body-file")
+# A pull request merge through `gh api`: REST endpoint or GraphQL mutation.
+MERGE_API = re.compile(r"/pulls/\d+/merge\b|mergePullRequest")
 
 
 def without_heredocs(command: str) -> str:
@@ -180,6 +185,35 @@ def writes_message(words: list[str]) -> bool:
     return False
 
 
+def merges_pr(words: list[str]) -> bool:
+    """Whether a simple command merges a pull request."""
+
+    if os.path.basename(words[0]) != "gh":
+        return False
+    if words[1:3] == ["pr", "merge"]:
+        return True
+    return words[1:2] == ["api"] and any(MERGE_API.search(w) for w in words[2:])
+
+
+def ask_if_merging(command: str) -> int:
+    """
+    Print an `ask` decision when `command` merges a pull request, so the
+    user confirms it in any permission mode, and return the exit code.
+    """
+
+    if any(merges_pr(words) for words in segments(command)):
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": (
+                    "Merging a pull request needs the user's confirmation."
+                ),
+            }
+        }))
+    return 0
+
+
 def has_ai_attribution(command: str, cwd: str) -> bool:
     """
     Whether a command that writes a commit message or a PR body carries an
@@ -256,7 +290,7 @@ def main() -> int:
     ):
         invocations.append(("commit", []))
     if not invocations:
-        return 0
+        return ask_if_merging(command)
 
     branch = current_branch(cwd)
     remote = os.environ.get("CLAUDE_CODE_REMOTE", "").lower() == "true"
@@ -301,7 +335,7 @@ def main() -> int:
         )
         return 2
 
-    return 0
+    return ask_if_merging(command)
 
 
 if __name__ == "__main__":

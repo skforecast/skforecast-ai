@@ -1,7 +1,6 @@
 ---
 name: open-pr
 description: Prepare and open a skforecast-ai pull request against the current release branch, after running the tests and checks that CI does not run on release branches.
-disable-model-invocation: true
 argument-hint: "[short PR title]"
 ---
 
@@ -22,9 +21,9 @@ Title hint from the user: $ARGUMENTS
   names the cloud hook accepts). In a cloud session, keep the branch the
   session is working on.
 - Review `git log --oneline BASE..HEAD`, `git diff BASE...HEAD --stat` and
-  `git status`. Uncommitted changes are committed or left out on purpose:
-  ask which, since this repository never commits without the author's
-  request.
+  `git status`. Commit the uncommitted changes that belong to the PR
+  without asking; leave the rest out (see the `dev/` files in step 2) and
+  list them in the report.
 - If the branch is behind `BASE`, say so; do not rebase or merge without
   asking.
 - `gh pr view` tells whether the branch already has a PR. If it does,

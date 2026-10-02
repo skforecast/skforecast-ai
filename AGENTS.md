@@ -122,8 +122,11 @@ Follow `.github/instructions/testing.instructions.md`. In short:
 
 ## Working with the user
 
-- Do not create git commits in a local session unless the user asks. Leave
-  changes uncommitted in the working tree; the author reviews and commits.
+- In a local session, commit finished work without asking, on a working
+  branch (`feature/`, `fix/`, `docs/` or `chore/`), never directly on
+  `main` or `X.Y.x`. Ask before pushing; once a push is approved, opening
+  the pull request needs no further confirmation. Never merge a pull
+  request without the author's confirmation.
 - An autonomous remote session commits and pushes to its own branch, named
   `feature/<slug>`, `fix/<slug>`, `docs/<slug>` or `chore/<slug>`. Never push
   to `main` or a release branch (`X.Y.x`), never force push, and do not open

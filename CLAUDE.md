@@ -23,8 +23,12 @@ Claude Code harness in `.claude/`.
   blocks a commit message or PR body that names Claude or Anthropic in a
   `Co-Authored-By` trailer, carries a `Claude-Session` trailer or says
   "Generated with Claude Code".
-- Local: no commits unless asked (`settings.local.json` makes
-  `git commit` and `git push` ask for confirmation).
+- Local: create or switch branches and commit without asking, on a
+  `<type>/<slug>` branch, never directly on `main` or `X.Y.x`.
+  `settings.local.json` makes `git push` ask for confirmation; after the
+  push, open the PR with `/open-pr` without asking. Merging a PR always
+  asks: ask rules in `settings.json` and the Bash guard, which also
+  catches merges through `gh api`.
 - Cloud: create `<type>/<slug>` (type `feature`, `fix`, `docs` or `chore`)
   before the first commit, then commit and push there. A PreToolUse hook
   blocks commits and pushes on other branches, pushes to `main` or `X.Y.x`
@@ -49,8 +53,8 @@ Claude Code harness in `.claude/`.
   layer, rendering or execution.
 - Definition of done: run `/verify` before reporting a task as finished.
 - Skills: `/verify`, `/release-note`, `/llm-context-change`,
-  `/sync-skforecast-assets` (user only), `/handoff` (user only),
-  `/open-pr` (user only).
+  `/open-pr`, `/sync-skforecast-assets` (user only), `/handoff` (user
+  only).
 - Subagents: `conventions-reviewer` (read-only review of the diff against
   the core principles) and `test-author` (writes tests under `tests/`).
 - Files synced from skforecast are denied for Edit and Write in

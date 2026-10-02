@@ -23,6 +23,10 @@
       "Bash(python tools/ai/check_ask_context.py --dry-run *)",
       "Bash(python tools/ai/measure_skill_tokens.py *)"
     ],
+    "ask": [
+      "Bash(gh pr merge *)",
+      "mcp__plugin_github_github__merge_pull_request"
+    ],
     "deny": [
       "Edit(/skforecast_ai/skills/**)",
       "Write(/skforecast_ai/skills/**)",

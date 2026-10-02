@@ -148,6 +148,39 @@ def test_pre_bash_guard_blocks_attribution_in_message_file(tmp_path, command):
     assert "authored by the user alone" in result.stderr
 
 
+@pytest.mark.parametrize(
+    "command, asks",
+    [
+        ("gh pr merge 12 --squash", True),
+        ("cd repo && gh pr merge --merge", True),
+        ("gh api -X PUT repos/o/r/pulls/12/merge", True),
+        ("gh api graphql -f query='mutation { mergePullRequest(input: {}) { x } }'", True),
+        ("gh pr create --title t --body 'Adds x.'", False),
+        ("gh pr view 12", False),
+        ("gh api repos/o/r/pulls/12", False),
+        ("grep -n 'gh pr merge' notes.txt", False),
+        ("git merge origin/0.4.x", False),
+    ],
+)
+def test_pre_bash_guard_asks_before_merging_pr(tmp_path, command, asks):
+    """
+    Test that the Bash guard asks the user before merging a pull request,
+    with `gh pr merge` or through `gh api`, and stays silent otherwise.
+    """
+
+    repo = make_repo(tmp_path / "repo", "feature/x")
+    result = run_hook(
+        "pre_bash_guard.py", {"tool_input": {"command": command}}, repo, False
+    )
+
+    assert result.returncode == 0, result.stderr
+    if asks:
+        decision = json.loads(result.stdout)["hookSpecificOutput"]
+        assert decision["permissionDecision"] == "ask"
+    else:
+        assert result.stdout == ""
+
+
 @pytest.fixture
 def session_start(monkeypatch):
     """The session_start module with the dependency install stubbed out."""
