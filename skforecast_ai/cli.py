@@ -649,6 +649,9 @@ def _render_plan_panel(plan) -> None:
     """
     Print a Rich panel summarizing the ForecastPlan.
 
+    The "Plan Warnings" panel is left out: each warning is already printed
+    when the plan is built.
+
     Parameters
     ----------
     plan : ForecastPlan
@@ -658,7 +661,7 @@ def _render_plan_panel(plan) -> None:
     -------
     None
     """
-    console.print(render_plan(plan))
+    console.print(render_plan(plan, show_warnings=False))
 
 
 @app.command()

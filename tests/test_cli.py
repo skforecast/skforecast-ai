@@ -286,6 +286,46 @@ class TestPlan:
         data = json.loads(result.output)
         assert data["plan"]["estimator_kwargs"]["alpha"] == 2.0
 
+    def test_plan_json_includes_plan_warnings(self, tmp_path):
+        """
+        Plan --format json carries the warnings of plan() in
+        `plan.warnings`, with the text of the warning emitted.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with pytest.warns(UserWarning, match="not a named parameter"):
+            result = runner.invoke(
+                app,
+                ["plan", csv_path, "--target", "sales", "--date-column", "date",
+                 "--steps", "10", "--estimator", "LGBMRegressor",
+                 "--estimator-kwargs", '{"n_estimatorz": 10}',
+                 "--format", "json", "--quiet"],
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["plan"]["warnings"] == [
+            "'n_estimatorz' is not a named parameter of LGBMRegressor. It is "
+            "passed to the library as an extra parameter, which ignores it "
+            "without an error if it does not exist. Did you mean "
+            "'n_estimators'?"
+        ]
+
+    def test_plan_table_without_plan_warnings_panel(self, tmp_path):
+        """
+        Plan table output leaves out the "Plan Warnings" panel of the
+        display, since the CLI already prints each warning.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with pytest.warns(UserWarning, match="not a named parameter"):
+            result = runner.invoke(
+                app,
+                ["plan", csv_path, "--target", "sales", "--date-column", "date",
+                 "--steps", "10", "--estimator", "LGBMRegressor",
+                 "--estimator-kwargs", '{"n_estimatorz": 10}', "--quiet"],
+            )
+        assert result.exit_code == 0
+        assert "Forecast Plan" in result.output
+        assert "Plan Warnings" not in result.output
+
     def test_plan_estimator_kwargs_invalid_json(self, tmp_path):
         """
         Plan with invalid JSON in --estimator-kwargs shows error.

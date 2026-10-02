@@ -414,7 +414,11 @@ class ForecastPlan(DisplayMixin, BaseModel):
         snippet must be one of those `plan()` generates (the steps of
         0.3.1 included).
     warnings : list
-        Human-readable warnings about the plan.
+        Text of the warnings that `plan()` emitted while building the plan
+        (an unrecommended forecaster, estimator keyword arguments that the
+        library may ignore, a baseline on a target with missing values),
+        in the order they were emitted. Kept as given when the plan is
+        loaded or validated.
     llm_refined_fields : list
         Names of the fields (`'lags'`, `'window_features'`) whose values
         were suggested by the LLM during `refine_plan()`. Empty for

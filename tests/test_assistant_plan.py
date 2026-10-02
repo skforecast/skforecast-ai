@@ -1089,3 +1089,128 @@ def test_plan_InvalidInputError_when_long_format_dated_by_index():
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         assistant.plan(profile, steps=7)
+
+
+# =============================================================================
+# Tests: plan.warnings
+# =============================================================================
+def _plan_recording_warnings(assistant, profile, **kwargs):
+    """
+    Call plan() recording every warning it emits, repeated ones included,
+    and return the plan with the messages in emission order.
+    """
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        plan = assistant.plan(profile, **kwargs)
+    return plan, [str(w.message) for w in record]
+
+
+def test_plan_warnings_empty_when_no_warning_emitted():
+    """
+    Test that a plan built without any warning has an empty `warnings`
+    list.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan, emitted = _plan_recording_warnings(assistant, profile, steps=10)
+
+    assert emitted == []
+    assert plan.warnings == []
+
+
+def test_plan_warnings_equal_emitted_when_forecaster_not_recommended():
+    """
+    Test that the UnrecommendedForecasterWarning emitted at the end of
+    plan() is also kept, with the same text, in `plan.warnings`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly, target="sales", date_column="date")
+
+    plan, emitted = _plan_recording_warnings(
+        assistant, profile, steps=10, forecaster="ForecasterStats"
+    )
+
+    assert plan.warnings == [
+        "Forecaster 'ForecasterStats' is not among the recommended candidates "
+        "for this profile (['ForecasterRecursive', 'ForecasterDirect', "
+        "'ForecasterFoundation']), but it is used as requested. It may be slow "
+        "or perform poorly on this data."
+    ]
+    assert plan.warnings == emitted
+
+
+def test_plan_warnings_equal_emitted_when_baseline_on_missing_values():
+    """
+    Test that the warning of a baseline built on a target with missing
+    values is kept, with the same text, in `plan.warnings`.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.warns(MissingValuesWarning):
+        profile = assistant.profile(
+            data=df_with_missing, target="sales", date_column="date"
+        )
+
+    plan, emitted = _plan_recording_warnings(
+        assistant, profile, steps=5, forecaster="ForecasterEquivalentDate"
+    )
+
+    assert plan.warnings == [
+        "'ForecasterEquivalentDate' cannot handle missing values: the target "
+        "has missing values or missing timestamps, and "
+        "ForecasterEquivalentDate repeats a missing value as a missing "
+        "prediction. Impute the target before fitting, or the predictions "
+        "and metrics will contain missing values."
+    ]
+    assert plan.warnings == emitted
+
+
+def test_plan_warnings_equal_emitted_in_order_when_several_warnings():
+    """
+    Test that, with unknown LightGBM keyword arguments and an unrecommended
+    forecaster, `plan.warnings` holds every warning emitted, in the order
+    they were emitted (the forecaster warning last, once the plan is built).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    profile = profile.model_copy(
+        update={"forecaster_candidates": ["ForecasterRecursive"]}
+    )
+
+    plan, emitted = _plan_recording_warnings(
+        assistant,
+        profile,
+        steps            = 5,
+        forecaster       = "ForecasterDirect",
+        estimator        = "LGBMRegressor",
+        estimator_kwargs = {"n_estimatorz": 10, "learnin_rate": 0.1},
+    )
+
+    assert plan.warnings == [
+        "'n_estimatorz' is not a named parameter of LGBMRegressor. It is "
+        "passed to the library as an extra parameter, which ignores it "
+        "without an error if it does not exist. Did you mean 'n_estimators'?",
+        "'learnin_rate' is not a named parameter of LGBMRegressor. It is "
+        "passed to the library as an extra parameter, which ignores it "
+        "without an error if it does not exist. Did you mean 'learning_rate'?",
+        "Forecaster 'ForecasterDirect' is not among the recommended candidates "
+        "for this profile (['ForecasterRecursive']), but it is used as "
+        "requested. It may be slow or perform poorly on this data.",
+    ]
+    assert plan.warnings == emitted
+
+
+def test_plan_warnings_kept_when_plan_reloaded_from_json():
+    """
+    Test that `plan.warnings` survives a JSON round trip unchanged, so a
+    saved plan keeps the warnings of the call that built it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly, target="sales", date_column="date")
+    with pytest.warns(UnrecommendedForecasterWarning):
+        plan = assistant.plan(profile, steps=10, forecaster="ForecasterStats")
+
+    reloaded = ForecastPlan.model_validate_json(plan.model_dump_json())
+
+    assert reloaded.warnings == plan.warnings
+    assert len(reloaded.warnings) == 1

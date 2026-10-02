@@ -1,14 +1,18 @@
 # Unit test refine_plan ForecastingAssistant
 
 import re
+import warnings
 
 import pytest
 
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.exceptions import (
+    InvalidInputError,
+    UnrecommendedForecasterWarning,
+)
 from skforecast_ai.schemas import ForecastPlan
 
-from tests.fixtures_assistant import df_single
+from tests.fixtures_assistant import df_hourly, df_single
 
 
 # =============================================================================
@@ -490,3 +494,30 @@ def test_refine_plan_InvalidInputError_field_when_invalid_override_key():
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "lagz"
+
+
+def test_refine_plan_warnings_are_those_of_the_rebuilt_plan():
+    """
+    Test that the refined plan keeps in `warnings` the warnings emitted by
+    the `plan()` call that rebuilds it: refining an unrecommended
+    forecaster warns again and keeps that warning, while overriding it
+    with a recommended forecaster leaves the list empty.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly, target="sales", date_column="date")
+    with pytest.warns(UnrecommendedForecasterWarning):
+        plan = assistant.plan(profile, steps=10, forecaster="ForecasterStats")
+
+    with pytest.warns(UnrecommendedForecasterWarning) as record:
+        refined = assistant.refine_plan(profile, plan, steps=12)
+
+    assert refined.warnings == plan.warnings
+    assert refined.warnings == [str(w.message) for w in record]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        recommended = assistant.refine_plan(
+            profile, plan, forecaster="ForecasterRecursive"
+        )
+
+    assert recommended.warnings == []

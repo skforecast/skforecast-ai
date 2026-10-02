@@ -172,7 +172,13 @@ def test_validate_estimator_kwargs_UserWarning_when_passthrough_name_unknown():
         "without an error if it does not exist. Did you mean 'n_estimators'?"
     )
     with pytest.warns(UserWarning, match=warn_msg):
-        validate_estimator_kwargs("LGBMRegressor", {"n_estimatorz": 10})
+        messages = validate_estimator_kwargs("LGBMRegressor", {"n_estimatorz": 10})
+
+    assert messages == [
+        "'n_estimatorz' is not a named parameter of LGBMRegressor. It is "
+        "passed to the library as an extra parameter, which ignores it "
+        "without an error if it does not exist. Did you mean 'n_estimators'?"
+    ]
 
 
 def test_validate_estimator_kwargs_output_when_lightgbm_alias():
@@ -182,10 +188,12 @@ def test_validate_estimator_kwargs_output_when_lightgbm_alias():
     """
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        validate_estimator_kwargs(
+        messages = validate_estimator_kwargs(
             "LGBMRegressor",
             {"n_estimators": 10, "verbose": -1, "min_data_in_leaf": 5},
         )
+
+    assert messages == []
 
 
 def test_validate_estimator_kwargs_output_when_package_not_installed(
@@ -199,7 +207,7 @@ def test_validate_estimator_kwargs_output_when_package_not_installed(
         validation_module.importlib.util, "find_spec", lambda name: None
     )
 
-    assert validate_estimator_kwargs("Ridge", {"alpah": 2.0}) is None
+    assert validate_estimator_kwargs("Ridge", {"alpah": 2.0}) == []
 
 
 # =============================================================================

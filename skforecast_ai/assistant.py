@@ -426,7 +426,8 @@ class ForecastingAssistant:
         Returns
         -------
         plan : ForecastPlan
-            Detailed forecasting plan.
+            Detailed forecasting plan. Its `warnings` hold the text of the
+            warnings this call emitted, in the order they were emitted.
 
         Raises
         ------
@@ -498,16 +499,21 @@ class ForecastingAssistant:
                     field = given[0],
                 )
 
+        # Every warning this call emits is also kept in `plan.warnings`, with
+        # the same text, so it travels with the plan where Python warnings
+        # are not seen (a server, JSON output, a saved plan).
+        plan_warnings: list[str] = []
+
         if task_type == "baseline":
             missing_note = baseline_missing_values_note(data_profile)
             if missing_note is not None:
-                warnings.warn(
+                message = (
                     f"'{fc}' cannot handle missing values: {missing_note}. "
                     f"Impute the target before fitting, or the predictions "
-                    f"and metrics will contain missing values.",
-                    UserWarning,
-                    stacklevel=2,
+                    f"and metrics will contain missing values."
                 )
+                warnings.warn(message, UserWarning, stacklevel=2)
+                plan_warnings.append(message)
 
         n_obs_total = data_profile.n_total_observations
 
@@ -530,7 +536,7 @@ class ForecastingAssistant:
             estimator_kwargs = estimator_kwargs,
             task_type        = task_type,
         )
-        validate_estimator_kwargs(est, estimator_kwargs)
+        plan_warnings += validate_estimator_kwargs(est, estimator_kwargs)
 
         # The foundation model is validated before anything else is derived,
         # so an unsupported model ID or interval fails with its own message.
@@ -742,6 +748,16 @@ class ForecastingAssistant:
                     f"not used: the baseline only repeats past target values."
                 )
 
+        unrecommended_message = None
+        if unrecommended:
+            unrecommended_message = (
+                f"Forecaster '{forecaster}' is not among the recommended "
+                f"candidates for this profile "
+                f"({profile.forecaster_candidates}), but it is used as "
+                f"requested. It may be slow or perform poorly on this data."
+            )
+            plan_warnings.append(unrecommended_message)
+
         plan = ForecastPlan(
             task_type           = task_type,
             forecaster          = fc,
@@ -756,6 +772,7 @@ class ForecastingAssistant:
             metrics_to_compute  = metrics_to_compute,
             use_exog            = use_exog,
             preprocessing_steps = preprocessing_steps,
+            warnings            = plan_warnings,
             explanation         = explanation,
         )
 
@@ -764,14 +781,8 @@ class ForecastingAssistant:
         # foundation model or an interval it cannot serve) is never said to
         # be "used as requested", and with warnings raised as errors the
         # warning never hides that error.
-        if unrecommended:
-            warnings.warn(
-                f"Forecaster '{forecaster}' is not among the recommended "
-                f"candidates for this profile "
-                f"({profile.forecaster_candidates}), but it is used as "
-                f"requested. It may be slow or perform poorly on this data.",
-                UnrecommendedForecasterWarning,
-            )
+        if unrecommended_message is not None:
+            warnings.warn(unrecommended_message, UnrecommendedForecasterWarning)
 
         return plan
 
@@ -858,6 +869,9 @@ class ForecastingAssistant:
         plan : ForecastPlan
             Updated plan with overrides (and any LLM refinement) applied. In
             LLM mode, the agent's reasoning is appended to `plan.explanation`.
+            The plan is rebuilt with `plan()`, so its `warnings` are those of
+            that call (the ones of `plan` are not carried over); the warnings
+            about the `prompt` that this method emits are not added to them.
         """
 
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
