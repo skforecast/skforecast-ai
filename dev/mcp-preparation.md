@@ -1318,3 +1318,46 @@ Suma con lo pendiente de las secciones anteriores, que no cambia: la regla 4 de 
 - PR 18: la decisión 4 de 12.1 (el MCP reenvía los mensajes tal cual, con un máximo de 5 valores y el límite de tamaño del servidor, y lo dicen el SKILL.md y la documentación del servidor); `values_included=False` significa sin filas, mientras las estadísticas de las predicciones y las métricas sí van (13.1); el tool `profile` rechaza saltos de línea en los nombres (pregunta 4 de 10.10). Siguen abiertas para el autor las preguntas 1 (versión), 12 (valores por defecto del servidor), 13, 14 y 18 de 10.10.
 - PR 19: usa `progress_callback` para `Context.report_progress` y la cancelación entre candidatos, y `plan.warnings` junto a la captura de avisos por llamada de 10.2 para los `ToolNotice` de origen `plan`.
 - El check de pago, una sola vez antes de la release, con la lista de arriba.
+
+### 14.1 Revisión del autor y correcciones
+
+Antes de mergear la fase 3c, una verificación independiente comparó `0.4.x` antes de la fase (`a253a93`) con la rama, y el autor decidió las preguntas abiertas. Las correcciones van como commits nuevos al final de `feature/mcp-prereqs`; ninguno subido se reescribió.
+
+**Verificación.**
+- Ejemplos de la documentación (98 pasos de Python y los comandos del CLI): predicciones, métricas, avisos y scripts idénticos a la base, salvo lo que lista la sección 14.
+- PR 17: con rutas absolutas, `Path`, URL, nombres con comillas, espacios o acentos, y perfiles guardados usados con otro fichero, el script devuelto da las mismas predicciones ejecutado desde cualquier directorio; en la base fallaban todos o leían otro fichero. Las rutas relativas se escriben tal cual y fallan con un error claro desde otro directorio (como en 0.3.1); `~` no se expande, en ninguna versión.
+- PR 15: sin callback, `compare()` es idéntico a la base; dos eventos por candidato con el total conocido desde el primero; cancelar no deja rastro (barra cerrada, filtros de avisos intactos, el siguiente `compare()` da lo mismo) y solo actúa entre candidatos.
+- PR 16: `plan.warnings` coincide con los avisos emitidos en unos 70 casos; sobrevive al JSON y los planes de 0.3.1 cargan.
+- 4a a 4d: el contexto de `ask()` solo cambia en lo que lista la sección 14; la lectura del CV desde el script es correcta en 72 combinaciones y nunca ejecuta su código; con 500 columnas `describe()` baja de 24k a 14,4k caracteres como mucho.
+
+**Decisiones del autor.**
+
+| Pregunta | Decisión | Commit |
+|---|---|---|
+| 1 | Con un DataFrame y un perfil guardado de un fichero, el script escribe el marcador `data.csv`, no la ruta del perfil (que daba otras predicciones sin error) | `5b3a40f` |
+| 2 | Un fichero real llamado `data.csv` se registra como `./data.csv`; sin cambiar el esquema | `5b3a40f` |
+| 3 | Confirmada: sin panel "Plan Warnings" en la tabla del CLI (ya imprime los avisos; `--format json` los lleva). Revisar con el PR 20 | |
+| 4 | Confirmada: dos eventos por candidato y cancelación lanzando una excepción desde el callback, que sale tal cual | |
+| 5 | Un bloque por serie en el resumen de predicciones de `describe()`; solo afecta a `describe()` (ver abajo), así que no entra en el check de pago | (pendiente) |
+| 6 | Ajustar la nota "Applied identically..." cuando corre ForecasterFoundation, que no se entrena; entra en el check de pago | (pendiente) |
+
+**Otros commits.**
+- `a389407`: `ask()` construye siempre su contexto con `send_data=True` (con `send_data_to_llm=False` solo avisa, por diseño), así que el camino `send_data=False` solo lo usa `describe()`. Se corrigen el docstring de `describe()`, `docs/api/schemas/results.md`, dos entradas de las release notes y la lista de pago de la sección 14: "Folds: N" no llega a `ask()` ni entra en el check.
+- `89e50eb`: `forecast-code DATA --from-plan` ignoraba `DATA` y escribía la ruta del bundle, a diferencia de `backtest-code` y de la API.
+- `9984625`: los scripts de datos sin fechas fallaban ejecutados como fichero (en memoria y `exog_future.csv`, con un índice entero que skforecast rechaza; ya ocurría en 0.3.1). Una línea `pd.RangeIndex(...)` tras la lectura, solo en el bloque de carga del script independiente, los arregla: 5 de 5 casos con las mismas predicciones y posiciones.
+- `fb9d791`: una fecha editada a mano que no se lee rompía `describe()` de un `backtest_code()`; "of 1 steps"; el plan copiado por `forecast(plan=..., interval=...)` compartía `warnings` y `forecaster_kwargs` con el original.
+
+**Tests.** De 2891 a 2905 (con `chronos` instalado no hay omitidos).
+
+**Pendiente antes del check de pago.**
+- `tools/ai/check_ask_context.py` no recorre casi nada de la lista de pago: añadirle escenarios de ForecasterStats (PR 9 y 4c), un resultado de `backtest_code()` (4b), formato largo (candidatos de 12.1), más de 15 candidatos (4c) y más de 15 columnas categóricas (4a).
+- Las preguntas 5 y 6 de arriba.
+
+**Notas para el servidor (PRs 18 y 19).**
+- Versión de `mcp`: 10.7 da por verificado `mcp>=2.2,<3`, pero el entorno local tiene `mcp` 1.29.0. Comprobarlo antes del PR 18.
+- Progreso (PR 19): el valor debe crecer en cada notificación y el evento `started` repite el `completed` del anterior; usar `progress = 2*completed + (status == 'started')` con `total = 2*total`. Los candidatos excluidos por el presupuesto no generan eventos. Hay tramos largos sin eventos (Foundation al cargar, Stats).
+- Cancelación (PR 19): lanzar desde el callback una excepción propia del servidor, que no sea `SkforecastAIError`, activada por un `threading.Event`; solo actúa entre candidatos, y cancelar en el último evento descarta una comparación terminada.
+- Hilos: el callback corre en el hilo de trabajo; informar con `anyio.from_thread.run` y no tomar el lock del servidor dentro (bloqueo). El lock único es imprescindible: varios `compare()` simultáneos dejan `sys.stdout` redirigido (también en la base).
+- Avisos (PR 18): con los filtros por defecto, llamadas repetidas muestran un aviso una vez, pero cada plan lo lleva; capturar con `simplefilter('always')` y deduplicar contra `plan.warnings` por texto para darles origen `plan`.
+- Privacidad: el JSON de los resultados (`model_dump_json`) y `result.code` llevan ahora la ruta absoluta o la URL de los datos (que puede llevar un token). `describe()` no la lleva; decirlo en la documentación del servidor.
+- Tamaños: `ask()` y los scripts pueden pasar de 20k caracteres con cientos de columnas (la línea de exógenas categóricas del perfil, `exog = data[[...]]`); `describe()` no. El tool `get_code` necesita su propio límite.
