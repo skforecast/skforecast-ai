@@ -983,3 +983,43 @@ def test_plan_InvalidInputError_field_when_datetime_index_has_no_frequency(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "profile"
+
+
+def test_plan_InvalidInputError_when_multivariate_on_long_format():
+    """
+    Test that plan() rejects ForecasterDirectMultiVariate on long-format data
+    with several series before any script is rendered: forecast() failed
+    inside the script (NameError on `exog_train`, or no series named as the
+    level), in every mode.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_long, target="value", date_column="date",
+        series_id_column="series_id",
+    )
+
+    err_msg = re.escape(
+        "ForecasterDirectMultiVariate cannot forecast long-format data with "
+        "several series."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        assistant.plan(profile, steps=7, forecaster="ForecasterDirectMultiVariate")
+
+
+def test_plan_InvalidInputError_when_long_format_dated_by_index():
+    """
+    Test that plan() rejects long-format data with several series whose
+    dates are the index: the script read a 'datetime' column that does not
+    exist.
+    """
+    data = df_multi_long.set_index("date")
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=data, target="value", series_id_column="series_id"
+    )
+
+    err_msg = re.escape(
+        "Long-format data with several series needs its dates in a column"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        assistant.plan(profile, steps=7)

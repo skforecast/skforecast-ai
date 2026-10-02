@@ -129,7 +129,12 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
 
     Single-series tasks (`single_series`, `statistical`, `baseline`) accept
     exactly one series. The `multivariate` task requires all series to share
-    the same length. `foundation` takes one or several series.
+    the same length, and wide-format data: on long-format data with several
+    series the generated script always failed (its level is the target
+    column, which is not one of the series). `foundation` takes one or
+    several series. Long-format data with several series needs its dates in
+    a column, which the generated script reads to split the series; dated by
+    the index, or without dates, the script always failed.
 
     Parameters
     ----------
@@ -160,6 +165,27 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
             f"Use a multi-series forecaster (e.g. "
             f"'ForecasterRecursiveMultiSeries') or provide a single series.",
             field = "forecaster",
+        )
+
+    long_series = data_profile.data_format == "long" and n_series > 1
+    if long_series and task_type == "multivariate":
+        raise InvalidInputError(
+            "ForecasterDirectMultiVariate cannot forecast long-format data with "
+            "several series. Use 'ForecasterRecursiveMultiSeries', or pass the "
+            "series as columns (wide format) with `target` naming them.",
+            field = "forecaster",
+        )
+    if (
+        long_series
+        and data_profile.date_column is None
+        and task_type in ("multi_series", "foundation")
+    ):
+        raise InvalidInputError(
+            "Long-format data with several series needs its dates in a column, "
+            "named by `date_column`, which the generated script reads to split "
+            "the series. With the dates in the index, move them to a column "
+            "with `data.reset_index()`.",
+            field = "date_column",
         )
 
     if task_type == "multivariate":

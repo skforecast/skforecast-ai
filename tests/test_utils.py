@@ -374,14 +374,20 @@ def test_resolve_inputs_with_profile_output_when_series_input():
 # =============================================================================
 # Task-aware observation-count helpers
 # =============================================================================
-def _make_profile(series_lengths, frequency="D", n_series=None):
-    """Build a minimal DataProfile for task input validation tests."""
+def _make_profile(
+    series_lengths, frequency="D", n_series=None, **long_format
+):
+    """
+    Build a minimal DataProfile for task input validation tests; pass
+    `data_format`, `date_column` and `series_id_column` for long format.
+    """
     return DataProfile(
         n_series=n_series if n_series is not None else len(series_lengths),
         series_lengths=series_lengths,
         target="value",
         index_type="datetime",
         frequency=frequency,
+        **long_format,
     )
 
 
@@ -425,6 +431,65 @@ def test_validate_task_input_passes_when_valid():
     assert _validate_task_input(multivariate, "multivariate") is None
     assert _validate_task_input(single, "foundation") is None
     assert _validate_task_input(uneven, "foundation") is None
+
+
+_LONG = {"data_format": "long", "series_id_column": "series"}
+
+
+def test_validate_task_input_InvalidInputError_when_multivariate_long_format():
+    """
+    Test that ForecasterDirectMultiVariate is rejected on long-format data
+    with several series: its script failed in every mode, with or without
+    exogenous variables.
+    """
+    profile = _make_profile(
+        {"A": {"length": 100}, "B": {"length": 100}},
+        date_column="date", **_LONG,
+    )
+
+    err_msg = re.escape(
+        "ForecasterDirectMultiVariate cannot forecast long-format data with "
+        "several series. Use 'ForecasterRecursiveMultiSeries', or pass the "
+        "series as columns (wide format) with `target` naming them."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_task_input(profile, "multivariate")
+    assert exc_info.value.field == "forecaster"
+
+
+@pytest.mark.parametrize("task_type", ["multi_series", "foundation"])
+def test_validate_task_input_InvalidInputError_when_long_format_without_date_column(
+    task_type,
+):
+    """
+    Test that long-format data with several series and no date column (dated
+    by its index) is rejected for the forecasters that split it into series:
+    the script read a 'datetime' column that does not exist.
+    """
+    profile = _make_profile(
+        {"A": {"length": 100}, "B": {"length": 100}}, **_LONG
+    )
+
+    err_msg = re.escape(
+        "Long-format data with several series needs its dates in a column, "
+        "named by `date_column`, which the generated script reads to split the "
+        "series. With the dates in the index, move them to a column with "
+        "`data.reset_index()`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_task_input(profile, task_type)
+    assert exc_info.value.field == "date_column"
+
+
+def test_validate_task_input_passes_when_long_format_single_series_without_date_column():
+    """
+    Test that long-format data with a single series dated by its index is
+    accepted: its script works.
+    """
+    profile = _make_profile({"A": {"length": 100}}, n_series=1, **_LONG)
+
+    assert _validate_task_input(profile, "single_series") is None
+    assert _validate_task_input(profile, "foundation") is None
 
 
 

@@ -103,11 +103,10 @@ plan_long_lgbm = _assistant.plan(
 plan_long_foundation = _assistant.plan(
     _profile_long, steps=3, forecaster="ForecasterFoundation"
 )
-# ForecasterDirectMultiVariate fails on long-format data with several series.
-plan_long_multivariate = _assistant.plan(
-    _profile_long, estimator="Ridge", forecaster="ForecasterDirectMultiVariate",
-    **_single_kwargs,
-)
+# ForecasterDirectMultiVariate fails on long-format data with several series,
+# so plan() rejects it there; a plan built for the wide data still reaches
+# the check with the long profile (a plan passed with other data).
+plan_long_multivariate = plan_wide_multivariate
 
 
 def with_missing_long(data: pd.DataFrame, series: str, positions: list[int]):
