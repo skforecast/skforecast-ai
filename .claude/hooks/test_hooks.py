@@ -99,6 +99,16 @@ CLAUDE_TRAILER = "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
         ("0.4.x", f"git commit-tree t -m \"$(grep -v '{CLAUDE_TRAILER}' m)\"", True, 0),
         ("feature/x", "python tools/ai/check_ask_context.py", False, 2),
         ("feature/x", "python tools/ai/check_ask_context.py --dry-run", False, 0),
+        (
+            "feature/x",
+            "cat > notes.md <<'EOF'\npython tools/ai/check_ask_context.py --dataset h2o\nEOF",
+            False, 0,
+        ),
+        (
+            "feature/x",
+            "cat > notes.md <<'EOF'\ntext\nEOF\npython tools/ai/check_ask_context.py",
+            False, 2,
+        ),
     ],
 )
 def test_pre_bash_guard_exit_code(tmp_path, branch, command, remote, expected):
