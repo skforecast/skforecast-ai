@@ -161,6 +161,41 @@ metrics_multi = pd.DataFrame(
     }
 )
 
+# 500 series in wide format with 20 exogenous columns, missing values in
+# 30 series and a plan with 30 lags: every list `describe()` cuts
+# (`MAX_DESCRIBE_ITEMS`, `MAX_STATS_SERIES`) is longer than its limit.
+_many_series = [f"series_{i:03d}" for i in range(500)]
+_many_exog = [f"exog_{j:02d}" for j in range(20)]
+df_many_series = pd.DataFrame(
+    np.random.default_rng(123).normal(100, 10, (120, 520)).round(2),
+    index   = pd.date_range("2023-01-01", periods=120, freq="D", name="date"),
+    columns = _many_series + _many_exog,
+)
+df_many_series.iloc[0, :30] = np.nan
+profile_many_series = assistant.profile(
+    data   = df_many_series,
+    target = _many_series,
+)
+plan_many_series = assistant.plan(
+    profile_many_series, steps=3, lags=list(range(1, 31))
+)
+metrics_many_series = pd.DataFrame(
+    {
+        "levels": _many_series + ["average", "weighted_average", "pooling"],
+        "mean_absolute_error": [
+            round(5 + i / 100, 2) for i in range(500)
+        ] + [7.5, 7.5, 7.4],
+    }
+)
+predictions_many_series = pd.DataFrame(
+    {
+        "level": np.repeat(_many_series[:2], 3),
+        "fold":  [0, 0, 0, 0, 0, 0],
+        "pred":  [100.5, 101.5, 102.5, 99.5, 98.5, 97.5],
+    },
+    index=np.tile(pd.date_range("2023-04-21", periods=3, freq="D"), 2),
+)
+
 cv_config = {
     "steps": 5,
     "initial_train_size": 70,
@@ -495,5 +530,19 @@ GOLDEN_SCENARIOS = {
     ),
     "comparison_with_baseline": lambda: make_comparison_result(
         with_baseline=True
+    ),
+}
+
+# Scenarios pinned only by the `describe()` goldens under
+# `tests/tests_llm/golden_describe/`: the golden scenarios plus a backtest
+# of 500 series, where `describe()` cuts the lists that the context of
+# `ask()` keeps whole.
+GOLDEN_DESCRIBE_SCENARIOS = {
+    **GOLDEN_SCENARIOS,
+    "backtest_many_series": lambda: make_backtest_result(
+        profile     = profile_many_series,
+        plan        = plan_many_series,
+        predictions = predictions_many_series,
+        metrics     = metrics_many_series,
     ),
 }

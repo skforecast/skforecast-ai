@@ -21,6 +21,14 @@ from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
 MAX_STATS_SERIES = 5
 MAX_PACF_LAGS = 15
 
+# Limits that only `describe()` applies (`for_describe=True`), so its text
+# stays short with hundreds of series: at most 15 items of any list, and
+# the first `MAX_STATS_SERIES` series of the metrics plus the aggregated
+# rows. Each cut says how many items there were. The context of `ask()`
+# keeps its own limits.
+MAX_DESCRIBE_ITEMS = 15
+_AGGREGATED_METRIC_ROWS = ("average", "weighted_average", "pooling")
+
 # Sentences addressed to the LLM of `ask()`: they tell it how to use the
 # context, they state nothing about the result. `describe()` leaves them
 # out (`for_describe=True`); with `for_describe=False` every renderer
@@ -54,6 +62,36 @@ def _limited(items, limit: int):
         if position >= limit:
             return
         yield item
+
+
+def _first_items(items: list, for_describe: bool) -> tuple[list, str]:
+    """
+    Keep the first `MAX_DESCRIBE_ITEMS` items of a list for `describe()`.
+
+    Parameters
+    ----------
+    items : list
+        Items to show.
+    for_describe : bool
+        Whether the list is rendered for `describe()`. When False, every
+        item is kept.
+
+    Returns
+    -------
+    shown : list
+        Items to show.
+    suffix : str
+        `' (first N of M)'` when the list was cut, an empty string
+        otherwise.
+    """
+
+    if not for_describe or len(items) <= MAX_DESCRIBE_ITEMS:
+        return list(items), ""
+
+    return (
+        list(items[:MAX_DESCRIBE_ITEMS]),
+        f" (first {MAX_DESCRIBE_ITEMS} of {len(items)})",
+    )
 
 
 def _tag(name: str, body: str) -> str:
@@ -243,7 +281,10 @@ def _summarize_dataframe(df: Any) -> str:
     return "\n".join(parts)
 
 
-def render_dataset_section(profile: ForecastingProfile | None) -> str:
+def render_dataset_section(
+    profile: ForecastingProfile | None,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<dataset>` section describing the profiled data.
 
@@ -251,6 +292,11 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
     ----------
     profile : ForecastingProfile, None
         Profile to describe. None renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which keeps the
+        first `MAX_DESCRIBE_ITEMS` items of each list (target columns,
+        exogenous columns, series with missing values, warnings) and says
+        how many there are.
 
     Returns
     -------
@@ -262,7 +308,8 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
         return ""
 
     dp = profile.data_profile
-    exog = ", ".join(dp.exog_columns) if dp.exog_columns else "none"
+    exog_columns, exog_suffix = _first_items(dp.exog_columns, for_describe)
+    exog = ", ".join(exog_columns) + exog_suffix if exog_columns else "none"
     parts = [
         f"- Observations: {dp.n_observations_display}",
         f"- Series: {dp.n_series}",
@@ -282,13 +329,18 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
     if starts and ends:
         parts.append(f"- Date range: {min(starts)} to {max(ends)}")
 
+    target = dp.target
+    if isinstance(target, list):
+        shown, suffix = _first_items(target, for_describe)
+        target = f"{shown}{suffix}" if suffix else target
     parts += [
-        f"- Target: {dp.target}",
+        f"- Target: {target}",
         f"- Exogenous columns: {exog}",
     ]
     if dp.categorical_exog:
+        categorical, suffix = _first_items(dp.categorical_exog, for_describe)
         parts.append(
-            f"- Categorical exogenous columns: {', '.join(dp.categorical_exog)}"
+            f"- Categorical exogenous columns: {', '.join(categorical)}{suffix}"
         )
 
     # Scale of the target. Needed to judge MAPE (unreliable near zero) and
@@ -301,13 +353,24 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
             f"- {label}: min {_fmt(stats['min'])}, max {_fmt(stats['max'])}, "
             f"mean {_fmt(stats['mean'])}, std {_fmt(stats['std'])}"
         )
+    if for_describe and len(dp.target_stats) > MAX_STATS_SERIES:
+        parts.append(
+            f"- Target statistics shown for the first {MAX_STATS_SERIES} of "
+            f"{len(dp.target_stats)} series"
+        )
 
     # Missing values are stated even when there are none: "not mentioned"
     # and "none" are different answers to the user.
     if dp.missing_target:
-        parts.append(f"- Missing in target: {dp.missing_target}")
+        parts.append(
+            f"- Missing in target: "
+            f"{_missing_counts(dp.missing_target, 'series', for_describe)}"
+        )
     if dp.missing_exog:
-        parts.append(f"- Missing in exog: {dp.missing_exog}")
+        parts.append(
+            f"- Missing in exog: "
+            f"{_missing_counts(dp.missing_exog, 'columns', for_describe)}"
+        )
     if not dp.missing_target and not dp.missing_exog:
         parts.append("- Missing values: none")
 
@@ -321,13 +384,55 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
     parts.append(
         f"- Index irregularities: {', '.join(irregularities) if irregularities else 'none detected'}"
     )
-    for warning in dp.warnings:
+    warnings_shown, suffix = _first_items(dp.warnings, for_describe)
+    for warning in warnings_shown:
         parts.append(f"- Data warning: {warning}")
+    if suffix:
+        parts.append(
+            f"- Data warnings shown: the first {MAX_DESCRIBE_ITEMS} of "
+            f"{len(dp.warnings)}"
+        )
 
     return _tag("dataset", "\n".join(parts))
 
 
-def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
+def _missing_counts(counts: dict, noun: str, for_describe: bool) -> str:
+    """
+    Render the missing values per series or per column.
+
+    Parameters
+    ----------
+    counts : dict
+        Number of missing values per series or column.
+    noun : str
+        What the keys are (`'series'` or `'columns'`), used in the note
+        of a cut.
+    for_describe : bool
+        Whether the counts are rendered for `describe()`, which keeps the
+        first `MAX_DESCRIBE_ITEMS` of them and states the totals. When
+        False, the dict is rendered as it is.
+
+    Returns
+    -------
+    text : str
+        Rendered counts.
+    """
+
+    if not for_describe or len(counts) <= MAX_DESCRIBE_ITEMS:
+        return f"{counts}"
+
+    shown = dict(list(counts.items())[:MAX_DESCRIBE_ITEMS])
+
+    return (
+        f"{shown} (first {MAX_DESCRIBE_ITEMS} of {len(counts)} {noun}, "
+        f"{sum(counts.values())} missing values in all)"
+    )
+
+
+def render_profile_decision_section(
+    profile: ForecastingProfile | None,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<profile_decision>` section.
 
@@ -338,6 +443,10 @@ def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
     ----------
     profile : ForecastingProfile, None
         Profile whose explanation is rendered. None renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which says for
+        how many series the significant lags are shown when there are more
+        than `MAX_STATS_SERIES`.
 
     Returns
     -------
@@ -360,6 +469,12 @@ def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
         suffix = "" if len(pacf.lags) <= MAX_PACF_LAGS else f" (first {MAX_PACF_LAGS} of {len(pacf.lags)})"
         label = "Significant lags" if len(profile.series_pacf) == 1 else f"Significant lags for {pacf.series_id}"
         parts.append(f"- {label} (partial autocorrelation, strongest first): {lags}{suffix}")
+    if for_describe and len(profile.series_pacf) > MAX_STATS_SERIES:
+        parts.append(
+            f"- Significant lags shown only for the first {MAX_STATS_SERIES} "
+            f"of {len(profile.series_pacf)} series (a series without "
+            f"significant lags has no line)"
+        )
     if profile.window_features:
         rendered = ", ".join(
             f"{stat}(window={wf['window_size']})"
@@ -388,7 +503,8 @@ def render_plan_section(
         Plan to describe. None renders nothing.
     for_describe : bool, default False
         Whether the section is rendered for `describe()`, which leaves out
-        `PLAN_CODE_NOTE`, addressed to the LLM of `ask()`.
+        `PLAN_CODE_NOTE`, addressed to the LLM of `ask()`, and keeps the
+        first `MAX_DESCRIBE_ITEMS` lags and window features.
 
     Returns
     -------
@@ -404,11 +520,17 @@ def render_plan_section(
         parts.append(f"- Estimator: {plan.estimator}")
     if plan.forecaster_kwargs:
         if "lags" in plan.forecaster_kwargs:
-            parts.append(f"- Lags: {plan.forecaster_kwargs['lags']}")
+            lags = plan.forecaster_kwargs["lags"]
+            if isinstance(lags, list):
+                shown, suffix = _first_items(lags, for_describe)
+                lags = f"{shown}{suffix}" if suffix else lags
+            parts.append(f"- Lags: {lags}")
         if "window_features" in plan.forecaster_kwargs:
-            parts.append(
-                f"- Window features: {plan.forecaster_kwargs['window_features']}"
-            )
+            window_features = plan.forecaster_kwargs["window_features"]
+            if isinstance(window_features, list):
+                shown, suffix = _first_items(window_features, for_describe)
+                window_features = f"{shown}{suffix}" if suffix else window_features
+            parts.append(f"- Window features: {window_features}")
         if "offset" in plan.forecaster_kwargs:
             parts.append(
                 f"- Baseline offset: {plan.forecaster_kwargs['offset']} steps "
@@ -574,7 +696,11 @@ def render_deterministic_summary_section(explanation: str | None) -> str:
     return _tag("deterministic_summary", explanation)
 
 
-def render_metrics_section(metrics: Any, has_predictions: bool = False) -> str:
+def render_metrics_section(
+    metrics: Any,
+    has_predictions: bool = False,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<evaluation_metrics>` section.
 
@@ -587,6 +713,11 @@ def render_metrics_section(metrics: Any, has_predictions: bool = False) -> str:
         None, the section states that no metrics were computed. Without
         it, the absence of the section would leave the LLM free to frame
         the plan's metric choice as a completed evaluation.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which keeps the
+        rows of the first `MAX_STATS_SERIES` series plus the aggregated
+        rows (`average`, `weighted_average`, `pooling`) and says how many
+        series there are.
 
     Returns
     -------
@@ -595,7 +726,11 @@ def render_metrics_section(metrics: Any, has_predictions: bool = False) -> str:
     """
 
     if metrics is not None:
-        return _tag("evaluation_metrics", metrics.to_string(index=False))
+        if for_describe:
+            body = _first_series_metrics(metrics)
+        else:
+            body = metrics.to_string(index=False)
+        return _tag("evaluation_metrics", body)
 
     if has_predictions:
         return _tag(
@@ -605,6 +740,45 @@ def render_metrics_section(metrics: Any, has_predictions: bool = False) -> str:
         )
 
     return ""
+
+
+def _first_series_metrics(metrics: Any) -> str:
+    """
+    Render the metrics of the first series plus the aggregated rows.
+
+    Parameters
+    ----------
+    metrics : pandas DataFrame
+        Metrics with one row per series in a `levels` (backtest) or
+        `series` (forecast) column, and the aggregated rows of skforecast.
+
+    Returns
+    -------
+    text : str
+        The table, cut to the rows of the first `MAX_STATS_SERIES` series
+        plus the aggregated rows when there are more series, with a line
+        that says so. Any other table is rendered whole.
+    """
+
+    level_column = next(
+        (col for col in ("levels", "series") if col in metrics.columns), None
+    )
+    if level_column is None:
+        return metrics.to_string(index=False)
+
+    is_aggregated = metrics[level_column].isin(_AGGREGATED_METRIC_ROWS)
+    series = list(dict.fromkeys(metrics.loc[~is_aggregated, level_column]))
+    if len(series) <= MAX_STATS_SERIES:
+        return metrics.to_string(index=False)
+
+    keep = is_aggregated | metrics[level_column].isin(series[:MAX_STATS_SERIES])
+    aggregated = ", plus the aggregated rows" if is_aggregated.any() else ""
+
+    return (
+        f"Rows of the first {MAX_STATS_SERIES} of {len(series)} series"
+        f"{aggregated}.\n"
+        f"{metrics.loc[keep].to_string(index=False)}"
+    )
 
 
 def render_predictions_section(predictions: Any, send_data: bool = False) -> str:
@@ -733,7 +907,10 @@ def render_leaderboard_section(
     return _tag("leaderboard", body)
 
 
-def render_failures_section(failures: dict | None) -> str:
+def render_failures_section(
+    failures: dict | None,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<failed_candidates>` section of a comparison.
 
@@ -745,6 +922,9 @@ def render_failures_section(failures: dict | None) -> str:
     failures : dict, None
         Mapping of candidate name to `CandidateFailure`. Empty or None
         renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which keeps the
+        first `MAX_DESCRIBE_ITEMS` failures and says how many there are.
 
     Returns
     -------
@@ -755,9 +935,12 @@ def render_failures_section(failures: dict | None) -> str:
     if not failures:
         return ""
 
-    parts = [
-        f"- {name}: {failure.summary()}" for name, failure in failures.items()
-    ]
+    shown, suffix = _first_items(list(failures.items()), for_describe)
+    parts = [f"- {name}: {failure.summary()}" for name, failure in shown]
+    if suffix:
+        parts.append(
+            f"Failures shown: the first {MAX_DESCRIBE_ITEMS} of {len(failures)}"
+        )
 
     return _tag("failed_candidates", "\n".join(parts))
 
@@ -858,15 +1041,19 @@ def build_context_message(
     """
 
     return join_sections([
-        render_dataset_section(profile),
-        render_profile_decision_section(profile),
+        render_dataset_section(profile, for_describe=for_describe),
+        render_profile_decision_section(profile, for_describe=for_describe),
         render_plan_section(plan, for_describe=for_describe),
         render_cv_section(
             cv_config,
             trains=plan is None or plan.task_type != "foundation",
         ),
         render_deterministic_summary_section(explanation),
-        render_metrics_section(metrics, has_predictions=predictions is not None),
+        render_metrics_section(
+            metrics,
+            has_predictions = predictions is not None,
+            for_describe    = for_describe,
+        ),
         render_predictions_section(predictions, send_data=send_data),
     ])
 
@@ -915,11 +1102,11 @@ def build_comparison_context(
     return join_sections([
         # The profile is shared by construction, so it is stated once here
         # instead of being repeated inside every candidate's own block.
-        render_dataset_section(result.profile),
-        render_profile_decision_section(result.profile),
+        render_dataset_section(result.profile, for_describe=for_describe),
+        render_profile_decision_section(result.profile, for_describe=for_describe),
         render_comparison_overview_section(result, for_describe=for_describe),
         render_leaderboard_section(result.results, for_describe=for_describe),
-        render_failures_section(result.failures),
+        render_failures_section(result.failures, for_describe=for_describe),
         render_cv_section(
             result.cv_config,
             note="Applied identically to every candidate.",

@@ -43,7 +43,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from tests.fixtures_llm import GOLDEN_SCENARIOS  # noqa: E402
+from tests.fixtures_llm import (  # noqa: E402
+    GOLDEN_DESCRIBE_SCENARIOS,
+    GOLDEN_SCENARIOS,
+)
 
 GOLDEN_DIR = REPO_ROOT / "tests" / "tests_llm" / "golden"
 GOLDEN_DESCRIBE_DIR = REPO_ROOT / "tests" / "tests_llm" / "golden_describe"
@@ -59,12 +62,14 @@ def main() -> None:
         path.write_text(context.text + "\n", encoding="utf-8")
         print(f"  {path.relative_to(REPO_ROOT)}  ({len(context.text):,} chars)")
 
+    for scenario, build_result in GOLDEN_DESCRIBE_SCENARIOS.items():
         description = build_result().describe()
         path = GOLDEN_DESCRIBE_DIR / f"{scenario}.txt"
         path.write_text(description + "\n", encoding="utf-8")
         print(f"  {path.relative_to(REPO_ROOT)}  ({len(description):,} chars)")
 
-    print(f"\nWrote {2 * len(GOLDEN_SCENARIOS)} golden files.")
+    n_files = len(GOLDEN_SCENARIOS) + len(GOLDEN_DESCRIBE_SCENARIOS)
+    print(f"\nWrote {n_files} golden files.")
     print("Review the diff before committing: it is the prompt diff.")
 
 

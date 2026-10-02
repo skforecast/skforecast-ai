@@ -15,6 +15,7 @@ from skforecast_ai.llm.context import (
 
 from tests.fixtures_assistant import df_no_exog
 from tests.fixtures_llm import (
+    GOLDEN_DESCRIBE_SCENARIOS,
     GOLDEN_SCENARIOS,
     ROW_LEVEL_MARKER,
     make_backtest_result,
@@ -38,8 +39,9 @@ ASK_INSTRUCTIONS = (
     (" ", LEADERBOARD_NOTE),
 )
 
-# The golden scenarios plus a comparison whose leaderboard is truncated,
-# the only case that renders `LEADERBOARD_NOTE`.
+# The golden scenarios, every list within the limits of describe(), plus
+# a comparison whose leaderboard is truncated, the only case that renders
+# `LEADERBOARD_NOTE`.
 DESCRIBE_CASES = {
     **GOLDEN_SCENARIOS,
     "comparison_truncated_leaderboard": lambda: make_comparison_result(
@@ -60,7 +62,7 @@ def _without_ask_instructions(text: str) -> str:
 # =============================================================================
 @pytest.mark.parametrize(
     "scenario",
-    sorted(GOLDEN_SCENARIOS),
+    sorted(GOLDEN_DESCRIBE_SCENARIOS),
     ids=lambda dt: f"golden describe: {dt}"
 )
 def test_describe_output_matches_golden(scenario):
@@ -76,7 +78,7 @@ def test_describe_output_matches_golden(scenario):
         f"Run 'python tools/ai/update_golden_contexts.py' to create it."
     )
 
-    description = GOLDEN_SCENARIOS[scenario]().describe()
+    description = GOLDEN_DESCRIBE_SCENARIOS[scenario]().describe()
 
     assert description + "\n" == path.read_text(encoding="utf-8")
 
@@ -89,7 +91,7 @@ def test_describe_golden_directory_has_no_orphan_files():
     """
     on_disk = {path.stem for path in GOLDEN_DESCRIBE_DIR.glob("*.txt")}
 
-    assert on_disk == set(GOLDEN_SCENARIOS)
+    assert on_disk == set(GOLDEN_DESCRIBE_SCENARIOS)
 
 
 # =============================================================================
@@ -235,4 +237,94 @@ def test_describe_output_when_backtest_code_result():
     ) in description
     assert description == _without_ask_instructions(
         result.to_llm_context(send_data=False).text
+    )
+
+
+# =============================================================================
+# Tests: limits of describe() with many series
+# =============================================================================
+def test_describe_output_when_many_series_cuts_each_list():
+    """
+    Test that describe() keeps the first 15 items of each list (target
+    columns, exogenous columns, series with missing values, lags) and the
+    statistics, significant lags and metrics of the first 5 series plus
+    the aggregated metric rows, and says how many there are.
+    """
+    description = GOLDEN_DESCRIBE_SCENARIOS["backtest_many_series"]().describe()
+
+    expected_lines = [
+        "- Target: ['series_000', 'series_001', 'series_002', 'series_003', "
+        "'series_004', 'series_005', 'series_006', 'series_007', 'series_008', "
+        "'series_009', 'series_010', 'series_011', 'series_012', 'series_013', "
+        "'series_014'] (first 15 of 500)",
+        "- Exogenous columns: exog_00, exog_01, exog_02, exog_03, exog_04, "
+        "exog_05, exog_06, exog_07, exog_08, exog_09, exog_10, exog_11, "
+        "exog_12, exog_13, exog_14 (first 15 of 20)",
+        "- Target statistics shown for the first 5 of 500 series",
+        "- Missing in target: {'series_000': 1, 'series_001': 1, "
+        "'series_002': 1, 'series_003': 1, 'series_004': 1, 'series_005': 1, "
+        "'series_006': 1, 'series_007': 1, 'series_008': 1, 'series_009': 1, "
+        "'series_010': 1, 'series_011': 1, 'series_012': 1, 'series_013': 1, "
+        "'series_014': 1} (first 15 of 30 series, 30 missing values in all)",
+        "- Significant lags shown only for the first 5 of 500 series (a series "
+        "without significant lags has no line)",
+        "- Lags: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] "
+        "(first 15 of 30)",
+    ]
+    for line in expected_lines:
+        assert f"{line}\n" in description
+
+    expected_metrics = (
+        "<evaluation_metrics>\n"
+        "Rows of the first 5 of 500 series, plus the aggregated rows.\n"
+        "          levels  mean_absolute_error\n"
+        "      series_000                 5.00\n"
+        "      series_001                 5.01\n"
+        "      series_002                 5.02\n"
+        "      series_003                 5.03\n"
+        "      series_004                 5.04\n"
+        "         average                 7.50\n"
+        "weighted_average                 7.50\n"
+        "         pooling                 7.40\n"
+        "</evaluation_metrics>"
+    )
+    assert expected_metrics in description
+    assert "series_015" not in description.split("<profile_decision>")[0]
+    assert "series_005 " not in description
+
+
+def test_describe_output_when_many_series_stays_short_and_ask_is_whole():
+    """
+    Test that describe() of 500 series stays under 4,500 characters, while
+    the context of ask() keeps every series and lag, as before the limits.
+    """
+    result = GOLDEN_DESCRIBE_SCENARIOS["backtest_many_series"]()
+
+    description = result.describe()
+    context = result.to_llm_context(send_data=False).text
+
+    assert len(description) < 4500
+    assert len(context) > 25000
+    assert "'series_499'" in context
+    assert "      series_499 " in context
+    assert "(first 15 of" not in context
+
+
+def test_describe_output_when_many_data_warnings():
+    """
+    Test that describe() lists the first 15 data warnings of the profile
+    and a line with their total.
+    """
+    data_profile = profile_single.data_profile.model_copy(
+        update={"warnings": [f"Note number {i}." for i in range(20)]}
+    )
+    profile = profile_single.model_copy(update={"data_profile": data_profile})
+
+    description = profile.describe()
+
+    assert "- Data warning: Note number 14.\n" in description
+    assert "Note number 15." not in description
+    assert "- Data warnings shown: the first 15 of 20\n" in description
+    assert "- Data warning: Note number 19.\n" in (
+        profile.to_llm_context(send_data=False).text
     )

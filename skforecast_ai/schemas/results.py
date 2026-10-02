@@ -159,8 +159,12 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
         # packages) is, so "what do I need to run it" has an answer.
         return LLMContext(
             text                = join_sections([
-                                      render_dataset_section(self.profile),
-                                      render_profile_decision_section(self.profile),
+                                      render_dataset_section(
+                                          self.profile, for_describe=for_describe
+                                      ),
+                                      render_profile_decision_section(
+                                          self.profile, for_describe=for_describe
+                                      ),
                                       render_plan_section(
                                           self.plan, for_describe=for_describe
                                       ),
@@ -267,8 +271,12 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
 
         return LLMContext(
             text    = join_sections([
-                          render_dataset_section(self.profile),
-                          render_profile_decision_section(self.profile),
+                          render_dataset_section(
+                              self.profile, for_describe=for_describe
+                          ),
+                          render_profile_decision_section(
+                              self.profile, for_describe=for_describe
+                          ),
                           render_plan_section(
                               self.plan, for_describe=for_describe
                           ),
@@ -280,6 +288,7 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
                           render_metrics_section(
                               self.metrics,
                               has_predictions = self.predictions is not None,
+                              for_describe    = for_describe,
                           ),
                           render_predictions_section(
                               self.predictions, send_data=send_data
