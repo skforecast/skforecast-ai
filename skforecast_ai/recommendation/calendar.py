@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 from .._constants import TREE_BASED_ESTIMATORS
+from ..exceptions import InvalidInputError
 
 # Calendar feature selection. `MIN_OBS_CALENDAR` is the smallest series length
 # worth adding calendar features to. `CALENDAR_FEATURE_RELEVANCE` maps a
@@ -208,9 +209,10 @@ def calendar_feature_names_out(
     """
 
     if encoding not in (None, "cyclical"):
-        raise ValueError(
+        raise InvalidInputError(
             f"Unsupported calendar encoding {encoding!r}. Only None and "
-            f"'cyclical' are generated."
+            f"'cyclical' are generated.",
+            field = "forecaster_kwargs",
         )
 
     names_out = {}

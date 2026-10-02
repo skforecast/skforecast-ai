@@ -18,6 +18,7 @@ from .._constants import (
 )
 from .._foundation import foundation_backend_installed, resolve_foundation_model
 from .._utils import long_training_message
+from ..exceptions import InvalidInputError, InvalidInputTypeError
 from ..recommendation import (
     baseline_missing_values_note,
     count_estimator_fits,
@@ -164,9 +165,10 @@ def resolve_compare_candidates(
             if _comparison_family(fc, n_series) == family and fc not in exclude
         ]
         if not forecasters:
-            raise ValueError(
+            raise InvalidInputError(
                 "Profile has no forecaster candidates to compare. "
-                "Pass an explicit `candidates` list."
+                "Pass an explicit `candidates` list.",
+                field = "candidates",
             )
         if len(forecasters) == 1 and len(profile.estimator_candidates) > 1:
             forecaster = forecasters[0]
@@ -178,26 +180,32 @@ def resolve_compare_candidates(
             resolved = [(fc, {"forecaster": fc}) for fc in forecasters]
     else:
         if not candidates:
-            raise ValueError("`candidates` must not be an empty list.")
+            raise InvalidInputError(
+                "`candidates` must not be an empty list.",
+                field = "candidates",
+            )
 
         for entry in candidates:
             if not isinstance(entry, (tuple, list)) or len(entry) != 2:
-                raise ValueError(
+                raise InvalidInputError(
                     "Each entry in `candidates` must be a (name, config) "
-                    f"tuple, got {entry!r}."
+                    f"tuple, got {entry!r}.",
+                    field = "candidates",
                 )
             name, config = entry
             if not isinstance(config, dict):
-                raise TypeError(
+                raise InvalidInputTypeError(
                     f"Configuration for '{name}' must be a dict, got "
-                    f"{type(config).__name__}."
+                    f"{type(config).__name__}.",
+                    field = "candidates",
                 )
             invalid_keys = set(config) - allowed_keys
             if invalid_keys:
-                raise ValueError(
+                raise InvalidInputError(
                     f"Invalid config keys for '{name}': "
                     f"{sorted(invalid_keys)}. Allowed keys: "
-                    f"{sorted(allowed_keys)}."
+                    f"{sorted(allowed_keys)}.",
+                    field = "candidates",
                 )
             resolved.append((str(name), config))
 
@@ -210,19 +218,21 @@ def resolve_compare_candidates(
             families.setdefault(family, []).append(name)
     if len(families) > 1:
         listed = "; ".join(f"{family}: {names}" for family, names in families.items())
-        raise ValueError(
+        raise InvalidInputError(
             f"Candidates mix forecaster families whose metrics are not "
             f"comparable ({listed}). A multivariate forecaster is scored on "
             f"the single series it predicts, a multi-series forecaster on the "
-            f"average across all series. Compare each family in its own call."
+            f"average across all series. Compare each family in its own call.",
+            field = "candidates",
         )
 
     names = [name for name, _ in resolved]
     duplicates = sorted({name for name in names if names.count(name) > 1})
     if duplicates:
-        raise ValueError(
+        raise InvalidInputError(
             f"Candidate names must be unique, found duplicates: "
-            f"{duplicates}."
+            f"{duplicates}.",
+            field = "candidates",
         )
 
     return resolved
@@ -327,9 +337,10 @@ def add_baseline_candidate(
         baseline_name = "Baseline (seasonal naive)"
 
     if baseline_name in {name for name, _ in candidates}:
-        raise ValueError(
+        raise InvalidInputError(
             f"The candidate name '{baseline_name}' is reserved for the "
-            f"baseline. Rename the candidate or pass `baseline=False`."
+            f"baseline. Rename the candidate or pass `baseline=False`.",
+            field = "candidates",
         )
 
     baseline_config: CandidateConfig = {"forecaster": "ForecasterEquivalentDate"}

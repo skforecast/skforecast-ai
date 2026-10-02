@@ -10,6 +10,7 @@ import pytest
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
+from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.schemas import CVParams, CVResult
 from tests.fixtures_assistant import (
     df_single,
@@ -1065,3 +1066,45 @@ def test_create_cv_explanation_when_foundation_plan():
     )
     assert "refit" not in result.explanation
     assert "window" not in result.explanation
+
+
+# =============================================================================
+# Tests: error code and field
+# =============================================================================
+@pytest.mark.parametrize(
+    "data, initial_train_size, expected_code, expected_field, err_msg",
+    [
+        (
+            df_single, 1.5, "invalid_argument", "initial_train_size",
+            "initial_train_size as float must satisfy 0 < value < 1, got 1.5.",
+        ),
+        (
+            df_single, "not-a-date", "invalid_argument", "initial_train_size",
+            "`initial_train_size` date 'not-a-date' could not be parsed. Use "
+            "an ISO date such as '2023-03-01'.",
+        ),
+        (
+            df_short, 20, "insufficient_data", None,
+            "The resolved CV configuration produces only 1 fold(s). At least "
+            "2 are required.",
+        ),
+    ],
+    ids=["float_out_of_range", "date_unparseable", "fewer_than_2_folds"],
+)
+def test_create_cv_InvalidInputError_code_and_field(
+    data, initial_train_size, expected_code, expected_field, err_msg
+):
+    """
+    Test that the errors of create_cv() are InvalidInputError with the
+    argument at fault as field, and that a configuration with too few folds
+    for the data has the code 'insufficient_data'.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        assistant.create_cv(profile, plan, initial_train_size=initial_train_size)
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.field == expected_field

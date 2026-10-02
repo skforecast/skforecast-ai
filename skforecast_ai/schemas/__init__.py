@@ -1,5 +1,6 @@
 """Pydantic schemas for skforecast-ai data contracts."""
 
+from .errors import ErrorInfo
 from .plans import (
     CANDIDATE_CONFIG_KEYS,
     REFINE_PLAN_OVERRIDE_KEYS,
@@ -38,6 +39,7 @@ __all__ = [
     "CVParams",
     "CVResult",
     "DataProfile",
+    "ErrorInfo",
     "ExplainableResult",
     "ForecastingProfile",
     "ForecastPlan",

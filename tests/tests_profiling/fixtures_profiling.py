@@ -100,3 +100,15 @@ df_long_identical_duplicates_series_b = pd.concat(
 df_multiindex_identical_duplicates_series_b = (
     df_long_identical_duplicates_series_b.set_index(["series_id", "date"])
 )
+
+# Wide data whose series 'b' ends 2 dates and 'c' 1 date before the last date
+# with a value (2023-01-04); 'c' has a missing value in between.
+df_wide_ending_early = pd.DataFrame(
+    {
+        "a": [1.0, 2.0, 3.0, 4.0],
+        "b": [1.0, 2.0, np.nan, np.nan],
+        "c": [1.0, np.nan, 3.0, np.nan],
+    },
+    index=pd.date_range("2023-01-01", periods=4, freq="D"),
+)
+

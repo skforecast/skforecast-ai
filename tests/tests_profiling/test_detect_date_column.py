@@ -1,11 +1,16 @@
 # Unit test detect_date_column
 
+import datetime
 import re
 
+import dateutil.tz
 import pandas as pd
 import pytest
 
+from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling.data_profile import detect_date_column
+
+from ..fixtures_datasets import df_h2o_text, df_madrid_hourly_text
 
 
 def test_detect_date_column_ValueError_when_named_column_is_not_datetime_like():
@@ -65,3 +70,61 @@ def test_detect_date_column_ValueError_when_column_missing():
 
     with pytest.raises(ValueError, match="date_column='date' was not found"):
         detect_date_column(data, "date")
+
+
+@pytest.mark.parametrize(
+    "dtype", [object, "string"], ids=lambda dt: f"dtype: {dt}"
+)
+def test_detect_date_column_ValueError_when_named_column_has_empty_cells(dtype):
+    """
+    Test that a named text date column with empty cells raises an error that
+    says where they are, instead of quoting valid dates as values that
+    could not be parsed.
+    """
+    data = df_h2o_text.astype({"date": dtype})
+    data.loc[[100, 101], "date"] = None
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 2 empty cell(s), at row position(s) "
+        "100, 101 (counting from 0, header excluded): every row needs a date. "
+        "Fill in or drop those rows."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        detect_date_column(data, "date")
+
+    assert exc_info.value.field == "data"
+
+
+def test_detect_date_column_ValueError_when_named_column_mixes_time_zones():
+    """
+    Test that a named text date column in local time across a daylight
+    saving time change raises an error that names the time zones, instead
+    of a pandas error raised later.
+    """
+    err_msg = re.escape(
+        "The dates of column 'date' mix time zones (+01:00, +02:00), so they "
+        "cannot be placed on one time axis"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        detect_date_column(df_madrid_hourly_text, "date")
+
+
+def test_detect_date_column_output_when_named_column_of_utc_datetimes():
+    """
+    Test that a named column of UTC datetimes whose time zone objects differ
+    (from dateutil and from the standard library) is a date column, as
+    pandas reads them as one time zone.
+    """
+    data = pd.DataFrame({
+        "date": pd.Series(
+            [
+                datetime.datetime(2023, 1, 1, tzinfo=dateutil.tz.tzutc()),
+                datetime.datetime(2023, 1, 2, tzinfo=datetime.timezone.utc),
+                datetime.datetime(2023, 1, 3, tzinfo=dateutil.tz.tzutc()),
+            ],
+            dtype=object,
+        ),
+        "y": [1.0, 2.0, 3.0],
+    })
+
+    assert detect_date_column(data, "date") == ("date", "datetime")

@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from skforecast.stats import pacf
+from .._dates import date_positions, row_dates
 from ..schemas import DataProfile, SeriesPacf
 
 
@@ -113,6 +114,43 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
     return seasons[:2]
 
 
+def _date_order(dates: pd.DatetimeIndex | None) -> np.ndarray | None:
+    """
+    Return the positions of the rows of one series in date order.
+
+    As the generated script fits the series: the first row of each repeated
+    timestamp, without the rows that have no date.
+
+    Parameters
+    ----------
+    dates : pandas DatetimeIndex, None
+        Date of every row of the series (NaT when missing), or None when
+        the data has no dates.
+
+    Returns
+    -------
+    order : numpy ndarray, None
+        Positions of the rows to read, sorted by date with a stable sort.
+        None when there are no dates, so the rows are read as given.
+    """
+    if dates is None:
+        return None
+
+    keep = np.flatnonzero(
+        ~np.asarray(dates.duplicated(keep="first")) & ~np.asarray(dates.isna())
+    )
+
+    return keep[np.argsort(date_positions(dates)[keep], kind="stable")]
+
+
+def _ordered(values: pd.Series, order: np.ndarray | None) -> pd.Series:
+    """
+    Return `values` at the positions of `order`, or as given when None.
+    """
+
+    return values if order is None else values.iloc[order]
+
+
 def compute_series_pacf(
     data: pd.DataFrame,
     profile: DataProfile,
@@ -166,6 +204,11 @@ def compute_series_pacf(
     gaps. Runs one PACF per series, so wide datasets incur one PACF
     computation per column.
 
+    Each series is read as the generated script fits it: in date order,
+    with the first row of each repeated timestamp and without the rows that
+    have no date. The rows are not put on the frequency grid, so missing
+    timestamps do not become NaN here.
+
     Lag-selection pipeline (per series):
 
     1. Compute PACF for lags 1..`effective_n_lags`, where
@@ -196,18 +239,26 @@ def compute_series_pacf(
         if seasonalities else default_pacf_lags
     )
 
+    # Each series is read in date order and without repeated timestamps, as
+    # the generated script fits it: unsorted rows give a PACF of shuffled
+    # values, and repeated rows change the lags. The dates are read once for
+    # all the rows, as the script parses the whole date column.
+    dates = row_dates(data, profile.date_column)
     if isinstance(profile.target, list):
-        # Wide format: each target column is a series.
-        series = [(col, data[col]) for col in profile.target]
+        # Wide format: each target column is a series, all on the same rows.
+        order = _date_order(dates)
+        series = [(col, _ordered(data[col], order)) for col in profile.target]
     elif profile.series_id_column is not None:
-        # Long format: group by series id.
-        series = [
-            (str(sid), group[profile.target])
-            for sid, group in data.groupby(profile.series_id_column)
-        ]
+        # Long format: group by series id, in the order of groupby.
+        series = []
+        for sid, positions in data.groupby(profile.series_id_column).indices.items():
+            if dates is not None:
+                positions = positions[_date_order(dates[positions])]
+            series.append((str(sid), data[profile.target].iloc[positions]))
     else:
         # Single series.
-        series = [(profile.target, data[profile.target])]
+        order = _date_order(dates)
+        series = [(profile.target, _ordered(data[profile.target], order))]
 
     results: list[SeriesPacf] = []
     for series_id, values in series:

@@ -94,6 +94,27 @@ def test_select_skills_keyword_augmentation(question, expected_skill):
     assert expected_skill in result
 
 
+@pytest.mark.parametrize(
+    "question",
+    [
+        "I get InvalidInputError: `lags` must be positive integers",
+        "Why does forecast() raise InvalidInputTypeError?",
+        "DataNotFoundError: CSV file not found: 'sales.csv'",
+    ],
+    ids=["InvalidInputError", "InvalidInputTypeError", "DataNotFoundError"],
+)
+def test_select_skills_troubleshooting_when_question_quotes_skforecast_ai_error(
+    question,
+):
+    """
+    Test that a question quoting an error class of skforecast-ai selects the
+    troubleshooting skill, as a question quoting `ValueError` or `TypeError`
+    (the classes raised for these errors before 0.4.0) does.
+    """
+    result = select_skills(task_type=None, question=question)
+    assert "troubleshooting-common-errors" in result
+
+
 def test_select_skills_no_duplicate_when_base_matches_keyword():
     """
     Test that a skill already in the base set is not duplicated when

@@ -135,13 +135,19 @@ class DataProfile(BaseModel):
         Type of the DataFrame index. One of `'datetime'`, `'range'`,
         `'other'`.
     frequency : str, default None
-        Inferred pandas frequency string (e.g. `'h'`, `'D'`, `'ME'`).
+        Inferred pandas frequency string (e.g. `'h'`, `'D'`, `'ME'`). In long
+        format, the frequency shared by every series.
     frequency_is_set : bool, default False
-        Whether the index already has a frequency set (`index.freq`).
+        Whether the index already has a frequency set (`index.freq`). False
+        when the rows were not in date order.
     index_is_monotonic : bool, default True
-        Whether the index is sorted in ascending order.
+        Whether the input was in ascending date order (within each series,
+        for long format). Rows out of order are sorted before profiling,
+        with a note in `warnings`, so the other fields describe the sorted
+        data.
     has_gaps : bool, default False
-        Whether the datetime index has missing timestamps within its range.
+        Whether the datetime index has missing timestamps within its range
+        (in long format, whether any series has them within its own range).
     has_duplicate_timestamps : bool, default False
         Whether some timestamps appear in several identical rows, which the
         generated code drops. Timestamps repeated with different values

@@ -4,6 +4,7 @@ import ast
 import json
 import re
 
+import numpy as np
 import pandas as pd
 import pytest
 import typer
@@ -630,6 +631,96 @@ class TestForecast:
         assert [p["pred"] for p in direct_preds] == [
             p["pred"] for p in from_plan_preds
         ]
+
+    def test_forecast_exog_dates_not_in_first_column(self, tmp_path):
+        """
+        --exog reads the dates of a CSV whose first column holds a horizon
+        counter: the dates are found as the data loader finds them, and the
+        first column is left out, as `index_col=0` took it as the index in
+        0.3.1.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+        exog_future = pd.DataFrame(
+            {"h": range(1, 6), "date": future_dates,
+             "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        )
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--steps", "5",
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(json.loads(result.output)["predictions"]) == 5
+
+    def test_forecast_exog_error_when_date_column_missing_from_exog(self, tmp_path):
+        """
+        --date-column names a column the exog CSV does not have: the error
+        names it and lists the columns of the file (it printed only the raw
+        KeyError before).
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        exog_future = pd.DataFrame(
+            {"day": pd.date_range("2023-04-11", periods=5), "promo": 0.0}
+        )
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog", exog_path, "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert (
+            "has no column 'date'; its columns are ['day', 'promo']."
+            in " ".join(result.output.split())
+        )
+
+    def test_forecast_exog_error_when_future_dates_have_gap(self, tmp_path):
+        """
+        --exog with a date missing from the horizon raises before running,
+        with the missing date, instead of forecasting with a missing value.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        future_dates = pd.date_range("2023-04-11", periods=6, freq="D").delete(2)
+        exog_future = pd.DataFrame(
+            {"date": future_dates, "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        )
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog", exog_path, "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert "`exog` has no row for 1 of the 5 dates to forecast, such as " \
+            "2023-04-13." in " ".join(result.output.split())
+
+    def test_forecast_error_when_data_has_final_rows_without_target(self, tmp_path):
+        """
+        A CSV with future rows appended to carry the exogenous variables (an
+        empty target) raises, naming those rows, before --exog is checked: it
+        said that the exog started before the first date to forecast.
+        """
+        future = pd.DataFrame({
+            "date": pd.date_range("2023-04-11", periods=5, freq="D"),
+            "sales": np.nan,
+            "promo": [0.0, 1.0, 0.0, 1.0, 0.0],
+        })
+        csv_path = _write_csv(tmp_path, pd.concat([df_single, future]))
+        exog_path = _write_csv(
+            tmp_path, future[["date", "promo"]], name="future_exog.csv"
+        )
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog", exog_path, "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert (
+            "The data has no target value after 2023-04-10: drop its last 5 "
+            "row(s) (2023-04-11 to 2023-04-15)" in " ".join(result.output.split())
+        )
 
 
 

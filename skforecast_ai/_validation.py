@@ -27,6 +27,7 @@ from ._constants import (
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
 )
+from .exceptions import InvalidInputError
 
 # Task types whose estimator is a scikit-learn compatible regressor.
 _ML_TASK_TYPES = ("single_series", "multi_series", "multivariate")
@@ -114,10 +115,11 @@ def validate_frequency(frequency: str | None) -> None:
     if frequency is None:
         return
     if not isinstance(frequency, str) or not _FREQUENCY_PATTERN.fullmatch(frequency):
-        raise ValueError(
+        raise InvalidInputError(
             f"`frequency` must be a pandas frequency alias made of letters, "
             f"digits and hyphens, for example 'D', '15min' or 'W-SUN', got "
-            f"{frequency!r}."
+            f"{frequency!r}.",
+            field = "frequency",
         )
 
 
@@ -150,9 +152,10 @@ def validate_kwarg_names(estimator_kwargs: dict | None) -> None:
             or not key.isidentifier()
             or keyword.iskeyword(key)
         ):
-            raise ValueError(
+            raise InvalidInputError(
                 f"`estimator_kwargs` keys must be valid Python parameter "
-                f"names, got {key!r}."
+                f"names, got {key!r}.",
+                field = "estimator_kwargs",
             )
 
 
@@ -201,16 +204,18 @@ def validate_estimator(
         and estimator is not None
         and estimator not in SUPPORTED_ESTIMATORS
     ):
-        raise ValueError(
+        raise InvalidInputError(
             f"{estimator!r} is not a supported estimator. Supported "
-            f"estimators: {list(SUPPORTED_ESTIMATORS)}."
+            f"estimators: {list(SUPPORTED_ESTIMATORS)}.",
+            field = "estimator",
         )
 
     if task_type == "statistical" and estimator not in (None, "Arima"):
-        raise ValueError(
+        raise InvalidInputError(
             f"'ForecasterStats' uses an ARIMA model, so estimator={estimator!r} "
             f"cannot be applied. Omit `estimator`, and set the ARIMA options "
-            f"through `estimator_kwargs`."
+            f"through `estimator_kwargs`.",
+            field = "estimator",
         )
 
 
@@ -344,8 +349,9 @@ def validate_estimator_kwargs(
             f" Valid parameters: {sorted(names)}."
             if len(names) <= _MAX_LISTED_PARAMS else ""
         )
-        raise ValueError(
-            f"{estimator} has no parameter {key!r}.{hint}{listed}"
+        raise InvalidInputError(
+            f"{estimator} has no parameter {key!r}.{hint}{listed}",
+            field = "estimator_kwargs",
         )
 
 
@@ -381,9 +387,11 @@ def check_estimator_installed(
     package = SUPPORTED_ESTIMATORS[estimator].split(".")[0]
     if importlib.util.find_spec(package) is None:
         pip_name = _PIP_NAMES.get(package, package)
-        raise ValueError(
+        raise InvalidInputError(
             f"{estimator} needs the '{pip_name}' package, which is not "
-            f"installed (pip install {pip_name})."
+            f"installed (pip install {pip_name}).",
+            code  = "missing_dependency",
+            field = "estimator",
         )
 
 
@@ -430,21 +438,23 @@ def validate_interval(
         and 0 < interval[0] < interval[1] < 1
     )
     if not valid:
-        raise ValueError(
+        raise InvalidInputError(
             f"`interval` must be `[lower, upper]` with "
-            f"0 < lower < upper < 1, got {interval}."
+            f"0 < lower < upper < 1, got {interval}.",
+            field = "interval",
         )
     if (
         task_type in _SYMMETRIC_INTERVAL_TASK_TYPES
         and abs(interval[0] + interval[1] - 1) > 1e-9
     ):
-        raise ValueError(
+        raise InvalidInputError(
             f"'{forecaster}' predicts symmetric intervals only "
-            f"(lower + upper = 1), e.g. [0.1, 0.9], got {interval}."
+            f"(lower + upper = 1), e.g. [0.1, 0.9], got {interval}.",
+            field = "interval",
         )
 
 
-def validate_metrics(metrics: list[str]) -> None:
+def validate_metrics(metrics: list[str], field: str = "metric") -> None:
     """
     Check metric names against the regression metrics skforecast computes.
 
@@ -452,6 +462,8 @@ def validate_metrics(metrics: list[str]) -> None:
     ----------
     metrics : list of str
         Metric names.
+    field : str, default 'metric'
+        Name of the argument or plan field reported as `field` of the error.
 
     Returns
     -------
@@ -466,9 +478,10 @@ def validate_metrics(metrics: list[str]) -> None:
 
     for metric in metrics:
         if metric not in ALLOWED_METRICS:
-            raise ValueError(
+            raise InvalidInputError(
                 f"Unknown metric {metric!r}. Supported metrics: "
-                f"{list(ALLOWED_METRICS)}."
+                f"{list(ALLOWED_METRICS)}.",
+                field = field,
             )
 
 
@@ -499,9 +512,10 @@ def validate_steps(steps: object) -> int:
         and (isinstance(steps, numbers.Integral) or float(steps).is_integer())
     )
     if not is_integral or steps < 1:
-        raise ValueError(
+        raise InvalidInputError(
             f"`steps` must be an integer greater than or equal to 1, got "
-            f"{steps!r}."
+            f"{steps!r}.",
+            field = "steps",
         )
 
     return int(steps)
@@ -530,15 +544,17 @@ def validate_forecaster(forecaster: str, task_type: str) -> None:
     """
 
     if not isinstance(forecaster, str) or forecaster not in FORECASTER_TASK_TYPES:
-        raise ValueError(
+        raise InvalidInputError(
             f"{forecaster!r} is not a supported forecaster. Supported "
-            f"forecasters: {list(FORECASTER_TASK_TYPES)}."
+            f"forecasters: {list(FORECASTER_TASK_TYPES)}.",
+            field = "forecaster",
         )
     expected = FORECASTER_TASK_TYPES[forecaster]
     if task_type != expected:
-        raise ValueError(
+        raise InvalidInputError(
             f"'{forecaster}' plans have task_type '{expected}', got "
-            f"task_type={task_type!r}."
+            f"task_type={task_type!r}.",
+            field = "task_type",
         )
 
 
@@ -567,9 +583,10 @@ def _validate_calendar_features(value: object) -> None:
     """
 
     if not isinstance(value, dict) or not set(value) <= {"features", "encoding"}:
-        raise ValueError(
+        raise InvalidInputError(
             f"`forecaster_kwargs['calendar_features']` must be None or a dict "
-            f"with the keys 'features' and 'encoding', got {value!r}."
+            f"with the keys 'features' and 'encoding', got {value!r}.",
+            field = "forecaster_kwargs",
         )
     features = value.get("features")
     if (
@@ -577,15 +594,17 @@ def _validate_calendar_features(value: object) -> None:
         or not features
         or any(feature not in _CALENDAR_FEATURES for feature in features)
     ):
-        raise ValueError(
+        raise InvalidInputError(
             f"`forecaster_kwargs['calendar_features']['features']` must be a "
             f"non-empty list of calendar features among {list(_CALENDAR_FEATURES)}, "
-            f"got {features!r}."
+            f"got {features!r}.",
+            field = "forecaster_kwargs",
         )
     if value.get("encoding") not in _CALENDAR_ENCODINGS:
-        raise ValueError(
+        raise InvalidInputError(
             f"`forecaster_kwargs['calendar_features']['encoding']` must be one "
-            f"of {list(_CALENDAR_ENCODINGS)}, got {value.get('encoding')!r}."
+            f"of {list(_CALENDAR_ENCODINGS)}, got {value.get('encoding')!r}.",
+            field = "forecaster_kwargs",
         )
 
 
@@ -624,17 +643,18 @@ def validate_forecaster_kwargs(forecaster_kwargs: dict, forecaster: str) -> None
     allowed = _FORECASTER_KWARGS_KEYS[forecaster]
     unknown = [key for key in forecaster_kwargs if key not in allowed]
     if unknown:
-        raise ValueError(
+        raise InvalidInputError(
             f"`forecaster_kwargs` of '{forecaster}' cannot contain "
-            f"{unknown}. Allowed keys: {sorted(allowed)}."
+            f"{unknown}. Allowed keys: {sorted(allowed)}.",
+            field = "forecaster_kwargs",
         )
 
     for key, value in forecaster_kwargs.items():
         if key == "lags":
-            _validate_lags(value)
+            _validate_lags(value, field="forecaster_kwargs")
             continue
         if key == "window_features":
-            _validate_window_features(value)
+            _validate_window_features(value, field="forecaster_kwargs")
             continue
         if key == "calendar_features":
             if value is not None:
@@ -660,8 +680,9 @@ def validate_forecaster_kwargs(forecaster_kwargs: dict, forecaster: str) -> None
             valid = _is_positive_int(value)
             expected = "an integer greater than or equal to 1"
         if not valid:
-            raise ValueError(
-                f"`forecaster_kwargs['{key}']` must be {expected}, got {value!r}."
+            raise InvalidInputError(
+                f"`forecaster_kwargs['{key}']` must be {expected}, got {value!r}.",
+                field = "forecaster_kwargs",
             )
 
 
@@ -698,15 +719,16 @@ def validate_preprocessing_step(
     """
 
     if blocking and (action, code_snippet) not in BLOCKING_PREPROCESSING_TEMPLATES:
-        raise ValueError(
+        raise InvalidInputError(
             f"The blocking preprocessing step {action!r} is not one of the "
             f"steps the scripts can contain: its code snippet differs from "
             f"the one `plan()` generates. Build the plan with `plan()`, or "
-            f"remove the step."
+            f"remove the step.",
+            field = "preprocessing_steps",
         )
 
 
-def _validate_lags(lags: int | list[int] | None) -> None:
+def _validate_lags(lags: int | list[int] | None, field: str = "lags") -> None:
     """
     Validate the structure of an explicit `lags` override.
 
@@ -723,6 +745,8 @@ def _validate_lags(lags: int | list[int] | None) -> None:
     ----------
     lags : int, list of int, None
         Explicit lags override. When None, no validation is performed.
+    field : str, default 'lags'
+        Name of the argument or plan field reported as `field` of the error.
 
     Returns
     -------
@@ -733,36 +757,49 @@ def _validate_lags(lags: int | list[int] | None) -> None:
 
     # `bool` is a subclass of `int`; reject it explicitly.
     if isinstance(lags, bool) or not isinstance(lags, (int, list)):
-        raise ValueError(
-            f"`lags` must be an int or a list of ints, got {lags!r}."
+        raise InvalidInputError(
+            f"`lags` must be an int or a list of ints, got {lags!r}.",
+            field = field,
         )
 
     if isinstance(lags, int):
         if lags < 1:
-            raise ValueError(
-                f"`lags` must be positive integers (>= 1), got {lags!r}."
+            raise InvalidInputError(
+                f"`lags` must be positive integers (>= 1), got {lags!r}.",
+                field = field,
             )
         return
 
     if not lags:
-        raise ValueError(
+        raise InvalidInputError(
             "`lags` must not be an empty list; pass None to keep the "
-            "deterministic lag selection."
+            "deterministic lag selection.",
+            field = field,
         )
 
     if any(isinstance(lag, bool) or not isinstance(lag, int) for lag in lags):
-        raise ValueError(f"`lags` must contain ints only, got {lags!r}.")
+        raise InvalidInputError(
+            f"`lags` must contain ints only, got {lags!r}.",
+            field = field,
+        )
 
     if any(lag < 1 for lag in lags):
-        raise ValueError(
-            f"`lags` must be positive integers (>= 1), got {lags!r}."
+        raise InvalidInputError(
+            f"`lags` must be positive integers (>= 1), got {lags!r}.",
+            field = field,
         )
 
     if len(set(lags)) != len(lags):
-        raise ValueError(f"`lags` must not contain duplicates, got {lags!r}.")
+        raise InvalidInputError(
+            f"`lags` must not contain duplicates, got {lags!r}.",
+            field = field,
+        )
 
 
-def _validate_window_features(window_features: list[dict] | None) -> None:
+def _validate_window_features(
+    window_features: list[dict] | None,
+    field: str = "window_features",
+) -> None:
     """
     Validate the structure of an explicit `window_features` override.
 
@@ -782,6 +819,8 @@ def _validate_window_features(window_features: list[dict] | None) -> None:
     window_features : list of dict, None
         Explicit window features override. When None, no validation is
         performed.
+    field : str, default 'window_features'
+        Name of the argument or plan field reported as `field` of the error.
 
     Returns
     -------
@@ -791,54 +830,61 @@ def _validate_window_features(window_features: list[dict] | None) -> None:
         return
 
     if not isinstance(window_features, list):
-        raise ValueError(
+        raise InvalidInputError(
             f"`window_features` must be a list of dicts, got "
-            f"{type(window_features).__name__}."
+            f"{type(window_features).__name__}.",
+            field = field,
         )
 
     for i, wf in enumerate(window_features):
         if not isinstance(wf, dict):
-            raise ValueError(
+            raise InvalidInputError(
                 f"`window_features[{i}]` must be a dict with keys 'stats' "
-                f"and 'window_size', got {type(wf).__name__}."
+                f"and 'window_size', got {type(wf).__name__}.",
+                field = field,
             )
 
         missing = {"stats", "window_size"} - wf.keys()
         if missing:
-            raise ValueError(
+            raise InvalidInputError(
                 f"`window_features[{i}]` is missing required key(s): "
                 f"{sorted(missing)}. Each entry must have 'stats' and "
-                f"'window_size'."
+                f"'window_size'.",
+                field = field,
             )
 
         stats = wf["stats"]
         if not isinstance(stats, list) or not stats:
-            raise ValueError(
+            raise InvalidInputError(
                 f"`window_features[{i}]['stats']` must be a non-empty list "
-                f"of statistic names, got {stats!r}."
+                f"of statistic names, got {stats!r}.",
+                field = field,
             )
         invalid_stats = [s for s in stats if s not in ALLOWED_WINDOW_STATS]
         if invalid_stats:
-            raise ValueError(
+            raise InvalidInputError(
                 f"`window_features[{i}]['stats']` contains unsupported "
                 f"statistic(s): {invalid_stats}. Allowed statistics are: "
-                f"{sorted(ALLOWED_WINDOW_STATS)}."
+                f"{sorted(ALLOWED_WINDOW_STATS)}.",
+                field = field,
             )
 
         window_size = wf["window_size"]
         # `bool` is a subclass of `int`; reject it explicitly.
         if not isinstance(window_size, int) or isinstance(window_size, bool):
-            raise ValueError(
+            raise InvalidInputError(
                 f"`window_features[{i}]['window_size']` must be a scalar "
                 f"int, got {window_size!r}. Within a single entry 'stats' "
                 f"may be a list but 'window_size' must be a scalar applied "
                 f"to all of them; add one entry per window size to use "
-                f"several sizes."
+                f"several sizes.",
+                field = field,
             )
         if window_size < 1:
-            raise ValueError(
+            raise InvalidInputError(
                 f"`window_features[{i}]['window_size']` must be a positive "
-                f"int, got {window_size}."
+                f"int, got {window_size}.",
+                field = field,
             )
 
     pairs = [
@@ -846,8 +892,9 @@ def _validate_window_features(window_features: list[dict] | None) -> None:
     ]
     duplicates = sorted({pair for pair in pairs if pairs.count(pair) > 1})
     if duplicates:
-        raise ValueError(
+        raise InvalidInputError(
             f"`window_features` contains duplicate (stat, window_size) "
             f"pairs: {duplicates}. Merge the entries or change the window "
-            f"size."
+            f"size.",
+            field = field,
         )

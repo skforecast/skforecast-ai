@@ -1,14 +1,22 @@
 # Unit test profile ForecastingAssistant
 
+import re
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.exceptions import DataNotFoundError, InvalidInputError
 from skforecast_ai.schemas import DataProfile, ForecastingProfile
 
+from tests.fixtures_datasets import (
+    df_h2o_text,
+    df_items_sales_long,
+    df_madrid_hourly_text,
+)
 from tests.fixtures_assistant import (
     df_single,
     df_no_exog,
@@ -228,3 +236,181 @@ def test_profile_output_when_csv_path(tmp_path, path_type):
     assert isinstance(profile, ForecastingProfile)
     assert profile.data_profile.target == "sales"
     assert profile.data_profile.series_lengths["sales"].length == 100
+
+
+# =============================================================================
+# Tests: error code and field
+# =============================================================================
+@pytest.mark.parametrize(
+    "kwargs, error_class, expected_code, expected_field, err_msg",
+    [
+        (
+            {"data": df_single, "target": "missing", "date_column": "date"},
+            InvalidInputError, "invalid_argument", "target",
+            "Target column(s) ['missing'] not found in the DataFrame. "
+            "Available columns: ['date', 'sales', 'promo']",
+        ),
+        (
+            {"data": df_single, "target": "sales", "date_column": "missing"},
+            InvalidInputError, "invalid_argument", "date_column",
+            "date_column='missing' was not found in the data. It matches "
+            "neither a column ['date', 'sales', 'promo'] nor the index name "
+            "('None'). Pass a valid column name, set it as the index, or omit "
+            "date_column to use an existing DatetimeIndex.",
+        ),
+        (
+            {"data": "/nonexistent/data.csv", "target": "sales"},
+            DataNotFoundError, "data_not_found", "data",
+            "CSV file not found: '/nonexistent/data.csv'. Please provide a "
+            "valid file path.",
+        ),
+    ],
+    ids=["target", "date_column", "csv_path"],
+)
+def test_profile_error_code_and_field(
+    kwargs, error_class, expected_code, expected_field, err_msg
+):
+    """
+    Test that the errors of profile() carry the code of the error and the
+    argument at fault, with the message they had before.
+    """
+    with pytest.raises(error_class, match=re.escape(err_msg)) as exc_info:
+        ForecastingAssistant().profile(**kwargs)
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.field == expected_field
+
+
+@pytest.mark.parametrize(
+    "date_column, advice",
+    [
+        (
+            None,
+            " If the dates are in another column, pass its name as "
+            "`date_column`; if 'date' is an exogenous variable and the data has "
+            "no dates, read the CSV with pandas and pass the DataFrame instead "
+            "of its path.",
+        ),
+        ("date", ""),
+    ],
+    ids=["date_column: None", "date_column: date"],
+)
+def test_profile_ValueError_when_csv_date_column_has_an_empty_cell(
+    tmp_path, date_column, advice
+):
+    """
+    Test that a CSV whose date column has one empty cell (h2o, row 100)
+    raises an error that says where it is, with the advice to pass
+    `date_column` only when it was not passed. Before, the dates became an
+    exogenous variable with one category per row (without `date_column`) or
+    were said not to be dates (with it).
+    """
+    data = df_h2o_text.copy()
+    data.loc[100, "date"] = None
+    csv_path = tmp_path / "h2o.csv"
+    data.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "100 (counting from 0, header excluded): every row needs a date. Fill "
+        "in or drop those rows." + advice
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        ForecastingAssistant().profile(
+            data        = csv_path,
+            target      = "x",
+            date_column = date_column,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+
+
+def test_profile_ValueError_when_long_csv_date_column_has_an_empty_cell(tmp_path):
+    """
+    Test that a long-format CSV whose date column has one empty cell raises
+    the same error. Before, the date became an exogenous variable and the
+    generated code failed on a column that does not exist.
+    """
+    data = df_items_sales_long.assign(
+        date=df_items_sales_long["date"].dt.strftime("%Y-%m-%d")
+    )
+    data.loc[250, "date"] = None
+    csv_path = tmp_path / "items.csv"
+    data.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "250"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        ForecastingAssistant().profile(
+            data             = csv_path,
+            target           = "value",
+            series_id_column = "series",
+        )
+
+
+def test_profile_ValueError_when_csv_dates_change_time_zone(tmp_path):
+    """
+    Test that a CSV of hourly dates in local time across a daylight saving
+    time change ('+01:00' then '+02:00') raises an error that names the time
+    zones. Before, the dates became an exogenous variable with one category
+    per row, with a pandas FutureWarning.
+    """
+    csv_path = tmp_path / "madrid.csv"
+    df_madrid_hourly_text.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' mix time zones (+01:00, +02:00), so they "
+        "cannot be placed on one time axis (local time does that across a "
+        "daylight saving time change)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=csv_path, target="users")
+
+    assert exc_info.value.field == "data"
+
+
+def test_profile_output_when_csv_dates_in_utc(tmp_path):
+    """
+    Test that the same dates written in UTC, as the message asks, are
+    profiled as an hourly date column.
+    """
+    data = df_madrid_hourly_text.assign(
+        date=pd.to_datetime(df_madrid_hourly_text["date"], utc=True)
+    )
+    csv_path = tmp_path / "utc.csv"
+    data.to_csv(csv_path, index=False)
+
+    profile = ForecastingAssistant().profile(data=csv_path, target="users")
+
+    assert profile.data_profile.date_column == "date"
+    assert profile.data_profile.frequency == "h"
+    assert profile.data_profile.start_date == "2012-03-23 23:00:00+00:00"
+
+
+def test_profile_UserWarning_points_at_the_call_when_later_column_used(tmp_path):
+    """
+    Test that the warning about a column of dates with empty cells before
+    the date column ('contract_end') points at the call of the user, not at
+    the package.
+    """
+    data = df_h2o_text.copy()
+    data.insert(0, "contract_end", data["date"])
+    data.loc[list(range(10)), "contract_end"] = None
+    csv_path = tmp_path / "h2o.csv"
+    data.to_csv(csv_path, index=False)
+
+    warn_msg = re.escape(
+        "The dates of column 'contract_end' have 10 empty cell(s), at row "
+        "position(s) 0, 1, 2, 3, 4 and 5 more (counting from 0, header "
+        "excluded). Column 'date' is used as the date column instead; pass "
+        "`date_column` to choose another one."
+    )
+    with pytest.warns(UserWarning, match=warn_msg) as record:
+        profile = ForecastingAssistant().profile(data=csv_path, target="x")
+
+    assert profile.data_profile.date_column == "date"
+    assert profile.data_profile.exog_columns == ["contract_end"]
+    assert record[0].filename == __file__

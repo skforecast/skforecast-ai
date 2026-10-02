@@ -36,6 +36,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-enhancement">Enhancement</span> Better answers from [<code>ForecastingAssistant.ask()</code>][assistant]. Skills and `llms-base.txt` are synced from skforecast 0.26.x, and the skills are chosen by the plan being asked about, so `ForecasterStats`, `ForecasterEquivalentDate` and a `compare()` baseline get `statistical-models` or `baseline-forecasting`, and questions about cold-start series or TabPFN-TS get `foundation-forecasting`. To measure accuracy or choose between models it points to `assistant.backtest()` and `assistant.compare()` instead of the lower-level skforecast functions, and it no longer suggests reasons why one `compare()` candidate beat another.
 
++ <span class="badge text-bg-feature">Feature</span> Every error of skforecast-ai derives from the new `SkforecastAIError`, with a stable `code` and the argument at fault in `field`, so a program can react to it without parsing the message, and `ErrorInfo.from_exception()` in `skforecast_ai.schemas` turns any error into plain data. Invalid inputs raise `InvalidInputError`, `InvalidInputTypeError` or `DataNotFoundError`, still a `ValueError`, a `TypeError` (now also a `ValueError`) and a `FileNotFoundError` with the same messages (see [Exceptions and warnings][exceptions]).
+
 + <span class="badge text-bg-docs">Docs</span> New documentation home page, and new animations in the [Agentic forecasting][agentic-guide] user guide: what reaches the LLM and how its suggestions are validated, how `create_cv()` and `backtest()` [validate the way you deploy][agentic-guide-backtesting], and how `compare()` [picks the model by measured performance][agentic-guide-compare].
 
 
@@ -73,6 +75,20 @@ All significant changes to this project are documented in this release file.
 
 
 **Fixed**
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.profile()</code>][assistant] reads rows that are not in date order as the generated script does, sorted, and says so in `DataProfile.warnings`: descending dates gave a script that failed, and shuffled rows gave other lags and predictions without any warning. Repeated identical rows and rows without a date no longer count for the lags, which can change them.
+
++ <span class="badge text-bg-danger">Fix</span> Text dates, in a CSV or in a `date_column`, are read as the generated script reads them, so for day-first dates such as `13/01/2012` the profile, the lags and `forecast()` now match the script instead of reading `01/02/2012` as the second of January.
+
++ <span class="badge text-bg-danger">Fix</span> A CSV whose date column has empty cells or mixes UTC offsets raises `InvalidInputError` naming the column and the rows, where its dates silently became an exogenous variable; when a later column holds complete dates, it is used with a warning.
+
++ <span class="badge text-bg-danger">Fix</span> For long-format data, [<code>ForecastingAssistant.profile()</code>][assistant] reads the frequency and the missing timestamps of every series, not only of the first one: series of different frequencies or with timestamps off the grid of the others raise `InvalidInputError`, where the generated script resampled them or dropped those timestamps without an error. `DataProfile.warnings` notes the series that end before the last date, which `ForecasterRecursiveMultiSeries` does not predict, in long and wide format.
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant] checks the future `exog` against the data and the plan before running, where missing or misdated rows, new categories or missing values gave missing or wrong predictions without an error, or failed inside the script. What would make the forecast wrong raises `InvalidInputError`; missing values and new categories that LightGBM and the other tolerant estimators can read, and categories the estimator was never trained on, give a warning. The CLI reads the dates of `--exog` as it reads those of the data.
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant] checks the end of the target before running in prediction mode, where the forecast was moved or missing without an error. Final rows without a target value raise `InvalidInputError` (`ForecasterRecursiveMultiSeries`, which ignores them, warns instead), and a missing value that the predictions read raises with an estimator that cannot use it and warns with LightGBM and the others that can.
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.plan()</code>][assistant] and every method that builds a plan raise `InvalidInputError` for `ForecasterDirectMultiVariate` on long-format data with several series, and for long-format data with several series dated by its index, where the generated script always failed (`NameError` or "Column 'datetime' not found").
 
 + <span class="badge text-bg-danger">Fix</span> `forecast()` in evaluation mode left out, without saying so, any metric other than MAE, MSE, MASE and MAPE. It now computes the same eight regression metrics as backtesting, and `compare(metric=...)` rejects any other name (such as classification scores, which it would have ranked in reverse) with `ValueError` instead of failing every candidate. An invalid `interval` in `compare()` also raises `ValueError` instead of `AllCandidatesFailedError`.
 
@@ -203,6 +219,7 @@ First public release. `skforecast-ai` wraps the [`skforecast`](https://skforecas
 <!-- Links to API Reference -->
 [assistant]: ../api/assistant.md
 [cli]: ../api/cli.md
+[exceptions]: ../api/exceptions.md
 [cli-guide]: ../user-guides/cli-usage.md
 [config]: ../user-guides/cli-usage.md#configuration
 [llm-config]: ../user-guides/llm-configuration.md

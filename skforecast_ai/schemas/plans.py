@@ -485,7 +485,8 @@ class ForecastPlan(DisplayMixin, BaseModel):
             estimator_kwargs = self.estimator_kwargs,
             task_type        = self.task_type,
         )
-        validate_metrics([self.metric, *self.metrics_to_compute])
+        validate_metrics([self.metric])
+        validate_metrics(self.metrics_to_compute, field="metrics_to_compute")
         if self.task_type == "foundation":
             validate_foundation_plan(
                 estimator        = self.estimator,

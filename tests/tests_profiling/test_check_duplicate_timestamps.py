@@ -47,6 +47,34 @@ def test_check_duplicate_timestamps_ValueError_when_rows_hold_unhashable_values(
         )
 
 
+def test_check_duplicate_timestamps_ValueError_when_text_dates_day_first_repeat():
+    """
+    Test that text dates are read with the format of the first date, as the
+    generated script reads them, so the repeated '01/02/2023' is reported as
+    the first of February.
+    """
+    data = pd.DataFrame(
+        {
+            "date": ["13/01/2023", "01/02/2023", "01/02/2023"],
+            "y": [1.0, 2.0, 3.0],
+        }
+    )
+
+    err_msg = re.escape(
+        "Found 1 timestamp with more than one row and different values, for "
+        "example '2023-02-01'."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _check_duplicate_timestamps(
+            data             = data,
+            target           = "y",
+            date_col         = "date",
+            index_type       = "datetime",
+            data_format      = "single",
+            series_id_column = None,
+        )
+
+
 @pytest.mark.parametrize(
     "data, index_type",
     [(df_single_daily, "datetime"), (df_range_index, "range")],

@@ -17,6 +17,7 @@ from .._constants import (
     SUPPORTED_TRANSFORMERS,
 )
 from .._validation import validate_kwarg_names
+from ..exceptions import InvalidInputError
 
 # Render boundary: a value from a plan, a profile or a cross-validation
 # object reaches a script only through `repr()`, as a constant of one of the
@@ -174,9 +175,10 @@ def _metric_info(metric: str) -> dict[str, str | bool]:
     means the registry and `ALLOWED_METRICS` have drifted apart.
     """
     if metric not in _METRIC_REGISTRY:
-        raise ValueError(
+        raise InvalidInputError(
             f"Metric {metric!r} cannot be rendered. Supported metrics: "
-            f"{list(_METRIC_REGISTRY)}."
+            f"{list(_METRIC_REGISTRY)}.",
+            field = "metric",
         )
     return _METRIC_REGISTRY[metric]
 
@@ -239,7 +241,10 @@ def _format_int(value: object, name: str) -> str:
         and (isinstance(value, numbers.Integral) or float(value).is_integer())
     )
     if not is_integral:
-        raise ValueError(f"`{name}` must be an integer, got {value!r}.")
+        raise InvalidInputError(
+            f"`{name}` must be an integer, got {value!r}.",
+            field = name,
+        )
     return str(int(value))
 
 
@@ -265,7 +270,10 @@ def _format_bool(value: object, name: str) -> str:
     written.
     """
     if not isinstance(value, bool):
-        raise ValueError(f"`{name}` must be a bool, got {value!r}.")
+        raise InvalidInputError(
+            f"`{name}` must be a bool, got {value!r}.",
+            field = name,
+        )
     return repr(value)
 
 
@@ -296,9 +304,10 @@ def _get_forecaster_import(
     plan skipped that validation.
     """
     if not isinstance(forecaster, str) or forecaster not in supported:
-        raise ValueError(
+        raise InvalidInputError(
             f"{forecaster!r} cannot be rendered by this script template. "
-            f"Supported forecasters: {list(supported)}."
+            f"Supported forecasters: {list(supported)}.",
+            field = "forecaster",
         )
     return _FORECASTER_IMPORTS[forecaster]
 
@@ -327,9 +336,10 @@ def _get_transformer_constructor(transformer: str) -> str:
         not isinstance(transformer, str)
         or transformer not in _TRANSFORMER_CONSTRUCTORS
     ):
-        raise ValueError(
+        raise InvalidInputError(
             f"{transformer!r} is not a supported transformer. Supported "
-            f"transformers: {list(_TRANSFORMER_CONSTRUCTORS)}."
+            f"transformers: {list(_TRANSFORMER_CONSTRUCTORS)}.",
+            field = "forecaster_kwargs",
         )
     return _TRANSFORMER_CONSTRUCTORS[transformer]
 
@@ -357,9 +367,10 @@ def _get_interval_method_literal(interval_method: str) -> str:
         not isinstance(interval_method, str)
         or interval_method not in _INTERVAL_METHOD_LITERALS
     ):
-        raise ValueError(
+        raise InvalidInputError(
             f"Interval method {interval_method!r} cannot be rendered. "
-            f"Supported methods: {list(_INTERVAL_METHOD_LITERALS)}."
+            f"Supported methods: {list(_INTERVAL_METHOD_LITERALS)}.",
+            field = "interval_method",
         )
     return _INTERVAL_METHOD_LITERALS[interval_method]
 
@@ -428,11 +439,12 @@ def _emit_preprocessing_steps(
     lines.append("# Preprocessing")
     for step in blocking:
         if (step.action, step.code_snippet) not in BLOCKING_PREPROCESSING_TEMPLATES:
-            raise ValueError(
+            raise InvalidInputError(
                 f"The blocking preprocessing step {step.action!r} is not one "
                 f"of the steps the scripts can contain, so its code snippet "
                 f"is not written into the script. Build the plan with "
-                f"`plan()`, or remove the step."
+                f"`plan()`, or remove the step.",
+                field = "preprocessing_steps",
             )
         snippet = step.code_snippet.format_map(replacements)
         for snippet_line in snippet.split("\n"):
@@ -668,9 +680,10 @@ def _emit_end_train(
     evaluation code must contain a concrete date literal.
     """
     if plan.end_train is None:
-        raise ValueError(
+        raise InvalidInputError(
             "plan.end_train must be set to generate evaluation code. "
-            "Pass `test_size` so the train/test split date is computed."
+            "Pass `test_size` so the train/test split date is computed.",
+            field = "end_train",
         )
     lines.append(
         f"end_train = {repr(plan.end_train)}"
@@ -1156,9 +1169,10 @@ def _get_estimator_import(estimator: str | None) -> str:
     means a plan skipped that validation.
     """
     if estimator not in _ESTIMATOR_IMPORTS:
-        raise ValueError(
+        raise InvalidInputError(
             f"{estimator!r} is not a supported estimator. Supported "
-            f"estimators: {list(_ESTIMATOR_IMPORTS)}."
+            f"estimators: {list(_ESTIMATOR_IMPORTS)}.",
+            field = "estimator",
         )
     return _ESTIMATOR_IMPORTS[estimator]
 

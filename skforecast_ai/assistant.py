@@ -36,6 +36,8 @@ from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
     DataSentToLLMWarning,
+    InvalidInputError,
+    InvalidInputTypeError,
     LLMCallError,
     LLMRequiredError,
     MissingBackendWarning,
@@ -116,6 +118,8 @@ from .schemas import (
     RefinePlanOverrides,
 )
 from ._foundation import foundation_exog_columns, validate_foundation_plan
+from ._future_exog import as_exog_frame, validate_future_exog
+from ._last_window import validate_last_window
 from ._utils import (
     _check_evaluated_target,
     _resolve_data_and_target,
@@ -287,7 +291,7 @@ class ForecastingAssistant:
         """
 
         data_path = str(data) if isinstance(data, (str, Path)) else "data.csv"
-        data, target = _resolve_data_and_target(data, target)
+        data, target = _resolve_data_and_target(data, target, date_column)
 
         data_profile = create_data_profile(
             data             = data,
@@ -448,10 +452,11 @@ class ForecastingAssistant:
                 and forecaster not in BASELINE_FORECASTERS
             ):
                 if forecaster not in FORECASTER_TASK_TYPES:
-                    raise ValueError(
+                    raise InvalidInputError(
                         f"Forecaster '{forecaster}' is not compatible with this "
                         f"profile. Available candidates: "
-                        f"{profile.forecaster_candidates}."
+                        f"{profile.forecaster_candidates}.",
+                        field = "forecaster",
                     )
                 warnings.warn(
                     f"Forecaster '{forecaster}' is not among the recommended "
@@ -490,8 +495,9 @@ class ForecastingAssistant:
                 )
             given = [name for name, value in inapplicable if value is not None]
             if given:
-                raise ValueError(
-                    f"'{fc}' {reason}, so {given} cannot be applied. Omit them."
+                raise InvalidInputError(
+                    f"'{fc}' {reason}, so {given} cannot be applied. Omit them.",
+                    field = given[0],
                 )
 
         if task_type == "baseline":
@@ -553,13 +559,14 @@ class ForecastingAssistant:
             and data_profile.index_type == "datetime"
             and data_profile.frequency is None
         ):
-            raise ValueError(
+            raise InvalidInputError(
                 f"The frequency of the datetime index could not be inferred "
                 f"(the timestamps are irregular or too few), and '{fc}' needs "
                 f"a regular DatetimeIndex. Check the dates: day-first values "
                 f"such as '13/02/2023' are read month-first unless parsed "
                 f"explicitly, for example with "
-                f"pandas.to_datetime(..., dayfirst=True)."
+                f"pandas.to_datetime(..., dayfirst=True).",
+                field = "profile",
             )
 
         # The baseline cannot take exogenous variables; the explanation says
@@ -842,9 +849,10 @@ class ForecastingAssistant:
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
         invalid_keys = set(overrides) - allowed_keys
         if invalid_keys:
-            raise ValueError(
+            raise InvalidInputError(
                 f"Invalid override keys: {sorted(invalid_keys)}. "
-                f"Allowed keys: {sorted(allowed_keys)}."
+                f"Allowed keys: {sorted(allowed_keys)}.",
+                field = sorted(invalid_keys)[0],
             )
         # Snapshot taken before the LLM branch injects its suggestions into
         # `overrides`, so that an inherited LLM mark is dropped only for a
@@ -1030,7 +1038,7 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        exog: pd.DataFrame | None = None,
+        exog: pd.DataFrame | pd.Series | None = None,
         interval: list[float] | None = None,
         test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
@@ -1089,7 +1097,7 @@ class ForecastingAssistant:
             single-series or wide-format multi-series.
             When `profile` is provided, defaults to the value recorded in
             the profile and must match it if given.
-        exog : pandas DataFrame, default None
+        exog : pandas DataFrame, pandas Series, default None
             Future exogenous variables covering the forecast horizon.
             Mirrors `forecast()` for signature consistency. Because this
             method only generates code (the rendered prediction-mode
@@ -1097,6 +1105,9 @@ class ForecastingAssistant:
             time), `exog` is optional here and is used only to validate
             the inputs: it must not be combined with `test_size`, and it
             must not be supplied when the data has no exogenous columns.
+            Unlike `forecast()`, its dates and values are not checked, nor
+            are the last values of the target: the script reads them when
+            it runs.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
@@ -1219,7 +1230,7 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        exog: pd.DataFrame | None = None,
+        exog: pd.DataFrame | pd.Series | None = None,
         interval: list[float] | None = None,
         test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
@@ -1249,6 +1260,15 @@ class ForecastingAssistant:
         future. No metrics are returned because there is no ground
         truth to compare against. When the data contains exogenous
         variables, future values must be supplied through `exog`.
+        Before running, final rows without a target value raise
+        `InvalidInputError` (`ForecasterRecursiveMultiSeries`, which
+        ignores them, gives a warning), and so does a missing value of the
+        target that the lags read when the estimator does not tolerate
+        missing values (a warning when it does), or that
+        `ForecasterEquivalentDate` or the inverse of the differentiation
+        reads. A missing value that no lag reads for the `steps` asked, or
+        that only the rolling statistics read (they skip it), is left to
+        the warning of skforecast: the predictions do not use it.
 
         Parameters
         ----------
@@ -1277,13 +1297,20 @@ class ForecastingAssistant:
             single-series or wide-format multi-series.
             When `profile` is provided, defaults to the value recorded in
             the profile and must match it if given.
-        exog : pandas DataFrame, default None
-            Future exogenous variables covering the forecast horizon
-            (at least `steps` rows). Used only in prediction mode
+        exog : pandas DataFrame, pandas Series, default None
+            Future exogenous variables covering the forecast horizon: a
+            row for each of the `steps` dates that follow the last date of
+            the data (in long format, for each series, with the series id
+            column), indexed or keyed by date as the data. A named pandas
+            Series is one variable. Used only in prediction mode
             (`test_size=None`) and required there when the data contains
             exogenous variables. Must not be combined with `test_size`:
             in evaluation mode the test-set exogenous values are taken
-            from the split.
+            from the split. Its columns, dates and values are checked
+            before running: a missing date raises `InvalidInputError`, and
+            a new category or a missing value raises when the estimator
+            does not tolerate missing values and gives a warning when it
+            does.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
@@ -1374,6 +1401,7 @@ class ForecastingAssistant:
         script (`ForecastResult.code`) and the actual execution.
         """
 
+        exog = as_exog_frame(exog)
         data_df, target, date_column, series_id_column = (
             _resolve_inputs_with_profile(
                 data, target, date_column, series_id_column, profile
@@ -1405,6 +1433,13 @@ class ForecastingAssistant:
                 data_profile = profile.data_profile,
                 end_train    = plan.end_train,
                 steps        = plan.steps,
+            )
+        elif exog is not None:
+            validate_future_exog(
+                exog    = exog,
+                data    = data_df,
+                profile = profile.data_profile,
+                plan    = plan,
             )
 
         check_estimator_installed(plan.estimator, plan.task_type)
@@ -2156,7 +2191,10 @@ class ForecastingAssistant:
         else:
             metric_override = [metric] if isinstance(metric, str) else list(metric)
             if not metric_override:
-                raise ValueError("`metric` must not be an empty list.")
+                raise InvalidInputError(
+                    "`metric` must not be an empty list.",
+                    field = "metric",
+                )
             validate_metrics(metric_override)
             ranking_metric = metric_override[0]
             metric_columns = metric_override
@@ -2426,29 +2464,33 @@ class ForecastingAssistant:
                 stacklevel=2,
             )
             if context is not None:
-                raise TypeError(
+                raise InvalidInputTypeError(
                     "Pass the object to explain as `context`; `result` is a "
-                    "deprecated alias of it and cannot be combined with it."
+                    "deprecated alias of it and cannot be combined with it.",
+                    field = "result",
                 )
             context = result
 
         if isinstance(context, ForecastPlan):
-            raise TypeError(
+            raise InvalidInputTypeError(
                 "A `ForecastPlan` cannot be explained on its own: it does not "
                 "carry the dataset it was derived from. Pass "
-                "`context=profile, plan=plan`."
+                "`context=profile, plan=plan`.",
+                field = "context",
             )
         if context is not None and not isinstance(context, ExplainableResult):
-            raise TypeError(
+            raise InvalidInputTypeError(
                 f"`context` must be a `ForecastingProfile` or a workflow "
                 f"result (for example `ForecastResult`, `BacktestResult`, "
                 f"`ComparisonResult`, `CodeGenerationResult`, or `CVResult`), "
-                f"got {type(context).__name__}."
+                f"got {type(context).__name__}.",
+                field = "context",
             )
         if plan is not None and not isinstance(context, ForecastingProfile):
-            raise TypeError(
+            raise InvalidInputTypeError(
                 "`plan` only accompanies a `ForecastingProfile` passed as "
-                "`context`; any other context already carries its own plan."
+                "`context`; any other context already carries its own plan.",
+                field = "plan",
             )
 
         # A profile with a plan is explained through the script the two
@@ -2745,8 +2787,9 @@ class ForecastingAssistant:
             Pre-computed plan.
         require_exog : bool
             Whether prediction mode must be given `exog` when the data has
-            exogenous columns. True when the workflow executes the script,
-            False when it only renders it.
+            exogenous columns, after the last values of the target are
+            checked (`validate_last_window`). True when the workflow executes
+            the script, False when it only renders it.
 
         Returns
         -------
@@ -2779,14 +2822,18 @@ class ForecastingAssistant:
         # Mirror `_prepare_backtest`, which rejects `cv.steps != plan.steps`.
         if plan is not None:
             if steps is not None and steps != plan.steps:
-                raise ValueError(
+                raise InvalidInputError(
                     f"`steps` ({steps}) does not match `plan.steps` "
                     f"({plan.steps}). Omit `steps` to use the plan's horizon, "
-                    f"or refine the plan with `refine_plan(steps=...)`."
+                    f"or refine the plan with `refine_plan(steps=...)`.",
+                    field = "steps",
                 )
             steps = plan.steps
         elif steps is None:
-            raise ValueError("`steps` is required when `plan` is not provided.")
+            raise InvalidInputError(
+                "`steps` is required when `plan` is not provided.",
+                field = "steps",
+            )
 
         has_exog = bool(profile.data_profile.exog_columns)
         # Evaluation mode is driven by `test_size`, or by a pre-built plan
@@ -2809,6 +2856,16 @@ class ForecastingAssistant:
             )
         elif interval is not None:
             plan = _apply_interval_to_plan(plan, interval)
+
+        if require_exog and not evaluate:
+            # Before `exog` is required: final rows without a target value
+            # are the usual reason it is missing (future rows appended to
+            # carry the exogenous variables).
+            validate_last_window(
+                data    = data,
+                profile = profile.data_profile,
+                plan    = plan,
+            )
 
         # Validated once the plan is known: whether future `exog` is needed
         # depends on the plan using it, not only on the data having it.
@@ -2844,13 +2901,14 @@ class ForecastingAssistant:
                 end_train      = plan.end_train,
             )
             if n_test is not None and n_test != plan.steps:
-                raise ValueError(
+                raise InvalidInputError(
                     f"The test set has {n_test} observations but `steps` is "
                     f"{plan.steps}. forecast() evaluates one forecast of "
                     f"`steps` observations, so the test set must have the "
                     f"same length: pass test_size={plan.steps}. To evaluate "
                     f"over a longer period, use backtest() (create_cv() "
-                    f"builds the folds)."
+                    f"builds the folds).",
+                    field = "test_size",
                 )
 
         return profile, plan
@@ -2921,7 +2979,10 @@ class ForecastingAssistant:
         )
 
         if data is None and profile is None:
-            raise ValueError("`data` is required when `profile` is not provided.")
+            raise InvalidInputError(
+                "`data` is required when `profile` is not provided.",
+                field = "data",
+            )
         if data is not None:
             _, target, date_column, series_id_column = (
                 _resolve_inputs_with_profile(
@@ -2952,11 +3013,12 @@ class ForecastingAssistant:
             )
         else:
             if cv.steps != plan.steps:
-                raise ValueError(
+                raise InvalidInputError(
                     f"cv.steps ({cv.steps}) does not match plan.steps "
                     f"({plan.steps}). These must be equal: "
                     f"ForecasterDirect and ForecasterDirectMultiVariate "
-                    f"model architectures depend on steps."
+                    f"model architectures depend on steps.",
+                    field = "cv",
                 )
             if interval is not None:
                 plan = _apply_interval_to_plan(plan, interval)

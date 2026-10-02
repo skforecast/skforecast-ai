@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import warnings
 from pathlib import Path
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 from skforecast.exceptions import LongTrainingWarning
@@ -28,8 +29,10 @@ from ._validation import (
     _validate_window_features as _validate_window_features,
     validate_interval,
 )
-from .profiling.data_profile import _try_parse_first_date_column
+from ._dates import is_text, parse_text_dates
+from .profiling.data_profile import _read_date_column, _try_parse_first_date_column
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
+from .exceptions import DataNotFoundError, InvalidInputError
 
 _CODE_BLOCK_RE = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
 _CODE_BLOCK_REPLACEMENT = "(See `result.code` for the validated implementation.)"
@@ -106,12 +109,17 @@ def _validate_max_window_size(
     max_span = _max_window_size(lags, window_features)
     max_allowed = int(span_index_length * MAX_FEATURE_FRACTION)
     if max_span > max_allowed:
-        raise ValueError(
+        raise InvalidInputError(
             f"Explicit lags/window_features span up to {max_span} "
             f"observations, exceeding the maximum of {max_allowed} "
             f"({int(MAX_FEATURE_FRACTION * 100)}% of "
             f"{span_index_length} observations). "
-            f"Reduce the largest lag or window size."
+            f"Reduce the largest lag or window size.",
+            code  = "insufficient_data",
+            field = (
+                "lags" if _max_window_size(lags, None) == max_span
+                else "window_features"
+            ),
         )
 
 
@@ -121,7 +129,12 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
 
     Single-series tasks (`single_series`, `statistical`, `baseline`) accept
     exactly one series. The `multivariate` task requires all series to share
-    the same length. `foundation` takes one or several series.
+    the same length, and wide-format data: on long-format data with several
+    series the generated script always failed (its level is the target
+    column, which is not one of the series). `foundation` takes one or
+    several series. Long-format data with several series needs its dates in
+    a column, which the generated script reads to split the series; dated by
+    the index, or without dates, the script always failed.
 
     Parameters
     ----------
@@ -146,11 +159,33 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
         task_type in ("single_series", "statistical", "baseline")
         and n_series > 1
     ):
-        raise ValueError(
+        raise InvalidInputError(
             f"Task type '{task_type}' supports a single series only, but the "
             f"input contains {n_series} series ({list(series_lengths)}). "
             f"Use a multi-series forecaster (e.g. "
-            f"'ForecasterRecursiveMultiSeries') or provide a single series."
+            f"'ForecasterRecursiveMultiSeries') or provide a single series.",
+            field = "forecaster",
+        )
+
+    long_series = data_profile.data_format == "long" and n_series > 1
+    if long_series and task_type == "multivariate":
+        raise InvalidInputError(
+            "ForecasterDirectMultiVariate cannot forecast long-format data with "
+            "several series. Use 'ForecasterRecursiveMultiSeries', or pass the "
+            "series as columns (wide format) with `target` naming them.",
+            field = "forecaster",
+        )
+    if (
+        long_series
+        and data_profile.date_column is None
+        and task_type in ("multi_series", "foundation")
+    ):
+        raise InvalidInputError(
+            "Long-format data with several series needs its dates in a column, "
+            "named by `date_column`, which the generated script reads to split "
+            "the series. With the dates in the index, move them to a column "
+            "with `data.reset_index()`.",
+            field = "date_column",
         )
 
     if task_type == "multivariate":
@@ -159,11 +194,12 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
             detail = {
                 name: info.length for name, info in series_lengths.items()
             }
-            raise ValueError(
+            raise InvalidInputError(
                 f"Task type 'multivariate' (ForecasterDirectMultiVariate) "
                 f"requires all series to have the same length, but got "
                 f"{detail}. Align the series to a common index or use "
-                f"'ForecasterRecursiveMultiSeries'."
+                f"'ForecasterRecursiveMultiSeries'.",
+                field = "forecaster",
             )
 
 
@@ -235,10 +271,11 @@ def _check_plan_overrides(
         if value is not None and value != plan_value
     ]
     if conflicts:
-        raise ValueError(
+        raise InvalidInputError(
             f"A pre-built `plan` was provided and the following argument(s) "
             f"differ from what it holds: {conflicts}. Omit them to use the "
-            f"plan as is, or refine the plan with `refine_plan()` first."
+            f"plan as is, or refine the plan with `refine_plan()` first.",
+            field = conflicts[0],
         )
 
 
@@ -458,10 +495,11 @@ def _validate_forecast_mode(
     """
     if evaluate:
         if exog is not None:
-            raise ValueError(
+            raise InvalidInputError(
                 "`exog` is only used for future prediction (`test_size=None`). "
                 "In evaluation mode the test-set exogenous values are taken "
-                "from the train/test split, so `exog` must not be provided."
+                "from the train/test split, so `exog` must not be provided.",
+                field = "exog",
             )
         return
 
@@ -470,33 +508,38 @@ def _validate_forecast_mode(
 
     # Prediction mode.
     if require_exog and uses_exog and exog is None:
-        raise ValueError(
+        raise InvalidInputError(
             "`exog` is required for future prediction because the data "
             "contains exogenous variables. Provide future exogenous "
             "values covering the forecast horizon, or pass `test_size` "
-            "to run in evaluation mode instead."
+            "to run in evaluation mode instead.",
+            field = "exog",
         )
     if not has_exog and exog is not None:
-        raise ValueError(
+        raise InvalidInputError(
             "`exog` was provided but the data contains no exogenous "
             "variables. Remove `exog` or add exogenous columns to the "
-            "data."
+            "data.",
+            field = "exog",
         )
     if has_exog and not uses_exog and exog is not None:
-        raise ValueError(
+        raise InvalidInputError(
             "`exog` was provided but the plan does not use exogenous "
-            "variables (`plan.use_exog` is False). Remove `exog`."
+            "variables (`plan.use_exog` is False). Remove `exog`.",
+            field = "exog",
         )
     if exog is not None and len(exog) < steps:
-        raise ValueError(
+        raise InvalidInputError(
             f"`exog` must cover the forecast horizon: {steps} rows are "
-            f"required but only {len(exog)} were provided."
+            f"required but only {len(exog)} were provided.",
+            field = "exog",
         )
 
 
 def _resolve_data_and_target(
     data: pd.Series | pd.DataFrame | str | Path,
     target: str | list[str] | None,
+    date_column: str | None = None,
 ) -> tuple[pd.DataFrame, str | list[str]]:
     """
     Coerce the input to a DataFrame and resolve the target column name.
@@ -516,6 +559,11 @@ def _resolve_data_and_target(
     target : str, list, None
         Name of the column(s) to forecast. Optional only when `data` is a
         Series (the name is used instead).
+    date_column : str, default None
+        Name of the date column, when the caller gives it. A CSV column of
+        dates with empty cells or mixed time zones raises an error when it is
+        this column, or when it is not given and no later column holds
+        complete dates (see `_try_parse_first_date_column`).
 
     Returns
     -------
@@ -528,19 +576,21 @@ def _resolve_data_and_target(
     ------
     ValueError
         When `data` is a Series and `target` is provided but does not
-        match the Series name, or when `data` is not a Series and
-        `target` is None.
+        match the Series name, when `data` is not a Series and `target` is
+        None, or when the dates of a CSV have empty cells or mixed time
+        zones (see `date_column`).
     FileNotFoundError
         When `data` is a path or URL that cannot be read.
     """
     if isinstance(data, pd.Series):
         name = data.name
         if target is not None and target != name:
-            raise ValueError(
+            raise InvalidInputError(
                 f"When `data` is a pandas Series and `target` is provided, "
                 f"`target` must match the Series name. Got target={target!r} "
                 f"and series.name={name!r}. Omit `target` to use the Series "
-                f"name, or rename the Series."
+                f"name, or rename the Series.",
+                field = "target",
             )
         if name is None:
             warnings.warn(
@@ -554,8 +604,9 @@ def _resolve_data_and_target(
         return data.to_frame(name=resolved_target), resolved_target
 
     if target is None:
-        raise ValueError(
-            "`target` is required when `data` is not a pandas Series."
+        raise InvalidInputError(
+            "`target` is required when `data` is not a pandas Series.",
+            field = "target",
         )
 
     if isinstance(data, (str, Path)):
@@ -564,17 +615,22 @@ def _resolve_data_and_target(
             try:
                 df = pd.read_csv(data_str)
             except Exception as e:
-                raise FileNotFoundError(
-                    f"Could not read CSV from URL: '{data_str}'. {e}"
+                # An unreachable URL is an OSError (urllib's HTTPError and
+                # URLError); anything else was downloaded but is not a CSV.
+                raise DataNotFoundError(
+                    f"Could not read CSV from URL: '{data_str}'. {e}",
+                    code  = None if isinstance(e, OSError) else "data_unreadable",
+                    field = "data",
                 ) from e
-            return _try_parse_first_date_column(df), target
+            return _try_parse_first_date_column(df, date_column), target
         path = Path(data_str)
         if not path.is_file():
-            raise FileNotFoundError(
-                f"CSV file not found: '{path}'. Please provide a valid file path."
+            raise DataNotFoundError(
+                f"CSV file not found: '{path}'. Please provide a valid file path.",
+                field = "data",
             )
         df = pd.read_csv(path)
-        return _try_parse_first_date_column(df), target
+        return _try_parse_first_date_column(df, date_column), target
 
     return data, target
 
@@ -605,12 +661,188 @@ def _match_profile_column(
     if value is None:
         return recorded
     if value != recorded:
-        raise ValueError(
+        raise InvalidInputError(
             f"`{name}` {value!r} does not match the value recorded in "
             f"`profile` ({recorded!r}). Pass the value the profile was built "
-            f"with, or omit it."
+            f"with, or omit it.",
+            field = name,
         )
     return value
+
+
+def load_exog(
+    path: str | Path | None,
+    date_column: str | None = None,
+    series_id_column: str | None = None,
+) -> pd.DataFrame | None:
+    """
+    Load the future exogenous variables from a CSV file.
+
+    The dates are read as the CSV loader of the data reads them, so empty
+    date cells or UTC offsets that change raise an error that says so. They
+    are the `date_column` when given. Otherwise they are the first column
+    when it holds dates, as `index_col=0, parse_dates=True` read it before
+    (integer dates such as 20080701 too), or else the first text column that
+    holds dates, as for the data (see `_try_parse_first_date_column`: a
+    column with empty date cells is skipped for a later complete one, with a
+    warning); a first column of row numbers or of increasing integers (row
+    ids, a horizon counter) then becomes no column, as `index_col=0` made it the
+    index before, except for long-format data (`series_id_column`), whose
+    first column may hold the series ids. Dates in mixed formats, which the
+    generated script cannot read, raise. A header one field short
+    (`to_csv(index_label=False)`, R's `write.csv`) is read as before, unless
+    its last column is then empty, which comes from a separator at the end
+    of every row and raises; rows made only of separators (a spreadsheet
+    saved as CSV) are dropped,
+    as they hold no date and no value. The dates become the index, sorted.
+
+    Parameters
+    ----------
+    path : str, Path, None
+        Path to the CSV file. If None, returns None.
+    date_column : str, default None
+        Name of the column holding the dates.
+    series_id_column : str, default None
+        Name of the series id column of long-format data.
+
+    Returns
+    -------
+    exog : pandas DataFrame, None
+        Future exogenous variables indexed by their dates, or None when
+        `path` is None.
+    """
+    if path is None:
+        return None
+    path = Path(path)
+    if not path.is_file():
+        raise DataNotFoundError(
+            f"Exog CSV not found: '{path}'.",
+            field = "exog",
+        )
+
+    exog = pd.read_csv(path)
+    # Rows one field longer than the header shift every column; when the
+    # last column is then empty, the extra field is a separator at the end
+    # of each row, not the index of `to_csv(index_label=False)`.
+    shifted = not isinstance(exog.index, pd.RangeIndex) and (
+        len(exog.columns) and exog.iloc[:, -1].isna().all()
+    )
+    if isinstance(exog.index, pd.MultiIndex) or shifted:
+        raise InvalidInputError(
+            f"The rows of the exog CSV '{path}' have more fields than its header "
+            f"(often separators at the end of the rows).",
+            field = "exog",
+        )
+    if not isinstance(exog.index, pd.RangeIndex):
+        # A header one field short: pandas reads the first field as the
+        # index, as `index_col=0` read it before; with `date_column`, the
+        # dates are in a named column and that index was dropped.
+        if date_column is None:
+            exog = exog.rename_axis("Unnamed: 0").reset_index()
+        else:
+            exog = exog.reset_index(drop=True)
+    # Rows made only of separators (a spreadsheet saved as CSV) hold no date
+    # and no value; the generated code dropped them with asfreq.
+    filled = exog.notna().any(axis=1).to_numpy()
+    exog = exog[filled].reset_index(drop=True)
+    text = {column: exog[column].copy() for column in exog.columns}
+    if date_column is not None:
+        if date_column not in exog.columns:
+            raise InvalidInputError(
+                f"The exog CSV '{path}' has no column {date_column!r}; its "
+                f"columns are {list(exog.columns)}.",
+                field = "exog",
+            )
+        values = exog[date_column]
+        parsed, issue = None, None
+        if is_text(values):
+            parsed, issue = _read_date_column(date_column, values, named=True)
+        if issue is not None:
+            raise InvalidInputError(
+                f"Exog CSV '{path}': {''.join(issue)}",
+                field = "exog",
+            )
+        if parsed is None or parsed.isna().any():
+            raise InvalidInputError(
+                f"Column {date_column!r} of the exog CSV '{path}' does not hold "
+                f"dates.",
+                field = "exog",
+            )
+        exog[date_column] = parsed
+        found = date_column
+    else:
+        first = exog.columns[0]
+        found = None
+        if not is_text(text[first]) and series_id_column is None:
+            # The first column, read as `index_col=0, parse_dates=True` read
+            # it before (integer dates such as 20080701).
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                index = pd.read_csv(path, index_col=0, parse_dates=True).index
+            if isinstance(index, pd.DatetimeIndex) and len(index) == len(filled):
+                exog[first] = index[filled]
+                found = first
+        if found is None:
+            try:
+                exog = _try_parse_first_date_column(exog)
+            except InvalidInputError as exc:
+                raise InvalidInputError(
+                    f"Exog CSV '{path}': {exc}",
+                    field = "exog",
+                ) from exc
+            found = next(
+                (
+                    column for column in exog.columns
+                    if is_text(text[column])
+                    and pd.api.types.is_datetime64_any_dtype(exog[column])
+                ),
+                None,
+            )
+            if (
+                found is not None and found != first and series_id_column is None
+                and _is_row_label(first, text[first])
+            ):
+                # Row numbers or a horizon counter, which `index_col=0` took
+                # as the index before.
+                exog = exog.drop(columns=first)
+    if found is not None and is_text(text[found]):
+        # The generated script reads the dates with `pd.to_datetime`, which
+        # fails on mixed formats that the loader of the data reads.
+        try:
+            with warnings.catch_warnings():
+                # The dates were read already: pandas only repeats that it
+                # parses each one on its own.
+                warnings.simplefilter("ignore", UserWarning)
+                parse_text_dates(text[found], mixed=False)
+        except (ValueError, TypeError) as exc:
+            raise InvalidInputError(
+                f"Exog CSV '{path}': the dates of column {found!r} cannot be "
+                f"read as the generated code reads them: {exc}",
+                field = "exog",
+            ) from exc
+    if found is None:
+        # Nothing reads as dates: the first column, as `index_col=0` read it;
+        # the checks of the future exogenous variables report it.
+        found = exog.columns[0]
+    exog = exog.set_index(found)
+    if str(found).startswith("Unnamed: "):
+        exog.index.name = None
+
+    return exog.sort_index()
+
+
+def _is_row_label(name: object, values: pd.Series) -> bool:
+    """
+    Return whether a first column labels the rows: the row numbers that
+    `to_csv()` writes ('Unnamed: 0') or increasing integers (row ids, a
+    horizon counter).
+    """
+    if str(name).startswith("Unnamed: "):
+        return True
+    if not pd.api.types.is_integer_dtype(values) or values.isna().any():
+        return False
+
+    return bool((np.diff(values.to_numpy()) > 0).all())
 
 
 def _resolve_inputs_with_profile(
@@ -657,7 +889,7 @@ def _resolve_inputs_with_profile(
     """
 
     if profile is None:
-        data_df, target = _resolve_data_and_target(data, target)
+        data_df, target = _resolve_data_and_target(data, target, date_column)
         return data_df, target, date_column, series_id_column
 
     dp = profile.data_profile
@@ -667,12 +899,19 @@ def _resolve_inputs_with_profile(
     # explicit `target`. For any other input the profile fills the gap.
     if not isinstance(data, pd.Series) and target is None:
         target = dp.target
-    data_df, target = _resolve_data_and_target(data, target)
+    # The CSV loader checks the date column of the profile, which the script
+    # reads, and reports it when its dates cannot be used.
+    data_df, target = _resolve_data_and_target(
+                          data        = data,
+                          target      = target,
+                          date_column = dp.date_column,
+                      )
     if target != dp.target:
-        raise ValueError(
+        raise InvalidInputError(
             f"`target` {target!r} does not match the target recorded in "
             f"`profile` ({dp.target!r}). Pass the target the profile was "
-            f"built with, or omit it."
+            f"built with, or omit it.",
+            field = "target",
         )
 
     date_column = _match_profile_column("date_column", date_column, dp.date_column)
@@ -689,10 +928,11 @@ def _resolve_inputs_with_profile(
     }
     missing = [col for col in required if col not in available]
     if missing:
-        raise ValueError(
+        raise InvalidInputError(
             f"`data` does not contain the column(s) {missing} recorded in "
             f"`profile`. Available columns: {list(data_df.columns)}. Pass the "
-            f"dataset the profile was built from."
+            f"dataset the profile was built from.",
+            field = "data",
         )
 
     return data_df, target, date_column, series_id_column
@@ -810,11 +1050,12 @@ def _check_evaluated_target(
     shown = ", ".join(str(date) for date in missing[:5])
     if len(missing) > 5:
         shown += f" and {len(missing) - 5} more"
-    raise ValueError(
+    raise InvalidInputError(
         f"The target has {len(missing)} missing value(s) {where} ({shown}), "
         f"counting the missing timestamps that asfreq() restores. skforecast "
         f"cannot compute the metrics on them, whatever the estimator. Impute "
-        f"the target, or evaluate on dates without missing values."
+        f"the target, or evaluate on dates without missing values.",
+        field = "data",
     )
 
 

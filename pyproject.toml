@@ -147,4 +147,7 @@ filterwarnings = [
     # typing._UnionGenericAlias at import time, which Python 3.14 deprecates.
     # Upstream package, nothing to fix here.
     "ignore:'_UnionGenericAlias' is deprecated:DeprecationWarning",
+    # numpy 2.5 deprecates the generic timedelta unit, which pandas 2.3 still
+    # uses inside `pd.Timedelta(...)`; upstream, nothing to fix here.
+    "ignore:The 'generic' unit for NumPy timedelta is deprecated:DeprecationWarning",
 ]

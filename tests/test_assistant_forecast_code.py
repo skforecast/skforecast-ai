@@ -8,6 +8,7 @@ import pytest
 
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.schemas import CodeGenerationResult, PreprocessingStep
 
 from tests.fixtures_assistant import df_single, df_multi_long, df_no_exog
@@ -239,6 +240,27 @@ def test_forecast_code_does_not_require_exog_in_prediction_mode():
     assert "exog_future" in result.code
 
 
+def test_forecast_code_output_when_data_has_final_rows_without_target():
+    """
+    Test that forecast_code() renders the script for data with final rows
+    without a target value: only forecast(), which runs the script, checks
+    the last values of the target.
+    """
+    future = pd.DataFrame({
+        "date": pd.date_range("2023-04-11", periods=5, freq="D"),
+        "sales": np.nan,
+        "promo": 0.0,
+    })
+    data = pd.concat([df_single, future], ignore_index=True)
+
+    result = ForecastingAssistant().forecast_code(
+        data=data, target="sales", date_column="date", steps=5
+    )
+
+    assert isinstance(result, CodeGenerationResult)
+    assert "predictions = forecaster.predict(" in result.code
+
+
 def test_forecast_code_ValueError_when_test_size_and_exog_combined():
     """
     Test that forecast_code() rejects `test_size` and `exog` supplied
@@ -432,3 +454,35 @@ def test_forecast_code_output_when_received_plan_holds_values_of_another_type(up
     assert all(
         isinstance(step, PreprocessingStep) for step in result.plan.preprocessing_steps
     )
+
+
+# =============================================================================
+# Tests: error code and field
+# =============================================================================
+def test_forecast_code_InvalidInputError_field_when_arguments_differ_from_plan():
+    """
+    Test that arguments that differ from a pre-built plan raise
+    InvalidInputError with the first of them as field, the argument to omit.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, estimator="Ridge")
+
+    err_msg = re.escape(
+        "A pre-built `plan` was provided and the following argument(s) differ "
+        "from what it holds: ['estimator', 'lags']. Omit them to use the plan "
+        "as is, or refine the plan with `refine_plan()` first."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast_code(
+            data      = df_single,
+            target    = "sales",
+            steps     = 10,
+            estimator = "LGBMRegressor",
+            lags      = 2,
+            profile   = profile,
+            plan      = plan,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "estimator"

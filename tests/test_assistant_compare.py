@@ -30,7 +30,10 @@ from skforecast_ai import (
     CandidateFailedWarning,
     CandidateFailure,
     ComparisonResult,
+    DataNotFoundError,
     ForecastingAssistant,
+    InvalidInputError,
+    InvalidInputTypeError,
     MissingBackendWarning,
 )
 
@@ -1728,3 +1731,106 @@ def test_compare_ValueError_when_metric_or_interval_invalid(kwargs, match):
             show_progress = False,
             **kwargs,
         )
+
+
+# =============================================================================
+# Tests: error code and field
+# =============================================================================
+@pytest.mark.parametrize(
+    "candidates, error_class, err_msg",
+    [
+        ([], InvalidInputError, "`candidates` must not be an empty list."),
+        (
+            [("lgbm", "ForecasterRecursive")], InvalidInputTypeError,
+            "Configuration for 'lgbm' must be a dict, got str.",
+        ),
+        (
+            [("a", {"forecaster": "ForecasterRecursive"})] * 2, InvalidInputError,
+            "Candidate names must be unique, found duplicates: ['a'].",
+        ),
+        (
+            [("lgbm", {"bogus": 1})], InvalidInputError,
+            "Invalid config keys for 'lgbm': ['bogus']. Allowed keys: "
+            "['estimator', 'estimator_kwargs', 'forecaster', 'lags', "
+            "'window_features'].",
+        ),
+    ],
+    ids=["empty", "config_not_dict", "duplicate_names", "unknown_key"],
+)
+def test_compare_error_code_and_field_when_candidates_invalid(
+    candidates, error_class, err_msg
+):
+    """
+    Test that an invalid `candidates` list raises before any candidate runs,
+    with the code 'invalid_argument' and `candidates` as field; a config
+    that is not a dict keeps raising a TypeError.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+    cv = assistant.create_cv(profile, plan)
+
+    with pytest.raises(error_class, match=re.escape(err_msg)) as exc_info:
+        assistant.compare(
+            data=df_single, cv=cv, profile=profile, candidates=candidates
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "candidates"
+
+
+@pytest.mark.parametrize(
+    "error, expected_type",
+    [
+        (InvalidInputError("bad value"), "ValueError"),
+        (InvalidInputTypeError("bad value"), "TypeError"),
+        (DataNotFoundError("bad value"), "FileNotFoundError"),
+    ],
+    ids=["InvalidInputError", "InvalidInputTypeError", "DataNotFoundError"],
+)
+def test_candidate_failure_reports_input_errors_under_builtin_name(
+    error, expected_type
+):
+    """
+    Test that an input error of skforecast-ai is recorded under the built-in
+    class it derives from, so the summaries of compare() keep the text they
+    had before these errors had their own classes.
+    """
+    failure = CandidateFailure.from_exception(error)
+
+    assert failure.error_type == expected_type
+    assert failure.summary() == f"{expected_type}: bad value"
+
+
+def test_compare_AllCandidatesFailedError_message_names_builtin_classes():
+    """
+    Test that the message of AllCandidatesFailedError, when the candidates
+    are rejected by the input checks, names the built-in classes as before
+    (`ValueError`), not the classes of skforecast-ai.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+    cv = assistant.create_cv(profile, plan)
+
+    err_msg = re.escape(
+        "All 2 candidate configuration(s) failed to run, so there is no "
+        "ranking to report.\n\n"
+        "  - bad_lags: ValueError: `lags` must be positive integers (>= 1), "
+        "got 0.\n"
+        "  - bad_estimator: ValueError: 'Nope' is not a supported estimator."
+    )
+    with pytest.warns(CandidateFailedWarning):
+        with pytest.raises(AllCandidatesFailedError, match=err_msg):
+            assistant.compare(
+                data          = df_single,
+                cv            = cv,
+                profile       = profile,
+                show_progress = False,
+                baseline      = False,
+                candidates    = [
+                    ("bad_lags", {"forecaster": "ForecasterRecursive", "lags": 0}),
+                    (
+                        "bad_estimator",
+                        {"forecaster": "ForecasterRecursive", "estimator": "Nope"},
+                    ),
+                ],
+            )

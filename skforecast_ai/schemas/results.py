@@ -19,6 +19,7 @@ from .._display import (
     render_plan,
     render_profile,
 )
+from ..exceptions import InvalidInputTypeError
 from ._types import JSONFrame, JSONTimeSeriesFold, OptionalJSONFrame
 from .explainable import ExplainableResult
 from .plans import ForecastPlan
@@ -395,7 +396,7 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
         # Pydantic models iterate over (field, value) pairs, which would let
         # the old `cv, explanation = create_cv(...)` silently unpack the
         # wrong things (or fail with a puzzling "too many values" error).
-        raise TypeError(
+        raise InvalidInputTypeError(
             "`create_cv()` returns a `CVResult`, not a tuple. Use "
             "`result.cv` for the TimeSeriesFold and `result.explanation` "
             "for the explanation, or pass the result itself as `cv` to "
@@ -588,7 +589,9 @@ class CandidateFailure(BaseModel):
     ----------
     error_type : str
         Class name of the root-cause exception, for example
-        `'ImportError'`.
+        `'ImportError'`. An input error of skforecast-ai is named after the
+        built-in class it derives from (`'ValueError'` for an
+        `InvalidInputError`), as before these errors had their own classes.
     message : str
         Message of the root-cause exception.
     traceback : str
@@ -625,7 +628,7 @@ class CandidateFailure(BaseModel):
             Plain-data snapshot of the failure.
         """
 
-        from ..exceptions import ForecastExecutionError
+        from ..exceptions import ForecastExecutionError, _reported_type_name
 
         if isinstance(exc, ForecastExecutionError):
             root = exc.original_error
@@ -639,7 +642,7 @@ class CandidateFailure(BaseModel):
             generated_code = None
 
         return cls(
-            error_type     = type(root).__name__,
+            error_type     = _reported_type_name(root),
             message        = str(root),
             traceback      = formatted,
             generated_code = generated_code,
@@ -661,13 +664,24 @@ class CandidateFailure(BaseModel):
             Single-line summary of the failure.
         """
 
-        lines = [line.strip() for line in self.message.splitlines() if line.strip()]
-        first_line = lines[0] if lines else ""
-        summary = f"{self.error_type}: {first_line}" if first_line else self.error_type
-        if len(summary) > max_length:
-            summary = summary[: max_length - 3].rstrip() + "..."
+        return _one_line_summary(self.error_type, self.message, max_length)
 
-        return summary
+
+def _one_line_summary(error_type: str, message: str, max_length: int = 200) -> str:
+    """
+    Summarize an error as `'ErrorType: first non-empty line of the message'`,
+    truncated to `max_length` characters with a trailing ellipsis. Shared by
+    `CandidateFailure.summary()` and `ErrorInfo`, so both describe the same
+    exception with the same text.
+    """
+
+    lines = [line.strip() for line in message.splitlines() if line.strip()]
+    first_line = lines[0] if lines else ""
+    summary = f"{error_type}: {first_line}" if first_line else error_type
+    if len(summary) > max_length:
+        summary = summary[: max_length - 3].rstrip() + "..."
+
+    return summary
 
 
 class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):

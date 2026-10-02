@@ -12,6 +12,7 @@ from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
 from .._constants import DIRECT_FORECASTERS
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
+from ..exceptions import InvalidInputError
 
 
 def derive_cv_defaults(
@@ -227,19 +228,21 @@ def _split_folds(
     its = cv.initial_train_size
     if isinstance(its, (str, pd.Timestamp)):
         if start_date is None or frequency is None:
-            raise ValueError(
+            raise InvalidInputError(
                 f"`initial_train_size` is a date ({its!r}) but the dataset has "
                 f"no datetime index with a known frequency, so the split date "
                 f"cannot be located. Pass an integer number of observations "
-                f"instead."
+                f"instead.",
+                field = "initial_train_size",
             )
         if isinstance(its, str):
             try:
                 pd.Timestamp(its)
             except (ValueError, TypeError) as exc:
-                raise ValueError(
+                raise InvalidInputError(
                     f"`initial_train_size` date {its!r} could not be parsed. "
-                    f"Use an ISO date such as '2023-03-01'."
+                    f"Use an ISO date such as '2023-03-01'.",
+                    field = "initial_train_size",
                 ) from exc
         index = pd.date_range(
                     start   = start_date,
@@ -436,10 +439,11 @@ def build_cv(
             key: value for key, value in cv_params.items()
             if not key.startswith("_")
         }
-        raise ValueError(
+        raise InvalidInputError(
             f"The resolved CV configuration produces only "
             f"{n_folds} fold(s). At least {min_folds} are required. "
-            f"Resolved parameters: {public_params}."
+            f"Resolved parameters: {public_params}.",
+            code = "insufficient_data",
         )
 
     return cv
@@ -474,15 +478,17 @@ def _resolve_initial_train_size(
     """
 
     if isinstance(value, bool):
-        raise ValueError(
+        raise InvalidInputError(
             f"`initial_train_size` must be an int, a float in (0, 1), a date "
-            f"string or a pandas Timestamp, got {value!r}."
+            f"string or a pandas Timestamp, got {value!r}.",
+            field = "initial_train_size",
         )
     if isinstance(value, float):
         if not (0 < value < 1):
-            raise ValueError(
+            raise InvalidInputError(
                 f"initial_train_size as float must satisfy "
-                f"0 < value < 1, got {value}."
+                f"0 < value < 1, got {value}.",
+                field = "initial_train_size",
             )
         return int(value * data_profile.span_index_length)
     if isinstance(value, pd.Timestamp):

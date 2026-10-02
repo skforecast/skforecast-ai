@@ -5,6 +5,7 @@ import re
 import pytest
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.schemas import ForecastPlan
 
 from tests.fixtures_assistant import df_single
@@ -466,3 +467,26 @@ def test_refine_plan_ValueError_when_baseline_with_explicit_lags():
             profile, plan, forecaster="ForecasterEquivalentDate", lags=7
         )
 
+
+# =============================================================================
+# Tests: error code and field
+# =============================================================================
+def test_refine_plan_InvalidInputError_field_when_invalid_override_key():
+    """
+    Test that unknown override keys raise InvalidInputError with the first
+    unknown key, in alphabetical order, as field.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    err_msg = re.escape(
+        "Invalid override keys: ['lagz', 'stepz']. Allowed keys: ['estimator', "
+        "'estimator_kwargs', 'forecaster', 'interval', 'lags', 'steps', "
+        "'window_features']."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.refine_plan(profile, plan, stepz=3, lagz=2)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "lagz"
