@@ -8,6 +8,9 @@
 from __future__ import annotations
 import re
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -19,6 +22,7 @@ from ._constants import (
     DIRECT_FORECASTERS,
     LONG_TRAINING_FITS,
     MAX_FEATURE_FRACTION,
+    PLACEHOLDER_DATA_PATH,
 )
 from ._foundation import resolve_foundation_model, validate_foundation_interval
 # `_validate_lags` and `_validate_window_features` live in `_validation`,
@@ -938,37 +942,90 @@ def _resolve_inputs_with_profile(
     return data_df, target, date_column, series_id_column
 
 
+# The CSV path or URL that `compare()` read, while it runs its candidates on
+# the DataFrame already read: their scripts load that file, not the
+# placeholder of data passed in memory.
+_RUN_DATA_PATH: ContextVar[str | None] = ContextVar("_RUN_DATA_PATH", default=None)
+
+
+@contextmanager
+def _data_path_of_run(data_path: str | None) -> Iterator[None]:
+    """
+    Within the block, record `data_path` for the data passed in memory to
+    `_with_data_path`. None leaves it as it is.
+    """
+    token = _RUN_DATA_PATH.set(data_path)
+    try:
+        yield
+    finally:
+        _RUN_DATA_PATH.reset(token)
+
+
+def recorded_data_path(data: object) -> str:
+    """
+    Return the path a profile records for `data`, which the script loads.
+
+    A CSV path or URL is recorded as given, except a path written exactly
+    as the placeholder of data passed in memory (`'data.csv'`), which is
+    recorded as `'./data.csv'`: the same file, without being taken for
+    data passed in memory, which the script reads with its index. Data
+    passed in memory records the placeholder.
+
+    Parameters
+    ----------
+    data : object
+        Data as the caller passed it.
+
+    Returns
+    -------
+    data_path : str
+        Path the script loads.
+    """
+
+    if not isinstance(data, (str, Path)):
+        return PLACEHOLDER_DATA_PATH
+    data_path = str(data)
+    if data_path == PLACEHOLDER_DATA_PATH:
+        return f"./{PLACEHOLDER_DATA_PATH}"
+    return data_path
+
+
 def _with_data_path(
     profile: ForecastingProfile,
     data: object,
 ) -> ForecastingProfile:
     """
-    Record in the profile the CSV path or URL the workflow read its data
-    from, so the script loads the file that ran.
+    Record in the profile the data the workflow ran on, so the script
+    loads the file that ran.
 
     The workflows that execute a script profile the DataFrame already read
     from the path, so `profile()` records its placeholder, and a saved
-    profile keeps the path it was built from. The path is set with
-    `model_copy`, without reading the file again; it reaches the script
-    through `repr()`.
+    profile keeps the path it was built from. With a CSV path or URL, the
+    profile records it; with data passed in memory, the placeholder
+    `'data.csv'`, so the script never loads the file a saved profile was
+    built from instead of the data that ran (it fails loudly when the data
+    is not saved there). The path is set with `model_copy`, without reading
+    the file again; it reaches the script through `repr()`.
 
     Parameters
     ----------
     profile : ForecastingProfile
         Profile the script is rendered from.
     data : object
-        Data as the caller passed it.
+        Data as the caller passed it. None keeps the path of the profile.
 
     Returns
     -------
     profile : ForecastingProfile
-        The same profile when `data` is not a path or the profile already
-        records it; otherwise a copy that records it.
+        The same profile when `data` is None or the profile already records
+        it; otherwise a copy that records it.
     """
 
-    if not isinstance(data, (str, Path)):
+    if data is None:
         return profile
-    data_path = str(data)
+    data_path = recorded_data_path(data)
+    if data_path == PLACEHOLDER_DATA_PATH and _RUN_DATA_PATH.get() is not None:
+        data_path = _RUN_DATA_PATH.get()
     if profile.data_profile.data_path == data_path:
         return profile
     data_profile = profile.data_profile.model_copy(update={"data_path": data_path})

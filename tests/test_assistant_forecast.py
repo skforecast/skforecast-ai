@@ -1287,10 +1287,12 @@ def test_forecast_output_script_loads_csv_path_that_ran_when_saved_profile(tmp_p
     assert profile.data_profile.data_path == str(old_path)
 
 
-def test_forecast_output_script_keeps_profile_path_when_data_is_dataframe(tmp_path):
+def test_forecast_output_script_loads_placeholder_when_data_is_dataframe(tmp_path):
     """
-    Test that forecast() with a saved profile and a DataFrame keeps the
-    path recorded in the profile, as in 0.3.1: a DataFrame has no path.
+    Test that forecast() with a profile saved from a file and a DataFrame
+    writes the placeholder of data passed in memory: the script loaded the
+    file of the profile, which may hold other data, and gave other
+    predictions without an error. The profile passed is not changed.
     """
     csv_path = tmp_path / "sales.csv"
     df_single.to_csv(csv_path, index=False)
@@ -1299,5 +1301,7 @@ def test_forecast_output_script_keeps_profile_path_when_data_is_dataframe(tmp_pa
 
     result = assistant.forecast(data=df_single, steps=5, test_size=5, profile=profile)
 
-    assert result.profile is profile
-    assert f"data = pd.read_csv({str(csv_path)!r})" in result.code
+    assert result.profile.data_profile.data_path == "data.csv"
+    assert profile.data_profile.data_path == str(csv_path)
+    assert "data = pd.read_csv('data.csv')" in result.code
+    assert str(csv_path) not in result.code

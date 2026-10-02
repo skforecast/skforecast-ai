@@ -23,7 +23,6 @@ from ._constants import (
     BASELINE_FORECASTERS,
     FORECASTER_TASK_TYPES,
     OLLAMA_MAX_CONTEXT_TOKENS,
-    PLACEHOLDER_DATA_PATH,
     REQUIRES_DATETIME_FREQ,
 )
 from ._validation import (
@@ -139,7 +138,9 @@ from ._utils import (
     _validate_window_features,
     _apply_interval_to_plan,
     _check_plan_overrides,
+    _data_path_of_run,
     _revalidate_plan,
+    recorded_data_path,
     warn_long_training,
 )
 
@@ -295,9 +296,7 @@ class ForecastingAssistant:
             (with alternative candidates) + analysis context.
         """
 
-        data_path = (
-            str(data) if isinstance(data, (str, Path)) else PLACEHOLDER_DATA_PATH
-        )
+        data_path = recorded_data_path(data)
         data, target = _resolve_data_and_target(data, target, date_column)
 
         data_profile = create_data_profile(
@@ -2245,6 +2244,9 @@ class ForecastingAssistant:
             )
         # Every candidate script loads the file the comparison read.
         profile = _with_data_path(profile, data)
+        run_data_path = (
+            profile.data_profile.data_path if isinstance(data, (str, Path)) else None
+        )
 
         # Automatic candidates leave out a foundation model whose backend
         # is not installed, rather than fail on every call; the warning and
@@ -2401,16 +2403,19 @@ class ForecastingAssistant:
 
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=LongTrainingWarning)
-                    bt = self.backtest(
-                        data             = data_df,
-                        cv               = cv,
-                        target           = target,
-                        date_column      = date_column,
-                        series_id_column = series_id_column,
-                        profile          = profile,
-                        plan             = cand_plan,
-                        show_progress    = False,
-                    )
+                    # The candidate runs on the DataFrame already read;
+                    # its script loads the file the comparison read.
+                    with _data_path_of_run(run_data_path):
+                        bt = self.backtest(
+                            data             = data_df,
+                            cv               = cv,
+                            target           = target,
+                            date_column      = date_column,
+                            series_id_column = series_id_column,
+                            profile          = profile,
+                            plan             = cand_plan,
+                            show_progress    = False,
+                        )
                 agg = aggregate_metrics(bt.metrics)
                 for col in metric_columns:
                     row[col] = agg.get(col, float("nan"))
