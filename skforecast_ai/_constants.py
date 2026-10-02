@@ -267,3 +267,8 @@ WindowStat = Literal[
 ]
 
 ALLOWED_WINDOW_STATS: set[str] = set(get_args(WindowStat))
+
+# Path that `profile()` records for data passed in memory, so the generated
+# script has a file to load. A profile recording it describes a DataFrame,
+# not a file that was read.
+PLACEHOLDER_DATA_PATH = "data.csv"

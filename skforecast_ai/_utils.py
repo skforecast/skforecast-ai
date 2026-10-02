@@ -938,6 +938,43 @@ def _resolve_inputs_with_profile(
     return data_df, target, date_column, series_id_column
 
 
+def _with_data_path(
+    profile: ForecastingProfile,
+    data: object,
+) -> ForecastingProfile:
+    """
+    Record in the profile the CSV path or URL the workflow read its data
+    from, so the script loads the file that ran.
+
+    The workflows that execute a script profile the DataFrame already read
+    from the path, so `profile()` records its placeholder, and a saved
+    profile keeps the path it was built from. The path is set with
+    `model_copy`, without reading the file again; it reaches the script
+    through `repr()`.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile
+        Profile the script is rendered from.
+    data : object
+        Data as the caller passed it.
+
+    Returns
+    -------
+    profile : ForecastingProfile
+        The same profile when `data` is not a path or the profile already
+        records it; otherwise a copy that records it.
+    """
+
+    if not isinstance(data, (str, Path)):
+        return profile
+    data_path = str(data)
+    if profile.data_profile.data_path == data_path:
+        return profile
+    data_profile = profile.data_profile.model_copy(update={"data_path": data_path})
+    return profile.model_copy(update={"data_profile": data_profile})
+
+
 def _unwrap_cv(cv: TimeSeriesFold | CVResult) -> TimeSeriesFold:
     """
     Return the `TimeSeriesFold` behind a `cv` argument.

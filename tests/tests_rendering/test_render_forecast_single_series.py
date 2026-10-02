@@ -1,5 +1,7 @@
 # Unit test render_forecast_single_series rendering
 
+import pytest
+
 from skforecast_ai.rendering import render_forecast_single_series
 from skforecast_ai.schemas import RenderedScript
 
@@ -514,6 +516,43 @@ def test_render_forecast_single_series_future_exog_uses_index_style_when_no_date
     assert "exog_future = exog_future.sort_index()" in result.core
     # No date column, so no set_index for either frame.
     assert "exog_future.set_index" not in result.core
+
+
+@pytest.mark.parametrize(
+    "data_path, expected_read",
+    [
+        ("sales.csv", "data = pd.read_csv('sales.csv')\n"),
+        ("data.csv", "data = pd.read_csv('data.csv', index_col=0, parse_dates=True)\n"),
+    ],
+    ids=["read by path", "passed in memory"],
+)
+def test_render_forecast_single_series_reads_index_only_when_stored_when_no_dates(
+    data_path, expected_read
+):
+    """
+    Test that data without dates (a row index and no date column) read
+    from a CSV path is read without `index_col=0`, which would turn its
+    first column into the index, while data passed in memory (the
+    placeholder path) keeps the index read of the frame saved with
+    `to_csv()`. The future exogenous variables keep the index read that
+    carries the positions after the data.
+    """
+    profile = profile_single_no_exog.model_copy(
+        update={
+            "date_column": None,
+            "index_type": "range",
+            "frequency": None,
+            "exog_columns": ["promo"],
+            "data_path": data_path,
+        }
+    )
+    result = render_forecast_single_series(plan_single_predict_exog, profile)
+
+    assert expected_read in result.data_loading
+    assert (
+        "exog_future = pd.read_csv('exog_future.csv', index_col=0, parse_dates=True)"
+        in result.data_loading
+    )
 
 
 def test_render_forecast_single_series_no_future_exog_prep_when_no_exog():

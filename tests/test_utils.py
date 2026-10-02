@@ -19,6 +19,7 @@ from skforecast_ai._utils import (
     _resolve_inputs_with_profile,
     _validate_max_window_size,
     _validate_task_input,
+    _with_data_path,
 )
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import DataNotFoundError, InvalidInputError
@@ -841,3 +842,37 @@ def test_resolve_inputs_with_profile_DataNotFoundError_before_date_column_confli
         _resolve_inputs_with_profile(
             tmp_path / "missing.csv", None, "other", None, profile=profile
         )
+
+
+# =============================================================================
+# Tests: _with_data_path
+# =============================================================================
+@pytest.mark.parametrize(
+    "data, expected_path, same_object",
+    [
+        (df_single, "data.csv", True),
+        ("data.csv", "data.csv", True),
+        ("other.csv", "other.csv", False),
+        (Path("dir") / "other.csv", str(Path("dir") / "other.csv"), False),
+        ("https://example.com/sales.csv", "https://example.com/sales.csv", False),
+    ],
+    ids=["dataframe", "same path", "other path", "Path", "URL"],
+)
+def test_with_data_path_output(data, expected_path, same_object):
+    """
+    Test that `_with_data_path` records a path or URL in a copy of the
+    profile, and returns the same profile for a DataFrame or for the path
+    it already records, never changing the profile passed.
+    """
+    profile = ForecastingAssistant().profile(
+        data=df_single, target="sales", date_column="date"
+    )
+
+    result = _with_data_path(profile, data)
+
+    assert result.data_profile.data_path == expected_path
+    assert (result is profile) is same_object
+    assert profile.data_profile.data_path == "data.csv"
+    assert result.model_dump(exclude={"data_profile"}) == profile.model_dump(
+        exclude={"data_profile"}
+    )

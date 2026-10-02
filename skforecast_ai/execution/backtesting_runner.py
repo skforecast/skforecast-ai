@@ -160,12 +160,15 @@ def _exec_rendered_code(
 
     # The rendered script always shows `show_progress = True`, so the value
     # is patched only in the code that runs, never in the code returned to
-    # the user.
+    # the user. The pattern is anchored to the keyword line of the
+    # backtesting call: a column name written as a string literal in the
+    # script (`'show_progress = True'`) is never rewritten.
     if not show_progress:
         code_to_exec = re.sub(
-            r"show_progress\s*=\s*True",
-            "show_progress = False",
+            r"^(\s+show_progress\s*=\s*)True,$",
+            r"\g<1>False,",
             code_to_exec,
+            flags=re.MULTILINE,
         )
 
     return exec_rendered(code_to_exec, {"data": data.copy()}, "<backtesting>")

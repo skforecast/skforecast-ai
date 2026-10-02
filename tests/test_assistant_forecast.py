@@ -1243,3 +1243,61 @@ def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
         if "reads missing values of the target" in str(warning.message)
     ]
     assert result.predictions["pred"].notna().all()
+
+
+# =============================================================================
+# Tests: the script loads the file that ran
+# =============================================================================
+def test_forecast_output_script_loads_csv_path_that_ran(tmp_path):
+    """
+    Test that forecast() with a CSV path returns a script that loads that
+    path, and records it in `result.profile`, although it profiles the
+    DataFrame read from it.
+    """
+    csv_path = tmp_path / "sales.csv"
+    df_single.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast(
+        data=csv_path, target="sales", date_column="date", steps=5, test_size=5
+    )
+
+    assert f"data = pd.read_csv({str(csv_path)!r})" in result.code
+    assert "'data.csv'" not in result.code
+    assert result.profile.data_profile.data_path == str(csv_path)
+
+
+def test_forecast_output_script_loads_csv_path_that_ran_when_saved_profile(tmp_path):
+    """
+    Test that forecast() with a saved profile built from one CSV and data
+    read from another path returns a script that loads the path that ran,
+    without changing the profile passed.
+    """
+    old_path = tmp_path / "old.csv"
+    new_path = tmp_path / "new.csv"
+    df_single.to_csv(old_path, index=False)
+    df_single.to_csv(new_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=old_path, target="sales", date_column="date")
+
+    result = assistant.forecast(data=new_path, steps=5, test_size=5, profile=profile)
+
+    assert f"data = pd.read_csv({str(new_path)!r})" in result.code
+    assert result.profile.data_profile.data_path == str(new_path)
+    assert profile.data_profile.data_path == str(old_path)
+
+
+def test_forecast_output_script_keeps_profile_path_when_data_is_dataframe(tmp_path):
+    """
+    Test that forecast() with a saved profile and a DataFrame keeps the
+    path recorded in the profile, as in 0.3.1: a DataFrame has no path.
+    """
+    csv_path = tmp_path / "sales.csv"
+    df_single.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="sales", date_column="date")
+
+    result = assistant.forecast(data=df_single, steps=5, test_size=5, profile=profile)
+
+    assert result.profile is profile
+    assert f"data = pd.read_csv({str(csv_path)!r})" in result.code

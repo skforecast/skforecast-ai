@@ -155,8 +155,7 @@ def render_forecast_foundation(
     )
     if not evaluate and use_exog:
         _emit_future_exog_loading(loading_lines, profile)
-        if not is_long:
-            _emit_future_exog_index_setup(core_lines, profile)
+        _emit_future_exog_index_setup(core_lines, profile, long_format=is_long)
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)

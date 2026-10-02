@@ -23,6 +23,7 @@ from ._constants import (
     BASELINE_FORECASTERS,
     FORECASTER_TASK_TYPES,
     OLLAMA_MAX_CONTEXT_TOKENS,
+    PLACEHOLDER_DATA_PATH,
     REQUIRES_DATETIME_FREQ,
 )
 from ._validation import (
@@ -129,6 +130,7 @@ from ._utils import (
     _resolve_inputs_with_profile,
     _strip_code_blocks,
     _unwrap_cv,
+    _with_data_path,
     _validate_forecast_mode,
     resolve_interval_method,
     _validate_lags,
@@ -293,7 +295,9 @@ class ForecastingAssistant:
             (with alternative candidates) + analysis context.
         """
 
-        data_path = str(data) if isinstance(data, (str, Path)) else "data.csv"
+        data_path = (
+            str(data) if isinstance(data, (str, Path)) else PLACEHOLDER_DATA_PATH
+        )
         data, target = _resolve_data_and_target(data, target, date_column)
 
         data_profile = create_data_profile(
@@ -1103,6 +1107,9 @@ class ForecastingAssistant:
             Input dataset, a single series, or path to a CSV file. Required
             when `profile` is not provided. When a pandas Series is passed,
             the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         steps : int, default None
             Forecast horizon (number of steps ahead to predict). Required
             when `plan` is not provided. When a `plan` is given it defaults
@@ -1240,6 +1247,7 @@ class ForecastingAssistant:
             plan             = plan,
             require_exog     = False,
         )
+        profile = _with_data_path(profile, data)
 
         code = render_forecast_script(
             profile=profile.data_profile, plan=plan
@@ -1303,6 +1311,9 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         steps : int, default None
             Forecast horizon (number of steps ahead to predict). Required
             when `plan` is not provided. When a `plan` is given it defaults
@@ -1454,6 +1465,7 @@ class ForecastingAssistant:
             plan             = plan,
             require_exog     = True,
         )
+        profile = _with_data_path(profile, data)
 
         if plan.end_train is not None:
             _check_evaluated_target(
@@ -1733,9 +1745,10 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path, None
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
-            None is accepted when `profile` and `plan` are given: the
-            script is rendered from the profile and loads the data path
-            recorded in it.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file. None is accepted when
+            `profile` and `plan` are given: the script is rendered from the
+            profile and loads the data path recorded in it.
         cv : TimeSeriesFold, CVResult
             Time series cross-validation fold splitter (output of
             `create_cv()` or user-constructed) [1]_.
@@ -1833,6 +1846,7 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
         )
+        profile = _with_data_path(profile, data)
 
         code = render_backtesting_script(
             profile=profile.data_profile, plan=plan, cv=cv
@@ -1872,6 +1886,9 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         cv : TimeSeriesFold, CVResult
             Time series cross-validation fold splitter (output of `create_cv()`
             or user-constructed) [1]_.
@@ -1987,6 +2004,7 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
         )
+        profile = _with_data_path(profile, data)
 
         _check_evaluated_target(
             data         = data_df,
@@ -2068,6 +2086,9 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         cv : TimeSeriesFold, CVResult
             Cross-validation strategy applied identically to every
             candidate. The `steps` value is inferred from `cv.steps`.
@@ -2222,6 +2243,8 @@ class ForecastingAssistant:
                 date_column      = date_column,
                 series_id_column = series_id_column,
             )
+        # Every candidate script loads the file the comparison read.
+        profile = _with_data_path(profile, data)
 
         # Automatic candidates leave out a foundation model whose backend
         # is not installed, rather than fail on every call; the warning and

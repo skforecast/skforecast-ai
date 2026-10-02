@@ -82,6 +82,12 @@ All significant changes to this project are documented in this release file.
 
 **Fixed**
 
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` given a CSV path returned a script that loaded `'data.csv'` instead of that file. The script now loads the CSV path or URL passed, in these methods and in `forecast_code()` and `backtest_code()`, also when the `profile` passed was built from another file.
+
++ <span class="badge text-bg-danger">Fix</span> The script generated for a CSV without dates turned its first column into the index, so it failed when run as a file. It now reads the file as `forecast()` does.
+
++ <span class="badge text-bg-danger">Fix</span> For long-format data with exogenous variables, the prediction script read the dates of `exog_future.csv` as text, so run as a file it predicted with missing exogenous values and gave other predictions than `forecast()`. It now parses them as it parses the data.
+
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.profile()</code>][assistant] reads rows that are not in date order as the generated script does, sorted, and says so in `DataProfile.warnings`: descending dates gave a script that failed, and shuffled rows gave other lags and predictions without any warning. Repeated identical rows and rows without a date no longer count for the lags, which can change them.
 
 + <span class="badge text-bg-danger">Fix</span> Text dates, in a CSV or in a `date_column`, are read as the generated script reads them, so for day-first dates such as `13/01/2012` the profile, the lags and `forecast()` now match the script instead of reading `01/02/2012` as the second of January.

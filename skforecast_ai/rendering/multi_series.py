@@ -125,8 +125,9 @@ def render_forecast_multi_series(
     )
     if not evaluate and use_exog_load:
         _emit_future_exog_loading(loading_lines, profile)
-        if is_wide:
-            _emit_future_exog_index_setup(core_lines, profile)
+        _emit_future_exog_index_setup(
+            core_lines, profile, long_format=not is_wide
+        )
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)
@@ -296,8 +297,9 @@ def render_forecast_multivariate(
     )
     if not evaluate and use_exog_load:
         _emit_future_exog_loading(loading_lines, profile)
-        if is_wide:
-            _emit_future_exog_index_setup(core_lines, profile)
+        _emit_future_exog_index_setup(
+            core_lines, profile, long_format=not is_wide
+        )
 
     # --- Preprocessing / pivot ---
     _emit_preprocessing_steps(core_lines, plan, profile)

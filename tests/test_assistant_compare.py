@@ -2108,3 +2108,26 @@ def test_compare_progress_callback_exception_closes_progress_bar(monkeypatch):
 
     assert len(bars) == 1
     assert bars[0].close_calls >= 1
+
+
+def test_compare_candidate_scripts_load_csv_path_that_ran(tmp_path):
+    """
+    Test that compare() with a CSV path records it in the shared profile,
+    so the script of every candidate, the baseline included, loads it.
+    """
+    csv_path = tmp_path / "sales.csv"
+    df_single.to_csv(csv_path, index=False)
+
+    result = assistant.compare(
+        data=csv_path,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        show_progress=False,
+    )
+
+    assert result.profile.data_profile.data_path == str(csv_path)
+    assert len(result.candidates) == 3
+    for bt in result.candidates.values():
+        assert f"data = pd.read_csv({str(csv_path)!r})" in bt.code

@@ -440,3 +440,86 @@ def test_standalone_script_matches_forecast_when_csv_last_window_has_missing_val
         rtol=1e-6,
     )
     _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)
+
+
+def test_standalone_script_of_forecast_and_backtest_loads_csv_path_that_ran(
+    tmp_path,
+):
+    """
+    Test that the scripts returned by forecast() and backtest() themselves
+    (not only by forecast_code() and backtest_code()) load the CSV path
+    they ran on and, run as files from another directory, give the same
+    predictions.
+    """
+    csv_path = tmp_path / "sales.csv"
+    df_single.to_csv(csv_path, index=False)
+    workdir = tmp_path / "elsewhere"
+    workdir.mkdir()
+    assistant = ForecastingAssistant()
+    kwargs = dict(data=csv_path, target="sales", date_column="date")
+
+    forecast = assistant.forecast(**kwargs, steps=5, test_size=5)
+    backtest = assistant.backtest(
+        **kwargs, cv=TimeSeriesFold(steps=5, initial_train_size=60),
+        show_progress=False,
+    )
+
+    _assert_same_predictions(_run_standalone(forecast.code, workdir), forecast.predictions)
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, workdir)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+def test_standalone_script_matches_forecast_when_csv_has_no_dates(tmp_path):
+    """
+    Test that a CSV without dates (a row index) is read by the script as
+    forecast() reads it: its first column stays a data column instead of
+    becoming the index, and the predictions match.
+    """
+    csv_path = tmp_path / "h2o.csv"
+    df_h2o.reset_index(drop=True).to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+
+    executed = assistant.forecast(data=csv_path, target="x", steps=6)
+
+    assert f"data = pd.read_csv({str(csv_path)!r})\n" in executed.code
+    standalone = _run_standalone(executed.code, tmp_path)
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+def test_standalone_script_matches_forecast_when_long_format_future_exog(tmp_path):
+    """
+    Test that, with long-format data and exogenous variables, the script
+    run as a file parses the dates of `exog_future.csv` and gives the
+    predictions of forecast() with the same future values (before, the
+    dates stayed text and the predictions used missing exogenous values).
+    """
+    data = df_items_sales_long.copy()
+    day = data["date"].dt.day
+    data["promo"] = ((day + data["series"].str[-1].astype(int)) % 5 == 0).astype(float)
+    last_dates = sorted(data["date"].unique())[-7:]
+    history = data[~data["date"].isin(last_dates)]
+    exog_future = data[data["date"].isin(last_dates)][["date", "series", "promo"]]
+    csv_path = tmp_path / "items.csv"
+    history.to_csv(csv_path, index=False)
+    exog_future.to_csv(tmp_path / "exog_future.csv", index=False)
+    assistant = ForecastingAssistant()
+
+    executed = assistant.forecast(
+        data=csv_path, target="value", date_column="date",
+        series_id_column="series", steps=7, exog=exog_future,
+    )
+
+    assert executed.plan.use_exog is True
+    assert "exog_future['date'] = pd.to_datetime(exog_future['date'])" in executed.code
+    standalone = _run_standalone(executed.code, tmp_path)
+    assert list(standalone["level"]) == list(executed.predictions["level"])
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
