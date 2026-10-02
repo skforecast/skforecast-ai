@@ -415,6 +415,23 @@ def test_summarize_dataframe_shows_stats_not_values():
     assert "1  20" not in result
 
 
+def test_summarize_dataframe_gives_number_of_folds_instead_of_fold_statistics():
+    """
+    Test that the summary of a backtest frame without row values gives the
+    number of folds and no statistics of the `fold` column, which is an
+    identifier and not a measurement.
+    """
+    df = pd.DataFrame({
+        "fold": np.repeat(np.arange(4), 3),
+        "pred": np.arange(12, dtype=float),
+    })
+    result = _summarize_dataframe(df)
+
+    assert "Folds: 4" in result
+    assert "  fold:" not in result
+    assert "  pred: min=0.0, max=11.0, mean=5.5" in result
+
+
 def test_summarize_dataframe_includes_index_range():
     """
     Test that _summarize_dataframe includes the index range.

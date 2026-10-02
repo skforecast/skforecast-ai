@@ -6,8 +6,10 @@
 ################################################################################
 
 from __future__ import annotations
+import ast
 import re
 from typing import Any
+import pandas as pd
 from .._constants import (
     CONTEXT_HEAD_TAIL_ROWS,
     MAX_CONTEXT_DATAFRAME_ROWS,
@@ -264,7 +266,14 @@ def _summarize_dataframe(df: Any) -> str:
     """Produce a privacy-safe summary without row-level values."""
     parts = [f"Shape: {df.shape[0]} rows x {df.shape[1]} columns"]
     parts.append(f"Columns: {list(df.columns)}")
-    numeric_cols = df.select_dtypes(include="number")
+    # `fold` is an identifier, not a measurement (as in
+    # `_serialize_dataframe`): its statistics would be quoted back as if
+    # they described the predictions, so only the number of folds is given.
+    if "fold" in df.columns:
+        parts.append(f"Folds: {df['fold'].nunique()}")
+    numeric_cols = df.select_dtypes(include="number").drop(
+        columns="fold", errors="ignore"
+    )
     if not numeric_cols.empty:
         # No format spec, for the same reason as `_serialize_dataframe`:
         # when row-level values are withheld these statistics are all the
@@ -560,10 +569,74 @@ def render_plan_section(
     return _tag("forecast_plan", "\n".join(parts))
 
 
+def backtest_cv_from_code(code: str) -> Any:
+    """
+    Read the `TimeSeriesFold` that a backtesting script builds, without
+    running the script.
+
+    Only the literal arguments of the `cv = TimeSeriesFold(...)` call are
+    read (numbers, booleans, strings, lists, None and the
+    `pd.Timestamp('...')` that the renderer writes for a date), so the
+    description of a script cannot drift from its code.
+
+    Parameters
+    ----------
+    code : str
+        Generated script.
+
+    Returns
+    -------
+    cv : TimeSeriesFold, None
+        The splitter the script builds, or None when the script builds none
+        or its arguments are not literals.
+    """
+
+    from skforecast.model_selection import TimeSeriesFold
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+
+    for node in tree.body:
+        if not (
+            isinstance(node, ast.Assign)
+            and [getattr(t, "id", None) for t in node.targets] == ["cv"]
+            and isinstance(node.value, ast.Call)
+            and getattr(node.value.func, "id", None) == "TimeSeriesFold"
+            and not node.value.args
+        ):
+            continue
+        kwargs = {}
+        for keyword in node.value.keywords:
+            value = keyword.value
+            if (
+                isinstance(value, ast.Call)
+                and ast.unparse(value.func) == "pd.Timestamp"
+                and len(value.args) == 1
+                and not value.keywords
+                and isinstance(value.args[0], ast.Constant)
+                and isinstance(value.args[0].value, str)
+            ):
+                kwargs[keyword.arg] = pd.Timestamp(value.args[0].value)
+                continue
+            try:
+                kwargs[keyword.arg] = ast.literal_eval(value)
+            except (ValueError, TypeError, SyntaxError):
+                return None
+        try:
+            return TimeSeriesFold(**kwargs)
+        except Exception:
+            return None
+
+    return None
+
+
 def render_script_section(
     plan: ForecastPlan | None,
     code: str | None,
     for_describe: bool = False,
+    cv_config: dict | None = None,
 ) -> str:
     """
     Render the `<script>` section describing a generated script.
@@ -583,6 +656,11 @@ def render_script_section(
     for_describe : bool, default False
         Whether the section is rendered for `describe()`, which leaves out
         `SCRIPT_NOTE`, addressed to the LLM of `ask()`.
+    cv_config : dict, default None
+        Cross-validation strategy of a backtesting script (as returned by
+        `resolve_cv_config`), read from the script with
+        `backtest_cv_from_code`. With it, or with a script that calls a
+        backtesting function, the mode is backtesting.
 
     Returns
     -------
@@ -593,7 +671,36 @@ def render_script_section(
     if plan is None or code is None:
         return ""
 
-    if plan.end_train is not None:
+    is_backtest = re.search(
+        r"^metrics, predictions = backtesting_\w+\(", code, re.M
+    )
+    if is_backtest or cv_config is not None:
+        if cv_config is None:
+            mode = (
+                "backtesting: predicts every fold of a cross-validation "
+                "strategy and scores it against the held-out observations "
+                "(its folds could not be counted from the script)"
+            )
+        else:
+            n_folds = cv_config["n_folds"]
+            n_fits = cv_config["n_fits"]
+            trained = (
+                "without training the model (foundation model)"
+                if plan.task_type == "foundation"
+                else f"training the forecaster {n_fits} time"
+                     f"{'s' if n_fits != 1 else ''}"
+            )
+            mode = (
+                f"backtesting: predicts {n_folds} fold"
+                f"{'s' if n_folds != 1 else ''} of {cv_config['steps']} steps, "
+                f"{trained}, and scores the predictions of every fold against "
+                f"the held-out observations"
+            )
+        outputs = (
+            "metrics (one column per metric, one row per series when there "
+            "are several), and predictions of every fold with a `fold` column"
+        )
+    elif plan.end_train is not None:
         mode = (
             f"evaluation: trains up to {plan.end_train}, predicts the "
             f"following {plan.steps} steps and scores them against the "

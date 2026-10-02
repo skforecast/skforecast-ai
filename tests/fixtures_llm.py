@@ -3,6 +3,8 @@
 import numpy as np
 import pandas as pd
 
+from skforecast.model_selection import TimeSeriesFold
+
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import (
     BacktestResult,
@@ -213,6 +215,15 @@ explanation_backtest = (
 code_single = "# forecast script\nforecaster.fit(y=y)\n"
 code_backtest = "# backtest script\nbacktesting_forecaster(forecaster, y, cv)\n"
 
+# A real script of `backtest_code()`: its context reads the strategy from
+# the `TimeSeriesFold` the script builds.
+code_backtest_script = assistant.backtest_code(
+    data    = None,
+    cv      = TimeSeriesFold(steps=5, initial_train_size=70),
+    profile = profile_single,
+    plan    = plan_single,
+).code
+
 
 # ---------------------------------------------------------------------------
 # Result builders
@@ -245,6 +256,7 @@ def make_code_generation_result(
     *,
     profile = profile_single,
     plan    = plan_single,
+    code    = code_single,
 ) -> CodeGenerationResult:
     """
     Build a generated-script result.
@@ -255,6 +267,8 @@ def make_code_generation_result(
         Profile carried by the result.
     plan : ForecastPlan, default `plan_single`
         Plan carried by the result.
+    code : str, default `code_single`
+        Script carried by the result.
 
     Returns
     -------
@@ -265,7 +279,7 @@ def make_code_generation_result(
     return CodeGenerationResult(
         profile = profile,
         plan    = plan,
-        code    = code_single,
+        code    = code,
     )
 
 
@@ -489,6 +503,9 @@ GOLDEN_SCENARIOS = {
             profile = profile_exog,
             plan    = plan_foundation_without_covariates,
         )
+    ),
+    "code_generation_backtest": lambda: make_code_generation_result(
+        code=code_backtest_script
     ),
     "cv_strategy": make_cv_result,
     "forecast_single_series_no_intervals": lambda: make_forecast_result(),

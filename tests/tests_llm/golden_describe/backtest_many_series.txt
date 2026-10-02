@@ -57,7 +57,7 @@ weighted_average                 7.50
 <predictions>
 Shape: 6 rows x 3 columns
 Columns: ['level', 'fold', 'pred']
-  fold: min=0, max=0, mean=0.0, std=0.0
+Folds: 1
   pred: min=97.5, max=102.5, mean=100.0, std=1.8708286933869707
 Index range: 2023-04-21 00:00:00 to 2023-04-23 00:00:00
 </predictions>

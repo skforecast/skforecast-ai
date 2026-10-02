@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast.model_selection import TimeSeriesFold
+
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._constants import MAX_LEADERBOARD_ROWS
 from skforecast_ai.llm.context import (
@@ -212,10 +214,10 @@ def test_describe_output_when_each_result_type(build_result):
 
 def test_describe_output_when_backtest_code_result():
     """
-    Test the limitation stated in the docstring of describe(): the script
-    of `backtest_code()` is described as the one of the plan in prediction
-    mode, as in the context of ask(). The test pins it, so a fix shows up
-    here.
+    Test that the script of `backtest_code()` is described as a backtest,
+    with the folds and trainings of its strategy and the same
+    `<backtesting_strategy>` section as the result of `backtest()`, in
+    describe() and in the context of ask().
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
@@ -230,13 +232,33 @@ def test_describe_output_when_backtest_code_result():
         plan        = plan,
     )
 
+    backtest = assistant.backtest(
+        data          = df_no_exog,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
     description = result.describe()
 
-    assert "backtesting_forecaster(" in result.code
     assert (
-        "- Mode: prediction: trains on all the data and forecasts the next 5 "
-        "steps\n"
+        "- Mode: backtesting: predicts 6 folds of 5 steps, training the "
+        "forecaster 1 time, and scores the predictions of every fold against "
+        "the held-out observations\n"
     ) in description
+    assert "- Mode: prediction" not in description
+    strategy = description[
+        description.index("<backtesting_strategy>"):
+        description.index("</backtesting_strategy>")
+    ]
+    # The script does not write `fixed_train_size` without refits (it has
+    # no effect then), so it is the only line of `backtest()` left out.
+    assert strategy == backtest.describe()[
+        backtest.describe().index("<backtesting_strategy>"):
+        backtest.describe().index("</backtesting_strategy>")
+    ].replace("- fixed_train_size: False\n", "")
+    assert "- n_folds: 6\n- n_fits: 1\n" in strategy
     assert description == _without_ask_instructions(
         result.to_llm_context(send_data=False).text
     )
@@ -370,3 +392,27 @@ def test_describe_output_when_many_categorical_exog_cuts_preprocessing_reason():
     assert expected in context
     assert "'cat_015'" not in description
     assert len(description) < 3000
+
+
+def test_describe_output_when_backtest_code_strategy_cannot_be_counted():
+    """
+    Test that the script of `backtest_code()` with a `pd.Timestamp` as
+    `initial_train_size`, whose folds cannot be counted, is still described
+    as a backtest, saying that the folds were not counted, instead of
+    failing.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=pd.Timestamp("2023-03-11"))
+    result = assistant.backtest_code(data=None, cv=cv, profile=profile, plan=plan)
+
+    description = result.describe()
+
+    assert "initial_train_size = pd.Timestamp('2023-03-11 00:00:00')" in result.code
+    assert (
+        "- Mode: backtesting: predicts every fold of a cross-validation "
+        "strategy and scores it against the held-out observations (its folds "
+        "could not be counted from the script)\n"
+    ) in description
+    assert "<backtesting_strategy>" not in description

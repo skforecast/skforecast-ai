@@ -69,15 +69,12 @@ class ExplainableResult:
         explanation names are all listed there. The context of `ask()`
         keeps every list whole.
 
-        Two limitations, shared with the context of `ask()`:
-
-        - The summary of the predictions is computed over all their rows:
-        with several series it pools them, and the `fold` column of a
-        backtest is summarized like the other numeric columns.
-        - For a result of `backtest_code()`, the `<script>` section
-        describes the script as the one of the plan in prediction mode
-        (it trains on all the data and computes no metrics), although the
-        script backtests the plan.
+        The summary of the predictions is computed over all their rows, so
+        with several series it pools them (a limitation shared with the
+        context of `ask()`). The `fold` column of a backtest is an
+        identifier: only the number of folds is given. The script of
+        `backtest_code()` is described as a backtest, with its
+        cross-validation strategy, number of folds and trainings.
         """
 
         return self._build_llm_context(send_data=False, for_describe=True).text
