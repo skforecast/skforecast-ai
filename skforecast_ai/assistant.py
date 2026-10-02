@@ -1038,7 +1038,7 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        exog: pd.DataFrame | None = None,
+        exog: pd.DataFrame | pd.Series | None = None,
         interval: list[float] | None = None,
         test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
@@ -1097,7 +1097,7 @@ class ForecastingAssistant:
             single-series or wide-format multi-series.
             When `profile` is provided, defaults to the value recorded in
             the profile and must match it if given.
-        exog : pandas DataFrame, default None
+        exog : pandas DataFrame, pandas Series, default None
             Future exogenous variables covering the forecast horizon.
             Mirrors `forecast()` for signature consistency. Because this
             method only generates code (the rendered prediction-mode
@@ -1105,6 +1105,9 @@ class ForecastingAssistant:
             time), `exog` is optional here and is used only to validate
             the inputs: it must not be combined with `test_size`, and it
             must not be supplied when the data has no exogenous columns.
+            Unlike `forecast()`, its dates and values are not checked, nor
+            are the last values of the target: the script reads them when
+            it runs.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
@@ -1258,10 +1261,14 @@ class ForecastingAssistant:
         truth to compare against. When the data contains exogenous
         variables, future values must be supplied through `exog`.
         Before running, final rows without a target value raise
-        `InvalidInputError`, and so does a missing value of the target
-        that the lags read when the estimator does not tolerate missing
-        values (a warning when it does), or that `ForecasterEquivalentDate`
-        or the inverse of the differentiation reads.
+        `InvalidInputError` (`ForecasterRecursiveMultiSeries`, which
+        ignores them, gives a warning), and so does a missing value of the
+        target that the lags read when the estimator does not tolerate
+        missing values (a warning when it does), or that
+        `ForecasterEquivalentDate` or the inverse of the differentiation
+        reads. A missing value that no lag reads for the `steps` asked, or
+        that only the rolling statistics read (they skip it), is left to
+        the warning of skforecast: the predictions do not use it.
 
         Parameters
         ----------
