@@ -1107,6 +1107,7 @@ Antes de mergear la fase 3a, una verificación independiente comparó `0.4.x` an
 **Pendiente o anotado.**
 - `profile.forecaster_candidates` sigue ofreciendo `ForecasterDirectMultiVariate` con datos largos, que `plan()` ya rechaza. Quitarlo cambia los goldens del contexto del LLM: va con el PR 24 y el check de pago.
 - El MCP solo acepta rutas, así que un CSV sin fechas con una exógena de fechas dispersas no se puede perfilar ahí hasta que existan las opciones de lectura (pregunta 5 de 10.10).
-- Entorno de tests:
-  - con numpy 2.5 y pandas 2.3.3, `pd.Timedelta(days=1)` emite un `DeprecationWarning` y, con `filterwarnings = error`, la suite falla al recoger los tests. CI lo encontrará en cuanto resuelva numpy 2.5: hay que acotar numpy o añadir un `ignore` específico en `pyproject.toml`;
-  - tres tests de `tests/tests_profiling` dependen de la zona horaria de la máquina: con `Europe/Madrid` pandas lee `'CET'` como hora local y emite un `FutureWarning`; con UTC pasan.
+- Entorno de tests, resuelto en `b186b4d`:
+  - con numpy 2.5 y pandas 2.3.3, `pd.Timedelta(days=1)` emitía un `DeprecationWarning` que, con `filterwarnings = error`, paraba la recogida de los tests: ahora hay un `ignore` específico en `pyproject.toml`;
+  - tres tests de `tests/tests_profiling` dependían de la zona horaria de la máquina (con `Europe/Madrid` pandas lee `'CET'` como hora local): `tests/conftest.py` ejecuta la suite en UTC.
+- Los tests no se ejecutan en GitHub para las PRs a las ramas de versión (`unit-tests.yml` solo se lanza en PRs a `main`), y el autor decidió no cambiar CI: la suite se ejecuta en local o en las sesiones remotas, con `/verify`.
