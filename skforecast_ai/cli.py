@@ -649,6 +649,9 @@ def _render_plan_panel(plan) -> None:
     """
     Print a Rich panel summarizing the ForecastPlan.
 
+    The "Plan Warnings" panel is left out: each warning is already printed
+    when the plan is built.
+
     Parameters
     ----------
     plan : ForecastPlan
@@ -658,7 +661,7 @@ def _render_plan_panel(plan) -> None:
     -------
     None
     """
-    console.print(render_plan(plan))
+    console.print(render_plan(plan, show_warnings=False))
 
 
 @app.command()
@@ -981,8 +984,10 @@ def forecast_code(
                 plan_obj = assistant.refine_plan(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
+            # DATA, when given, is the file the script loads (as in
+            # `backtest-code`); the profile of the bundle describes it.
             result = assistant.forecast_code(
-                data=None, target=None, steps=plan_obj.steps,
+                data=data, target=None, steps=plan_obj.steps,
                 profile=prof, plan=plan_obj,
             )
         else:

@@ -286,6 +286,46 @@ class TestPlan:
         data = json.loads(result.output)
         assert data["plan"]["estimator_kwargs"]["alpha"] == 2.0
 
+    def test_plan_json_includes_plan_warnings(self, tmp_path):
+        """
+        Plan --format json carries the warnings of plan() in
+        `plan.warnings`, with the text of the warning emitted.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with pytest.warns(UserWarning, match="not a named parameter"):
+            result = runner.invoke(
+                app,
+                ["plan", csv_path, "--target", "sales", "--date-column", "date",
+                 "--steps", "10", "--estimator", "LGBMRegressor",
+                 "--estimator-kwargs", '{"n_estimatorz": 10}',
+                 "--format", "json", "--quiet"],
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["plan"]["warnings"] == [
+            "'n_estimatorz' is not a named parameter of LGBMRegressor. It is "
+            "passed to the library as an extra parameter, which ignores it "
+            "without an error if it does not exist. Did you mean "
+            "'n_estimators'?"
+        ]
+
+    def test_plan_table_without_plan_warnings_panel(self, tmp_path):
+        """
+        Plan table output leaves out the "Plan Warnings" panel of the
+        display, since the CLI already prints each warning.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with pytest.warns(UserWarning, match="not a named parameter"):
+            result = runner.invoke(
+                app,
+                ["plan", csv_path, "--target", "sales", "--date-column", "date",
+                 "--steps", "10", "--estimator", "LGBMRegressor",
+                 "--estimator-kwargs", '{"n_estimatorz": 10}', "--quiet"],
+            )
+        assert result.exit_code == 0
+        assert "Forecast Plan" in result.output
+        assert "Plan Warnings" not in result.output
+
     def test_plan_estimator_kwargs_invalid_json(self, tmp_path):
         """
         Plan with invalid JSON in --estimator-kwargs shows error.
@@ -418,6 +458,37 @@ class TestGenerateCode:
         )
         assert result.exit_code == 0
         assert "alpha=3.0" in result.output
+
+    @pytest.mark.parametrize("command", ["forecast-code", "backtest-code"])
+    def test_code_from_plan_loads_data_argument(self, tmp_path, command):
+        """
+        forecast-code and backtest-code with --from-plan write into the script
+        the DATA argument, the file to run it on, not the file of the bundle:
+        forecast-code ignored DATA and wrote the bundle's path, unlike
+        backtest-code and the Python API.
+        """
+        first = _write_csv(tmp_path, df_single, name="first.csv")
+        second = _write_csv(tmp_path, df_single, name="second.csv")
+        plan_result = runner.invoke(
+            app,
+            ["plan", first, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.output)
+        output = tmp_path / "script.py"
+
+        result = runner.invoke(
+            app,
+            [command, second, "--from-plan", str(plan_file),
+             "--output", str(output), "--quiet"],
+        )
+
+        assert result.exit_code == 0, result.output
+        code = output.read_text()
+        assert f"pd.read_csv({second!r}" in code
+        assert "first.csv" not in code
 
 
 # ---------------------------------------------------------------------------

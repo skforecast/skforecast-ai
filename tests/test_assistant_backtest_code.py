@@ -176,3 +176,24 @@ def test_backtest_code_output_when_cv_result_given():
 
     assert "cv = TimeSeriesFold(" in result.code
     assert "initial_train_size = 60" in result.code
+
+
+def test_backtest_code_loads_data_path_when_saved_profile(tmp_path):
+    """
+    Test that backtest_code() with a saved profile and data given as
+    another CSV path returns a script that loads the path given; without
+    data it keeps the path of the profile.
+    """
+    old_path = tmp_path / "old.csv"
+    new_path = tmp_path / "new.csv"
+    df_single.to_csv(old_path, index=False)
+    df_single.to_csv(new_path, index=False)
+    profile = assistant.profile(data=old_path, target="sales", date_column="date")
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+
+    with_data = assistant.backtest_code(data=new_path, cv=cv, profile=profile)
+    without_data = assistant.backtest_code(data=None, cv=cv, profile=profile)
+
+    assert f"data = pd.read_csv({str(new_path)!r})" in with_data.code
+    assert f"data = pd.read_csv({str(old_path)!r})" in without_data.code
+    assert without_data.profile is profile

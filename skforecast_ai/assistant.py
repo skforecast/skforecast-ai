@@ -7,6 +7,7 @@
 from __future__ import annotations
 import sys
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 import pandas as pd
@@ -109,6 +110,7 @@ from .schemas import (
     CandidateConfig,
     CandidateFailure,
     CodeGenerationResult,
+    CompareProgress,
     ComparisonResult,
     CVResult,
     ExplainableResult,
@@ -127,6 +129,7 @@ from ._utils import (
     _resolve_inputs_with_profile,
     _strip_code_blocks,
     _unwrap_cv,
+    _with_data_path,
     _validate_forecast_mode,
     resolve_interval_method,
     _validate_lags,
@@ -135,7 +138,9 @@ from ._utils import (
     _validate_window_features,
     _apply_interval_to_plan,
     _check_plan_overrides,
+    _data_path_of_run,
     _revalidate_plan,
+    recorded_data_path,
     warn_long_training,
 )
 
@@ -291,7 +296,7 @@ class ForecastingAssistant:
             (with alternative candidates) + analysis context.
         """
 
-        data_path = str(data) if isinstance(data, (str, Path)) else "data.csv"
+        data_path = recorded_data_path(data)
         data, target = _resolve_data_and_target(data, target, date_column)
 
         data_profile = create_data_profile(
@@ -424,7 +429,8 @@ class ForecastingAssistant:
         Returns
         -------
         plan : ForecastPlan
-            Detailed forecasting plan.
+            Detailed forecasting plan. Its `warnings` hold the text of the
+            warnings this call emitted, in the order they were emitted.
 
         Raises
         ------
@@ -496,16 +502,21 @@ class ForecastingAssistant:
                     field = given[0],
                 )
 
+        # Every warning this call emits is also kept in `plan.warnings`, with
+        # the same text, so it travels with the plan where Python warnings
+        # are not seen (a server, JSON output, a saved plan).
+        plan_warnings: list[str] = []
+
         if task_type == "baseline":
             missing_note = baseline_missing_values_note(data_profile)
             if missing_note is not None:
-                warnings.warn(
+                message = (
                     f"'{fc}' cannot handle missing values: {missing_note}. "
                     f"Impute the target before fitting, or the predictions "
-                    f"and metrics will contain missing values.",
-                    UserWarning,
-                    stacklevel=2,
+                    f"and metrics will contain missing values."
                 )
+                warnings.warn(message, UserWarning, stacklevel=2)
+                plan_warnings.append(message)
 
         n_obs_total = data_profile.n_total_observations
 
@@ -528,7 +539,7 @@ class ForecastingAssistant:
             estimator_kwargs = estimator_kwargs,
             task_type        = task_type,
         )
-        validate_estimator_kwargs(est, estimator_kwargs)
+        plan_warnings += validate_estimator_kwargs(est, estimator_kwargs)
 
         # The foundation model is validated before anything else is derived,
         # so an unsupported model ID or interval fails with its own message.
@@ -740,6 +751,16 @@ class ForecastingAssistant:
                     f"not used: the baseline only repeats past target values."
                 )
 
+        unrecommended_message = None
+        if unrecommended:
+            unrecommended_message = (
+                f"Forecaster '{forecaster}' is not among the recommended "
+                f"candidates for this profile "
+                f"({profile.forecaster_candidates}), but it is used as "
+                f"requested. It may be slow or perform poorly on this data."
+            )
+            plan_warnings.append(unrecommended_message)
+
         plan = ForecastPlan(
             task_type           = task_type,
             forecaster          = fc,
@@ -754,6 +775,7 @@ class ForecastingAssistant:
             metrics_to_compute  = metrics_to_compute,
             use_exog            = use_exog,
             preprocessing_steps = preprocessing_steps,
+            warnings            = plan_warnings,
             explanation         = explanation,
         )
 
@@ -762,14 +784,8 @@ class ForecastingAssistant:
         # foundation model or an interval it cannot serve) is never said to
         # be "used as requested", and with warnings raised as errors the
         # warning never hides that error.
-        if unrecommended:
-            warnings.warn(
-                f"Forecaster '{forecaster}' is not among the recommended "
-                f"candidates for this profile "
-                f"({profile.forecaster_candidates}), but it is used as "
-                f"requested. It may be slow or perform poorly on this data.",
-                UnrecommendedForecasterWarning,
-            )
+        if unrecommended_message is not None:
+            warnings.warn(unrecommended_message, UnrecommendedForecasterWarning)
 
         return plan
 
@@ -856,6 +872,9 @@ class ForecastingAssistant:
         plan : ForecastPlan
             Updated plan with overrides (and any LLM refinement) applied. In
             LLM mode, the agent's reasoning is appended to `plan.explanation`.
+            The plan is rebuilt with `plan()`, so its `warnings` are those of
+            that call (the ones of `plan` are not carried over); the warnings
+            about the `prompt` that this method emits are not added to them.
         """
 
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
@@ -1087,6 +1106,9 @@ class ForecastingAssistant:
             Input dataset, a single series, or path to a CSV file. Required
             when `profile` is not provided. When a pandas Series is passed,
             the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         steps : int, default None
             Forecast horizon (number of steps ahead to predict). Required
             when `plan` is not provided. When a `plan` is given it defaults
@@ -1224,6 +1246,7 @@ class ForecastingAssistant:
             plan             = plan,
             require_exog     = False,
         )
+        profile = _with_data_path(profile, data)
 
         code = render_forecast_script(
             profile=profile.data_profile, plan=plan
@@ -1287,6 +1310,9 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         steps : int, default None
             Forecast horizon (number of steps ahead to predict). Required
             when `plan` is not provided. When a `plan` is given it defaults
@@ -1438,6 +1464,7 @@ class ForecastingAssistant:
             plan             = plan,
             require_exog     = True,
         )
+        profile = _with_data_path(profile, data)
 
         if plan.end_train is not None:
             _check_evaluated_target(
@@ -1717,9 +1744,10 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path, None
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
-            None is accepted when `profile` and `plan` are given: the
-            script is rendered from the profile and loads the data path
-            recorded in it.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file. None is accepted when
+            `profile` and `plan` are given: the script is rendered from the
+            profile and loads the data path recorded in it.
         cv : TimeSeriesFold, CVResult
             Time series cross-validation fold splitter (output of
             `create_cv()` or user-constructed) [1]_.
@@ -1817,6 +1845,7 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
         )
+        profile = _with_data_path(profile, data)
 
         code = render_backtesting_script(
             profile=profile.data_profile, plan=plan, cv=cv
@@ -1856,6 +1885,9 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         cv : TimeSeriesFold, CVResult
             Time series cross-validation fold splitter (output of `create_cv()`
             or user-constructed) [1]_.
@@ -1971,6 +2003,7 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
         )
+        profile = _with_data_path(profile, data)
 
         _check_evaluated_target(
             data         = data_df,
@@ -2031,6 +2064,7 @@ class ForecastingAssistant:
         profile: ForecastingProfile | None = None,
         show_progress: bool = True,
         baseline: bool = True,
+        progress_callback: Callable[[CompareProgress], None] | None = None,
     ) -> ComparisonResult:
         """
         Compare several forecaster configurations on the same data.
@@ -2051,6 +2085,9 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         cv : TimeSeriesFold, CVResult
             Cross-validation strategy applied identically to every
             candidate. The `steps` value is inferred from `cv.steps`.
@@ -2115,6 +2152,13 @@ class ForecastingAssistant:
             why), nor when `candidates` already contains a
             `ForecasterEquivalentDate` (that candidate is then the
             baseline).
+        progress_callback : Callable, default None
+            Function called with a `CompareProgress` when each candidate
+            starts and when it ends, for example to report progress
+            outside a notebook. An exception it raises is not recorded as
+            a candidate failure: it stops the comparison and propagates
+            to the caller, so raising from it cancels the remaining
+            candidates. When None, no events are sent.
 
         Returns
         -------
@@ -2144,6 +2188,8 @@ class ForecastingAssistant:
         AllCandidatesFailedError
             If every candidate fails to run. The individual failures are
             available on the `failures` attribute of the raised error.
+        TypeError
+            If `progress_callback` is not callable.
         ValueError
             If `metric` is an empty list, or if `candidates` is empty,
             contains a malformed entry, repeats a name, mixes forecaster
@@ -2174,6 +2220,13 @@ class ForecastingAssistant:
         `forecast_code()`.
         """
 
+        if progress_callback is not None and not callable(progress_callback):
+            raise InvalidInputTypeError(
+                f"`progress_callback` must be callable or None, got "
+                f"{type(progress_callback).__name__}.",
+                field = "progress_callback",
+            )
+
         cv = _unwrap_cv(cv)
 
         data_df, target, date_column, series_id_column = (
@@ -2189,6 +2242,11 @@ class ForecastingAssistant:
                 date_column      = date_column,
                 series_id_column = series_id_column,
             )
+        # Every candidate script loads the file the comparison read.
+        profile = _with_data_path(profile, data)
+        run_data_path = (
+            profile.data_profile.data_path if isinstance(data, (str, Path)) else None
+        )
 
         # Automatic candidates leave out a foundation model whose backend
         # is not installed, rather than fail on every call; the warning and
@@ -2290,8 +2348,31 @@ class ForecastingAssistant:
         rows: list[tuple[dict, float]] = []
         ranked: list[tuple[str, BacktestResult, float]] = []
         failures: dict[str, CandidateFailure] = {}
+        n_candidates = len(candidate_configs)
 
-        for name, config in iterator:
+        def notify(event: CompareProgress) -> None:
+            # A callback that cancels leaves the loop early, so the progress
+            # bar would stay open on a partial count.
+            try:
+                progress_callback(event)
+            except BaseException:
+                if show_progress:
+                    iterator.close()
+                raise
+
+        for position, (name, config) in enumerate(iterator):
+            # Called outside the `try` below: an exception raised by the
+            # callback cancels the comparison instead of failing a candidate.
+            if progress_callback is not None:
+                notify(
+                    CompareProgress(
+                        candidate = name,
+                        status    = "started",
+                        completed = position,
+                        total     = n_candidates,
+                    )
+                )
+
             row: dict[str, Any] = {
                 "name": name,
                 "forecaster": config.get("forecaster") or profile.forecaster,
@@ -2322,16 +2403,19 @@ class ForecastingAssistant:
 
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=LongTrainingWarning)
-                    bt = self.backtest(
-                        data             = data_df,
-                        cv               = cv,
-                        target           = target,
-                        date_column      = date_column,
-                        series_id_column = series_id_column,
-                        profile          = profile,
-                        plan             = cand_plan,
-                        show_progress    = False,
-                    )
+                    # The candidate runs on the DataFrame already read;
+                    # its script loads the file the comparison read.
+                    with _data_path_of_run(run_data_path):
+                        bt = self.backtest(
+                            data             = data_df,
+                            cv               = cv,
+                            target           = target,
+                            date_column      = date_column,
+                            series_id_column = series_id_column,
+                            profile          = profile,
+                            plan             = cand_plan,
+                            show_progress    = False,
+                        )
                 agg = aggregate_metrics(bt.metrics)
                 for col in metric_columns:
                     row[col] = agg.get(col, float("nan"))
@@ -2350,6 +2434,17 @@ class ForecastingAssistant:
                 )
 
             rows.append((row, ranking_value))
+
+            if progress_callback is not None:
+                notify(
+                    CompareProgress(
+                        candidate = name,
+                        status    = "failed" if name in failures else "succeeded",
+                        completed = position + 1,
+                        total     = n_candidates,
+                        error     = row["error"],
+                    )
+                )
 
         results = build_comparison_table(
             rows           = rows,
@@ -2937,7 +3032,7 @@ class ForecastingAssistant:
                 n_observations = profile.data_profile.span_index_length,
                 test_size      = test_size,
             )
-            plan = plan.model_copy(update={"end_train": end_train})
+            plan = plan.model_copy(update={"end_train": end_train}, deep=True)
 
         # One forecast of `steps` observations is evaluated, so a longer test
         # set would be scored on its first `steps` rows only (without saying

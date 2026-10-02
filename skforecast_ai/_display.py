@@ -558,7 +558,10 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     return Group(*renderables)
 
 
-def render_plan(plan: ForecastPlan) -> RenderableType:
+def render_plan(
+    plan: ForecastPlan,
+    show_warnings: bool = True,
+) -> RenderableType:
     """
     Render a `ForecastPlan` as a table plus an explanation panel.
 
@@ -571,12 +574,18 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
     ----------
     plan : ForecastPlan
         Plan object to render.
+    show_warnings : bool, default True
+        Whether to show the "Plan Warnings" panel when `plan.warnings` is
+        not empty. The CLI passes False: it already prints each warning
+        when the plan is built.
 
     Returns
     -------
     renderable : rich.console.RenderableType
-        Group containing the plan table, the preprocessing table (only when
-        the plan has preprocessing steps) and the explanation panel.
+        Group containing the plan table, the warnings panel (only when the
+        plan has warnings and `show_warnings` is True), the preprocessing
+        table (only when the plan has preprocessing steps) and the
+        explanation panel.
     """
     table = Table(title="Forecast Plan", **_TABLE_KWARGS)
     table.add_column("Property")
@@ -634,6 +643,18 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
     )
 
     renderables: list[RenderableType] = [table]
+    if show_warnings and plan.warnings:
+        renderables += [
+            _SPACER,
+            Panel(
+                "\n".join(f"\u2022 {escape(w)}" for w in plan.warnings),
+                title="Plan Warnings",
+                title_align="center",
+                border_style="yellow",
+                padding=(0, 2),
+                expand=True,
+            ),
+        ]
     if plan.preprocessing_steps:
         steps_table = Table(title="Preprocessing Steps", **_TABLE_KWARGS)
         steps_table.add_column("Step")

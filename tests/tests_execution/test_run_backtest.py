@@ -6,6 +6,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast.model_selection import TimeSeriesFold
+
+from skforecast_ai import ForecastingAssistant
 from skforecast_ai.execution.backtesting_runner import run_backtest
 from skforecast_ai.schemas import ForecastPlan, RenderedScript
 
@@ -309,3 +312,27 @@ def test_run_backtest_baseline_returns_metrics_and_conformal_intervals():
     assert {"pred", "lower_bound", "upper_bound"} <= set(result["predictions"].columns)
     assert "interval_method   = 'conformal'" in result["rendered_code"].core
 
+
+def test_run_backtest_show_progress_false_keeps_column_named_like_the_keyword():
+    """
+    Test that `show_progress=False` only rewrites the keyword line of the
+    backtesting call: an exogenous column named `'show_progress = True'`,
+    written in the script as a string literal, is still found.
+    """
+    assistant = ForecastingAssistant()
+    data = df_single.rename(columns={"promo": "show_progress = True"})
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+
+    result = run_backtest(
+        data           = data,
+        profile        = profile.data_profile,
+        plan           = plan,
+        cv             = cv,
+        cv_explanation = "",
+        show_progress  = False,
+    )
+
+    assert "'show_progress = True'" in result["rendered_code"].full_script
+    assert len(result["predictions"]) == 140

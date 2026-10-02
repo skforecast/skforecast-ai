@@ -577,6 +577,48 @@ def test_render_plan_no_preprocessing_table_when_no_steps(sample_plan):
     assert "Preprocessing Steps" not in text
     assert "Preprocessing" in text
 
+def test_render_plan_shows_plan_warnings_panel(sample_plan):
+    """
+    Test that render_plan shows a "Plan Warnings" panel with one bullet per
+    warning, keeping text in square brackets that rich would read as markup.
+    """
+    plan = sample_plan.model_copy(
+        update={"warnings": ["First warning.", "Second [lower, upper] warning."]}
+    )
+
+    text = _render_to_text(render_plan(plan))
+
+    assert "Plan Warnings" in text
+    assert "• First warning." in text
+    assert "• Second [lower, upper] warning." in text
+
+
+def test_render_plan_omits_plan_warnings_panel_without_warnings(sample_plan):
+    """
+    Test that render_plan shows no "Plan Warnings" panel when the plan has
+    no warnings.
+    """
+    plan = sample_plan.model_copy(update={"warnings": []})
+
+    text = _render_to_text(render_plan(plan))
+
+    assert "Plan Warnings" not in text
+
+
+def test_render_plan_omits_plan_warnings_panel_when_show_warnings_false(
+    sample_plan,
+):
+    """
+    Test that render_plan leaves the "Plan Warnings" panel out with
+    `show_warnings=False`, as the CLI does.
+    """
+    plan = sample_plan.model_copy(update={"warnings": ["First warning."]})
+
+    text = _render_to_text(render_plan(plan, show_warnings=False))
+
+    assert "Plan Warnings" not in text
+    assert "First warning." not in text
+
 
 class TestDisplayMixin:
     """

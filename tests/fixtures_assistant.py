@@ -285,3 +285,34 @@ def make_comparison_result(assistant, *, with_failure=False):
         ranking_metric = "MAE",
         explanation    = "Compared 2 configurations, ranked ascending by MAE.",
     )
+
+
+def make_comparison_with_stats(assistant, comparison, stats_cv_config):
+    """
+    Replace the runner-up of a comparison with a ForecasterStats candidate.
+
+    Parameters
+    ----------
+    assistant : ForecastingAssistant
+        Assistant used to build the ForecasterStats plan.
+    comparison : ComparisonResult
+        Output of `make_comparison_result`.
+    stats_cv_config : dict
+        Strategy that ran for the ForecasterStats candidate.
+
+    Returns
+    -------
+    comparison : ComparisonResult
+        Copy of `comparison` whose `'runner_up'` is a ForecasterStats
+        backtest with `stats_cv_config`.
+    """
+    stats = comparison.candidates["runner_up"].model_copy(
+        update={
+            "plan": assistant.plan(
+                comparison.profile, steps=5, forecaster="ForecasterStats"
+            ),
+            "cv_config": stats_cv_config,
+        }
+    )
+    candidates = {**comparison.candidates, "runner_up": stats}
+    return comparison.model_copy(update={"candidates": candidates})

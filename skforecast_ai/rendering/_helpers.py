@@ -13,6 +13,7 @@ from ..schemas import DataProfile, ForecastPlan
 from .._constants import (
     BLOCKING_PREPROCESSING_TEMPLATES,
     FREQUENCY_TO_SEASONAL_PERIOD,
+    PLACEHOLDER_DATA_PATH,
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
 )
@@ -474,15 +475,23 @@ def _emit_data_loading(
     """
     Append CSV-loading code lines (only the read_csv call).
 
+    The CSV is read with `index_col=0, parse_dates=True` only when there is
+    no `date_column` in wide format and the index is stored in the file:
+    for the future exogenous variables (`path` given), for a datetime
+    index, and for data passed in memory (the placeholder `data_path`,
+    the frame saved with `to_csv()`). Without dates, the integer index
+    read is then turned into a RangeIndex, which skforecast requires. A
+    CSV read by path without dates holds no index, so it is read as is.
+
     Parameters
     ----------
     lines : list
         Output list of code lines to append to.
     profile : DataProfile
-        Data profile with `data_path`, `date_column`, and `frequency`.
+        Data profile with `data_path`, `date_column` and `index_type`.
     long_format : bool, default False
-        If `False` (wide format), emits read_csv only.
-        If `True` (long format), emits read_csv only.
+        Whether the data is in long format, which always has its dates in a
+        column and is read as is.
     var : str, default 'data'
         Name of the variable to assign the loaded frame to. Allows the
         same loader to be reused for the future exogenous frame
@@ -501,15 +510,33 @@ def _emit_data_loading(
     data_path = profile.data_path if path is None else path
     date_col = profile.date_column
 
+    # Without a date column the index is saved as the first column of the
+    # CSV. A CSV read by path without dates was read with a row index that
+    # it does not store, so its first column is data and not an index. Data
+    # passed in memory (the placeholder path) keeps the index read, the
+    # frame saved with `to_csv()`, and so do the future exogenous variables,
+    # which must carry the positions that follow the data; without dates,
+    # that index is turned back into the RangeIndex skforecast needs.
+    index_read = not date_col and (
+        path is not None
+        or profile.index_type == "datetime"
+        or profile.data_path == PLACEHOLDER_DATA_PATH
+    )
+
     lines.append(comment)
-    if long_format:
+    if long_format or not index_read:
         lines.append(f"{var} = pd.read_csv({repr(data_path)})")
     else:
-        if date_col:
-            lines.append(f"{var} = pd.read_csv({repr(data_path)})")
-        else:
+        lines.append(
+            f"{var} = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
+        )
+        if profile.index_type == "range":
+            # A row index saved with `to_csv()` is read back as integers,
+            # which skforecast rejects: it needs a RangeIndex, from the
+            # first position saved.
             lines.append(
-                f"{var} = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
+                f"{var}.index = pd.RangeIndex({var}.index[0], "
+                f"{var}.index[0] + len({var}))"
             )
     lines.append("")
 
@@ -731,17 +758,21 @@ def _emit_future_exog_loading(
 def _emit_future_exog_index_setup(
     lines: list[str],
     profile: DataProfile,
+    long_format: bool = False,
 ) -> None:
     """Append index-setup code for the future exogenous variables.
 
     Delegates to `_emit_index_setup` so `exog_future` is prepared exactly
     like `data` (`to_datetime`/`set_index` when a date column is used,
-    then `asfreq` + `sort_index`). Emitted into the core code so it runs
-    both in standalone scripts and in exec mode, putting the future
-    exogenous variables on the same regular, sorted grid as the training
-    data, as required by skforecast.
+    then `asfreq` + `sort_index`; in long format, `to_datetime` and
+    `sort_values`). Emitted into the core code so it runs both in
+    standalone scripts and in exec mode, putting the future exogenous
+    variables on the same regular, sorted grid as the training data, as
+    required by skforecast. In long format the dates read from
+    `exog_future.csv` are text until parsed, and the reshape to a dict
+    would not match them with the dates to predict.
     """
-    _emit_index_setup(lines, profile, var="exog_future")
+    _emit_index_setup(lines, profile, long_format=long_format, var="exog_future")
 
 
 def _get_metric_imports(metrics_to_compute: list[str]) -> list[str]:

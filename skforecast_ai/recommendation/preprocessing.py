@@ -16,6 +16,7 @@ from .._constants import (
     DROP_DUPLICATE_INDEX_SNIPPET,
     DROP_DUPLICATE_ROWS_SNIPPET,
     ENCODE_TARGET_SNIPPET,
+    MAX_DESCRIBE_ITEMS,
     PROVIDE_DATETIME_INDEX_SNIPPET,
     REQUIRES_DATETIME_FREQ,
     TREE_BASED_ESTIMATORS,
@@ -448,10 +449,14 @@ def derive_preprocessing_steps(
     # --- Categorical exogenous variables ---
     # The baseline uses no exogenous variables, so there is nothing to encode.
     if profile.categorical_exog and forecaster not in BASELINE_FORECASTERS:
-        detected = (
-            f"Categorical exogenous variables detected: "
-            f"{profile.categorical_exog}."
-        )
+        # Cut where the reason is built: it is free text, which neither
+        # `describe()` nor `ask()` can cut, so its length would grow with the
+        # number of categorical columns.
+        categorical = profile.categorical_exog
+        listed = str(categorical[:MAX_DESCRIBE_ITEMS])
+        if len(categorical) > MAX_DESCRIBE_ITEMS:
+            listed += f" (first {MAX_DESCRIBE_ITEMS} of {len(categorical)})"
+        detected = f"Categorical exogenous variables detected: {listed}."
         if forecaster == "ForecasterStats":
             steps.append(PreprocessingStep(
                 action="handle_categorical_exog",

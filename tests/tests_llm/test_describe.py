@@ -2,7 +2,11 @@
 
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
+
+from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._constants import MAX_LEADERBOARD_ROWS
@@ -210,10 +214,10 @@ def test_describe_output_when_each_result_type(build_result):
 
 def test_describe_output_when_backtest_code_result():
     """
-    Test the limitation stated in the docstring of describe(): the script
-    of `backtest_code()` is described as the one of the plan in prediction
-    mode, as in the context of ask(). The test pins it, so a fix shows up
-    here.
+    Test that the script of `backtest_code()` is described as a backtest,
+    with the folds and trainings of its strategy and the same
+    `<backtesting_strategy>` section as the result of `backtest()`, in
+    describe() and in the context of ask().
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
@@ -228,13 +232,33 @@ def test_describe_output_when_backtest_code_result():
         plan        = plan,
     )
 
+    backtest = assistant.backtest(
+        data          = df_no_exog,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
     description = result.describe()
 
-    assert "backtesting_forecaster(" in result.code
     assert (
-        "- Mode: prediction: trains on all the data and forecasts the next 5 "
-        "steps\n"
+        "- Mode: backtesting: predicts 6 folds of 5 steps, training the "
+        "forecaster 1 time, and scores the predictions of every fold against "
+        "the held-out observations\n"
     ) in description
+    assert "- Mode: prediction" not in description
+    strategy = description[
+        description.index("<backtesting_strategy>"):
+        description.index("</backtesting_strategy>")
+    ]
+    # The script does not write `fixed_train_size` without refits (it has
+    # no effect then), so it is the only line of `backtest()` left out.
+    assert strategy == backtest.describe()[
+        backtest.describe().index("<backtesting_strategy>"):
+        backtest.describe().index("</backtesting_strategy>")
+    ].replace("- fixed_train_size: False\n", "")
+    assert "- n_folds: 6\n- n_fits: 1\n" in strategy
     assert description == _without_ask_instructions(
         result.to_llm_context(send_data=False).text
     )
@@ -260,14 +284,14 @@ def test_describe_output_when_many_series_cuts_each_list():
         "- Exogenous columns: exog_00, exog_01, exog_02, exog_03, exog_04, "
         "exog_05, exog_06, exog_07, exog_08, exog_09, exog_10, exog_11, "
         "exog_12, exog_13, exog_14 (first 15 of 20)",
-        "- Target statistics shown for the first 5 of 500 series",
+        "- Target statistics shown (first 5 of 500 series)",
         "- Missing in target: {'series_000': 1, 'series_001': 1, "
         "'series_002': 1, 'series_003': 1, 'series_004': 1, 'series_005': 1, "
         "'series_006': 1, 'series_007': 1, 'series_008': 1, 'series_009': 1, "
         "'series_010': 1, 'series_011': 1, 'series_012': 1, 'series_013': 1, "
         "'series_014': 1} (first 15 of 30 series, 30 missing values in all)",
-        "- Significant lags shown only for the first 5 of 500 series (a series "
-        "without significant lags has no line)",
+        "- Significant lags shown (first 5 of 500 series; a series without "
+        "significant lags has no line)",
         "- Lags: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] "
         "(first 15 of 30)",
     ]
@@ -276,7 +300,7 @@ def test_describe_output_when_many_series_cuts_each_list():
 
     expected_metrics = (
         "<evaluation_metrics>\n"
-        "Rows of the first 5 of 500 series, plus the aggregated rows.\n"
+        "Rows shown (first 5 of 500 series, plus the aggregated rows).\n"
         "          levels  mean_absolute_error\n"
         "      series_000                 5.00\n"
         "      series_001                 5.01\n"
@@ -324,7 +348,71 @@ def test_describe_output_when_many_data_warnings():
 
     assert "- Data warning: Note number 14.\n" in description
     assert "Note number 15." not in description
-    assert "- Data warnings shown: the first 15 of 20\n" in description
+    assert "- Data warnings shown (first 15 of 20)\n" in description
     assert "- Data warning: Note number 19.\n" in (
         profile.to_llm_context(send_data=False).text
     )
+
+
+def test_describe_output_when_many_categorical_exog_cuts_preprocessing_reason():
+    """
+    Test that, with 500 categorical exogenous columns, the reason of the
+    categorical preprocessing step names the first 15 and their total, in
+    describe() and in the context of ask(), since it is cut where the plan
+    is built: describe() of the plan stays under 3,000 characters (7,855
+    when the reason listed every column).
+    """
+    rng = np.random.default_rng(0)
+    index = pd.date_range("2023-01-01", periods=120, freq="D", name="date")
+    data = pd.concat(
+        [
+            pd.DataFrame({"y": rng.normal(100, 10, 120).round(2)}, index=index),
+            pd.DataFrame(
+                {f"cat_{i:03d}": rng.choice(["a", "b"], 120) for i in range(500)},
+                index=index,
+            ),
+        ],
+        axis=1,
+    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target="y")
+    plan = assistant.plan(profile, steps=3)
+    result = assistant.forecast_code(profile=profile, plan=plan)
+
+    description = result.describe()
+    context = result.to_llm_context(send_data=False).text
+
+    expected = (
+        "Categorical exogenous variables detected: ['cat_000', 'cat_001', "
+        "'cat_002', 'cat_003', 'cat_004', 'cat_005', 'cat_006', 'cat_007', "
+        "'cat_008', 'cat_009', 'cat_010', 'cat_011', 'cat_012', 'cat_013', "
+        "'cat_014'] (first 15 of 500)."
+    )
+    assert expected in description
+    assert expected in context
+    assert "'cat_015'" not in description
+    assert len(description) < 3000
+
+
+def test_describe_output_when_backtest_code_strategy_cannot_be_counted():
+    """
+    Test that the script of `backtest_code()` with a `pd.Timestamp` as
+    `initial_train_size`, whose folds cannot be counted, is still described
+    as a backtest, saying that the folds were not counted, instead of
+    failing.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=pd.Timestamp("2023-03-11"))
+    result = assistant.backtest_code(data=None, cv=cv, profile=profile, plan=plan)
+
+    description = result.describe()
+
+    assert "initial_train_size = pd.Timestamp('2023-03-11 00:00:00')" in result.code
+    assert (
+        "- Mode: backtesting: predicts every fold of a cross-validation "
+        "strategy and scores it against the held-out observations (its folds "
+        "could not be counted from the script)\n"
+    ) in description
+    assert "<backtesting_strategy>" not in description

@@ -486,3 +486,23 @@ def test_forecast_code_InvalidInputError_field_when_arguments_differ_from_plan()
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "estimator"
+
+
+def test_forecast_code_loads_data_path_when_saved_profile(tmp_path):
+    """
+    Test that forecast_code() with a saved profile and data given as
+    another CSV path returns a script that loads the path given.
+    """
+    old_path = tmp_path / "old.csv"
+    new_path = tmp_path / "new.csv"
+    df_single.to_csv(old_path, index=False)
+    df_single.to_csv(new_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=old_path, target="sales", date_column="date")
+
+    result = assistant.forecast_code(
+        data=new_path, steps=5, test_size=5, profile=profile
+    )
+
+    assert f"data = pd.read_csv({str(new_path)!r})" in result.code
+    assert result.profile.data_profile.data_path == str(new_path)

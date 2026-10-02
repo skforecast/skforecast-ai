@@ -293,7 +293,7 @@ def _library_param_names(estimator: str) -> set[str]:
 def validate_estimator_kwargs(
     estimator: str,
     estimator_kwargs: dict | None,
-) -> None:
+) -> list[str]:
     """
     Check the keyword argument names against the estimator constructor.
 
@@ -311,7 +311,9 @@ def validate_estimator_kwargs(
 
     Returns
     -------
-    None
+    warning_messages : list of str
+        Text of each warning emitted, in order, so the caller can keep it
+        with the plan. Empty when every name is known or nothing is checked.
 
     Notes
     -----
@@ -322,11 +324,12 @@ def validate_estimator_kwargs(
     that does not exist without an error.
     """
 
+    warning_messages: list[str] = []
     if not estimator_kwargs or estimator not in SUPPORTED_ESTIMATORS:
-        return
+        return warning_messages
     module_name = SUPPORTED_ESTIMATORS[estimator]
     if importlib.util.find_spec(module_name.split(".")[0]) is None:
-        return
+        return warning_messages
     cls = getattr(importlib.import_module(module_name), estimator)
     names = _estimator_param_names(cls)
     extra_names = _library_param_names(estimator)
@@ -337,13 +340,13 @@ def validate_estimator_kwargs(
         match = difflib.get_close_matches(key, sorted(names | extra_names), n=1)
         hint = f" Did you mean {match[0]!r}?" if match else ""
         if estimator in PASSTHROUGH_KWARGS_ESTIMATORS:
-            warnings.warn(
+            message = (
                 f"{key!r} is not a named parameter of {estimator}. It is "
                 f"passed to the library as an extra parameter, which ignores "
-                f"it without an error if it does not exist.{hint}",
-                UserWarning,
-                stacklevel=3,
+                f"it without an error if it does not exist.{hint}"
             )
+            warnings.warn(message, UserWarning, stacklevel=3)
+            warning_messages.append(message)
             continue
         listed = (
             f" Valid parameters: {sorted(names)}."
@@ -353,6 +356,8 @@ def validate_estimator_kwargs(
             f"{estimator} has no parameter {key!r}.{hint}{listed}",
             field = "estimator_kwargs",
         )
+
+    return warning_messages
 
 
 def check_estimator_installed(

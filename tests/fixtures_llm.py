@@ -3,6 +3,8 @@
 import numpy as np
 import pandas as pd
 
+from skforecast.model_selection import TimeSeriesFold
+
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import (
     BacktestResult,
@@ -14,12 +16,15 @@ from skforecast_ai.schemas import (
     SingleRunResult,
 )
 
+from skforecast_ai.execution.backtesting_runner import _build_backtest_explanation
+
 from .fixtures_assistant import (
     df_categorical_exog,
     df_multi_long,
     df_no_exog,
     df_single,
 )
+from .fixtures_datasets import df_h2o
 
 assistant = ForecastingAssistant()
 
@@ -213,6 +218,114 @@ explanation_backtest = (
 code_single = "# forecast script\nforecaster.fit(y=y)\n"
 code_backtest = "# backtest script\nbacktesting_forecaster(forecaster, y, cv)\n"
 
+# ForecasterStats on the monthly h2o data, with the strategy `create_cv()`
+# gives it (a refit in every fold on a fixed window) and hand-written
+# predictions and metrics, so no ARIMA model is fitted.
+profile_h2o = assistant.profile(data=df_h2o, target="x")
+plan_stats = assistant.plan(profile_h2o, steps=12, forecaster="ForecasterStats")
+plan_stats_single = assistant.plan(
+    profile_single, steps=5, forecaster="ForecasterStats"
+)
+cv_stats = assistant.create_cv(profile_h2o, plan_stats)
+code_stats_backtest = assistant.backtest_code(
+    data    = None,
+    cv      = cv_stats,
+    profile = profile_h2o,
+    plan    = plan_stats,
+).code
+# The 62 months after the initial training window, in 6 folds of 12 (the
+# last one incomplete), as the strategy splits the data.
+predictions_stats = pd.DataFrame(
+    {
+        "fold": np.repeat(np.arange(6), 12)[:62],
+        "pred": np.round(0.6 + np.arange(62) * 0.005, 4),
+    },
+    index=pd.date_range("2003-05-01", periods=62, freq="MS"),
+)
+metrics_stats = pd.DataFrame({
+    "mean_absolute_error":        [0.0612],
+    "mean_squared_error":         [0.0061],
+    "mean_absolute_scaled_error": [0.8514],
+})
+explanation_stats = _build_backtest_explanation(cv_stats.explanation, metrics_stats)
+
+# Long-format data of 3 series with a numeric and a categorical exogenous
+# column, one series ending 6 days before the others (a note in the data
+# warnings), as ForecasterRecursiveMultiSeries backtests it.
+_long_dates = pd.date_range("2023-01-01", periods=90, freq="D")
+_long_rng = np.random.default_rng(7)
+df_multi_long_exog = pd.concat(
+    [
+        pd.DataFrame({
+            "date":    _long_dates[:n_obs],
+            "store":   store,
+            "sales":   np.round(
+                           100 + 10 * k
+                           + 5 * np.sin(np.arange(n_obs) * 2 * np.pi / 7)
+                           + _long_rng.normal(0, 1, n_obs),
+                           2,
+                       ),
+            "promo":   (np.arange(n_obs) % 5 == 0).astype(float),
+            "weekday": _long_dates[:n_obs].day_name(),
+        })
+        for k, (store, n_obs) in enumerate(
+            [("store_a", 90), ("store_b", 90), ("store_c", 84)]
+        )
+    ],
+    ignore_index=True,
+)
+profile_multi_long_exog = assistant.profile(
+    data             = df_multi_long_exog,
+    target           = "sales",
+    date_column      = "date",
+    series_id_column = "store",
+)
+plan_multi_long_exog = assistant.plan(profile_multi_long_exog, steps=7)
+cv_multi_long_exog = assistant.create_cv(
+    profile_multi_long_exog, plan_multi_long_exog, initial_train_size=76
+)
+# Two folds of 7 dates; 'store_c' is predicted only up to its last date
+# (2023-03-25), so it has 8 rows and the others 14.
+_long_test_dates = pd.date_range("2023-03-18", periods=14, freq="D")
+_long_levels = [
+    (date, level)
+    for date in _long_test_dates
+    for level in ("store_a", "store_b", "store_c")
+    if level != "store_c" or date <= pd.Timestamp("2023-03-25")
+]
+predictions_multi_long_exog = pd.DataFrame(
+    {
+        "level": [level for _, level in _long_levels],
+        "fold":  [int(date > pd.Timestamp("2023-03-24")) for date, _ in _long_levels],
+        "pred":  np.round(100 + np.arange(len(_long_levels)) * 0.5, 2),
+    },
+    index=pd.DatetimeIndex([date for date, _ in _long_levels]),
+)
+# The three metrics of the plan. The weighted averages weigh each series
+# by its 14, 14 and 8 rows; the pooled MAE and MSE equal them.
+metrics_multi_long_exog = pd.DataFrame({
+    "levels": [
+        "store_a", "store_b", "store_c", "average", "weighted_average",
+        "pooling",
+    ],
+    "mean_absolute_error":        [1.21, 1.35, 1.48, 1.3467, 1.3244, 1.3244],
+    "mean_squared_error":         [2.31, 2.86, 3.12, 2.7633, 2.7039, 2.7039],
+    "mean_absolute_scaled_error": [0.62, 0.68, 0.74, 0.6800, 0.6700, 0.6650],
+})
+code_multi_long_exog = assistant.forecast_code(
+    profile = profile_multi_long_exog,
+    plan    = plan_multi_long_exog,
+).code
+
+# A real script of `backtest_code()`: its context reads the strategy from
+# the `TimeSeriesFold` the script builds.
+code_backtest_script = assistant.backtest_code(
+    data    = None,
+    cv      = TimeSeriesFold(steps=5, initial_train_size=70),
+    profile = profile_single,
+    plan    = plan_single,
+).code
+
 
 # ---------------------------------------------------------------------------
 # Result builders
@@ -245,6 +358,7 @@ def make_code_generation_result(
     *,
     profile = profile_single,
     plan    = plan_single,
+    code    = code_single,
 ) -> CodeGenerationResult:
     """
     Build a generated-script result.
@@ -255,6 +369,8 @@ def make_code_generation_result(
         Profile carried by the result.
     plan : ForecastPlan, default `plan_single`
         Plan carried by the result.
+    code : str, default `code_single`
+        Script carried by the result.
 
     Returns
     -------
@@ -265,7 +381,7 @@ def make_code_generation_result(
     return CodeGenerationResult(
         profile = profile,
         plan    = plan,
-        code    = code_single,
+        code    = code,
     )
 
 
@@ -335,6 +451,8 @@ def make_backtest_result(
     plan         = plan_single,
     predictions  = predictions_backtest,
     metrics      = metrics_single,
+    cv_config    = cv_config,
+    explanation  = explanation_backtest,
 ) -> BacktestResult:
     """
     Build a `BacktestResult` without running a backtest.
@@ -349,6 +467,10 @@ def make_backtest_result(
         Backtest predictions carried by the result.
     metrics : pandas DataFrame, default `metrics_single`
         Backtest metrics carried by the result.
+    cv_config : dict, default `cv_config`
+        Resolved strategy carried by the result.
+    explanation : str, default `explanation_backtest`
+        Deterministic summary carried by the result.
 
     Returns
     -------
@@ -363,7 +485,7 @@ def make_backtest_result(
         predictions = predictions,
         metrics     = metrics,
         cv_config   = cv_config,
-        explanation = explanation_backtest,
+        explanation = explanation,
     )
 
 
@@ -372,6 +494,7 @@ def make_comparison_result(
     n_candidates: int = 2,
     with_failure: bool = False,
     with_baseline: bool = False,
+    with_stats: bool = False,
 ):
     """
     Build a `ComparisonResult` without backtesting any candidate.
@@ -390,6 +513,10 @@ def make_comparison_result(
     with_baseline : bool, default False
         Whether to append a `ForecasterEquivalentDate` baseline, ranked
         after the other successful candidates, and set `baseline_name`.
+    with_stats : bool, default False
+        Whether to append a `ForecasterStats` candidate, ranked after the
+        other successful candidates, with the strategy skforecast runs for
+        it (a refit in every fold, unlike the shared strategy).
 
     Returns
     -------
@@ -437,6 +564,28 @@ def make_comparison_result(
             "name":       baseline_name,
             "forecaster": "ForecasterEquivalentDate",
             "estimator":  None,
+            "MAE":        mae,
+        })
+        n_candidates += 1
+
+    if with_stats:
+        mae = 1.5 + n_candidates
+        candidates["arima"] = BacktestResult(
+            profile     = profile_single,
+            plan        = plan_stats_single,
+            code        = "# arima code",
+            predictions = pd.DataFrame({"pred": [1.0, 2.0, 3.0, 4.0, 5.0]}),
+            metrics     = pd.DataFrame({"MAE": [mae]}),
+            cv_config   = {
+                **cv_config, "refit": True, "fixed_train_size": True, "n_fits": 6
+            },
+            explanation = "Backtest of arima.",
+        )
+        rows.append({
+            "rank":       n_candidates + 1,
+            "name":       "arima",
+            "forecaster": "ForecasterStats",
+            "estimator":  "Arima",
             "MAE":        mae,
         })
         n_candidates += 1
@@ -490,6 +639,9 @@ GOLDEN_SCENARIOS = {
             plan    = plan_foundation_without_covariates,
         )
     ),
+    "code_generation_backtest": lambda: make_code_generation_result(
+        code=code_backtest_script
+    ),
     "cv_strategy": make_cv_result,
     "forecast_single_series_no_intervals": lambda: make_forecast_result(),
     "forecast_single_series_with_intervals": lambda: make_forecast_result(
@@ -530,6 +682,37 @@ GOLDEN_SCENARIOS = {
     ),
     "comparison_with_baseline": lambda: make_comparison_result(
         with_baseline=True
+    ),
+    "comparison_with_stats": lambda: make_comparison_result(with_stats=True),
+    "code_generation_stats_backtest": lambda: make_code_generation_result(
+        profile = profile_h2o,
+        plan    = plan_stats,
+        code    = code_stats_backtest,
+    ),
+    "cv_strategy_stats": lambda: cv_stats,
+    "backtest_stats": lambda: make_backtest_result(
+        profile     = profile_h2o,
+        plan        = plan_stats,
+        predictions = predictions_stats,
+        metrics     = metrics_stats,
+        cv_config   = cv_stats.cv_config,
+        explanation = explanation_stats,
+    ),
+    "profile_multi_series_long_exog": lambda: profile_multi_long_exog,
+    "code_generation_multi_series_long_exog": lambda: make_code_generation_result(
+        profile = profile_multi_long_exog,
+        plan    = plan_multi_long_exog,
+        code    = code_multi_long_exog,
+    ),
+    "backtest_multi_series_long_exog": lambda: make_backtest_result(
+        profile     = profile_multi_long_exog,
+        plan        = plan_multi_long_exog,
+        predictions = predictions_multi_long_exog,
+        metrics     = metrics_multi_long_exog,
+        cv_config   = cv_multi_long_exog.cv_config,
+        explanation = _build_backtest_explanation(
+                          cv_multi_long_exog.explanation, metrics_multi_long_exog
+                      ),
     ),
 }
 

@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from skforecast_ai.schemas import (
     CandidateConfig,
+    CompareProgress,
     DataProfile,
     ForecastPlan,
     RefinePlanOverrides,
@@ -794,3 +795,24 @@ def test_plan_overrides_json_schema_exposes_lag_bounds():
     window_size = schema["$defs"]["WindowFeature"]["properties"]["window_size"]
     assert window_size["exclusiveMinimum"] == 0
     assert window_size["type"] == "integer"
+
+
+def test_compare_progress_is_frozen_and_rejects_unknown_fields():
+    """
+    Test that `CompareProgress` cannot be changed by the callback that
+    receives it, rejects unknown fields and a negative `completed`, and
+    round-trips through JSON.
+    """
+    event = CompareProgress(
+        candidate="ridge", status="failed", completed=1, total=2, error="E: x"
+    )
+
+    with pytest.raises(ValidationError, match="frozen"):
+        event.completed = 2
+    with pytest.raises(ValidationError, match="extra"):
+        CompareProgress(
+            candidate="ridge", status="started", completed=0, total=2, extra=1
+        )
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        CompareProgress(candidate="ridge", status="started", completed=-1, total=2)
+    assert CompareProgress.model_validate_json(event.model_dump_json()) == event

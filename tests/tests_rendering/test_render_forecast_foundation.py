@@ -530,7 +530,8 @@ def test_render_forecast_foundation_output_when_multi_series_long_format_with_ex
 def test_render_forecast_foundation_output_when_multi_series_long_format_prediction_mode():
     """
     Test that in prediction mode the future exogenous variables, also in
-    long format, are reshaped into one frame per series.
+    long format, have their dates parsed like the data and are reshaped
+    into one frame per series.
     """
     result = render_forecast_foundation(plan_foundation_numeric_covariates_no_end_train, profile_multi_long_exog)
 
@@ -547,6 +548,9 @@ def test_render_forecast_foundation_output_when_multi_series_long_format_predict
         "\n"
         "data['date'] = pd.to_datetime(data['date'])\n"
         "data = data.sort_values('date')\n"
+        "\n"
+        "exog_future['date'] = pd.to_datetime(exog_future['date'])\n"
+        "exog_future = exog_future.sort_values('date')\n"
         "\n"
         "# Reshape to dict format (one entry per series)\n"
         "series_dict = reshape_series_long_to_dict(\n"

@@ -37,11 +37,12 @@ class ExplainableResult:
         """
         Describe the result in plain text.
 
-        The text is the one `ask()` sends to the LLM about this result when
-        `send_data_to_llm=False`, without the sentences that only tell the
-        LLM how to answer, and with its lists cut as described in the
-        Notes when there are many series. It is deterministic and needs no LLM, so it can
-        be shown to a user or passed to an agent as it is. A plan is
+        The text is the context `ask()` sends to the LLM about this result,
+        with the predictions summarized instead of listed row by row,
+        without the sentences that only tell the LLM how to answer, and
+        with its lists cut as described in the Notes when there are many
+        series. It is deterministic and needs no LLM, so it can be shown to
+        a user or passed to an agent as it is. A plan is
         described through the script rendered from it:
         `assistant.forecast_code(profile=profile, plan=plan).describe()`.
 
@@ -63,21 +64,18 @@ class ExplainableResult:
         features, failed candidates) and the statistics, significant lags
         and metrics of the first 5 series, plus the aggregated metric rows
         (`average`, `weighted_average`, `pooling`), and says how many
-        there are. With 500 series it is about 4,000 characters. The
+        there are. With 500 series it is about 4,000 to 5,500 characters. The
         explanation texts (of the profile, the plan, the cross-validation
         or the comparison) are kept whole, so the lags that the plan
         explanation names are all listed there. The context of `ask()`
         keeps every list whole.
 
-        Two limitations, shared with the context of `ask()`:
-
-        - The summary of the predictions is computed over all their rows:
-        with several series it pools them, and the `fold` column of a
-        backtest is summarized like the other numeric columns.
-        - For a result of `backtest_code()`, the `<script>` section
-        describes the script as the one of the plan in prediction mode
-        (it trains on all the data and computes no metrics), although the
-        script backtests the plan.
+        The summary of the predictions is computed over all their rows, so
+        with several series it pools them, while `ask()` sends their rows.
+        The `fold` column of a backtest is an
+        identifier: only the number of folds is given. The script of
+        `backtest_code()` is described as a backtest, with its
+        cross-validation strategy, number of folds and trainings.
         """
 
         return self._build_llm_context(send_data=False, for_describe=True).text

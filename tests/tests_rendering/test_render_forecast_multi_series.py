@@ -390,3 +390,72 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog():
         "# and provide future exogenous values covering the forecast horizon.\n"
     )
     assert result.full_script == expected
+
+
+def test_render_forecast_multi_series_output_when_long_format_with_exog_prediction_mode():
+    """
+    Test that in prediction mode with long-format data the future exogenous
+    variables read from `exog_future.csv` get their dates parsed like the
+    data before they are reshaped into one frame per series.
+    """
+    plan = plan_multi_series_exog.model_copy(update={"end_train": None})
+    result = render_forecast_multi_series(plan, profile_multi_long_exog)
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.preprocessing import reshape_series_long_to_dict, reshape_exog_long_to_dict\n"
+        "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        "exog_future = pd.read_csv('exog_future.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.sort_values('date')\n"
+        "\n"
+        "exog_future['date'] = pd.to_datetime(exog_future['date'])\n"
+        "exog_future = exog_future.sort_values('date')\n"
+        "\n"
+        "# Reshape to dict format (optimal for ForecasterRecursiveMultiSeries)\n"
+        "series_dict = reshape_series_long_to_dict(\n"
+        "    data      = data,\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    values    = 'value',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "exog_dict = reshape_exog_long_to_dict(\n"
+        "    data      = data[['series_id', 'date', 'promo']],\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "# Reshape future exogenous variables to dict format\n"
+        "exog_future_dict = reshape_exog_long_to_dict(\n"
+        "    data      = exog_future[['series_id', 'date', 'promo']],\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursiveMultiSeries(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        "    encoding  = 'ordinal',\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(series=series_dict, exog=exog_dict)\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps, exog=exog_future_dict)\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected

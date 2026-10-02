@@ -291,3 +291,29 @@ def test_backtest_output_when_baseline_plan():
     pd.testing.assert_frame_equal(result.metrics, expected_metrics)
     assert "backtesting_forecaster(" in result.code
 
+
+
+def test_backtest_output_script_loads_csv_path_that_ran(tmp_path):
+    """
+    Test that backtest() with a CSV path returns a script that loads that
+    path, also with a saved profile built from another path.
+    """
+    old_path = tmp_path / "old.csv"
+    csv_path = tmp_path / "sales.csv"
+    df_single.to_csv(old_path, index=False)
+    df_single.to_csv(csv_path, index=False)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+    profile = assistant.profile(data=old_path, target="sales", date_column="date")
+
+    result = assistant.backtest(
+        data=csv_path, cv=cv, target="sales", date_column="date",
+        show_progress=False,
+    )
+    result_saved = assistant.backtest(
+        data=csv_path, cv=cv, profile=profile, show_progress=False
+    )
+
+    for res in (result, result_saved):
+        assert f"data = pd.read_csv({str(csv_path)!r})" in res.code
+        assert res.profile.data_profile.data_path == str(csv_path)
+    assert profile.data_profile.data_path == str(old_path)

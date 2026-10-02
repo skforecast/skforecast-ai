@@ -182,6 +182,69 @@ def test_render_script_section_describes_the_script_contract():
     assert render_script_section(plan, None) == ""
 
 
+_BACKTEST_CODE = (
+    "import pandas as pd\n"
+    "data = pd.read_csv('sales.csv')\n"
+    "metrics, predictions = backtesting_forecaster(\n"
+    "    forecaster = forecaster,\n"
+    ")\n"
+)
+
+
+@pytest.mark.parametrize(
+    "task_type, cv_config, expected_mode",
+    [
+        (
+            "single_series",
+            {"steps": 5, "n_folds": 6, "n_fits": 6},
+            "backtesting: predicts 6 folds of 5 steps, training the forecaster "
+            "6 times, and scores the predictions of every fold against the "
+            "held-out observations",
+        ),
+        (
+            "single_series",
+            {"steps": 5, "n_folds": 1, "n_fits": 1},
+            "backtesting: predicts 1 fold of 5 steps, training the forecaster "
+            "1 time, and scores the predictions of every fold against the "
+            "held-out observations",
+        ),
+        (
+            "foundation",
+            {"steps": 5, "n_folds": 3, "n_fits": 0},
+            "backtesting: predicts 3 folds of 5 steps, without training the "
+            "model (foundation model), and scores the predictions of every fold "
+            "against the held-out observations",
+        ),
+        (
+            "single_series",
+            None,
+            "backtesting: predicts every fold of a cross-validation strategy "
+            "and scores it against the held-out observations (its folds could "
+            "not be counted from the script)",
+        ),
+    ],
+    ids=["several folds", "one fold", "foundation", "strategy not counted"],
+)
+def test_render_script_section_describes_backtesting_script(
+    task_type, cv_config, expected_mode
+):
+    """
+    Test that a script that calls a backtesting function is described as a
+    backtest, with the folds and trainings of its strategy when they are
+    known, and never as a prediction.
+    """
+    backtest_plan = plan.model_copy(update={"task_type": task_type})
+
+    section = render_script_section(backtest_plan, _BACKTEST_CODE, cv_config=cv_config)
+
+    assert f"- Mode: {expected_mode}\n" in section
+    assert (
+        "- Variables defined: metrics (one column per metric, one row per "
+        "series when there are several), and predictions of every fold with "
+        "a `fold` column\n"
+    ) in section
+    assert "prediction: trains on all the data" not in section
+
 def test_render_cv_section_prepends_note_when_provided():
     """
     Test that the shared-strategy note used by a comparison is rendered
@@ -272,8 +335,11 @@ def test_render_leaderboard_section_keeps_top_rows_when_truncated():
     omitted = n_candidates - MAX_LEADERBOARD_ROWS
 
     assert f"Candidates listed: {n_candidates}." in section
-    assert f"Only the top {MAX_LEADERBOARD_ROWS} rows are shown" in section
-    assert f"... ({omitted} lower-ranked candidates omitted) ..." in section
+    assert (
+        f"Rows shown (first {MAX_LEADERBOARD_ROWS} of {n_candidates}): the "
+        f"{omitted} lower-ranked rows are omitted."
+    ) in section
+    assert "were not provided" not in section
     assert "cand_00" in section
     assert "cand_49" not in section
 
@@ -304,8 +370,10 @@ def test_render_leaderboard_section_respects_explicit_max_rows():
 
     section = render_leaderboard_section(results, max_rows=2)
 
-    assert "Candidates listed: 3." in section
-    assert "... (1 lower-ranked candidates omitted) ..." in section
+    assert (
+        "Candidates listed: 3. Rows shown (first 2 of 3): the 1 lower-ranked "
+        "row is omitted."
+    ) in section
 
 
 def test_render_comparison_overview_section_counts_failures_as_candidates():
@@ -378,7 +446,7 @@ def test_render_failures_section_output_when_for_describe_cuts_the_list():
 
     assert "- broken_14: ImportError: No module named 'lightgbm'" in section
     assert "broken_15" not in section
-    assert "Failures shown: the first 15 of 20" in section
+    assert "- Failures shown (first 15 of 20)" in section
     assert "- broken_19: ImportError: No module named 'lightgbm'" in section_ask
     assert "Failures shown" not in section_ask
 
@@ -407,7 +475,7 @@ def test_render_metrics_section_output_when_for_describe_and_forecast_metrics():
 
     expected = (
         "<evaluation_metrics>\n"
-        "Rows of the first 5 of 8 series.\n"
+        "Rows shown (first 5 of 8 series).\n"
         "series  MAE\n"
         "    s0  0.0\n"
         "    s1  1.0\n"

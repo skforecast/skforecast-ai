@@ -496,3 +496,53 @@ def test_derive_steps_all_steps_are_preprocessing_step_instances():
     )
     assert all(isinstance(s, PreprocessingStep) for s in steps)
     assert len(steps) >= 1  # handle_gaps (non-blocking)
+
+
+@pytest.mark.parametrize(
+    "n_categorical, expected_list",
+    [
+        (15, str([f"cat_{i:03d}" for i in range(15)])),
+        (
+            500,
+            str([f"cat_{i:03d}" for i in range(15)]) + " (first 15 of 500)",
+        ),
+    ],
+    ids=["at the limit", "500 columns"],
+)
+def test_derive_steps_handle_categorical_exog_reason_cuts_long_list(
+    n_categorical, expected_list
+):
+    """
+    Test that the reason of the handle_categorical_exog step names at most
+    15 categorical columns and says how many there are, so its length does
+    not grow with the number of columns; 15 columns are all listed.
+    """
+    columns = [f"cat_{i:03d}" for i in range(n_categorical)]
+    profile = DataProfile(
+        series_lengths={"y": 365},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        data_format="single",
+        exog_columns=columns,
+        categorical_exog=columns,
+    )
+
+    reasons = {
+        forecaster: next(
+            s.reason
+            for s in derive_preprocessing_steps(profile, forecaster)
+            if s.action == "handle_categorical_exog"
+        )
+        for forecaster in ("ForecasterStats", "ForecasterRecursive")
+    }
+
+    assert reasons["ForecasterStats"] == (
+        f"Categorical exogenous variables detected: {expected_list}. "
+        f"Statistical models only accept numeric exogenous variables, so "
+        f"these columns are excluded. Encode them manually to include them."
+    )
+    assert reasons["ForecasterRecursive"].startswith(
+        f"Categorical exogenous variables detected: {expected_list}. "
+    )

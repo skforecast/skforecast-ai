@@ -148,12 +148,41 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
         # Deferred import: `llm.context` imports from this package, so a
         # module-level import here would be circular.
         from ..llm.context import (
+            backtest_cv_from_code,
             join_sections,
+            render_cv_section,
             render_dataset_section,
             render_plan_section,
             render_profile_decision_section,
             render_script_section,
         )
+        from ..recommendation.backtesting import resolve_cv_config
+
+        # A script of `backtest_code()` is described as a backtest: its
+        # strategy is read from the script and counted over the data, as
+        # `backtest()` counts it.
+        trains = self.plan.task_type != "foundation"
+        cv_config = None
+        cv = backtest_cv_from_code(self.code)
+        if cv is not None:
+            # A strategy that cannot be counted (a `pd.Timestamp` as
+            # `initial_train_size` fails in the explanation) is described
+            # without its counts, and the mode line says so, rather than
+            # failing a description that worked before.
+            try:
+                cv_config, _ = resolve_cv_config(
+                    cv,
+                    self.profile.data_profile,
+                    trains     = trains,
+                    forecaster = self.plan.forecaster,
+                )
+            except (TypeError, ValueError):
+                cv_config = None
+            # The script writes `fixed_train_size` only when the forecaster
+            # is refitted; otherwise it has no effect and its value cannot
+            # be read from the script.
+            if cv_config is not None and not cv_config["refit"]:
+                del cv_config["fixed_train_size"]
 
         # The script itself is not sent; its contract (mode, files, outputs,
         # packages) is, so "what do I need to run it" has an answer.
@@ -168,10 +197,12 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
                                       render_plan_section(
                                           self.plan, for_describe=for_describe
                                       ),
+                                      render_cv_section(cv_config, trains=trains),
                                       render_script_section(
                                           self.plan,
                                           self.code,
                                           for_describe = for_describe,
+                                          cv_config    = cv_config,
                                       ),
                                   ]),
             profile             = self.profile,
@@ -702,6 +733,41 @@ class CandidateFailure(BaseModel):
         """
 
         return _one_line_summary(self.error_type, self.message, max_length)
+
+
+class CompareProgress(BaseModel):
+    """
+    Progress event that `compare()` passes to its `progress_callback`.
+
+    `compare()` sends one event when a candidate starts (`status`
+    `'started'`) and one when it ends (`'succeeded'` or `'failed'`), so
+    every comparison of `total` candidates sends `2 * total` events.
+
+    Attributes
+    ----------
+    candidate : str
+        Name of the candidate the event refers to, as in the `name`
+        column of `ComparisonResult.results`.
+    status : {'started', 'succeeded', 'failed'}
+        Whether the candidate is about to run, ran, or failed.
+    completed : int
+        Number of candidates that have ended so far, this one included
+        when `status` is not `'started'`.
+    total : int
+        Number of candidates the comparison runs, the baseline included.
+    error : str, default None
+        One-line summary of the failure, the same text as the `error`
+        column of the results table. Only set when `status` is
+        `'failed'`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    candidate: str
+    status: Literal["started", "succeeded", "failed"]
+    completed: int = Field(ge=0)
+    total: int = Field(ge=1)
+    error: str | None = None
 
 
 def _one_line_summary(error_type: str, message: str, max_length: int = 200) -> str:

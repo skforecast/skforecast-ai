@@ -6,11 +6,14 @@
 ################################################################################
 
 from __future__ import annotations
+import ast
 import re
 from typing import Any
+import pandas as pd
 from .._constants import (
     CONTEXT_HEAD_TAIL_ROWS,
     MAX_CONTEXT_DATAFRAME_ROWS,
+    MAX_DESCRIBE_ITEMS,
     MAX_LEADERBOARD_ROWS,
 )
 from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
@@ -22,11 +25,10 @@ MAX_STATS_SERIES = 5
 MAX_PACF_LAGS = 15
 
 # Limits that only `describe()` applies (`for_describe=True`), so its text
-# stays short with hundreds of series: at most 15 items of any list, and
-# the first `MAX_STATS_SERIES` series of the metrics plus the aggregated
-# rows. Each cut says how many items there were. The context of `ask()`
-# keeps its own limits.
-MAX_DESCRIBE_ITEMS = 15
+# stays short with hundreds of series: at most `MAX_DESCRIBE_ITEMS` items
+# of any list, and the first `MAX_STATS_SERIES` series of the metrics plus
+# the aggregated rows. Each cut says how many items there were. The
+# context of `ask()` keeps its own limits.
 _AGGREGATED_METRIC_ROWS = ("average", "weighted_average", "pooling")
 
 # Sentences addressed to the LLM of `ask()`: they tell it how to use the
@@ -264,7 +266,14 @@ def _summarize_dataframe(df: Any) -> str:
     """Produce a privacy-safe summary without row-level values."""
     parts = [f"Shape: {df.shape[0]} rows x {df.shape[1]} columns"]
     parts.append(f"Columns: {list(df.columns)}")
-    numeric_cols = df.select_dtypes(include="number")
+    # `fold` is an identifier, not a measurement (as in
+    # `_serialize_dataframe`): its statistics would be quoted back as if
+    # they described the predictions, so only the number of folds is given.
+    if "fold" in df.columns:
+        parts.append(f"Folds: {df['fold'].nunique()}")
+    numeric_cols = df.select_dtypes(include="number").drop(
+        columns="fold", errors="ignore"
+    )
     if not numeric_cols.empty:
         # No format spec, for the same reason as `_serialize_dataframe`:
         # when row-level values are withheld these statistics are all the
@@ -355,8 +364,8 @@ def render_dataset_section(
         )
     if for_describe and len(dp.target_stats) > MAX_STATS_SERIES:
         parts.append(
-            f"- Target statistics shown for the first {MAX_STATS_SERIES} of "
-            f"{len(dp.target_stats)} series"
+            f"- Target statistics shown (first {MAX_STATS_SERIES} of "
+            f"{len(dp.target_stats)} series)"
         )
 
     # Missing values are stated even when there are none: "not mentioned"
@@ -388,10 +397,7 @@ def render_dataset_section(
     for warning in warnings_shown:
         parts.append(f"- Data warning: {warning}")
     if suffix:
-        parts.append(
-            f"- Data warnings shown: the first {MAX_DESCRIBE_ITEMS} of "
-            f"{len(dp.warnings)}"
-        )
+        parts.append(f"- Data warnings shown{suffix}")
 
     return _tag("dataset", "\n".join(parts))
 
@@ -471,8 +477,8 @@ def render_profile_decision_section(
         parts.append(f"- {label} (partial autocorrelation, strongest first): {lags}{suffix}")
     if for_describe and len(profile.series_pacf) > MAX_STATS_SERIES:
         parts.append(
-            f"- Significant lags shown only for the first {MAX_STATS_SERIES} "
-            f"of {len(profile.series_pacf)} series (a series without "
+            f"- Significant lags shown (first {MAX_STATS_SERIES} of "
+            f"{len(profile.series_pacf)} series; a series without "
             f"significant lags has no line)"
         )
     if profile.window_features:
@@ -560,10 +566,79 @@ def render_plan_section(
     return _tag("forecast_plan", "\n".join(parts))
 
 
+def backtest_cv_from_code(code: str) -> Any:
+    """
+    Read the `TimeSeriesFold` that a backtesting script builds, without
+    running the script.
+
+    Only the literal arguments of the `cv = TimeSeriesFold(...)` call are
+    read (numbers, booleans, strings, lists, None and the
+    `pd.Timestamp('...')` that the renderer writes for a date), so the
+    description of a script cannot drift from its code.
+
+    Parameters
+    ----------
+    code : str
+        Generated script.
+
+    Returns
+    -------
+    cv : TimeSeriesFold, None
+        The splitter the script builds, or None when the script builds none
+        or its arguments are not literals.
+    """
+
+    from skforecast.model_selection import TimeSeriesFold
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+
+    for node in tree.body:
+        if not (
+            isinstance(node, ast.Assign)
+            and [getattr(t, "id", None) for t in node.targets] == ["cv"]
+            and isinstance(node.value, ast.Call)
+            and getattr(node.value.func, "id", None) == "TimeSeriesFold"
+            and not node.value.args
+        ):
+            continue
+        kwargs = {}
+        for keyword in node.value.keywords:
+            value = keyword.value
+            if (
+                isinstance(value, ast.Call)
+                and ast.unparse(value.func) == "pd.Timestamp"
+                and len(value.args) == 1
+                and not value.keywords
+                and isinstance(value.args[0], ast.Constant)
+                and isinstance(value.args[0].value, str)
+            ):
+                # A date edited by hand may not parse; then the folds are
+                # not counted, as for any other value that cannot be read.
+                try:
+                    kwargs[keyword.arg] = pd.Timestamp(value.args[0].value)
+                except (ValueError, TypeError):
+                    return None
+                continue
+            try:
+                kwargs[keyword.arg] = ast.literal_eval(value)
+            except (ValueError, TypeError, SyntaxError):
+                return None
+        try:
+            return TimeSeriesFold(**kwargs)
+        except Exception:
+            return None
+
+    return None
+
+
 def render_script_section(
     plan: ForecastPlan | None,
     code: str | None,
     for_describe: bool = False,
+    cv_config: dict | None = None,
 ) -> str:
     """
     Render the `<script>` section describing a generated script.
@@ -583,6 +658,11 @@ def render_script_section(
     for_describe : bool, default False
         Whether the section is rendered for `describe()`, which leaves out
         `SCRIPT_NOTE`, addressed to the LLM of `ask()`.
+    cv_config : dict, default None
+        Cross-validation strategy of a backtesting script (as returned by
+        `resolve_cv_config`), read from the script with
+        `backtest_cv_from_code`. With it, or with a script that calls a
+        backtesting function, the mode is backtesting.
 
     Returns
     -------
@@ -593,7 +673,37 @@ def render_script_section(
     if plan is None or code is None:
         return ""
 
-    if plan.end_train is not None:
+    is_backtest = re.search(
+        r"^metrics, predictions = backtesting_\w+\(", code, re.M
+    )
+    if is_backtest or cv_config is not None:
+        if cv_config is None:
+            mode = (
+                "backtesting: predicts every fold of a cross-validation "
+                "strategy and scores it against the held-out observations "
+                "(its folds could not be counted from the script)"
+            )
+        else:
+            n_folds = cv_config["n_folds"]
+            n_fits = cv_config["n_fits"]
+            trained = (
+                "without training the model (foundation model)"
+                if plan.task_type == "foundation"
+                else f"training the forecaster {n_fits} time"
+                     f"{'s' if n_fits != 1 else ''}"
+            )
+            mode = (
+                f"backtesting: predicts {n_folds} fold"
+                f"{'s' if n_folds != 1 else ''} of {cv_config['steps']} step"
+                f"{'s' if cv_config['steps'] != 1 else ''}, "
+                f"{trained}, and scores the predictions of every fold against "
+                f"the held-out observations"
+            )
+        outputs = (
+            "metrics (one column per metric, one row per series when there "
+            "are several), and predictions of every fold with a `fold` column"
+        )
+    elif plan.end_train is not None:
         mode = (
             f"evaluation: trains up to {plan.end_train}, predicts the "
             f"following {plan.steps} steps and scores them against the "
@@ -775,8 +885,8 @@ def _first_series_metrics(metrics: Any) -> str:
     aggregated = ", plus the aggregated rows" if is_aggregated.any() else ""
 
     return (
-        f"Rows of the first {MAX_STATS_SERIES} of {len(series)} series"
-        f"{aggregated}.\n"
+        f"Rows shown (first {MAX_STATS_SERIES} of {len(series)} series"
+        f"{aggregated}).\n"
         f"{metrics.loc[keep].to_string(index=False)}"
     )
 
@@ -859,6 +969,47 @@ def render_comparison_overview_section(
     return _tag("comparison_overview", "\n".join(parts))
 
 
+def _shared_cv_note(result: ComparisonResult) -> str:
+    """
+    State how the shared cross-validation strategy applies to the
+    candidates of a comparison.
+
+    skforecast refits `ForecasterStats` in every fold whatever `refit`
+    says, so when one ran with a strategy that does not refit (or does so
+    on another window), the strategy is not applied identically to it and
+    the note says what ran for it, as the comparison explanation does.
+
+    Parameters
+    ----------
+    result : ComparisonResult
+        Completed comparison.
+
+    Returns
+    -------
+    note : str
+        Line prepended to the strategy.
+    """
+
+    shared = result.cv_config
+    for candidate in result.candidates.values():
+        if candidate.plan.forecaster != "ForecasterStats":
+            continue
+        stats = candidate.cv_config
+        if all(
+            stats.get(key) == shared.get(key)
+            for key in ("refit", "fixed_train_size", "n_fits")
+        ):
+            break
+        window = "fixed" if stats["fixed_train_size"] else "expanding"
+        return (
+            f"Applied to every candidate, except ForecasterStats: skforecast "
+            f"refits it in every fold, on a {window} window "
+            f"({stats['n_fits']} trainings)."
+        )
+
+    return "Applied identically to every candidate."
+
+
 def render_leaderboard_section(
     results: Any,
     max_rows: int = MAX_LEADERBOARD_ROWS,
@@ -897,11 +1048,10 @@ def render_leaderboard_section(
         omitted = n_rows - max_rows
         note = "" if for_describe else f" {LEADERBOARD_NOTE}"
         body = (
-            f"Candidates listed: {n_rows}. Only the top {max_rows} rows are "
-            f"shown; the remaining {omitted} ranked below them and were not "
-            f"provided.{note}\n\n"
-            f"{results.head(max_rows).to_string()}\n"
-            f"... ({omitted} lower-ranked candidates omitted) ..."
+            f"Candidates listed: {n_rows}. Rows shown (first {max_rows} of "
+            f"{n_rows}): the {omitted} lower-ranked "
+            f"{'rows are' if omitted != 1 else 'row is'} omitted.{note}\n\n"
+            f"{results.head(max_rows).to_string()}"
         )
 
     return _tag("leaderboard", body)
@@ -938,9 +1088,7 @@ def render_failures_section(
     shown, suffix = _first_items(list(failures.items()), for_describe)
     parts = [f"- {name}: {failure.summary()}" for name, failure in shown]
     if suffix:
-        parts.append(
-            f"Failures shown: the first {MAX_DESCRIBE_ITEMS} of {len(failures)}"
-        )
+        parts.append(f"- Failures shown{suffix}")
 
     return _tag("failed_candidates", "\n".join(parts))
 
@@ -1109,7 +1257,7 @@ def build_comparison_context(
         render_failures_section(result.failures, for_describe=for_describe),
         render_cv_section(
             result.cv_config,
-            note="Applied identically to every candidate.",
+            note=_shared_cv_note(result),
         ),
         render_deterministic_summary_section(result.explanation),
         render_winning_candidate_section(
