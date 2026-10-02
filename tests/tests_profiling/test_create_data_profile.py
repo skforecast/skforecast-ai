@@ -11,7 +11,7 @@ from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
-from ..fixtures_datasets import df_h2o, df_items_sales_long
+from ..fixtures_datasets import df_h2o, df_items_sales_long, df_items_sales_wide
 from .fixtures_profiling import (
     df_long_duplicate_values_series_b,
     df_long_identical_duplicates_series_b,
@@ -991,10 +991,10 @@ def test_create_data_profile_note_when_long_series_ends_early():
 
     assert profile.series_lengths["item_3"].end == "2012-03-30"
     assert profile.warnings == [
-        "Series ending early: 1 series ends before the last date of the data "
+        "Series ending early: 1 series ends before the last date with a value "
         "(2012-04-29): 'item_3' (2012-03-30). ForecasterRecursiveMultiSeries does "
-        "not predict them, and ForecasterFoundation predicts each one from its "
-        "own last date, inside the range of the data."
+        "not predict them, and ForecasterFoundation predicts each one after its "
+        "own last row, rows without a value included."
     ]
 
 
@@ -1010,11 +1010,50 @@ def test_create_data_profile_note_when_long_series_ends_with_missing_values():
     profile = create_data_profile(data=data, **_LONG_KWARGS)
 
     assert profile.warnings[0] == (
-        "Series ending early: 1 series ends before the last date of the data "
+        "Series ending early: 1 series ends before the last date with a value "
         "(2012-04-29): 'item_3' (2012-03-30). ForecasterRecursiveMultiSeries does "
-        "not predict them, and ForecasterFoundation predicts each one from its "
-        "own last date, inside the range of the data."
+        "not predict them, and ForecasterFoundation predicts each one after its "
+        "own last row, rows without a value included."
     )
+
+
+@pytest.mark.parametrize("dates_in", ["index", "column"])
+def test_create_data_profile_note_when_wide_series_ends_early(dates_in):
+    """
+    Test that a wide-format series (column) whose last values are missing
+    gets the note on series ending early, as in long format: a forecast of
+    the future left it out without any warning (item_3 empty on the last 2
+    dates, with the dates in the index or in a column).
+    """
+    data = df_items_sales_wide.copy()
+    data.iloc[-2:, 2] = np.nan
+    kwargs = {"target": ["item_1", "item_2", "item_3"]}
+    if dates_in == "column":
+        data = data.reset_index()
+        kwargs["date_column"] = "date"
+
+    profile = create_data_profile(data=data, **kwargs)
+
+    assert profile.warnings == [
+        "Series ending early: 1 series ends before the last date with a value "
+        "(2012-04-29): 'item_3' (2012-04-27). ForecasterRecursiveMultiSeries does "
+        "not predict them, and the other forecasters read their last values as "
+        "missing values, which not every estimator or foundation model can use."
+    ]
+
+
+def test_create_data_profile_no_note_when_wide_series_end_together():
+    """
+    Test that wide-format series that all end on the same date, also with
+    missing values at the end of every one, get no note on series ending
+    early.
+    """
+    data = df_items_sales_wide.copy()
+    data.iloc[-2:, :] = np.nan
+
+    profile = create_data_profile(data=data, target=["item_1", "item_2", "item_3"])
+
+    assert profile.warnings == []
 
 
 def test_create_data_profile_output_when_long_series_share_frequency():

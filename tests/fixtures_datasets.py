@@ -131,6 +131,16 @@ df_items_sales_long = pd.DataFrame({
     "value": np.concatenate([_item_1_values, _item_2_values, _item_3_values]),
 })
 
+# items_sales in wide format: one column per series, dates in the index.
+df_items_sales_wide = pd.DataFrame(
+    {
+        "item_1": _item_1_values,
+        "item_2": _item_2_values,
+        "item_3": _item_3_values,
+    },
+    index=pd.date_range("2012-01-01", periods=120, freq="D", name="date"),
+)
+
 # h2o with its dates as text in the column 'date', as `pandas.read_csv`
 # reads them.
 df_h2o_text = pd.DataFrame({

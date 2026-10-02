@@ -213,10 +213,12 @@ def create_data_profile(
     different frequencies, or with timestamps off the grid of the others,
     raise a `ValueError` (see `_infer_long_frequency`); the missing
     timestamps of every series are counted, and a note in `warnings` names
-    the series whose last value comes before the last date of the data,
-    which `ForecasterRecursiveMultiSeries` does not predict. Time zone aware
-    dates are read in local time for a frequency of a day or coarser and in
-    UTC for a finer one, as pandas puts them on a grid.
+    the series whose last value comes before the last date with a value,
+    which `ForecasterRecursiveMultiSeries` does not predict. The same note
+    is given for wide-format data, where the series are the columns of
+    `target`. Time zone aware dates are read in local time for a frequency
+    of a day or coarser and in UTC for a finer one, as pandas puts them on a
+    grid.
     """
     if isinstance(data, (str, Path)):
         data = pd.read_csv(data)
@@ -368,7 +370,11 @@ def create_data_profile(
                 ids    = data[series_id_column],
                 values = data[first_target],
             )
-            if series_dates is not None else None
+            if series_dates is not None
+            else _wide_series_ending_early(data, target, date_col)
+            if data_format == "wide" and index_type == "datetime"
+            and len(target) > 1
+            else None
         ),
     )
     if long_dates is not None and series_dates is None:
@@ -1281,6 +1287,60 @@ def _series_ending_early(
     early = {
         str(names[code]): _fmt_timestamp(end)
         for code, end in ends.items() if end < last
+    }
+    if not early:
+        return None
+
+    return _fmt_timestamp(last), early
+
+
+def _wide_series_ending_early(
+    data: pd.DataFrame,
+    target: list[str],
+    date_col: str | None,
+) -> tuple[str, dict[str, str]] | None:
+    """
+    Find the series of wide-format data (one target column per series) whose
+    last value comes before the last date with a value, as
+    `_series_ending_early` does for long-format data, from the missing
+    values of each column only.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Wide-format data, dated by `date_col` or by its index.
+    target : list of str
+        Target columns, one per series.
+    date_col : str, None
+        Date column, or None when the index holds the dates.
+
+    Returns
+    -------
+    series_ending_early : tuple, None
+        Last date with a value in the data and the series whose last value
+        comes before it, mapped to the date of that value. None when every
+        series reaches the last date, or when the columns or the dates
+        cannot be read one per series.
+    """
+    dates = row_dates(data, date_col)
+    values = data[target]
+    if dates is None or values.shape[1] != len(target):
+        return None
+    dates = pd.DatetimeIndex(dates)
+    present = values.notna().to_numpy() & ~np.asarray(dates.isna())[:, None]
+    has_value = present.any(axis=0)
+    if not has_value.any():
+        return None
+    # The last value of each column, in date order (NaT first).
+    order = np.argsort(dates.asi8, kind="stable")
+    present = present[order]
+    last_rows = len(present) - 1 - np.argmax(present[::-1], axis=0)
+    ends = dates[order][last_rows]
+    last = ends[has_value].max()
+    early = {
+        str(column): _fmt_timestamp(end)
+        for column, end, valid in zip(target, ends, has_value)
+        if valid and end < last
     }
     if not early:
         return None
@@ -2375,11 +2435,14 @@ def generate_warnings(
         Whether the rows were not in date order (within a series, for long
         format) and were sorted before profiling.
     long_format : bool, default False
-        Whether the data is in long format, to word the note on sorting.
+        Whether the data is in long format, to word the note on sorting and
+        the end of the note on series ending early (what the forecasters do
+        with those series differs between long and wide format).
     series_ending_early : tuple, default None
-        Last date with a value of long-format data and the series whose last
-        value comes before it, mapped to the date of that value (see
-        `_series_ending_early`).
+        Last date with a value of multi-series data (long or wide format) and
+        the series whose last value comes before it, mapped to the date of
+        that value (see `_series_ending_early` and
+        `_wide_series_ending_early`).
 
     Returns
     -------
@@ -2434,12 +2497,21 @@ def generate_warnings(
         if len(early) > 5:
             shown += f" and {len(early) - 5} more"
         verb = "ends" if len(early) == 1 else "end"
+        # In long format a foundation model reads each series up to its last
+        # row; in wide format the other forecasters read every series up to
+        # the last date, so its last values are missing values for them.
+        others = (
+            "ForecasterFoundation predicts each one after its own last row, "
+            "rows without a value included"
+            if long_format else
+            "the other forecasters read their last values as missing values, "
+            "which not every estimator or foundation model can use"
+        )
         warnings.append(
             f"Series ending early: {len(early)} series {verb} before the last "
-            f"date of the data ({last_date}): {shown}. "
+            f"date with a value ({last_date}): {shown}. "
             f"ForecasterRecursiveMultiSeries does not predict them, and "
-            f"ForecasterFoundation predicts each one from its own last date, "
-            f"inside the range of the data."
+            f"{others}."
         )
 
     total_target_missing = sum(missing_target.values())

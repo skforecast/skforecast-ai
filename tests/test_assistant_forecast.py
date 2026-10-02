@@ -14,7 +14,12 @@ from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
-from tests.fixtures_datasets import df_h2o, df_h2o_text, df_items_sales_long
+from tests.fixtures_datasets import (
+    df_h2o,
+    df_h2o_text,
+    df_items_sales_long,
+    df_items_sales_wide,
+)
 from tests.fixtures_assistant import (
     df_calendar_named_exog,
     df_single,
@@ -1059,10 +1064,34 @@ def test_forecast_note_when_long_series_ends_early():
     )
 
     assert result.profile.data_profile.warnings == [
-        "Series ending early: 1 series ends before the last date of the data "
+        "Series ending early: 1 series ends before the last date with a value "
         "(2012-04-29): 'item_3' (2012-03-30). ForecasterRecursiveMultiSeries does "
-        "not predict them, and ForecasterFoundation predicts each one from its "
-        "own last date, inside the range of the data."
+        "not predict them, and ForecasterFoundation predicts each one after its "
+        "own last row, rows without a value included."
+    ]
+    assert sorted(result.predictions["level"].unique()) == ["item_1", "item_2"]
+
+
+def test_forecast_note_when_wide_series_ends_early():
+    """
+    Test that forecasting wide data where a series (item_3) has no value on
+    the last 2 dates says so in the profile: the forecast covers only the
+    series that reach the last date, which happened without any warning.
+    """
+    data = df_items_sales_wide.copy()
+    data.iloc[-2:, 2] = np.nan
+
+    result = ForecastingAssistant().forecast(
+        data   = data,
+        target = ["item_1", "item_2", "item_3"],
+        steps  = 7,
+    )
+
+    assert result.profile.data_profile.warnings == [
+        "Series ending early: 1 series ends before the last date with a value "
+        "(2012-04-29): 'item_3' (2012-04-27). ForecasterRecursiveMultiSeries does "
+        "not predict them, and the other forecasters read their last values as "
+        "missing values, which not every estimator or foundation model can use."
     ]
     assert sorted(result.predictions["level"].unique()) == ["item_1", "item_2"]
 
