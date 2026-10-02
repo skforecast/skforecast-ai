@@ -68,9 +68,11 @@ REPORTS_DIR = REPO_ROOT / "tools" / "ai" / "ask_context_reports"
 # Data
 # =============================================================================
 DATASETS = {
-    # name: (target, date_column, default steps)
+    # name: (target, date_column, default steps[, series_id_column])
     "bike_sharing": ("users", "date_time", 36),
     "items_sales": (["item_1", "item_2", "item_3"], "date", 14),
+    "items_sales_long": ("value", "date", 14, "series"),
+    "h2o": ("x", "fecha", 12),
 }
 
 
@@ -81,8 +83,12 @@ def load_data(name: str, tail: int) -> pd.DataFrame:
     `bike_sharing` is the hourly single series used by the documentation
     (with exogenous variables). `items_sales` is a daily wide-format
     multi-series dataset (three items), which exercises the per-series
-    branches of the context renderers. The bike sharing download falls
-    back to a synthetic hourly series so the script still runs offline.
+    branches of the context renderers, and `items_sales_long` the same
+    data in long format (one row per date and series). `h2o` is a monthly
+    single series for which ForecasterStats is a candidate, so its default
+    comparison runs ForecasterStats and ForecasterFoundation. The bike
+    sharing download falls back to a synthetic hourly series so the script
+    still runs offline.
 
     Parameters
     ----------
@@ -99,11 +105,20 @@ def load_data(name: str, tail: int) -> pd.DataFrame:
 
     from skforecast.datasets import fetch_dataset
 
-    if name == "items_sales":
+    if name in ("items_sales", "items_sales_long"):
         data = fetch_dataset("items_sales", raw=True, verbose=False)
         data["date"] = pd.to_datetime(data["date"])
         data = data.tail(tail).reset_index(drop=True)
-        print(f"[data] skforecast items_sales: {len(data)} rows, {data['date'].min()} to {data['date'].max()}")
+        if name == "items_sales_long":
+            data = data.melt(id_vars="date", var_name="series", value_name="value")
+        print(f"[data] skforecast {name}: {len(data)} rows, {data['date'].min()} to {data['date'].max()}")
+        return data
+
+    if name == "h2o":
+        data = fetch_dataset("h2o", raw=True, verbose=False)
+        data["fecha"] = pd.to_datetime(data["fecha"])
+        data = data.tail(tail).reset_index(drop=True)
+        print(f"[data] skforecast h2o: {len(data)} rows, {data['fecha'].min()} to {data['fecha'].max()}")
         return data
 
     try:
@@ -159,6 +174,9 @@ class Scenario:
         What the reader should verify in the answers.
     multi_series : list of str
         Extra grounded questions asked only on multi-series data.
+    requires : str, None
+        Workflow object the scenario needs, built only for some datasets
+        (see `build_workflow`). The scenario is skipped when it is missing.
     """
 
     name: str
@@ -167,6 +185,7 @@ class Scenario:
     probes: list[str] = field(default_factory=list)
     checklist: list[str] = field(default_factory=list)
     multi_series: list[str] = field(default_factory=list)
+    requires: str | None = None
 
 
 SCENARIOS: list[Scenario] = [
@@ -199,6 +218,7 @@ SCENARIOS: list[Scenario] = [
         checklist=[
             "Only values present in <dataset> and <profile_decision> are quoted.",
             "The estimator justification matches the size rule (Ridge below 250 observations).",
+            "Long-format data with several series: ForecasterDirectMultiVariate is not among the alternatives.",
             "Probes: seasonality strength is not in the context; missing values are only in the context if they are non zero.",
         ],
     ),
@@ -315,6 +335,78 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        name="backtest_code",
+        build=lambda w: (w["backtest_code_result"], None),
+        grounded=[
+            "What does this script do: how many folds does it run, how many "
+            "times is the forecaster trained, and what does it output?",
+        ],
+        probes=[
+            "What mean absolute error will this backtest give?",
+        ],
+        checklist=[
+            "Described as a backtest (folds, trainings, predictions and metrics), not as a forecast of the future.",
+            "n_folds and n_fits are quoted from <backtesting_strategy>.",
+            "Probe: no metric is predicted; it points to assistant.backtest().",
+        ],
+    ),
+    Scenario(
+        name="stats_backtest",
+        build=lambda w: (w["stats_backtest_result"], None),
+        requires="stats_backtest_result",
+        grounded=[
+            "How was ForecasterStats trained across the folds, and how many "
+            "times?",
+        ],
+        checklist=[
+            "It is refitted in every fold on a fixed window, whatever refit was asked; n_fits equals n_folds.",
+            "The reason given is the one in the summary (skforecast requires it for ARIMA models).",
+        ],
+    ),
+    Scenario(
+        name="compare_default",
+        build=lambda w: (w["comparison_default_result"], None),
+        requires="comparison_default_result",
+        grounded=[
+            "Was the cross-validation strategy applied the same way to every "
+            "candidate? How many times was each one trained?",
+        ],
+        checklist=[
+            "ForecasterStats is said to be refitted in every fold, with its own number of trainings.",
+            "ForecasterFoundation, when it ran, is said not to be trained (only the folds apply).",
+            "The other candidates follow the shared strategy.",
+        ],
+    ),
+    Scenario(
+        name="compare_many",
+        build=lambda w: (w["comparison_many_result"], None),
+        requires="comparison_many_result",
+        grounded=[
+            "Which candidates rank at the top, and how many candidates are not "
+            "shown in the table?",
+        ],
+        probes=[
+            "What was the error of the worst candidate?",
+        ],
+        checklist=[
+            "The top rows are restated as in <leaderboard>, and the number of omitted candidates is quoted.",
+            "Probe: the omitted rows are not invented; it points to result.results.",
+        ],
+    ),
+    Scenario(
+        name="many_categorical",
+        build=lambda w: w["categorical_plan"],
+        requires="categorical_plan",
+        grounded=[
+            "Which categorical exogenous variables does this plan use, and how "
+            "are they encoded?",
+        ],
+        checklist=[
+            "The columns are quoted as listed, with the count of the ones not shown ('first 15 of N').",
+            "No column name is invented beyond those listed.",
+        ],
+    ),
+    Scenario(
         name="compare",
         build=lambda w: (w["comparison_result"], None),
         grounded=[
@@ -360,9 +452,12 @@ def build_workflow(
     """
 
     started = time.perf_counter()
-    target, date_column, _ = spec
-    common = dict(target=target, date_column=date_column)
-    multi = isinstance(target, list)
+    target, date_column, _, *rest = spec
+    series_id_column = rest[0] if rest else None
+    common = dict(
+        target=target, date_column=date_column, series_id_column=series_id_column
+    )
+    multi = isinstance(target, list) or series_id_column is not None
 
     profile = assistant.profile(data=data, **common)
     plan = assistant.plan(profile, steps=steps, interval=[0.1, 0.9])
@@ -373,6 +468,9 @@ def build_workflow(
     )
     backtest_result = assistant.backtest(
         data=data, cv=cv_result, profile=profile, plan=plan, show_progress=False
+    )
+    backtest_code_result = assistant.backtest_code(
+        data=data, cv=cv_result, profile=profile, plan=plan
     )
     candidates = None if multi else [
         ("recursive_default", {"forecaster": "ForecasterRecursive"}),
@@ -389,9 +487,48 @@ def build_workflow(
         forecaster = "ForecasterFoundation",
         interval   = [0.1, 0.9],
     )
+    optional = {}
+    if "ForecasterStats" in profile.forecaster_candidates:
+        # Its default comparison runs ForecasterStats, which skforecast
+        # refits in every fold, and ForecasterFoundation when its backend
+        # is installed: the exceptions of the shared strategy.
+        stats_plan = assistant.plan(profile, steps=steps, forecaster="ForecasterStats")
+        optional["stats_backtest_result"] = assistant.backtest(
+            data=data, cv=assistant.create_cv(profile, stats_plan),
+            profile=profile, plan=stats_plan, show_progress=False,
+        )
+        optional["comparison_default_result"] = assistant.compare(
+            data=data, cv=cv_result, profile=profile, show_progress=False,
+        )
+    if not multi:
+        # More candidates than the leaderboard shows (15), all cheap.
+        many = [
+            (f"ridge_{alpha:g}", {
+                "forecaster": "ForecasterRecursive", "estimator": "Ridge",
+                "estimator_kwargs": {"alpha": alpha},
+            })
+            for alpha in np.logspace(-3, 3, 18)
+        ]
+        optional["comparison_many_result"] = assistant.compare(
+            data=data, cv=cv_result, profile=profile, candidates=many,
+            baseline=False, show_progress=False,
+        )
+        # More categorical exogenous variables than describe() and the plan
+        # reason list (15).
+        rows = np.arange(len(data))
+        categorical = data.assign(**{
+            f"cat_{i:02d}": pd.Series(rows % (i + 2)).map(lambda v: f"c{v}").to_numpy()
+            for i in range(20)
+        })
+        categorical_profile = assistant.profile(data=categorical, **common)
+        optional["categorical_plan"] = (
+            categorical_profile,
+            assistant.plan(categorical_profile, steps=steps),
+        )
     print(f"[workflow] built in {time.perf_counter() - started:.1f}s")
 
     return {
+        **optional,
         "multi_series": multi,
         "profile": profile,
         "plan": plan,
@@ -400,6 +537,7 @@ def build_workflow(
         "cv_result": cv_result,
         "forecast_result": forecast_result,
         "backtest_result": backtest_result,
+        "backtest_code_result": backtest_code_result,
         "comparison_result": comparison_result,
     }
 
@@ -620,6 +758,9 @@ def main() -> None:
         "",
     ]
     for scenario in selected:
+        if scenario.requires and scenario.requires not in workflow:
+            print(f"[scenario] {scenario.name}: skipped, not built for {args.dataset}")
+            continue
         print(f"[scenario] {scenario.name}")
         report += run_scenario(
             scenario, assistant, workflow,

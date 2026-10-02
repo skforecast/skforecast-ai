@@ -30,10 +30,18 @@ From the repository root, inside the project conda environment, with
 python tools/ai/check_ask_context.py --dry-run                     # contexts only, free
 python tools/ai/check_ask_context.py --dataset bike_sharing        # single series with exog
 python tools/ai/check_ask_context.py --dataset items_sales         # three series, wide format
+python tools/ai/check_ask_context.py --dataset items_sales_long    # the same, long format
+python tools/ai/check_ask_context.py --dataset h2o                 # monthly, ForecasterStats
 python tools/ai/check_ask_context.py --scenarios profile,compare   # a subset
 ```
 
-A full run makes about 15 calls per dataset. With `google:gemini-3.8-flash`
+Before a release, run the four datasets: some scenarios need objects that
+only some datasets produce (ForecasterStats and the default comparison
+with ForecasterStats and ForecasterFoundation on `h2o`; more than 15
+candidates and more than 15 categorical variables on the single series)
+and are skipped on the others.
+
+A full run makes about 15 to 20 calls per dataset. With `google:gemini-3.8-flash`
 that is a few cents. Ad hoc reports land in this folder with a timestamped
 name and are ignored by git.
 
