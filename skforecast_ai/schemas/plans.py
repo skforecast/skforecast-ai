@@ -8,6 +8,7 @@
 from __future__ import annotations
 import sys
 from typing import Annotated, Any, ClassVar, Literal
+import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 if sys.version_info >= (3, 12):
@@ -256,6 +257,22 @@ class PlanOverrides(BaseModel):
         return value
 
 
+def _plain(value: Any) -> Any:
+    """
+    Return a numpy scalar or array as the Python value it holds, also inside
+    lists, tuples and dicts; any other value as it is.
+    """
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return type(value)(_plain(item) for item in value)
+    return value
+
+
 class RefinePlanOverrides(TypedDict, total=False):
     """
     Keyword overrides accepted by `ForecastingAssistant.refine_plan()`.
@@ -456,6 +473,19 @@ class ForecastPlan(DisplayMixin, BaseModel):
     warnings: list[str] = Field(default_factory=list)
     llm_refined_fields: list[str] = Field(default_factory=list)
     explanation: str
+
+    @field_validator("estimator_kwargs", mode="before")
+    @classmethod
+    def _plain_estimator_kwargs(cls, value: Any) -> Any:
+        """
+        Turn numpy values (`np.float64(0.5)`, an array) into the Python
+        values they hold. They are written into the script with `repr()`,
+        which gave `np.float64(0.5)` in a script that does not import
+        numpy, and they cannot be saved as JSON.
+        """
+        if isinstance(value, dict):
+            return {key: _plain(item) for key, item in value.items()}
+        return value
 
     @field_validator("steps", mode="before")
     @classmethod

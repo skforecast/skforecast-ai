@@ -3,6 +3,7 @@
 import json
 import re
 
+import numpy as np
 import pandas as pd
 import pytest
 from pydantic import ValidationError
@@ -816,3 +817,30 @@ def test_compare_progress_is_frozen_and_rejects_unknown_fields():
     with pytest.raises(ValidationError, match="greater than or equal to 0"):
         CompareProgress(candidate="ridge", status="started", completed=-1, total=2)
     assert CompareProgress.model_validate_json(event.model_dump_json()) == event
+
+
+def test_forecast_plan_estimator_kwargs_numpy_values_become_python_values():
+    """
+    Test that numpy values in `estimator_kwargs` (such as those taken from
+    `np.logspace`) are stored as the Python values they hold: the script
+    wrote `alpha=np.float64(0.5)` without importing numpy, so it failed
+    with NameError, and the plan could not be saved as JSON.
+    """
+    plan = ForecastPlan(
+        task_type        = "single_series",
+        forecaster       = "ForecasterRecursive",
+        estimator        = "Ridge",
+        estimator_kwargs = {
+            "alpha": np.float64(0.5),
+            "max_iter": np.int64(100),
+            "positive": np.bool_(False),
+        },
+        steps            = 10,
+        explanation      = "Test.",
+    )
+
+    assert plan.estimator_kwargs == {"alpha": 0.5, "max_iter": 100, "positive": False}
+    assert [type(value) for value in plan.estimator_kwargs.values()] == [
+        float, int, bool
+    ]
+    assert ForecastPlan.model_validate_json(plan.model_dump_json()) == plan
