@@ -1280,7 +1280,7 @@ Decisiones del autor aplicadas: las de las secciones 6, 12.1 y 13.1 (en particul
   - ejecutados como fichero, esos scripts dan ahora las predicciones de la llamada;
   - `backtest(show_progress=False)` con una columna llamada como la línea de la llamada ya no falla.
 - 4a: la razón del paso de categóricas nombra como mucho 15 columnas y "(first 15 of N)" (display del plan, tabla del CLI, `describe()` y `ask()`).
-- 4b: `ask()` y `describe()` de un resultado de `backtest_code()` lo describen como backtest, con su estrategia, folds y ajustes; con `send_data_to_llm=False`, "Folds: N" en lugar de estadísticas de `fold`.
+- 4b: `ask()` y `describe()` de un resultado de `backtest_code()` lo describen como backtest, con su estrategia, folds y ajustes; `describe()` da "Folds: N" en lugar de estadísticas de `fold` (`ask()` envía siempre las filas, así que no le afecta).
 - 4c: `ask()` y `describe()` de un `compare()` en que corrió ForecasterStats con una estrategia que no reajusta dicen que se reajustó en cada fold; la clasificación recortada de `ask()` se dice una vez; los marcadores de `describe()` (nuevo en 0.4.0) usan "(first N of M ...)".
 - 4d: ninguno (solo tests).
 
@@ -1294,7 +1294,7 @@ Decisiones del autor aplicadas: las de las secciones 6, 12.1 y 13.1 (en particul
 **Para el check de pago** (no se lanzó en esta fase). Lista completa de lo que cambia en lo que recibe el LLM en esta fase:
 - PR 17: la sección `<script>` de un `CodeGenerationResult` lista el fichero que lee el script, así que con un perfil guardado y otra ruta nombra esa ruta (ningún golden lo cubre).
 - 4a: la razón del paso de categóricas en `<forecast_plan>` cuando hay más de 15 columnas categóricas.
-- 4b: el contexto de un resultado de `backtest_code()` gana `<backtesting_strategy>` y el modo backtesting en `<script>`; con `send_data_to_llm=False`, "Folds: N" en `<predictions>` de un backtest.
+- 4b: el contexto de un resultado de `backtest_code()` gana `<backtesting_strategy>` y el modo backtesting en `<script>`. "Folds: N" en `<predictions>` solo aparece en `describe()`: `ask()` envía siempre el contexto con `send_data=True` (con `send_data_to_llm=False` solo avisa), así que no entra en el check de pago.
 - 4c: la nota de `<backtesting_strategy>` de un `compare()` en que corrió ForecasterStats con otra estrategia, y la frase de la clasificación recortada en `<leaderboard>` (con más de 15 candidatos).
 - PRs 15 y 16 y 4d: nada.
 
