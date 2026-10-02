@@ -84,7 +84,7 @@ All significant changes to this project are documented in this release file.
 
 **Fixed**
 
-+ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` given a CSV path returned a script that loaded `'data.csv'` instead of that file. The script now loads the CSV path or URL passed, in these methods and in `forecast_code()` and `backtest_code()`, also when the `profile` passed was built from another file.
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` given a CSV path returned a script that loaded `'data.csv'` instead of that file. The script now loads the CSV path or URL passed, in these methods and in `forecast_code()` and `backtest_code()` (and in the CLI, also with `--from-plan`), also when the `profile` passed was built from another file.
 
 + <span class="badge text-bg-danger">Fix</span> The script generated for a CSV without dates turned its first column into the index, so it failed when run as a file. It now reads the file as `forecast()` does.
 

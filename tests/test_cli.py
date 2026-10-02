@@ -459,6 +459,37 @@ class TestGenerateCode:
         assert result.exit_code == 0
         assert "alpha=3.0" in result.output
 
+    @pytest.mark.parametrize("command", ["forecast-code", "backtest-code"])
+    def test_code_from_plan_loads_data_argument(self, tmp_path, command):
+        """
+        forecast-code and backtest-code with --from-plan write into the script
+        the DATA argument, the file to run it on, not the file of the bundle:
+        forecast-code ignored DATA and wrote the bundle's path, unlike
+        backtest-code and the Python API.
+        """
+        first = _write_csv(tmp_path, df_single, name="first.csv")
+        second = _write_csv(tmp_path, df_single, name="second.csv")
+        plan_result = runner.invoke(
+            app,
+            ["plan", first, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.output)
+        output = tmp_path / "script.py"
+
+        result = runner.invoke(
+            app,
+            [command, second, "--from-plan", str(plan_file),
+             "--output", str(output), "--quiet"],
+        )
+
+        assert result.exit_code == 0, result.output
+        code = output.read_text()
+        assert f"pd.read_csv({second!r}" in code
+        assert "first.csv" not in code
+
 
 # ---------------------------------------------------------------------------
 # forecast command
