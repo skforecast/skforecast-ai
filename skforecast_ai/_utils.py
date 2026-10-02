@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import warnings
 from pathlib import Path
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 from skforecast.exceptions import LongTrainingWarning
@@ -28,7 +29,8 @@ from ._validation import (
     _validate_window_features as _validate_window_features,
     validate_interval,
 )
-from .profiling.data_profile import _try_parse_first_date_column
+from ._dates import is_text, parse_text_dates
+from .profiling.data_profile import _read_date_column, _try_parse_first_date_column
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
 from .exceptions import DataNotFoundError, InvalidInputError
 
@@ -640,6 +642,173 @@ def _match_profile_column(
             field = name,
         )
     return value
+
+
+def load_exog(
+    path: str | Path | None,
+    date_column: str | None = None,
+    series_id_column: str | None = None,
+) -> pd.DataFrame | None:
+    """
+    Load the future exogenous variables from a CSV file.
+
+    The dates are read as the CSV loader of the data reads them, so empty
+    date cells or UTC offsets that change raise an error that says so. They
+    are the `date_column` when given. Otherwise they are the first column
+    when it holds dates, as `index_col=0, parse_dates=True` read it before
+    (integer dates such as 20080701 too), or else the first text column that
+    holds dates, as for the data (see `_try_parse_first_date_column`: a
+    column with empty date cells is skipped for a later complete one, with a
+    warning); a first column of row numbers or of increasing integers (row
+    ids, a horizon counter) then becomes no column, as `index_col=0` made it the
+    index before, except for long-format data (`series_id_column`), whose
+    first column may hold the series ids. Dates in mixed formats, which the
+    generated script cannot read, raise. A header one field short
+    (`to_csv(index_label=False)`, R's `write.csv`) is read as before, and
+    rows made only of separators (a spreadsheet saved as CSV) are dropped,
+    as they hold no date and no value. The dates become the index, sorted.
+
+    Parameters
+    ----------
+    path : str, Path, None
+        Path to the CSV file. If None, returns None.
+    date_column : str, default None
+        Name of the column holding the dates.
+    series_id_column : str, default None
+        Name of the series id column of long-format data.
+
+    Returns
+    -------
+    exog : pandas DataFrame, None
+        Future exogenous variables indexed by their dates, or None when
+        `path` is None.
+    """
+    if path is None:
+        return None
+    path = Path(path)
+    if not path.is_file():
+        raise DataNotFoundError(
+            f"Exog CSV not found: '{path}'.",
+            field = "exog",
+        )
+
+    exog = pd.read_csv(path)
+    if isinstance(exog.index, pd.MultiIndex):
+        raise InvalidInputError(
+            f"The rows of the exog CSV '{path}' have more fields than its header "
+            f"(often separators at the end of the rows).",
+            field = "exog",
+        )
+    if not isinstance(exog.index, pd.RangeIndex):
+        # A header one field short: pandas reads the first field as the
+        # index, as `index_col=0` read it before; with `date_column`, the
+        # dates are in a named column and that index was dropped.
+        if date_column is None:
+            exog = exog.rename_axis("Unnamed: 0").reset_index()
+        else:
+            exog = exog.reset_index(drop=True)
+    # Rows made only of separators (a spreadsheet saved as CSV) hold no date
+    # and no value; the generated code dropped them with asfreq.
+    filled = exog.notna().any(axis=1).to_numpy()
+    exog = exog[filled].reset_index(drop=True)
+    text = {column: exog[column].copy() for column in exog.columns}
+    if date_column is not None:
+        if date_column not in exog.columns:
+            raise InvalidInputError(
+                f"The exog CSV '{path}' has no column {date_column!r}; its "
+                f"columns are {list(exog.columns)}.",
+                field = "exog",
+            )
+        values = exog[date_column]
+        parsed, issue = None, None
+        if is_text(values):
+            parsed, issue = _read_date_column(date_column, values, named=True)
+        if issue is not None:
+            raise InvalidInputError(
+                f"Exog CSV '{path}': {''.join(issue)}",
+                field = "exog",
+            )
+        if parsed is None or parsed.isna().any():
+            raise InvalidInputError(
+                f"Column {date_column!r} of the exog CSV '{path}' does not hold "
+                f"dates.",
+                field = "exog",
+            )
+        exog[date_column] = parsed
+        found = date_column
+    else:
+        first = exog.columns[0]
+        found = None
+        if not is_text(text[first]) and series_id_column is None:
+            # The first column, read as `index_col=0, parse_dates=True` read
+            # it before (integer dates such as 20080701).
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                index = pd.read_csv(path, index_col=0, parse_dates=True).index
+            if isinstance(index, pd.DatetimeIndex) and len(index) == len(filled):
+                exog[first] = index[filled]
+                found = first
+        if found is None:
+            try:
+                exog = _try_parse_first_date_column(exog)
+            except InvalidInputError as exc:
+                raise InvalidInputError(
+                    f"Exog CSV '{path}': {exc}",
+                    field = "exog",
+                ) from exc
+            found = next(
+                (
+                    column for column in exog.columns
+                    if is_text(text[column])
+                    and pd.api.types.is_datetime64_any_dtype(exog[column])
+                ),
+                None,
+            )
+            if (
+                found is not None and found != first and series_id_column is None
+                and _is_row_label(first, text[first])
+            ):
+                # Row numbers or a horizon counter, which `index_col=0` took
+                # as the index before.
+                exog = exog.drop(columns=first)
+    if found is not None and is_text(text[found]):
+        # The generated script reads the dates with `pd.to_datetime`, which
+        # fails on mixed formats that the loader of the data reads.
+        try:
+            with warnings.catch_warnings():
+                # The dates were read already: pandas only repeats that it
+                # parses each one on its own.
+                warnings.simplefilter("ignore", UserWarning)
+                parse_text_dates(text[found], mixed=False)
+        except (ValueError, TypeError) as exc:
+            raise InvalidInputError(
+                f"Exog CSV '{path}': the dates of column {found!r} cannot be "
+                f"read as the generated code reads them: {exc}",
+                field = "exog",
+            ) from exc
+    if found is None:
+        # Nothing reads as dates: the first column, as `index_col=0` read it;
+        # the checks of the future exogenous variables report it.
+        found = exog.columns[0]
+    exog = exog.set_index(found)
+    if str(found).startswith("Unnamed: "):
+        exog.index.name = None
+
+    return exog.sort_index()
+
+
+def _is_row_label(name: object, values: pd.Series) -> bool:
+    """
+    Return whether a first column labels the rows: the row numbers that
+    `to_csv()` writes ('Unnamed: 0') or increasing integers (row ids, a
+    horizon counter).
+    """
+    if str(name).startswith("Unnamed: "):
+        return True
+    if not pd.api.types.is_integer_dtype(values) or values.isna().any():
+        return False
+
+    return bool((np.diff(values.to_numpy()) > 0).all())
 
 
 def _resolve_inputs_with_profile(

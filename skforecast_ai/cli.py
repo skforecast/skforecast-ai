@@ -13,7 +13,6 @@ import os
 import sys
 from pathlib import Path
 from typing import Annotated
-import pandas as pd
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -46,7 +45,7 @@ from .exceptions import (
     LLMCallError,
     LLMRequiredError,
 )
-from ._utils import _validate_lags
+from ._utils import _validate_lags, load_exog
 from .schemas.plans import ForecastPlan
 from .schemas.profiles import ForecastingProfile
 
@@ -550,53 +549,6 @@ def _collect_cv_overrides(
         "allow_incomplete_fold": allow_incomplete_fold,
     }
     return {key: value for key, value in candidates.items() if value is not None}
-
-
-def _load_exog(
-    path: Path | None,
-    date_column: str | None,
-) -> pd.DataFrame | None:
-    """
-    Load a future exogenous CSV and set its datetime index.
-
-    Mirrors the index setup applied to the main dataset: when a date
-    column is provided it is parsed to datetime and set as the index;
-    otherwise the first column is parsed as the index. The index is
-    sorted so the returned DataFrame carries a DatetimeIndex covering the
-    forecast horizon. The series frequency is enforced later, during
-    execution, where the data profile is always available, keeping the
-    behavior identical regardless of how the workflow was invoked.
-
-    Parameters
-    ----------
-    path : Path, None
-        Path to the future exogenous CSV file. If None, returns None.
-    date_column : str, None
-        Name of the column containing timestamps. If None, the first
-        column is parsed as the datetime index.
-
-    Returns
-    -------
-    exog : pandas DataFrame, None
-        Future exogenous variables indexed by a DatetimeIndex, or None
-        when `path` is None.
-    """
-    if path is None:
-        return None
-    if not path.is_file():
-        raise DataNotFoundError(
-            f"Exog CSV not found: '{path}'.",
-            field = "exog",
-        )
-
-    if date_column is not None:
-        exog = pd.read_csv(path)
-        exog[date_column] = pd.to_datetime(exog[date_column])
-        exog = exog.set_index(date_column)
-    else:
-        exog = pd.read_csv(path, index_col=0, parse_dates=True)
-
-    return exog.sort_index()
 
 
 def _write_output(content: str, output: Path | None) -> None:
@@ -1283,9 +1235,10 @@ def forecast(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
 
-            exog_df = _load_exog(
+            exog_df = load_exog(
                 exog,
-                date_column=prof.data_profile.date_column,
+                date_column      = prof.data_profile.date_column,
+                series_id_column = prof.data_profile.series_id_column,
             )
 
             with _spinner("Running forecast from plan...", quiet):
@@ -1308,8 +1261,10 @@ def forecast(
                 raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
 
-            exog_df = _load_exog(
-                exog, date_column=date_column
+            exog_df = load_exog(
+                exog,
+                date_column      = date_column,
+                series_id_column = series_id_column,
             )
 
             with _spinner("Running forecast...", quiet):

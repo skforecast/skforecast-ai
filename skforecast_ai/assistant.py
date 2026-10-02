@@ -118,6 +118,7 @@ from .schemas import (
     RefinePlanOverrides,
 )
 from ._foundation import foundation_exog_columns, validate_foundation_plan
+from ._future_exog import as_exog_frame, validate_future_exog
 from ._utils import (
     _check_evaluated_target,
     _resolve_data_and_target,
@@ -1225,7 +1226,7 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        exog: pd.DataFrame | None = None,
+        exog: pd.DataFrame | pd.Series | None = None,
         interval: list[float] | None = None,
         test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
@@ -1283,13 +1284,20 @@ class ForecastingAssistant:
             single-series or wide-format multi-series.
             When `profile` is provided, defaults to the value recorded in
             the profile and must match it if given.
-        exog : pandas DataFrame, default None
-            Future exogenous variables covering the forecast horizon
-            (at least `steps` rows). Used only in prediction mode
+        exog : pandas DataFrame, pandas Series, default None
+            Future exogenous variables covering the forecast horizon: a
+            row for each of the `steps` dates that follow the last date of
+            the data (in long format, for each series, with the series id
+            column), indexed or keyed by date as the data. A named pandas
+            Series is one variable. Used only in prediction mode
             (`test_size=None`) and required there when the data contains
             exogenous variables. Must not be combined with `test_size`:
             in evaluation mode the test-set exogenous values are taken
-            from the split.
+            from the split. Its columns, dates and values are checked
+            before running: a missing date raises `InvalidInputError`, and
+            a new category or a missing value raises when the estimator
+            does not tolerate missing values and gives a warning when it
+            does.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
@@ -1380,6 +1388,7 @@ class ForecastingAssistant:
         script (`ForecastResult.code`) and the actual execution.
         """
 
+        exog = as_exog_frame(exog)
         data_df, target, date_column, series_id_column = (
             _resolve_inputs_with_profile(
                 data, target, date_column, series_id_column, profile
@@ -1411,6 +1420,13 @@ class ForecastingAssistant:
                 data_profile = profile.data_profile,
                 end_train    = plan.end_train,
                 steps        = plan.steps,
+            )
+        elif exog is not None:
+            validate_future_exog(
+                exog    = exog,
+                data    = data_df,
+                profile = profile.data_profile,
+                plan    = plan,
             )
 
         check_estimator_installed(plan.estimator, plan.task_type)

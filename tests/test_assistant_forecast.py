@@ -436,6 +436,99 @@ def test_forecast_prediction_mode_with_exog_returns_no_metrics():
     assert len(result.predictions) == 5
 
 
+def test_forecast_InvalidInputError_when_future_exog_has_gap():
+    """
+    Test that forecast() with future `exog` missing a date to forecast
+    raises before running, naming the date, instead of forecasting with a
+    missing value without an error.
+    """
+    future_dates = pd.date_range("2023-04-11", periods=6, freq="D").delete(2)
+    exog = pd.DataFrame({"promo": [0.0, 1.0, 0.0, 1.0, 0.0]}, index=future_dates)
+
+    err_msg = re.escape(
+        "`exog` has no row for 1 of the 5 dates to forecast, such as 2023-04-13. "
+        "It must hold the dates from 2023-04-11 to 2023-04-15 at frequency 'D'."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=df_single, target="sales", date_column="date", steps=5, exog=exog
+        )
+
+    assert exc_info.value.field == "exog"
+
+
+def test_forecast_InvalidInputTypeError_when_exog_is_path():
+    """
+    Test that forecast() with `exog` given as a path raises a type error
+    that says what it expects, instead of a message about the number of
+    rows (the length of the str).
+    """
+    err_msg = re.escape(
+        "`exog` must be a pandas DataFrame with the future values of the "
+        "exogenous variables, not str."
+    )
+    with pytest.raises(InvalidInputTypeError, match=err_msg):
+        ForecastingAssistant().forecast(
+            data=df_single, target="sales", date_column="date", steps=5,
+            exog="future_exog.csv",
+        )
+
+
+def test_forecast_output_when_exog_is_named_series():
+    """
+    Test that forecast() with future `exog` given as a named pandas Series
+    forecasts with that variable (it failed inside the script before).
+    """
+    future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+    promo = pd.Series([0.0, 1.0, 0.0, 1.0, 0.0], index=future_dates, name="promo")
+
+    result = ForecastingAssistant().forecast(
+        data=df_single, target="sales", date_column="date", steps=5, exog=promo
+    )
+
+    expected = pd.DataFrame(
+        {
+            "pred": [
+                99.92181716998854, 100.88007278086671, 101.84884665578019,
+                102.81652287031471, 103.77227256755344,
+            ]
+        },
+        index=future_dates,
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+
+
+def test_forecast_UserWarning_when_future_exog_missing_value_and_lightgbm():
+    """
+    Test that forecast() with a missing value in the future `exog` and
+    LightGBM, which tolerates it, warns and forecasts as before.
+    """
+    future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+    exog = pd.DataFrame({"promo": [0.0, np.nan, 0.0, 1.0, 0.0]}, index=future_dates)
+
+    warn_msg = re.escape(
+        "`exog` has missing values in the rows to forecast ('promo': 1 value(s), "
+        "such as '2023-04-12')."
+    )
+    # skforecast warns too, from the executed script.
+    with pytest.warns(
+        MissingValuesWarning, match=re.escape("`exog` has missing values.")
+    ):
+        with pytest.warns(UserWarning, match=warn_msg) as record:
+            result = ForecastingAssistant().forecast(
+                data=df_single, target="sales", date_column="date", steps=5,
+                exog=exog, estimator="LGBMRegressor",
+            )
+
+    assert result.predictions["pred"].notna().all()
+    # The warning points at the call of the user.
+    filenames = [
+        warning.filename for warning in record
+        if "rows to forecast" in str(warning.message)
+    ]
+    assert filenames == [__file__]
+
+
 # =============================================================================
 # Tests: forecast-mode validation guards
 # =============================================================================
