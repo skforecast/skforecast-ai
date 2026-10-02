@@ -447,6 +447,7 @@ class ForecastingAssistant:
         data_profile = profile.data_profile
 
         fc = profile.forecaster
+        unrecommended = False
         if forecaster is not None:
             if (
                 forecaster not in profile.forecaster_candidates
@@ -459,21 +460,28 @@ class ForecastingAssistant:
                         f"{profile.forecaster_candidates}.",
                         field = "forecaster",
                     )
-                warnings.warn(
-                    f"Forecaster '{forecaster}' is not among the recommended "
-                    f"candidates for this profile "
-                    f"({profile.forecaster_candidates}), but it is used as "
-                    f"requested. It may be slow or perform poorly on this data.",
-                    UnrecommendedForecasterWarning,
-                )
+                unrecommended = True
             fc = forecaster
 
         task_type = select_task_type_from_forecaster(fc)
 
         # Reject inputs incompatible with the resolved task type
         # (single-series tasks with multi-series input; multivariate with
-        # series of different lengths).
+        # series of different lengths or on long-format data).
         _validate_task_input(data_profile, task_type)
+
+        # Warned once the forecaster is known to accept the shape of the
+        # data, so a forecaster rejected for it just above (such as
+        # ForecasterDirectMultiVariate on long-format data, left out of the
+        # candidates for that reason) is not said to be "used as requested".
+        if unrecommended:
+            warnings.warn(
+                f"Forecaster '{forecaster}' is not among the recommended "
+                f"candidates for this profile "
+                f"({profile.forecaster_candidates}), but it is used as "
+                f"requested. It may be slow or perform poorly on this data.",
+                UnrecommendedForecasterWarning,
+            )
 
         # Arguments the forecaster has no use for are rejected rather than
         # silently ignored, so the plan never differs from what was asked.

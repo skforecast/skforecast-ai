@@ -13,7 +13,7 @@
 - Index irregularities: none detected
 </dataset>
 <profile_decision>
-The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursiveMultiSeries) is recommended. Data: 200 observations pooled across 2 series, 'D' frequency. Alternative forecasters: ['ForecasterDirectMultiVariate', 'ForecasterFoundation']. Estimator: Ridge. A linear model is preferred because the dataset is small (200 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursiveMultiSeries) is recommended. Data: 200 observations pooled across 2 series, 'D' frequency. Alternative forecasters: ['ForecasterFoundation']. Estimator: Ridge. A linear model is preferred because the dataset is small (200 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
 - Significant lags for store_a (partial autocorrelation, strongest first): 1
 - Significant lags for store_b (partial autocorrelation, strongest first): 1
 - Suggested window features: mean(window=3), std(window=3), mean(window=7), mean(window=21)

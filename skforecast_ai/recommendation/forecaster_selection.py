@@ -69,6 +69,9 @@ def select_forecaster_and_candidates(
     `ForecasterStats` is only offered as a candidate when the seasonal
     period implied by the frequency keeps the Auto-ARIMA search
     affordable. It can still be selected explicitly in `plan()`.
+
+    `ForecasterDirectMultiVariate` is only offered for several series in
+    wide format: `plan()` rejects it on long-format data.
     """
     
     if profile.n_series > 1:
@@ -79,6 +82,10 @@ def select_forecaster_and_candidates(
             "ForecasterDirectMultiVariate",
             "ForecasterFoundation",
         ]
+        # `plan()` rejects ForecasterDirectMultiVariate on long-format data
+        # with several series, whose generated script always failed.
+        if profile.data_format == "long":
+            candidates.remove("ForecasterDirectMultiVariate")
 
     else:
         
