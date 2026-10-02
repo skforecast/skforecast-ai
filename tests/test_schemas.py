@@ -84,6 +84,41 @@ def test_forecast_plan_invalid_task_type():
 
 
 @pytest.mark.parametrize(
+    "task_type, forecaster, estimator",
+    [
+        ("single_series", "ForecasterRecursive", "Ridge"),
+        ("multi_series", "ForecasterRecursiveMultiSeries", "Ridge"),
+        ("statistical", "ForecasterStats", "Arima"),
+    ],
+    ids=["single_series", "multi_series", "statistical"],
+)
+def test_forecast_plan_ValidationError_when_interval_without_interval_method(
+    task_type, forecaster, estimator
+):
+    """
+    Test that a ForecastPlan built by hand or loaded from JSON with an
+    `interval` and no `interval_method` raises: the backtest took
+    skforecast's default method and forecast() computed no interval,
+    without a warning. plan() always sets both.
+    """
+    err_msg = re.escape(
+        "`interval` needs an `interval_method`: 'bootstrapping' for the machine "
+        "learning forecasters, 'conformal' for ForecasterEquivalentDate and "
+        "'native' for ForecasterStats and ForecasterFoundation, as plan() sets "
+        "it."
+    )
+    with pytest.raises(ValidationError, match=err_msg):
+        ForecastPlan(
+            task_type   = task_type,
+            forecaster  = forecaster,
+            estimator   = estimator,
+            steps       = 10,
+            interval    = [0.1, 0.9],
+            explanation = "Test.",
+        )
+
+
+@pytest.mark.parametrize(
     "estimator, estimator_kwargs, interval, match",
     [
         (None, {}, None, "needs the Hugging Face model ID"),

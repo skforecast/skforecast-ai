@@ -28,6 +28,7 @@ from .._validation import (
     validate_steps,
 )
 from .._display import DisplayMixin, render_plan
+from ..exceptions import InvalidInputError
 
 
 class CVParams(BaseModel):
@@ -399,7 +400,7 @@ class ForecastPlan(DisplayMixin, BaseModel):
         (e.g. `[0.1, 0.9]`). If None, no intervals are computed.
     interval_method : str, default None
         Method for prediction intervals. One of `'bootstrapping'`,
-        `'conformal'`, `'native'`.
+        `'conformal'`, `'native'`. Required when `interval` is set.
     metric : str, default 'mean_absolute_error'
         Recommended primary evaluation metric (string name matching
         sklearn/skforecast naming conventions).
@@ -498,6 +499,16 @@ class ForecastPlan(DisplayMixin, BaseModel):
                 interval   = self.interval,
                 task_type  = self.task_type,
                 forecaster = self.forecaster,
+            )
+        if self.interval is not None and self.interval_method is None:
+            # Without a method the backtest took skforecast's default and
+            # forecast() computed no interval, without a warning.
+            raise InvalidInputError(
+                "`interval` needs an `interval_method`: 'bootstrapping' for "
+                "the machine learning forecasters, 'conformal' for "
+                "ForecasterEquivalentDate and 'native' for ForecasterStats "
+                "and ForecasterFoundation, as plan() sets it.",
+                field = "interval_method",
             )
         return self
 
