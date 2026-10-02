@@ -1,0 +1,48 @@
+<forecast_context>
+<dataset>
+- Observations: 204
+- Series: 1
+- Frequency: MS
+- Date range: 1991-07-01 to 2008-06-01
+- Target: x
+- Exogenous columns: none
+- Target statistics: min 0.3362, max 1.257, mean 0.7682, std 0.2251
+- Missing values: none
+- Index irregularities: none detected
+</dataset>
+<profile_decision>
+A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 observations, 'MS' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation', 'ForecasterStats']. Estimator: Ridge. A linear model is preferred because the dataset is small (204 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+- Significant lags (partial autocorrelation, strongest first): 1, 13, 12, 11, 10, 14, 9
+- Suggested window features: mean(window=3), std(window=3), mean(window=12), mean(window=36)
+- Suggested calendar features: month, quarter
+</profile_decision>
+<forecast_plan>
+- Steps: 12
+- Estimator: Arima
+- Primary metric: mean_absolute_error
+- Plan: ForecasterStats + Arima. No lag or window features: the statistical model estimates its own autoregressive and seasonal structure. MAE is interpretable, robust to outliers, and works at any scale.
+
+Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
+</forecast_plan>
+<backtesting_strategy>
+- steps: 12
+- initial_train_size: 2003-04-01
+- refit: True
+- fixed_train_size: True
+- gap: 0
+- fold_stride: 12
+- skip_folds: None
+- allow_incomplete_fold: True
+- differentiation: None
+- n_folds: 6
+- n_fits: 6
+</backtesting_strategy>
+<script>
+- Mode: backtesting: predicts 6 folds of 12 steps, training the forecaster 6 times, and scores the predictions of every fold against the held-out observations
+- Files read: data.csv
+- Variables defined: metrics (one column per metric, one row per series when there are several), and predictions of every fold with a `fold` column
+- Packages imported: pandas, skforecast
+- Length: 39 lines
+The script is available to the user as `result.code`; describe it from this summary and the plan, do not reproduce it.
+</script>
+</forecast_context>

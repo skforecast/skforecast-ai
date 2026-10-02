@@ -1,0 +1,41 @@
+<forecast_context>
+<dataset>
+- Observations: 204
+- Series: 1
+- Frequency: MS
+- Date range: 1991-07-01 to 2008-06-01
+- Target: x
+- Exogenous columns: none
+- Target statistics: min 0.3362, max 1.257, mean 0.7682, std 0.2251
+- Missing values: none
+- Index irregularities: none detected
+</dataset>
+<profile_decision>
+A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 observations, 'MS' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation', 'ForecasterStats']. Estimator: Ridge. A linear model is preferred because the dataset is small (204 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor'].
+- Significant lags (partial autocorrelation, strongest first): 1, 13, 12, 11, 10, 14, 9
+- Suggested window features: mean(window=3), std(window=3), mean(window=12), mean(window=36)
+- Suggested calendar features: month, quarter
+</profile_decision>
+<forecast_plan>
+- Steps: 12
+- Estimator: Arima
+- Primary metric: mean_absolute_error
+- Plan: ForecasterStats + Arima. No lag or window features: the statistical model estimates its own autoregressive and seasonal structure. MAE is interpretable, robust to outliers, and works at any scale.
+</forecast_plan>
+<backtesting_strategy>
+- steps: 12
+- initial_train_size: 2003-04-01
+- refit: True
+- fixed_train_size: True
+- gap: 0
+- fold_stride: 12
+- skip_folds: None
+- allow_incomplete_fold: True
+- differentiation: None
+- n_folds: 6
+- n_fits: 6
+</backtesting_strategy>
+<deterministic_summary>
+Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds. ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models.
+</deterministic_summary>
+</forecast_context>
