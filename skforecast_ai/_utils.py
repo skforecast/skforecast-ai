@@ -1132,7 +1132,8 @@ def warn_long_training(
         remedy = (
             "skforecast refits it in every fold whatever `refit` says, so use "
             "a cross-validation strategy with fewer folds (a later "
-            "`initial_train_size`, a larger `fold_stride` or `skip_folds`)"
+            "`initial_train_size` or a larger `fold_stride`; `skip_folds` is "
+            "not allowed for it)"
         )
     else:
         remedy = (

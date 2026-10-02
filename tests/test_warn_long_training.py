@@ -13,14 +13,15 @@ def test_warn_long_training_message_when_forecaster_is_stats():
     """
     Test that for ForecasterStats the warning tells that skforecast refits
     it in every fold whatever `refit` says, and suggests fewer folds
-    instead of `refit`.
+    instead of `refit`, without `skip_folds`, which skforecast rejects for
+    ForecasterStats.
     """
     msg = re.escape(
         "ForecasterStats will be fit 60 times. This can take substantial "
         "amounts of time. If not feasible, skforecast refits it in every "
         "fold whatever `refit` says, so use a cross-validation strategy "
-        "with fewer folds (a later `initial_train_size`, a larger "
-        "`fold_stride` or `skip_folds`)."
+        "with fewer folds (a later `initial_train_size` or a larger "
+        "`fold_stride`; `skip_folds` is not allowed for it)."
     )
     with pytest.warns(LongTrainingWarning, match=msg):
         warn_long_training(
