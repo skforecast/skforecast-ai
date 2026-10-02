@@ -59,6 +59,9 @@ Shape: 6 rows x 3 columns
 Columns: ['level', 'fold', 'pred']
 Folds: 1
   pred: min=97.5, max=102.5, mean=100.0, std=1.8708286933869707
+Per-level summary of pred (all rows):
+  series_000: min=100.5, max=102.5, mean=101.5
+  series_001: min=97.5, max=99.5, mean=98.5
 Index range: 2023-04-21 00:00:00 to 2023-04-23 00:00:00
 </predictions>
 </forecast_context>

@@ -228,38 +228,49 @@ def _serialize_dataframe(
                 f"  {col}: min={col_data.min()}, "
                 f"max={col_data.max()}, mean={col_data.mean()}"
             )
-        # A multi-series frame pools every series into the summary above,
-        # so a question about one series ("what is the average forecast for
-        # item_2") has no answer. Break the point forecast down by level,
-        # capped like the per-series target statistics of the dataset
-        # section. Foundation models predicting quantiles have no `pred`
-        # column: their point forecast is the median, `q_0.5`.
-        point_col = next(
-            (col for col in ("pred", "q_0.5") if col in numeric_cols.columns),
-            None,
-        )
-        if "level" in df.columns and point_col is not None:
-            levels = list(dict.fromkeys(df["level"]))
-            if len(levels) > 1:
-                shown = levels[:MAX_STATS_SERIES]
-                suffix = (
-                    "" if len(levels) <= MAX_STATS_SERIES
-                    else f" (first {MAX_STATS_SERIES} of {len(levels)} levels)"
-                )
-                lines.append(
-                    f"Per-level summary of {point_col} (all rows){suffix}:"
-                )
-                for level in shown:
-                    level_pred = df.loc[df["level"] == level, point_col]
-                    lines.append(
-                        f"  {level}: min={level_pred.min()}, "
-                        f"max={level_pred.max()}, mean={level_pred.mean()}"
-                    )
+        lines.extend(_per_level_summary(df, numeric_cols))
         stats = "\n" + "\n".join(lines)
 
     return (
         f"{notice}\n\n{head}\n... ({omitted} rows omitted) ...\n{tail}{stats}"
     )
+
+
+def _per_level_summary(df: Any, numeric_cols: Any) -> list[str]:
+    """
+    Return the lines summarizing the point forecast of each level of a
+    multi-series frame, or none for a single series.
+
+    A multi-series frame pools every series into the per-column summary, so
+    a question about one series ("what is the average forecast for item_2")
+    has no answer, and series of different scales blur together. The point
+    forecast is broken down by level, capped like the per-series target
+    statistics of the dataset section. Foundation models predicting
+    quantiles have no `pred` column: their point forecast is the median,
+    `q_0.5`.
+    """
+    point_col = next(
+        (col for col in ("pred", "q_0.5") if col in numeric_cols.columns),
+        None,
+    )
+    if "level" not in df.columns or point_col is None:
+        return []
+    levels = list(dict.fromkeys(df["level"]))
+    if len(levels) <= 1:
+        return []
+    suffix = (
+        "" if len(levels) <= MAX_STATS_SERIES
+        else f" (first {MAX_STATS_SERIES} of {len(levels)} levels)"
+    )
+    lines = [f"Per-level summary of {point_col} (all rows){suffix}:"]
+    for level in levels[:MAX_STATS_SERIES]:
+        level_pred = df.loc[df["level"] == level, point_col]
+        lines.append(
+            f"  {level}: min={level_pred.min()}, "
+            f"max={level_pred.max()}, mean={level_pred.mean()}"
+        )
+
+    return lines
 
 
 def _summarize_dataframe(df: Any) -> str:
@@ -285,6 +296,7 @@ def _summarize_dataframe(df: Any) -> str:
                 f"mean={numeric_cols[col].mean()}, "
                 f"std={numeric_cols[col].std()}"
             )
+        parts.extend(_per_level_summary(df, numeric_cols))
     if hasattr(df.index, "min") and len(df) > 0:
         parts.append(f"Index range: {df.index.min()} to {df.index.max()}")
     return "\n".join(parts)

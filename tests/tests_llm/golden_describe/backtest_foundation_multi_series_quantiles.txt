@@ -48,6 +48,9 @@ Folds: 4
   q_0.1: min=900.0, max=997.5, mean=948.75, std=29.226129861250303
   q_0.5: min=1000.0, max=1097.5, mean=1048.75, std=29.226129861250303
   q_0.9: min=1100.0, max=1197.5, mean=1148.75, std=29.226129861250303
+Per-level summary of q_0.5 (all rows):
+  store_a: min=1000.0, max=1095.0, mean=1047.5
+  store_b: min=1002.5, max=1097.5, mean=1050.0
 Index range: 2023-04-11 00:00:00 to 2023-04-30 00:00:00
 </predictions>
 </forecast_context>

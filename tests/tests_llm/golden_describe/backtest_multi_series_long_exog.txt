@@ -62,6 +62,10 @@ Shape: 36 rows x 3 columns
 Columns: ['level', 'fold', 'pred']
 Folds: 2
   pred: min=100.0, max=117.5, mean=108.75, std=5.267826876426369
+Per-level summary of pred (all rows):
+  store_a: min=100.0, max=117.0, mean=109.21428571428571
+  store_b: min=100.5, max=117.5, mean=109.71428571428571
+  store_c: min=101.0, max=111.5, mean=106.25
 Index range: 2023-03-18 00:00:00 to 2023-03-31 00:00:00
 </predictions>
 </forecast_context>

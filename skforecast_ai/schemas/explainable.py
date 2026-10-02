@@ -70,9 +70,10 @@ class ExplainableResult:
         explanation names are all listed there. The context of `ask()`
         keeps every list whole.
 
-        The summary of the predictions is computed over all their rows, so
-        with several series it pools them, while `ask()` sends their rows.
-        The `fold` column of a backtest is an
+        The summary of the predictions is computed over all their rows,
+        and with several series the point forecast is also summarized for
+        each of the first 5 series, while `ask()` sends their rows. The
+        `fold` column of a backtest is an
         identifier: only the number of folds is given. The script of
         `backtest_code()` is described as a backtest, with its
         cross-validation strategy, number of folds and trainings.

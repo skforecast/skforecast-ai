@@ -36,6 +36,9 @@ store_b  3.5 16.50   1.2
 Shape: 6 rows x 2 columns
 Columns: ['level', 'pred']
   pred: min=1000.0, max=2000.0, mean=1435.1851833333333, std=387.56388216293016
+Per-level summary of pred (all rows):
+  store_a: min=1000.0, max=1250.0, mean=1120.3703666666668
+  store_b: min=1500.0, max=2000.0, mean=1750.0
 Index range: 2023-04-11 00:00:00 to 2023-04-13 00:00:00
 </predictions>
 </forecast_context>
