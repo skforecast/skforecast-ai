@@ -47,6 +47,7 @@ nav:
       - Profiles: api/schemas/profiles.md
     - Exceptions and warnings: api/exceptions.md
     - CLI: api/cli.md
+    - MCP server: api/mcp.md
 
   - Releases:
     - Changelog: releases/releases.md

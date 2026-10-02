@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Annotated
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from pydantic import ValidationError
 
@@ -1742,3 +1743,35 @@ def check_llm(
 
         if not result.ok:
             raise typer.Exit(code=1)
+
+
+@app.command(name="mcp")
+def mcp_server(
+    allow_dir: Annotated[Path, typer.Option("--allow-dir", help="Directory the server may read data from (required). Only absolute paths of CSV files inside it are accepted, also after resolving symbolic links.")],
+    output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Directory of the files the server writes; also its working directory. Default: a new temporary directory.")] = None,
+    max_objects: Annotated[int, typer.Option("--max-objects", min=1, help="Most objects the server keeps; the least recently used ones are removed beyond it.")] = 256,
+    max_memory_mb: Annotated[int, typer.Option("--max-memory-mb", min=1, help="Memory, in MB, the objects may take; the least recently used ones are removed beyond it.")] = 1024,
+) -> None:
+    """Serve the deterministic workflow to MCP clients (coding agents) over stdio."""
+    try:
+        from .mcp.server import run_server
+    except ModuleNotFoundError as exc:
+        if exc.name is None or exc.name.split(".")[0] != "mcp":
+            raise
+        err_console.print(
+            "[red]Error:[/red] the MCP server needs the `mcp` extra: "
+            "pip install \"skforecast-ai\\[mcp]\""
+        )
+        raise typer.Exit(code=1)
+
+    # stdout carries the protocol: errors go to stderr.
+    try:
+        run_server(
+            allow_dir     = allow_dir,
+            output_dir    = output_dir,
+            max_objects   = max_objects,
+            max_memory_mb = max_memory_mb,
+        )
+    except InvalidInputError as exc:
+        err_console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1)

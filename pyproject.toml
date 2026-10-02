@@ -66,6 +66,12 @@ bedrock = [
 all = [
     "pydantic-ai[bedrock,groq]>=2,<3",
     "boto3>=1.34",
+    "mcp>=2.2,<3",
+]
+
+# MCP server (`skforecast-ai mcp`): the workflow as tools for coding agents.
+mcp = [
+    "mcp>=2.2,<3",
 ]
 
 # Backend of the default foundation model (Chronos-2). Other foundation
@@ -92,6 +98,7 @@ test = [
     "pytest-cov>=7",
     "pytest-xdist>=3.8",
     "pydantic-ai[groq]>=2,<3",
+    "mcp>=2.2,<3",
 ]
 
 dev = [

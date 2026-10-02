@@ -1,0 +1,1320 @@
+[
+  {
+    "name": "profile",
+    "description": "Profile a CSV file: frequency, series, exogenous columns and the recommended forecaster and estimator. Returns a profile id.",
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false
+    },
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "data_path": {
+          "description": "Absolute path of a CSV file inside the directory the server may read. URLs are not accepted.",
+          "title": "Data Path",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Column to forecast, or a list of columns (one series each) for wide multi-series data.",
+          "title": "Target"
+        },
+        "date_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Column with the dates. When null, the first column holding dates is used.",
+          "title": "Date Column"
+        },
+        "series_id_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Column with the series ids of long multi-series data.",
+          "title": "Series Id Column"
+        }
+      },
+      "required": [
+        "data_path",
+        "target"
+      ],
+      "title": "profileArguments"
+    },
+    "output_schema": {
+      "$defs": {
+        "ToolNotice": {
+          "additionalProperties": false,
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "properties": {
+            "source": {
+              "enum": [
+                "data",
+                "plan",
+                "runtime"
+              ],
+              "title": "Source",
+              "type": "string"
+            },
+            "category": {
+              "title": "Category",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "count": {
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source",
+            "category",
+            "message",
+            "count"
+          ],
+          "title": "ToolNotice",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of the objects it was built from, keyed by the argument that\n    takes them (`profile_id`, `plan_id`, `cv_id`), plus\n    `parent_plan_id` for a refined plan.\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role.\nvalues_included : bool\n    Always False: the response holds no rows of the data, the\n    predictions or the metrics. The summary carries statistics of the\n    predictions and the metrics; the rows are in `files`.\ncost : dict, None\n    Cost of a cross-validation strategy: `n_folds`, `n_fits` (trainings\n    of the forecaster) and `estimator_fits` (fits of an estimator,\n    which a direct forecaster multiplies by `steps`). None for the\n    other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "profile",
+            "plan",
+            "cv",
+            "backtest",
+            "comparison",
+            "forecast"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "links": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Links",
+          "type": "object"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "summary_truncated": {
+          "default": false,
+          "title": "Summary Truncated",
+          "type": "boolean"
+        },
+        "notices": {
+          "items": {
+            "$ref": "#/$defs/ToolNotice"
+          },
+          "title": "Notices",
+          "type": "array"
+        },
+        "notices_omitted": {
+          "default": 0,
+          "title": "Notices Omitted",
+          "type": "integer"
+        },
+        "files": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "object"
+        },
+        "values_included": {
+          "const": false,
+          "default": false,
+          "title": "Values Included",
+          "type": "boolean"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "changeable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changeable",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "summary"
+      ],
+      "title": "ToolResult",
+      "type": "object"
+    }
+  },
+  {
+    "name": "plan",
+    "description": "Build a forecasting plan (lags, window features, metric, preprocessing, interval) from a profile and a horizon. Returns a plan id.",
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false
+    },
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profile_id": {
+          "description": "Id returned by `profile`.",
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "steps": {
+          "description": "Forecast horizon: number of steps ahead to predict (at least 1).",
+          "title": "Steps",
+          "type": "integer"
+        },
+        "interval": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Prediction interval as two quantiles, e.g. [0.1, 0.9] for 80 %. Null for no interval.",
+          "title": "Interval"
+        },
+        "forecaster": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "skforecast forecaster class to use instead of the recommended one, e.g. 'ForecasterRecursive'. Null for the recommendation.",
+          "title": "Forecaster"
+        },
+        "estimator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Estimator class (e.g. 'LGBMRegressor'), or the Hugging Face model id of a foundation model. Null for the recommendation.",
+          "title": "Estimator"
+        },
+        "estimator_kwargs": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}.",
+          "title": "Estimator Kwargs"
+        },
+        "lags": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lags: n for 1..n, or a list of positive integers. Null for the selection from the partial autocorrelation.",
+          "title": "Lags"
+        },
+        "window_features": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rolling features, e.g. [{'stats': ['mean', 'std'], 'window_size': 7}], one entry per window size. Null for the deterministic selection.",
+          "title": "Window Features"
+        }
+      },
+      "required": [
+        "profile_id",
+        "steps"
+      ],
+      "title": "planArguments"
+    },
+    "output_schema": {
+      "$defs": {
+        "ToolNotice": {
+          "additionalProperties": false,
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "properties": {
+            "source": {
+              "enum": [
+                "data",
+                "plan",
+                "runtime"
+              ],
+              "title": "Source",
+              "type": "string"
+            },
+            "category": {
+              "title": "Category",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "count": {
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source",
+            "category",
+            "message",
+            "count"
+          ],
+          "title": "ToolNotice",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of the objects it was built from, keyed by the argument that\n    takes them (`profile_id`, `plan_id`, `cv_id`), plus\n    `parent_plan_id` for a refined plan.\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role.\nvalues_included : bool\n    Always False: the response holds no rows of the data, the\n    predictions or the metrics. The summary carries statistics of the\n    predictions and the metrics; the rows are in `files`.\ncost : dict, None\n    Cost of a cross-validation strategy: `n_folds`, `n_fits` (trainings\n    of the forecaster) and `estimator_fits` (fits of an estimator,\n    which a direct forecaster multiplies by `steps`). None for the\n    other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "profile",
+            "plan",
+            "cv",
+            "backtest",
+            "comparison",
+            "forecast"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "links": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Links",
+          "type": "object"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "summary_truncated": {
+          "default": false,
+          "title": "Summary Truncated",
+          "type": "boolean"
+        },
+        "notices": {
+          "items": {
+            "$ref": "#/$defs/ToolNotice"
+          },
+          "title": "Notices",
+          "type": "array"
+        },
+        "notices_omitted": {
+          "default": 0,
+          "title": "Notices Omitted",
+          "type": "integer"
+        },
+        "files": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "object"
+        },
+        "values_included": {
+          "const": false,
+          "default": false,
+          "title": "Values Included",
+          "type": "boolean"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "changeable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changeable",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "summary"
+      ],
+      "title": "ToolResult",
+      "type": "object"
+    }
+  },
+  {
+    "name": "refine_plan",
+    "description": "Build a new plan from an existing one, changing some of its decisions. Returns a new plan id; the original plan is kept.",
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false
+    },
+    "input_schema": {
+      "type": "object",
+      "$defs": {
+        "RefinePlanArgs": {
+          "additionalProperties": false,
+          "description": "Overrides of the `refine_plan` tool.\n\nThe keys of `RefinePlanOverrides`, with unknown keys rejected and no\ntype coercion. A key that is omitted keeps the value of the plan; a key\npassed as null asks for the deterministic default, as in\n`ForecastingAssistant.refine_plan()`.",
+          "properties": {
+            "forecaster": {
+              "title": "Forecaster",
+              "type": "string"
+            },
+            "estimator": {
+              "title": "Estimator",
+              "type": "string"
+            },
+            "estimator_kwargs": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Estimator Kwargs"
+            },
+            "steps": {
+              "title": "Steps",
+              "type": "integer"
+            },
+            "interval": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Interval"
+            },
+            "lags": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lags"
+            },
+            "window_features": {
+              "anyOf": [
+                {
+                  "items": {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Window Features"
+            }
+          },
+          "title": "RefinePlanArgs",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {
+          "description": "Id of the plan to refine.",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "overrides": {
+          "$ref": "#/$defs/RefinePlanArgs",
+          "description": "Values to change. An omitted key keeps the value of the plan. `estimator_kwargs`, `interval`, `lags` and `window_features` also accept null, which asks for the deterministic default ({'lags': null} selects the lags again, {'interval': null} removes the interval)."
+        }
+      },
+      "required": [
+        "plan_id",
+        "overrides"
+      ],
+      "title": "refine_planArguments"
+    },
+    "output_schema": {
+      "$defs": {
+        "ToolNotice": {
+          "additionalProperties": false,
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "properties": {
+            "source": {
+              "enum": [
+                "data",
+                "plan",
+                "runtime"
+              ],
+              "title": "Source",
+              "type": "string"
+            },
+            "category": {
+              "title": "Category",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "count": {
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source",
+            "category",
+            "message",
+            "count"
+          ],
+          "title": "ToolNotice",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of the objects it was built from, keyed by the argument that\n    takes them (`profile_id`, `plan_id`, `cv_id`), plus\n    `parent_plan_id` for a refined plan.\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role.\nvalues_included : bool\n    Always False: the response holds no rows of the data, the\n    predictions or the metrics. The summary carries statistics of the\n    predictions and the metrics; the rows are in `files`.\ncost : dict, None\n    Cost of a cross-validation strategy: `n_folds`, `n_fits` (trainings\n    of the forecaster) and `estimator_fits` (fits of an estimator,\n    which a direct forecaster multiplies by `steps`). None for the\n    other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "profile",
+            "plan",
+            "cv",
+            "backtest",
+            "comparison",
+            "forecast"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "links": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Links",
+          "type": "object"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "summary_truncated": {
+          "default": false,
+          "title": "Summary Truncated",
+          "type": "boolean"
+        },
+        "notices": {
+          "items": {
+            "$ref": "#/$defs/ToolNotice"
+          },
+          "title": "Notices",
+          "type": "array"
+        },
+        "notices_omitted": {
+          "default": 0,
+          "title": "Notices Omitted",
+          "type": "integer"
+        },
+        "files": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "object"
+        },
+        "values_included": {
+          "const": false,
+          "default": false,
+          "title": "Values Included",
+          "type": "boolean"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "changeable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changeable",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "summary"
+      ],
+      "title": "ToolResult",
+      "type": "object"
+    }
+  },
+  {
+    "name": "create_cv",
+    "description": "Build a time series cross-validation strategy (TimeSeriesFold) for a plan. The response states its cost in `cost`. Returns a cv id.",
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false
+    },
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {
+          "description": "Id of the plan to backtest (from `plan` or `refine_plan`).",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "initial_train_size": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observations of the first training set, or the ISO 8601 date that ends it. Null for the default.",
+          "title": "Initial Train Size"
+        },
+        "fold_stride": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observations the test set advances between folds. Null for `steps` (back-to-back folds).",
+          "title": "Fold Stride"
+        },
+        "refit": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether to train again in every fold (true), never (false, the default) or every n folds (an integer). Refitting multiplies the cost.",
+          "title": "Refit"
+        },
+        "fixed_train_size": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the training window keeps its size when refitting.",
+          "title": "Fixed Train Size"
+        },
+        "gap": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observations between the end of training and the test set.",
+          "title": "Gap"
+        },
+        "skip_folds": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "items": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keep every n-th fold (an integer), or skip the listed folds.",
+          "title": "Skip Folds"
+        },
+        "allow_incomplete_fold": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the last fold may have fewer than `steps` observations.",
+          "title": "Allow Incomplete Fold"
+        }
+      },
+      "required": [
+        "plan_id"
+      ],
+      "title": "create_cvArguments"
+    },
+    "output_schema": {
+      "$defs": {
+        "ToolNotice": {
+          "additionalProperties": false,
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "properties": {
+            "source": {
+              "enum": [
+                "data",
+                "plan",
+                "runtime"
+              ],
+              "title": "Source",
+              "type": "string"
+            },
+            "category": {
+              "title": "Category",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "count": {
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source",
+            "category",
+            "message",
+            "count"
+          ],
+          "title": "ToolNotice",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of the objects it was built from, keyed by the argument that\n    takes them (`profile_id`, `plan_id`, `cv_id`), plus\n    `parent_plan_id` for a refined plan.\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role.\nvalues_included : bool\n    Always False: the response holds no rows of the data, the\n    predictions or the metrics. The summary carries statistics of the\n    predictions and the metrics; the rows are in `files`.\ncost : dict, None\n    Cost of a cross-validation strategy: `n_folds`, `n_fits` (trainings\n    of the forecaster) and `estimator_fits` (fits of an estimator,\n    which a direct forecaster multiplies by `steps`). None for the\n    other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "profile",
+            "plan",
+            "cv",
+            "backtest",
+            "comparison",
+            "forecast"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "links": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Links",
+          "type": "object"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "summary_truncated": {
+          "default": false,
+          "title": "Summary Truncated",
+          "type": "boolean"
+        },
+        "notices": {
+          "items": {
+            "$ref": "#/$defs/ToolNotice"
+          },
+          "title": "Notices",
+          "type": "array"
+        },
+        "notices_omitted": {
+          "default": 0,
+          "title": "Notices Omitted",
+          "type": "integer"
+        },
+        "files": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "object"
+        },
+        "values_included": {
+          "const": false,
+          "default": false,
+          "title": "Values Included",
+          "type": "boolean"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "changeable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changeable",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "summary"
+      ],
+      "title": "ToolResult",
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_code",
+    "description": "Return the Python code of a plan or a cross-validation strategy.",
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false
+    },
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "object_id": {
+          "description": "Id of a plan (its forecasting script) or of a cross-validation strategy (the code that builds it).",
+          "title": "Object Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "object_id"
+      ],
+      "title": "get_codeArguments"
+    },
+    "output_schema": {
+      "additionalProperties": false,
+      "description": "Script of an object, returned by the `get_code` tool.\n\nAttributes\n----------\nid : str\n    Id of the object.\nkind : str\n    Kind of the object.\ncode : str\n    Python code, cut to 20,000 characters.\ncode_truncated : bool\n    Whether `code` was cut; the full code is then in `files['code']`.\nfiles : dict\n    Absolute path of the file with the full code, when it was cut.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "profile",
+            "plan",
+            "cv",
+            "backtest",
+            "comparison",
+            "forecast"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "code_truncated": {
+          "default": false,
+          "title": "Code Truncated",
+          "type": "boolean"
+        },
+        "files": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "code"
+      ],
+      "title": "CodeResult",
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_objects",
+    "description": "List the ids of the objects the server keeps.",
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false
+    },
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "profile",
+                "plan",
+                "cv",
+                "backtest",
+                "comparison",
+                "forecast"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only the objects of this kind. Null for every kind.",
+          "title": "Kind"
+        }
+      },
+      "title": "list_objectsArguments"
+    },
+    "output_schema": {
+      "$defs": {
+        "ObjectInfo": {
+          "additionalProperties": false,
+          "description": "An object registered in the server, as listed by `list_objects`.\n\nAttributes\n----------\nid : str\n    Id of the object.\nkind : str\n    Kind of the object.\nlinks : dict\n    Ids of the objects it was built from.",
+          "properties": {
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "profile",
+                "plan",
+                "cv",
+                "backtest",
+                "comparison",
+                "forecast"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "links": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "title": "Links",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id",
+            "kind"
+          ],
+          "title": "ObjectInfo",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Objects registered in the server, returned by `list_objects`.\n\nAttributes\n----------\nobjects : list of ObjectInfo\n    Registered objects, most recently used first.\nmax_objects : int\n    Most objects the server keeps; the least recently used ones are\n    removed beyond it.\nmax_memory_mb : int\n    Memory, in MB, the objects may take; the least recently used ones\n    are removed beyond it.\nremoved : int\n    Number of objects removed so far to stay within those limits. A\n    tool that receives the id of a removed object says so.",
+      "properties": {
+        "objects": {
+          "items": {
+            "$ref": "#/$defs/ObjectInfo"
+          },
+          "title": "Objects",
+          "type": "array"
+        },
+        "max_objects": {
+          "title": "Max Objects",
+          "type": "integer"
+        },
+        "max_memory_mb": {
+          "title": "Max Memory Mb",
+          "type": "integer"
+        },
+        "removed": {
+          "default": 0,
+          "title": "Removed",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "objects",
+        "max_objects",
+        "max_memory_mb"
+      ],
+      "title": "ObjectList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "describe_object",
+    "description": "Return the response that created an object (summary, links, notices, files).",
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false
+    },
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "object_id": {
+          "description": "Id of a registered object.",
+          "title": "Object Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "object_id"
+      ],
+      "title": "describe_objectArguments"
+    },
+    "output_schema": {
+      "$defs": {
+        "ToolNotice": {
+          "additionalProperties": false,
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "properties": {
+            "source": {
+              "enum": [
+                "data",
+                "plan",
+                "runtime"
+              ],
+              "title": "Source",
+              "type": "string"
+            },
+            "category": {
+              "title": "Category",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "count": {
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source",
+            "category",
+            "message",
+            "count"
+          ],
+          "title": "ToolNotice",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of the objects it was built from, keyed by the argument that\n    takes them (`profile_id`, `plan_id`, `cv_id`), plus\n    `parent_plan_id` for a refined plan.\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role.\nvalues_included : bool\n    Always False: the response holds no rows of the data, the\n    predictions or the metrics. The summary carries statistics of the\n    predictions and the metrics; the rows are in `files`.\ncost : dict, None\n    Cost of a cross-validation strategy: `n_folds`, `n_fits` (trainings\n    of the forecaster) and `estimator_fits` (fits of an estimator,\n    which a direct forecaster multiplies by `steps`). None for the\n    other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "profile",
+            "plan",
+            "cv",
+            "backtest",
+            "comparison",
+            "forecast"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "links": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Links",
+          "type": "object"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "summary_truncated": {
+          "default": false,
+          "title": "Summary Truncated",
+          "type": "boolean"
+        },
+        "notices": {
+          "items": {
+            "$ref": "#/$defs/ToolNotice"
+          },
+          "title": "Notices",
+          "type": "array"
+        },
+        "notices_omitted": {
+          "default": 0,
+          "title": "Notices Omitted",
+          "type": "integer"
+        },
+        "files": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "object"
+        },
+        "values_included": {
+          "const": false,
+          "default": false,
+          "title": "Values Included",
+          "type": "boolean"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "changeable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changeable",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "summary"
+      ],
+      "title": "ToolResult",
+      "type": "object"
+    }
+  }
+]

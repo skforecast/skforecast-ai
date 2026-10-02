@@ -85,6 +85,7 @@ def test_claude_instructions_import_agents_instructions():
 BUILTIN_RAISES_ALLOWED = {
     ("skforecast_ai/exceptions.py", "ValueError"): 1,
     ("skforecast_ai/llm/skills.py", "FileNotFoundError"): 3,
+    ("skforecast_ai/mcp/_errors.py", "ValueError"): 1,
     ("skforecast_ai/recommendation/preprocessing.py", "ValueError"): 1,
 }
 

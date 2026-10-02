@@ -44,6 +44,7 @@ skforecast_ai/
   rendering/          script generation from a plan (one module per family)
   execution/          runs rendered scripts; comparison helpers
   llm/                pydantic-ai agents, prompts, context, skills, runtime
+  mcp/                MCP server (`skforecast-ai mcp`): tools over the assistant
   skills/, resources/ synced from skforecast (do not edit by hand)
   cli.py              Typer CLI mirroring the Python API
 tests/                mirrors the package: tests_<subpackage>/, fixtures_*.py
