@@ -1071,3 +1071,42 @@ Los avisos de los PRs 7, 10 y 11 son avisos de Python, no llegan al contexto.
 - PR 12: `describe()` sin las instrucciones del LLM de `ask()`;
 - PR 13: `interval_method` en los backtests multiserie (goldens nuevos);
 - PR 14: límites de `describe()`.
+
+### 12.1 Revisión del autor y correcciones
+
+Antes de mergear la fase 3a, una verificación independiente comparó `0.4.x` antes de la fase (`fd31618`), la rama y `v0.3.1`, y el autor decidió las preguntas abiertas. Las correcciones van como commits nuevos al final de `fix/mcp-data`; ninguno subido se reescribió.
+
+**Verificación.**
+- Ejemplos de la documentación que no necesitan LLM: 30 pasos de Python y 34 comandos del CLI, con el dataset de demo, `h2o`, `bike_sharing` (fechas en texto y ya leídas), `items_sales` y `store_sales` en formato largo. Perfil, plan, código, explicaciones, predicciones, métricas, ficheros escritos y salida del CLI idénticos a la base, sin avisos nuevos. Quien sigue la documentación no nota la fase.
+- Las dos llamadas de la pregunta 1 se reprodujeron: (a) con `ForecasterRecursiveMultiSeries` las predicciones eran exactamente las de los datos sin las filas finales (diferencia 0,0); (b) con fines de semana vacíos y LightGBM no eran las correctas (empezaban otro día; jueves y viernes difieren hasta 131).
+- La tarea adicional de render tenía dos bugs reales que ya fallaban en `v0.3.1`. El `KeyError: None` que atribuía al PR 10 no se reproduce.
+
+**Decisiones del autor.**
+
+| Pregunta | Decisión | Commit |
+|---|---|---|
+| 1a | Aviso, no error, para `ForecasterRecursiveMultiSeries`: descarta las filas finales y predice como sin ellas; la ventana se comprueba desde el último valor | `4b7761f` |
+| 1b | Se mantiene el error; el mensaje propone quitar todos los fines de semana (datos de días laborables) cuando nunca tienen valor | `4b7761f` |
+| 2 | Sin error; el docstring de `forecast()` lo dice (skforecast ya avisa) | `3d34630` |
+| 3 | `forecast_code()` no comprueba los datos; su docstring lo dice y la anotación de `exog` coincide con `forecast()`, sin cambiar el comportamiento | `3d34630` |
+| 4 | El MCP reenvía los mensajes tal cual, con un máximo de 5 valores y el límite de tamaño del servidor. Antes del PR 18, el SKILL.md y la documentación del servidor lo dicen, y `values_included` se refiere solo a predicciones, métricas y filas | (PR 18) |
+| 5 | Se mantiene el error del PR 7; cuando ninguna columna tiene las fechas, el mensaje añade cómo pasar una exógena de fechas dispersas (leer el CSV con pandas y pasar el DataFrame). 5b y 5c, sin cambios | `fc9e5f9` |
+| 6a | Aviso (nunca error) para una categoría que solo aparece en las primeras filas, que ocupan los lags: el estimador no se entrena con ella | `3bb0263` |
+| 6b | Una cabecera con un campo menos cuya última columna queda vacía es un separador al final de cada fila: error en `load_exog` | `3bb0263` |
+
+**Otros commits.**
+- `2f4c8a9` (parte del PR 24): `plan()` rechaza `ForecasterDirectMultiVariate` con datos largos de varias series y los datos largos de varias series fechados por el índice, cuyos scripts fallaban siempre. Hacer que el multivariante funcione con datos largos sigue en el PR 32.
+- `e0487b2`: las entradas de la fase 3a en `docs/releases/releases.md` se acortan a lo que nota quien usa la librería; las de los PRs 10 y 11 se acortaron en sus commits.
+
+**Omisiones de la sección 12, completadas.**
+- API pública nueva no citada: `ErrorCode` y `ERROR_CODES` en `skforecast_ai.exceptions`, y que `LLMRequiredError`, `LLMCallError`, `ForecastExecutionError` y `AllCandidatesFailedError` heredan ahora de `SkforecastAIError` (ganan `code`, `field` y `hint`). La entrada del PR 5 lo dice.
+- `forecast_code()` aceptaba en `exog` lo que `forecast()` rechaza (un array de numpy); se documenta, sin cambiar el comportamiento.
+
+**Tests.** De 2680 a 2698 (más 1 omitido), todos en verde con `TZ=UTC`.
+
+**Pendiente o anotado.**
+- `profile.forecaster_candidates` sigue ofreciendo `ForecasterDirectMultiVariate` con datos largos, que `plan()` ya rechaza. Quitarlo cambia los goldens del contexto del LLM: va con el PR 24 y el check de pago.
+- El MCP solo acepta rutas, así que un CSV sin fechas con una exógena de fechas dispersas no se puede perfilar ahí hasta que existan las opciones de lectura (pregunta 5 de 10.10).
+- Entorno de tests:
+  - con numpy 2.5 y pandas 2.3.3, `pd.Timedelta(days=1)` emite un `DeprecationWarning` y, con `filterwarnings = error`, la suite falla al recoger los tests. CI lo encontrará en cuanto resuelva numpy 2.5: hay que acotar numpy o añadir un `ignore` específico en `pyproject.toml`;
+  - tres tests de `tests/tests_profiling` dependen de la zona horaria de la máquina: con `Europe/Madrid` pandas lee `'CET'` como hora local y emite un `FutureWarning`; con UTC pasan.
