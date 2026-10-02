@@ -14,6 +14,8 @@ What the methods that generate code, run it or call the LLM return:
 
 Every result renders itself in a notebook and serializes to JSON, and all of them except `AskResult` and `LLMCheckResult` can be the `context` of `ask()`. Every result that `ask()` accepts, plus `ForecastingProfile`, also describes itself in plain text with [`describe()`][skforecast_ai.schemas.explainable.ExplainableResult.describe], without an LLM: the text is what `ask()` sends about it when `send_data_to_llm=False`, without the instructions addressed to the LLM and with its lists cut when there are many series.
 
+`compare()` also sends a [`CompareProgress`][skforecast_ai.schemas.results.CompareProgress] to its `progress_callback` when each candidate starts and ends.
+
 ::: skforecast_ai.schemas.results
 
 ::: skforecast_ai.schemas.explainable.ExplainableResult.describe

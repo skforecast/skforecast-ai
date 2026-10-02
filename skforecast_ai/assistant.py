@@ -7,6 +7,7 @@
 from __future__ import annotations
 import sys
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 import pandas as pd
@@ -109,6 +110,7 @@ from .schemas import (
     CandidateConfig,
     CandidateFailure,
     CodeGenerationResult,
+    CompareProgress,
     ComparisonResult,
     CVResult,
     ExplainableResult,
@@ -2031,6 +2033,7 @@ class ForecastingAssistant:
         profile: ForecastingProfile | None = None,
         show_progress: bool = True,
         baseline: bool = True,
+        progress_callback: Callable[[CompareProgress], None] | None = None,
     ) -> ComparisonResult:
         """
         Compare several forecaster configurations on the same data.
@@ -2115,6 +2118,13 @@ class ForecastingAssistant:
             why), nor when `candidates` already contains a
             `ForecasterEquivalentDate` (that candidate is then the
             baseline).
+        progress_callback : Callable, default None
+            Function called with a `CompareProgress` when each candidate
+            starts and when it ends, for example to report progress
+            outside a notebook. An exception it raises is not recorded as
+            a candidate failure: it stops the comparison and propagates
+            to the caller, so raising from it cancels the remaining
+            candidates. When None, no events are sent.
 
         Returns
         -------
@@ -2144,6 +2154,8 @@ class ForecastingAssistant:
         AllCandidatesFailedError
             If every candidate fails to run. The individual failures are
             available on the `failures` attribute of the raised error.
+        TypeError
+            If `progress_callback` is not callable.
         ValueError
             If `metric` is an empty list, or if `candidates` is empty,
             contains a malformed entry, repeats a name, mixes forecaster
@@ -2173,6 +2185,13 @@ class ForecastingAssistant:
         be fed directly into `forecast()`, `backtest()`, or
         `forecast_code()`.
         """
+
+        if progress_callback is not None and not callable(progress_callback):
+            raise InvalidInputTypeError(
+                f"`progress_callback` must be callable or None, got "
+                f"{type(progress_callback).__name__}.",
+                field = "progress_callback",
+            )
 
         cv = _unwrap_cv(cv)
 
@@ -2290,8 +2309,31 @@ class ForecastingAssistant:
         rows: list[tuple[dict, float]] = []
         ranked: list[tuple[str, BacktestResult, float]] = []
         failures: dict[str, CandidateFailure] = {}
+        n_candidates = len(candidate_configs)
 
-        for name, config in iterator:
+        def notify(event: CompareProgress) -> None:
+            # A callback that cancels leaves the loop early, so the progress
+            # bar would stay open on a partial count.
+            try:
+                progress_callback(event)
+            except BaseException:
+                if show_progress:
+                    iterator.close()
+                raise
+
+        for position, (name, config) in enumerate(iterator):
+            # Called outside the `try` below: an exception raised by the
+            # callback cancels the comparison instead of failing a candidate.
+            if progress_callback is not None:
+                notify(
+                    CompareProgress(
+                        candidate = name,
+                        status    = "started",
+                        completed = position,
+                        total     = n_candidates,
+                    )
+                )
+
             row: dict[str, Any] = {
                 "name": name,
                 "forecaster": config.get("forecaster") or profile.forecaster,
@@ -2350,6 +2392,17 @@ class ForecastingAssistant:
                 )
 
             rows.append((row, ranking_value))
+
+            if progress_callback is not None:
+                notify(
+                    CompareProgress(
+                        candidate = name,
+                        status    = "failed" if name in failures else "succeeded",
+                        completed = position + 1,
+                        total     = n_candidates,
+                        error     = row["error"],
+                    )
+                )
 
         results = build_comparison_table(
             rows           = rows,

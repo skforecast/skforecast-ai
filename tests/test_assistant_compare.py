@@ -29,6 +29,7 @@ from skforecast_ai import (
     BacktestResult,
     CandidateFailedWarning,
     CandidateFailure,
+    CompareProgress,
     ComparisonResult,
     DataNotFoundError,
     ForecastingAssistant,
@@ -1911,3 +1912,199 @@ def test_compare_AllCandidatesFailedError_message_names_builtin_classes():
                     ),
                 ],
             )
+
+
+# =============================================================================
+# Tests: progress_callback
+# =============================================================================
+def test_compare_progress_callback_receives_start_and_end_of_each_candidate():
+    """
+    Test that `progress_callback` receives a `CompareProgress` when each
+    candidate starts and when it ends, in the order the candidates run,
+    with the baseline counted in `total`.
+    """
+    events = []
+    assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        show_progress=False,
+        progress_callback=events.append,
+    )
+
+    baseline = "Baseline (seasonal naive)"
+    expected = [
+        CompareProgress(
+            candidate="recursive_default", status="started", completed=0, total=3
+        ),
+        CompareProgress(
+            candidate="recursive_default", status="succeeded", completed=1, total=3
+        ),
+        CompareProgress(
+            candidate="direct_ridge", status="started", completed=1, total=3
+        ),
+        CompareProgress(
+            candidate="direct_ridge", status="succeeded", completed=2, total=3
+        ),
+        CompareProgress(candidate=baseline, status="started", completed=2, total=3),
+        CompareProgress(candidate=baseline, status="succeeded", completed=3, total=3),
+    ]
+    assert events == expected
+
+
+def test_compare_progress_callback_reports_failed_candidate_with_its_error():
+    """
+    Test that a failed candidate ends with a `'failed'` event whose `error`
+    is the text of the `error` column of the results table.
+    """
+    candidates = [
+        ("good", {"forecaster": "ForecasterRecursive"}),
+        ("bad", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"}),
+    ]
+    events = []
+    with pytest.warns(CandidateFailedWarning, match="Candidate 'bad' failed"):
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=candidates,
+            show_progress=False,
+            baseline=False,
+            progress_callback=events.append,
+        )
+
+    bad_error = result.results.set_index("name").loc["bad", "error"]
+    assert [(e.candidate, e.status, e.error) for e in events] == [
+        ("good", "started", None),
+        ("good", "succeeded", None),
+        ("bad", "started", None),
+        ("bad", "failed", bad_error),
+    ]
+
+
+def test_compare_progress_callback_exception_cancels_remaining_candidates():
+    """
+    Test that an exception raised by `progress_callback` is not recorded as
+    a candidate failure: it propagates unchanged and no further candidate
+    runs, which is how a caller cancels a comparison.
+    """
+
+    class Cancelled(Exception):
+        pass
+
+    events = []
+
+    def callback(event):
+        events.append(event)
+        if event.status == "succeeded":
+            raise Cancelled("stop")
+
+    with pytest.raises(Cancelled, match="stop"):
+        assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            show_progress=False,
+            baseline=False,
+            progress_callback=callback,
+        )
+
+    assert [(e.candidate, e.status) for e in events] == [
+        ("recursive_default", "started"),
+        ("recursive_default", "succeeded"),
+    ]
+
+
+def test_compare_progress_callback_does_not_change_the_result():
+    """
+    Test that passing `progress_callback` returns the same table,
+    explanation, CV and candidate predictions as a call without it.
+    """
+    kwargs = dict(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        show_progress=False,
+    )
+    without = assistant.compare(**kwargs)
+    with_callback = assistant.compare(**kwargs, progress_callback=lambda e: None)
+
+    pd.testing.assert_frame_equal(with_callback.results, without.results)
+    assert with_callback.explanation == without.explanation
+    assert with_callback.cv_config == without.cv_config
+    assert list(with_callback.candidates) == list(without.candidates)
+    for name, bt in without.candidates.items():
+        pd.testing.assert_frame_equal(
+            with_callback.candidates[name].predictions, bt.predictions
+        )
+        assert with_callback.candidates[name].code == bt.code
+
+
+def test_compare_TypeError_when_progress_callback_is_not_callable():
+    """
+    Test that a `progress_callback` that is not callable raises
+    InvalidInputTypeError (a TypeError) naming the field, before any
+    candidate runs.
+    """
+    err_msg = re.escape("`progress_callback` must be callable or None, got str.")
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            show_progress=False,
+            progress_callback="report",
+        )
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == "progress_callback"
+
+
+def test_compare_progress_callback_exception_closes_progress_bar(monkeypatch):
+    """
+    Test that when `progress_callback` cancels the comparison with
+    `show_progress=True`, the progress bar is closed before the exception
+    propagates, instead of staying open on a partial count.
+    """
+    import tqdm.auto
+
+    bars = []
+
+    class RecordingBar(tqdm.auto.tqdm):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, disable=True, **kwargs)
+            self.close_calls = 0
+            bars.append(self)
+
+        def close(self):
+            self.close_calls += 1
+            super().close()
+
+    monkeypatch.setattr(tqdm.auto, "tqdm", RecordingBar)
+
+    def callback(event):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            show_progress=True,
+            baseline=False,
+            progress_callback=callback,
+        )
+
+    assert len(bars) == 1
+    assert bars[0].close_calls >= 1

@@ -704,6 +704,41 @@ class CandidateFailure(BaseModel):
         return _one_line_summary(self.error_type, self.message, max_length)
 
 
+class CompareProgress(BaseModel):
+    """
+    Progress event that `compare()` passes to its `progress_callback`.
+
+    `compare()` sends one event when a candidate starts (`status`
+    `'started'`) and one when it ends (`'succeeded'` or `'failed'`), so
+    every comparison of `total` candidates sends `2 * total` events.
+
+    Attributes
+    ----------
+    candidate : str
+        Name of the candidate the event refers to, as in the `name`
+        column of `ComparisonResult.results`.
+    status : {'started', 'succeeded', 'failed'}
+        Whether the candidate is about to run, ran, or failed.
+    completed : int
+        Number of candidates that have ended so far, this one included
+        when `status` is not `'started'`.
+    total : int
+        Number of candidates the comparison runs, the baseline included.
+    error : str, default None
+        One-line summary of the failure, the same text as the `error`
+        column of the results table. Only set when `status` is
+        `'failed'`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    candidate: str
+    status: Literal["started", "succeeded", "failed"]
+    completed: int = Field(ge=0)
+    total: int = Field(ge=1)
+    error: str | None = None
+
+
 def _one_line_summary(error_type: str, message: str, max_length: int = 200) -> str:
     """
     Summarize an error as `'ErrorType: first non-empty line of the message'`,
