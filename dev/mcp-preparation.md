@@ -1,8 +1,8 @@
 # Preparativos para el servidor MCP de skforecast-ai
 
-Estado a 30/09/2026, actualizado el 01/10/2026 con la fase 2 (sección 11). Base: rama `0.4.x`, con la sección 2 commiteada en `f87e89f`. La auditoría de la fase 1 (resultados en las secciones 4, 5, 7 y 9, y propuestas en la 10) está en la rama `feature/mcp-audit` y no toca `skforecast_ai/`. Este documento sirve para retomar el trabajo en otra sesión: qué se decidió, qué está hecho, qué falta y en qué orden, y cómo verificarlo.
+Estado a 30/09/2026, actualizado el 01/10/2026 con la fase 2 (sección 11) y el 02/10/2026 con la fase 3a (sección 12). Base: rama `0.4.x`, con la sección 2 commiteada en `f87e89f`. La auditoría de la fase 1 (resultados en las secciones 4, 5, 7 y 9, y propuestas en la 10) está en la rama `feature/mcp-audit` y no toca `skforecast_ai/`. Este documento sirve para retomar el trabajo en otra sesión: qué se decidió, qué está hecho, qué falta y en qué orden, y cómo verificarlo.
 
-**Cómo leerlo.** Las secciones 1 a 8 son el plan original. Cada punto pendiente lleva ahora el resultado de contrastarlo con el código, marcado como **Verificado**, **Corregido** o **Nuevo**. La sección 9 recoge lo que la auditoría encontró fuera de ese plan. La sección 10 propone decisiones y un orden de PRs, y está pendiente de revisión. La sección 11 recoge lo implementado en la fase 2 (PRs 0 a 4) y sus desviaciones respecto a la 10.
+**Cómo leerlo.** Las secciones 1 a 8 son el plan original. Cada punto pendiente lleva ahora el resultado de contrastarlo con el código, marcado como **Verificado**, **Corregido** o **Nuevo**. La sección 9 recoge lo que la auditoría encontró fuera de ese plan. La sección 10 propone decisiones y un orden de PRs, y está pendiente de revisión. La sección 11 recoge lo implementado en la fase 2 (PRs 0 a 4) y sus desviaciones respecto a la 10, y la sección 12 lo mismo para la fase 3a (PRs 5, 6, 7, 8, 10 y 11).
 
 **Cómo se hizo la fase 1.**
 - Once auditores independientes contrastaron cada punto con el código y reprodujeron los casos con scripts propios. Un segundo agente intentó refutar cada resultado; de unas 200 comprobaciones solo corrigió seis, y la más importante es la de `ForecasterStats` (sección 2).
@@ -441,7 +441,7 @@ Lo que no estaba en las secciones 4 y 5. Severidad para el MCP: **B** = bloquea 
 
 ## 10. Decisiones propuestas, pendientes de revisión
 
-Salvo los PRs 0 a 4, hechos en la fase 2 (sección 11), nada de esta sección está implementado: es una propuesta para revisar. Los números de PR remiten a la tabla de 10.8.
+Salvo los PRs 0 a 4, hechos en la fase 2 (sección 11), y los PRs 5, 6, 7, 8, 10 y 11, hechos en la fase 3a (sección 12), nada de esta sección está implementado: es una propuesta para revisar. Los números de PR remiten a la tabla de 10.8.
 
 **Criterio de "la opción más conservadora"**, aplicado en este orden:
 1. Cerrar en caso de duda todo lo que toca la seguridad.
@@ -805,10 +805,10 @@ Ordenadas por impacto, con la propuesta entre paréntesis.
    (Propuesta: mantener la regla literal y una sola ejecución.)
 3. **ForecasterStats:** ¿mantener la ventana fija que se ejecuta hoy, escrita explícitamente (no cambian las métricas), o pasar a ventana creciente como dice `cv_config`, lo que cambia las métricas? (Propuesta: mantener, y decidir aparte.)
 4. **Nombres con saltos de línea:** ¿rechazarlos solo en MCP (propuesto) o también en el núcleo? ¿Rechazar también `<` y `>`? (Primera parte decidida en la fase 2: solo en MCP, ver la sección 11. La de `<` y `>` sigue abierta.)
-5. **CSV con formatos de fecha mezclados:** ¿rechazar (rompe `forecast()` que hoy funciona) o escribir `format='mixed'` en el script? ¿Opciones de lectura (`sep`, `decimal`, `encoding`, `dayfirst`) en `profile()`, el CLI y el MCP? (Propuesta: rechazar en la v1 y pedir ISO 8601 en el skill; las opciones de lectura, después.)
-6. **NaN en exógenas futuras o en la última ventana con estimadores que los toleran:** ¿aviso (propuesto) o error?
+5. **CSV con formatos de fecha mezclados:** ¿rechazar (rompe `forecast()` que hoy funciona) o escribir `format='mixed'` en el script? ¿Opciones de lectura (`sep`, `decimal`, `encoding`, `dayfirst`) en `profile()`, el CLI y el MCP? (Propuesta: rechazar en la v1 y pedir ISO 8601 en el skill; las opciones de lectura, después.) (Para la fase 3a se decidió que el PR 7 cubre solo las celdas de fecha vacías y los husos mezclados; los formatos mezclados y el formato largo sin fecha siguen abiertos. Ver la sección 12.)
+6. **NaN en exógenas futuras o en la última ventana con estimadores que los toleran:** ¿aviso (propuesto) o error? (Decidida antes de la fase 3a: aviso, y error con el resto; ver la sección 12.)
 7. **Datos frente a perfil guardado (SIL-1):** ¿refrescar con nota (propuesto) o error ante cualquier diferencia? ¿Una exógena nueva es error (propuesto)?
-8. **Series que terminan antes, en modo predicción:** ¿nota (propuesto) o error?
+8. **Series que terminan antes, en modo predicción:** ¿nota (propuesto) o error? (Decidida antes de la fase 3a: nota; ver la sección 12.)
 9. **SIL-8:** ¿`use_exog=False` para ForecasterStats con solo exógenas categóricas? (Propuesto: aplazar.)
 10. **Variables de calendario explícitas que chocan con exógenas:** ¿error (propuesto) o ampliar la regla de la sección 6?
 11. **Frases nuevas en la explicación por cada override:** ¿sí, pagando el check, o solo `overridden_fields` más `describe()`?
@@ -944,3 +944,130 @@ Lo que encontraron las revisiones de cada PR se corrigió antes de subirlo. Solo
 - PR 11: última ventana del target;
 - PR 12: `describe()` sin las instrucciones del LLM de `ask()`;
 - PR 13: `interval_method` en los backtests multiserie (usará el mapa cerrado de métodos del PR 1).
+
+## 12. Fase 3a: hecho
+
+Datos correctos y modelo de errores: los PRs 5, 6, 7, 8, 10 y 11 de la tabla 10.8, en ese orden, en la rama `fix/mcp-data`, creada desde `0.4.x` (`fd31618`, que ya incluye `fix/mcp-security`). Un commit por PR, cada uno con su código, sus tests y su entrada en `docs/releases/releases.md` (0.4.0); cualquier prefijo de la rama se puede mergear. Antes de cada PR de datos (6, 7, 8, 10 y 11), un workflow buscó y reprodujo los casos límite de los datos que toca (CSV, formato largo, husos, NaN, exógenas); el mensaje del PR 11 no lo nombra, pero sus casos están en las secciones "Reproduced at the base" y "Left for section 12" de ese mensaje. Antes de cada commit se pasaron `/verify`, el subagente `conventions-reviewer`, `/code-review` y un workflow de revisión adversarial que intenta demostrar que el PR rompe una llamada que funcionaba o deja un caso silencioso; el PR 10 pasó también `/security-review`. La corrección `b1b9dea`, solo de documentación, pasó el build de la documentación. Las plantillas de render y sus goldens no cambian en ningún commit, ni los goldens del LLM; el script de unos datos concretos sí puede cambiar cuando cambia su perfil o su plan (PRs 6 y 8).
+
+Decisiones del autor aplicadas:
+- PR 5 (que 10.8 dejaba abierto): entra antes que los PRs 6 a 11;
+- pregunta 5 de 10.10: el PR 7 cubre solo las celdas de fecha vacías y los husos mezclados; los formatos mezclados y el formato largo sin fecha quedan fuera de esta fase;
+- pregunta 6: aviso con los estimadores que toleran NaN, error con el resto (exógenas futuras y última ventana);
+- pregunta 8: una serie que termina antes que las demás recibe una nota en el resultado, no un error.
+
+| Commit | PR | Contenido |
+|---|---|---|
+| `8402466` | 5 | Jerarquía de excepciones con `code`, `field` y `hint`; `ErrorInfo` |
+| `9f44166` | 6 | El perfil ordena las filas por fecha; la entrada del PACF se lee como la ajusta el script |
+| `f275cd1` | 7 | Fechas CSV con celdas vacías o husos UTC mezclados dan un error claro |
+| `09248da` | 8 | Frecuencia por serie en formato largo, huecos de todas las series y nota de series que terminan antes |
+| `44612b7` | 10 | Validación de las exógenas futuras de `forecast()` y cargador de `--exog` compartido |
+| `2a397a6` | 11 | Última ventana del target |
+| `7c024e5` | 8 (corrección) | La nota de series que terminan antes también en formato ancho |
+| `b1b9dea` | 10 (corrección) | La entrada del PR 10 en las notas de versión ya no promete leer un separador al final de cada fila |
+
+Lo que encontraron las revisiones de cada PR se corrigió antes de subirlo, o quedó anotado en su mensaje como decisión, limitación o pendiente (los pendientes, abajo). Hubo dos correcciones posteriores, cada una en un commit nuevo al final:
+- `7c024e5`: al revisar el PR 11 se vio que el PR 8 solo daba la nota de series que terminan antes en formato largo; en ancho, `forecast()` seguía devolviendo N-1 series sin aviso (9.2). La nota pasa a darse también en ancho, y en largo dice lo que hace de verdad un modelo foundation con una serie cuyas últimas filas no tienen valor.
+- `b1b9dea`: la entrada del PR 10 decía que el CLI lee un separador al final de cada fila de `--exog`, un cambio que se revirtió durante sus revisiones (se lee como en 0.3.1).
+
+**Qué cubre cada PR.**
+- PR 5: `SkforecastAIError` con `code` estable, `field` y `hint`; `InvalidInputError`, `InvalidInputTypeError` y `DataNotFoundError` siguen siendo `ValueError`, `TypeError` y `FileNotFoundError` con los mismos mensajes; `ErrorInfo.from_exception()` convierte cualquier error en datos. `tests/test_source_conventions.py` falla con cualquier otro `raise` desnudo de esas clases en el paquete, salvo los invariantes internos y los recursos del paquete, que conservan su clase y salen como `internal_error` (los tres `FileNotFoundError` de `llm/skills.py` y la comprobación de `foundation_model` en `recommendation/preprocessing.py`). Un JSON de `--from-plan` o `--from-profile` que no se puede leer, y una URL que se descarga pero no es un CSV, son `data_unreadable`; una URL inalcanzable es `data_not_found`. `ask()` lleva las preguntas que citan `InvalidInputError` o `DataNotFoundError` al skill de resolución de problemas, como hacía con `ValueError`.
+- PR 6: filas fuera de orden de fecha se ordenan antes de perfilar, con una nota en `DataProfile.warnings` (`index_is_monotonic` y `frequency_is_set` describen la entrada tal como llegó, y son False en ese caso); las fechas de texto se leen como las lee el script (el formato de la primera fecha), y las filas repetidas o sin fecha no cuentan para los lags.
+- PR 7: una columna de fechas de un CSV con celdas vacías (también las filas hechas solo de separadores) o con desplazamientos UTC que cambian lanza un error que nombra la columna y las filas o los desplazamientos, también con un perfil guardado; si una columna posterior tiene fechas completas, se usa como antes con un aviso (sin aviso cuando se da `date_column`).
+- PR 8: en formato largo se lee la frecuencia de cada serie (también con fechas con huso); frecuencias distintas o timestamps fuera de la rejilla lanzan error; los huecos se suman sobre todas las series; una nota nombra las series cuyo último valor es anterior a la última fecha con valor. Coste: `create_data_profile` es entre un 5 y un 37 % más lento (0,2 a 0,6 s) en paneles largos de un millón de filas, y más rápido en 20.000 series semanales con huecos.
+- PR 10: `forecast()` comprueba las exógenas futuras antes de ejecutar: columnas, fechas leídas como las lee el script (las `steps` fechas tras la última de los datos, sin huecos ni filas fuera de la rejilla, en el huso de los datos o en otro cuya rejilla contenga esas fechas), en formato largo todas las series que el forecaster predice, tipos, categorías nuevas y valores NaN o infinitos (error si el estimador no los tolera, aviso si los tolera). El cargador de `--exog` pasa a `_utils.load_exog` y lee las fechas con el mismo parser que los datos.
+- PR 11: `forecast()` en modo predicción, antes de exigir o comprobar `exog`:
+  - las filas finales sin valor del target (en ninguna serie) lanzan error con cualquier forecaster y estimador, nombrando el último valor y las filas a quitar;
+  - los NaN que leen de verdad las predicciones (los lags en cada paso, la diferenciación, una ventana móvil con todos sus valores NaN y las fechas equivalentes de `ForecasterEquivalentDate`), calculados como los lee skforecast y contrastados con él en los tests, siguen la regla de la pregunta 6; los que solo leen las estadísticas móviles, que los saltan, no cambian nada;
+  - `ForecasterStats` (que ya falla con cualquier NaN) y los modelos foundation (que los reciben tal cual) solo pasan la comprobación de filas finales.
+
+**Desviaciones respecto a la sección 10, con su motivo.**
+- PR 5:
+  - `hint` existe pero ningún sitio lo rellena todavía: sacar de los mensajes los remedios de pandas (`dayfirst`, `to_datetime`), como quería 10.3, cambiaría `str(exc)`.
+  - `compare()` sigue registrando un candidato rechazado como `ValueError: ...` (`CandidateFailure`), porque registrar el nombre nuevo cambiaba `str(AllCandidatesFailedError)` y el contexto de `ask()`.
+  - `ErrorInfo` se exporta desde `skforecast_ai.schemas`; exportarlo también desde la raíz sigue siendo una de las preguntas menores de 10.10.
+  - `field` sigue unas convenciones (el argumento que hay que cambiar; `data` para el contenido de los datos; `profile` para un perfil sin frecuencia en `plan()`) descritas en el mensaje del commit.
+- PR 6: el PACF no se pone en la rejilla de la frecuencia: el workflow de casos límite mostró que cambiaría los lags de toda entrada ordenada con huecos. Una entrada ya ordenada se devuelve como el mismo objeto.
+- PR 7: un error en vez de un arreglo (quitar las filas sin fecha haría que el perfil no coincidiera con el script; pasar a UTC mueve fechas diarias a medianoche local al día anterior). Una columna posterior de fechas completas se sigue usando, con aviso, porque rechazarla rompería CSVs que funcionan en 0.3.1; una columna posterior que solo tiene horas del día no ocupa su lugar. Para una columna sin nombrar solo cuentan fechas claras (día, mes y año de cuatro cifras); los nombres de huso distintos de UTC se dejan a pandas, y los desplazamientos constantes siguen funcionando en cualquier escritura.
+- PR 8: un error en vez de remuestrear, porque cualquier elección cambiaría los datos de alguna serie; las series con menos de 10 fechas, o con dos fechas a un paso de la rejilla, se toman como de la frecuencia de la rejilla con huecos.
+- PR 10:
+  - `forecast_code()` no comprueba su `exog` (devolvía el código para cualquier `exog` en 0.3.1 y el documento no lo decide).
+  - Los NaN siguen la pregunta 6 tal como se decidió; 10.6 proponía además un error cuando la columna no tenía NaN en el entrenamiento, que la decisión no mantiene.
+  - La comprobación del inicio de las fechas solo se aplica a los forecasters que leen las exógenas por posición: los que seleccionan por fecha ignoran las filas anteriores, y rechazarlas rompía llamadas que funcionaban.
+  - Los valores infinitos y las categorías nuevas siguen la regla de los NaN; las categorías no se comprueban con un modelo foundation, que toma los valores tal cual (su aviso dice que los recibe tal cual).
+  - Días naturales para datos de días laborables (y horas naturales para horas laborables) se aceptan, porque `asfreq` los reduce.
+  - El cargador de `--exog` mantiene la lectura de 0.3.1 donde el lector de los datos no encuentra columna de fechas.
+- PR 11:
+  - "La ventana que leen los lags" es el conjunto de valores que leen las predicciones (depende de `steps` y del forecaster), no toda la última ventana (`window_size`): un NaN que no lee ningún lag daba predicciones finitas con Ridge, y un error ahí rompería esa llamada.
+  - Las filas finales son fechas de los datos, no filas de cada serie: una serie que termina antes es la nota de la pregunta 8 aunque sus últimas filas existan sin valor.
+  - `ForecasterEquivalentDate` sigue la regla de un estimador que no tolera NaN (no tiene estimador y los repite como predicciones NaN), y un NaN que lee la inversa de la diferenciación lanza error también con LightGBM (principio 3 de `AGENTS.md`: sus predicciones serían todas NaN).
+  - Solo `forecast()`: `forecast_code()` no cambia, y el modo evaluación queda para el PR 25. Los valores infinitos del target no se comprueban (PR 23).
+
+**Cambios para quien usa la librería** (llamadas que funcionaban en 0.3.1):
+- PR 5: `InvalidInputTypeError` también es un `ValueError`, así que un `except ValueError` captura los antiguos `TypeError` de validación; las trazas muestran los nombres de clase nuevos.
+- PR 6:
+  - datos con filas fuera de orden de fecha dan el perfil, los lags, el plan, el script y las predicciones de los datos ordenados, con una nota (antes, el orden descendente fallaba dentro del script y las filas barajadas daban otros lags); en formato largo, la nota aparece también cuando la serie desordenada no es la primera;
+  - filas idénticas repetidas o sin fecha pueden cambiar los lags;
+  - fechas de texto con el día primero se leen así en todo el fichero cuando la primera fecha no es ambigua (y como mes primero cuando lo es, como el script); en memoria, una `date_column` así infiere ahora la frecuencia (era None y `plan()` fallaba) y desaparece el aviso de pandas.
+- PR 7: un CSV cuya columna de fechas tiene celdas vacías, o cuyas fechas mezclan desplazamientos UTC, lanza error (también con un perfil guardado) donde las fechas pasaban a ser una exógena; una columna así antes de otra de fechas completas da un aviso; `profile()` ya no emite el `FutureWarning` de pandas sobre husos mezclados.
+- PR 8: datos largos con series de distinta frecuencia o con timestamps fuera de la rejilla lanzan error donde se remuestreaban o se perdían filas; los huecos de todas las series cuentan para `has_gaps` (y para las reglas del plan que lo leen); una primera serie demasiado irregular junto a otras regulares tiene ahora frecuencia (era None y `plan()` fallaba); la nota de series que terminan antes (en ancho desde `7c024e5`).
+- PR 10: `forecast()` lanza error con unas exógenas futuras:
+  - con fechas que faltan, de otra frecuencia o fuera de la rejilla;
+  - con filas antes de la primera fecha a predecir, en los forecasters que leen por posición;
+  - con fechas de texto en el índice de datos indexados por fecha, o en formato largo;
+  - sin fecha, con fechas repetidas o con un huso cuya rejilla no contiene las fechas a predecir;
+  - con una serie que el forecaster predice y que falta, en formato largo;
+  - con categorías nuevas, texto donde los datos tienen números, o NaN o infinitos y un estimador que no los tolera; con LightGBM y los demás que los toleran, un aviso con las mismas predicciones.
+
+  `exog` debe ser un DataFrame o una Series con nombre.
+- PR 10, en el CLI: en `--exog`, las celdas de fecha vacías y los desplazamientos UTC que cambian lanzan error, como en los datos, y los formatos de fecha mezclados lanzan error antes de ejecutar; se encuentran las fechas en una columna posterior, se deja fuera una primera columna de números de fila y se nombra una `--date-column` que el fichero no tiene; las filas con dos o más campos más que la cabecera lanzan error.
+- PR 11: `forecast()` en modo predicción con filas finales sin target lanza error con cualquier estimador; con un NaN que leen las predicciones, error con Ridge (y con `ForecasterEquivalentDate`) donde las predicciones salían NaN, y aviso con LightGBM y los demás, con las mismas predicciones.
+- Previstos por el documento, pero rompen llamadas que daban un resultado correcto (pregunta abierta abajo): con `ForecasterRecursiveMultiSeries`, unas filas futuras añadidas sin target a todas las series (que skforecast descarta) daban las predicciones correctas, y ahora lanzan error porque 10.6 dice "siempre"; lo mismo LightGBM con datos diarios cuyos fines de semana están siempre vacíos y que terminan en domingo.
+- No previstos palabra por palabra por el documento (cada mensaje de commit los explica):
+  - PR 7: una columna de fechas dispersa de un CSV (al menos la mitad llena) se toma por columna de fechas con celdas vacías y lanza error;
+  - PR 8: datos diarios junto a una serie de días laborables son `'D'` con huecos sea cual sea el orden; una serie de 10 o más fechas exactamente cada dos días entre series diarias lanza error; los datos largos con huso también se comprueban;
+  - PR 10: un modelo foundation con datos anchos rechaza columnas sin historia; `pd.NA` lanza error donde el script fallaba; se leen una Series con nombre y un índice de fechas de Python; una exógena del CLI con las fechas en una columna posterior conserva su primera columna salvo que numere las filas;
+  - PR 11: `ForecasterEquivalentDate` y la inversa de la diferenciación, como se dice en las desviaciones.
+
+**Tests.**
+- Suite completa: de 1952 tests (más 1 omitido) en `0.4.x` a 2680 (más 1 omitido), es decir, 728 más.
+- Por commit, con `/verify`: 2023 (PR 5), 2104 (PR 6), 2260 (PR 7), 2398 (PR 8), 2541 (PR 10), 2669 (PR 11) y 2680 (corrección del PR 8); la corrección del PR 10 es solo documentación.
+- Una regresión por cada hallazgo de 9.2 y 10.6 cubierto, con los datos de su reproducción, y una por cada hallazgo confirmado de las revisiones.
+- Con un CSV, un test ejecuta el script como fichero y lo compara con `forecast()` en los PRs 6, 8 y 11 (`tests/test_integration_standalone_script.py`). En los PRs 7 y 10 no se añadió ese test: en el 7, los casos nuevos lanzan error antes de ejecutar; en el 10, los workflows de casos límite compararon el script ejecutado como fichero con `forecast()` y encontraron la excepción anotada abajo (el script de formato largo con `exog_future.csv`).
+- Los goldens del LLM y los de render no cambian en ningún commit.
+- Paridad, en cada PR y otra vez al final de la rama (`b1b9dea`), con `bike_sharing`, `h2o` e `items_sales` (ancho y largo, este con `melt`): el perfil, el plan, el script y las predicciones de `forecast()`, en modo predicción y en modo evaluación, son idénticos a los de `0.4.x` antes de esta fase (`fd31618`). Ningún cambio buscado afecta a estos datos.
+
+**Para el check de pago** (no se lanzó en esta fase): llegan al contexto de `ask()` por `DataProfile.warnings`, sin cambiar ningún golden:
+- la nota de filas ordenadas (PR 6);
+- la nota de series que terminan antes (PR 8), que desde `7c024e5` dice "la última fecha con un valor" en lugar de "la última fecha de los datos", tiene una redacción nueva en largo y otra propia en ancho, y se da también con datos anchos de dos o más columnas objetivo con fechas;
+- el recuento de huecos sumado sobre todas las series (PR 8);
+- la nota de fechas fuera de los años 1677 a 2262 en formato largo (PR 8).
+
+Los avisos de los PRs 7, 10 y 11 son avisos de Python, no llegan al contexto.
+
+**Preguntas nuevas para el autor.**
+1. Filas finales sin target con `ForecasterRecursiveMultiSeries` (que las descarta y predecía bien) y con periodos siempre vacíos (fines de semana) y estimadores que toleran NaN: ¿error siempre, como dice 10.6 y como está implementado, o eximirlos?
+2. NaN dentro de `window_size` que solo leen las estadísticas móviles (que los saltan) o que ningún lag lee para los `steps` pedidos: ¿siguen sin error con Ridge (implementado, con el aviso propio de skforecast) o deben seguir la regla de la pregunta 6?
+3. `forecast_code()`: ¿debe comprobar `exog` y la última ventana como `forecast()`? Hoy devuelve el código para cualquier entrada, como en 0.3.1.
+4. Los mensajes de error y los avisos nombran categorías, fechas e ids de series de los datos: decidir antes del PR 18 si el MCP los reenvía tal cual (principio 4 de `AGENTS.md`).
+5. PR 7: la heurística que toma una columna de fechas dispersa (al menos la mitad llena) de un CSV por columna de fechas con celdas vacías; las fechas con año de dos cifras no se comprueban salvo en la columna nombrada; las columnas datetime en memoria y los `DatetimeIndex` con `NaT` no se tocan.
+6. PR 10: una categoría vista solo en las primeras filas que ocupan los lags se codifica como NaN sin aviso; un separador al final de cada fila de `--exog` se lee como una cabecera con un campo menos, como en 0.3.1.
+
+**Pendiente o anotado, fuera de esta fase.** Sale de los mensajes de commit y de los workflows de casos límite del PR 11.
+- El script de formato largo lee `exog_future.csv` sin parsear sus fechas: ejecutado como fichero, sus predicciones usan exógenas NaN (PR 17, que cambia scripts).
+- Modo evaluación (PR 25):
+  - un NaN en la última ventana de la partición de entrenamiento falla tarde en las métricas con Ridge y es silencioso con LightGBM;
+  - una partición de entrenamiento cuya última fecha no tiene target en ninguna serie desplaza las predicciones una fecha, y las métricas las comparan por posición;
+  - en multiserie, un NaN de la partición de test falla tarde (`_check_evaluated_target` no mira multiserie), y una serie que termina antes de `end_train` falla con un error poco claro;
+  - con un índice con huso, algunos casos lanzan un `TypeError` sin envolver.
+- PR 24: una serie más corta que la ventana o sin ningún valor falla tarde dentro del script; una serie que skforecast deja fuera del entrenamiento (sin ninguna fila completa) se sigue comprobando en el PR 11; el plan de `ForecasterStats` aconseja `dropna_from_series`, que no tiene.
+- PR 23: los valores infinitos del target (silenciosos con `ForecasterStats` y `ForecasterEquivalentDate`); un target no numérico (`'-'`, `'?'`) hace fallar `profile()` dentro del PACF de skforecast con un `ValueError` sin envolver; los errores de lectura de pandas de un CSV local como `data_unreadable`; rellenar `hint` con los remedios que hoy van en los mensajes.
+- PR 8, limitaciones que se mantienen como en la base (huecos silenciosos): una serie en el día 15 de cada mes o quincenal entre series diarias, días laborables con festivos tomados por `'D'` entre series horarias, y las series exactamente regulares por azar en paneles dispersos muy grandes.
+- La nota de series que terminan antes escribe la medianoche sin hora ni huso y las demás horas con ellos (`_fmt_timestamp`), lo que en datos con huso y frecuencia inferior al día mezcla formatos; `series_lengths` sigue dando como fin de cada columna ancha la última fecha del índice.
+- Con un perfil guardado de otros datos, solo se comprueban las filas que el script lee; la comparación del perfil con los datos es el PR 27.
+
+**Pendiente para la fase 3b** (PRs 9, 12, 13 y 14 de la tabla 10.8):
+- PR 9: ForecasterStats escribe, explica y cuenta el CV que se ejecuta (cambia el script del backtest Stats y entra en el check de pago);
+- PR 12: `describe()` sin las instrucciones del LLM de `ask()`;
+- PR 13: `interval_method` en los backtests multiserie (goldens nuevos);
+- PR 14: límites de `describe()`.
