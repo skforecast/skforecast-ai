@@ -1790,3 +1790,56 @@ Goldens: los de render y los de contexto del LLM (`ask()` y `describe()`) no cam
 - El plan de release de 17.1: skforecast 0.26.0, después skforecast-ai 0.4.0 en PyPI y solo entonces el merge de `0.4.x` a `main`.
 
 **Siguiente:** los PRs 30 a 38 y, al final, el check de pago.
+
+### 18.1 Revisión del autor y correcciones
+
+Antes de mergear la fase 5a, una verificación independiente comparó `0.4.x` (`4047bfa`) con la rama (`1073c15`) en cuatro frentes: los comandos documentados, las comprobaciones nuevas (unas 330 llamadas en las dos versiones), los PRs 22, 28, 29 y el punto 12, y el servidor MCP por stdio. Las correcciones van como commits nuevos al final de `fix/core-checks`; ninguno subido se reescribió.
+
+**Verificación.**
+- Suite: 3735 pasados y 1 omitido en macOS, como dice la sección 18; ruff limpio; `check_ask_context.py --dry-run` bien en los cuatro conjuntos.
+- Documentación: de los comandos documentados en la base solo dejaba de funcionar `backtest --fixed-train-size --no-refit` (corregido abajo).
+- Servidor: paridad exacta con la API de Python en 5 conjuntos (45 resúmenes, 30 scripts, 55 CSV); frente a la base solo cambia lo que la sección 18 anuncia. 13 entradas que daban `internal_error` ya no lo dan. Los vectores de seguridad de las fases 2 y 4b se comportan igual.
+- PR 28: confirmado. Con datos trimestrales cambian las predicciones y el ganador de `compare()` (MAE de 1234 a 547 en el caso medido); la nota de versión no lo decía.
+
+**Regresiones encontradas y corregidas.**
+
+| Qué fallaba | Corrección | Commit |
+|---|---|---|
+| El punto 12 solo escapaba dos textos del plan: la explicación del perfil, `DataProfile.warnings` y los nombres de columnas y series aún podían cerrar o abrir secciones en `ask()` y `describe()` | Las etiquetas se escapan al cerrar cada sección (`_tag`), los nombres van en una línea (`_one_line`) y el texto libre de varias líneas va con sangría bajo su elemento (`_free_text`). Los goldens no cambian | `763080f` |
+| `create_cv(fixed_train_size=...)` sin `refit` daba error, también con `False` y con `--fixed-train-size` o `--expanding-train` en la CLI | Corre como antes y avisa con `IgnoredArgumentWarning` | `f3f9704` |
+| Un perfil guardado con una columna de más en los datos, o con una serie añadida o quitada en formato largo, era "otra estructura" | La columna que el perfil no nombra no se usa (nota en `DataProfile.warnings`); el cambio de series refresca el perfil con nota. Una exógena que falta sigue siendo error | `4b8cbca` |
+| Un plan o un perfil `MS` con datos `ME` (o `W-SUN` con `W-MON`) daba error | Las frecuencias se comparan por periodo (`same_period`) | `4b8cbca` |
+
+**Otros commits.**
+- `f4f3558`: el error de fechas que el script no puede leer decía "más de un formato", falso para `01 May 2015` y `01 Jun 2015` (pandas lee un nombre de mes completo de la primera). Ahora cita el formato leído de la primera fecha y un ejemplo en ISO 8601.
+- `acbad9a`: los alias que infiere pandas 2.1 (`M`, `Q-DEC`, `A-DEC`, `H`, `15T`) tienen periodo estacional.
+- `832099b`: la pista de una estrategia que `TimeSeriesFold` rechaza nombra el argumento cuando el problema no son los folds; la lista de `skip_folds` se corta en 5; unos datos cuyo índice perdió el atributo `freq` ya no añaden la nota de "valores distintos".
+- `dbdfe14`: notas de versión. Siete entradas reescritas (más cortas y con su migración), la del PR 22 limitada a `forecast()`, fuera la frase sobre `test_size` con huso horario, y las entradas que faltaban (`refine_plan()` y los `Tip:` de la CLI).
+- `7b18a59`: el SKILL.md dice al agente que siga el `hint` antes que un consejo que necesita Python; `docs/api/mcp.md` explica por qué el servidor pide `profile` de nuevo.
+
+**Decisiones del autor sobre las preguntas de la sección 18.**
+
+| Pregunta | Decisión | Estado |
+|---|---|---|
+| 1 | Forecaster directo con `gap`: rechazarlo en `backtest_code()` y avisar en `create_cv()` | Fase 5b |
+| 2 | Escapar también el perfil, sus avisos y los nombres | Hecho (`763080f`) |
+| 3 | Texto de varias líneas con sangría, no `\n` literal | Hecho (`763080f`) |
+| 4 | Fechas día-primero: rechazar en `profile()` solo las lecturas erróneas demostrables | Fase 5b |
+| 5 | Alias antiguos ahora; unificar las dos tablas de periodos en la fase 6 | Alias hechos (`acbad9a`) |
+| 6 | Sin aviso de Python cuando el perfil refrescado recomienda otro forecaster; el servidor mantiene `data_changed` | Hecho (`7b18a59`) |
+| 7 | ForecasterStats y `dropna_from_series` | Check de pago |
+
+**No se hizo, y por qué.**
+- Aceptar las variantes ISO 8601 mezcladas (medianoche sin hora como exporta R, segundos que faltan, `T` y espacio, microsegundos en algunas filas). El script generado lee las fechas con `pd.to_datetime(columna)`, que falla con todas ellas; aceptarlas pide que el script lea con `format='ISO8601'`, que es un cambio de renderizado y un campo nuevo del perfil. Queda como decisión para la fase 5b. De momento el error da el ejemplo ISO que hay que escribir.
+
+**Pendiente para la fase 5b (ya existía en la base).**
+- `internal_error` en `profile` con un target casi todo infinito o que desborda, y en `plan` con un `context_length` de texto.
+- `plan(steps=100)` sobre 204 filas pasa `create_cv` y falla en `backtest`.
+- Ningún CSV con huso horario se puede evaluar con `backtest` desde el servidor: la fecha por defecto de `create_cv` falla dentro del script.
+- `end_train` de series en formato largo que empiezan en fechas distintas cae fuera de los datos, y el error de evaluación cita esa fecha.
+- `compare()` con un intervalo asimétrico no emite aviso (solo la frase de la explicación).
+- Los mensajes de la CLI usan los nombres de Python (`refit=True`) en lugar de las opciones (`--refit`).
+
+**Para la lista del check de pago.** El contexto de `ask()` cambia solo con textos de varias líneas o con etiquetas: la explicación de un plan refinado con LLM llega ahora con sus párrafos en líneas con sangría.
+
+**Tests.** De 3735 a 3763 (más 1 omitido), en macOS con el entorno conda local.
