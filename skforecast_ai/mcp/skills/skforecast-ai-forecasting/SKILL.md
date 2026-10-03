@@ -78,9 +78,16 @@ response reports the total). Above 50 estimator fits a run gets a
 `candidates` leaves out the candidates above 500. Before an expensive run,
 tell the user and prefer fewer folds (a larger `fold_stride` or a later
 `initial_train_size`) or `refit=false` (train once, no help for
-ForecasterStats). `compare` reports its progress per candidate and stops
-before its next candidate when you cancel it; the other tools run to their
-end once started.
+ForecasterStats).
+
+Progress and cancellation: `compare` reports when each candidate starts
+and ends, and any long call (a backtest, a forecast, a candidate) sends a
+progress notification every 5 seconds while it runs, naming what runs and
+for how long ("ForecasterStats: running (35 s)"). Cancelling a `compare`
+waits for the candidate in progress to end and skips the rest; cancelling
+another tool waits for it to end (the backtest or the forecast in
+progress). Meanwhile only the read tools (`get_code`, `get_failure`,
+`list_objects`, `describe_object`) answer: the others wait their turn.
 
 ## Inputs
 

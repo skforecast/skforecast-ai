@@ -14,7 +14,7 @@ from skforecast_ai import (
     ForecastingAssistant,
     MissingBackendWarning,
 )
-from skforecast_ai.mcp import create_server
+from skforecast_ai.mcp import _runtime, create_server
 
 from ..fixtures_datasets import df_items_sales_long
 
@@ -140,12 +140,13 @@ def test_tool_compare_code_and_failures_of_the_candidates(tmp_path):
     )
 
 
-def test_tool_compare_reports_monotonic_progress(tmp_path):
+def test_tool_compare_reports_monotonic_progress(tmp_path, monkeypatch):
     """
     Test that `compare` reports progress when each candidate starts and
     ends: `2 * completed + started` over `2 * total`, always growing, the
-    baseline included.
+    baseline included (no heartbeat, which fires after a long silence).
     """
+    monkeypatch.setattr(_runtime, "HEARTBEAT_SECONDS", 3600)
     server, path = h2o_server(tmp_path)
     _, _, cv_id = cv_of(server, path)
     events = []
@@ -366,3 +367,44 @@ def test_tool_compare_announces_model_download_of_a_candidate_that_ran(
     ] == [("plan", "ModelDownloadNotice")]
     assert "CC-BY-NC-4.0" in first["notices"][0]["message"]
     assert all(n["category"] != "ModelDownloadNotice" for n in second["notices"])
+
+
+def test_tool_compare_heartbeat_inside_a_long_candidate(tmp_path, monkeypatch):
+    """
+    Test that while a candidate runs for longer than the heartbeat, the
+    comparison sends notifications naming it ("ridge: running (0 s)"),
+    above its start event and below its end event, with the total of the
+    comparison.
+    """
+    monkeypatch.setattr(_runtime, "HEARTBEAT_SECONDS", 0.05)
+    backtest = ForecastingAssistant.backtest
+
+    def slow_backtest(self, *args, **kwargs):
+        if kwargs["plan"].estimator == "Ridge":
+            time.sleep(0.4)
+        return backtest(self, *args, **kwargs)
+
+    monkeypatch.setattr(ForecastingAssistant, "backtest", slow_backtest)
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    events = []
+
+    async def steps(client):
+        async def record(progress, total, message):
+            events.append((progress, total, message))
+
+        return await client.call_tool(
+            "compare",
+            {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES[:1]},
+            progress_callback=record,
+        )
+
+    content_of(run_session(server, steps))
+
+    values = [progress for progress, _, _ in events]
+    inside = [event for event in events if 1 < event[0] < 2]
+    assert values == sorted(set(values))
+    assert len(inside) >= 3
+    assert inside[0] == (1.5, 4.0, "ridge: running (0 s)")
+    assert (1.0, 4.0, "ridge: started") in events
+    assert (2.0, 4.0, "ridge: succeeded") in events

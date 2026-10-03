@@ -125,7 +125,10 @@ def test_stdio_server_runs_executes_reports_progress_and_cancels(tmp_path):
             events = []
 
             async def record(progress, total, message):
-                events.append((progress, total))
+                # The events of the candidates; a heartbeat (a value between
+                # two of them) only comes after a long silence.
+                if progress == int(progress):
+                    events.append((progress, total))
 
             comparison = content_of(
                 await client.call_tool(
@@ -169,3 +172,80 @@ def test_stdio_server_runs_executes_reports_progress_and_cancels(tmp_path):
     ]
     assert cancelled is True
     assert [o["kind"] for o in objects].count("comparison") == 1
+
+
+# Starts the server with a heartbeat every 0.2 s and a backtest that takes
+# 1.5 s longer, to see the heartbeat cross the process boundary.
+_SLOW_SERVER = """
+import sys, time
+from skforecast_ai import ForecastingAssistant
+from skforecast_ai.mcp import _runtime
+from skforecast_ai.cli import app
+_runtime.HEARTBEAT_SECONDS = 0.2
+backtest = ForecastingAssistant.backtest
+def slow(self, *args, **kwargs):
+    time.sleep(1.5)
+    return backtest(self, *args, **kwargs)
+ForecastingAssistant.backtest = slow
+app()
+"""
+
+
+@pytest.mark.slow
+def test_stdio_server_heartbeat_during_a_long_backtest(tmp_path):
+    """
+    Test over stdio that a backtest longer than the heartbeat sends growing
+    progress notifications to the client while it runs, naming its
+    forecaster and the seconds it has run, and then returns its result.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    path = write_csv(data, "h2o.csv", df_h2o_csv)
+    parameters = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "-c",
+            _SLOW_SERVER,
+            "mcp",
+            "--allow-dir",
+            str(data),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+        env=dict(os.environ),
+        cwd=str(tmp_path),
+    )
+
+    async def main():
+        async with Client(parameters) as client:
+            profile = content_of(
+                await client.call_tool("profile", {"data_path": path, "target": "x"})
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan", {"profile_id": profile["id"], "steps": 12}
+                )
+            )
+            cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+            events = []
+
+            async def record(progress, total, message):
+                events.append((progress, total, message))
+
+            backtest = content_of(
+                await client.call_tool(
+                    "backtest", {"cv_id": cv["id"]}, progress_callback=record
+                )
+            )
+            return backtest, events
+
+    backtest, events = anyio.run(main)
+
+    values = [progress for progress, _, _ in events]
+    assert backtest["kind"] == "backtest"
+    assert len(events) >= 3
+    assert values == sorted(set(values))
+    assert all(0 < progress < 1 for progress in values)
+    assert all(
+        message.startswith("ForecasterRecursive: running (") for _, _, message in events
+    )

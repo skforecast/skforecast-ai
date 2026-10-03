@@ -263,6 +263,16 @@ class _StrictTool(Tool):
             raise ToolError(f"Error executing tool {self.name}: {payload}") from cause
 
 
+def _report(ctx: Context | None) -> Callable[..., Awaitable[None]] | None:
+    """
+    The function that sends progress notifications for the request of a
+    context (a no-op when the client asked for none); None without a
+    context.
+    """
+
+    return None if ctx is None else ctx.report_progress
+
+
 def _reported(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     """
     Report every exception of a tool as a `ToolError` with the JSON of the
@@ -705,6 +715,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         series_id_column: Annotated[str | None, Field(description=(
             "Column with the series ids of long multi-series data."
         ))] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
         _inputs.check_text_argument(date_column, "date_column")
@@ -727,7 +738,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             control.wrote(summary[2])
             return object_id, result, path, digest, summary
 
-        outcome = await run_call(work)
+        outcome = await run_call(work, report=_report(ctx), label="profile")
         object_id, result, path, digest, summary = outcome.value
 
         return _register(
@@ -828,6 +839,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 "deterministic selection."
             )),
         ] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         profile_entry = store.get(profile_id, "profile_id", ("profile",))
         _check_steps(steps, profile_entry.obj, "steps")
@@ -852,7 +864,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 uncached,
             )
 
-        outcome = await run_call(work)
+        outcome = await run_call(work, report=_report(ctx), label="plan")
         new_plan, object_id, summary, code, uncached = outcome.value
 
         return _plan_envelope(
@@ -871,6 +883,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "({'lags': null} selects the lags again, {'interval': null} "
             "removes the interval)."
         ))],
+        ctx: Context = None,
     ) -> ToolResult:
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
         if "steps" in overrides:
@@ -900,7 +913,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 uncached,
             )
 
-        outcome = await run_call(work)
+        outcome = await run_call(work, report=_report(ctx), label="refine_plan")
         new_plan, object_id, summary, code, uncached = outcome.value
 
         return _plan_envelope(
@@ -940,6 +953,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         allow_incomplete_fold: Annotated[bool | None, Field(description=(
             "Whether the last fold may have fewer than `steps` observations."
         ))] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_not_numeric_text(initial_train_size, "initial_train_size")
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
@@ -962,7 +976,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             control.wrote(summary[2], code_file)
             return object_id, result, summary, code_file
 
-        outcome = await run_call(work)
+        outcome = await run_call(work, report=_report(ctx), label="create_cv")
         object_id, result, summary, code_file = outcome.value
         cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
         links = {"profile_id": plan_entry.profile_id, "plan_id": plan_entry.id}
@@ -1046,6 +1060,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Plan to backtest, built from the same profile. Null for the plan "
             "the cross-validation strategy was built for."
         ))] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         cv_entry = store.get(cv_id, "cv_id", ("cv",))
         cv_result = cv_entry.obj
@@ -1083,7 +1098,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             frames = {"predictions": result.predictions, "metrics": result.metrics}
             return result, *_finish_run(control, "backtest", result, frames)
 
-        outcome = await run_call(work)
+        outcome = await run_call(
+            work,
+            report = _report(ctx),
+            label  = backtested.forecaster,
+        )
         result, object_id, files, summary, code_file, nbytes = outcome.value
         links = {
             "profile_id": cv_entry.profile_id, "plan_id": plan_link, "cv_id": cv_id,
@@ -1169,10 +1188,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 # The start of a candidate repeats the count of the end of the
                 # previous one, so it counts as a half step: the progress then
                 # grows with every notification.
+                started = event.status == "started"
                 control.progress(
-                    2 * event.completed + (event.status == "started"),
+                    2 * event.completed + started,
                     2 * event.total,
                     f"{event.candidate}: {event.status}",
+                    running = event.candidate if started else None,
                 )
 
             try:
@@ -1223,8 +1244,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 nbytes, best_plan, uncached,
             )
 
-        report = None if ctx is None else ctx.report_progress
-        outcome = await run_call(work, report=report)
+        outcome = await run_call(work, report=_report(ctx), label="compare")
         (
             result, object_id, files, summary, code_file, code_files, failures,
             nbytes, best_plan, uncached,
@@ -1315,6 +1335,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "exogenous variables. The script of `get_code` reads them from "
             "'exog_future.csv' in its working directory."
         ))] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_not_numeric_text(test_size, "test_size")
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
@@ -1352,7 +1373,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             frames = {"predictions": result.predictions, "metrics": result.metrics}
             return result, *_finish_run(control, "forecast", result, frames)
 
-        outcome = await run_call(work)
+        outcome = await run_call(
+            work,
+            report = _report(ctx),
+            label  = plan_entry.obj.forecaster,
+        )
         result, object_id, files, summary, code_file, nbytes = outcome.value
 
         # The plan of an evaluation (with `end_train`) is never registered as

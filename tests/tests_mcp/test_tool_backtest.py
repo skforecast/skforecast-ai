@@ -1,7 +1,9 @@
 # Unit test tool backtest
 
+import time
+
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.mcp import create_server
+from skforecast_ai.mcp import _runtime, create_server
 
 from .fixtures_mcp import (
     call,
@@ -11,6 +13,7 @@ from .fixtures_mcp import (
     error_of,
     h2o_server,
     profile_and_plan,
+    run_session,
     text_of,
     write_csv,
 )
@@ -161,3 +164,40 @@ def test_tool_backtest_execution_failed_keeps_the_failure(tmp_path):
     assert failure["text"].startswith("Error executing generated forecasting code.")
     assert "Traceback:\n" in failure["text"]
     assert "'no-such-solver'" in failure["text"].split("Code that ran:\n")[1]
+
+
+def test_tool_backtest_heartbeat_progress_while_it_runs(tmp_path, monkeypatch):
+    """
+    Test that a backtest that runs for longer than the heartbeat sends
+    growing progress notifications naming its forecaster and the seconds it
+    has run, so a client does not end the request, and still returns its
+    result.
+    """
+    monkeypatch.setattr(_runtime, "HEARTBEAT_SECONDS", 0.05)
+    backtest = ForecastingAssistant.backtest
+
+    def slow_backtest(self, *args, **kwargs):
+        time.sleep(0.4)
+        return backtest(self, *args, **kwargs)
+
+    monkeypatch.setattr(ForecastingAssistant, "backtest", slow_backtest)
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    events = []
+
+    async def steps(client):
+        async def record(progress, total, message):
+            events.append((progress, total, message))
+
+        return await client.call_tool(
+            "backtest", {"cv_id": cv_id}, progress_callback=record
+        )
+
+    result = content_of(run_session(server, steps))
+
+    assert result["kind"] == "backtest"
+    assert len(events) >= 3
+    values = [progress for progress, _, _ in events]
+    assert values == sorted(set(values))
+    assert all(0 < progress < 1 for progress in values)
+    assert events[0][1:] == (None, "ForecasterRecursive: running (0 s)")

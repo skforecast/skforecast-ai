@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 import logging
+import math
 import os
 import threading
+import time
 import warnings
 from collections.abc import Awaitable, Callable, Iterable, Iterator
 from contextlib import contextmanager, suppress
@@ -38,6 +40,12 @@ _CALL_GATE: RunVar[anyio.Lock] = RunVar("skforecast_ai_mcp_call_gate")
 MAX_NOTICES = 20
 MAX_NOTICE_CHARS = 1_000
 
+# Seconds between two progress notifications while the worker thread is
+# busy with no event of its own: some clients end a request after 60 s
+# without one, and an Auto-ARIMA candidate or a backtest of many fits can
+# run for longer.
+HEARTBEAT_SECONDS = 5.0
+
 # skforecast appends how to silence its warnings, which does not apply to an
 # agent.
 _SUPPRESS_HINT = "\nYou can suppress this warning"
@@ -64,15 +72,35 @@ class CallControl:
         Set when the request of the call is cancelled.
     report : Callable, None
         Sends a progress notification to the client, `report(progress, total,
-        message)`. None when the call reports no progress.
+        message, running)`. None when the call reports no progress.
     written : list of str
         Files the work wrote, removed when the call is cancelled before it
         returns, since nothing is then registered that names them.
+    label : str
+        What the call runs, named by the heartbeat notifications.
+    activity : tuple, None
+        Progress and total of the last notification of the work that was
+        sent, what runs since then and when it started
+        (`time.monotonic()`), read by the heartbeat notifications. None
+        until the worker thread starts.
     """
 
     cancelled: threading.Event
-    report: Callable[[float, float, str], None] | None = None
+    report: Callable[[float, float, str, str | None], None] | None = None
     written: list[str] = field(default_factory=list)
+    label: str = "call"
+    activity: tuple[float, float | None, str, float] | None = None
+
+    def begin(self) -> None:
+        """
+        Record that the worker thread started the work.
+
+        Returns
+        -------
+        None
+        """
+
+        self.activity = (0.0, None, self.label, time.monotonic())
 
     def wrote(self, *files: dict[str, str] | str | None) -> None:
         """
@@ -106,7 +134,13 @@ class CallControl:
         if self.cancelled.is_set():
             raise CallCancelled()
 
-    def progress(self, progress: float, total: float, message: str) -> None:
+    def progress(
+        self,
+        progress: float,
+        total: float,
+        message: str,
+        running: str | None = None,
+    ) -> None:
         """
         Report progress to the client, or stop the call when its request was
         cancelled or the client can no longer be reached.
@@ -118,11 +152,16 @@ class CallControl:
         Parameters
         ----------
         progress : float
-            Progress so far; it grows with every notification.
+            Progress so far, an integer step; it grows with every
+            notification.
         total : float
             Progress at the end.
         message : str
             What is running.
+        running : str, default None
+            What runs from now on (a candidate that starts), named by the
+            heartbeat notifications until the next event; None for the
+            label of the call.
 
         Returns
         -------
@@ -133,7 +172,7 @@ class CallControl:
         if self.report is None:
             return
         try:
-            self.report(progress, total, message)
+            self.report(progress, total, message, running)
         except Exception as exc:
             # A notification that cannot be sent because the request was
             # cancelled stops the call; any other failure is an error of its
@@ -208,9 +247,51 @@ def _record_warnings() -> Iterator[list[warnings.WarningMessage]]:
         yield records
 
 
+async def _heartbeat(
+    control: CallControl,
+    emit: Callable[[float, float | None, str], Awaitable[None]],
+) -> None:
+    """
+    Send a progress notification every `HEARTBEAT_SECONDS` while the worker
+    thread runs, so a client does not end a long request without events.
+
+    Each value grows over the previous one without reaching the next event
+    of the work: `k` notifications after an event of progress `p` send
+    `p + k / (k + 1)`, below `p + 1`. The message names what runs and for
+    how long ("ForecasterStats: running (35 s)").
+    """
+
+    seen, beats = None, 0
+    while True:
+        await anyio.sleep(HEARTBEAT_SECONDS)
+        activity = control.activity
+        if activity is None:
+            continue
+        base, total, running, since = activity
+        if total is not None and base >= total:
+            # The work only writes its files after its last event: a value
+            # above the total would read as more than 100 %.
+            continue
+        if (base, since) != seen:
+            seen, beats = (base, since), 0
+        beats += 1
+        elapsed = int(time.monotonic() - since)
+        try:
+            await emit(
+                base + beats / (beats + 1),
+                total,
+                f"{running}: running ({elapsed} s)",
+            )
+        except Exception as exc:
+            # A heartbeat that cannot be sent changes nothing: the call goes
+            # on, and a cancellation reaches it through its own request.
+            logger.debug("Progress notification not sent: %s", exc)
+
+
 async def run_call(
     work: Callable[[CallControl], T],
-    report: Callable[[float, float, str], Awaitable[None]] | None = None,
+    report: Callable[[float, float | None, str], Awaitable[None]] | None = None,
+    label: str = "call",
 ) -> CallOutcome[T]:
     """
     Run the work of a tool in a worker thread, under the process lock, with
@@ -228,8 +309,13 @@ async def run_call(
         Function run in the worker thread with a `CallControl`.
     report : Callable, default None
         Async function that sends a progress notification (the
-        `report_progress` of the MCP context), called through
-        `CallControl.progress`.
+        `report_progress` of the MCP context, a no-op when the client asked
+        for no progress), called through `CallControl.progress` and, every
+        `HEARTBEAT_SECONDS` while the worker thread runs, by a heartbeat.
+        Values never go back: a heartbeat computed before an event of the
+        work that is sent after it is dropped.
+    label : str, default 'call'
+        What the call runs, named by the heartbeat notifications.
 
     Returns
     -------
@@ -238,10 +324,34 @@ async def run_call(
     """
 
     cancelled = threading.Event()
-    control = CallControl(cancelled=cancelled)
+    control = CallControl(cancelled=cancelled, label=label)
+    last_sent = -math.inf
+
+    async def emit(progress: float, total: float | None, message: str) -> None:
+        # Runs in the event loop, without awaiting between the check and the
+        # update, so the values sent always grow.
+        nonlocal last_sent
+        if progress <= last_sent:
+            return
+        last_sent = progress
+        await report(progress, total, message)
+
+    async def emit_event(
+        progress: float, total: float, message: str, running: str | None
+    ) -> None:
+        # An event of the work becomes the base of the heartbeats only here,
+        # in the event loop and with its value already recorded as sent, so
+        # no heartbeat built on it can be sent before it.
+        control.activity = (
+            float(progress), total, running or label, time.monotonic()
+        )
+        await emit(progress, total, message)
+
     if report is not None:
-        def send(progress: float, total: float, message: str) -> None:
-            anyio.from_thread.run(report, progress, total, message)
+        def send(
+            progress: float, total: float, message: str, running: str | None
+        ) -> None:
+            anyio.from_thread.run(emit_event, progress, total, message, running)
 
         control.report = send
     result: dict[str, Any] = {}
@@ -249,6 +359,7 @@ async def run_call(
 
     def target() -> None:
         with PROCESS_LOCK:
+            control.begin()
             try:
                 control.check()
                 with _record_warnings() as records:
@@ -275,6 +386,8 @@ async def run_call(
     async with _call_gate():
         async with anyio.create_task_group() as group:
             group.start_soon(watch)
+            if report is not None:
+                group.start_soon(_heartbeat, control, emit)
             # Not abandoned on cancellation: the thread must end first.
             await anyio.to_thread.run_sync(target)
             finished = True
