@@ -3,9 +3,18 @@
 import pytest
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.mcp import create_server
 from skforecast_ai.mcp.models import ToolNotice
 
-from .fixtures_mcp import call, content_of, error_of, h2o_server
+from .fixtures_mcp import (
+    GAPS_WARNING,
+    call,
+    content_of,
+    df_h2o_gaps_csv,
+    error_of,
+    h2o_server,
+    write_csv,
+)
 
 LGBM_WARNING = (
     "'not_a_param' is not a named parameter of LGBMRegressor. It is passed to "
@@ -224,3 +233,36 @@ def test_tool_plan_invalid_argument_when_steps_longer_than_the_series(
     )
     assert error["details"] == {"steps": steps, "longest_series": 204}
     assert content_of(longest)["kind"] == "plan"
+
+
+def test_tool_plan_notices_of_the_plan_and_of_its_data(tmp_path):
+    """
+    Test that a plan carries, as notices, the warnings of the data it was
+    built from (source 'data') besides its own (source 'plan'), so the agent
+    sees a data problem where it decides the plan.
+    """
+    path = write_csv(tmp_path, "gaps.csv", df_h2o_gaps_csv)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile_id = content_of(
+        call(server, "profile", {"data_path": path, "target": "x"})
+    )["id"]
+
+    result = content_of(
+        call(
+            server,
+            "plan",
+            {
+                "profile_id": profile_id,
+                "steps": 12,
+                "estimator_kwargs": {"not_a_param": 1},
+                "estimator": "LGBMRegressor",
+            },
+        )
+    )
+
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(source="data", category="DataProfileWarning",
+                   message=GAPS_WARNING, count=1),
+        ToolNotice(source="plan", category="UserWarning",
+                   message=LGBM_WARNING, count=1),
+    ]

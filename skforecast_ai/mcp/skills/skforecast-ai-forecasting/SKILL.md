@@ -29,13 +29,17 @@ files.
    `interval`, `lags` and `window_features` set to null go back to the
    default.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
-   running anything.
+   running anything; above 50 estimator fits it already carries the
+   `LongTrainingWarning` the backtest would emit.
 5. `backtest(cv_id, plan_id?)`: the accuracy of the plan of the strategy
    over its folds. `plan_id` backtests another plan of the same profile on
    the same folds.
 6. Optionally `compare(cv_id, candidates?)`: several configurations on the
    same folds, ranked by the metric of the profile, with a seasonal naive
-   baseline. `links.best_plan_id` is the plan of the winner.
+   baseline. `links.best_plan_id` is the plan of the winner. Without
+   `interval` it uses the interval of the plan of the strategy, so the
+   winner keeps it (the baseline only takes symmetric intervals, such as
+   `[0.1, 0.9]`).
 7. `forecast(plan_id, test_size?, exog_path?)`: the future. `exog_path` is
    required when the data has exogenous variables. With `test_size` (the
    last `steps` observations, a fraction, or the date the test set starts
@@ -121,7 +125,10 @@ progress). Meanwhile only the read tools (`get_code`, `get_failure`,
   leaderboard) are CSV files listed in `files`. Read them when you need
   the values.
 - `notices`: the warnings of the call, with their source (`data`, `plan`
-  or `runtime`); at most 20, and `notices_omitted` counts the rest.
+  or `runtime`); at most 20, and `notices_omitted` counts the rest. A
+  profile carries the problems of the data (`DataProfileWarning`: missing
+  dates, short series, missing values), and a plan carries them again with
+  its own warnings, so you see them where you decide.
 - `links`: the ids an object was built from. `changeable`: the arguments
   of `refine_plan` or `create_cv` that build a variant of it.
 
@@ -142,7 +149,7 @@ and follow `hint` when there is one:
 | `unknown_id` | Use an id from `list_objects`, or create the object again. |
 | `inconsistent_ids` | Pass `backtest` a plan and a strategy built from the same profile. |
 | `execution_failed`, `all_candidates_failed` | `get_failure(details.failure_id)` returns the traceback and the code. |
-| `missing_dependency` | Tell the user which package to install. |
+| `missing_dependency` | Tell the user which package to install; `hint` says how, for pip and for uvx. A foundation model without its backend fails this way before running. |
 | `model_not_allowed` | Tell the user the license in the message; only if they accept it, ask them to restart the server with the `--allow-model` option of `hint`. |
 | `internal_error` | Report it to the user with `details.error_id`, which finds the message in the log of the server; do not retry with the same inputs. |
 

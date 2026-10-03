@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from skforecast.foundation import FoundationModelInfo, list_adapters
 from .._constants import DEFAULT_FOUNDATION_MODEL_ID, FORECASTER_TASK_TYPES
-from .._foundation import resolve_foundation_model
+from .._foundation import foundation_backend_installed, resolve_foundation_model
 from ..exceptions import InvalidInputError
 from ._errors import ServerError
 from .models import ToolNotice
@@ -280,6 +280,46 @@ class ModelPolicy:
                 "license_url": info.license_url,
                 "requires_hf_auth": info.requires_hf_auth,
             },
+        )
+
+    def check_backend(self, model_id: str | None, argument: str) -> None:
+        """
+        Reject running a foundation model whose backend package is not
+        installed where the server runs, before any script runs.
+
+        Parameters
+        ----------
+        model_id : str, None
+            Model ID of the plan; None does nothing.
+        argument : str
+            Argument of the tool that names the plan.
+
+        Returns
+        -------
+        None
+        """
+
+        if model_id is None:
+            return
+        try:
+            info = resolve_foundation_model(model_id)
+        except InvalidInputError:
+            return
+        if foundation_backend_installed(info):
+            return
+        package = info.backend_package
+        raise ServerError(
+            f"'{model_id}' needs the '{package}' package, which is not "
+            f"installed where the server runs. Nothing was run.",
+            code    = "missing_dependency",
+            field   = argument,
+            hint    = (
+                f"Ask the user to install it where the server runs and to "
+                f"restart the server: `pip install \"{package}\"` in its "
+                f"Python environment, or `--with \"{package}\"` added to the "
+                f"uvx command that starts it."
+            ),
+            details = {"model_id": model_id, "package": package},
         )
 
     def uncached(self, model_ids: Iterable[str | None]) -> list[str]:

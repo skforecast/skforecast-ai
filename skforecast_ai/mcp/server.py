@@ -28,7 +28,7 @@ from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, Field, ValidationError
 from .. import __version__
 from .._constants import FORECASTER_TASK_TYPES
-from .._utils import load_exog
+from .._utils import load_exog, warn_long_training
 from ..assistant import ForecastingAssistant
 from ..exceptions import InvalidInputError, SkforecastAIError
 from ..recommendation import count_estimator_fits
@@ -54,6 +54,7 @@ from .models import (
     ObjectKind,
     ObjectList,
     RefinePlanArgs,
+    ToolNotice,
     ToolResult,
 )
 
@@ -592,6 +593,42 @@ def _check_steps(steps: Any, profile: Any, argument: str) -> None:
         )
 
 
+def _text_notices(
+    texts: Iterable[str],
+    records: Iterable[Any],
+    source: Literal["data", "plan"],
+) -> list[ToolNotice]:
+    """
+    Notices for the warnings an object records as text
+    (`data_profile.warnings`, `plan.warnings`) that the call did not emit
+    as Python warnings, which reach the agent anyway.
+
+    Parameters
+    ----------
+    texts : iterable of str
+        Warnings the object records.
+    records : iterable of warnings.WarningMessage
+        Warnings the call emitted, which already become notices.
+    source : str
+        `'data'` or `'plan'`.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One per text not emitted, with the category `'DataProfileWarning'`
+        or `'PlanWarning'`.
+    """
+
+    emitted = {notice_text(record) for record in records}
+    category = "DataProfileWarning" if source == "data" else "PlanWarning"
+
+    return [
+        ToolNotice(source=source, category=category, message=text, count=1)
+        for text in dict.fromkeys(texts)
+        if text not in emitted
+    ]
+
+
 def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
     """
     Cost of a backtest with a cross-validation strategy and a forecaster.
@@ -750,7 +787,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             obj           = result,
             links         = {},
             summary       = summary,
-            notices       = build_notices(outcome.warnings, default_source="data"),
+            notices       = build_notices(
+                                outcome.warnings,
+                                default_source = "data",
+                                server_notices = _text_notices(
+                                    result.data_profile.warnings,
+                                    outcome.warnings,
+                                    "data",
+                                ),
+                            ),
             source        = None,
             data_path     = path,
             data_sha256   = digest,
@@ -769,11 +814,19 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         server_notices: list | None = None,
     ) -> ToolResult:
         if notices is None:
+            # The plan carries its own warnings and the problems of the data
+            # it was built from, also when they were not emitted this call.
+            texts = [
+                *_text_notices(new_plan.warnings, outcome_warnings, "plan"),
+                *_text_notices(
+                    source.profile.data_profile.warnings, outcome_warnings, "data"
+                ),
+            ]
             notices = build_notices(
                 outcome_warnings,
                 plan_warnings  = new_plan.warnings,
                 data_warnings  = source.data_warnings,
-                server_notices = server_notices or (),
+                server_notices = [*(server_notices or ()), *texts],
             )
         return _register(
             state,
@@ -972,15 +1025,23 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 skip_folds            = skip_folds,
                 allow_incomplete_fold = allow_incomplete_fold,
             )
+            cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
+            # The warning a backtest of this strategy will emit, given now,
+            # when the strategy can still change.
+            warn_long_training(
+                estimator_fits = cost["estimator_fits"],
+                n_fits         = cost["n_fits"],
+                forecaster     = result.plan.forecaster,
+                steps          = result.plan.steps,
+            )
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
             control.wrote(summary[2], code_file)
-            return object_id, result, summary, code_file
+            return object_id, result, summary, code_file, cost
 
         outcome = await run_call(work, report=_report(ctx), label="create_cv")
-        object_id, result, summary, code_file = outcome.value
-        cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
+        object_id, result, summary, code_file, cost = outcome.value
         links = {"profile_id": plan_entry.profile_id, "plan_id": plan_entry.id}
 
         return _register(
@@ -1024,9 +1085,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _check_foundation_kwargs(
             plan_obj.forecaster, plan_obj.estimator_kwargs, argument
         )
-        state.models.check(
-            state.models.model_of(plan_obj.forecaster, plan_obj.estimator), argument
-        )
+        model_id = state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
+        state.models.check(model_id, argument)
+        state.models.check_backend(model_id, argument)
 
     def _keep_failure(exc: Exception) -> None:
         # The traceback and the code of a failed script never go in the
@@ -1155,6 +1216,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     ) -> ToolResult:
         cv_entry = store.get(cv_id, "cv_id", ("cv",))
         profile_obj = cv_entry.profile
+        # Without `interval`, the one of the plan of the strategy, so the
+        # plan of the winner keeps the interval the agent asked for.
+        shared_interval = interval
+        if shared_interval is None and cv_entry.obj.plan.interval is not None:
+            shared_interval = list(cv_entry.obj.plan.interval)
         configs = None
         if candidates is None:
             # The default candidates are named by their forecaster and run
@@ -1204,7 +1270,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     cv                = copy.deepcopy(cv_entry.obj.cv),
                     profile           = _copy(profile_obj),
                     candidates        = copy.deepcopy(configs),
-                    interval          = interval,
+                    interval          = shared_interval,
                     show_progress     = False,
                     baseline          = baseline,
                     progress_callback = on_progress,

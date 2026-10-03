@@ -81,8 +81,34 @@ def test_tool_create_cv_output_matches_python_api(
     assert result["summary"] == cv.describe()
     assert result["cost"] == cost
     assert result["changeable"] == CV_ARGUMENTS
-    assert result["notices"] == []
+    long = ["LongTrainingWarning"] if cost["estimator_fits"] > 50 else []
+    assert [notice["category"] for notice in result["notices"]] == long
     assert code["code"] == cv.code
+
+
+def test_tool_create_cv_long_training_notice_before_the_backtest(tmp_path):
+    """
+    Test that a strategy whose backtest fits the estimator more than 50
+    times carries, when it is built, the `LongTrainingWarning` that the
+    backtest emits later (source 'runtime'), with the same text, while it
+    can still change.
+    """
+    server, path, _, plan_id = _planned(
+        tmp_path, steps=6, forecaster="ForecasterDirect"
+    )
+
+    result = content_of(call(server, "create_cv", {"plan_id": plan_id, "refit": True}))
+    backtest = content_of(call(server, "backtest", {"cv_id": result["id"]}))
+
+    long_notices = [
+        notice for notice in backtest["notices"]
+        if notice["category"] == "LongTrainingWarning"
+    ]
+    assert result["notices"] == long_notices
+    assert result["notices"][0]["source"] == "runtime"
+    assert result["notices"][0]["message"].startswith(
+        "ForecasterDirect will be fit 66 times"
+    )
 
 
 def test_tool_create_cv_notices_of_the_runtime(tmp_path):

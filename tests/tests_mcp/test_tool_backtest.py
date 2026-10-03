@@ -201,3 +201,42 @@ def test_tool_backtest_heartbeat_progress_while_it_runs(tmp_path, monkeypatch):
     assert values == sorted(set(values))
     assert all(0 < progress < 1 for progress in values)
     assert events[0][1:] == (None, "ForecasterRecursive: running (0 s)")
+
+
+def test_tool_backtest_missing_dependency_of_a_foundation_model(
+    tmp_path, monkeypatch
+):
+    """
+    Test that backtesting a ForecasterFoundation plan whose backend is not
+    installed is `missing_dependency` before any script runs (it was
+    `execution_failed` after the script failed), with one install advice;
+    `forecast` checks the same.
+    """
+    from skforecast_ai.mcp import _foundation
+
+    monkeypatch.setattr(_foundation, "foundation_backend_installed", lambda info: False)
+    server, path = h2o_server(tmp_path)
+    _, plan_id, cv_id = cv_of(server, path, forecaster="ForecasterFoundation")
+
+    error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+    forecast = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
+
+    assert error == {
+        "code": "missing_dependency",
+        "message": (
+            "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
+            "which is not installed where the server runs. Nothing was run."
+        ),
+        "field": "plan_id",
+        "hint": (
+            'Ask the user to install it where the server runs and to restart the '
+            'server: `pip install "chronos-forecasting"` in its Python '
+            'environment, or `--with "chronos-forecasting"` added to the uvx '
+            'command that starts it.'
+        ),
+        "details": {
+            "model_id": "autogluon/chronos-2-small",
+            "package": "chronos-forecasting",
+        },
+    }
+    assert (forecast["code"], forecast["field"]) == ("missing_dependency", "plan_id")

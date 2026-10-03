@@ -9,11 +9,13 @@ from skforecast_ai.mcp.models import ToolNotice
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     DATA_WARNING,
+    GAPS_WARNING,
     ID_PATTERN,
     call,
     content_of,
     df_data_warning,
     df_h2o_csv,
+    df_h2o_gaps_csv,
     error_of,
     write_csv,
 )
@@ -323,3 +325,24 @@ def test_tool_profile_file_too_large_before_reading_it(tmp_path, monkeypatch):
 
     assert (error["code"], error["field"]) == ("file_too_large", "data_path")
     assert content_of(result)["kind"] == "profile"
+
+
+def test_tool_profile_notices_of_the_data_profile_warnings(tmp_path):
+    """
+    Test that the warnings the profile records without emitting them
+    (`data_profile.warnings`, here three missing months) reach the agent as
+    notices with source 'data' and the category 'DataProfileWarning'.
+    """
+    path = write_csv(tmp_path, "gaps.csv", df_h2o_gaps_csv)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    result = content_of(call(server, "profile", {"data_path": path, "target": "x"}))
+
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "data",
+            category = "DataProfileWarning",
+            message  = GAPS_WARNING,
+            count    = 1,
+        )
+    ]

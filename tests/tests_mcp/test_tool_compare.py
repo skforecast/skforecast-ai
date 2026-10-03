@@ -408,3 +408,52 @@ def test_tool_compare_heartbeat_inside_a_long_candidate(tmp_path, monkeypatch):
     assert inside[0] == (1.5, 4.0, "ridge: running (0 s)")
     assert (1.0, 4.0, "ridge: started") in events
     assert (2.0, 4.0, "ridge: succeeded") in events
+
+
+def test_tool_compare_without_interval_uses_the_interval_of_the_plan_of_the_cv(
+    tmp_path,
+):
+    """
+    Test that `compare` without `interval` computes the interval of the plan
+    the strategy was built for, as the Python API with that interval does,
+    so the plan of the winner keeps it and its forecast has bounds; an
+    explicit `interval` still wins.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path, interval=[0.1, 0.9])
+    candidates = COMPARE_CANDIDATES[:1]
+
+    result = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": candidates})
+    )
+    explicit = content_of(
+        call(
+            server,
+            "compare",
+            {"cv_id": cv_id, "candidates": candidates, "interval": [0.2, 0.8]},
+        )
+    )
+    forecast = content_of(
+        call(server, "forecast", {"plan_id": result["links"]["best_plan_id"]})
+    )
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="x")
+    cv = assistant.create_cv(
+        profile=profile,
+        plan=assistant.plan(profile=profile, steps=12, interval=[0.1, 0.9]),
+    )
+    expected = assistant.compare(
+        data=path,
+        cv=cv,
+        profile=profile,
+        show_progress=False,
+        candidates=[(c["name"], dict(c["config"])) for c in candidates],
+        interval=[0.1, 0.9],
+    )
+
+    header = text_of(forecast["files"]["predictions"]).splitlines()[0]
+    assert header == ",pred,lower_bound,upper_bound"
+    assert expected.best_candidate.plan.interval == [0.1, 0.9]
+    assert result["summary"] == expected.describe()
+    assert explicit["summary"] != result["summary"]
