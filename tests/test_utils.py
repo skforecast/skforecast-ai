@@ -13,6 +13,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai._utils import (
     _check_evaluated_target,
+    _check_feature_name_collisions,
     _apply_interval_to_plan,
     _strip_code_blocks,
     _resolve_data_and_target,
@@ -27,7 +28,12 @@ from skforecast_ai.exceptions import DataNotFoundError, InvalidInputError
 from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
-from tests.fixtures_assistant import df_single, series_single
+from tests.fixtures_assistant import (
+    df_multi_wide,
+    df_no_exog,
+    df_single,
+    series_single,
+)
 from tests.fixtures_datasets import df_h2o_text
 
 
@@ -459,6 +465,27 @@ def test_validate_task_input_InvalidInputError_when_multivariate_long_format():
     assert exc_info.value.field == "forecaster"
 
 
+def test_validate_task_input_InvalidInputError_when_multivariate_long_format_single_series():
+    """
+    Test that ForecasterDirectMultiVariate is rejected on long-format data
+    with a single series too: its level is the target column, which is not
+    one of the series.
+    """
+    profile = _make_profile(
+        {"A": {"length": 100}}, n_series=1, date_column="date", **_LONG,
+    )
+
+    err_msg = re.escape(
+        "ForecasterDirectMultiVariate cannot forecast long-format data with a "
+        "single series. Use a single-series forecaster (e.g. "
+        "'ForecasterRecursive')."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_task_input(profile, "multivariate")
+
+    assert exc_info.value.field == "forecaster"
+
+
 @pytest.mark.parametrize("task_type", ["multi_series", "foundation"])
 def test_validate_task_input_InvalidInputError_when_long_format_without_date_column(
     task_type,
@@ -493,6 +520,48 @@ def test_validate_task_input_passes_when_long_format_single_series_without_date_
     assert _validate_task_input(profile, "single_series") is None
     assert _validate_task_input(profile, "foundation") is None
 
+
+
+@pytest.mark.parametrize(
+    "task_type, forecaster",
+    [
+        ("multi_series", "ForecasterRecursiveMultiSeries"),
+        ("multivariate", "ForecasterDirectMultiVariate"),
+    ],
+)
+def test_validate_task_input_InvalidInputError_when_multi_series_task_with_single_series(
+    task_type, forecaster
+):
+    """
+    Test that a multi-series task (ForecasterRecursiveMultiSeries or
+    ForecasterDirectMultiVariate) is rejected on single-format data with one
+    series: its generated script always failed. The error points at the
+    `forecaster` and says how to pass several series.
+    """
+    profile = _make_profile({"value": {"length": 100}}, n_series=1)
+
+    err_msg = re.escape(
+        f"{forecaster} forecasts several series, but the data has a single "
+        f"series (target 'value'). Use a single-series forecaster "
+        f"(e.g. 'ForecasterRecursive'), or pass several series: a list of "
+        f"target columns, or `series_id_column` for long format."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_task_input(profile, task_type)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "forecaster"
+
+
+def test_validate_task_input_passes_when_multi_series_task_with_several_series():
+    """
+    Test that the multi-series tasks accept wide-format data with several
+    series.
+    """
+    profile = _make_profile({"A": {"length": 100}, "B": {"length": 100}})
+
+    assert _validate_task_input(profile, "multi_series") is None
+    assert _validate_task_input(profile, "multivariate") is None
 
 
 # =============================================================================
@@ -920,3 +989,179 @@ def test_apply_interval_to_plan_does_not_share_lists():
     assert plan.warnings == ["A warning."]
     assert new_plan.warnings == ["A warning.", "Another warning."]
     assert new_plan.forecaster_kwargs is not plan.forecaster_kwargs
+
+
+# =============================================================================
+# _check_feature_name_collisions
+# =============================================================================
+_assistant = ForecastingAssistant()
+_COLLISION_HINT = (
+    "Rename the exogenous columns named like lags ('lag_1') or window "
+    "features ('roll_mean_7')."
+)
+_WINDOW_FEATURES = [{"stats": ["mean"], "window_size": 3}]
+
+# plan() runs the check itself, so the plans are built on data without the
+# clash and the exogenous columns of the profile are replaced afterwards.
+_profile_single = _assistant.profile(
+    data=df_single, target="sales", date_column="date"
+)
+_profile_wide = _assistant.profile(
+    data=df_multi_wide.assign(promo=1.0),
+    target=["series_a", "series_b"],
+    date_column="date",
+)
+
+
+def _with_exog(profile, exog_columns):
+    """Return the data profile with `exog_columns` as its exogenous columns."""
+    return profile.data_profile.model_copy(update={"exog_columns": exog_columns})
+
+
+@pytest.mark.parametrize("forecaster", ["ForecasterRecursive", "ForecasterDirect"])
+@pytest.mark.parametrize("name", ["lag_1", "lag_2", "roll_mean_3"])
+def test_check_feature_name_collisions_InvalidInputError_when_exog_named_like_predictor(
+    name, forecaster
+):
+    """
+    Test that an exogenous column named like a lag ('lag_k') or a window
+    feature ('roll_mean_3') is rejected for the single-series forecasters,
+    with `data` as field and a hint: skforecast fails with duplicated
+    feature names.
+    """
+    plan = _assistant.plan(
+        _profile_single, steps=3, forecaster=forecaster, lags=[1, 2],
+        window_features=_WINDOW_FEATURES,
+    )
+    data_profile = _with_exog(_profile_single, ["promo", name])
+
+    err_msg = re.escape(
+        f"Exogenous column(s) '{name}' have the name of a predictor that "
+        f"{forecaster} creates (a lag or a window feature), so the script "
+        f"would fail with duplicated feature names. Rename them in the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _check_feature_name_collisions(plan, data_profile)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == _COLLISION_HINT
+
+
+def test_check_feature_name_collisions_lists_at_most_five_columns():
+    """
+    Test that the message names the first 5 clashing columns only.
+    """
+    plan = _assistant.plan(
+        _profile_single, steps=3, lags=[1, 2, 3, 4, 5, 6, 7],
+        window_features=_WINDOW_FEATURES,
+    )
+    names = [f"lag_{lag}" for lag in range(1, 8)]
+    data_profile = _with_exog(_profile_single, names)
+
+    err_msg = re.escape(
+        "Exogenous column(s) 'lag_1', 'lag_2', 'lag_3', 'lag_4', 'lag_5' and "
+        "2 more have the name of a predictor"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        _check_feature_name_collisions(plan, data_profile)
+
+
+def test_check_feature_name_collisions_passes_when_exog_does_not_clash():
+    """
+    Test that an exogenous column that is not the name of a lag created by
+    the plan (lag_5 with lags [1, 2]), nor of a window feature (a rolling
+    std when only the mean is created, a rolling mean of another window)
+    passes.
+    """
+    plan = _assistant.plan(
+        _profile_single, steps=3, lags=[1, 2], window_features=_WINDOW_FEATURES,
+    )
+    data_profile = _with_exog(
+        _profile_single, ["promo", "lag_5", "roll_std_3", "roll_mean_7"]
+    )
+
+    assert _check_feature_name_collisions(plan, data_profile) is None
+
+
+def test_check_feature_name_collisions_InvalidInputError_when_multivariate_exog_has_series_prefix():
+    """
+    Test that for ForecasterDirectMultiVariate the names created are
+    prefixed with each series ('series_a_lag_1'), and those are rejected.
+    """
+    plan = _assistant.plan(
+        _profile_wide, steps=3, forecaster="ForecasterDirectMultiVariate",
+        lags=[1, 2], window_features=_WINDOW_FEATURES,
+    )
+    data_profile = _with_exog(_profile_wide, ["promo", "series_b_roll_mean_3"])
+
+    err_msg = re.escape(
+        "Exogenous column(s) 'series_b_roll_mean_3' have the name of a "
+        "predictor that ForecasterDirectMultiVariate creates (a lag or a "
+        "window feature), so the script would fail with duplicated feature "
+        "names. Rename them in the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _check_feature_name_collisions(plan, data_profile)
+
+    assert exc_info.value.field == "data"
+
+
+def test_check_feature_name_collisions_passes_when_multivariate_exog_has_no_prefix():
+    """
+    Test that, for ForecasterDirectMultiVariate, an exogenous column named
+    'lag_1' (without the series prefix) does not clash, whereas it does for
+    ForecasterRecursiveMultiSeries, which does not prefix the names.
+    """
+    data_profile = _with_exog(_profile_wide, ["promo", "lag_1"])
+    multivariate = _assistant.plan(
+        _profile_wide, steps=3, forecaster="ForecasterDirectMultiVariate",
+        lags=[1, 2], window_features=_WINDOW_FEATURES,
+    )
+    multi_series = _assistant.plan(
+        _profile_wide, steps=3, forecaster="ForecasterRecursiveMultiSeries",
+        lags=[1, 2], window_features=_WINDOW_FEATURES,
+    )
+
+    assert _check_feature_name_collisions(multivariate, data_profile) is None
+    err_msg = re.escape("Exogenous column(s) 'lag_1' have the name of a predictor")
+    with pytest.raises(InvalidInputError, match=err_msg):
+        _check_feature_name_collisions(multi_series, data_profile)
+
+
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterStats", "ForecasterFoundation", "ForecasterEquivalentDate"],
+)
+def test_check_feature_name_collisions_passes_when_forecaster_has_no_lags(forecaster):
+    """
+    Test that the plans of the statistical, foundation and baseline
+    forecasters, which create no lags nor window features, are not checked.
+    """
+    plan = _assistant.plan(_profile_single, steps=3, forecaster=forecaster)
+    data_profile = _with_exog(_profile_single, ["lag_1", "roll_mean_3"])
+
+    assert _check_feature_name_collisions(plan, data_profile) is None
+
+
+def test_check_feature_name_collisions_passes_when_plan_does_not_use_exog():
+    """
+    Test that a plan with `use_exog` False is not checked: the exogenous
+    columns never reach the forecaster.
+    """
+    plan = _assistant.plan(
+        _profile_single, steps=3, lags=[1, 2], window_features=_WINDOW_FEATURES,
+    ).model_copy(update={"use_exog": False})
+    data_profile = _with_exog(_profile_single, ["lag_1"])
+
+    assert _check_feature_name_collisions(plan, data_profile) is None
+
+
+def test_check_feature_name_collisions_passes_when_data_has_no_exog():
+    """
+    Test that data without exogenous columns is not checked.
+    """
+    profile = _assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = _assistant.plan(profile, steps=3)
+
+    assert _check_feature_name_collisions(plan, profile.data_profile) is None

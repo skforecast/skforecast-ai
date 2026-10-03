@@ -14,7 +14,7 @@ from skforecast_ai import BacktestResult, ForecastingAssistant
 from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 
 from tests.fixtures_assistant import df_single, df_no_exog
-from tests.fixtures_datasets import df_h2o
+from tests.fixtures_datasets import df_h2o, df_items_sales_long
 
 assistant = ForecastingAssistant()
 
@@ -423,3 +423,139 @@ def test_backtest_InvalidInputError_when_target_has_infinite_value(
     assert exc_info.value.hint == (
         "Replace the infinite values of the target, for example with NaN."
     )
+
+
+# =============================================================================
+# Tests: plans that cannot run
+# =============================================================================
+def test_backtest_InvalidInputError_when_direct_forecaster_with_gap():
+    """
+    Test that backtest() rejects, before running, a ForecasterDirect plan
+    with a cv whose gap is greater than 0, with `cv` as field: each fold asks
+    the forecaster for steps + gap steps, more than it was built for.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterDirect")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, gap=2, verbose=False)
+
+    err_msg = re.escape(
+        "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+        "each fold needs steps + gap = 7 steps ahead, so skforecast would "
+        "fail. Use a strategy without gap, or a recursive forecaster."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=df_no_exog, target="sales", date_column="date", cv=cv,
+            profile=profile, plan=plan, show_progress=False,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "cv"
+
+
+@pytest.mark.parametrize(
+    "forecaster, gap",
+    [("ForecasterRecursive", 2), ("ForecasterDirect", 0)],
+    ids=["recursive_with_gap", "direct_without_gap"],
+)
+def test_backtest_runs_when_gap_is_valid_for_forecaster(forecaster, gap):
+    """
+    Test that backtest() runs a ForecasterRecursive plan with a gap, and a
+    ForecasterDirect plan with gap 0.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster=forecaster)
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, gap=gap, verbose=False)
+
+    result = assistant.backtest(
+        data=df_no_exog, target="sales", date_column="date", cv=cv,
+        profile=profile, plan=plan, show_progress=False,
+    )
+
+    assert isinstance(result, BacktestResult)
+    assert result.plan.forecaster == forecaster
+
+
+_ITEMS_LONG = df_items_sales_long
+
+
+def _long_cv():
+    """Return a TimeSeriesFold for the items_sales fixtures (120 days)."""
+    return TimeSeriesFold(steps=5, initial_train_size=80, verbose=False)
+
+
+def test_backtest_InvalidInputError_when_long_series_has_no_values():
+    """
+    Test that backtest() rejects long-format data where a series has every
+    value missing, whatever its folds: skforecast fails on it in the script.
+    """
+    data = _ITEMS_LONG.copy()
+    data.loc[data["series"] == "item_2", "value"] = np.nan
+
+    err_msg = re.escape(
+        "Some series have no values ('item_2'), so "
+        "ForecasterRecursiveMultiSeries cannot be trained on them. Remove "
+        "them from the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=data, target="value", date_column="date",
+            series_id_column="series", cv=_long_cv(), show_progress=False,
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == "Remove the series without values from the data."
+
+
+@pytest.mark.parametrize("n_values", [1, 21, 60], ids=lambda n: f"values: {n}")
+def test_backtest_runs_when_long_series_starts_late(n_values):
+    """
+    Test that backtest() runs when a long-format series only has its last
+    values (short, even one, but not empty): skforecast leaves it out of the
+    first folds, so only series without any value are rejected.
+    """
+    data = _ITEMS_LONG[
+        ~(
+            (_ITEMS_LONG["series"] == "item_2")
+            & (_ITEMS_LONG["date"] <= pd.Timestamp("2012-04-29") - pd.Timedelta(
+                days=n_values
+            ))
+        )
+    ]
+
+    result = assistant.backtest(
+        data=data, target="value", date_column="date",
+        series_id_column="series", cv=_long_cv(), show_progress=False,
+    )
+
+    assert isinstance(result, BacktestResult)
+    assert result.plan.forecaster == "ForecasterRecursiveMultiSeries"
+
+
+def test_backtest_InvalidInputError_when_received_plan_clashes_with_exog_names():
+    """
+    Test that backtest() checks a plan built on clean data against the
+    exogenous columns of the profile it receives: a column named 'lag_1'
+    clashes with the lags of the plan, as plan() would have found.
+    """
+    plan = assistant.plan(
+        assistant.profile(data=df_single, target="sales", date_column="date"),
+        steps=5, lags=[1, 2],
+    )
+    data = df_single.rename(columns={"promo": "lag_1"})
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    err_msg = re.escape(
+        "Exogenous column(s) 'lag_1' have the name of a predictor that "
+        "ForecasterRecursive creates (a lag or a window feature), so the "
+        "script would fail with duplicated feature names. Rename them in the "
+        "data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=data, cv=cv, profile=profile, plan=plan, show_progress=False
+        )
+
+    assert exc_info.value.field == "data"

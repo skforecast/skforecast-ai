@@ -131,6 +131,15 @@ series_unnamed = pd.Series(
 # --- Single series without a date column (RangeIndex, no frequency) ---
 df_range_index = df_single.drop(columns=["date"]).reset_index(drop=True)
 
+# --- Single series with irregular timestamps (no inferable frequency) ---
+# Cumulative random minutes: the datetime index has no frequency.
+_irregular_minutes = pd.Timestamp("2023-01-01") + pd.to_timedelta(
+    np.cumsum(np.random.default_rng(1).integers(1, 60, 100)), unit="m"
+)
+df_irregular = pd.DataFrame(
+    {"date": _irregular_minutes, "sales": np.arange(100, dtype=float)}
+)
+
 
 def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None):
     """

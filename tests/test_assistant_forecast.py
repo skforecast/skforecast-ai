@@ -10,7 +10,11 @@ import pytest
 from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
-from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
+from skforecast_ai.exceptions import (
+    ForecastExecutionError,
+    InvalidInputError,
+    InvalidInputTypeError,
+)
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
@@ -1457,3 +1461,202 @@ def test_forecast_output_script_loads_placeholder_when_data_is_dataframe(tmp_pat
     assert profile.data_profile.data_path == str(csv_path)
     assert "data = pd.read_csv('data.csv')" in result.code
     assert str(csv_path) not in result.code
+
+
+# =============================================================================
+# Tests: series that ForecasterRecursiveMultiSeries cannot be trained on
+# =============================================================================
+_ITEMS = ["item_1", "item_2", "item_3"]
+_SERIES_WINDOW = (
+    "no more values than the 21 that ForecasterRecursiveMultiSeries reads to "
+    "build its predictors"
+)
+
+
+def _wide_starting_late(n_values, column="item_2"):
+    """
+    Return the items_sales wide data (120 days, ending 2012-04-29) where
+    `column` only has its last `n_values` values.
+    """
+    data = df_items_sales_wide.copy()
+    data.iloc[: len(data) - n_values, data.columns.get_loc(column)] = np.nan
+    return data
+
+
+def test_forecast_InvalidInputError_when_series_has_window_values_or_fewer():
+    """
+    Test that forecast() in prediction mode rejects, before running, a series
+    whose values from its first one are no more than the window the default
+    plan reads (21 for daily data), with `data` as field. skforecast fails
+    on it inside the script.
+    """
+    err_msg = re.escape(
+        f"Some series have, from their first to their last value, {_SERIES_WINDOW} "
+        f"('item_2': 21), so it cannot be trained on them. Use shorter lags "
+        f"and window features, or remove those series."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=_wide_starting_late(21), target=_ITEMS, steps=5
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == (
+        "Use lags and window features of at most 20 observations, or remove "
+        "the short series."
+    )
+
+
+def test_forecast_runs_when_series_has_one_more_value_than_window():
+    """
+    Test that forecast() in prediction mode runs when the shortest series
+    has one more value than the window (22 against 21), the boundary of
+    skforecast's `len(y) <= window_size` failure.
+    """
+    result = ForecastingAssistant().forecast(
+        data=_wide_starting_late(22), target=_ITEMS, steps=5
+    )
+
+    assert list(result.predictions.columns) == ["level", "pred"]
+    assert result.predictions.shape == (15, 2)
+    assert list(result.predictions["level"].unique()) == _ITEMS
+
+
+def test_forecast_InvalidInputError_when_series_short_up_to_end_of_training():
+    """
+    Test that forecast() in evaluation mode checks the training partition
+    (up to the end of training, 2012-04-24): item_2 has 15 values there,
+    less than the window of 21, though 20 in the whole data.
+    """
+    err_msg = re.escape(
+        f"Some series have, from their first to their last value up to the end of training "
+        f"(2012-04-24), {_SERIES_WINDOW} ('item_2': 15), so it cannot be "
+        f"trained on them. Use shorter lags and window features, or remove "
+        f"those series."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=_wide_starting_late(20), target=_ITEMS, steps=5, test_size=5
+        )
+
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_InvalidInputError_when_series_has_no_values_up_to_end_of_training():
+    """
+    Test that forecast() in evaluation mode rejects a series whose only
+    values are in the test partition (the last 5 days).
+    """
+    err_msg = re.escape(
+        "Some series have no values up to the end of training (2012-04-24) "
+        "('item_2'), so ForecasterRecursiveMultiSeries cannot be trained on "
+        "them. Remove them from the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=_wide_starting_late(5), target=_ITEMS, steps=5, test_size=5
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == "Remove the series without values from the data."
+
+
+def test_forecast_InvalidInputError_when_long_series_has_no_values():
+    """
+    Test that forecast() rejects long-format data where a series has every
+    value missing.
+    """
+    data = df_items_sales_long.copy()
+    data.loc[data["series"] == "item_2", "value"] = np.nan
+
+    err_msg = re.escape(
+        "Some series have no values ('item_2'), so "
+        "ForecasterRecursiveMultiSeries cannot be trained on them. Remove "
+        "them from the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=data, target="value", date_column="date",
+            series_id_column="series", steps=5,
+        )
+
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_InvalidInputError_when_long_series_shorter_than_window():
+    """
+    Test that forecast() in prediction mode rejects a long-format series
+    with 21 values (from 2012-04-09 to the end), the window of the plan.
+    """
+    data = df_items_sales_long[
+        ~(
+            (df_items_sales_long["series"] == "item_2")
+            & (df_items_sales_long["date"] < "2012-04-09")
+        )
+    ]
+
+    err_msg = re.escape(
+        f"Some series have, from their first to their last value, {_SERIES_WINDOW} "
+        f"('item_2': 21), so it cannot be trained on them. Use shorter lags "
+        f"and window features, or remove those series."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=data, target="value", date_column="date",
+            series_id_column="series", steps=5,
+        )
+
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_does_not_check_series_lengths_when_forecaster_is_not_multiseries():
+    """
+    Test that the series lengths are checked for ForecasterRecursiveMultiSeries
+    only: ForecasterDirectMultiVariate with a series of 21 values gets past
+    the check and fails in the script with the skforecast warning about the
+    missing values it trains on.
+    """
+    err_msg = re.escape(
+        "MissingValuesWarning: NaNs detected in `X_train`."
+    )
+    with pytest.raises(ForecastExecutionError, match=err_msg):
+        ForecastingAssistant().forecast(
+            data=_wide_starting_late(21), target=_ITEMS, steps=5,
+            forecaster="ForecasterDirectMultiVariate",
+        )
+
+
+# =============================================================================
+# Tests: received plan checked against the exogenous columns
+# =============================================================================
+@pytest.mark.parametrize("method", ["forecast", "forecast_code"])
+def test_forecast_InvalidInputError_when_received_plan_clashes_with_exog_names(
+    method,
+):
+    """
+    Test that forecast() and forecast_code() check a plan built on clean data
+    against the exogenous columns of the profile they receive: a column named
+    'lag_1' clashes with the lags of the plan, as plan() would have found.
+    """
+    assistant = ForecastingAssistant()
+    plan = assistant.plan(
+        assistant.profile(data=df_single, target="sales", date_column="date"),
+        steps=5, lags=[1, 2],
+    )
+    data = df_single.rename(columns={"promo": "lag_1"})
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "Exogenous column(s) 'lag_1' have the name of a predictor that "
+        "ForecasterRecursive creates (a lag or a window feature), so the "
+        "script would fail with duplicated feature names. Rename them in the "
+        "data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        getattr(assistant, method)(
+            data=data, steps=5, test_size=5, profile=profile, plan=plan
+        )
+
+    assert exc_info.value.field == "data"

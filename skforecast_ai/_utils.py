@@ -138,10 +138,13 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
     Validate that the input shape is compatible with the task type.
 
     Single-series tasks (`single_series`, `statistical`, `baseline`) accept
-    exactly one series. The `multivariate` task requires all series to share
-    the same length, and wide-format data: on long-format data with several
-    series the generated script always failed (its level is the target
-    column, which is not one of the series). `foundation` takes one or
+    exactly one series, and the multi-series tasks (`multi_series`,
+    `multivariate`) need data with several series (wide or long format):
+    on a single series their script always failed. The `multivariate` task
+    requires all series to share the same length, and wide-format data: on
+    long-format data with several series the generated script always failed
+    (its level is the target column, which is not one of the series), and
+    on long-format data with one series too. `foundation` takes one or
     several series. Long-format data with several series needs its dates in
     a column, which the generated script reads to split the series; dated by
     the index, or without dates, the script always failed.
@@ -177,12 +180,37 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
             field = "forecaster",
         )
 
+    if (
+        task_type in ("multi_series", "multivariate")
+        and data_profile.data_format == "single"
+        and n_series == 1
+    ):
+        forecaster = (
+            "ForecasterRecursiveMultiSeries" if task_type == "multi_series"
+            else "ForecasterDirectMultiVariate"
+        )
+        raise InvalidInputError(
+            f"{forecaster} forecasts several series, but the data has a single "
+            f"series (target {data_profile.target!r}). Use a single-series "
+            f"forecaster (e.g. 'ForecasterRecursive'), or pass several series: "
+            f"a list of target columns, or `series_id_column` for long format.",
+            field = "forecaster",
+        )
+
     long_series = data_profile.data_format == "long" and n_series > 1
     if long_series and task_type == "multivariate":
         raise InvalidInputError(
             "ForecasterDirectMultiVariate cannot forecast long-format data with "
             "several series. Use 'ForecasterRecursiveMultiSeries', or pass the "
             "series as columns (wide format) with `target` naming them.",
+            field = "forecaster",
+        )
+    if data_profile.data_format == "long" and task_type == "multivariate":
+        # Its level is the target column, which is not one of the series.
+        raise InvalidInputError(
+            "ForecasterDirectMultiVariate cannot forecast long-format data with "
+            "a single series. Use a single-series forecaster (e.g. "
+            "'ForecasterRecursive').",
             field = "forecaster",
         )
     if (
@@ -1049,6 +1077,69 @@ def _with_data_path(
         return profile
     data_profile = profile.data_profile.model_copy(update={"data_path": data_path})
     return profile.model_copy(update={"data_profile": data_profile})
+
+
+def _check_feature_name_collisions(
+    plan: ForecastPlan,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Reject exogenous columns named like a predictor the forecaster creates.
+
+    skforecast names the lags `lag_k` and the window features after their
+    statistic and window (`roll_mean_7`); `ForecasterDirectMultiVariate`
+    prefixes both with the series. An exogenous column with one of those
+    names made the script fail with "Duplicated feature names detected".
+    Calendar features are handled by `plan()` (the data column is kept).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan just built.
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    None
+    """
+    from skforecast.preprocessing import RollingFeatures
+
+    if plan.task_type not in ("single_series", "multi_series", "multivariate"):
+        return
+    if not plan.use_exog or not data_profile.exog_columns:
+        return
+    kwargs = plan.forecaster_kwargs
+    lags = _normalize_lags(kwargs.get("lags")) or []
+    names = [f"lag_{lag}" for lag in lags]
+    window_features = kwargs.get("window_features") or []
+    stats = [stat for entry in window_features for stat in entry["stats"]]
+    sizes = [
+        entry["window_size"] for entry in window_features for _ in entry["stats"]
+    ]
+    if stats:
+        names += RollingFeatures(stats=stats, window_sizes=sizes).features_names
+    if plan.task_type == "multivariate":
+        targets = data_profile.target
+        targets = targets if isinstance(targets, list) else [targets]
+        names = [f"{series}_{name}" for series in targets for name in names]
+
+    clashes = [column for column in data_profile.exog_columns if column in set(names)]
+    if clashes:
+        shown = ", ".join(repr(column) for column in clashes[:5])
+        if len(clashes) > 5:
+            shown += f" and {len(clashes) - 5} more"
+        raise InvalidInputError(
+            f"Exogenous column(s) {shown} have the name of a predictor "
+            f"that {plan.forecaster} creates (a lag or a window feature), so "
+            f"the script would fail with duplicated feature names. Rename "
+            f"them in the data.",
+            field = "data",
+            hint  = (
+                "Rename the exogenous columns named like lags ('lag_1') or "
+                "window features ('roll_mean_7')."
+            ),
+        )
 
 
 def _check_window_needs_refit(

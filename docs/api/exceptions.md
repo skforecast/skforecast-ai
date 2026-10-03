@@ -28,7 +28,7 @@ The warnings that skforecast emits while `forecast()`, `backtest()` and `compare
 | `code` | Raised as | When |
 |---|---|---|
 | `invalid_argument` | `InvalidInputError`, `InvalidInputTypeError` | An argument or a received object is not valid. |
-| `insufficient_data` | `InvalidInputError` | The data is too short for what was asked: fewer than two folds for the cross-validation, lags and window features longer than the data allows, or a target column without any value. |
+| `insufficient_data` | `InvalidInputError` | The data is too short for what was asked: fewer than two folds for the cross-validation, lags and window features longer than the data allows, a target column without any value, or a series of `ForecasterRecursiveMultiSeries` without values or shorter than its lags and window features. |
 | `data_not_found` | `DataNotFoundError` | A file to read (the CSV path or URL, or an input of the CLI) cannot be found. |
 | `data_unreadable` | `DataNotFoundError`, `InvalidInputError` | An input exists but cannot be parsed: a CSV file that pandas cannot read (empty, binary, not UTF-8, or rows with more fields than the header), a URL whose content is not a CSV (`DataNotFoundError`, as before), or the JSON of `--from-plan` or `--from-profile` in the CLI. |
 | `missing_dependency` | `InvalidInputError` | The package of the chosen estimator, or the backend package of the foundation model, is not installed. Checked before `forecast()` and `backtest()` run the script. |

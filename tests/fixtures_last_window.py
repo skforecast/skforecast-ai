@@ -130,3 +130,36 @@ def with_infinite(data: pd.DataFrame, positions: list[int], column: str = "y"):
     for position in positions:
         data.loc[data.index[-position], column] = np.inf
     return data
+
+
+def with_leading_missing(data: pd.DataFrame, column: str, n_values: int):
+    """
+    Return a copy of wide `data` where `column` only has its last `n_values`
+    values (the rest, at the start, is missing).
+    """
+    data = data.copy()
+    data.iloc[: len(data) - n_values, data.columns.get_loc(column)] = np.nan
+    return data
+
+
+def long_starting_late(data: pd.DataFrame, series: str, n_values: int):
+    """
+    Return a copy of long-format `data` where `series` only has its last
+    `n_values` rows (the earlier ones are dropped).
+    """
+    drop = data.index[data["series"] == series][:-n_values]
+    return data.drop(index=drop)
+
+
+# --- Wide data with seven series, each one with only its last 3 values ---
+# More series than a message lists (5), for the "and N more" suffix.
+data_wide_many = pd.DataFrame(
+    {f"s{number}": np.arange(60, dtype=float) for number in range(1, 8)},
+    index=_dates,
+)
+for _column in data_wide_many.columns:
+    data_wide_many = with_leading_missing(data_wide_many, _column, 3)
+_profile_wide_many = _assistant.profile(
+    data_wide_many, target=list(data_wide_many.columns)
+)
+profile_wide_many = _profile_wide_many.data_profile

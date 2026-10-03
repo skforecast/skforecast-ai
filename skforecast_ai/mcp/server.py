@@ -1117,7 +1117,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ))] = None,
         gap: Annotated[int | None, Field(ge=0, description=(
             "Observations between the end of training and the test set. Null "
-            "for 0."
+            "for 0. A direct forecaster (ForecasterDirect, "
+            "ForecasterDirectMultiVariate) cannot be backtested with a gap."
         ))] = None,
         skip_folds: Annotated[Count | list[Count] | None, Field(description=(
             "Folds are numbered from 0, and fold 0 always runs. An integer n "

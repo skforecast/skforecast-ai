@@ -743,3 +743,150 @@ def _infinite_values_read(
     read = [int(p) for p in positions if p <= len(window) and window[p - 1]]
 
     return frame.index[end - np.asarray(read, dtype=int)]
+
+
+def validate_series_lengths(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+    end_train: str | None = None,
+    whole_data: bool = False,
+) -> None:
+    """
+    Reject series that ForecasterRecursiveMultiSeries cannot be trained on.
+
+    skforecast trains each series from its first to its last value, and
+    fails inside the script on a series without values ("All values of
+    series ... are NaN") and on one whose values, from its first to its last
+    one, are not more than the window the forecaster reads ("Length of ...
+    must be greater than the maximum window size"). Both are checked before
+    running (code `'insufficient_data'`):
+
+    - in prediction mode, on the whole data;
+    - in evaluation mode, on the training partition (up to `end_train`);
+    - in backtesting (`whole_data=True`), only series without any value: a
+      series that starts late is left out of the first folds by skforecast.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Data the forecaster runs on.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Plan to run.
+    end_train : str, default None
+        Last date of the training partition, in evaluation mode.
+    whole_data : bool, default False
+        Whether only series without any value are checked (backtesting).
+
+    Returns
+    -------
+    None
+    """
+    if plan.forecaster != "ForecasterRecursiveMultiSeries":
+        return
+    spans = _series_spans(data, profile)
+    if spans is None:
+        return
+    end = pd.Timestamp(end_train) if end_train is not None else None
+    _, _, window = _read_positions(plan, limit=np.iinfo(np.int64).max)
+    empty, short = [], {}
+    for name, (dates, present) in spans.items():
+        if end is not None and isinstance(dates, pd.DatetimeIndex):
+            # `end_train` is written without the time zone of the dates.
+            limit = (
+                end.tz_localize(dates.tz)
+                if dates.tz is not None and end.tz is None else end
+            )
+            inside = dates <= limit
+            dates, present = dates[inside], present[inside]
+        if not present.any():
+            empty.append(_plain(name))
+            continue
+        # skforecast trims the missing values at both ends of a series.
+        first = int(np.argmax(present))
+        last = len(present) - 1 - int(np.argmax(present[::-1]))
+        length = last - first + 1
+        if not whole_data and length <= window:
+            short[_plain(name)] = length
+
+    where = f" up to the end of training ({end_train})" if end is not None else ""
+    if empty:
+        raise InvalidInputError(
+            f"Some series have no values{where} ({_shown(empty)}), so "
+            f"{plan.forecaster} cannot be trained on them. Remove them from "
+            f"the data.",
+            code  = "insufficient_data",
+            field = "data",
+            hint  = "Remove the series without values from the data.",
+        )
+    if short:
+        found = [f"{name!r}: {length}" for name, length in short.items()]
+        shown = ", ".join(found[:_SHOWN])
+        if len(found) > _SHOWN:
+            shown += f" and {len(found) - _SHOWN} more"
+        raise InvalidInputError(
+            f"Some series have, from their first to their last value{where}, "
+            f"no more values than the {window} that {plan.forecaster} reads "
+            f"to build its predictors ({shown}), so it cannot be trained on "
+            f"them. Use shorter lags and window features, or remove those "
+            f"series.",
+            code  = "insufficient_data",
+            field = "data",
+            hint  = (
+                f"Use lags and window features of at most {window - 1} "
+                f"observations, or remove the short series."
+            ),
+        )
+
+
+def _series_spans(
+    data: pd.DataFrame,
+    profile: DataProfile,
+) -> dict | None:
+    """
+    Return, for each series as the generated code reads it (wide: the target
+    columns on the grid of the frequency; long: each series on the grid from
+    its first to its last date), its dates and whether each one has a value.
+    None when the generated code cannot read the data.
+    """
+    if profile.data_format != "long":
+        frames = _target_frame(data, profile)
+        if frames is None:
+            return None
+        frame, _ = frames
+        present = frame.notna().to_numpy()
+        return {
+            column: (frame.index, present[:, position])
+            for position, column in enumerate(frame.columns)
+        }
+
+    date_column, series_id = profile.date_column, profile.series_id_column
+    if (
+        date_column not in data.columns
+        or series_id not in data.columns
+        or profile.target not in data.columns
+        or not profile.frequency
+    ):
+        return None
+    try:
+        dates = pd.DatetimeIndex(row_dates(data, date_column))
+        rows = pd.DataFrame({
+            "series": data[series_id].to_numpy(),
+            "date": dates,
+            "value": pd.notna(data[profile.target].to_numpy()),
+        }).dropna(subset=["series", "date"])
+        rows = rows.drop_duplicates(["series", "date"], keep="first")
+        spans = {}
+        for name, group in rows.groupby("series", sort=False):
+            grid = pd.date_range(
+                group["date"].min(), group["date"].max(), freq=profile.frequency
+            )
+            present = group.set_index("date")["value"].reindex(grid, fill_value=False)
+            spans[name] = (grid, present.to_numpy(dtype=bool))
+    except (ValueError, TypeError):
+        # The generated code fails on these dates with its own error.
+        return None
+
+    return spans

@@ -2289,3 +2289,38 @@ def test_compare_CandidateFailedWarning_when_foundation_backend_not_installed(
     assert list(result.candidates) == ["ridge"]
     assert list(result.failures) == ["foundation"]
     assert result.best_name == "ridge"
+
+
+def test_compare_CandidateFailedWarning_when_direct_candidate_and_cv_with_gap():
+    """
+    Test that compare() with a cv that has a gap fails a ForecasterDirect
+    candidate (it cannot predict steps + gap steps) with a
+    CandidateFailedWarning, and still ranks the recursive candidate.
+    """
+    candidates = [
+        ("recursive", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
+        ("direct", {"forecaster": "ForecasterDirect", "estimator": "Ridge"}),
+    ]
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, gap=2, verbose=False)
+
+    # The warning truncates the error message of the candidate.
+    warn_msg = re.escape(
+        "Candidate 'direct' failed and is ranked last: ValueError: "
+        "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+        "each fold needs steps + gap = 7 steps ahead"
+    )
+    with pytest.warns(CandidateFailedWarning, match=warn_msg):
+        result = assistant.compare(
+            data          = df_single,
+            cv            = cv,
+            target        = "sales",
+            date_column   = "date",
+            candidates    = candidates,
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert list(result.results["name"]) == ["recursive", "direct"]
+    assert list(result.candidates) == ["recursive"]
+    assert list(result.failures) == ["direct"]
+    assert result.best_name == "recursive"

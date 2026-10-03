@@ -3,6 +3,7 @@
 import re
 import warnings
 
+import numpy as np
 import pytest
 
 from skforecast.exceptions import MissingValuesWarning
@@ -20,9 +21,11 @@ from tests.fixtures_assistant import (
     df_calendar_named_exog,
     df_categorical_exog,
     df_hourly,
+    df_irregular,
     df_multi_long,
     df_multi_wide,
     df_no_exog,
+    df_range_index,
     df_single,
     df_with_missing,
 )
@@ -900,6 +903,237 @@ def test_plan_ValueError_when_datetime_index_has_no_frequency(tmp_path):
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.plan(profile, steps=5)
+
+
+# =============================================================================
+# Tests: plans that cannot run
+# =============================================================================
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterRecursiveMultiSeries", "ForecasterDirectMultiVariate"],
+)
+def test_plan_InvalidInputError_when_multi_series_forecaster_on_single_series(
+    forecaster,
+):
+    """
+    Test that plan() rejects a multi-series forecaster on data with a single
+    series, with `forecaster` as field, instead of failing inside the script.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"{forecaster} forecasts several series, but the data has a single "
+        f"series (target 'sales'). Use a single-series forecaster "
+        f"(e.g. 'ForecasterRecursive'), or pass several series: a list of "
+        f"target columns, or `series_id_column` for long format."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.plan(profile, steps=3, forecaster=forecaster)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "forecaster"
+
+
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterRecursiveMultiSeries", "ForecasterDirectMultiVariate"],
+)
+def test_plan_multi_series_forecaster_when_wide_data_has_several_series(forecaster):
+    """
+    Test that plan() still builds a multi-series plan on wide data with
+    several series.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+
+    plan = assistant.plan(profile, steps=3, forecaster=forecaster)
+
+    assert plan.forecaster == forecaster
+
+
+@pytest.mark.parametrize("forecaster", ["ForecasterRecursive", "ForecasterDirect"])
+@pytest.mark.parametrize("name", ["lag_1", "roll_mean_3"])
+def test_plan_InvalidInputError_when_exog_named_like_predictor(name, forecaster):
+    """
+    Test that plan() rejects an exogenous column named like a lag ('lag_1')
+    or a window feature ('roll_mean_3', from the explicit window features),
+    with `data` as field and a hint: the script failed with duplicated
+    feature names.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_single.rename(columns={"promo": name}),
+        target="sales",
+        date_column="date",
+    )
+
+    err_msg = re.escape(
+        f"Exogenous column(s) '{name}' have the name of a predictor that "
+        f"{forecaster} creates (a lag or a window feature), so the script "
+        f"would fail with duplicated feature names. Rename them in the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.plan(
+            profile, steps=3, forecaster=forecaster, lags=[1, 2],
+            window_features=[{"stats": ["mean"], "window_size": 3}],
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == (
+        "Rename the exogenous columns named like lags ('lag_1') or window "
+        "features ('roll_mean_7')."
+    )
+
+
+def test_plan_InvalidInputError_when_exog_named_like_default_window_feature():
+    """
+    Test that the check also reads the window features that plan() chooses
+    for daily data (a rolling mean of 21 days).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_single.rename(columns={"promo": "roll_mean_21"}),
+        target="sales",
+        date_column="date",
+    )
+
+    err_msg = re.escape(
+        "Exogenous column(s) 'roll_mean_21' have the name of a predictor "
+        "that ForecasterRecursive creates"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        assistant.plan(profile, steps=3)
+
+
+def test_plan_exog_named_differently_from_predictors_passes():
+    """
+    Test that plan() accepts exogenous columns whose names are close to, but
+    not, those of the predictors it creates ('lag_9' with lags [1, 2], a
+    rolling std when only the mean is created).
+    """
+    assistant = ForecastingAssistant()
+    data = df_single.rename(columns={"promo": "lag_9"}).assign(roll_std_3=1.0)
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+
+    plan = assistant.plan(
+        profile, steps=3, lags=[1, 2],
+        window_features=[{"stats": ["mean"], "window_size": 3}],
+    )
+
+    assert plan.forecaster == "ForecasterRecursive"
+    assert plan.use_exog is True
+
+
+def test_plan_InvalidInputError_when_multivariate_exog_named_with_series_prefix():
+    """
+    Test that for ForecasterDirectMultiVariate the lag names are prefixed
+    with the series: 'series_a_lag_1' clashes, but 'lag_1' does not.
+    """
+    assistant = ForecastingAssistant()
+    clashing = df_multi_wide.assign(series_a_lag_1=np.arange(100) % 3 * 1.0)
+    profile = assistant.profile(
+        data=clashing, target=["series_a", "series_b"], date_column="date"
+    )
+
+    err_msg = re.escape(
+        "Exogenous column(s) 'series_a_lag_1' have the name of a predictor "
+        "that ForecasterDirectMultiVariate creates (a lag or a window "
+        "feature), so the script would fail with duplicated feature names."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.plan(profile, steps=3, forecaster="ForecasterDirectMultiVariate")
+    assert exc_info.value.field == "data"
+
+    plain = df_multi_wide.assign(lag_1=np.arange(100) % 3 * 1.0)
+    profile = assistant.profile(
+        data=plain, target=["series_a", "series_b"], date_column="date"
+    )
+    plan = assistant.plan(profile, steps=3, forecaster="ForecasterDirectMultiVariate")
+    assert plan.forecaster == "ForecasterDirectMultiVariate"
+
+
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterStats", "ForecasterFoundation", "ForecasterEquivalentDate"],
+)
+def test_plan_does_not_check_exog_names_when_forecaster_has_no_lags(forecaster):
+    """
+    Test that plan() does not reject exogenous columns named 'lag_1' or
+    'roll_mean_3' for the statistical, foundation and baseline forecasters.
+    """
+    assistant = ForecastingAssistant()
+    data = df_single.rename(columns={"promo": "lag_1"}).assign(roll_mean_3=1.0)
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+
+    plan = assistant.plan(profile, steps=3, forecaster=forecaster)
+
+    assert plan.forecaster == forecaster
+
+
+def test_plan_InvalidInputError_when_baseline_on_datetime_index_without_frequency():
+    """
+    Test that plan() rejects ForecasterEquivalentDate on a datetime index
+    whose frequency cannot be inferred (irregular timestamps): its offset
+    counts periods of the frequency.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "The frequency of the datetime index could not be inferred (the "
+        "timestamps are irregular or too few), and 'ForecasterEquivalentDate' "
+        "needs a regular DatetimeIndex. Check the dates: day-first values "
+        "such as '13/02/2023' are read month-first unless parsed explicitly, "
+        "for example with pandas.to_datetime(..., dayfirst=True)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "profile"
+
+
+def test_plan_InvalidInputError_without_warning_when_baseline_has_no_frequency_and_missing_target():
+    """
+    Test that, for ForecasterEquivalentDate on irregular timestamps with
+    missing target values, the frequency error is raised before the warning
+    about the missing values: no warning is emitted.
+    """
+    assistant = ForecastingAssistant()
+    data = df_irregular.copy()
+    data.loc[[10, 20], "sales"] = np.nan
+    # The profile reports the interleaved missing values of the target.
+    with pytest.warns(MissingValuesWarning):
+        profile = assistant.profile(data=data, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "The frequency of the datetime index could not be inferred (the "
+        "timestamps are irregular or too few), and 'ForecasterEquivalentDate' "
+        "needs a regular DatetimeIndex."
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+            assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")
+
+    assert exc_info.value.field == "profile"
+
+
+def test_plan_baseline_when_index_is_a_range_index():
+    """
+    Test that ForecasterEquivalentDate still plans on data with a RangeIndex
+    (no dates, so no frequency is needed).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_range_index, target="sales")
+
+    plan = assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")
+
+    assert plan.forecaster == "ForecasterEquivalentDate"
 
 
 # =============================================================================

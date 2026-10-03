@@ -605,3 +605,41 @@ def test_refine_plan_prompt_transient_failure_is_not_retried(monkeypatch):
     assert call_count["n"] == 1
     fail_warnings = [x for x in w if "LLM plan refinement failed (" in str(x.message)]
     assert len(fail_warnings) == 1
+
+
+def test_refine_plan_prompt_keeps_previous_values_when_plan_rejects_suggestion(
+    monkeypatch,
+):
+    """
+    Test that lags suggested by the LLM that plan() rejects (here one named
+    like an exogenous column, 'lag_6') warn and keep the previous lags and
+    window features, without marking any field as refined or appending the
+    LLM reasoning.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    data = df_single.rename(columns={"promo": "lag_6"})
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    overrides = PlanOverrides(lags=[1, 6], reasoning="Lag 6 captures the cycle.")
+    agent, call_count = _make_fake_agent([overrides])
+    monkeypatch.setattr(assistant, "_plan_refinement_agent", agent)
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    warn_msg = re.escape(
+        "The LLM suggestion for ['lags'] was rejected (Exogenous column(s) "
+        "'lag_6' have the name of a predictor that ForecasterRecursive "
+        "creates (a lag or a window feature), so the script would fail with "
+        "duplicated feature names. Rename them in the data.); the refined "
+        "plan keeps the previous values."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        refined = assistant.refine_plan(profile, plan, prompt="Cycle of 6 days.")
+
+    assert refined.forecaster_kwargs["lags"] == [1, 2, 3, 4, 5, 7]
+    assert refined.forecaster_kwargs["window_features"] == (
+        plan.forecaster_kwargs["window_features"]
+    )
+    assert refined.llm_refined_fields == []
+    assert "Lag 6 captures the cycle." not in refined.explanation
+    assert call_count["n"] == 1

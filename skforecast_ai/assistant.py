@@ -21,6 +21,7 @@ from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
     AUTOREG_FORECASTERS,
     BASELINE_FORECASTERS,
+    DIRECT_FORECASTERS,
     FORECASTER_TASK_TYPES,
     OLLAMA_MAX_CONTEXT_TOKENS,
     REQUIRES_DATETIME_FREQ,
@@ -114,6 +115,7 @@ from .schemas import (
     CompareProgress,
     ComparisonResult,
     CVResult,
+    DataProfile,
     ExplainableResult,
     ForecastingProfile,
     ForecastPlan,
@@ -123,9 +125,14 @@ from .schemas import (
 )
 from ._foundation import foundation_exog_columns, validate_foundation_plan
 from ._future_exog import as_exog_frame, validate_future_exog
-from ._last_window import validate_infinite_target, validate_last_window
+from ._last_window import (
+    validate_infinite_target,
+    validate_last_window,
+    validate_series_lengths,
+)
 from ._utils import (
     _check_evaluated_target,
+    _check_feature_name_collisions,
     _check_window_needs_refit,
     _resolve_data_and_target,
     _resolve_inputs_with_profile,
@@ -145,6 +152,32 @@ from ._utils import (
     recorded_data_path,
     warn_long_training,
 )
+
+
+def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
+    """
+    Reject a datetime index without a frequency for a forecaster that needs
+    one.
+
+    Without a frequency the datetime index cannot be regularized, and every
+    forecaster that needs one fails inside the script with a skforecast
+    error that does not say why. Irregular timestamps are often day-first
+    dates that pandas read month-first.
+    """
+    if data_profile.index_type == "datetime" and data_profile.frequency is None:
+        raise InvalidInputError(
+            f"The frequency of the datetime index could not be inferred "
+            f"(the timestamps are irregular or too few), and '{forecaster}' "
+            f"needs a regular DatetimeIndex. Check the dates: day-first "
+            f"values such as '13/02/2023' are read month-first unless parsed "
+            f"explicitly, for example with "
+            f"pandas.to_datetime(..., dayfirst=True).",
+            field = "profile",
+            hint  = (
+                "Write the dates in ISO 8601 (such as '2023-02-13'), so they "
+                "are not read month-first."
+            ),
+        )
 
 
 class ForecastingAssistant:
@@ -505,6 +538,11 @@ class ForecastingAssistant:
                     field = given[0],
                 )
 
+        # The baseline needs a frequency too (its offset counts periods of
+        # it); checked before its warning about missing values.
+        if task_type == "baseline":
+            _check_frequency_known(fc, data_profile)
+
         # Every warning this call emits is also kept in `plan.warnings`, with
         # the same text, so it travels with the plan where Python warnings
         # are not seen (a server, JSON output, a saved plan).
@@ -560,28 +598,8 @@ class ForecastingAssistant:
                 forecaster = fc,
             )
 
-        # Without a frequency the datetime index cannot be regularized, and
-        # every forecaster that needs one fails inside the script with a
-        # skforecast error that does not say why. Irregular timestamps are
-        # often day-first dates that pandas read month-first.
-        if (
-            fc in REQUIRES_DATETIME_FREQ
-            and data_profile.index_type == "datetime"
-            and data_profile.frequency is None
-        ):
-            raise InvalidInputError(
-                f"The frequency of the datetime index could not be inferred "
-                f"(the timestamps are irregular or too few), and '{fc}' needs "
-                f"a regular DatetimeIndex. Check the dates: day-first values "
-                f"such as '13/02/2023' are read month-first unless parsed "
-                f"explicitly, for example with "
-                f"pandas.to_datetime(..., dayfirst=True).",
-                field = "profile",
-                hint  = (
-                    "Write the dates in ISO 8601 (such as '2023-02-13'), "
-                    "so they are not read month-first."
-                ),
-            )
+        if fc in REQUIRES_DATETIME_FREQ:
+            _check_frequency_known(fc, data_profile)
 
         # The baseline cannot take exogenous variables; the explanation says
         # they are left out. A foundation model uses the columns its backend
@@ -785,6 +803,8 @@ class ForecastingAssistant:
             warnings            = plan_warnings,
             explanation         = explanation,
         )
+
+        _check_feature_name_collisions(plan, data_profile)
 
         # Warned once the plan exists, so a forecaster that a later check
         # rejects (the shape of the data, an argument it has no use for, a
@@ -1016,16 +1036,35 @@ class ForecastingAssistant:
         lags = overrides.get("lags", inherited_lags)
         window_features = overrides.get("window_features", inherited_window_features)
 
-        refined_plan = self.plan(
-            profile          = profile,
-            steps            = steps,
-            forecaster       = forecaster,
-            estimator        = estimator,
-            estimator_kwargs = estimator_kwargs,
-            interval         = interval,
-            lags             = lags,
-            window_features  = window_features,
-        )
+        plan_arguments = {
+            "profile": profile,
+            "steps": steps,
+            "forecaster": forecaster,
+            "estimator": estimator,
+            "estimator_kwargs": estimator_kwargs,
+            "interval": interval,
+            "lags": lags,
+            "window_features": window_features,
+        }
+        try:
+            refined_plan = self.plan(**plan_arguments)
+        except InvalidInputError as exc:
+            if not llm_applied_fields:
+                raise
+            # A suggestion of the LLM that the plan rejects (lags named like
+            # an exogenous column, too long for the data) falls back to the
+            # values the plan had, which are valid on their own.
+            warnings.warn(
+                f"The LLM suggestion for {llm_applied_fields} was rejected "
+                f"({exc}); the refined plan keeps the previous values.",
+                UserWarning,
+                stacklevel=2,
+            )
+            plan_arguments["lags"] = inherited_lags
+            plan_arguments["window_features"] = inherited_window_features
+            llm_applied_fields = []
+            reasoning = None
+            refined_plan = self.plan(**plan_arguments)
 
         # `self.plan()` returns a fresh plan that knows nothing about the
         # original one, so its LLM marks would otherwise be lost. A mark is
@@ -1492,6 +1531,12 @@ class ForecastingAssistant:
             profile    = profile.data_profile,
             plan       = plan,
             prediction = plan.end_train is None,
+        )
+        validate_series_lengths(
+            data      = data_df,
+            profile   = profile.data_profile,
+            plan      = plan,
+            end_train = plan.end_train,
         )
 
         check_estimator_installed(plan.estimator, plan.task_type)
@@ -2048,6 +2093,22 @@ class ForecastingAssistant:
             plan       = plan,
             prediction = False,
         )
+        validate_series_lengths(
+            data       = data_df,
+            profile    = profile.data_profile,
+            plan       = plan,
+            whole_data = True,
+        )
+        # A direct forecaster predicts the `steps` it was built for, and a
+        # fold with a gap asks it for `steps + gap`.
+        if plan.forecaster in DIRECT_FORECASTERS and cv.gap > 0:
+            raise InvalidInputError(
+                f"{plan.forecaster} is trained to predict {plan.steps} steps, "
+                f"and with `gap={cv.gap}` each fold needs steps + gap = "
+                f"{plan.steps + cv.gap} steps ahead, so skforecast would "
+                f"fail. Use a strategy without gap, or a recursive forecaster.",
+                field = "cv",
+            )
 
         # Resolved CV parameters (with the fold and training counts) and their
         # explanation, which states the cost of the backtest.
@@ -3094,6 +3155,10 @@ class ForecastingAssistant:
                     field = "test_size",
                 )
 
+        # A plan received (saved, or built for other data) is checked
+        # against the exogenous columns of this profile, as `plan()` does.
+        _check_feature_name_collisions(plan, profile.data_profile)
+
         return profile, plan
 
     def _prepare_backtest(
@@ -3205,6 +3270,10 @@ class ForecastingAssistant:
                 )
             if interval is not None:
                 plan = _apply_interval_to_plan(plan, interval)
+
+        # A plan received (saved, or built for other data) is checked
+        # against the exogenous columns of this profile, as `plan()` does.
+        _check_feature_name_collisions(plan, profile.data_profile)
 
         return profile, plan
 
