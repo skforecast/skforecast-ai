@@ -266,13 +266,17 @@ def test_tool_profile_invalid_argument_when_dates_in_more_than_one_format(tmp_pa
     assert error == {
         "code": "invalid_argument",
         "message": (
-            "The dates of column 'date' are written in more than one format, "
-            "such as '2015-01-01' and '2017/07/01 00:00': the generated script "
-            "reads every date with the format of the first one. Write all the "
-            "dates in one format."
+            "The dates of column 'date' do not all follow the format of the "
+            "first one ('%Y-%m-%d', read from '2015-01-01'), such as "
+            "'2017/07/01 00:00': the generated script reads every date with "
+            "the format of the first one. Write every date in the same "
+            "format, such as '2017-07-01'."
         ),
         "field": "data_path",
-        "hint": "Write all the dates of the column in one format.",
+        "hint": (
+            "Write every date of the column in the same format, such as "
+            "'2017-07-01'."
+        ),
         "details": None,
     }
     assert content_of(call(server, "list_objects", {}))["objects"] == []

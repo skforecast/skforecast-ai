@@ -403,17 +403,20 @@ def test_profile_InvalidInputError_when_csv_dates_in_more_than_one_format(
     data.to_csv(csv_path, index=False)
 
     err_msg = re.escape(
-        f"The dates of column 'date' are written in more than one format, "
-        f"such as '2015-01-01' and '{other}': the generated script reads every "
-        f"date with the format of the first one. Write all the dates in one "
-        f"format."
+        f"The dates of column 'date' do not all follow the format of the "
+        f"first one ('%Y-%m-%d', read from '2015-01-01'), such as '{other}': "
+        f"the generated script reads every date with the format of the first "
+        f"one. Write every date in the same format, such as '2017-07-01'."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         ForecastingAssistant().profile(data=csv_path, target="y", date_column="date")
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "data"
-    assert exc_info.value.hint == "Write all the dates of the column in one format."
+    assert exc_info.value.hint == (
+        "Write every date of the column in the same format, such as "
+        "'2017-07-01'."
+    )
 
 
 @_MIXED_FORMATS_CASES
@@ -426,10 +429,10 @@ def test_profile_InvalidInputError_when_dataframe_dates_in_more_than_one_format(
     `ValueError` raised before.
     """
     err_msg = re.escape(
-        f"The dates of column 'date' are written in more than one format, "
-        f"such as '2015-01-01' and '{other}': the generated script reads every "
-        f"date with the format of the first one. Write all the dates in one "
-        f"format."
+        f"The dates of column 'date' do not all follow the format of the "
+        f"first one ('%Y-%m-%d', read from '2015-01-01'), such as '{other}': "
+        f"the generated script reads every date with the format of the first "
+        f"one. Write every date in the same format, such as '2017-07-01'."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         ForecastingAssistant().profile(data=data, target="y", date_column="date")
@@ -450,13 +453,42 @@ def test_profile_InvalidInputError_quotes_date_of_another_format_when_day_first(
     })
 
     err_msg = re.escape(
-        "The dates of column 'date' are written in more than one format, such "
-        "as '01/02/2023' and '2023-02-15': the generated script reads every "
-        "date with the format of the first one. Write all the dates in one "
-        "format."
+        "The dates of column 'date' do not all follow the format of the first "
+        "one ('%m/%d/%Y', read from '01/02/2023'), such as '2023-02-15': the "
+        "generated script reads every date with the format of the first one. "
+        "Write every date in the same format, such as '2023-02-15'."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         ForecastingAssistant().profile(data=data, target="y", date_column="date")
+
+
+def test_profile_InvalidInputError_when_month_names_read_as_full_names():
+    """
+    Test that dates in one format that pandas reads otherwise from the first
+    one ('01 May 2015' gives a full month name, which '01 Jun 2015' is not)
+    raise an error that quotes the format read and an ISO 8601 example with
+    the time of the dates, instead of saying they are in several formats.
+    """
+    dates = pd.date_range("2015-05-01 06:00", periods=24, freq="MS")
+    data = pd.DataFrame({
+        "date": dates.strftime("%d %b %Y %H:%M"),
+        "y": np.arange(24, dtype=float),
+    })
+
+    err_msg = re.escape(
+        "The dates of column 'date' do not all follow the format of the first "
+        "one ('%d %B %Y %H:%M', read from '01 May 2015 06:00'), such as "
+        "'01 Jun 2015 06:00': the generated script reads every date with the "
+        "format of the first one. Write every date in the same format, such "
+        "as '2015-06-01 06:00:00'."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=data, target="y", date_column="date")
+
+    assert exc_info.value.hint == (
+        "Write every date of the column in the same format, such as "
+        "'2015-06-01 06:00:00'."
+    )
 
 
 def test_profile_output_when_csv_day_first_dates_read_month_first(tmp_path):

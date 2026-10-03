@@ -758,7 +758,10 @@ def _mixed_formats_issue(
     written otherwise ('2015-01-01' and '2015/01/02', or a date with and
     without a time). Read one by one (`format='mixed'`), the profile would
     describe dates the script cannot read, so the column is rejected: a
-    single format is what makes the reading unambiguous. Zone names that
+    single format is what makes the reading unambiguous. The same holds for
+    dates in one format that pandas reads otherwise from the first one
+    ('01 May 2015' is read with a full month name, which '01 Jun 2015' is
+    not), so the message quotes the format read and an ISO 8601 example. Zone names that
     change at a daylight saving time change ('CET', then 'CEST') are
     reported as time zones. Day-first dates whose first date reads
     month-first ('01/02/2023', then '13/02/2023') are in one format: they
@@ -811,14 +814,37 @@ def _mixed_formats_issue(
     if zones is not None:
         return _mixed_zones_message(name, zones)
     other = values[misfit].iloc[0]
+    example = _iso_example(each, each[misfit].iloc[0])
 
+    # Not "more than one format": '01 May 2015' and '01 Jun 2015' are in
+    # one, and pandas still reads 'May' as a full month name ('%B').
     return DateIssue(
-        f"The dates of column {name!r} are written in more than one format, "
-        f"such as {_shown_date(first)!r} and {_shown_date(other)!r}",
-        ": the generated script reads every date with the format of the "
-        "first one. Write all the dates in one format.",
-        hint = "Write all the dates of the column in one format.",
+        f"The dates of column {name!r} do not all follow the format of the "
+        f"first one ({date_format!r}, read from {_shown_date(first)!r}), "
+        f"such as {_shown_date(other)!r}",
+        f": the generated script reads every date with the format of the "
+        f"first one. Write every date in the same format, such as "
+        f"{example!r}.",
+        hint = (
+            f"Write every date of the column in the same format, such as "
+            f"{example!r}."
+        ),
     )
+
+
+def _iso_example(each: pd.Series, date: object) -> str:
+    """
+    Return a date of the column written in ISO 8601, as the example of a
+    format every row can follow: without a time when no date of the column
+    has one, with it (and its offset) otherwise.
+    """
+    date = pd.Timestamp(date)
+    try:
+        has_time = bool((each != each.dt.normalize()).any())
+    except (AttributeError, TypeError):
+        has_time = True
+
+    return date.isoformat(sep=" ") if has_time else date.strftime("%Y-%m-%d")
 
 
 # A zone name written after the time ('2012-03-24 00:00:00 CET').
