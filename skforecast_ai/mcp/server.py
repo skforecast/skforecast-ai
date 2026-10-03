@@ -628,6 +628,35 @@ def _check_steps(steps: Any, profile: Any, argument: str) -> None:
         )
 
 
+def _data_texts(data_profile: Any) -> list[str]:
+    """
+    Problems of the data to give as notices: the warnings the profile
+    records, and the missing values of the target.
+
+    The profile only warns about missing values above a rate of 20 %, and
+    says how many there are in its summary. Fewer already matter to the
+    agent: rows at the end without a target make `forecast` fail, and a
+    missing value that a lag reads fails with an estimator that does not
+    accept them, both when the script runs, three calls later.
+    """
+
+    texts = list(data_profile.warnings)
+    missing = {name: n for name, n in data_profile.missing_target.items() if n > 0}
+    if missing:
+        shown = ", ".join(f"{name!r}: {n}" for name, n in list(missing.items())[:5])
+        if len(missing) > 5:
+            shown += f" (first 5 of {len(missing)})"
+        texts.append(
+            f"Missing values in the target: {shown}. `forecast` needs the data "
+            f"to end with a value of the target, and an estimator that does "
+            f"not accept missing values fails when its lags read one. Fill "
+            f"them in, or remove the rows at the end without a target, in a "
+            f"copy of the file."
+        )
+
+    return texts
+
+
 def _text_notices(
     texts: Iterable[str],
     records: Iterable[Any],
@@ -872,7 +901,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                 outcome.warnings,
                                 default_source = "data",
                                 server_notices = _text_notices(
-                                    result.data_profile.warnings,
+                                    _data_texts(result.data_profile),
                                     outcome.warnings,
                                     "data",
                                 ),
@@ -900,7 +929,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             texts = [
                 *_text_notices(new_plan.warnings, outcome_warnings, "plan"),
                 *_text_notices(
-                    source.profile.data_profile.warnings, outcome_warnings, "data"
+                    _data_texts(source.profile.data_profile), outcome_warnings, "data"
                 ),
             ]
             notices = build_notices(

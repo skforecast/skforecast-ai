@@ -346,3 +346,31 @@ def test_tool_profile_notices_of_the_data_profile_warnings(tmp_path):
             count    = 1,
         )
     ]
+
+
+def test_tool_profile_and_plan_notice_when_the_target_has_missing_values(tmp_path):
+    """
+    Test that a target with a few missing values (its last 3 rows, below the
+    20 % the profile warns about) gives a 'DataProfileWarning' notice on
+    profile and again on plan: without it both returned no notice, and the
+    problem only showed when `forecast` failed.
+    """
+    data = df_h2o_csv.copy()
+    data.loc[data.index[-3:], "x"] = None
+    path = write_csv(tmp_path, "trailing.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    profile = content_of(call(server, "profile", {"data_path": path, "target": "x"}))
+    plan = content_of(call(server, "plan", {"profile_id": profile["id"], "steps": 12}))
+
+    message = (
+        "Missing values in the target: 'x': 3. `forecast` needs the data to end "
+        "with a value of the target, and an estimator that does not accept "
+        "missing values fails when its lags read one. Fill them in, or remove "
+        "the rows at the end without a target, in a copy of the file."
+    )
+    for result in (profile, plan):
+        assert message in [
+            notice["message"] for notice in result["notices"]
+            if notice["category"] == "DataProfileWarning"
+        ]
