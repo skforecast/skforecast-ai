@@ -547,15 +547,23 @@ def _strategy_error(exc: Exception) -> InvalidInputError:
     error_class = (
         InvalidInputTypeError if isinstance(exc, TypeError) else InvalidInputError
     )
-
-    return error_class(
-        f"The cross-validation strategy cannot be built: {message}",
-        field = named.pop() if len(named) == 1 else None,
-        hint  = (
+    field = named.pop() if len(named) == 1 else None
+    # The folds are the remedy only when the strategy does not fit in the
+    # data; a value `TimeSeriesFold` rejects by itself (`gap=-1`,
+    # `refit='yes'`) is fixed in its own argument.
+    if field not in (None, "initial_train_size", "steps"):
+        hint = f"Pass a value that `TimeSeriesFold` accepts for `{field}`."
+    else:
+        hint = (
             "Change the arguments of the strategy (`initial_train_size`, "
             "`fold_stride`, `gap`, `skip_folds`) or the `steps` of the plan "
             "so that at least two folds fit in the data."
-        ),
+        )
+
+    return error_class(
+        f"The cross-validation strategy cannot be built: {message}",
+        field = field,
+        hint  = hint,
     )
 
 
@@ -577,8 +585,12 @@ def _check_skip_folds(cv: TimeSeriesFold, data_profile: DataProfile) -> None:
               )
     beyond = [index for index in skip_folds if index >= n_folds]
     if beyond:
+        shown = (
+            f"{beyond[:5]} and {len(beyond) - 5} more" if len(beyond) > 5
+            else f"{beyond}"
+        )
         raise InvalidInputError(
-            f"`skip_folds` names folds that do not exist ({beyond}): the "
+            f"`skip_folds` names folds that do not exist ({shown}): the "
             f"strategy has {n_folds} folds, numbered from 0 to {n_folds - 1}.",
             field = "skip_folds",
         )

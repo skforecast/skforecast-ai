@@ -1289,7 +1289,8 @@ def test_create_cv_InvalidInputError_when_strategy_cannot_be_built(
 ):
     """
     Test that create_cv() raises an InvalidInputError that names the argument
-    that TimeSeriesFold rejects, with the message of skforecast and a hint.
+    that TimeSeriesFold rejects, with the message of skforecast and a hint
+    (the folds when the strategy does not fit, the argument otherwise).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -1301,7 +1302,10 @@ def test_create_cv_InvalidInputError_when_strategy_cannot_be_built(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == field
-    assert exc_info.value.hint == _STRATEGY_HINT
+    assert exc_info.value.hint == (
+        _STRATEGY_HINT if field == "initial_train_size"
+        else f"Pass a value that `TimeSeriesFold` accepts for `{field}`."
+    )
 
 
 def test_create_cv_InvalidInputError_when_skip_folds_do_not_exist():

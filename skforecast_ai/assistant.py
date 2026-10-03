@@ -3528,11 +3528,16 @@ class ForecastingAssistant:
                 date_column      = saved.date_column,
                 series_id_column = saved.series_id_column,
             )
-            notes.append(
-                f"The data differ in their values from the profile passed "
-                f"(changed: {', '.join(changed)}): the profile was computed "
-                f"again from these data."
-            )
+            # An index that lost its `freq` attribute (after a filter or a
+            # concat) holds the same data: the script needs the new profile
+            # to set the frequency, and there is nothing to tell the user.
+            changed = [name for name in changed if name != "frequency_is_set"]
+            if changed:
+                notes.append(
+                    f"The data differ in their values from the profile "
+                    f"passed (changed: {', '.join(changed)}): the profile was "
+                    f"computed again from these data."
+                )
 
         data_profile = profile.data_profile
         # A profile that comes back from a result already has its notes.

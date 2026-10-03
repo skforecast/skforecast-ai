@@ -176,7 +176,8 @@ def test_build_cv_InvalidInputError_when_strategy_cannot_be_built(
     """
     Test that an argument that TimeSeriesFold rejects raises an
     InvalidInputError that names it in `field`, keeps the message of
-    skforecast on one line and carries the hint.
+    skforecast on one line and carries a hint: the folds when the
+    strategy does not fit in the data, the argument otherwise.
     """
     cv_params = {**_make_cv_params(70, steps=5), **changes}
 
@@ -187,19 +188,27 @@ def test_build_cv_InvalidInputError_when_strategy_cannot_be_built(
     assert isinstance(exc_info.value, ValueError)
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == field
-    assert exc_info.value.hint == _STRATEGY_HINT
+    assert exc_info.value.hint == (
+        _STRATEGY_HINT if field == "initial_train_size"
+        else f"Pass a value that `TimeSeriesFold` accepts for `{field}`."
+    )
 
 
 @pytest.mark.parametrize(
     "skip_folds, beyond",
-    [([100], "[100]"), ([1, 6], "[6]"), ([7, 100], "[7, 100]")],
-    ids=["far beyond", "first fold beyond", "several beyond"],
+    [
+        ([100], "[100]"),
+        ([1, 6], "[6]"),
+        ([7, 100], "[7, 100]"),
+        (list(range(7, 14)), "[7, 8, 9, 10, 11] and 2 more"),
+    ],
+    ids=["far beyond", "first fold beyond", "several beyond", "more than 5"],
 )
 def test_build_cv_InvalidInputError_when_skip_folds_do_not_exist(skip_folds, beyond):
     """
     Test that `skip_folds` with indexes beyond the folds of the strategy
     (6 folds, numbered from 0 to 5), which TimeSeriesFold ignores, raises
-    naming them, with the field 'skip_folds'.
+    naming at most 5 of them, with the field 'skip_folds'.
     """
     cv_params = {**_make_cv_params(70, steps=5), "skip_folds": skip_folds}
 
@@ -256,4 +265,7 @@ def test_build_cv_InvalidInputTypeError_when_argument_has_wrong_type(
 
     assert isinstance(exc_info.value, TypeError)
     assert exc_info.value.field == field
-    assert exc_info.value.hint == _STRATEGY_HINT
+    assert exc_info.value.hint == (
+        _STRATEGY_HINT if field == "initial_train_size"
+        else f"Pass a value that `TimeSeriesFold` accepts for `{field}`."
+    )

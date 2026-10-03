@@ -2571,6 +2571,26 @@ def test_forecast_output_when_series_differ_from_profile(data, series, forecaste
     )
 
 
+def test_forecast_output_no_note_when_index_lost_its_freq_attribute():
+    """
+    Test that forecast() of the profiled data with an index that lost its
+    `freq` attribute (after a filter, for example) adds no note to the
+    profile, and
+    predicts the same.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    expected = assistant.forecast(data=df_h2o, profile=profile, steps=3)
+    data = df_h2o.copy()
+    data.index = pd.DatetimeIndex(data.index.to_numpy(), name="fecha")
+
+    result = assistant.forecast(data=data, profile=profile, steps=3)
+
+    assert data.index.freq is None
+    assert result.profile.data_profile.warnings == []
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+
+
 def test_forecast_output_when_data_have_another_stamp_of_the_same_period():
     """
     Test that forecast() runs a profile and a plan of monthly data stamped
@@ -2593,6 +2613,6 @@ def test_forecast_output_when_data_have_another_stamp_of_the_same_period():
     assert result.profile.data_profile.frequency == "ME"
     assert result.profile.data_profile.warnings[-1] == (
         "The data differ in their values from the profile passed (changed: "
-        "series_lengths, frequency, frequency_is_set, start_date): the profile "
-        "was computed again from these data."
+        "series_lengths, frequency, start_date): the profile was computed "
+        "again from these data."
     )
