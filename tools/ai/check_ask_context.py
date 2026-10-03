@@ -574,6 +574,7 @@ def unsent_information(workflow: dict[str, Any], context_text: str) -> list[str]
         "missing_target": dp.missing_target,
         "missing_exog": dp.missing_exog,
         "categorical_exog": dp.categorical_exog,
+        "unused_columns": dp.unused_columns,
         "has_gaps": dp.has_gaps,
         "has_duplicate_timestamps": dp.has_duplicate_timestamps,
         "index_is_monotonic": dp.index_is_monotonic,

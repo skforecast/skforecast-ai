@@ -58,6 +58,22 @@
           "default": null,
           "description": "Column with the series ids of long multi-series data.",
           "title": "Series Id Column"
+        },
+        "exog_columns": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Columns to use as exogenous variables, an empty list for none. When null, every column that is not the target, the date or the series ids. The other columns are not used.",
+          "title": "Exog Columns"
         }
       },
       "required": [

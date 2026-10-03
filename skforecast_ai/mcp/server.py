@@ -883,11 +883,17 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         series_id_column: Annotated[str | None, Field(description=(
             "Column with the series ids of long multi-series data."
         ))] = None,
+        exog_columns: Annotated[list[str] | None, Field(description=(
+            "Columns to use as exogenous variables, an empty list for none. "
+            "When null, every column that is not the target, the date or the "
+            "series ids. The other columns are not used."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
         _inputs.check_text_argument(date_column, "date_column")
         _inputs.check_text_argument(series_id_column, "series_id_column")
+        _inputs.check_text_argument(exog_columns, "exog_columns")
 
         def work(control: CallControl):
             path = _inputs.resolve_csv_path(data_path, state.allowed, "data_path")
@@ -898,6 +904,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 target           = target,
                 date_column      = date_column,
                 series_id_column = series_id_column,
+                exog_columns     = exog_columns,
             )
             _inputs.check_profile_names(result)
             _inputs.check_unchanged(path, digest, "data_path")

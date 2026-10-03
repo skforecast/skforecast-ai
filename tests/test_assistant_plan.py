@@ -1701,6 +1701,29 @@ def test_plan_ValueError_when_use_exog_true_cannot_apply(
     assert info.value.field == "use_exog"
 
 
+def test_plan_ValueError_when_use_exog_true_and_profile_leaves_exog_out():
+    """
+    Test that `use_exog=True` with a profile whose `exog_columns` left every
+    exogenous column out says that the profile left them out.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_single,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = [],
+    )
+
+    err_msg = re.escape(
+        "`use_exog=True` cannot be applied: the profile has no exogenous "
+        "columns (`exog_columns` of profile() left them out)."
+    )
+    with pytest.raises(ValueError, match=err_msg) as info:
+        assistant.plan(profile, steps=10, use_exog=True)
+
+    assert info.value.field == "use_exog"
+
+
 def test_plan_TypeError_when_use_exog_not_bool():
     """
     Test that a `use_exog` that is not True, False or None is rejected.

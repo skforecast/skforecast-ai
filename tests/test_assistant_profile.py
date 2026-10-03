@@ -25,6 +25,7 @@ from tests.fixtures_datasets import (
     df_mixed_date_formats,
 )
 from tests.fixtures_assistant import (
+    df_categorical_exog,
     df_single,
     df_no_exog,
     df_short,
@@ -803,3 +804,263 @@ def test_profile_hint_when_csv_dates_change_time_zone(
         "Write every date in one time zone: in UTC for data recorded within "
         "the day, or without the time zone for daily or coarser data." + advice
     )
+
+
+# =============================================================================
+# Tests: exog_columns
+# =============================================================================
+@pytest.mark.parametrize(
+    "exog_columns, expected_exog, expected_categorical, expected_unused",
+    [
+        (["promo"], ["promo"], [], ["weekday"]),
+        (["weekday", "promo"], ["promo", "weekday"], ["weekday"], []),
+        ([], [], [], ["promo", "weekday"]),
+        (("weekday",), ["weekday"], ["weekday"], ["promo"]),
+    ],
+    ids=["subset", "all in another order", "none", "tuple"],
+)
+def test_profile_output_when_exog_columns(
+    exog_columns, expected_exog, expected_categorical, expected_unused
+):
+    """
+    Test that profile() with `exog_columns` keeps those exogenous columns in
+    the order of the data, lists the others in `unused_columns` and names
+    them in a note of `warnings`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = exog_columns,
+    )
+
+    data_profile = profile.data_profile
+    assert data_profile.exog_columns == expected_exog
+    assert data_profile.categorical_exog == expected_categorical
+    assert data_profile.unused_columns == expected_unused
+    expected_warnings = (
+        [
+            f"Columns of the data that the profile leaves out are not used: "
+            f"{expected_unused}."
+        ]
+        if expected_unused else []
+    )
+    assert data_profile.warnings == expected_warnings
+
+
+def test_profile_output_when_exog_columns_none_is_the_default():
+    """
+    Test that profile() with `exog_columns=None` returns the profile of a
+    call without it: every column that is not the target or the date.
+    """
+    assistant = ForecastingAssistant()
+
+    default = assistant.profile(
+        data        = df_categorical_exog,
+        target      = "sales",
+        date_column = "date",
+    )
+    explicit = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = None,
+    )
+
+    assert explicit == default
+    assert default.data_profile.exog_columns == ["promo", "weekday"]
+    assert default.data_profile.unused_columns == []
+
+
+def test_profile_output_when_exog_columns_leave_out_more_than_five():
+    """
+    Test that the note of the columns left out names the first 5 and how
+    many there are.
+    """
+    data = df_no_exog.assign(**{f"x{i}": float(i) for i in range(7)})
+    assistant = ForecastingAssistant()
+
+    profile = assistant.profile(
+        data         = data,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["x6"],
+    )
+
+    assert profile.data_profile.unused_columns == [f"x{i}" for i in range(6)]
+    assert profile.data_profile.warnings == [
+        "Columns of the data that the profile leaves out are not used: "
+        "['x0', 'x1', 'x2', 'x3', 'x4'] (first 5 of 6)."
+    ]
+
+
+def test_profile_output_when_exog_columns_of_wide_and_long_data():
+    """
+    Test that `exog_columns` selects the exogenous columns of wide data
+    (the series of `target` are not exogenous) and of long data (the series
+    id column is not either).
+    """
+    assistant = ForecastingAssistant()
+    wide = assistant.profile(
+        data         = df_multi_wide.assign(promo=1.0, price=2.0),
+        target       = ["series_a", "series_b"],
+        date_column  = "date",
+        exog_columns = ["price"],
+    )
+    long = assistant.profile(
+        data             = df_multi_long.assign(promo=1.0, price=2.0),
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+        exog_columns     = [],
+    )
+
+    assert wide.data_profile.exog_columns == ["price"]
+    assert wide.data_profile.unused_columns == ["promo"]
+    assert long.data_profile.exog_columns == []
+    assert long.data_profile.unused_columns == ["promo", "price"]
+
+
+@pytest.mark.parametrize(
+    "exog_columns",
+    ["promo", [1], [["promo"]], {"promo": 1}],
+    ids=lambda dt: f"{dt!r}",
+)
+def test_profile_InvalidInputTypeError_when_exog_columns_not_a_list_of_names(
+    exog_columns,
+):
+    """
+    Test that profile() raises InvalidInputTypeError (a TypeError) with the
+    field 'exog_columns' when it is not a list of column names.
+    """
+    assistant = ForecastingAssistant()
+
+    err_msg = re.escape(
+        f"`exog_columns` must be a list of column names, got {exog_columns!r}."
+    )
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        assistant.profile(
+            data         = df_categorical_exog,
+            target       = "sales",
+            date_column  = "date",
+            exog_columns = exog_columns,
+        )
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == "exog_columns"
+
+
+@pytest.mark.parametrize(
+    "exog_columns, err_msg",
+    [
+        (
+            ["promo", "promo"],
+            "`exog_columns` names a column more than once: ['promo'].",
+        ),
+        (
+            ["sales", "promo"],
+            "`exog_columns` names the target, the date or the series id "
+            "column: ['sales']. An exogenous variable is any other column of "
+            "the data.",
+        ),
+        (
+            ["date"],
+            "`exog_columns` names the target, the date or the series id "
+            "column: ['date']. An exogenous variable is any other column of "
+            "the data.",
+        ),
+        (
+            ["price", "promo"],
+            "`exog_columns` names columns that are not in the data: "
+            "['price']. Columns of the data: ['date', 'sales', 'promo', "
+            "'weekday'].",
+        ),
+    ],
+    ids=["repeated", "target", "date", "missing"],
+)
+def test_profile_InvalidInputError_when_exog_columns_invalid(exog_columns, err_msg):
+    """
+    Test that profile() raises InvalidInputError (a ValueError) with the
+    field 'exog_columns' when it repeats a column, names the target or the
+    date column, or names a column that is not in the data.
+    """
+    assistant = ForecastingAssistant()
+
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        assistant.profile(
+            data         = df_categorical_exog,
+            target       = "sales",
+            date_column  = "date",
+            exog_columns = exog_columns,
+        )
+
+    assert isinstance(exc_info.value, ValueError)
+    assert exc_info.value.field == "exog_columns"
+
+
+def test_profile_InvalidInputError_when_exog_columns_name_series_id_column():
+    """
+    Test that profile() raises InvalidInputError when `exog_columns` names
+    the series id column of long data.
+    """
+    assistant = ForecastingAssistant()
+
+    err_msg = re.escape(
+        "`exog_columns` names the target, the date or the series id column: "
+        "['series_id']. An exogenous variable is any other column of the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        assistant.profile(
+            data             = df_multi_long,
+            target           = "value",
+            date_column      = "date",
+            series_id_column = "series_id",
+            exog_columns     = ["series_id"],
+        )
+
+
+def test_profile_output_when_repeated_rows_differ_only_in_left_out_column():
+    """
+    Test that a timestamp repeated in rows that differ only in a column left
+    out by `exog_columns` is dropped as a duplicate (the generated script
+    keeps the first row), instead of raising as with every column.
+    """
+    data = pd.concat(
+        [df_categorical_exog, df_categorical_exog.iloc[[10]].assign(weekday="x")]
+    )
+    assistant = ForecastingAssistant()
+
+    profile = assistant.profile(
+        data         = data,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+
+    err_msg = re.escape(
+        "Found 1 timestamp with more than one row and different values, for "
+        "example '2023-01-11'."
+    )
+    assert profile.data_profile.has_duplicate_timestamps is True
+    with pytest.raises(InvalidInputError, match=err_msg):
+        assistant.profile(data=data, target="sales", date_column="date")
+
+
+def test_profile_output_when_exog_columns_leave_out_column_not_named_by_text():
+    """
+    Test that a column whose name is not a string (an integer) can be left
+    out by `exog_columns`, and is listed by its text.
+    """
+    data = df_no_exog.assign(promo=1.0, **{"5": 2.0}).rename(columns={"5": 5})
+    assistant = ForecastingAssistant()
+
+    profile = assistant.profile(
+        data         = data,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+
+    assert profile.data_profile.exog_columns == ["promo"]
+    assert profile.data_profile.unused_columns == ["5"]

@@ -175,6 +175,26 @@ def test_tool_profile_summary_cut_with_full_text_in_a_file(tmp_path, monkeypatch
         ),
         ({"target": 1}, "target", None),
         ({"target": "x", "date": "fecha"}, "date", "Extra inputs are not permitted"),
+        (
+            {"target": "x", "exog_columns": ["nope"]},
+            "exog_columns",
+            "`exog_columns` names columns that are not in the data: ['nope']. "
+            "Columns of the data: ['fecha', 'x'].",
+        ),
+        (
+            {"target": "x", "exog_columns": ["x"]},
+            "exog_columns",
+            "`exog_columns` names the target, the date or the series id "
+            "column: ['x']. An exogenous variable is any other column of the "
+            "data.",
+        ),
+        (
+            {"target": "x", "exog_columns": ["a\nb"]},
+            "exog_columns",
+            "`exog_columns` holds a line break or another control character: "
+            "'a\\nb'.",
+        ),
+        ({"target": "x", "exog_columns": "z"}, "exog_columns", None),
     ],
     ids=lambda dt: f"{dt}",
 )
@@ -242,6 +262,62 @@ def test_tool_profile_rejects_column_names_with_line_breaks(tmp_path):
         "hint": "Rename those columns (or series) in the CSV file.",
         "details": None,
     }
+    assert content_of(call(server, "list_objects", {}))["objects"] == []
+
+
+def test_tool_profile_output_when_exog_columns(tmp_path):
+    """
+    Test that `exog_columns` reaches `profile()`: the summary is `describe()`
+    of the profile the Python API builds with it, and the note naming the
+    columns left out is a notice with source 'data'.
+    """
+    frame = df_h2o_csv.assign(z=1.0, w=2.0)
+    path = write_csv(tmp_path, "h2o.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    result = content_of(
+        call(
+            server,
+            "profile",
+            {"data_path": path, "target": "x", "exog_columns": ["w"]},
+        )
+    )
+    expected = ForecastingAssistant().profile(path, target="x", exog_columns=["w"])
+
+    assert expected.data_profile.exog_columns == ["w"]
+    assert result["summary"] == expected.describe()
+    assert result["notices"] == [
+        ToolNotice(
+            source   = "data",
+            category = "DataProfileWarning",
+            message  = (
+                "Columns of the data that the profile leaves out are not "
+                "used: ['z']."
+            ),
+            count    = 1,
+        ).model_dump()
+    ]
+
+
+def test_tool_profile_rejects_left_out_column_names_with_line_breaks(tmp_path):
+    """
+    Test that a column with a line break in its name is rejected also when
+    `exog_columns` leaves it out, since the note of the profile names it.
+    """
+    frame = df_h2o_csv.assign(**{"Temperature\n(C)": 1.0, "w": 2.0})
+    path = write_csv(tmp_path, "names.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(
+            server,
+            "profile",
+            {"data_path": path, "target": "x", "exog_columns": ["w"]},
+        ),
+        "profile",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
     assert content_of(call(server, "list_objects", {}))["objects"] == []
 
 

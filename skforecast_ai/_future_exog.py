@@ -292,12 +292,14 @@ def _takes_every_column(
     """
     Return whether the generated code passes the future exogenous variables
     whole to the model: a ForecasterFoundation model on wide or single-series
-    data that leaves no exogenous column out.
+    data that leaves no exogenous column out, of a profile that leaves no
+    column of the data out (`unused_columns`).
     """
     return (
         plan.forecaster == "ForecasterFoundation"
         and profile.data_format != "long"
         and not set(profile.exog_columns) - set(columns)
+        and not profile.unused_columns
     )
 
 

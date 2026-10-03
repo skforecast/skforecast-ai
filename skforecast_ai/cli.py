@@ -77,6 +77,7 @@ DifferentiationOption = Annotated[str | None, typer.Option("--differentiation", 
 CalendarFeaturesOption = Annotated[str | None, typer.Option("--calendar-features", help="Comma-separated calendar features (e.g. 'month,day_of_week'), 'none' for none, or 'auto' for those selected from the frequency. Machine learning forecasters only.")]
 TargetTransformerOption = Annotated[str | None, typer.Option("--target-transformer", help="Scaler of the target: 'StandardScaler', 'none', or 'auto' for the rule. Machine learning forecasters only.")]
 DropnaOption = Annotated[str | None, typer.Option("--dropna-from-series", help="Drop the training rows with missing values: 'true', 'false' or 'auto' for the rule. Machine learning forecasters only.")]
+ExogColumnsOption = Annotated[str | None, typer.Option("--exog-columns", help="Comma-separated columns to use as exogenous variables, 'none' for none, or 'auto' for every column that is not the target, the date or the series id. The other columns are not used.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
 FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
 # CV options default to None so that only the flags actually passed reach
@@ -603,6 +604,19 @@ def _collect_plan_overrides(
     return overrides
 
 
+def _parse_exog_columns(value: str | None) -> list[str] | None:
+    """
+    Read `--exog-columns`: `'auto'` (or the option left out) maps to None,
+    every column; `'none'` to an empty list. The names are checked by
+    `profile()`.
+    """
+    if value is None or _is_auto(value):
+        return None
+    if value.strip().lower() == "none":
+        return []
+    return [name.strip() for name in value.split(",")]
+
+
 def _parse_bool_option(value: str, option: str) -> bool:
     """
     Read 'true' or 'false' (any case) given to a three-state option.
@@ -928,6 +942,7 @@ def profile(
     target: Annotated[str, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")],
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
+    exog_columns: ExogColumnsOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
     quiet: QuietOption = False,
@@ -936,11 +951,13 @@ def profile(
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_target = _parse_target(target)
+        parsed_exog_columns = _parse_exog_columns(exog_columns)
 
         with _spinner("Profiling dataset...", quiet):
             result = assistant.profile(
                 data=data, target=parsed_target, date_column=date_column,
                 series_id_column=series_id_column,
+                exog_columns=parsed_exog_columns,
             )
 
         if format == "json":
@@ -1080,6 +1097,7 @@ def plan(
     calendar_features: CalendarFeaturesOption = None,
     target_transformer: TargetTransformerOption = None,
     dropna_from_series: DropnaOption = None,
+    exog_columns: ExogColumnsOption = None,
     from_profile: FromProfileOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
@@ -1107,7 +1125,18 @@ def plan(
             dropna_from_series = dropna_from_series,
         )
 
+        parsed_exog_columns = _parse_exog_columns(exog_columns)
+
         if from_profile is not None:
+            if parsed_exog_columns is not None:
+                # The columns are chosen when the data is profiled: the
+                # profile loaded already decided them.
+                raise InvalidInputError(
+                    "--exog-columns applies when the data is profiled, not "
+                    "with --from-profile: run `skforecast-ai profile` with "
+                    "--exog-columns instead.",
+                    field = "exog_columns",
+                )
             profile_data = _read_json_input(from_profile)
             prof = ForecastingProfile.model_validate(profile_data)
         else:
@@ -1121,6 +1150,7 @@ def plan(
                 prof = assistant.profile(
                     data=data, target=parsed_target, date_column=date_column,
                     series_id_column=series_id_column,
+                    exog_columns=parsed_exog_columns,
                 )
 
         with _spinner("Planning...", quiet):

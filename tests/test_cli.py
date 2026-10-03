@@ -16,6 +16,7 @@ from skforecast.exceptions.exceptions import rich_warning_handler
 from skforecast_ai.cli import (
     app,
     _parse_decisions,
+    _parse_exog_columns,
     _parse_initial_train_size,
     _parse_lags,
     _report_error,
@@ -24,7 +25,12 @@ from skforecast_ai.cli import (
 from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.assistant import ForecastingAssistant
 
-from .fixtures_assistant import df_single, df_multi_long, df_multi_wide
+from .fixtures_assistant import (
+    df_categorical_exog,
+    df_multi_long,
+    df_multi_wide,
+    df_single,
+)
 
 runner = CliRunner()
 
@@ -2082,3 +2088,88 @@ class TestDecisionOptions:
         assert backtest_plan["forecaster_kwargs"]["lags"] != [1, 2, 3]
         assert backtest_plan["forecaster_kwargs"]["differentiation"] == 1
         assert backtest_plan["metrics_to_compute"] == ["mean_squared_error"]
+
+
+# ---------------------------------------------------------------------------
+# --exog-columns (profile and plan)
+# ---------------------------------------------------------------------------
+
+
+class TestExogColumnsOption:
+    """Tests for the `--exog-columns` option of `profile` and `plan`."""
+
+    def test_parse_exog_columns_output(self):
+        """
+        'auto' (or the option left out) is None, 'none' an empty list and
+        comma-separated names a list.
+        """
+        assert _parse_exog_columns(None) is None
+        assert _parse_exog_columns(" Auto ") is None
+        assert _parse_exog_columns("NONE") == []
+        assert _parse_exog_columns("promo, weekday") == ["promo", "weekday"]
+
+    @pytest.mark.parametrize(
+        "command", [["profile"], ["plan", "--steps", "5"]], ids=["profile", "plan"]
+    )
+    def test_profile_and_plan_output_when_exog_columns(self, tmp_path, command):
+        """
+        profile and plan pass --exog-columns to profile(): the profile keeps
+        the columns named and lists the others in `unused_columns`.
+        """
+        csv_path = _write_csv(tmp_path, df_categorical_exog)
+        result = runner.invoke(
+            app,
+            [*command[:1], csv_path, *command[1:], "--target", "sales",
+             "--date-column", "date", "--exog-columns", "promo",
+             "--format", "json", "--quiet"],
+        )
+
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.output)
+        data_profile = (output.get("profile") or output)["data_profile"]
+        assert data_profile["exog_columns"] == ["promo"]
+        assert data_profile["unused_columns"] == ["weekday"]
+
+    def test_profile_exit_code_1_when_exog_columns_not_in_data(self, tmp_path):
+        """
+        A column of --exog-columns that is not in the data is reported with
+        the message of profile().
+        """
+        csv_path = _write_csv(tmp_path, df_categorical_exog)
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "sales", "--date-column", "date",
+             "--exog-columns", "price", "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert "`exog_columns` names columns that are not in the data: " in (
+            " ".join(result.output.split())
+        )
+
+    def test_plan_exit_code_1_when_exog_columns_with_from_profile(self, tmp_path):
+        """
+        --exog-columns with --from-profile is an error: the profile loaded
+        already chose its columns.
+        """
+        csv_path = _write_csv(tmp_path, df_categorical_exog)
+        profiled = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "sales", "--date-column", "date",
+             "--format", "json", "--quiet"],
+        )
+        profile_file = tmp_path / "profile.json"
+        profile_file.write_text(profiled.output)
+
+        result = runner.invoke(
+            app,
+            ["plan", "--from-profile", str(profile_file), "--steps", "5",
+             "--exog-columns", "promo", "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "--exog-columns applies when the data is profiled, not with "
+            "--from-profile: run `skforecast-ai profile` with --exog-columns "
+            "instead."
+        ) in " ".join(result.output.split())

@@ -76,6 +76,22 @@ profile_multi_wide = DataProfile(
     data_path="data.csv",
 )
 
+# Wide data with a column the profile leaves out (`exog_columns=[]` of
+# `profile()`, or data passed with a saved profile that does not name it).
+profile_multi_wide_unused_columns = profile_multi_wide.model_copy(
+    update={"unused_columns": ["temp"]}
+)
+
+# Single series whose profile leaves the categorical column out
+# (`exog_columns=['temp']` of `profile()`).
+profile_single_unused_columns = profile_single_mixed_exog.model_copy(
+    update={
+        "exog_columns": ["temp"],
+        "categorical_exog": [],
+        "unused_columns": ["holiday"],
+    }
+)
+
 profile_multi_long = DataProfile(
     data_format="long",
     n_series=2,
@@ -590,3 +606,8 @@ cv_basic = SimpleNamespace(
 
 # The strategy `create_cv()` builds for a plan with `differentiation=1`.
 cv_differentiation = SimpleNamespace(**{**vars(cv_basic), "differentiation": 1})
+
+# Foundation plan in prediction mode with exogenous variables.
+plan_foundation_exog_no_end_train = plan_foundation.model_copy(
+    update={"end_train": None, "use_exog": True}
+)

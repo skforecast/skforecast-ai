@@ -15,7 +15,7 @@ Every tool that creates an object returns a [`ToolResult`][skforecast_ai.mcp.mod
 
 | Tool | Takes | Returns |
 |:--|:--|:--|
-| `profile` | `data_path`, `target`, `date_column`, `series_id_column` | a profile id |
+| `profile` | `data_path`, `target`, `date_column`, `series_id_column`, `exog_columns` (the exogenous columns to use, `[]` for none; null for every other column) | a profile id |
 | `plan` | `profile_id`, `steps`, `interval`, `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `metric`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer`, `dropna_from_series` | a plan id |
 | `refine_plan` | `plan_id`, `overrides` (the keys of `refine_plan()`; an omitted key keeps the value of the plan, and every key but `forecaster`, `estimator` and `steps` set to null asks for the default) | a new plan id |
 | `create_cv` | `plan_id` and the arguments of `create_cv()` | a cv id, with its cost |

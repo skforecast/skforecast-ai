@@ -84,7 +84,7 @@ from .profiling import (
     create_data_profile,
     resolve_end_train,
 )
-from .profiling.data_profile import validate_target_numeric
+from .profiling.data_profile import unused_columns_note, validate_target_numeric
 from .recommendation import (
     _build_profile_explanation,
     baseline_missing_values_note,
@@ -336,11 +336,13 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     Return the fields of a data profile that describe the values of the
     data, each as text, to tell whether two profiles describe the same data.
 
-    `data_path` and `warnings` are left out: the path is set by the caller,
-    and the warnings derive from the values (and hold the note of an earlier
-    refresh). The column lists are sorted, as `structure_differences` reads
-    them, and NaN statistics (the standard deviation of a target with an
-    infinite value) compare equal through their text.
+    `data_path`, `warnings` and `unused_columns` are left out: the path is
+    set by the caller, the warnings derive from the values (and hold the
+    note of an earlier refresh), and the columns the data holds besides
+    those of the profile are compared by `_refresh_profile` itself. The
+    column lists are sorted, as `structure_differences` reads them, and NaN
+    statistics (the standard deviation of a target with an infinite value)
+    compare equal through their text.
 
     Parameters
     ----------
@@ -353,7 +355,9 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
         Text of each field, by field name.
     """
 
-    values = data_profile.model_dump(exclude={"data_path", "warnings"})
+    values = data_profile.model_dump(
+        exclude={"data_path", "warnings", "unused_columns"}
+    )
     for name in ("exog_columns", "categorical_exog"):
         values[name] = sorted(values[name])
     if isinstance(values["target"], list):
@@ -485,6 +489,8 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
+        *,
+        exog_columns: list[str] | None = None,
     ) -> ForecastingProfile:
         """
         Profile a dataset and select the recommended forecaster and estimator.
@@ -508,6 +514,16 @@ class ForecastingAssistant:
             Name of the column containing timestamps.
         series_id_column : str, default None
             Name of the column identifying individual series.
+        exog_columns : list of str, default None
+            Columns to use as exogenous variables. If None, every column that
+            is not the target, the date or the series id. Otherwise a subset
+            of them, kept in the order of the data (an empty list for none):
+            the other columns are listed in `DataProfile.unused_columns`,
+            with a note in `DataProfile.warnings`, and neither the plan nor
+            the generated script uses them. Pass this profile with the plan
+            to `forecast()` or `backtest()`: a plan given without its
+            profile runs with a new profile of the data, which uses every
+            column.
 
         Returns
         -------
@@ -525,6 +541,7 @@ class ForecastingAssistant:
             date_column      = date_column,
             series_id_column = series_id_column,
             data_path        = data_path,
+            exog_columns     = exog_columns,
         )
         validate_target_numeric(data, data_profile.target)
 
@@ -918,7 +935,12 @@ class ForecastingAssistant:
                 and check_exog_usage(data_profile.exog_columns)
             )
         if use_exog_override is True and not use_exog:
-            if not data_profile.exog_columns:
+            if not data_profile.exog_columns and data_profile.unused_columns:
+                reason = (
+                    "the profile has no exogenous columns (`exog_columns` of "
+                    "profile() left them out)"
+                )
+            elif not data_profile.exog_columns:
                 reason = "the data has no exogenous columns"
             elif task_type == "baseline":
                 reason = f"'{fc}' only repeats past values of the target"
@@ -4198,9 +4220,10 @@ class ForecastingAssistant:
           that changed.
 
         Columns of `data` the profile does not name are left out of both
-        profiles: the plan and the script read the columns of the profile,
-        so the workflow runs as without them, and a note in
-        `DataProfile.warnings` names them.
+        profiles and listed in `DataProfile.unused_columns`: the plan and the
+        script read the columns of the profile, so the workflow runs as
+        without them, and a note in `DataProfile.warnings` names those the
+        saved profile did not already leave out (`unused_columns`).
 
         Parameters
         ----------
@@ -4251,9 +4274,21 @@ class ForecastingAssistant:
             )
 
         notes = []
-        if unused:
-            shown = [str(column) for column in unused[:5]]
-            more = f" (first 5 of {len(unused)})" if len(unused) > 5 else ""
+        # Columns the saved profile already leaves out (`exog_columns` of
+        # `profile()`, or an earlier refresh) have their note in it.
+        left_out = [
+            str(column) for column in unused
+            if str(column) in saved.unused_columns
+        ]
+        new_unused = [
+            column for column in unused
+            if str(column) not in saved.unused_columns
+        ]
+        if new_unused:
+            shown = [str(column) for column in new_unused[:5]]
+            more = (
+                f" (first 5 of {len(new_unused)})" if len(new_unused) > 5 else ""
+            )
             notes.append(
                 f"Columns of the data that the profile passed does not name "
                 f"are not used: {shown}{more}. Profile the data again to use "
@@ -4273,6 +4308,10 @@ class ForecastingAssistant:
                 date_column      = saved.date_column,
                 series_id_column = saved.series_id_column,
             )
+            # Profiled without those columns, the new profile lacks the
+            # note of the saved one.
+            if left_out:
+                notes.insert(0, unused_columns_note(left_out))
             # An index that lost its `freq` attribute (after a filter or a
             # concat) holds the same data: the script needs the new profile
             # to set the frequency, and there is nothing to tell the user.
@@ -4287,12 +4326,27 @@ class ForecastingAssistant:
         data_profile = profile.data_profile
         # A profile that comes back from a result already has its notes.
         notes = [note for note in notes if note not in data_profile.warnings]
-        if not notes:
+        # The script reads the data as passed, unused columns included, so
+        # the profile it is rendered from lists them.
+        unused_columns = [str(column) for column in unused]
+        if not notes and unused_columns == data_profile.unused_columns:
             return profile
+
+        # The note of the saved profile names the columns it left out; it
+        # is rewritten when some of them are no longer in the data.
+        kept = data_profile.warnings
+        stale = unused_columns_note(saved.unused_columns)
+        if left_out != saved.unused_columns and stale in kept:
+            kept = [note for note in kept if note != stale]
+            if left_out:
+                notes.insert(0, unused_columns_note(left_out))
 
         return profile.model_copy(update={
             "data_profile": data_profile.model_copy(
-                update={"warnings": [*data_profile.warnings, *notes]}
+                update={
+                    "warnings":       [*kept, *notes],
+                    "unused_columns": unused_columns,
+                }
             )
         })
 

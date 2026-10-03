@@ -739,3 +739,95 @@ def test_standalone_scripts_match_forecast_and_backtest_when_feature_overrides(
         backtest.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+@pytest.mark.parametrize(
+    "frame, target, exog_columns, forecaster",
+    [
+        (
+            df_single.assign(noise=np.arange(len(df_single)) % 3),
+            "sales",
+            ["promo"],
+            "ForecasterRecursive",
+        ),
+        (
+            df_multi_wide.assign(promo=np.arange(len(df_multi_wide)) % 7),
+            ["series_a", "series_b"],
+            [],
+            "ForecasterDirectMultiVariate",
+        ),
+    ],
+    ids=["single series", "multivariate"],
+)
+def test_standalone_scripts_match_forecast_and_backtest_when_exog_columns(
+    tmp_path, frame, target, exog_columns, forecaster
+):
+    """
+    Test that, with a profile built with `exog_columns`, the scripts of
+    forecast_code() (evaluation mode) and backtest_code() run as files on
+    the whole CSV and give the predictions of forecast() and backtest(),
+    which are those of the data without the columns left out.
+    """
+    csv_path = tmp_path / "data.csv"
+    frame.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    profile = assistant.profile(
+        data         = csv_path,
+        target       = target,
+        date_column  = "date",
+        exog_columns = exog_columns,
+    )
+    plan = assistant.plan(profile=profile, steps=5, forecaster=forecaster)
+    unused = profile.data_profile.unused_columns
+    reference = assistant.profile(
+        data        = frame.drop(columns=unused),
+        target      = target,
+        date_column = "date",
+    )
+    reference_plan = assistant.plan(profile=reference, steps=5, forecaster=forecaster)
+
+    forecast = assistant.forecast(
+        data      = csv_path,
+        profile   = profile,
+        plan      = plan,
+        test_size = 5,
+    )
+    backtest = assistant.backtest(
+        data          = csv_path,
+        profile       = profile,
+        plan          = plan,
+        cv            = cv,
+        show_progress = False,
+    )
+    expected = assistant.forecast(
+        data      = frame.drop(columns=unused),
+        profile   = reference,
+        plan      = reference_plan,
+        test_size = 5,
+    )
+    forecast_code = assistant.forecast_code(
+        data      = csv_path,
+        profile   = profile,
+        plan      = plan,
+        test_size = 5,
+    )
+    backtest_code = assistant.backtest_code(
+        data    = csv_path,
+        profile = profile,
+        plan    = plan,
+        cv      = cv,
+    )
+
+    assert unused != []
+    assert forecast.code == forecast_code.code
+    assert backtest.code == backtest_code.code
+    pd.testing.assert_frame_equal(forecast.predictions, expected.predictions)
+    _assert_same_predictions(
+        _run_standalone(forecast.code, tmp_path), forecast.predictions
+    )
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )

@@ -1274,3 +1274,75 @@ def test_create_data_profile_output_when_target_is_numeric_strings():
 
     assert profile.target == "y"
     assert profile.series_lengths["y"].length == 365
+
+
+@pytest.mark.parametrize(
+    (
+        "exog_columns, expected_exog, expected_categorical, expected_missing, "
+        "expected_unused"
+    ),
+    [
+        (None, ["temperature", "promo_budget", "holiday"], ["holiday"], {}, []),
+        (["holiday"], ["holiday"], ["holiday"], {}, ["temperature", "promo_budget"]),
+        ([], [], [], {}, ["temperature", "promo_budget", "holiday"]),
+    ],
+    ids=["None", "subset", "none"],
+)
+def test_create_data_profile_output_when_exog_columns(
+    exog_columns, expected_exog, expected_categorical, expected_missing,
+    expected_unused,
+):
+    """
+    Test that `exog_columns` keeps the exogenous columns named, describes
+    only those (categorical and missing values) and lists the others in
+    `unused_columns`.
+    """
+    profile = create_data_profile(
+                  data         = df_single_hourly_exog,
+                  target       = "sales",
+                  exog_columns = exog_columns,
+              )
+
+    assert profile.exog_columns == expected_exog
+    assert profile.categorical_exog == expected_categorical
+    assert profile.missing_exog == expected_missing
+    assert profile.unused_columns == expected_unused
+
+
+def test_create_data_profile_output_when_exog_columns_leave_out_missing_values():
+    """
+    Test that the missing values of a column left out by `exog_columns` are
+    not counted in `missing_exog`.
+    """
+    data = df_with_missing.assign(other=1.0)
+
+    profile = create_data_profile(
+                  data         = data,
+                  target       = "target",
+                  exog_columns = ["other"],
+              )
+    default = create_data_profile(data=data, target="target")
+
+    assert default.missing_exog == {"exog": 2}
+    assert profile.missing_exog == {}
+    assert profile.unused_columns == ["exog"]
+
+
+def test_create_data_profile_InvalidInputError_when_exog_columns_not_in_data():
+    """
+    Test that a column of `exog_columns` that is not in the data raises
+    InvalidInputError with the field 'exog_columns'.
+    """
+    err_msg = re.escape(
+        "`exog_columns` names columns that are not in the data: ['price']. "
+        "Columns of the data: ['sales', 'temperature', 'promo_budget', "
+        "'holiday']."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        create_data_profile(
+            data         = df_single_hourly_exog,
+            target       = "sales",
+            exog_columns = ["price"],
+        )
+
+    assert exc_info.value.field == "exog_columns"

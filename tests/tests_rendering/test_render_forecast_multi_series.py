@@ -1,5 +1,7 @@
 # Unit test render_forecast_multi_series rendering
 
+import pytest
+
 from skforecast_ai.rendering import render_forecast_multi_series, render_forecast_multivariate
 from skforecast_ai.schemas import RenderedScript
 
@@ -11,6 +13,7 @@ from .fixtures_rendering import (
     profile_multi_long_exog,
     profile_multi_wide,
     profile_multi_wide_exog,
+    profile_multi_wide_unused_columns,
 )
 
 
@@ -461,16 +464,22 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog_predicti
     assert result.full_script == expected
 
 
-def test_render_forecast_multivariate_output_when_exog_not_used():
+@pytest.mark.parametrize(
+    "profile",
+    [profile_multi_wide_exog, profile_multi_wide_unused_columns],
+    ids=["exog not used", "columns left out"],
+)
+def test_render_forecast_multivariate_output_when_exog_not_used(profile):
     """
-    Test that a multivariate plan that does not use the exogenous columns
-    of wide data fits only the target series: the exogenous columns are
-    not fitted as series, in evaluation and in prediction mode.
+    Test that a multivariate plan on wide data with other columns than the
+    series (exogenous columns the plan does not use, or columns the profile
+    leaves out) fits only the target series, in evaluation and in
+    prediction mode.
     """
-    evaluation = render_forecast_multivariate(plan_multivariate, profile_multi_wide_exog)
+    evaluation = render_forecast_multivariate(plan_multivariate, profile)
     prediction = render_forecast_multivariate(
         plan_multivariate.model_copy(update={"end_train": None}),
-        profile_multi_wide_exog,
+        profile,
     )
 
     expected_evaluation = (

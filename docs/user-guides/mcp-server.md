@@ -144,7 +144,7 @@ The skill, `SKILL.md`, teaches the agent the workflow, how far to trust each res
 
 You ask, for example, *"Forecast the next 12 months of `/path/to/data/h2o.csv` and tell me how accurate it is"*. The agent then calls:
 
-1. `profile(data_path="/path/to/data/h2o.csv", target="x")`: the frequency, the series, the exogenous columns and the recommended forecaster, as a profile id.
+1. `profile(data_path="/path/to/data/h2o.csv", target="x")`: the frequency, the series, the exogenous columns and the recommended forecaster, as a profile id. Every column other than the target, the date and the series ids is an exogenous variable, unless `exog_columns` names the ones to use.
 2. `plan(profile_id=..., steps=12)`: lags, window features, metric and preprocessing, as a plan id.
 3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost.
 4. `backtest(cv_id=...)` and, to compare configurations, `compare(cv_id=...)`.

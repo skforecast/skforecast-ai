@@ -14,12 +14,15 @@ files.
 
 ## Workflow
 
-1. `profile(data_path, target, date_column?, series_id_column?)`: the
-   absolute path of a CSV file inside the directory the server may read.
-   `target` is one column, or a list of columns for several series side by
-   side; `series_id_column` names the column of series ids when the series
-   are stacked. Read the summary and the `notices`: frequency, series,
-   gaps, exogenous columns and the recommended forecaster.
+1. `profile(data_path, target, date_column?, series_id_column?,
+   exog_columns?)`: the absolute path of a CSV file inside the directory
+   the server may read. `target` is one column, or a list of columns for
+   several series side by side; `series_id_column` names the column of
+   series ids when the series are stacked. Every other column is an
+   exogenous variable unless `exog_columns` names the ones to use (an
+   empty list for none); set it only when the user asks. Read the summary
+   and the `notices`: frequency, series, gaps, exogenous columns and the
+   recommended forecaster.
 2. `plan(profile_id, steps, ...)`: `steps` is the horizon in observations
    (12 for a year of monthly data), at most the length of the longest
    series. Leave the other arguments out to take the recommendation; set

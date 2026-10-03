@@ -159,6 +159,11 @@ class DataProfile(BaseModel):
     missing_exog : dict
         Mapping of exogenous column name to count of missing values.
         Only columns with at least one missing value are included.
+    unused_columns : list, default []
+        Columns of the data that are neither the target, the date, the
+        series id nor an exogenous variable: left out with `exog_columns`
+        of `profile()`, or columns of data passed with a saved profile that
+        does not name them. The generated script does not read them.
     data_path : str, default 'data.csv'
         Path to the source CSV file. Derived automatically during
         profiling: if the input is a file path, this stores it; if the
@@ -194,6 +199,7 @@ class DataProfile(BaseModel):
     exog_columns: list[str] = Field(default_factory=list)
     categorical_exog: list[str] = Field(default_factory=list)
     missing_exog: dict[str, int] = Field(default_factory=dict)
+    unused_columns: list[str] = Field(default_factory=list)
 
     # -- Source --
     data_path: str = "data.csv"

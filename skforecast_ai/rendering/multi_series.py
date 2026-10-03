@@ -310,8 +310,12 @@ def render_forecast_multivariate(
     exog_columns = profile.exog_columns
     use_exog = plan.use_exog and bool(exog_columns)
     # The series are selected whenever the data has other columns: exogenous
-    # columns the plan does not use would otherwise be fitted as series.
-    select_series = bool(exog_columns) and isinstance(profile.target, list)
+    # columns the plan does not use, and columns the profile leaves out,
+    # would otherwise be fitted as series.
+    select_series = (
+        bool(exog_columns or profile.unused_columns)
+        and isinstance(profile.target, list)
+    )
 
     # --- Train/test split (evaluation mode) ---
     if evaluate:

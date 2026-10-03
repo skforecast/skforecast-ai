@@ -106,7 +106,7 @@ skforecast-ai forecast-code "$DATA" --target y --date-column fecha --steps 12 --
 
 ## Adjust the plan
 
-`plan` shows the modeling decisions without running anything: forecaster, estimator, lags, window features, calendar features, metric and interval. Each of them can be overridden, and the assistant fills in the rest: `--metric` (comma-separated, the first one ranks), `--use-exog true|false`, `--differentiation N`, `--calendar-features month,day_of_week` (or `none`), `--target-transformer StandardScaler|none` and `--dropna-from-series true|false` join the options below. `auto` asks for the rule, which is what refining a saved plan needs to undo a choice.
+`plan` shows the modeling decisions without running anything: forecaster, estimator, lags, window features, calendar features, metric and interval. Each of them can be overridden, and the assistant fills in the rest: `--metric` (comma-separated, the first one ranks), `--use-exog true|false`, `--differentiation N`, `--calendar-features month,day_of_week` (or `none`), `--target-transformer StandardScaler|none` and `--dropna-from-series true|false` join the options below. `auto` asks for the rule, which is what refining a saved plan needs to undo a choice. `--exog-columns` (of `plan` and `profile`) chooses the exogenous columns when the data is profiled: comma-separated names, or `none`; the other columns are not used.
 
 ```bash
 skforecast-ai plan "$DATA" --target y --date-column fecha --steps 12

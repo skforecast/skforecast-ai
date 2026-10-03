@@ -31,6 +31,7 @@ from tests.fixtures_datasets import (
 )
 from tests.fixtures_assistant import (
     df_calendar_named_exog,
+    df_categorical_exog,
     df_multi_wide,
     df_range_index,
     df_single,
@@ -2531,6 +2532,134 @@ def test_forecast_output_when_wide_data_have_new_column_than_profile():
     assert result.profile.data_profile.warnings == [
         _NOTE_UNUSED.format(columns="['series_c']")
     ]
+
+
+def test_forecast_output_when_wide_data_have_new_column_than_multivariate_profile():
+    """
+    Test that forecast() of ForecasterDirectMultiVariate with a saved
+    profile and data with a column the profile does not name gives the
+    predictions of the data without it: the script fits the series of the
+    profile only, not the new column as one more series.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data        = df_multi_wide,
+        target      = ["series_a", "series_b"],
+        date_column = "date",
+    )
+    plan = assistant.plan(
+        profile    = profile,
+        steps      = 3,
+        forecaster = "ForecasterDirectMultiVariate",
+    )
+    expected = assistant.forecast(data=df_multi_wide, profile=profile, plan=plan)
+
+    result = assistant.forecast(
+        data    = df_multi_wide.assign(series_c=np.arange(len(df_multi_wide)) % 5),
+        profile = profile,
+        plan    = plan,
+    )
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.profile.data_profile.unused_columns == ["series_c"]
+    assert "forecaster.fit(series=data[series_cols])" in result.code
+
+
+_NOTE_LEFT_OUT = (
+    "Columns of the data that the profile leaves out are not used: ['weekday']."
+)
+
+
+def test_forecast_output_when_profile_built_with_exog_columns():
+    """
+    Test that forecast() with a profile built with `exog_columns` and the
+    data it was built from gives the predictions of the data without the
+    column left out, with the note of the profile only once.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+    expected = assistant.forecast(
+        data        = df_single,
+        target      = "sales",
+        date_column = "date",
+        steps       = 3,
+        test_size   = 3,
+    )
+
+    result = assistant.forecast(
+        data      = df_categorical_exog,
+        profile   = profile,
+        steps     = 3,
+        test_size = 3,
+    )
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.profile.data_profile.exog_columns == ["promo"]
+    assert result.profile.data_profile.unused_columns == ["weekday"]
+    assert result.profile.data_profile.warnings == [_NOTE_LEFT_OUT]
+
+
+def test_forecast_output_when_profile_built_with_exog_columns_and_values_differ():
+    """
+    Test that forecast() with a profile built with `exog_columns` and data
+    whose values differ profiles the data again without the column left
+    out, and keeps the note that names it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+    changed = df_categorical_exog.copy()
+    changed.loc[0, "sales"] = 50.0
+
+    result = assistant.forecast(
+        data      = changed,
+        profile   = profile,
+        steps     = 3,
+        test_size = 3,
+    )
+
+    assert result.profile.data_profile.exog_columns == ["promo"]
+    assert result.profile.data_profile.unused_columns == ["weekday"]
+    assert result.profile.data_profile.warnings == [
+        _NOTE_LEFT_OUT,
+        "The data differ in their values from the profile passed (changed: "
+        "target_stats): the profile was computed again from these data.",
+    ]
+
+
+def test_forecast_output_when_data_lack_column_the_profile_left_out():
+    """
+    Test that forecast() with a profile built with `exog_columns` and data
+    without the column it left out runs, with no column left out and no
+    note naming that column.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+
+    result = assistant.forecast(
+        data      = df_single,
+        profile   = profile,
+        steps     = 3,
+        test_size = 3,
+    )
+
+    assert result.profile.data_profile.exog_columns == ["promo"]
+    assert result.profile.data_profile.unused_columns == []
+    assert result.profile.data_profile.warnings == []
 
 
 @pytest.mark.parametrize(

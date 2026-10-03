@@ -390,9 +390,31 @@ def test_data_profile_minimal():
     assert profile.categorical_exog == []
     assert profile.missing_target == {}
     assert profile.missing_exog == {}
+    assert profile.unused_columns == []
     assert profile.warnings == []
     assert profile.span_index_length == 100
     assert profile.n_total_observations == 100
+
+
+def test_data_profile_output_when_json_has_no_unused_columns():
+    """
+    Test that a profile saved before `unused_columns` existed loads with an
+    empty list, and that the field survives a JSON round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        unused_columns = ["extra"],
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["unused_columns"]
+
+    assert DataProfile.model_validate(saved).unused_columns == []
+    assert DataProfile.model_validate_json(
+        profile.model_dump_json()
+    ).unused_columns == ["extra"]
 
 
 def test_data_profile_full():
