@@ -137,7 +137,7 @@ from ._utils import (
     _check_evaluated_target,
     _check_plan_matches_profile,
     _check_feature_name_collisions,
-    _check_window_needs_refit,
+    _warn_window_without_refit,
     _resolve_data_and_target,
     _resolve_inputs_with_profile,
     _strip_code_blocks,
@@ -1700,9 +1700,10 @@ class ForecastingAssistant:
             every `refit` folds.
         fixed_train_size : bool, default None
             Whether the training size is fixed or increases in each fold.
-            Only applies when the forecaster is refitted: passing it with
-            `refit=False` (explicit or by default) raises `ValueError`,
-            except for `ForecasterStats`, which is always refitted.
+            Only applies when the forecaster is refitted: with `refit=False`
+            (explicit or by default) it has no effect and an
+            `IgnoredArgumentWarning` says so, except for `ForecasterStats`,
+            which is always refitted.
         gap : int, default None
             Number of observations between the end of the training set and the start of the
             test set.
@@ -1764,14 +1765,6 @@ class ForecastingAssistant:
             skip_folds,
             allow_incomplete_fold,
         )
-        # Checked before any LLM call when `refit` is explicit.
-        if refit is not None:
-            _check_window_needs_refit(
-                fixed_train_size = fixed_train_size,
-                refit            = refit,
-                forecaster       = plan.forecaster,
-            )
-
         use_llm = prompt is not None
         if use_llm and all(param is not None for param in llm_decidable):
             warnings.warn(
@@ -1811,8 +1804,8 @@ class ForecastingAssistant:
         # of the splitter and prepend it to the explanation.
         reasoning = defaults.pop("_reasoning", None)
 
-        # Checked again with the `refit` the LLM chose.
-        _check_window_needs_refit(
+        # With the `refit` that runs, which the LLM may have chosen.
+        _warn_window_without_refit(
             fixed_train_size = fixed_train_size,
             refit            = defaults.get("refit"),
             forecaster       = plan.forecaster,

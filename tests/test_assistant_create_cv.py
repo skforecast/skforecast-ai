@@ -390,30 +390,34 @@ def test_create_cv_output_when_fixed_train_size_override():
 
 @pytest.mark.parametrize("fixed_train_size", [True, False])
 @pytest.mark.parametrize("refit", [None, False, 0])
-def test_create_cv_ValueError_when_fixed_train_size_without_refit(
+def test_create_cv_IgnoredArgumentWarning_when_fixed_train_size_without_refit(
     refit, fixed_train_size
 ):
     """
-    Test that create_cv raises InvalidInputError when `fixed_train_size` is
-    passed for a forecaster that is trained once (`refit` False, 0 or the
-    default), where it would not run.
+    Test that create_cv warns that `fixed_train_size` has no effect when it
+    is passed for a forecaster that is trained once (`refit` False, 0 or the
+    default), and returns the strategy that runs without it.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
+    expected = assistant.create_cv(profile, plan, refit=refit)
 
     resolved = False if refit is None else refit
-    err_msg = re.escape(
-        f"`fixed_train_size={fixed_train_size!r}` only applies when the "
-        f"forecaster is refitted, and with `refit={resolved!r}` it is trained "
-        f"once. Pass `refit=True` (or an integer) to refit it, or omit "
-        f"`fixed_train_size`."
+    warn_msg = re.escape(
+        f"`fixed_train_size={fixed_train_size!r}` has no effect: with "
+        f"`refit={resolved!r}` the forecaster is trained once, on a single "
+        f"training window. Pass `refit=True` (or an integer) to refit it, or "
+        f"omit `fixed_train_size` to avoid this warning."
     )
-    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
-        assistant.create_cv(
+    with pytest.warns(IgnoredArgumentWarning, match=warn_msg):
+        result = assistant.create_cv(
             profile, plan, refit=refit, fixed_train_size=fixed_train_size
         )
-    assert exc_info.value.field == "fixed_train_size"
+
+    assert result.cv_config["n_folds"] == expected.cv_config["n_folds"]
+    assert result.cv_config["n_fits"] == expected.cv_config["n_fits"] == 1
+    assert result.explanation == expected.explanation
 
 
 def test_create_cv_output_when_fixed_train_size_with_integer_refit():

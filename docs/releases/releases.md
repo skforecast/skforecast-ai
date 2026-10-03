@@ -78,7 +78,7 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-api-change">API Change</span> The CLI (`forecast`, `backtest`, the `*-code` commands and `ask`) exits with code 1 when `--steps` is passed with `--from-plan` and differs from the steps of the plan, which it ignored, as the Python API does (use `refine-plan --steps` to change the horizon), and `--format` only accepts the values of each command (`table`, `code` or `text`, and `json`), where any other value printed the default output; it now exits with code 2.
 
-+ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.create_cv()</code>][assistant] raises `ValueError` when `fixed_train_size` is passed for a forecaster that is trained once (`refit=False`, the default), where it had no effect (`ForecasterStats` still only warns), and when `skip_folds` names folds that do not exist, which were ignored. Pass `refit=True` (`--refit` in the CLI) with `fixed_train_size`.
++ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.create_cv()</code>][assistant] raises `ValueError` when `skip_folds` names folds that do not exist, which were ignored. A `fixed_train_size` passed for a forecaster that is trained once (`refit=False`, the default) still has no effect, and skforecast's `IgnoredArgumentWarning` now says so.
 
 + <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.backtest()</code>][assistant] and `backtest_code()` given the `CVResult` of `create_cv()` without a `plan` or model arguments run the plan of that `CVResult` instead of a new default one. A `CVResult` created for data of another structure raises `ValueError` in them and in `compare()`.
 

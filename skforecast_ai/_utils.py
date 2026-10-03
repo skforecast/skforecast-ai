@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
-from skforecast.exceptions import LongTrainingWarning
+from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import (
@@ -1294,17 +1294,18 @@ def _check_cv_matches_profile(cv: CVResult, data_profile: DataProfile) -> None:
         )
 
 
-def _check_window_needs_refit(
+def _warn_window_without_refit(
     fixed_train_size: bool | None,
     refit: object,
     forecaster: str,
 ) -> None:
     """
-    Reject a `fixed_train_size` passed for a forecaster trained once.
+    Warn about a `fixed_train_size` passed for a forecaster trained once.
 
-    A forecaster trained once has one training window, so a window type
-    passed for it would not run. `ForecasterStats`, which skforecast refits
-    in every fold, is warned about by `create_cv()` instead.
+    A forecaster trained once has one training window, so the window type
+    has no effect on its backtest: the strategy runs as without it, and the
+    caller is told so. `ForecasterStats`, which skforecast refits in every
+    fold, has its own warning in `create_cv()`.
 
     Parameters
     ----------
@@ -1327,12 +1328,13 @@ def _check_window_needs_refit(
         and refit > 0
     )
     if not refits:
-        raise InvalidInputError(
-            f"`fixed_train_size={fixed_train_size!r}` only applies when the "
-            f"forecaster is refitted, and with `refit={refit!r}` it is "
-            f"trained once. Pass `refit=True` (or an integer) to refit it, "
-            f"or omit `fixed_train_size`.",
-            field = "fixed_train_size",
+        warnings.warn(
+            f"`fixed_train_size={fixed_train_size!r}` has no effect: with "
+            f"`refit={refit!r}` the forecaster is trained once, on a single "
+            f"training window. Pass `refit=True` (or an integer) to refit "
+            f"it, or omit `fixed_train_size` to avoid this warning.",
+            IgnoredArgumentWarning,
+            stacklevel = 3,
         )
 
 
