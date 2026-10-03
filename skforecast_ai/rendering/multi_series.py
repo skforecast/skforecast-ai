@@ -309,12 +309,15 @@ def render_forecast_multivariate(
     # --- Exog ---
     exog_columns = profile.exog_columns
     use_exog = plan.use_exog and bool(exog_columns)
+    # The series are selected whenever the data has other columns: exogenous
+    # columns the plan does not use would otherwise be fitted as series.
+    select_series = bool(exog_columns) and isinstance(profile.target, list)
 
     # --- Train/test split (evaluation mode) ---
     if evaluate:
         core_lines.append("# Train/test split")
         _emit_end_train(core_lines, plan)
-        if use_exog and isinstance(profile.target, list):
+        if select_series:
             core_lines.append(f"series_cols = {repr(profile.target)}")
         if use_exog:
             core_lines.append(f"exog_features = {repr(exog_columns)}")
@@ -326,7 +329,7 @@ def render_forecast_multivariate(
             core_lines.append("series_test  = series.loc[series.index > end_train]")
         core_lines.append("")
     else:
-        if use_exog and isinstance(profile.target, list):
+        if select_series:
             core_lines.append(f"series_cols = {repr(profile.target)}")
         if use_exog:
             core_lines.append(f"exog_features = {repr(exog_columns)}")
@@ -348,7 +351,9 @@ def render_forecast_multivariate(
     # --- Fit & Predict ---
     if evaluate:
         if is_wide:
-            series_fit_expr = "data_train[series_cols]" if use_exog else "data_train"
+            series_fit_expr = (
+                "data_train[series_cols]" if select_series else "data_train"
+            )
             exog_fit_expr = "data_train[exog_features]"
             exog_pred_expr = "data_test[exog_features]"
         else:
@@ -367,7 +372,7 @@ def render_forecast_multivariate(
         )
     else:
         if is_wide:
-            series_fit_expr = "data[series_cols]" if use_exog else "data"
+            series_fit_expr = "data[series_cols]" if select_series else "data"
             exog_fit_expr = "data[exog_features]"
             exog_pred_expr = "exog_future[exog_features]"
         else:

@@ -177,7 +177,8 @@ def _carried_plan_arguments(
     and window features only by the autoregressive forecasters, an
     estimator (and its keyword arguments) only within its own family (an
     ML regressor is not an ARIMA order, and the baseline has none). The
-    metric is carried over only when it is in `plan.overridden_fields`.
+    metric and `use_exog` are carried over only when they are in
+    `plan.overridden_fields`.
 
     Parameters
     ----------
@@ -214,6 +215,18 @@ def _carried_plan_arguments(
         "metric": (
             plan_override_value(plan, "metric")
             if "metric" in plan.overridden_fields
+            else None
+        ),
+        # Leaving the exogenous variables out applies to every forecaster;
+        # using them is carried over only to one that the rule does not
+        # leave without them (the baseline, a foundation model).
+        "use_exog": (
+            plan.use_exog
+            if "use_exog" in plan.overridden_fields
+            and (
+                not plan.use_exog
+                or target_task_type not in ("baseline", "foundation")
+            )
             else None
         ),
     }
@@ -496,6 +509,7 @@ class ForecastingAssistant:
         window_features: list[dict[str, list[str] | int]] | None = None,
         *,
         metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
     ) -> ForecastPlan:
         """
         Build a detailed `ForecastPlan` from a `ForecastingProfile`.
@@ -570,6 +584,16 @@ class ForecastingAssistant:
             computed (`plan.metrics_to_compute`). If None, the metric is
             selected from the data (MAE for one series, MASE for several)
             and the default panel is computed.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns of the profile.
+            False leaves them out (`forecast()` then takes no `exog`); True
+            raises `ValueError` when the data has no exogenous columns or
+            the forecaster cannot use them (`ForecasterEquivalentDate`, a
+            foundation model without covariate support, `ForecasterStats`
+            when every exogenous column is categorical). Columns left out
+            do not shape the plan (their missing values and categories need
+            no handling). If None, they are used whenever the forecaster can
+            use them.
 
         Returns
         -------
@@ -601,6 +625,12 @@ class ForecastingAssistant:
         # derived from it (a bool or a string would otherwise be coerced).
         steps = validate_steps(steps)
         metric_override = resolve_metric_override(metric)
+        if use_exog is not None and not isinstance(use_exog, bool):
+            raise InvalidInputTypeError(
+                f"`use_exog` must be True, False or None, got {use_exog!r}.",
+                field = "use_exog",
+            )
+        use_exog_override = use_exog
 
         data_profile = profile.data_profile
 
@@ -731,6 +761,43 @@ class ForecastingAssistant:
                 task_type != "baseline"
                 and check_exog_usage(data_profile.exog_columns)
             )
+        if use_exog_override is True and not use_exog:
+            if not data_profile.exog_columns:
+                reason = "the data has no exogenous columns"
+            elif task_type == "baseline":
+                reason = f"'{fc}' only repeats past values of the target"
+            else:
+                reason = (
+                    f"'{est}' does not accept the exogenous columns of the "
+                    f"data as covariates"
+                )
+            raise InvalidInputError(
+                f"`use_exog=True` cannot be applied: {reason}. Omit it, or "
+                f"pass False.",
+                field = "use_exog",
+            )
+        if (
+            use_exog_override is True
+            and task_type == "statistical"
+            and set(data_profile.exog_columns) <= set(data_profile.categorical_exog)
+        ):
+            # The ARIMA script leaves categorical columns out, so it would
+            # use none while `forecast()` asked for their future values.
+            raise InvalidInputError(
+                f"`use_exog=True` cannot be applied: '{fc}' only uses numeric "
+                f"exogenous columns, and {data_profile.exog_columns} are "
+                f"categorical. Omit it, or pass False.",
+                field = "use_exog",
+            )
+        rule_use_exog = use_exog
+        if use_exog_override is not None:
+            use_exog = use_exog_override
+        # The exogenous columns the user leaves out do not shape the plan:
+        # their missing values and categories need no handling. (A plan the
+        # rule leaves without them keeps its notes, as before.)
+        planned_profile = data_profile.model_copy(
+            update={"exog_columns": [], "categorical_exog": [], "missing_exog": {}}
+        ) if use_exog_override is False else data_profile
 
         baseline_explanation = None
         skipped_calendar_features: list[str] = []
@@ -810,12 +877,12 @@ class ForecastingAssistant:
                 task_type        = task_type,
                 exog_columns     = data_profile.exog_columns,
                 categorical_exog = data_profile.categorical_exog,
-            )
+            ) if use_exog else None
 
             dropna_from_series = select_dropna_from_series(
                 estimator        = est,
                 missing_target   = data_profile.missing_target,
-                missing_exog     = data_profile.missing_exog,
+                missing_exog     = planned_profile.missing_exog,
                 task_type        = task_type,
                 has_gaps         = data_profile.has_gaps,
             )
@@ -840,7 +907,7 @@ class ForecastingAssistant:
         interval_method = resolve_interval_method(task_type, interval)
 
         preprocessing_steps = derive_preprocessing_steps(
-            profile          = data_profile,
+            profile          = planned_profile,
             forecaster       = fc,
             foundation_model = foundation_model,
         )
@@ -860,7 +927,7 @@ class ForecastingAssistant:
         # because the estimator tolerates NaN would be wrong for Ridge.
         has_missing = (
             bool(data_profile.missing_target)
-            or bool(data_profile.missing_exog)
+            or bool(planned_profile.missing_exog)
             or data_profile.has_gaps
         )
         explanation = build_plan_explanation(
@@ -889,6 +956,20 @@ class ForecastingAssistant:
                 n_series         = data_profile.n_series,
             )
             explanation = f"{explanation} {foundation_explanation}"
+        if use_exog_override is False and rule_use_exog:
+            explanation += (
+                f" Exogenous variables {data_profile.exog_columns} are not "
+                f"used, as requested."
+            )
+        if fc == "ForecasterDirectMultiVariate":
+            # Its script predicts one series, the first of the target, which
+            # the plan did not say.
+            explanation += (
+                f" It predicts '{data_profile.target[0]}', the first series of "
+                f"the target, from the lags of all the series."
+                if isinstance(data_profile.target, list)
+                else f" It predicts '{data_profile.target}'."
+            )
         if baseline_explanation is not None:
             explanation = f"{explanation} {baseline_explanation}"
             if data_profile.exog_columns:
@@ -918,6 +999,7 @@ class ForecastingAssistant:
                 ("lags", lags),
                 ("window_features", window_features),
                 ("metric", metric_override),
+                ("use_exog", use_exog_override),
             )
             if value is not None
         ]
@@ -976,8 +1058,8 @@ class ForecastingAssistant:
           `explanation`.
 
         Supported overrides: `forecaster`, `estimator`, `estimator_kwargs`,
-        `steps`, `interval`, `lags`, `window_features`, `metric` (see
-        `RefinePlanOverrides`). What matters is whether a key is passed:
+        `steps`, `interval`, `lags`, `window_features`, `metric`,
+        `use_exog` (see `RefinePlanOverrides`). What matters is whether a key is passed:
         an omitted key keeps the value of `plan`, while a key passed as
         None asks for the deterministic default (`interval=None` removes
         the prediction intervals, `lags=None` re-runs the PACF-based
@@ -993,9 +1075,11 @@ class ForecastingAssistant:
         switching to another forecaster family drops `estimator` and
         `estimator_kwargs`, which are then re-derived, and changing the
         `estimator` without passing `estimator_kwargs` drops the kwargs of
-        the previous estimator. The decisions added in 0.4.0 (`metric`)
-        are carried over only when they are in `plan.overridden_fields`;
-        otherwise the rules decide them again. The
+        the previous estimator. The decisions added in 0.4.0 (`metric`,
+        `use_exog`) are carried over only when they are in
+        `plan.overridden_fields` (and, for `use_exog=True`, when the new
+        forecaster can use the exogenous variables); otherwise the rules
+        decide them again. The
         `llm_refined_fields` marks of the original plan are kept for the
         fields whose value is carried over unchanged. The `end_train` split
         boundary is not kept: a refined plan starts in prediction mode, so
@@ -1028,7 +1112,7 @@ class ForecastingAssistant:
         **overrides : Unpack[RefinePlanOverrides]
             Keyword arguments to override. Accepted keys:
             `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
-            `interval`, `lags`, `window_features`, `metric`. Typed through
+            `interval`, `lags`, `window_features`, `metric`, `use_exog`. Typed through
             `RefinePlanOverrides`, so editors autocomplete them and type
             checkers reject unknown names; unknown keys also raise
             `ValueError` at run time.
@@ -1288,6 +1372,7 @@ class ForecastingAssistant:
         plan: ForecastPlan | None = None,
         *,
         metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete forecasting script.
@@ -1433,6 +1518,10 @@ class ForecastingAssistant:
             None, they are selected from the data. With `plan`, a value
             equal to what the plan computes is accepted and a different one
             raises `ValueError`, pointing to `refine_plan()`.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns, as in `plan()`.
+            When None, the rule decides. With `plan`, it must match
+            `plan.use_exog`.
 
         Returns
         -------
@@ -1471,7 +1560,7 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             require_exog     = False,
-            overrides        = {"metric": metric},
+            overrides        = {"metric": metric, "use_exog": use_exog},
         )
         profile = _with_data_path(profile, data)
 
@@ -1504,6 +1593,7 @@ class ForecastingAssistant:
         plan: ForecastPlan | None = None,
         *,
         metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
     ) -> ForecastResult:
         """
         Execute a full forecasting workflow end-to-end.
@@ -1578,7 +1668,7 @@ class ForecastingAssistant:
             the data (in long format, for each series, with the series id
             column), indexed or keyed by date as the data. A named pandas
             Series is one variable. Used only in prediction mode
-            (`test_size=None`) and required there when the data contains
+            (`test_size=None`) and required there when the plan uses
             exogenous variables. Must not be combined with `test_size`:
             in evaluation mode the test-set exogenous values are taken
             from the split. Its columns, dates and values are checked
@@ -1668,6 +1758,10 @@ class ForecastingAssistant:
             None, they are selected from the data. With `plan`, a value
             equal to what the plan computes is accepted and a different one
             raises `ValueError`, pointing to `refine_plan()`.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns, as in `plan()`.
+            When None, the rule decides. With `plan`, it must match
+            `plan.use_exog`.
 
         Returns
         -------
@@ -1716,7 +1810,7 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             require_exog     = True,
-            overrides        = {"metric": metric},
+            overrides        = {"metric": metric, "use_exog": use_exog},
         )
         profile = _with_data_path(profile, data)
 
@@ -2028,6 +2122,7 @@ class ForecastingAssistant:
         lags: int | list[int] | None = None,
         window_features: list[dict[str, list[str] | int]] | None = None,
         metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete backtesting script.
@@ -2125,6 +2220,10 @@ class ForecastingAssistant:
             None, they are selected from the data. With `plan`, a value
             equal to what the plan computes is accepted and a different one
             raises `ValueError`, pointing to `refine_plan()`.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns, as in `plan()`.
+            When None, the rule decides. With `plan`, it must match
+            `plan.use_exog`.
 
         Returns
         -------
@@ -2169,7 +2268,7 @@ class ForecastingAssistant:
             cv_result        = cv_result,
             lags             = lags,
             window_features  = window_features,
-            overrides        = {"metric": metric},
+            overrides        = {"metric": metric, "use_exog": use_exog},
         )
         profile = _with_data_path(profile, data)
 
@@ -2201,6 +2300,7 @@ class ForecastingAssistant:
         lags: int | list[int] | None = None,
         window_features: list[dict[str, list[str] | int]] | None = None,
         metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
     ) -> BacktestResult:
         """
         Execute backtesting with a pre-configured time series cross-validation 
@@ -2300,6 +2400,10 @@ class ForecastingAssistant:
             None, they are selected from the data. With `plan`, a value
             equal to what the plan computes is accepted and a different one
             raises `ValueError`, pointing to `refine_plan()`.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns, as in `plan()`.
+            When None, the rule decides. With `plan`, it must match
+            `plan.use_exog`.
 
         Returns
         -------
@@ -2360,7 +2464,7 @@ class ForecastingAssistant:
             cv_result        = cv_result,
             lags             = lags,
             window_features  = window_features,
-            overrides        = {"metric": metric},
+            overrides        = {"metric": metric, "use_exog": use_exog},
         )
         profile = _with_data_path(profile, data)
 
@@ -2499,7 +2603,7 @@ class ForecastingAssistant:
             `config` holds the forecaster/estimator settings. The `config`
             dict accepts the same override keys understood by `plan()`:
             `'forecaster'`, `'estimator'`, `'estimator_kwargs'`, `'lags'`,
-            and `'window_features'` (see `CandidateConfig`). Names must be
+            `'window_features'` and `'use_exog'` (see `CandidateConfig`). Names must be
             unique, and every candidate must belong to the same forecaster
             family: a multivariate forecaster is scored on the single series
             it predicts, a multi-series forecaster on the average across all
@@ -2785,6 +2889,7 @@ class ForecastingAssistant:
                     estimator_kwargs = config.get("estimator_kwargs"),
                     lags             = config.get("lags"),
                     window_features  = config.get("window_features"),
+                    use_exog         = config.get("use_exog"),
                     interval         = interval,
                     metric           = metric_override,
                 )

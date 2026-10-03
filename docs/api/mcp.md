@@ -16,8 +16,8 @@ Every tool that creates an object returns a [`ToolResult`][skforecast_ai.mcp.mod
 | Tool | Takes | Returns |
 |:--|:--|:--|
 | `profile` | `data_path`, `target`, `date_column`, `series_id_column` | a profile id |
-| `plan` | `profile_id`, `steps`, `interval`, `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `metric` | a plan id |
-| `refine_plan` | `plan_id`, `overrides` (the keys of `refine_plan()`; an omitted key keeps the value of the plan, and `estimator_kwargs`, `interval`, `lags`, `window_features` and `metric` set to null ask for the default) | a new plan id |
+| `plan` | `profile_id`, `steps`, `interval`, `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `metric`, `use_exog` | a plan id |
+| `refine_plan` | `plan_id`, `overrides` (the keys of `refine_plan()`; an omitted key keeps the value of the plan, and `estimator_kwargs`, `interval`, `lags`, `window_features`, `metric` and `use_exog` set to null ask for the default) | a new plan id |
 | `create_cv` | `plan_id` and the arguments of `create_cv()` | a cv id, with its cost |
 | `backtest` | `cv_id`, `plan_id` (another plan of the same profile; null for the plan of the strategy) | a backtest id; predictions and metrics in CSV files |
 | `compare` | `cv_id`, `candidates` (`[{name, config}]`, null for those of the profile), `interval`, `metric`, `baseline` | a comparison id, the plan of the winner in `links.best_plan_id`; the leaderboard and the predictions and metrics of the winner in CSV files |
@@ -37,7 +37,7 @@ The files of a response are CSV files with the index of the data: `predictions` 
 
 The `notices` of a response are the warnings the call emitted, deduplicated, with their source: `data` (reading or profiling the data), `plan` (a warning the plan carries in `plan.warnings`) or `runtime`. Deprecation warnings go to the log of the server (stderr) instead. Besides those, a profile carries `data_profile.warnings` (category `DataProfileWarning`, source `data`), a plan carries them too, with any text of `plan.warnings` not emitted in the call (category `PlanWarning`), and `create_cv` carries the `LongTrainingWarning` that a backtest of the strategy will emit (above 50 estimator fits).
 
-`compare` without `interval` computes the interval of the plan the strategy was built for (unlike `compare()` in Python, whose default is no interval), so the plan of the winner keeps it; to compare without one, build the strategy from a plan without interval. The seasonal naive baseline and `ForecasterStats` only compute symmetric intervals (lower + upper = 1): with an asymmetric one the comparison has no baseline (its summary says why), and a `ForecasterStats` candidate fails and is ranked last. `backtest` and `forecast` of a `ForecasterFoundation` plan whose backend package is not installed where the server runs raise `missing_dependency` before running anything; a candidate of `compare` with that model fails and is ranked last, as in Python.
+`compare` without `interval` computes the interval of the plan the strategy was built for (unlike `compare()` in Python, whose default is no interval), so the plan of the winner keeps it; to compare without one, build the strategy from a plan without interval. Other decisions of that plan (`lags`, `use_exog`...) do not reach the candidates: each one is planned from the profile with its own `config`. The seasonal naive baseline and `ForecasterStats` only compute symmetric intervals (lower + upper = 1): with an asymmetric one the comparison has no baseline (its summary says why), and a `ForecasterStats` candidate fails and is ranked last. `backtest` and `forecast` of a `ForecasterFoundation` plan whose backend package is not installed where the server runs raise `missing_dependency` before running anything; a candidate of `compare` with that model fails and is ranked last, as in Python.
 
 ## Limits
 

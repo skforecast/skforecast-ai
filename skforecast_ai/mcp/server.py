@@ -60,6 +60,7 @@ from .models import (
     LAGS_DESCRIPTION,
     METRIC_DESCRIPTION,
     STEPS_DESCRIPTION,
+    USE_EXOG_DESCRIPTION,
     WINDOW_FEATURES_DESCRIPTION,
     CandidateArg,
     CodeResult,
@@ -1012,6 +1013,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             f"{METRIC_DESCRIPTION} Null for the metric selected from the data "
             f"(MAE for one series, MASE for several) and its default panel."
         ))] = None,
+        use_exog: Annotated[bool | None, Field(description=(
+            f"{USE_EXOG_DESCRIPTION} Null uses them whenever the forecaster "
+            f"can."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         profile_entry = store.get(profile_id, "profile_id", ("profile",))
@@ -1028,6 +1033,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 lags             = lags,
                 window_features  = window_features,
                 metric           = metric,
+                use_exog         = use_exog,
             )
             _check_foundation_kwargs(
                 new_plan.forecaster, new_plan.estimator_kwargs, "estimator_kwargs"
@@ -1597,7 +1603,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         exog_path: Annotated[str | None, Field(description=(
             "Absolute path of a CSV file with the future values of the "
             "exogenous variables, one row per date (and series) of the "
-            "horizon. Required to forecast the future when the data has "
+            "horizon. Required to forecast the future when the plan uses "
             "exogenous variables. The script of `get_code` reads them from "
             "'exog_future.csv' in its working directory."
         ))] = None,

@@ -80,6 +80,7 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
         "lags",
         "metric",
         "steps",
+        "use_exog",
         "window_features",
     ]
     assert result["cost"] is None

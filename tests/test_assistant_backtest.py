@@ -951,3 +951,20 @@ def test_backtest_ValueError_when_metric_differs_from_plan():
     result = assistant.backtest(**inputs, metric=["mean_squared_error"])
 
     assert result.plan.metric == "mean_squared_error"
+
+
+def test_backtest_ValueError_when_use_exog_differs_from_plan():
+    """
+    Test that a `use_exog` different from the one of a given plan is
+    rejected, pointing to refine_plan().
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+
+    with pytest.raises(InvalidInputError, match=re.escape("['use_exog']")):
+        assistant.backtest(
+            data=df_single, target="sales", date_column="date", cv=cv,
+            profile=profile, plan=plan, use_exog=False, show_progress=False,
+        )

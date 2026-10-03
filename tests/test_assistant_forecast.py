@@ -2641,3 +2641,22 @@ def test_forecast_output_when_metric_given_in_evaluation_mode():
             ),
             metric="mean_absolute_error",
         )
+
+
+def test_forecast_output_when_use_exog_false():
+    """
+    Test that forecast() with `use_exog=False` forecasts data with
+    exogenous columns without `exog`, and rejects it against a plan that
+    uses them.
+    """
+    assistant = ForecastingAssistant()
+    inputs = {"data": df_single, "target": "sales", "date_column": "date"}
+
+    result = assistant.forecast(**inputs, steps=5, use_exog=False)
+
+    assert result.plan.use_exog is False
+    assert len(result.predictions) == 5
+    with pytest.raises(InvalidInputError, match=re.escape("['use_exog']")):
+        assistant.forecast(
+            **inputs, plan=assistant.plan(result.profile, steps=5), use_exog=False
+        )

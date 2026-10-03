@@ -280,6 +280,7 @@ OverrideName = Literal[
     "lags",
     "window_features",
     "metric",
+    "use_exog",
 ]
 """Decisions of a plan that the user can make instead of the rules of
 `plan()`, as recorded in `ForecastPlan.overridden_fields`."""
@@ -327,6 +328,10 @@ class RefinePlanOverrides(TypedDict, total=False):
         in `plan()`. None selects them from the data again. When omitted,
         a metric chosen by the user is kept and a selected one is
         selected again.
+    use_exog : bool, None
+        Whether the plan uses the exogenous variables, as in `plan()`. None
+        lets the rule decide again. When omitted, a choice of the user is
+        kept and the rule decides otherwise.
     """
 
     forecaster: str
@@ -337,6 +342,7 @@ class RefinePlanOverrides(TypedDict, total=False):
     lags: int | list[int] | None
     window_features: list[dict[str, list[str] | int]] | None
     metric: str | list[str] | None
+    use_exog: bool | None
 
 
 class CandidateConfig(TypedDict, total=False):
@@ -365,6 +371,9 @@ class CandidateConfig(TypedDict, total=False):
         Rolling window features, one dict with `'stats'` and a positive
         scalar `'window_size'` per window size; the same statistic cannot
         repeat the same window size across entries.
+    use_exog : bool, None
+        Whether the candidate uses the exogenous variables, as in `plan()`.
+        None uses them whenever the forecaster can.
     """
 
     forecaster: str
@@ -372,6 +381,7 @@ class CandidateConfig(TypedDict, total=False):
     estimator_kwargs: dict[str, Any] | None
     lags: int | list[int] | None
     window_features: list[dict[str, list[str] | int]] | None
+    use_exog: bool | None
 
 
 # Keys validated at run time, taken from the typed dictionaries so the two
@@ -466,8 +476,8 @@ class ForecastPlan(DisplayMixin, BaseModel):
         Names of the decisions the user made instead of the rules of
         `plan()`: the arguments passed with a value other than None among
         `forecaster`, `estimator`, `estimator_kwargs`, `lags`,
-        `window_features` and `metric` (an argument passed as None asks
-        for the rule and is not recorded). It holds names only; the values
+        `window_features`, `metric` and `use_exog` (an argument passed as
+        None asks for the rule and is not recorded). It holds names only; the values
         are those of the plan. `refine_plan()` keeps a name while the
         refined plan keeps its value. Empty for a plan of an earlier
         version.

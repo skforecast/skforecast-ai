@@ -601,7 +601,7 @@ def test_refine_plan_overrides_keys_are_all_optional():
     assert RefinePlanOverrides.__required_keys__ == frozenset()
     assert RefinePlanOverrides.__optional_keys__ == {
         "forecaster", "estimator", "estimator_kwargs", "steps", "interval",
-        "lags", "window_features", "metric",
+        "lags", "window_features", "metric", "use_exog",
     }
 
 

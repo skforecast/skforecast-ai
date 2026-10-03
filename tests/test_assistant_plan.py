@@ -1634,3 +1634,148 @@ def test_plan_TypeError_when_metric_given_positionally():
 
     with pytest.raises(TypeError):
         assistant.plan(profile, 10, None, None, None, None, None, None, "mae")
+
+
+def test_plan_output_when_use_exog_false():
+    """
+    Test that `use_exog=False` leaves out the exogenous columns of the
+    data (no transformer for them), records the decision and says so in
+    the explanation, and that True keeps the rule's choice without that
+    sentence.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    without = assistant.plan(profile, steps=10, estimator="Ridge", use_exog=False)
+    with_exog = assistant.plan(profile, steps=10, estimator="Ridge", use_exog=True)
+
+    assert without.use_exog is False
+    assert "transformer_exog" not in without.forecaster_kwargs
+    assert without.overridden_fields == ["estimator", "use_exog"]
+    assert without.explanation.endswith(
+        "Exogenous variables ['promo'] are not used, as requested."
+    )
+    assert with_exog.use_exog is True
+    assert with_exog.forecaster_kwargs["transformer_exog"] == "StandardScaler"
+    assert "as requested" not in with_exog.explanation
+
+
+@pytest.mark.parametrize(
+    "data, forecaster, estimator, reason",
+    [
+        (df_no_exog, None, None, "the data has no exogenous columns"),
+        (
+            df_single,
+            "ForecasterEquivalentDate",
+            None,
+            "'ForecasterEquivalentDate' only repeats past values of the target",
+        ),
+        (
+            df_single,
+            "ForecasterFoundation",
+            "Salesforce/moirai-2.0-R-small",
+            "'Salesforce/moirai-2.0-R-small' does not accept the exogenous "
+            "columns of the data as covariates",
+        ),
+    ],
+    ids=["no exog", "baseline", "foundation without covariates"],
+)
+def test_plan_ValueError_when_use_exog_true_cannot_apply(
+    data, forecaster, estimator, reason
+):
+    """
+    Test that `use_exog=True` is rejected with `field='use_exog'` when the
+    data has no exogenous columns or the forecaster cannot use them.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+
+    err_msg = re.escape(f"`use_exog=True` cannot be applied: {reason}.")
+    with pytest.raises(ValueError, match=err_msg) as info:
+        assistant.plan(
+            profile, steps=10, forecaster=forecaster, estimator=estimator,
+            use_exog=True,
+        )
+
+    assert info.value.field == "use_exog"
+
+
+def test_plan_TypeError_when_use_exog_not_bool():
+    """
+    Test that a `use_exog` that is not True, False or None is rejected.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(TypeError, match=re.escape("`use_exog` must be True, False")):
+        assistant.plan(profile, steps=10, use_exog="no")
+
+
+def test_plan_explanation_names_the_series_multivariate_predicts():
+    """
+    Test that the explanation of a ForecasterDirectMultiVariate plan names
+    the series it predicts, the first of the target.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterDirectMultiVariate")
+
+    assert plan.explanation.endswith(
+        "It predicts 'series_a', the first series of the target, from the lags "
+        "of all the series."
+    )
+
+
+def test_plan_output_when_use_exog_false_ignores_the_exog_left_out():
+    """
+    Test that the exogenous columns left out with `use_exog=False` do not
+    shape the plan: their missing values neither set `dropna_from_series`
+    nor add a preprocessing step, and categorical columns need no step.
+    """
+    assistant = ForecastingAssistant()
+    data = df_categorical_exog.assign(
+        promo=df_categorical_exog["promo"].where(
+            df_categorical_exog.index != 20
+        )
+    )
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+
+    default = assistant.plan(profile, steps=10, estimator="Ridge")
+    without = assistant.plan(profile, steps=10, estimator="Ridge", use_exog=False)
+
+    assert default.forecaster_kwargs["dropna_from_series"] is True
+    assert {step.action for step in default.preprocessing_steps} >= {
+        "handle_missing_values", "handle_categorical_exog"
+    }
+    assert without.forecaster_kwargs["dropna_from_series"] is False
+    assert without.preprocessing_steps == []
+    assert "NaN" not in without.explanation
+
+
+def test_plan_ValueError_when_use_exog_true_and_stats_has_only_categorical_exog():
+    """
+    Test that `use_exog=True` is rejected for ForecasterStats when every
+    exogenous column is categorical, which its script leaves out, while
+    the rule keeps its choice and `use_exog=False` is accepted.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_categorical_exog.drop(columns="promo"),
+        target="sales",
+        date_column="date",
+    )
+
+    err_msg = re.escape(
+        "`use_exog=True` cannot be applied: 'ForecasterStats' only uses numeric "
+        "exogenous columns, and ['weekday'] are categorical."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=10, forecaster="ForecasterStats", use_exog=True)
+    plan = assistant.plan(
+        profile, steps=10, forecaster="ForecasterStats", use_exog=False
+    )
+
+    assert plan.use_exog is False

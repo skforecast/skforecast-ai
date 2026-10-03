@@ -451,3 +451,22 @@ def test_backtest_code_output_when_lags_window_features_and_metric_given():
     assert (
         "    metric            = ['mean_squared_error', 'mean_absolute_error'],\n"
     ) in result.code
+
+
+def test_backtest_code_output_when_use_exog_false():
+    """
+    Test that backtest_code() builds its plan with `use_exog=False`, whose
+    script passes no exogenous variables, and rejects it against a plan
+    that uses them.
+    """
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+    inputs = {"data": df_single, "target": "sales", "date_column": "date", "cv": cv}
+
+    result = assistant.backtest_code(**inputs, use_exog=False)
+
+    assert result.plan.use_exog is False
+    assert "exog" not in result.code.split("# Run backtesting")[1]
+    with pytest.raises(InvalidInputError, match=re.escape("['use_exog']")):
+        assistant.backtest_code(
+            **inputs, plan=assistant.plan(result.profile, steps=5), use_exog=False
+        )

@@ -79,6 +79,11 @@ WINDOW_FEATURES_DESCRIPTION = (
     f"[{{'stats': ['mean', 'std'], 'window_size': 7}}]."
 )
 
+USE_EXOG_DESCRIPTION = (
+    "Whether to use the exogenous columns of the data: false leaves them "
+    "out (forecast then takes no exog_path); true fails when the data has "
+    "none or the forecaster cannot use them."
+)
 METRIC_DESCRIPTION = (
     "Metric, or list of metrics whose first one is the primary metric "
     "(the one that ranks); only the ones given are computed."
@@ -98,8 +103,9 @@ Metric = MetricName | Annotated[list[MetricName], Field(min_length=1)]
     json_schema_extra = {
         "description": (
             "Decisions of the plan to change. An omitted key keeps the value "
-            "of the plan; estimator_kwargs, interval, lags, window_features "
-            "and metric set to null ask for the deterministic default."
+            "of the plan; estimator_kwargs, interval, lags, window_features, "
+            "metric and use_exog set to null ask for the deterministic "
+            "default."
         ),
     },
 ))
@@ -149,6 +155,13 @@ class RefinePlanArgs(TypedDict, total=False):
             f"Omitted, a metric chosen before is kept."
         )),
     ]
+    use_exog: Annotated[
+        bool | None,
+        Field(description=(
+            f"{USE_EXOG_DESCRIPTION} Null lets the rule decide again. "
+            f"Omitted, a choice made before is kept."
+        )),
+    ]
 
 
 @with_config(ConfigDict(
@@ -191,6 +204,13 @@ class CandidateArgs(TypedDict, total=False):
             f"deterministic rules."
         )),
     ]
+    use_exog: Annotated[
+        bool | None,
+        Field(description=(
+            f"{USE_EXOG_DESCRIPTION} Null uses them whenever the forecaster "
+            f"can."
+        )),
+    ]
 
 
 class CandidateArg(BaseModel):
@@ -203,8 +223,8 @@ class CandidateArg(BaseModel):
         Name of the candidate, unique, that labels its row of the
         leaderboard.
     config : dict
-        Its configuration: `forecaster`, `estimator`, `estimator_kwargs`,
-        `lags` and `window_features`, as in `ForecastingAssistant.compare()`.
+        Its configuration: the keys of `CandidateConfig`, as in
+        `ForecastingAssistant.compare()`.
     """
 
     model_config = ConfigDict(

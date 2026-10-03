@@ -8,6 +8,7 @@ from skforecast_ai.schemas import RenderedScript
 from .fixtures_rendering import (
     plan_single_direct,
     plan_single_metric_override,
+    plan_single_without_exog,
     plan_single_no_end_train,
     plan_single_predict_exog,
     plan_single_recursive,
@@ -624,6 +625,76 @@ def test_render_forecast_single_series_output_when_metric_override():
         "\n"
         'print(f"MSE  : {mse:.4f}")\n'
         'print(f"MedAE: {medae:.4f}")\n'
+        "\n"
+        "# NOTE: This script uses a train/test split for demonstration purposes.\n"
+        "# For production forecasting, retrain with all available data\n"
+        "# and call predict() on the desired horizon.\n"
+    )
+
+    assert result.full_script == expected
+
+
+def test_render_forecast_single_series_output_when_exog_not_used():
+    """
+    Test that a plan that leaves out the exogenous columns of the data
+    (`plan(use_exog=False)`) neither loads nor passes them.
+    """
+    result = render_forecast_single_series(plan_single_without_exog, profile_single)
+
+    expected = (
+        "import pandas as pd\n"
+        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from skforecast.metrics import mean_absolute_scaled_error\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Train/test split\n"
+        "end_train = '2023-03-12'  # last training date, adjust to change the split point\n"
+        "data_train = data.loc[:end_train]\n"
+        "data_test  = data.loc[data.index > end_train]\n"
+        "\n"
+        "print(\n"
+        '    f"Train dates : {data_train.index.min()} --- {data_train.index.max()}  (n={len(data_train)})"\n'
+        ")\n"
+        "print(\n"
+        '    f"Test dates  : {data_test.index.min()} --- {data_test.index.max()}  (n={len(data_test)})"\n'
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(y=data_train['sales'])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps)\n"
+        "print(predictions)\n"
+        "\n"
+        "# Evaluate on test set\n"
+        "actual = data_test['sales'].iloc[:steps]\n"
+        "mae = mean_absolute_error(actual, predictions)\n"
+        "mse = mean_squared_error(actual, predictions)\n"
+        "mase = mean_absolute_scaled_error(\n"
+        "    y_true  = actual,\n"
+        "    y_pred  = predictions,\n"
+        "    y_train = data_train['sales'],\n"
+        ")\n"
+        "\n"
+        'print(f"MAE  : {mae:.4f}")\n'
+        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
         "# For production forecasting, retrain with all available data\n"

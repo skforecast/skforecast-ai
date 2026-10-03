@@ -25,11 +25,12 @@ files.
    series. Leave the other arguments out to take the recommendation; set
    them only when the user asks. `metric` (one metric, or a list whose
    first one ranks) replaces the metric selected from the data, and only
-   the metrics given are computed.
+   the metrics given are computed. `use_exog: false` leaves the
+   exogenous columns out, so `forecast` needs no `exog_path`.
 3. Optionally `refine_plan(plan_id, overrides)` to change some decisions.
    An omitted key keeps the value of the plan; `estimator_kwargs`,
-   `interval`, `lags`, `window_features` and `metric` set to null go back
-   to the default.
+   `interval`, `lags`, `window_features`, `metric` and `use_exog` set to
+   null go back to the default.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
    running anything; above 50 estimator fits it already carries the
    `LongTrainingWarning` the backtest would emit.
@@ -48,7 +49,7 @@ files.
    strategy, so the winner keeps it (with an asymmetric interval there
    is no baseline: it only takes symmetric ones, such as `[0.1, 0.9]`).
 7. `forecast(plan_id, test_size?, exog_path?)`: the future. `exog_path` is
-   required when the data has exogenous variables. With `test_size` it is
+   required when the plan uses exogenous variables. With `test_size` it is
    a single hold-out evaluation instead, without `exog_path`: pass the
    integer `steps` (the last `steps` observations) or the ISO 8601 date the
    test set starts at. A fraction only works when it gives exactly `steps`

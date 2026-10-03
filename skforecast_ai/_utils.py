@@ -292,8 +292,9 @@ def _check_plan_overrides(
     window_features : list of dict, default None
         Window features override.
     **overrides : object
-        Overrides added in 0.4.0 (`metric`), compared with the value the
-        plan holds in the form `plan()` takes them (`plan_override_value`).
+        Overrides added in 0.4.0 (`metric`, `use_exog`...), compared with
+        the value the plan holds in the form `plan()` takes them
+        (`plan_override_value`).
 
     Returns
     -------
@@ -367,6 +368,8 @@ def plan_override_value(plan: ForecastPlan, name: str) -> object:
         return plan.estimator
     if name == "estimator_kwargs":
         return plan.estimator_kwargs or None
+    if name == "use_exog":
+        return plan.use_exog
     if name == "metric":
         # The primary metric first, then the others computed.
         return [
@@ -389,6 +392,7 @@ _FIELD_OVERRIDES: dict[str, str] = {
     "interval_method": "interval",
     "metric": "metric",
     "metrics_to_compute": "metric",
+    "use_exog": "use_exog",
 }
 _FORECASTER_KWARG_OVERRIDES: dict[str, str] = {
     "lags": "lags",

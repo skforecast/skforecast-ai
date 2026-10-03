@@ -30,7 +30,7 @@ def test_refine_plan_ValueError_when_invalid_override_key():
 
     err_msg = re.escape(
         "Invalid override keys: ['not_a_valid_key']. "
-        "Allowed keys: ['estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', 'steps', 'window_features']."
+        "Allowed keys: ['estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', 'steps', 'use_exog', 'window_features']."
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.refine_plan(profile, plan, not_a_valid_key="something")
@@ -488,7 +488,7 @@ def test_refine_plan_InvalidInputError_field_when_invalid_override_key():
     err_msg = re.escape(
         "Invalid override keys: ['lagz', 'stepz']. Allowed keys: ['estimator', "
         "'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', "
-        "'steps', 'window_features']."
+        "'steps', 'use_exog', 'window_features']."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.refine_plan(profile, plan, stepz=3, lagz=2)
@@ -590,7 +590,7 @@ def test_refine_plan_PlanEditsDiscardedWarning_when_plan_edited_by_hand():
         "plan, which differ from what plan() builds for it, were discarded: "
         "['metric', \"forecaster_kwargs['differentiation']\"]. Pass the ones "
         "that `refine_plan()` accepts (['estimator', 'estimator_kwargs', "
-        "'forecaster', 'interval', 'lags', 'metric', 'steps', "
+        "'forecaster', 'interval', 'lags', 'metric', 'steps', 'use_exog', "
         "'window_features']) as overrides to keep them."
     )
     with pytest.warns(PlanEditsDiscardedWarning, match=re.escape(expected)):
@@ -691,3 +691,43 @@ def test_refine_plan_output_metric_kept_only_when_chosen():
     assert reset.overridden_fields == []
     assert changed.metric == "median_absolute_error"
     assert changed.overridden_fields == ["metric"]
+
+
+def test_refine_plan_output_use_exog_kept_only_when_it_applies():
+    """
+    Test that `use_exog=False` chosen by the user is kept by a refinement
+    of another field and by a switch to the baseline, and that
+    `use_exog=None` lets the rule decide again.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, use_exog=False)
+
+    kept = assistant.refine_plan(profile, plan, steps=12)
+    reset = assistant.refine_plan(profile, plan, use_exog=None)
+    stats = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
+
+    assert kept.use_exog is False
+    assert kept.overridden_fields == ["use_exog"]
+    assert reset.use_exog is True
+    assert reset.overridden_fields == []
+    assert stats.use_exog is False
+    assert stats.overridden_fields == ["forecaster", "use_exog"]
+
+
+def test_refine_plan_output_use_exog_true_not_carried_to_the_baseline():
+    """
+    Test that `use_exog=True` chosen by the user is not carried over to the
+    baseline, which cannot use exogenous variables, and comes back when a
+    later refinement does not need it (the rule decides again).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, use_exog=True)
+
+    baseline = assistant.refine_plan(
+        profile, plan, forecaster="ForecasterEquivalentDate"
+    )
+
+    assert baseline.use_exog is False
+    assert baseline.overridden_fields == ["forecaster"]

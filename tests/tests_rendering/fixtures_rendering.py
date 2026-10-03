@@ -181,6 +181,11 @@ plan_single_metric_override = plan_single_recursive_no_exog.model_copy(
     }
 )
 
+# `plan(use_exog=False)` on data with exogenous columns.
+plan_single_without_exog = plan_single_recursive.model_copy(
+    update={"use_exog": False, "overridden_fields": ["use_exog"]}
+)
+
 plan_single_direct = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterDirect",

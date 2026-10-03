@@ -1860,7 +1860,7 @@ def test_compare_ValueError_when_metric_or_interval_invalid(kwargs, match):
             [("lgbm", {"bogus": 1})], InvalidInputError,
             "Invalid config keys for 'lgbm': ['bogus']. Allowed keys: "
             "['estimator', 'estimator_kwargs', 'forecaster', 'lags', "
-            "'window_features'].",
+            "'use_exog', 'window_features'].",
         ),
     ],
     ids=["empty", "config_not_dict", "duplicate_names", "unknown_key"],
@@ -2499,3 +2499,28 @@ def test_compare_InvalidInputError_when_data_have_other_structure_than_profile(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "profile"
+
+
+def test_compare_candidate_use_exog():
+    """
+    Test that a candidate config takes `use_exog`, so the same forecaster
+    can be compared with and without the exogenous variables.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=[
+            ("with", {"forecaster": "ForecasterRecursive"}),
+            ("without", {"forecaster": "ForecasterRecursive", "use_exog": False}),
+        ],
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert result.candidates["with"].plan.use_exog is True
+    assert result.candidates["without"].plan.use_exog is False
+    assert result.candidates["without"].plan.overridden_fields == [
+        "forecaster", "use_exog"
+    ]

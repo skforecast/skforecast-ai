@@ -376,6 +376,19 @@
           "default": null,
           "description": "Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null for the metric selected from the data (MAE for one series, MASE for several) and its default panel.",
           "title": "Metric"
+        },
+        "use_exog": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null uses them whenever the forecaster can.",
+          "title": "Use Exog"
         }
       },
       "required": [
@@ -530,7 +543,7 @@
       "$defs": {
         "RefinePlanArgs": {
           "additionalProperties": false,
-          "description": "Decisions of the plan to change. An omitted key keeps the value of the plan; estimator_kwargs, interval, lags, window_features and metric set to null ask for the deterministic default.",
+          "description": "Decisions of the plan to change. An omitted key keeps the value of the plan; estimator_kwargs, interval, lags, window_features, metric and use_exog set to null ask for the deterministic default.",
           "properties": {
             "forecaster": {
               "description": "skforecast forecaster class: ForecasterRecursive or ForecasterDirect (one series, machine learning), ForecasterRecursiveMultiSeries (several series), ForecasterDirectMultiVariate (one series predicted from several), ForecasterStats (Auto-ARIMA), ForecasterFoundation (pre-trained foundation model, no training) or ForecasterEquivalentDate (seasonal naive baseline).",
@@ -671,6 +684,18 @@
               ],
               "description": "Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null selects them again from the data. Omitted, a metric chosen before is kept.",
               "title": "Metric"
+            },
+            "use_exog": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null lets the rule decide again. Omitted, a choice made before is kept.",
+              "title": "Use Exog"
             }
           },
           "title": "RefinePlanArgs",
@@ -1374,6 +1399,18 @@
               ],
               "description": "Rolling features, one entry per window size: {'stats': [...], 'window_size': n}, with stats among ['mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', 'coef_variation', 'ewm'], e.g. [{'stats': ['mean', 'std'], 'window_size': 7}]. Null selects them with the deterministic rules.",
               "title": "Window Features"
+            },
+            "use_exog": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null uses them whenever the forecaster can.",
+              "title": "Use Exog"
             }
           },
           "title": "CandidateArgs",
@@ -1653,7 +1690,7 @@
             }
           ],
           "default": null,
-          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon. Required to forecast the future when the data has exogenous variables. The script of `get_code` reads them from 'exog_future.csv' in its working directory.",
+          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon. Required to forecast the future when the plan uses exogenous variables. The script of `get_code` reads them from 'exog_future.csv' in its working directory.",
           "title": "Exog Path"
         }
       },

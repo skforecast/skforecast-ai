@@ -23,6 +23,7 @@ PLAN = ForecastPlan(
         ("estimator_kwargs", None),
         ("lags", 3),
         ("window_features", None),
+        ("use_exog", False),
     ],
 )
 def test_plan_override_value_reads_the_value_of_each_decision(name, expected):

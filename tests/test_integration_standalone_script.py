@@ -616,3 +616,47 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_override(
         backtest.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+@pytest.mark.parametrize(
+    "frame, target, forecaster",
+    [
+        (df_single, "sales", "ForecasterRecursive"),
+        (
+            df_multi_wide.assign(promo=np.arange(len(df_multi_wide)) % 7),
+            ["series_a", "series_b"],
+            "ForecasterDirectMultiVariate",
+        ),
+    ],
+    ids=["single series", "multivariate"],
+)
+def test_standalone_scripts_match_forecast_and_backtest_when_exog_not_used(
+    tmp_path, frame, target, forecaster
+):
+    """
+    Test that, with `use_exog=False` on data with exogenous columns, the
+    scripts of forecast_code() (evaluation mode) and backtest_code() run as
+    files and give the predictions of forecast() and backtest(); the
+    multivariate script fits only the target series.
+    """
+    csv_path = tmp_path / "data.csv"
+    frame.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    inputs = {
+        "data": csv_path, "target": target, "date_column": "date",
+        "forecaster": forecaster, "use_exog": False,
+    }
+
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5)
+    backtest = assistant.backtest(**inputs, cv=cv, show_progress=False)
+
+    assert forecast.code == assistant.forecast_code(**inputs, steps=5, test_size=5).code
+    assert backtest.code == assistant.backtest_code(**inputs, cv=cv).code
+    assert "promo" not in forecast.code.split("# Create forecaster")[1]
+    _assert_same_predictions(_run_standalone(forecast.code, tmp_path), forecast.predictions)
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )

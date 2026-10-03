@@ -459,3 +459,107 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog_predicti
         "print(predictions)\n"
     )
     assert result.full_script == expected
+
+
+def test_render_forecast_multivariate_output_when_exog_not_used():
+    """
+    Test that a multivariate plan that does not use the exogenous columns
+    of wide data fits only the target series: the exogenous columns are
+    not fitted as series, in evaluation and in prediction mode.
+    """
+    evaluation = render_forecast_multivariate(plan_multivariate, profile_multi_wide_exog)
+    prediction = render_forecast_multivariate(
+        plan_multivariate.model_copy(update={"end_train": None}),
+        profile_multi_wide_exog,
+    )
+
+    expected_evaluation = (
+        "import pandas as pd\n"
+        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from skforecast.metrics import mean_absolute_scaled_error\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.direct import ForecasterDirectMultiVariate\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Train/test split\n"
+        "end_train = '2023-03-12'  # last training date, adjust to change the split point\n"
+        "series_cols = ['series_a', 'series_b']\n"
+        "data_train = data.loc[:end_train]\n"
+        "data_test  = data.loc[data.index > end_train]\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterDirectMultiVariate(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    level     = 'series_a',\n"
+        "    steps     = 5,\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(series=data_train[series_cols])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 5\n"
+        "predictions = forecaster.predict(steps=steps)\n"
+        "print(predictions)\n"
+        "\n"
+        "# Evaluate on test set\n"
+        "actual = data_test['series_a'].iloc[:steps]\n"
+        "mae = mean_absolute_error(actual, predictions['pred'])\n"
+        "mse = mean_squared_error(actual, predictions['pred'])\n"
+        "mase = mean_absolute_scaled_error(\n"
+        "    y_true  = actual,\n"
+        "    y_pred  = predictions['pred'],\n"
+        "    y_train = data_train['series_a'],\n"
+        ")\n"
+        "\n"
+        'print(f"MAE  : {mae:.4f}")\n'
+        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"MASE : {mase:.4f}")\n'
+        "\n"
+        "# NOTE: This script uses a train/test split for demonstration purposes.\n"
+        "# For production forecasting, retrain with all available data\n"
+        "# and call predict() on the desired horizon.\n"
+    )
+    expected_prediction = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.direct import ForecasterDirectMultiVariate\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "series_cols = ['series_a', 'series_b']\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterDirectMultiVariate(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    level     = 'series_a',\n"
+        "    steps     = 5,\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(series=data[series_cols])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 5\n"
+        "predictions = forecaster.predict(steps=steps)\n"
+        "print(predictions)\n"
+        "\n"
+    )
+
+    assert evaluation.full_script == expected_evaluation
+    assert prediction.full_script == expected_prediction
