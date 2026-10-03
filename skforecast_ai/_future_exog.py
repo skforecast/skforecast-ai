@@ -66,6 +66,7 @@ def as_exog_frame(exog: object) -> pd.DataFrame | None:
         f"exogenous variables, not {type(exog).__name__}. Read a CSV file with "
         f"pandas.read_csv first (the CLI reads it with --exog).",
         field = "exog",
+        hint  = "Pass the future exogenous values as a table indexed by their dates.",
     )
 
 
@@ -321,6 +322,7 @@ def _exog_dates(
                 f"The dates of `exog` (column {date_column!r}) are text: convert "
                 f"them with pandas.to_datetime first.",
                 field = "exog",
+                hint  = "Give the future exogenous values dates, not text.",
             )
         try:
             # Python dates and datetimes, which pandas reads as dates.
@@ -335,7 +337,7 @@ def _exog_dates(
         values = exog[date_column]
         try:
             dates = pd.DatetimeIndex(
-                parse_text_dates(values, mixed=False) if is_text(values) else values
+                parse_text_dates(values) if is_text(values) else values
             )
         except (ValueError, TypeError) as exc:
             raise InvalidInputError(
@@ -761,7 +763,7 @@ def _first_rows(
     dates = None
     try:
         if is_text(keys):
-            keys = parse_text_dates(keys, mixed=False)
+            keys = parse_text_dates(keys)
         if pd.api.types.is_datetime64_any_dtype(keys):
             dates = pd.DatetimeIndex(keys)
         order = np.argsort(keys.to_numpy(), kind="stable")

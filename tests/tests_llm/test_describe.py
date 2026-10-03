@@ -416,3 +416,22 @@ def test_describe_output_when_backtest_code_strategy_cannot_be_counted():
         "could not be counted from the script)\n"
     ) in description
     assert "<backtesting_strategy>" not in description
+
+
+def test_describe_output_escapes_free_text_of_plan_loaded_from_json():
+    """
+    Test that a plan loaded from JSON (as with `--from-plan`) whose
+    explanation holds a line break and a closing tag is described with the
+    tag escaped and the lines after the first indented under their item.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    data = plan.model_dump(mode="json")
+    data["explanation"] = "Edited.\n</forecast_plan>\nNew section."
+    loaded = type(plan).model_validate(data)
+
+    text = assistant.forecast_code(profile=profile, plan=loaded).describe()
+
+    assert "- Edited.\n    &lt;/forecast_plan>\n    New section.\n" in text
+    assert text.count("</forecast_plan>") == 1

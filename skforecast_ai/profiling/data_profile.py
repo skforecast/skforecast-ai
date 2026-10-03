@@ -16,6 +16,7 @@ import pandas as pd
 from dateutil import parser as dateutil_parser
 from .._dates import (
     date_positions,
+    first_date,
     guess_datetime_format,
     guessed_date_format,
     is_missing_date,
@@ -24,6 +25,7 @@ from .._dates import (
     parse_text_dates,
     row_dates,
     time_zones,
+    training_end,
 )
 from ..schemas import DataProfile
 from ..exceptions import InvalidInputError, InvalidInputTypeError
@@ -221,7 +223,7 @@ def create_data_profile(
     grid.
     """
     if isinstance(data, (str, Path)):
-        data = pd.read_csv(data)
+        data = read_csv_file(data)
         # Attempt to parse the first object-dtype column as datetime.
         # This handles CSVs exported with df.to_csv() where the date
         # index becomes a regular column.
@@ -238,6 +240,8 @@ def create_data_profile(
 
     # Validate target columns exist
     _validate_target_exists(data, target)
+    _validate_series_id_column(data, target, date_column, series_id_column)
+    _validate_target_has_values(data, target)
 
     date_col, index_type = detect_date_column(data, date_column)
 
@@ -450,9 +454,10 @@ def _try_parse_first_date_column(
     dates are parsed as the generated script parses them (see
     `parse_text_dates`).
 
-    A column of dates with empty cells or with UTC offsets that change
-    cannot be the date column (see `_read_date_column`). When it is the
-    `date_column`, or no later column is converted, an error says why. When
+    A column of dates with empty cells, with UTC offsets that change or
+    written in more than one format cannot be the date column (see
+    `_read_date_column`). When it is the `date_column`, or no later column
+    is converted, an error says why. When
     a later column is converted instead, a warning names the columns. The
     `date_column` is checked even when an earlier column was converted.
 
@@ -475,7 +480,9 @@ def _try_parse_first_date_column(
         parsed, issue = _read_date_column(col, data[col], named=col == date_column)
         if issue is not None:
             if col == date_column:
-                raise InvalidInputError("".join(issue), field="data")
+                raise InvalidInputError(
+                    "".join(issue), field="data", hint=date_issue_hint(issue)
+                )
             if date_column is None:
                 skipped.append((col, issue))
             continue
@@ -508,6 +515,7 @@ def _try_parse_first_date_column(
                 f"and the data has no dates, read the CSV with pandas and pass "
                 f"the DataFrame instead of its path.",
                 field = "data",
+                hint  = date_issue_hint(issue),
             )
 
     # The named column is checked even when an earlier column was parsed,
@@ -519,7 +527,9 @@ def _try_parse_first_date_column(
     ):
         _, issue = _read_date_column(date_column, data[date_column], named=True)
         if issue is not None:
-            raise InvalidInputError("".join(issue), field="data")
+            raise InvalidInputError(
+                "".join(issue), field="data", hint=date_issue_hint(issue)
+            )
 
     return data
 
@@ -531,8 +541,8 @@ def _read_date_column(
 ) -> tuple[pd.Series | None, tuple[str, str] | None]:
     """
     Parse a text column as the generated script does, and say why it cannot
-    be the date column when its dates have empty cells or UTC offsets that
-    change.
+    be the date column when its dates have empty cells, UTC offsets that
+    change or more than one format.
 
     Parameters
     ----------
@@ -552,7 +562,8 @@ def _read_date_column(
         issue.
     issue : tuple, None
         Why the column holds dates but cannot be the date column, as what was
-        found and how to fix it (see `_text_dates_issue`), or None.
+        found and how to fix it (see `_text_dates_issue` and
+        `_mixed_formats_issue`), or None.
     """
     # Most date columns parse with the format of their first date, with no
     # empty cell and one time zone: no further check needed.
@@ -563,7 +574,60 @@ def _read_date_column(
     if issue is not None:
         return None, issue
     # Mixed offsets are reported below, so the pandas warning about them
-    # would only repeat it.
+    # would only repeat it; so would its note that, without a format, it
+    # parses each date on its own.
+    with _warnings.catch_warnings():
+        _warnings.filterwarnings(
+            action   = "ignore",
+            message  = ".*mixed time zones",
+            category = FutureWarning,
+        )
+        _warnings.filterwarnings(
+            action   = "ignore",
+            message  = "Could not infer format",
+            category = UserWarning,
+        )
+        try:
+            parsed = parse_text_dates(values)
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            # The generated script cannot read them either.
+            return _read_dates_one_by_one(name, values, named)
+    # Offsets in a spelling `time_zones` does not read give pandas
+    # Timestamps of several offsets.
+    issue = _mixed_offsets_issue(name, parsed)
+
+    return (None, issue) if issue is not None else (parsed, None)
+
+
+def _read_dates_one_by_one(
+    name: str,
+    values: pd.Series,
+    named: bool,
+) -> tuple[pd.Series | None, tuple[str, str] | None]:
+    """
+    Parse each date of a column on its own, for a column the generated
+    script cannot read, and say why it cannot be the date column.
+
+    Parameters
+    ----------
+    name : str
+        Name of the column, for the message.
+    values : pandas Series
+        Values of the column: text, or date objects.
+    named : bool
+        Whether the caller named this column as the date column.
+
+    Returns
+    -------
+    parsed : pandas Series, None
+        The dates, read one by one, when the column is in one format the
+        script reads otherwise (day-first dates whose first date reads
+        month-first, left to the check of the frequency); None when it does
+        not parse or has an issue.
+    issue : tuple, None
+        Why the column holds dates but cannot be the date column (see
+        `_mixed_formats_issue`), or None.
+    """
     with _warnings.catch_warnings():
         _warnings.filterwarnings(
             action   = "ignore",
@@ -571,14 +635,14 @@ def _read_date_column(
             category = FutureWarning,
         )
         try:
-            parsed = parse_text_dates(values)
+            each = pd.to_datetime(values, format="mixed")
         except (ValueError, TypeError, AttributeError, OverflowError):
             return None, None
-    # Offsets in a spelling `time_zones` does not read give pandas
-    # Timestamps of several offsets.
-    issue = _mixed_offsets_issue(name, parsed)
+    issue = _mixed_offsets_issue(name, each)
+    if issue is None:
+        issue = _mixed_formats_issue(name, values, named, each)
 
-    return (None, issue) if issue is not None else (parsed, None)
+    return (None, issue) if issue is not None else (each, None)
 
 
 def _parse_with_guessed_format(values: pd.Series) -> pd.Series | None:
@@ -671,11 +735,174 @@ def _text_dates_issue(
     if n_missing > 5:
         shown += f" and {n_missing - 5} more"
 
-    return (
+    return DateIssue(
         f"The dates of column {name!r} have {n_missing} empty cell(s), at row "
         f"position(s) {shown} (counting from 0, header excluded)",
         ": every row needs a date. Fill in or drop those rows.",
+        hint = "Every row needs a date: fill in or drop the rows without one.",
     )
+
+
+def _mixed_formats_issue(
+    name: str,
+    values: pd.Series,
+    named: bool,
+    each: pd.Series,
+) -> tuple[str, str] | None:
+    """
+    Say why a column of dates written in more than one format cannot be the
+    date column.
+
+    The generated script reads the column with `pandas.to_datetime`, which
+    takes the format of the first date for all of them and fails on a date
+    written otherwise ('2015-01-01' and '2015/01/02', or a date with and
+    without a time). Read one by one (`format='mixed'`), the profile would
+    describe dates the script cannot read, so the column is rejected: a
+    single format is what makes the reading unambiguous. The same holds for
+    dates in one format that pandas reads otherwise from the first one
+    ('01 May 2015' is read with a full month name, which '01 Jun 2015' is
+    not), so the message quotes the format read and an ISO 8601 example. Zone names that
+    change at a daylight saving time change ('CET', then 'CEST') are
+    reported as time zones. Day-first dates whose first date reads
+    month-first ('01/02/2023', then '13/02/2023') are in one format: they
+    are left to the check of the frequency, which says how to read them.
+
+    Parameters
+    ----------
+    name : str
+        Name of the column, for the message.
+    values : pandas Series
+        Values of the column, which the script cannot read.
+    named : bool
+        Whether the caller named this column as the date column. When
+        False, its first date must clearly be one (see `_is_clearly_date`),
+        as in `_text_dates_issue`.
+    each : pandas Series
+        The values parsed one by one.
+
+    Returns
+    -------
+    issue : tuple, None
+        What was found and how to fix it, or None when the column is not
+        made of dates in more than one format.
+    """
+    first = first_date(values)
+    if not isinstance(first, str) or (not named and not _is_clearly_date(first)):
+        return None
+    date_format = guessed_date_format(values)
+    if date_format is None or each.isna().any():
+        return None
+    present = values.notna()
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        day_first = guess_datetime_format(first, dayfirst=True)
+        misfit = present & pd.to_datetime(
+            values, format=date_format, errors="coerce"
+        ).isna()
+        if day_first not in (None, date_format):
+            misfit_day_first = present & pd.to_datetime(
+                values, format=day_first, errors="coerce"
+            ).isna()
+            if not misfit_day_first.any():
+                return None
+            # The date to quote fits neither reading of the first one.
+            if (misfit & misfit_day_first).any():
+                misfit = misfit & misfit_day_first
+    if not misfit.any():
+        return None
+    zones = _changing_zone_names(values)
+    if zones is not None:
+        return _mixed_zones_message(name, zones)
+    other = values[misfit].iloc[0]
+    example = _iso_example(each, each[misfit].iloc[0])
+
+    # Not "more than one format": '01 May 2015' and '01 Jun 2015' are in
+    # one, and pandas still reads 'May' as a full month name ('%B').
+    return DateIssue(
+        f"The dates of column {name!r} do not all follow the format of the "
+        f"first one ({date_format!r}, read from {_shown_date(first)!r}), "
+        f"such as {_shown_date(other)!r}",
+        f": the generated script reads every date with the format of the "
+        f"first one. Write every date in the same format, such as "
+        f"{example!r}.",
+        hint = (
+            f"Write every date of the column in the same format, such as "
+            f"{example!r}."
+        ),
+    )
+
+
+def _iso_example(each: pd.Series, date: object) -> str:
+    """
+    Return a date of the column written in ISO 8601, as the example of a
+    format every row can follow: without a time when no date of the column
+    has one, with it (and its offset) otherwise.
+    """
+    date = pd.Timestamp(date)
+    try:
+        has_time = bool((each != each.dt.normalize()).any())
+    except (AttributeError, TypeError):
+        has_time = True
+
+    return date.isoformat(sep=" ") if has_time else date.strftime("%Y-%m-%d")
+
+
+# A zone name written after the time ('2012-03-24 00:00:00 CET').
+_ZONE_NAME = re.compile(r"^(.*\S)\s+([A-Za-z]{2,5})$")
+
+
+def _changing_zone_names(values: pd.Series) -> list[str] | None:
+    """
+    Return the zone names of dates in one format but for a zone name that
+    changes ('CET', then 'CEST'), in order of appearance; None otherwise.
+    """
+    text = values[values.notna()].astype(str)
+    matches = text.str.extract(_ZONE_NAME)
+    if matches.isna().any().any():
+        return None
+    zones = list(dict.fromkeys(matches[1]))
+    if len(zones) < 2:
+        return None
+    dates = matches[0]
+    date_format = guessed_date_format(dates)
+    if date_format is None:
+        return None
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        parsed = pd.to_datetime(dates, format=date_format, errors="coerce")
+
+    return zones if parsed.notna().all() else None
+
+
+def _shown_date(value: object) -> str:
+    """
+    Return a date of the data for a message, cut in the middle when long:
+    what differs between formats (a time, a zone name) is often at the end.
+    """
+    text = str(value)
+    return text if len(text) <= 60 else f"{text[:28]}...{text[-28:]}"
+
+
+class DateIssue(tuple):
+    """
+    Why a column of dates cannot be the date column: what was found and how
+    to fix it, which joined make the message, plus `hint`, the remedy
+    without the pandas calls that only apply in Python.
+    """
+
+    hint: str
+
+    def __new__(cls, found: str, fix: str, hint: str) -> "DateIssue":
+        issue = super().__new__(cls, (found, fix))
+        issue.hint = hint
+        return issue
+
+
+def date_issue_hint(issue: tuple[str, str]) -> str | None:
+    """
+    Return the remedy of a date issue of `_read_date_column` as a hint.
+    """
+    return getattr(issue, "hint", None)
 
 
 def _mixed_zones_message(name: str, zones: list[str]) -> tuple[str, str]:
@@ -700,11 +927,16 @@ def _mixed_zones_message(name: str, zones: list[str]) -> tuple[str, str]:
             "without the time zone for daily or coarser data."
         )
 
-    return (
+    return DateIssue(
         f"The dates of column {name!r} mix time zones ({shown})",
         f", so they cannot be placed on one time axis (local time does that "
         f"across a daylight saving time change). Write every date in one time "
         f"zone: {advice}",
+        hint = (
+            "Write every date in one time zone: in UTC for data recorded "
+            "within the day, or without the time zone for daily or coarser "
+            "data."
+        ),
     )
 
 
@@ -942,8 +1174,8 @@ def detect_date_column(
     referenced column or index is validated with `_is_datetime_like`; when
     it does not hold dates a `ValueError` quotes values that could not be
     parsed, instead of treating the column as an exogenous variable. A text
-    column of dates with empty cells or with time zones that change raises
-    a `ValueError` that says so.
+    column of dates with empty cells, with time zones that change or
+    written in more than one format raises a `ValueError` that says so.
     """
     if date_column is not None:
         if date_column in data.columns:
@@ -953,7 +1185,9 @@ def detect_date_column(
                 # zones holds dates, so the message below would be wrong.
                 _, issue = _read_date_column(date_column, values, named=True)
                 if issue is not None:
-                    raise InvalidInputError("".join(issue), field="data")
+                    raise InvalidInputError(
+                        "".join(issue), field="data", hint=date_issue_hint(issue)
+                    )
             if _is_datetime_like(values):
                 return date_column, "datetime"
             raise InvalidInputError(
@@ -962,6 +1196,7 @@ def detect_date_column(
                 f"parsed as timestamps. Pass the column that holds the dates, "
                 f"or convert it with pandas.to_datetime before profiling.",
                 field = "date_column",
+                hint  = "Write the dates in ISO 8601, such as '2023-03-01'.",
             )
         if data.index.name == date_column:
             # The user pointed `date_column` at the index (e.g. after
@@ -976,6 +1211,7 @@ def detect_date_column(
                 f"with pandas.to_datetime before profiling, or omit "
                 f"date_column.",
                 field = "date_column",
+                hint  = "Make the index a DatetimeIndex, or omit date_column.",
             )
         available = list(data.columns)
         raise InvalidInputError(
@@ -1996,7 +2232,7 @@ def _parse_text_date_column(data: pd.DataFrame, date_col: str | None) -> pd.Data
         return data
 
     data = data.copy()
-    data[date_col] = parse_text_dates(values, mixed=False)
+    data[date_col] = parse_text_dates(values)
 
     return data
 
@@ -2536,6 +2772,196 @@ def generate_warnings(
     return warnings
 
 
+# Most column names quoted in a message, so a typo in data with thousands of
+# columns does not give a message of thousands of names.
+_MAX_LISTED_COLUMNS = 20
+
+# Most values of the data quoted in a message.
+_MAX_QUOTED_VALUES = 5
+
+
+def read_csv_file(path: str | Path, field: str = "data") -> pd.DataFrame:
+    """
+    Read a CSV file with `pandas.read_csv`, as the generated script reads it.
+
+    Parameters
+    ----------
+    path : str, Path
+        Path or URL of the CSV file.
+    field : str, default 'data'
+        Argument that named the file, reported with the error.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        Content of the file.
+
+    Notes
+    -----
+    A file that pandas cannot read as a CSV (empty, binary, not UTF-8 or
+    with rows of more fields than the others) raises `InvalidInputError`
+    with code `'data_unreadable'`, still a `ValueError` as the errors of
+    pandas were.
+    """
+    try:
+        return pd.read_csv(path)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        reason = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
+        raise InvalidInputError(
+            f"The CSV file '{path}' could not be read: {reason}",
+            code  = "data_unreadable",
+            field = field,
+            hint  = (
+                "Pass a comma-separated text file in UTF-8 with a header "
+                "row, and the same number of fields in every row."
+            ),
+        ) from exc
+
+
+def _listed_columns(columns: list) -> str:
+    """Quote at most `_MAX_LISTED_COLUMNS` column names, saying how many."""
+    if len(columns) <= _MAX_LISTED_COLUMNS:
+        return str(columns)
+    return (
+        f"{columns[:_MAX_LISTED_COLUMNS]} (first {_MAX_LISTED_COLUMNS} of "
+        f"{len(columns)})"
+    )
+
+
+def _validate_series_id_column(
+    data: pd.DataFrame,
+    target: str | list[str],
+    date_column: str | None,
+    series_id_column: str | None,
+) -> None:
+    """
+    Validate that `series_id_column` is a column of the data, other than
+    the target and the date column.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    target : str, list
+        Name(s) of the target column(s).
+    date_column : str, None
+        Name of the date column, when given.
+    series_id_column : str, None
+        Name of the series identifier column, when given.
+    """
+    if series_id_column is None:
+        return
+    if series_id_column not in data.columns:
+        raise InvalidInputError(
+            f"series_id_column={series_id_column!r} was not found in the "
+            f"data. Available columns: {_listed_columns(list(data.columns))}.",
+            field = "series_id_column",
+        )
+    targets = target if isinstance(target, list) else [target]
+    if series_id_column in targets:
+        raise InvalidInputError(
+            f"series_id_column={series_id_column!r} is also the target: pass "
+            f"the column that identifies the series, other than the values "
+            f"to forecast.",
+            field = "series_id_column",
+        )
+    if date_column is not None and series_id_column == date_column:
+        raise InvalidInputError(
+            f"series_id_column={series_id_column!r} is also the date column: "
+            f"pass the column that identifies the series, other than the "
+            f"dates.",
+            field = "series_id_column",
+        )
+
+
+def _validate_target_has_values(
+    data: pd.DataFrame,
+    target: str | list[str],
+) -> None:
+    """
+    Validate that each target column holds at least one value.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    target : str, list
+        Name(s) of the target column(s), already known to exist.
+    """
+    targets = target if isinstance(target, list) else [target]
+    for column in dict.fromkeys(targets):
+        values = data[column]
+        if isinstance(values, pd.DataFrame):
+            # Repeated column names are rejected elsewhere.
+            continue
+        if not values.notna().any():
+            raise InvalidInputError(
+                f"Target column {column!r} has no values: every row is "
+                f"missing.",
+                code  = "insufficient_data",
+                field = "target",
+            )
+
+
+def validate_target_numeric(data: pd.DataFrame, target: str | list[str]) -> None:
+    """
+    Validate that each target column holds numbers.
+
+    A column of text holds numbers when every value converts to one (as
+    `pandas.to_numeric` reads it); the forecasters cannot be trained on any
+    other text, which failed while the lags were selected with an error
+    that did not name the column. Called by `ForecastingAssistant.profile()`;
+    `create_data_profile` still describes a categorical target.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    target : str, list
+        Name(s) of the target column(s), already known to exist.
+    """
+    targets = target if isinstance(target, list) else [target]
+    for column in dict.fromkeys(targets):
+        values = data[column]
+        if isinstance(values, pd.DataFrame) or pd.api.types.is_numeric_dtype(
+            values.dtype
+        ):
+            continue
+        objects = values.astype(object)
+        converted = pd.to_numeric(objects, errors="coerce")
+        not_numbers = objects[objects.notna() & converted.isna()]
+        if len(not_numbers):
+            shown = [
+                _quoted_value(value)
+                for value in not_numbers.unique()[:_MAX_QUOTED_VALUES]
+            ]
+            raise InvalidInputError(
+                f"Target column {column!r} is not numeric: values such as "
+                f"{shown} are not numbers.",
+                field = "target",
+                hint  = (
+                    "Leave the cells of missing values empty instead of "
+                    "marking them with text such as '-' or '?', and check "
+                    "that the target is the column of values to forecast."
+                ),
+            )
+
+
+# Characters of a value of the data quoted in a message.
+_MAX_QUOTED_CHARS = 20
+
+
+def _quoted_value(value: object) -> object:
+    """
+    Return a value of the data for a message: a numpy scalar as the Python
+    value it holds, and text cut at `_MAX_QUOTED_CHARS` characters.
+    """
+    value = value.item() if isinstance(value, np.generic) else value
+    if isinstance(value, str) and len(value) > _MAX_QUOTED_CHARS:
+        return value[:_MAX_QUOTED_CHARS] + "..."
+    return value
+
+
 def _validate_target_exists(data: pd.DataFrame, target: str | list[str]) -> None:
     """
     Validate that the target column(s) exist in the DataFrame.
@@ -2547,6 +2973,12 @@ def _validate_target_exists(data: pd.DataFrame, target: str | list[str]) -> None
     target : str, list
         Name(s) of the target column(s).
     """
+    if isinstance(target, list) and not target:
+        raise InvalidInputError(
+            "`target` is an empty list: pass the name of the column to "
+            "forecast, or a list with the column of each series.",
+            field = "target",
+        )
     targets = target if isinstance(target, list) else [target]
     missing = [col for col in targets if col not in data.columns]
     if missing:
@@ -2994,7 +3426,7 @@ def _check_target_is_constant(data: pd.DataFrame, target: str) -> bool:
     return bool(series.std() == 0)
 
 
-def _format_split_ts(ts: pd.Timestamp) -> str:
+def _format_split_ts(ts: pd.Timestamp, with_time: bool = False) -> str:
     """
     Format a split-boundary timestamp as a string literal.
 
@@ -3007,15 +3439,19 @@ def _format_split_ts(ts: pd.Timestamp) -> str:
     ----------
     ts : pandas Timestamp
         The split-boundary timestamp.
+    with_time : bool, default False
+        Whether to write the time also at midnight: True when the dates
+        are not all at midnight (sub-daily data), where a date-only
+        `end_train` made `.loc[:end_train]` train on the whole day.
 
     Returns
     -------
     end_train : str
         Date-only string (e.g. `'2005-03-01'`) when the timestamp falls
-        on midnight, otherwise a full timestamp string (e.g.
-        `'2012-08-07 23:00:00'`).
+        on midnight and `with_time` is False, otherwise a full timestamp
+        string (e.g. `'2012-08-07 23:00:00'`).
     """
-    if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+    if with_time or ts.hour != 0 or ts.minute != 0 or ts.second != 0:
         return str(ts)
     return str(ts.date())
 
@@ -3069,6 +3505,10 @@ def resolve_end_train(
             "Set the index frequency (e.g. `data.asfreq(...)`) before "
             "forecasting.",
             field = "test_size",
+            hint  = (
+                "Give the data a datetime index with a regular frequency, "
+                "or a date column whose dates follow one."
+            ),
         )
 
     index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
@@ -3100,7 +3540,16 @@ def resolve_end_train(
         n_test = max(1, min(n_test, n - 1))
         boundary_idx = n - n_test - 1
     elif isinstance(test_size, (str, pd.Timestamp)):
-        ts = pd.Timestamp(test_size)
+        try:
+            # A date without time zone is read in the zone of the data.
+            ts = training_end(test_size, index.tz)
+        except (ValueError, TypeError) as exc:
+            raise InvalidInputError(
+                f"`test_size` is text that is not a date: {test_size!r}. Pass "
+                f"an integer, a fraction in (0, 1) or the first date of the "
+                f"test set, such as '2023-03-01'.",
+                field = "test_size",
+            ) from exc
         if not index[0] < ts <= index[-1]:
             raise InvalidInputError(
                 f"Timestamp `test_size` ({ts}) must fall within the data "
@@ -3117,7 +3566,9 @@ def resolve_end_train(
             field = "test_size",
         )
 
-    return _format_split_ts(index[boundary_idx])
+    return _format_split_ts(
+        index[boundary_idx], with_time=bool((index != index.normalize()).any())
+    )
 
 
 def count_test_observations(
@@ -3154,4 +3605,4 @@ def count_test_observations(
 
     index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
 
-    return int((index > pd.Timestamp(end_train)).sum())
+    return int((index > training_end(end_train, index.tz)).sum())

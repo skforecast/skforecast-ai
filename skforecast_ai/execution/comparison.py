@@ -18,6 +18,7 @@ from .._constants import (
 )
 from .._foundation import foundation_backend_installed, resolve_foundation_model
 from .._utils import long_training_message
+from .._validation import is_symmetric_interval
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 from ..recommendation import (
     baseline_missing_values_note,
@@ -268,6 +269,7 @@ def aggregate_metrics(metrics: pd.DataFrame | None) -> dict[str, Any]:
 def add_baseline_candidate(
     candidates: list[tuple[str, CandidateConfig]],
     profile: ForecastingProfile,
+    interval: list[float] | None = None,
 ) -> tuple[list[tuple[str, CandidateConfig]], str | None, str | None]:
     """
     Append the `ForecasterEquivalentDate` baseline to the candidates.
@@ -275,9 +277,10 @@ def add_baseline_candidate(
     The baseline is a single-series forecaster, so it is only added when
     the candidates score a single series. It is also left out when the
     target has missing values, which it would repeat as missing
-    predictions. When the caller already passed a
-    `ForecasterEquivalentDate` candidate, that one is the baseline and
-    nothing is appended.
+    predictions, and when `interval` is asymmetric, which its conformal
+    intervals cannot predict (it would only fail). When the caller already
+    passed a `ForecasterEquivalentDate` candidate, that one is the baseline
+    and nothing is appended.
 
     Parameters
     ----------
@@ -285,6 +288,8 @@ def add_baseline_candidate(
         Resolved candidates, as returned by `resolve_compare_candidates()`.
     profile : ForecastingProfile
         Shared profile used for every candidate.
+    interval : list of float, default None
+        Prediction interval of the comparison, already validated.
 
     Returns
     -------
@@ -327,6 +332,15 @@ def add_baseline_candidate(
         note = (
             f"No baseline: {missing_note}. Impute the target to compare "
             f"the candidates against it."
+        )
+        return candidates, None, note
+
+    if interval is not None and not is_symmetric_interval(interval):
+        note = (
+            f"No baseline: ForecasterEquivalentDate predicts symmetric "
+            f"intervals only (lower + upper = 1), and the interval is "
+            f"{interval}. Pass a symmetric interval, such as [0.1, 0.9], to "
+            f"compare the candidates against it."
         )
         return candidates, None, note
 

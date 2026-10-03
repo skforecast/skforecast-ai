@@ -208,23 +208,25 @@ def test_tool_create_cv_invalid_argument(tmp_path, arguments, field):
 
 
 @pytest.mark.parametrize(
-    "arguments",
+    "arguments, field",
     [
-        {"initial_train_size": 500},
-        {"initial_train_size": "2030-01-01"},
-        {"gap": 190},
+        ({"initial_train_size": 500}, "initial_train_size"),
+        ({"initial_train_size": "2030-01-01"}, "initial_train_size"),
+        ({"gap": 190}, "initial_train_size"),
     ],
     ids=["train size beyond the data", "date after the data", "gap too large"],
 )
 def test_tool_create_cv_invalid_argument_when_skforecast_rejects_the_strategy(
-    tmp_path, arguments
+    tmp_path, arguments, field
 ):
     """
     Test that a strategy that skforecast rejects (a first training set
     beyond the data, a gap that leaves no fold) reaches the agent as
-    `invalid_argument` with the reason, not as an `internal_error` that only
-    names the type: the tool reads no rows of the data, and the agent needs
-    the reason to correct its arguments. Nothing is registered.
+    `invalid_argument` with the reason and the argument its message names
+    first (the core wraps the error of skforecast), not as an
+    `internal_error` that only names the type: the tool reads no rows of
+    the data, and the agent needs the reason to correct its arguments.
+    Nothing is registered.
     """
     server, _, _, plan_id = _planned(tmp_path, steps=12)
 
@@ -236,9 +238,11 @@ def test_tool_create_cv_invalid_argument_when_skforecast_rejects_the_strategy(
     assert error["message"].startswith(
         "The cross-validation strategy cannot be built: "
     )
+    assert error["field"] == field
     assert error["hint"] == (
-        "Change the arguments of `create_cv` (or `steps` of the plan with "
-        "`refine_plan`) so that at least two folds fit in the data."
+        "Change the arguments of the strategy (`initial_train_size`, "
+        "`fold_stride`, `gap`, `skip_folds`) or the `steps` of the plan so "
+        "that at least two folds fit in the data."
     )
     kinds = [o["kind"] for o in content_of(call(server, "list_objects", {}))["objects"]]
     assert kinds == ["plan", "profile"]

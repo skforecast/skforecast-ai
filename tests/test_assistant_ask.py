@@ -1,5 +1,6 @@
 # Unit test ask ForecastingAssistant
 
+import inspect
 import re
 import warnings
 
@@ -303,25 +304,16 @@ def test_ask_strips_code_blocks_when_context_carries_code(monkeypatch):
     assert result.code is not None
 
 
-def test_ask_DeprecationWarning_when_result_alias_is_used(monkeypatch):
+def test_ask_TypeError_when_removed_result_keyword_is_used():
     """
-    Test that the former `result` keyword still works as an alias of
-    `context` with a DeprecationWarning, and that combining both is
-    rejected.
+    Test that the `result` keyword, the alias of `context` deprecated in
+    0.3.0, is no longer a parameter of ask() and is rejected.
     """
-    assistant = ForecastingAssistant(llm="openai:fake-model", send_data_to_llm=True)
-    comparison = make_comparison_result(assistant)
-    patch_agent(monkeypatch, assistant, output="Explanation.")
+    assistant = ForecastingAssistant(llm="openai:fake-model")
 
-    with pytest.warns(DeprecationWarning, match="`result` is deprecated"):
-        result = assistant.ask(prompt="Why did it win?", result=comparison)
-
-    assert result.profile is comparison.profile
-    assert result.plan is comparison.best_candidate.plan
-
-    with pytest.warns(DeprecationWarning):
-        with pytest.raises(TypeError, match="cannot be combined"):
-            assistant.ask(prompt="Why?", context=comparison, result=comparison)
+    assert "result" not in inspect.signature(ForecastingAssistant.ask).parameters
+    with pytest.raises(TypeError, match="'result'"):
+        assistant.ask(prompt="Why did it win?", result=object())
 
 
 # =============================================================================

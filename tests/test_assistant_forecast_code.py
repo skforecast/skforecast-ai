@@ -11,7 +11,17 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.schemas import CodeGenerationResult, PreprocessingStep
 
-from tests.fixtures_assistant import df_single, df_multi_long, df_no_exog
+from tests.fixtures_assistant import (
+    df_multi_long,
+    df_multi_wide,
+    df_no_exog,
+    df_range_index,
+    df_single,
+)
+from tests.fixtures_datasets import (
+    df_h2o,
+    df_h2o_daily,
+)
 
 
 # =============================================================================
@@ -506,3 +516,207 @@ def test_forecast_code_loads_data_path_when_saved_profile(tmp_path):
 
     assert f"data = pd.read_csv({str(new_path)!r})" in result.code
     assert result.profile.data_profile.data_path == str(new_path)
+
+
+# =============================================================================
+# Tests: plan received for data of another structure
+# =============================================================================
+_PLAN_OF_ANOTHER_STRUCTURE = [
+    (
+        {"data": df_single, "target": "sales", "date_column": "date"},
+        "monthly",
+        "The plan was built for data of frequency 'MS', and the data has "
+        "frequency 'D'. Build the plan from the profile of these data with "
+        "`plan()`.",
+        "plan",
+    ),
+    (
+        {
+            "data": df_multi_wide,
+            "target": ["series_a", "series_b"],
+            "date_column": "date",
+        },
+        "daily",
+        "Task type 'single_series' supports a single series only, but the "
+        "input contains 2 series (['series_a', 'series_b']). Use a "
+        "multi-series forecaster (e.g. 'ForecasterRecursiveMultiSeries') or "
+        "provide a single series.",
+        "forecaster",
+    ),
+    (
+        {"data": df_no_exog, "target": "sales", "date_column": "date"},
+        "daily",
+        "The plan uses exogenous variables and the data has none. Build the "
+        "plan from the profile of these data with `plan()`.",
+        "plan",
+    ),
+    (
+        {"data": df_range_index, "target": "sales"},
+        "no_frequency",
+        "The plan has calendar features, which need dates, and the data has "
+        "no datetime index. Build the plan from the profile of these data "
+        "with `plan()`.",
+        "plan",
+    ),
+]
+
+
+def _plan_for(kind):
+    """
+    Return the plan of the case: one built for monthly data (h2o), or a
+    daily one of df_single (edited to frequency None and without exog for
+    the case of data without frequency).
+    """
+    assistant = ForecastingAssistant()
+    if kind == "monthly":
+        return assistant.plan(assistant.profile(data=df_h2o, target="x"), steps=5)
+    plan = assistant.plan(
+        assistant.profile(data=df_single, target="sales", date_column="date"),
+        steps=5,
+    )
+    if kind == "no_frequency":
+        plan = plan.model_copy(update={"frequency": None, "use_exog": False})
+    return plan
+
+
+@pytest.mark.parametrize(
+    "data_kwargs, plan_kind, message, field",
+    _PLAN_OF_ANOTHER_STRUCTURE,
+    ids=["frequency", "task_type", "exog", "calendar_features"],
+)
+def test_forecast_code_InvalidInputError_when_plan_built_for_other_data(
+    data_kwargs, plan_kind, message, field
+):
+    """
+    Test that forecast_code() raises InvalidInputError when the plan was built for
+    data of another frequency, shape, exogenous variables or index type
+    than the data received.
+    """
+    assistant = ForecastingAssistant()
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        assistant.forecast_code(steps=5, plan=_plan_for(plan_kind), **data_kwargs)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == field
+
+
+def test_forecast_code_output_when_plan_carries_end_train_without_test_size():
+    """
+    Test that forecast_code() with a plan that carries the `end_train` of an
+    evaluation and no `test_size` renders the evaluation script (train/test
+    split) and keeps the plan, while forecast() raises in that case.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    split_date = str(df_single["date"].iloc[-6].date())
+    plan = assistant.plan(profile, steps=5).model_copy(
+        update={"end_train": split_date}
+    )
+
+    result = assistant.forecast_code(
+        data=df_single, steps=5, profile=profile, plan=plan
+    )
+
+    assert result.plan.end_train == split_date
+    assert "forecaster.fit(y=data_train['sales'], exog=data_train[exog_features])" in (
+        result.code
+    )
+    assert "# Evaluate on test set" in result.code
+    assert "mean_absolute_error(actual, predictions)" in result.code
+
+
+# =============================================================================
+# Tests: data against a saved profile
+# =============================================================================
+def test_forecast_code_output_when_data_have_more_rows_than_profile():
+    """
+    Test that forecast_code() with data that extend the saved profile (192
+    rows in the profile, 204 in the data) returns the new profile with the
+    note, and a script of the same shape as the one of the saved profile.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o.iloc[:192], target="x")
+
+    result = assistant.forecast_code(data=df_h2o, profile=profile, steps=3)
+    saved_result = assistant.forecast_code(
+        data=df_h2o.iloc[:192], profile=profile, steps=3
+    )
+
+    assert result.profile.data_profile.n_total_observations == 204
+    assert result.profile.data_profile.warnings == [
+        "The data differ in their values from the profile passed (changed: "
+        "series_lengths, span_index_length, n_total_observations, "
+        "target_stats): the profile was computed again from these data."
+    ]
+    assert saved_result.profile.data_profile.warnings == []
+    assert result.code == saved_result.code
+
+
+def test_forecast_code_output_when_data_equal_to_profile():
+    """
+    Test that forecast_code() with data equal to the saved profile returns
+    the profile unchanged, without a note.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+
+    result = assistant.forecast_code(data=df_h2o, profile=profile, steps=3)
+
+    assert result.profile.data_profile == profile.data_profile
+    assert result.profile.data_profile.warnings == []
+
+
+def test_forecast_code_output_when_same_data_in_another_csv_file(tmp_path):
+    """
+    Test that forecast_code() given a saved profile of a CSV file and a copy
+    of that file under another path keeps the profile (the path is not a
+    difference of values): no note is added, and the profile and the script
+    record the path passed.
+    """
+    first_path = tmp_path / "first.csv"
+    copy_path = tmp_path / "copy.csv"
+    df_single.to_csv(first_path, index=False)
+    df_single.to_csv(copy_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=first_path, target="sales", date_column="date"
+    )
+
+    result = assistant.forecast_code(data=copy_path, profile=profile, steps=3)
+
+    assert result.profile.data_profile.warnings == profile.data_profile.warnings
+    assert result.profile.data_profile.data_path == str(copy_path)
+    assert result.profile.data_profile.model_dump(
+        exclude={"data_path"}
+    ) == profile.data_profile.model_dump(exclude={"data_path"})
+    assert f"data = pd.read_csv({str(copy_path)!r})" in result.code
+
+
+@pytest.mark.parametrize(
+    "data, differences",
+    [
+        (df_h2o_daily, "(frequency: 'MS' != 'D')"),
+    ],
+    ids=["frequency"],
+)
+def test_forecast_code_InvalidInputError_when_data_have_other_structure_than_profile(
+    data, differences
+):
+    """
+    Test that forecast_code() raises InvalidInputError with the field
+    'profile' when the data have another frequency
+    than the saved profile.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+
+    err_msg = re.escape(
+        f"The data do not have the structure of the profile passed {differences}: "
+        f"profile these data and build the plan from that profile."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast_code(data=data, profile=profile, steps=3)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "profile"

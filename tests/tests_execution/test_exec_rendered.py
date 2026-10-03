@@ -2,6 +2,7 @@
 
 import json
 import re
+import threading
 import warnings
 
 import pytest
@@ -190,3 +191,174 @@ def test_exec_rendered_parse_warning_emitted_once():
     ]
     assert len(escape_warnings) == 1
     assert escape_warnings[0].filename == "<forecast>"
+
+
+def test_exec_rendered_shows_warning_on_stdout_after_restoring_it(capsys):
+    """
+    Test that a warning of the script whose handler prints on stdout (as
+    skforecast's does) is shown once stdout is restored, instead of being
+    discarded with the output of the script.
+    """
+    def printing_handler(message, category, filename, lineno, file=None, line=None):
+        print(f"shown: {message}")
+
+    code = "import warnings\nprint('hidden')\nwarnings.warn('from the script')\n"
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.showwarning = printing_handler
+        exec_rendered(code, {}, "<forecast>")
+
+    assert capsys.readouterr().out == "shown: from the script\n"
+
+
+def test_exec_rendered_shows_warning_when_script_fails(capsys):
+    """
+    Test that the warnings emitted before the script fails are still shown.
+    """
+    def printing_handler(message, category, filename, lineno, file=None, line=None):
+        print(f"shown: {message}")
+
+    code = "import warnings\nwarnings.warn('before')\nx = 1 / 0\n"
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.showwarning = printing_handler
+        with pytest.raises(ForecastExecutionError):
+            exec_rendered(code, {}, "<forecast>")
+
+    assert capsys.readouterr().out == "shown: before\n"
+
+
+def test_exec_rendered_warning_recorded_by_caller():
+    """
+    Test that a caller recording warnings (`pytest.warns`,
+    `catch_warnings(record=True)`) receives the warnings of the script with
+    their category and location.
+    """
+    code = "import warnings\nwarnings.warn('from the script', FutureWarning)\n"
+    with pytest.warns(FutureWarning, match="from the script") as record:
+        exec_rendered(code, {}, "<forecast>")
+
+    assert len(record) == 1
+    assert record[0].filename == "<forecast>"
+    assert record[0].lineno == 2
+
+
+def test_exec_rendered_ForecastExecutionError_when_error_filter():
+    """
+    Test that an `error` filter of the caller still makes the script fail at
+    the warning.
+    """
+    code = "import warnings\nwarnings.warn('from the script')\nx = 1\n"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(ForecastExecutionError) as exc_info:
+            exec_rendered(code, {}, "<forecast>")
+
+    assert isinstance(exc_info.value.original_error, UserWarning)
+    assert exc_info.value.failed_line == 2
+
+
+@pytest.mark.parametrize("action, n_shown", [("ignore", 0), ("once", 1)])
+def test_exec_rendered_caller_filter_decides(action, n_shown):
+    """
+    Test that the filters of the caller decide which warnings are shown: an
+    `ignore` filter hides them, and a `once` filter shows the first of two
+    identical warnings.
+    """
+    code = (
+        "import warnings\n"
+        "warnings.warn('only once please', UserWarning)\n"
+        "warnings.warn('only once please', UserWarning)\n"
+    )
+    shown = []
+
+    def handler(message, category, filename, lineno, file=None, line=None):
+        shown.append(str(message))
+
+    with warnings.catch_warnings():
+        warnings.resetwarnings()
+        warnings.simplefilter(action)
+        warnings.showwarning = handler
+        exec_rendered(code, {}, "<forecast>")
+
+    assert shown == ["only once please"] * n_shown
+
+
+def test_exec_rendered_default_filter_shows_warning_once_per_location():
+    """
+    Test that, with the `default` filter, a warning raised at the same place
+    in a module is shown once across runs, as without `exec_rendered`, and
+    that the handler of the caller is restored.
+    """
+    module_code = (
+        "import warnings\n"
+        "def warn():\n"
+        "    warnings.warn('library warning', UserWarning)\n"
+    )
+    module_globals = {"__name__": "fake_library"}
+    exec(compile(module_code, "fake_library.py", "exec"), module_globals)  # noqa: S102
+    shown = []
+
+    def handler(message, category, filename, lineno, file=None, line=None):
+        shown.append(str(message))
+
+    with warnings.catch_warnings():
+        warnings.resetwarnings()
+        warnings.simplefilter("default")
+        warnings.showwarning = handler
+        for _ in range(3):
+            exec_rendered("warn()\n", {"warn": module_globals["warn"]}, "<forecast>")
+        assert warnings.showwarning is handler
+
+    assert shown == ["library warning"]
+
+
+def test_exec_rendered_shows_warning_of_another_thread_at_once():
+    """
+    Test that a warning of another thread while the script runs is shown at
+    once, not kept as a warning of the script.
+    """
+    shown = []
+
+    def handler(message, category, filename, lineno, file=None, line=None):
+        shown.append(str(message))
+
+    def warn_from_thread():
+        thread = threading.Thread(
+            target=lambda: warnings.warn("other thread", UserWarning)
+        )
+        thread.start()
+        thread.join()
+        return list(shown)
+
+    code = "seen = warn_from_thread()\n"
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.showwarning = handler
+        namespace = exec_rendered(
+            code, {"warn_from_thread": warn_from_thread}, "<forecast>"
+        )
+
+    assert namespace["seen"] == ["other thread"]
+    assert shown == ["other thread"]
+
+
+def test_exec_rendered_warnings_to_stderr_with_cli_handler(capsys):
+    """
+    Test that, with the handler of the CLI, a warning of the script printed
+    on stdout by its handler reaches stderr, and stdout stays clean.
+    """
+    from skforecast_ai.cli import _showwarning_to_stderr
+
+    def printing_handler(message, category, filename, lineno, file=None, line=None):
+        print(f"shown: {message}")
+
+    code = "import warnings\nwarnings.warn('first')\nwarnings.warn('second')\n"
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.showwarning = _showwarning_to_stderr(printing_handler)
+        exec_rendered(code, {}, "<forecast>")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "shown: first\nshown: second\n"

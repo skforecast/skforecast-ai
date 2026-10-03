@@ -222,9 +222,9 @@ def test_tool_backtest_missing_dependency_of_a_foundation_model(
     `execution_failed` after the script failed), with one install advice;
     `forecast` checks the same.
     """
-    from skforecast_ai.mcp import _foundation
-
-    monkeypatch.setattr(_foundation, "foundation_backend_installed", lambda info: False)
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+    )
     server, path = h2o_server(tmp_path)
     _, plan_id, cv_id = cv_of(server, path, forecaster="ForecasterFoundation")
 

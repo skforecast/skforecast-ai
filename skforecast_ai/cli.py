@@ -11,8 +11,9 @@ import contextlib
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 import typer
 from rich.console import Console
 from rich.markup import escape
@@ -45,8 +46,10 @@ from .exceptions import (
     InvalidInputError,
     LLMCallError,
     LLMRequiredError,
+    SkforecastAIError,
 )
 from ._utils import _validate_lags, load_exog
+from .schemas.errors import ErrorInfo
 from .schemas.plans import ForecastPlan
 from .schemas.profiles import ForecastingProfile
 
@@ -75,7 +78,7 @@ FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="L
 InitialTrainSizeOption = Annotated[str | None, typer.Option("--initial-train-size", help="Initial training window: number of observations or an ISO date marking the end of the initial training set.")]
 FoldStrideOption = Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")]
 RefitOption = Annotated[bool | None, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold (default: decided by the assistant).")]
-FixedTrainSizeOption = Annotated[bool | None, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window (default: decided by the assistant).")]
+FixedTrainSizeOption = Annotated[bool | None, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window when the forecaster is refitted; needs --refit (default: decided by the assistant).")]
 GapOption = Annotated[int | None, typer.Option("--gap", help="Gap between training and test sets.")]
 AllowIncompleteFoldOption = Annotated[bool | None, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations (default: decided by the assistant).")]
 BaseUrlOption = Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint: server URL for ollama or an OpenAI-compatible API, AWS region for bedrock.")]
@@ -83,7 +86,9 @@ ApiKeyOption = Annotated[str | None, typer.Option("--api-key", help="API key for
 OutputOption = Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")]
 OutputPredictionsOption = Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")]
 QuietOption = Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")]
-TableFormatOption = Annotated[str, typer.Option("--format", help="Output format: table or json.")]
+TableFormatOption = Annotated[Literal["table", "json"], typer.Option("--format", help="Output format: table or json.")]
+CodeFormatOption = Annotated[Literal["code", "json"], typer.Option("--format", help="Output format: code or json.")]
+TextFormatOption = Annotated[Literal["text", "json"], typer.Option("--format", help="Output format: text or json.")]
 
 
 def _version_callback(value: bool) -> None:
@@ -111,8 +116,40 @@ app = typer.Typer(
 )
 
 
+def _showwarning_to_stderr(showwarning):
+    """
+    Wrap a `warnings.showwarning` handler so it writes to stderr.
+
+    skforecast installs a handler that prints its warnings as rich panels
+    on stdout, which breaks the JSON of `--format json`. The wrapper sends
+    stdout to stderr while the handler runs, so the panels keep their
+    format; a warning shown on an explicit `file` is left untouched.
+
+    Parameters
+    ----------
+    showwarning : callable
+        Handler to wrap, with the signature of `warnings.showwarning`.
+
+    Returns
+    -------
+    wrapper : callable
+        Handler that runs `showwarning` with stdout sent to stderr.
+    """
+
+    def wrapper(message, category, filename, lineno, file=None, line=None):
+        if file is not None:
+            showwarning(message, category, filename, lineno, file, line)
+            return
+        with contextlib.redirect_stdout(sys.stderr):
+            showwarning(message, category, filename, lineno, file, line)
+
+    wrapper._skforecast_ai_stderr = True
+    return wrapper
+
+
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: Annotated[
         bool | None,
         typer.Option("--version", callback=_version_callback, is_eager=True, help="Show version."),
@@ -123,6 +160,9 @@ def main(
 
     Parameters
     ----------
+    ctx : typer.Context
+        Context of the invocation, used to restore the warning handler when
+        the command ends.
     version : bool, default None
         Show version and exit.
 
@@ -130,6 +170,20 @@ def main(
     -------
     None
     """
+    # Every warning goes to stderr, so stdout holds only the output of the
+    # command (the JSON document with `--format json`). The MCP server keeps
+    # its own handling: it records warnings per call in a worker thread, and
+    # `redirect_stdout` is not thread safe.
+    if ctx.invoked_subcommand == "mcp":
+        return
+    previous = warnings.showwarning
+    if not getattr(previous, "_skforecast_ai_stderr", False):
+        warnings.showwarning = _showwarning_to_stderr(previous)
+
+        def restore() -> None:
+            warnings.showwarning = previous
+
+        ctx.call_on_close(restore)
 
 
 console = Console()
@@ -207,7 +261,7 @@ def config_set(
     try:
         set_config_value(key, value)
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        err_console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(code=1)
     display_val = _mask_secret(key, value)
     console.print(f"[green]Set[/green] {key} = {display_val}")
@@ -322,6 +376,40 @@ def _read_json_input(source: str) -> dict:
             f"Invalid JSON input: {e}",
             code = "data_unreadable",
         ) from e
+
+
+def _read_plan_bundle(source: str) -> tuple[ForecastingProfile, ForecastPlan]:
+    """
+    Read the profile and the plan of a `--from-plan` bundle.
+
+    Parameters
+    ----------
+    source : str
+        Path to the JSON file written by `plan` or `refine-plan`, or `'-'`
+        to read it from stdin.
+
+    Returns
+    -------
+    profile : ForecastingProfile
+        Profile of the bundle.
+    plan : ForecastPlan
+        Plan of the bundle.
+    """
+    bundle = _read_json_input(source)
+    missing = [
+        key for key in ("profile", "plan")
+        if not isinstance(bundle, dict) or key not in bundle
+    ]
+    if missing:
+        raise InvalidInputError(
+            f"The --from-plan input has no {' or '.join(map(repr, missing))}: "
+            f"pass the file written by `plan` or `refine-plan` with "
+            f"--format json.",
+            field = "from_plan",
+        )
+    profile = ForecastingProfile.model_validate(bundle["profile"])
+    plan = ForecastPlan.model_validate(bundle["plan"])
+    return profile, plan
 
 
 def _parse_target(target_str: str) -> str | list[str]:
@@ -584,50 +672,129 @@ def _spinner(message: str, quiet: bool):
             yield
 
 
-@contextlib.contextmanager
-def _error_handler():
+# Remedy for a failed script: `--output-code` is only written when the
+# command succeeds, so the script comes from the matching `*-code` command.
+EXECUTION_TIP = (
+    "Run forecast-code or backtest-code with the same options to get the "
+    "script that failed."
+)
+VALIDATION_TIP = "Use --format json with the source command to produce valid input."
+NO_LLM_MESSAGE = (
+    "No LLM configured. Set the SKFORECAST_AI_LLM environment variable or "
+    "use the --llm flag."
+)
+
+
+def _report_error(exc: Exception, json_errors: bool) -> None:
     """
-    Catch known exceptions and print user-friendly errors.
+    Print an error on stderr, as text or as a JSON object.
+
+    Parameters
+    ----------
+    exc : Exception
+        Error to report.
+    json_errors : bool
+        Whether to print `{"error": {...}}`, the fields of `ErrorInfo`,
+        instead of text (`--format json`).
+
+    Returns
+    -------
+    None
+    """
+    label = "Error"
+    message = str(exc)
+    tip = exc.hint if isinstance(exc, SkforecastAIError) else None
+    if isinstance(exc, LLMRequiredError):
+        message = NO_LLM_MESSAGE
+    elif isinstance(exc, LLMCallError):
+        label = "LLM Error"
+    elif isinstance(exc, ForecastExecutionError):
+        label = "Execution Error"
+        tip = tip or EXECUTION_TIP
+    elif isinstance(exc, AllCandidatesFailedError):
+        label = "Comparison Error"
+    elif isinstance(exc, ValidationError):
+        details = "; ".join(
+            f"{err['loc'][0]}: {err['msg']}" if err.get("loc") else err["msg"]
+            for err in exc.errors()[:3]
+        )
+        message = (
+            f"Invalid input data: {exc.error_count()} validation error(s): "
+            f"{details}"
+        )
+        tip = tip or VALIDATION_TIP
+
+    if json_errors:
+        info = ErrorInfo.from_exception(exc)
+        update = {}
+        if isinstance(exc, LLMRequiredError):
+            update["message"] = message
+        if info.hint is None and tip is not None:
+            update["hint"] = tip
+        if update:
+            info = info.model_copy(update=update)
+        print(json.dumps({"error": info.model_dump(mode="json")}), file=sys.stderr)
+        return
+
+    # The message is escaped: rich markup would eat text in brackets such
+    # as `[lower, upper]`.
+    err_console.print(f"[red]{label}:[/red] {escape(message)}")
+    if tip is not None:
+        err_console.print(f"[dim]Tip: {escape(tip)}[/dim]")
+
+
+@contextlib.contextmanager
+def _error_handler(json_errors: bool = False):
+    """
+    Report known exceptions on stderr and exit with code 1.
+
+    Parameters
+    ----------
+    json_errors : bool, default False
+        Whether to report them as a JSON object (`--format json`).
     """
     try:
         yield
-    except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+    except typer.BadParameter as e:
+        # A value an option parser rejects is a usage error (code 2); the
+        # parser prints it as text unless the output is JSON.
+        if not json_errors:
+            raise
+        _report_error(InvalidInputError(e.message), json_errors)
+        raise typer.Exit(code=2)
+    except (
+        SkforecastAIError, ValidationError, FileNotFoundError, ValueError,
+        KeyError, TypeError,
+    ) as e:
+        _report_error(e, json_errors)
         raise typer.Exit(code=1)
-    except LLMRequiredError:
-        console.print(
-            "[red]Error:[/red] No LLM configured. "
-            "Set the SKFORECAST_AI_LLM environment variable or use the --llm flag."
+
+
+def _check_steps_match_plan(steps: int | None, plan: ForecastPlan) -> None:
+    """
+    Reject a `--steps` that differs from the steps of a `--from-plan` plan.
+
+    The plan fixes the horizon, as in the Python API: a different `--steps`
+    would otherwise be ignored.
+
+    Parameters
+    ----------
+    steps : int, None
+        Value of `--steps`, None when not passed.
+    plan : ForecastPlan
+        Plan read from `--from-plan`.
+
+    Returns
+    -------
+    None
+    """
+    if steps is not None and steps != plan.steps:
+        raise InvalidInputError(
+            f"--steps ({steps}) does not match the steps of the plan in "
+            f"--from-plan ({plan.steps}). Omit --steps to use the plan's "
+            f"horizon, or change it with `refine-plan --steps`.",
+            field = "steps",
         )
-        raise typer.Exit(code=1)
-    except LLMCallError as e:
-        console.print(f"[red]LLM Error:[/red] {e}")
-        raise typer.Exit(code=1)
-    except ForecastExecutionError as e:
-        console.print(f"[red]Execution Error:[/red] {e}")
-        console.print(
-            "[dim]Tip: use --output-code to save the generated script for debugging.[/dim]"
-        )
-        raise typer.Exit(code=1)
-    except AllCandidatesFailedError as e:
-        console.print(f"[red]Comparison Error:[/red] {e}")
-        raise typer.Exit(code=1)
-    except ValidationError as e:
-        n = e.error_count()
-        details = "; ".join(
-            f"{err['loc'][0]}: {err['msg']}" if err.get("loc") else err["msg"]
-            for err in e.errors()[:3]
-        )
-        console.print(
-            f"[red]Error:[/red] Invalid input data: {n} validation error(s): {details}"
-        )
-        console.print(
-            "[dim]Tip: use --format json with the source command to produce valid input.[/dim]"
-        )
-        raise typer.Exit(code=1)
-    except (ValueError, KeyError, TypeError) as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1)
 
 
 def _render_profile_table(profile) -> None:
@@ -676,7 +843,7 @@ def profile(
     quiet: QuietOption = False,
 ) -> None:
     """Profile a dataset and recommend a forecaster and an estimator."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_target = _parse_target(target)
 
@@ -823,10 +990,12 @@ def plan(
     quiet: QuietOption = False,
 ) -> None:
     """Generate a detailed forecasting plan from a dataset."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         if steps is None:
-            console.print("[red]Error:[/red] --steps is required.")
-            raise typer.Exit(code=1)
+            raise InvalidInputError(
+                "--steps is required.",
+                field = "steps",
+            )
 
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
@@ -839,11 +1008,10 @@ def plan(
             prof = ForecastingProfile.model_validate(profile_data)
         else:
             if data is None or target is None:
-                console.print(
-                    "[red]Error:[/red] DATA and --target are required "
-                    "unless --from-profile is provided."
+                raise InvalidInputError(
+                    "DATA and --target are required "
+                    "unless --from-profile is provided.",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
             with _spinner("Profiling...", quiet):
                 prof = assistant.profile(
@@ -889,7 +1057,7 @@ def refine_plan(
     quiet: QuietOption = False,
 ) -> None:
     """Refine an existing forecasting plan by overriding specific fields or using LLM guidance."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         bundle_data = _read_json_input(from_plan)
         prof = ForecastingProfile.model_validate(bundle_data.get("profile", {}))
         plan_obj = ForecastPlan.model_validate(bundle_data.get("plan", {}))
@@ -951,12 +1119,12 @@ def forecast_code(
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
     from_plan: FromPlanOption = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
+    format: CodeFormatOption = "code",
     output: OutputOption = None,
     quiet: QuietOption = False,
 ) -> None:
     """Generate a complete Python forecasting script."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
@@ -964,9 +1132,8 @@ def forecast_code(
         parsed_window_features = _parse_window_features(window_features)
 
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
 
             # Overrides supplied alongside --from-plan are applied on top of
             # the saved plan through refine_plan, as `forecast` does, instead
@@ -993,11 +1160,10 @@ def forecast_code(
             )
         else:
             if data is None or target is None or steps is None:
-                console.print(
-                    "[red]Error:[/red] DATA, --target, and --steps are required "
-                    "unless --from-plan is provided."
+                raise InvalidInputError(
+                    "DATA, --target, and --steps are required "
+                    "unless --from-plan is provided.",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
 
             with _spinner("Generating code...", quiet):
@@ -1041,29 +1207,27 @@ def backtest_code(
     gap: GapOption = None,
     allow_incomplete_fold: AllowIncompleteFoldOption = None,
     from_plan: FromPlanOption = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
+    format: CodeFormatOption = "code",
     output: OutputOption = None,
     quiet: QuietOption = False,
 ) -> None:
     """Generate a complete Python backtesting script without executing it."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
 
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
             resolved_steps = plan_obj.steps
             resolved_target = _parse_target(target) if target else None
             resolved_date_column = date_column
             resolved_series_id = series_id_column
         else:
             if data is None or target is None or steps is None:
-                console.print(
-                    "[red]Error:[/red] DATA, --target, and --steps are required "
-                    "unless --from-plan is provided."
+                raise InvalidInputError(
+                    "DATA, --target, and --steps are required "
+                    "unless --from-plan is provided.",
                 )
-                raise typer.Exit(code=1)
             resolved_target = _parse_target(target)
             resolved_steps = steps
             resolved_date_column = date_column
@@ -1215,16 +1379,15 @@ def forecast(
     quiet: QuietOption = False,
 ) -> None:
     """Run end-to-end forecasting and report predictions, plus metrics with --test-size."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_test_size = _parse_test_size(test_size)
 
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
 
             # Any override supplied alongside --from-plan is applied on top
             # of the saved plan by re-deriving it through refine_plan. This
@@ -1260,11 +1423,10 @@ def forecast(
                 )
         else:
             if target is None or steps is None:
-                console.print(
-                    "[red]Error:[/red] --target and --steps are required "
-                    "unless --from-plan is provided."
+                raise InvalidInputError(
+                    "--target and --steps are required "
+                    "unless --from-plan is provided.",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
 
             exog_df = load_exog(
@@ -1346,7 +1508,7 @@ def backtest(
     quiet: QuietOption = False,
 ) -> None:
     """Run backtesting evaluation and report metrics and predictions."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
         api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
@@ -1360,20 +1522,18 @@ def backtest(
         )
 
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
             parsed_target = _parse_target(target) if target else None
             resolved_steps = plan_obj.steps
             resolved_date_column = date_column
             resolved_series_id = series_id_column
         else:
             if target is None or steps is None:
-                console.print(
-                    "[red]Error:[/red] --target and --steps are required "
-                    "unless --from-plan is provided."
+                raise InvalidInputError(
+                    "--target and --steps are required "
+                    "unless --from-plan is provided.",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
             resolved_steps = steps
             resolved_date_column = date_column
@@ -1545,7 +1705,7 @@ def compare(
     quiet: QuietOption = False,
 ) -> None:
     """Compare several forecasters and report a ranked leaderboard."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_candidates = _parse_candidates(candidates)
@@ -1562,19 +1722,21 @@ def compare(
             resolved_series_id = series_id_column
         else:
             if target is None:
-                console.print(
-                    "[red]Error:[/red] --target is required unless "
-                    "--from-profile is provided."
+                raise InvalidInputError(
+                    "--target is required unless "
+                    "--from-profile is provided.",
+                    field = "target",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
             resolved_date_column = date_column
             resolved_series_id = series_id_column
             prof = None
 
         if steps is None:
-            console.print("[red]Error:[/red] --steps is required.")
-            raise typer.Exit(code=1)
+            raise InvalidInputError(
+                "--steps is required.",
+                field = "steps",
+            )
 
         with _spinner("Comparing forecasters...", quiet):
             if prof is None:
@@ -1644,11 +1806,11 @@ def ask(
     api_key: ApiKeyOption = None,
     send_data_to_llm: Annotated[bool | None, typer.Option("--send-data-to-llm/--no-send-data-to-llm", help="Accepted for parity with the Python API; the CLI never sends observations to the LLM, whatever its value.")] = None,
     skills: Annotated[str | None, typer.Option("--skills", help="Comma-separated skill names to include, e.g. 'prediction-intervals'. The Skills page of the documentation lists them.")] = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: text or json.")] = "text",
+    format: TextFormatOption = "text",
     quiet: QuietOption = False,
 ) -> None:
     """Ask a forecasting question using an LLM."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
         api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
@@ -1674,18 +1836,17 @@ def ask(
         # Nothing is computed inside ask() itself.
         context = None
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
             context = assistant.forecast_code(profile=prof, plan=plan_obj)
         elif from_profile is not None:
             context = ForecastingProfile.model_validate(_read_json_input(from_profile))
         elif data is not None:
             if target is None:
-                console.print(
-                    "[red]Error:[/red] --target is required with --data."
+                raise InvalidInputError(
+                    "--target is required with --data.",
+                    field = "target",
                 )
-                raise typer.Exit(code=1)
             with _spinner("Profiling...", quiet):
                 prof = assistant.profile(
                     data=str(data), target=_parse_target(target),
@@ -1719,7 +1880,7 @@ def check_llm(
     quiet: QuietOption = False,
 ) -> None:
     """Check how the LLM configuration resolves and whether it can be used."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
         api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")

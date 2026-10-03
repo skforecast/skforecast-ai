@@ -27,7 +27,7 @@ from ._constants import (
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
 )
-from .exceptions import InvalidInputError
+from .exceptions import InvalidInputError, InvalidInputTypeError
 
 # Task types whose estimator is a scikit-learn compatible regressor.
 _ML_TASK_TYPES = ("single_series", "multi_series", "multivariate")
@@ -142,10 +142,17 @@ def validate_kwarg_names(estimator_kwargs: dict | None) -> None:
 
     Notes
     -----
-    A `ValueError` is raised for a key that is not a string, not an
-    identifier, or a Python keyword.
+    A `TypeError` is raised when `estimator_kwargs` is not a dict, and a
+    `ValueError` for a key that is not a string, not an identifier, or a
+    Python keyword.
     """
 
+    if estimator_kwargs is not None and not isinstance(estimator_kwargs, dict):
+        raise InvalidInputTypeError(
+            f"`estimator_kwargs` must be a dict of keyword arguments, such as "
+            f"{{'alpha': 0.5}}, got {type(estimator_kwargs).__name__}.",
+            field = "estimator_kwargs",
+        )
     for key in estimator_kwargs or {}:
         if (
             not isinstance(key, str)
@@ -297,10 +304,11 @@ def validate_estimator_kwargs(
     """
     Check the keyword argument names against the estimator constructor.
 
-    Only for the supported machine-learning estimators, and only when their
-    package is installed; otherwise the names cannot be read and the check
-    is skipped (running the plan then fails with an install message). The
-    class is imported but not instantiated.
+    Only for the supported machine-learning estimators, when their package
+    is installed (otherwise the names cannot be read and the check is
+    skipped: running the plan then fails with an install message), and for
+    the `Arima` model of `ForecasterStats`. The class is imported but not
+    instantiated.
 
     Parameters
     ----------
@@ -325,12 +333,20 @@ def validate_estimator_kwargs(
     """
 
     warning_messages: list[str] = []
-    if not estimator_kwargs or estimator not in SUPPORTED_ESTIMATORS:
+    if not estimator_kwargs:
         return warning_messages
-    module_name = SUPPORTED_ESTIMATORS[estimator]
-    if importlib.util.find_spec(module_name.split(".")[0]) is None:
+    if estimator == "Arima":
+        # The ARIMA model of ForecasterStats, which skforecast ships.
+        from skforecast.stats import Arima
+
+        cls = Arima
+    elif estimator in SUPPORTED_ESTIMATORS:
+        module_name = SUPPORTED_ESTIMATORS[estimator]
+        if importlib.util.find_spec(module_name.split(".")[0]) is None:
+            return warning_messages
+        cls = getattr(importlib.import_module(module_name), estimator)
+    else:
         return warning_messages
-    cls = getattr(importlib.import_module(module_name), estimator)
     names = _estimator_param_names(cls)
     extra_names = _library_param_names(estimator)
 
@@ -384,9 +400,17 @@ def check_estimator_installed(
     Notes
     -----
     A `ValueError` with the `pip install` command is raised when the package
-    is missing, instead of an `ImportError` inside the executed script.
+    is missing, instead of an `ImportError` inside the executed script. For
+    a `ForecasterFoundation` plan, `estimator` is the model ID and the
+    backend package of the model is checked (`check_foundation_backend`).
     """
 
+    if task_type == "foundation":
+        # Imported here: `_foundation` imports this module.
+        from ._foundation import check_foundation_backend
+
+        check_foundation_backend(estimator)
+        return
     if task_type not in _ML_TASK_TYPES or estimator not in SUPPORTED_ESTIMATORS:
         return
     package = SUPPORTED_ESTIMATORS[estimator].split(".")[0]
@@ -398,6 +422,24 @@ def check_estimator_installed(
             code  = "missing_dependency",
             field = "estimator",
         )
+
+
+def is_symmetric_interval(interval: list[float]) -> bool:
+    """
+    Tell whether `[lower, upper]` quantiles are symmetric (`lower + upper`
+    is 1), as the statistical and baseline interval methods need.
+
+    Parameters
+    ----------
+    interval : list of float
+        Prediction interval quantiles, already validated.
+
+    Returns
+    -------
+    symmetric : bool
+        Whether `lower + upper` is 1.
+    """
+    return abs(interval[0] + interval[1] - 1) <= 1e-9
 
 
 def validate_interval(
@@ -450,7 +492,7 @@ def validate_interval(
         )
     if (
         task_type in _SYMMETRIC_INTERVAL_TASK_TYPES
-        and abs(interval[0] + interval[1] - 1) > 1e-9
+        and not is_symmetric_interval(interval)
     ):
         raise InvalidInputError(
             f"'{forecaster}' predicts symmetric intervals only "

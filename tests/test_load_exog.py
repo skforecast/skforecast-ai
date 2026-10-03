@@ -55,14 +55,20 @@ def test_load_exog_DataNotFoundError_when_file_missing(tmp_path):
         (
             "date,temp\n2023-01-01,1\n2023-01-02 00:00:00,2\n2023/01/03,3\n",
             None,
-            "the dates of column 'date' cannot be read as the generated code "
-            "reads them",
+            "The dates of column 'date' do not all follow the format of the "
+            "first one ('%Y-%m-%d', read from '2023-01-01'), such as "
+            "'2023-01-02 00:00:00': the generated script reads every date "
+            "with the format of the first one. Write every date in the same "
+            "format, such as '2023-01-02'.",
         ),
         (
             "date,temp\n2023-01-01,1\n2023-01-02 00:00:00,2\n2023/01/03,3\n",
             "date",
-            "the dates of column 'date' cannot be read as the generated code "
-            "reads them",
+            "The dates of column 'date' do not all follow the format of the "
+            "first one ('%Y-%m-%d', read from '2023-01-01'), such as "
+            "'2023-01-02 00:00:00': the generated script reads every date "
+            "with the format of the first one. Write every date in the same "
+            "format, such as '2023-01-02'.",
         ),
         (
             "date,temp\n2023-01-01,1,,\n2023-01-02,2,,\n",
@@ -346,3 +352,85 @@ def test_load_exog_output_when_no_path():
     Test that no path gives no future exogenous variables.
     """
     assert load_exog(None) is None
+
+
+@pytest.mark.parametrize(
+    "content, reason",
+    [
+        (b"", "No columns to parse from file"),
+        (
+            bytes(range(256)),
+            "'utf-8' codec can't decode byte 0x80 in position 128: invalid "
+            "start byte",
+        ),
+        (
+            b"date,temp\n2023-01-01,1\n2023-01-02,2,3,4\n2023-01-03,4\n",
+            "Error tokenizing data. C error: Expected 2 fields in line 3, saw 4",
+        ),
+        (
+            "date,temp,name\n2023-01-01,1,caf\xe9\n".encode("latin-1"),
+            "'utf-8' codec can't decode byte 0xe9 in position 31: invalid "
+            "continuation byte",
+        ),
+    ],
+    ids=["empty", "binary", "more fields than the header", "latin-1"],
+)
+def test_load_exog_InvalidInputError_when_file_unreadable(tmp_path, content, reason):
+    """
+    Test that a file that pandas cannot read as a CSV raises an
+    InvalidInputError (a ValueError) with the code 'data_unreadable' and the
+    field 'exog', and a hint.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_bytes(content)
+
+    err_msg = re.escape(f"The CSV file '{path}' could not be read: {reason}")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        load_exog(path)
+
+    assert isinstance(exc_info.value, ValueError)
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "exog"
+    assert exc_info.value.hint == (
+        "Pass a comma-separated text file in UTF-8 with a header row, and the "
+        "same number of fields in every row."
+    )
+
+
+@pytest.mark.parametrize(
+    "text, hint",
+    [
+        (
+            "date,temp\n2023-01-01,1\n,2\n2023-01-03,3\n",
+            "Every row needs a date: fill in or drop the rows without one.",
+        ),
+        (
+            "date,temp\n2023-01-01T00:00:00+01:00,1\n2023-07-01T00:00:00+02:00,2\n",
+            "Write every date in one time zone: in UTC for data recorded "
+            "within the day, or without the time zone for daily or coarser "
+            "data.",
+        ),
+    ],
+    ids=["empty_date_cell", "mixed_offsets"],
+)
+@pytest.mark.parametrize(
+    "date_column, advice",
+    [
+        (None, ""),
+        ("date", ""),
+    ],
+    ids=["date_column: None", "date_column: date"],
+)
+def test_load_exog_hint_when_dates_wrong(tmp_path, text, hint, date_column, advice):
+    """
+    Test that the error of the dates of the file, with or without a named
+    date column, carries the remedy as the hint, without the pandas calls
+    that only apply in Python.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(text)
+
+    with pytest.raises(InvalidInputError) as exc_info:
+        load_exog(path, date_column=date_column)
+
+    assert exc_info.value.hint == hint + advice

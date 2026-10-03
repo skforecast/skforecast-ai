@@ -630,6 +630,11 @@ def test_forecast_ForecastExecutionError_when_foundation_categorical_exog_name_h
     """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("skforecast.foundation.FoundationModel", _FoundationModelStub)
+    # The script runs up to the model creation, stubbed: its backend is
+    # taken as installed.
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
+    )
     column = f"weekday\n{PAYLOAD}\n#"
     df_categorical_exog.rename(columns={"weekday": column}).to_csv(
         tmp_path / "data.csv", index=False

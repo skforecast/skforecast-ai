@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import numbers
 import re
 import warnings
 from collections.abc import Iterator
@@ -15,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
-from skforecast.exceptions import LongTrainingWarning
+from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import (
@@ -33,10 +34,15 @@ from ._validation import (
     _validate_window_features as _validate_window_features,
     validate_interval,
 )
-from ._dates import is_text, parse_text_dates
-from .profiling.data_profile import _read_date_column, _try_parse_first_date_column
+from ._dates import is_text, parse_text_dates, training_end
+from .profiling.data_profile import (
+    _read_date_column,
+    _try_parse_first_date_column,
+    date_issue_hint,
+    read_csv_file,
+)
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
-from .exceptions import DataNotFoundError, InvalidInputError
+from .exceptions import DataNotFoundError, InvalidInputError, InvalidInputTypeError
 
 _CODE_BLOCK_RE = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
 _CODE_BLOCK_REPLACEMENT = "(See `result.code` for the validated implementation.)"
@@ -132,10 +138,13 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
     Validate that the input shape is compatible with the task type.
 
     Single-series tasks (`single_series`, `statistical`, `baseline`) accept
-    exactly one series. The `multivariate` task requires all series to share
-    the same length, and wide-format data: on long-format data with several
-    series the generated script always failed (its level is the target
-    column, which is not one of the series). `foundation` takes one or
+    exactly one series, and the multi-series tasks (`multi_series`,
+    `multivariate`) need data with several series (wide or long format):
+    on a single series their script always failed. The `multivariate` task
+    requires all series to share the same length, and wide-format data: on
+    long-format data with several series the generated script always failed
+    (its level is the target column, which is not one of the series), and
+    on long-format data with one series too. `foundation` takes one or
     several series. Long-format data with several series needs its dates in
     a column, which the generated script reads to split the series; dated by
     the index, or without dates, the script always failed.
@@ -171,12 +180,37 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
             field = "forecaster",
         )
 
+    if (
+        task_type in ("multi_series", "multivariate")
+        and data_profile.data_format == "single"
+        and n_series == 1
+    ):
+        forecaster = (
+            "ForecasterRecursiveMultiSeries" if task_type == "multi_series"
+            else "ForecasterDirectMultiVariate"
+        )
+        raise InvalidInputError(
+            f"{forecaster} forecasts several series, but the data has a single "
+            f"series (target {data_profile.target!r}). Use a single-series "
+            f"forecaster (e.g. 'ForecasterRecursive'), or pass several series: "
+            f"a list of target columns, or `series_id_column` for long format.",
+            field = "forecaster",
+        )
+
     long_series = data_profile.data_format == "long" and n_series > 1
     if long_series and task_type == "multivariate":
         raise InvalidInputError(
             "ForecasterDirectMultiVariate cannot forecast long-format data with "
             "several series. Use 'ForecasterRecursiveMultiSeries', or pass the "
             "series as columns (wide format) with `target` naming them.",
+            field = "forecaster",
+        )
+    if data_profile.data_format == "long" and task_type == "multivariate":
+        # Its level is the target column, which is not one of the series.
+        raise InvalidInputError(
+            "ForecasterDirectMultiVariate cannot forecast long-format data with "
+            "a single series. Use a single-series forecaster (e.g. "
+            "'ForecasterRecursive').",
             field = "forecaster",
         )
     if (
@@ -568,9 +602,10 @@ def _resolve_data_and_target(
         Series (the name is used instead).
     date_column : str, default None
         Name of the date column, when the caller gives it. A CSV column of
-        dates with empty cells or mixed time zones raises an error when it is
-        this column, or when it is not given and no later column holds
-        complete dates (see `_try_parse_first_date_column`).
+        dates with empty cells, mixed time zones or more than one format
+        raises an error when it is this column, or when it is not given and
+        no later column holds complete dates (see
+        `_try_parse_first_date_column`).
 
     Returns
     -------
@@ -581,14 +616,23 @@ def _resolve_data_and_target(
 
     Raises
     ------
+    TypeError
+        When `data` is none of the accepted types.
     ValueError
         When `data` is a Series and `target` is provided but does not
         match the Series name, when `data` is not a Series and `target` is
-        None, or when the dates of a CSV have empty cells or mixed time
-        zones (see `date_column`).
+        None, when the dates of a CSV have empty cells, mixed time zones or
+        more than one format (see `date_column`), or when a CSV file cannot
+        be read as one.
     FileNotFoundError
         When `data` is a path or URL that cannot be read.
     """
+    if not isinstance(data, (pd.Series, pd.DataFrame, str, Path)):
+        raise InvalidInputTypeError(
+            f"`data` must be a pandas DataFrame, a pandas Series, or the path "
+            f"or URL of a CSV file, got {type(data).__name__}.",
+            field = "data",
+        )
     if isinstance(data, pd.Series):
         name = data.name
         if target is not None and target != name:
@@ -636,7 +680,7 @@ def _resolve_data_and_target(
                 f"CSV file not found: '{path}'. Please provide a valid file path.",
                 field = "data",
             )
-        df = pd.read_csv(path)
+        df = read_csv_file(path)
         return _try_parse_first_date_column(df, date_column), target
 
     return data, target
@@ -727,7 +771,7 @@ def load_exog(
             field = "exog",
         )
 
-    exog = pd.read_csv(path)
+    exog = read_csv_file(path, field="exog")
     # Rows one field longer than the header shift every column; when the
     # last column is then empty, the extra field is a separator at the end
     # of each row, not the index of `to_csv(index_label=False)`.
@@ -768,6 +812,7 @@ def load_exog(
             raise InvalidInputError(
                 f"Exog CSV '{path}': {''.join(issue)}",
                 field = "exog",
+                hint  = date_issue_hint(issue),
             )
         if parsed is None or parsed.isna().any():
             raise InvalidInputError(
@@ -796,6 +841,7 @@ def load_exog(
                 raise InvalidInputError(
                     f"Exog CSV '{path}': {exc}",
                     field = "exog",
+                    hint  = exc.hint,
                 ) from exc
             found = next(
                 (
@@ -820,7 +866,7 @@ def load_exog(
                 # The dates were read already: pandas only repeats that it
                 # parses each one on its own.
                 warnings.simplefilter("ignore", UserWarning)
-                parse_text_dates(text[found], mixed=False)
+                parse_text_dates(text[found])
         except (ValueError, TypeError) as exc:
             raise InvalidInputError(
                 f"Exog CSV '{path}': the dates of column {found!r} cannot be "
@@ -1035,6 +1081,317 @@ def _with_data_path(
     return profile.model_copy(update={"data_profile": data_profile})
 
 
+def _check_feature_name_collisions(
+    plan: ForecastPlan,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Reject exogenous columns named like a predictor the forecaster creates.
+
+    skforecast names the lags `lag_k` and the window features after their
+    statistic and window (`roll_mean_7`); `ForecasterDirectMultiVariate`
+    prefixes both with the series. An exogenous column with one of those
+    names made the script fail with "Duplicated feature names detected".
+    Calendar features are handled by `plan()` (the data column is kept).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan just built.
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    None
+    """
+    from skforecast.preprocessing import RollingFeatures
+
+    if plan.task_type not in ("single_series", "multi_series", "multivariate"):
+        return
+    if not plan.use_exog or not data_profile.exog_columns:
+        return
+    kwargs = plan.forecaster_kwargs
+    lags = _normalize_lags(kwargs.get("lags")) or []
+    names = [f"lag_{lag}" for lag in lags]
+    window_features = kwargs.get("window_features") or []
+    stats = [stat for entry in window_features for stat in entry["stats"]]
+    sizes = [
+        entry["window_size"] for entry in window_features for _ in entry["stats"]
+    ]
+    if stats:
+        names += RollingFeatures(stats=stats, window_sizes=sizes).features_names
+    if plan.task_type == "multivariate":
+        targets = data_profile.target
+        targets = targets if isinstance(targets, list) else [targets]
+        names = [f"{series}_{name}" for series in targets for name in names]
+
+    clashes = [column for column in data_profile.exog_columns if column in set(names)]
+    if clashes:
+        shown = ", ".join(repr(column) for column in clashes[:5])
+        if len(clashes) > 5:
+            shown += f" and {len(clashes) - 5} more"
+        raise InvalidInputError(
+            f"Exogenous column(s) {shown} have the name of a predictor "
+            f"that {plan.forecaster} creates (a lag or a window feature), so "
+            f"the script would fail with duplicated feature names. Rename "
+            f"them in the data.",
+            field = "data",
+            hint  = (
+                "Rename the exogenous columns named like lags ('lag_1') or "
+                "window features ('roll_mean_7')."
+            ),
+        )
+
+
+def profile_structure(data_profile: DataProfile) -> dict:
+    """
+    Return what a profile says about the structure of the data.
+
+    The structure is what a plan, a cross-validation strategy and the
+    generated script are built on: the format, the target, the date and
+    series id columns, the type and frequency of the index, and the
+    exogenous columns. Two profiles of the same structure differ only in
+    their values (statistics, missing values, warnings), in the series of
+    data in long format (a product that appears or disappears) or in the
+    path of the data.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    structure : dict
+        Structural fields of the profile.
+    """
+    target = data_profile.target
+    # The order of the columns does not change what the data holds.
+    return {
+        "data_format": data_profile.data_format,
+        "target": sorted(map(str, target)) if isinstance(target, list) else target,
+        "date_column": data_profile.date_column,
+        "series_id_column": data_profile.series_id_column,
+        "index_type": data_profile.index_type,
+        "frequency": data_profile.frequency,
+        "exog_columns": sorted(map(str, data_profile.exog_columns)),
+        "categorical_exog": sorted(map(str, data_profile.categorical_exog)),
+    }
+
+
+def structure_differences(first: DataProfile, second: DataProfile) -> list[str]:
+    """
+    Return the structural fields in which two profiles differ.
+
+    Parameters
+    ----------
+    first : DataProfile
+        First profile.
+    second : DataProfile
+        Second profile.
+
+    Returns
+    -------
+    differences : list of str
+        One `'name: first != second'` per field of `profile_structure` that
+        differs, with lists cut at 5 items. Empty when the structure is the
+        same. Two frequencies of the same period (`same_period`) are not a
+        difference.
+    """
+    a, b = profile_structure(first), profile_structure(second)
+    return [
+        f"{name}: {_short(a[name])} != {_short(b[name])}"
+        for name in a
+        if a[name] != b[name]
+        and not (name == "frequency" and same_period(a[name], b[name]))
+    ]
+
+
+def _period(frequency: str | None) -> object:
+    """
+    Return the period a frequency counts in, whatever the date each
+    observation is stamped with: `'MS'` and `'ME'` are both months,
+    `'W-SUN'` and `'W-MON'` weeks, `'QS-JAN'` and `'QE-DEC'` quarters. A
+    frequency pandas cannot read is returned as it is.
+    """
+    if frequency is None:
+        return None
+    try:
+        offset = pd.tseries.frequencies.to_offset(frequency)
+    except (ValueError, TypeError):
+        return frequency
+    # 'W-SUN' -> 'W', 'QS-JAN' -> 'QS': the anchor is the stamp, not the
+    # period. Then the start and end variants: 'QS' and 'QE' -> 'Q'. The
+    # units of time ('s', 'ms') are lower case and stay as they are.
+    name = offset.name.split("-")[0]
+    if len(name) > 1 and name[-1] in "SE":
+        name = name[:-1]
+
+    return (offset.n, name)
+
+
+def same_period(first: str | None, second: str | None) -> bool:
+    """
+    Tell whether two frequencies count the same period.
+
+    Monthly data stamped on the first day of the month (`'MS'`) and on the
+    last (`'ME'`) have the same observations, seasonality and lags, and so
+    have weekly data stamped on another weekday: a plan built for one runs
+    unchanged on the other.
+
+    Parameters
+    ----------
+    first : str, None
+        First frequency.
+    second : str, None
+        Second frequency.
+
+    Returns
+    -------
+    same : bool
+        Whether both are the same multiple of the same period.
+    """
+
+    return first == second or _period(first) == _period(second)
+
+
+def _short(value: object) -> str:
+    """Quote a structural value, listing at most 5 items of a list."""
+    if isinstance(value, list) and len(value) > 5:
+        return f"{value[:5]} (first 5 of {len(value)})"
+    return repr(value)
+
+
+def _check_plan_matches_profile(plan: ForecastPlan, data_profile: DataProfile) -> None:
+    """
+    Reject a plan received for data of another structure.
+
+    A plan is built from a profile (`plan()`); used with the profile of
+    other data, the script ran with lags, features and a frequency that do
+    not fit it, without an error. Checked: the frequency the plan was built
+    for (when it has one; another stamp of the same period, `'ME'` for
+    `'MS'`, is accepted, see `same_period`), that its task type fits the shape of the data
+    (`_validate_task_input`), that the data has exogenous variables when the
+    plan uses them, and a datetime index for its calendar features. Which
+    columns are exogenous is not compared: a plan reads the exogenous
+    columns of the profile it runs with.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan received.
+    data_profile : DataProfile
+        Profile of the data it runs on.
+
+    Returns
+    -------
+    None
+    """
+    # A plan built by hand may have no frequency: the script reads the one
+    # of the profile, so there is nothing to compare.
+    if plan.frequency is not None and not same_period(
+        plan.frequency, data_profile.frequency
+    ):
+        raise InvalidInputError(
+            f"The plan was built for data of frequency {plan.frequency!r}, "
+            f"and the data has frequency {data_profile.frequency!r}. Build "
+            f"the plan from the profile of these data with `plan()`.",
+            field = "plan",
+        )
+    _validate_task_input(data_profile, plan.task_type)
+    if plan.use_exog and not data_profile.exog_columns:
+        raise InvalidInputError(
+            "The plan uses exogenous variables and the data has none. Build "
+            "the plan from the profile of these data with `plan()`.",
+            field = "plan",
+        )
+    if (
+        plan.forecaster_kwargs.get("calendar_features")
+        and data_profile.index_type != "datetime"
+    ):
+        raise InvalidInputError(
+            "The plan has calendar features, which need dates, and the data "
+            "has no datetime index. Build the plan from the profile of these "
+            "data with `plan()`.",
+            field = "plan",
+        )
+
+
+def _check_cv_matches_profile(cv: CVResult, data_profile: DataProfile) -> None:
+    """
+    Reject the `CVResult` of a profile of another structure.
+
+    Its strategy (the first training window, a date or a size) was derived
+    from that profile; with data of another shape it failed inside the
+    script or split other dates.
+
+    Parameters
+    ----------
+    cv : CVResult
+        Result of `create_cv()`.
+    data_profile : DataProfile
+        Profile of the data it runs on.
+
+    Returns
+    -------
+    None
+    """
+    differences = structure_differences(cv.profile.data_profile, data_profile)
+    if differences:
+        raise InvalidInputError(
+            f"The CVResult was created for data of another structure "
+            f"({'; '.join(differences)}). Create the strategy from the "
+            f"profile of these data with `create_cv()`, or pass its "
+            f"TimeSeriesFold (`cv.cv`).",
+            field = "cv",
+        )
+
+
+def _warn_window_without_refit(
+    fixed_train_size: bool | None,
+    refit: object,
+    forecaster: str,
+) -> None:
+    """
+    Warn about a `fixed_train_size` passed for a forecaster trained once.
+
+    A forecaster trained once has one training window, so the window type
+    has no effect on its backtest: the strategy runs as without it, and the
+    caller is told so. `ForecasterStats`, which skforecast refits in every
+    fold, has its own warning in `create_cv()`.
+
+    Parameters
+    ----------
+    fixed_train_size : bool, None
+        Value passed by the caller; None when not passed.
+    refit : bool, int
+        Resolved `refit` of the strategy.
+    forecaster : str
+        Forecaster of the plan.
+
+    Returns
+    -------
+    None
+    """
+    if fixed_train_size is None or forecaster == "ForecasterStats":
+        return
+    refits = refit is True or (
+        isinstance(refit, numbers.Integral)
+        and not isinstance(refit, bool)
+        and refit > 0
+    )
+    if not refits:
+        warnings.warn(
+            f"`fixed_train_size={fixed_train_size!r}` has no effect: with "
+            f"`refit={refit!r}` the forecaster is trained once, on a single "
+            f"training window. Pass `refit=True` (or an integer) to refit "
+            f"it, or omit `fixed_train_size` to avoid this warning.",
+            IgnoredArgumentWarning,
+            stacklevel = 3,
+        )
+
+
 def _unwrap_cv(cv: TimeSeriesFold | CVResult) -> TimeSeriesFold:
     """
     Return the `TimeSeriesFold` behind a `cv` argument.
@@ -1053,7 +1410,15 @@ def _unwrap_cv(cv: TimeSeriesFold | CVResult) -> TimeSeriesFold:
         The splitter itself.
     """
 
-    return cv.cv if isinstance(cv, CVResult) else cv
+    if isinstance(cv, CVResult):
+        return cv.cv
+    if not isinstance(cv, TimeSeriesFold):
+        raise InvalidInputTypeError(
+            f"`cv` must be a skforecast TimeSeriesFold or the CVResult of "
+            f"create_cv(), got {type(cv).__name__}.",
+            field = "cv",
+        )
+    return cv
 
 
 def _check_evaluated_target(
@@ -1062,6 +1427,7 @@ def _check_evaluated_target(
     cv: TimeSeriesFold | None = None,
     end_train: str | None = None,
     steps: int | None = None,
+    level: str | None = None,
 ) -> None:
     """
     Reject an evaluation whose test dates have missing target values.
@@ -1073,7 +1439,9 @@ def _check_evaluated_target(
     contains NaN", whatever the estimator. The generated evaluation script
     fails the same way on the test split. This check names the dates up
     front. Multi-series backtesting drops them per series and is not
-    checked.
+    checked. `end_train` is read in the time zone of the dates; a date of
+    the strategy that cannot be compared with them (a naive date on a time
+    zone aware index) skips the check, and the generated script reports it.
 
     Parameters
     ----------
@@ -1088,6 +1456,10 @@ def _check_evaluated_target(
         dates after it are checked. Ignored when `cv` is given.
     steps : int, default None
         Forecast horizon of an evaluation-mode forecast.
+    level : str, default None
+        Series of wide-format data whose test dates are checked: the level
+        that `ForecasterDirectMultiVariate` predicts, the series its
+        metrics are computed on. None checks the target of a single series.
 
     Returns
     -------
@@ -1099,8 +1471,11 @@ def _check_evaluated_target(
         If a checked date has a missing target value.
     """
 
-    if data_profile.n_series != 1 or not isinstance(data_profile.target, str):
+    if level is None and (
+        data_profile.n_series != 1 or not isinstance(data_profile.target, str)
+    ):
         return
+    target = data_profile.target if level is None else level
     if not data_profile.missing_target and not data_profile.has_gaps:
         return
 
@@ -1110,7 +1485,9 @@ def _check_evaluated_target(
         index = pd.to_datetime(data[data_profile.date_column])
     else:
         index = data.index
-    y = pd.Series(data[data_profile.target].to_numpy(), index=index).sort_index()
+    if target not in data:
+        return
+    y = pd.Series(data[target].to_numpy(), index=index).sort_index()
     if y.index.has_duplicates:
         return
     if data_profile.frequency is not None and isinstance(y.index, pd.DatetimeIndex):
@@ -1123,6 +1500,10 @@ def _check_evaluated_target(
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 folds = cv.split(X=y, as_pandas=True)
+        except TypeError:
+            # A date of the strategy without the time zone of the index: the
+            # generated script fails on it with its own error.
+            return
         finally:
             cv.verbose = original_verbose
         positions = sorted({
@@ -1135,7 +1516,8 @@ def _check_evaluated_target(
         evaluated = y.iloc[positions]
         where = "in the test folds"
     elif end_train is not None and steps is not None:
-        evaluated = y.loc[y.index > pd.Timestamp(end_train)].iloc[:steps]
+        end = training_end(end_train, getattr(y.index, "tz", None))
+        evaluated = y.loc[y.index > end].iloc[:steps]
         where = "in the test split"
     else:
         return

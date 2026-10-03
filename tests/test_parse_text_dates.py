@@ -20,23 +20,14 @@ from skforecast_ai._dates import parse_text_dates
             ["01/02/2012", "02/02/2012", "03/02/2012"],
             ["2012-01-02", "2012-02-02", "2012-03-02"],
         ),
-        (
-            ["2012-01-01", "2012-01-02 10:30", "2012-01-03"],
-            ["2012-01-01", "2012-01-02 10:30", "2012-01-03"],
-        ),
-        (
-            ["01/02/2012", "13/02/2012"],
-            ["2012-01-02", "2012-02-13"],
-        ),
     ],
-    ids=["day_first", "month_first", "iso_with_times", "mixed_formats"],
+    ids=["day_first", "month_first"],
 )
 def test_parse_text_dates_output(values, expected):
     """
     Test that text dates are parsed with the format guessed from the first
     date, as pandas.to_datetime does in the generated script ('13/01/2012'
-    makes '01/02/2012' the first of February), and each date on its own
-    when a date does not follow that format.
+    makes '01/02/2012' the first of February).
     """
     parsed = parse_text_dates(pd.Series(values))
 
@@ -45,11 +36,11 @@ def test_parse_text_dates_output(values, expected):
     )
 
 
-def test_parse_text_dates_ValueError_when_not_mixed_and_date_does_not_follow_format():
+def test_parse_text_dates_ValueError_when_date_does_not_follow_format():
     """
-    Test that with `mixed=False` a date that does not follow the format of
-    the first date raises the error of pandas.to_datetime, as the generated
-    script does.
+    Test that a date that does not follow the format of the first date
+    raises the error of pandas.to_datetime, as the generated script does,
+    instead of being parsed on its own.
     """
     values = pd.Series(["2012-01-01", "2012-01-02 10:30", "2012-01-03"])
 
@@ -58,7 +49,7 @@ def test_parse_text_dates_ValueError_when_not_mixed_and_date_does_not_follow_for
         "at position 1."
     )
     with pytest.raises(ValueError, match=err_msg):
-        parse_text_dates(values, mixed=False)
+        parse_text_dates(values)
 
 
 def test_parse_text_dates_output_when_first_date_is_numpy_str():
@@ -70,7 +61,7 @@ def test_parse_text_dates_output_when_first_date_is_numpy_str():
         list(np.array(["2012-01-13", "2012-01-14", "2012-01-15"], dtype=str))
     )
 
-    parsed = parse_text_dates(values, mixed=False)
+    parsed = parse_text_dates(values)
 
     pd.testing.assert_series_equal(
         parsed, pd.Series(pd.to_datetime(["2012-01-13", "2012-01-14", "2012-01-15"]))
@@ -87,7 +78,7 @@ def test_parse_text_dates_output_when_first_date_is_not_text():
         [pd.Timestamp("2012-01-12"), "13/01/2012", "01/02/2012"], dtype=object
     )
 
-    parsed = parse_text_dates(values, mixed=False)
+    parsed = parse_text_dates(values)
 
     pd.testing.assert_series_equal(
         parsed, pd.Series(pd.to_datetime(["2012-01-12", "2012-01-13", "2012-01-02"]))

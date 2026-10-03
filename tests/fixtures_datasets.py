@@ -157,3 +157,45 @@ df_madrid_hourly_text = pd.DataFrame({
     ).astype(str),
     "users": np.arange(71, dtype=float) % 24,
 })
+
+
+# Variants of h2o used to run the workflows on data that differ from a saved
+# profile of h2o (tests of `_refresh_profile`).
+# One interleaved missing value: profiling it warns (MissingValuesWarning).
+df_h2o_with_nan = df_h2o.copy()
+df_h2o_with_nan.iloc[50, 0] = np.nan
+
+# The same series with one value changed in the middle (same length).
+df_h2o_changed_value = df_h2o.copy()
+df_h2o_changed_value.iloc[100, 0] = 5.0
+
+# h2o with a new exogenous column `z`.
+df_h2o_with_exog = df_h2o.assign(z=1.0)
+
+# A daily series named like the target of h2o, to meet a monthly profile.
+df_h2o_daily = pd.DataFrame(
+    {"x": np.arange(100, dtype=float)},
+    index=pd.date_range("2020-01-01", periods=100, freq="D", name="fecha"),
+)
+
+
+# Monthly series whose dates are written in two formats: ISO for the first 30
+# rows, then with slashes and a time. The generated script, which reads them
+# with the format of the first date, fails on them.
+_mixed_dates = pd.date_range("2015-01-01", periods=60, freq="MS")
+df_mixed_date_formats = pd.DataFrame({
+    "date": (
+        [date.strftime("%Y-%m-%d") for date in _mixed_dates[:30]]
+        + [date.strftime("%Y/%m/%d %H:%M") for date in _mixed_dates[30:]]
+    ),
+    "y": np.arange(60, dtype=float) + np.sin(np.arange(60)),
+})
+
+# The same series with ISO dates, the first 30 without a time and the rest
+# with one, which the script cannot read either.
+df_iso_dates_with_and_without_time = df_mixed_date_formats.assign(
+    date=(
+        [date.strftime("%Y-%m-%d") for date in _mixed_dates[:30]]
+        + [date.strftime("%Y-%m-%d %H:%M:%S") for date in _mixed_dates[30:]]
+    )
+)

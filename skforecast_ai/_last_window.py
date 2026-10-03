@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from ._constants import NAN_TOLERANT_ESTIMATORS
-from ._dates import row_dates
+from ._dates import row_dates, training_end
 from ._future_exog import _SHOWN, _per_series, _shown
 from .exceptions import InvalidInputError
 from .profiling.data_profile import _caller_stacklevel, _fmt_timestamp
@@ -31,9 +31,12 @@ def validate_last_window(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
+    final_rows: bool = True,
 ) -> None:
     """
-    Check the last values of the target that the forecaster reads to predict.
+    Check the last values of the target that the forecaster reads to predict
+    (in prediction mode, or on the training partition of an evaluation with
+    `final_rows=False`).
 
     The generated code puts the target on the grid of its frequency and the
     forecaster predicts from its last values, so final rows without a target
@@ -77,22 +80,28 @@ def validate_last_window(
     profile : DataProfile
         Profiled dataset metadata.
     plan : ForecastPlan
-        Forecast plan, in prediction mode.
+        Forecast plan.
+    final_rows : bool, default True
+        Whether to check the final rows. False for the training partition
+        of an evaluation (see `validate_evaluation_partition`): its end is
+        set by `test_size`, so missing values there are values that the
+        lags read, as any other.
 
     Returns
     -------
     None
     """
     if _per_series(plan, profile):
-        _check_long(data, profile, plan)
+        _check_long(data, profile, plan, final_rows)
     elif profile.data_format != "long" or profile.n_series == 1:
-        _check_wide(data, profile, plan)
+        _check_wide(data, profile, plan, final_rows)
 
 
 def _check_wide(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
+    final_rows: bool = True,
 ) -> None:
     """
     Check the target of single-series and wide-format data (and of a single
@@ -110,7 +119,7 @@ def _check_wide(
     # `asfreq` inserts included); the rows to drop are those of the data
     # after the last value.
     last_value = frame.index[with_value[-1]]
-    if with_value[-1] < len(frame) - 1:
+    if final_rows and with_value[-1] < len(frame) - 1:
         _final_rows(
             last_value  = last_value,
             after       = present_index[present_index > last_value],
@@ -211,6 +220,7 @@ def _check_long(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
+    final_rows: bool = True,
 ) -> None:
     """
     Check the target of long-format data read per series (see
@@ -256,7 +266,7 @@ def _check_long(
         return
     with_value = rows.loc[rows["value"]]
     last_value = with_value["date"].max()
-    if (rows["date"] > last_value).any():
+    if final_rows and (rows["date"] > last_value).any():
         # Every row after the last value is to drop, repeated or off the grid.
         after = every_date[every_date > last_value]
         _final_rows(
@@ -640,3 +650,398 @@ def _weekends_without_value(
         "days, drop every Saturday and Sunday row instead, so that the data "
         "has a business-day frequency."
     )
+
+
+def validate_infinite_target(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+    prediction: bool,
+) -> None:
+    """
+    Reject infinite values of the target that the forecaster cannot use.
+
+    The estimators reject them inside the script ("Input contains
+    infinity"), ForecasterStats predicts missing values from them or fails,
+    and ForecasterEquivalentDate repeats the ones it reads as infinite
+    predictions, so they raise before anything runs:
+
+    - for every forecaster that is trained, whatever the mode;
+    - for ForecasterEquivalentDate, in prediction mode, when its
+      predictions read one (in evaluation and backtesting the metrics fail
+      on them with their own error). One it does not read changes nothing.
+
+    A ForecasterFoundation model takes the values as they are, and is not
+    checked.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Data the forecaster runs on.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Plan to run.
+    prediction : bool
+        Whether the run forecasts the future (prediction mode).
+
+    Returns
+    -------
+    None
+    """
+    if plan.task_type == "foundation":
+        return
+    targets = profile.target if isinstance(profile.target, list) else [profile.target]
+    columns = [
+        column for column in dict.fromkeys(targets)
+        if column in data.columns
+        and pd.api.types.is_numeric_dtype(data[column].dtype)
+        and not pd.api.types.is_bool_dtype(data[column].dtype)
+    ]
+    if not columns:
+        return
+    infinite = np.isinf(data[columns].to_numpy(dtype=float)).any(axis=1)
+    if not infinite.any():
+        return
+
+    if plan.forecaster == "ForecasterEquivalentDate":
+        if not prediction:
+            return
+        dates = _infinite_values_read(data, profile, plan)
+        if not len(dates):
+            return
+        raise InvalidInputError(
+            f"The forecaster reads infinite values of the target to predict "
+            f"({_where(dates)}). {plan.forecaster} repeats them as infinite "
+            f"predictions: replace them.",
+            field = "data",
+            hint  = "Replace the infinite values of the target, for example with NaN.",
+        )
+
+    dates = row_dates(data, profile.date_column)
+    labels = data.index if dates is None else dates
+    raise InvalidInputError(
+        f"The target has infinite values ({_where(labels[infinite])}). "
+        f"{plan.forecaster} cannot be trained on them: replace them.",
+        field = "data",
+        hint  = "Replace the infinite values of the target, for example with NaN.",
+    )
+
+
+def _infinite_values_read(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+) -> pd.Index:
+    """
+    Return the dates of the infinite values of a single series that the
+    predictions of ForecasterEquivalentDate read, read as `_check_wide`
+    reads the missing ones (from the last value of the series).
+    """
+    frames = _target_frame(data, profile)
+    if frames is None:
+        return pd.Index([])
+    frame, _ = frames
+    values = frame.iloc[:, 0].to_numpy(dtype=float)
+    with_value = np.flatnonzero(~np.isnan(values))
+    if not len(with_value):
+        return pd.Index([])
+    end = with_value[-1] + 1
+    values = values[:end]
+    positions, _, size = _read_positions(plan, limit=end)
+    window = np.isinf(values[::-1][:size])
+    read = [int(p) for p in positions if p <= len(window) and window[p - 1]]
+
+    return frame.index[end - np.asarray(read, dtype=int)]
+
+
+def validate_series_lengths(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+    end_train: str | None = None,
+    whole_data: bool = False,
+) -> None:
+    """
+    Reject series that ForecasterRecursiveMultiSeries cannot be trained on.
+
+    skforecast trains each series from its first to its last value, and
+    fails inside the script on a series without values ("All values of
+    series ... are NaN") and on one whose values, from its first to its last
+    one, are not more than the window the forecaster reads ("Length of ...
+    must be greater than the maximum window size"). Both are checked before
+    running (code `'insufficient_data'`):
+
+    - in prediction mode, on the whole data;
+    - in evaluation mode, on the training partition (up to `end_train`);
+    - in backtesting (`whole_data=True`), only series without any value: a
+      series that starts late is left out of the first folds by skforecast.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Data the forecaster runs on.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Plan to run.
+    end_train : str, default None
+        Last date of the training partition, in evaluation mode.
+    whole_data : bool, default False
+        Whether only series without any value are checked (backtesting).
+
+    Returns
+    -------
+    None
+    """
+    if plan.forecaster != "ForecasterRecursiveMultiSeries":
+        return
+    spans = _series_spans(data, profile)
+    if spans is None:
+        return
+    _, _, window = _read_positions(plan, limit=np.iinfo(np.int64).max)
+    empty, short = [], {}
+    for name, (dates, present) in spans.items():
+        if end_train is not None and isinstance(dates, pd.DatetimeIndex):
+            inside = dates <= training_end(end_train, dates.tz)
+            dates, present = dates[inside], present[inside]
+        if not present.any():
+            empty.append(_plain(name))
+            continue
+        # skforecast trims the missing values at both ends of a series.
+        first = int(np.argmax(present))
+        last = len(present) - 1 - int(np.argmax(present[::-1]))
+        length = last - first + 1
+        if not whole_data and length <= window:
+            short[_plain(name)] = length
+
+    where = f" up to the end of training ({end_train})" if end_train is not None else ""
+    if empty:
+        raise InvalidInputError(
+            f"Some series have no values{where} ({_shown(empty)}), so "
+            f"{plan.forecaster} cannot be trained on them. Remove them from "
+            f"the data.",
+            code  = "insufficient_data",
+            field = "data",
+            hint  = "Remove the series without values from the data.",
+        )
+    if short:
+        found = [f"{name!r}: {length}" for name, length in short.items()]
+        shown = ", ".join(found[:_SHOWN])
+        if len(found) > _SHOWN:
+            shown += f" and {len(found) - _SHOWN} more"
+        raise InvalidInputError(
+            f"Some series have, from their first to their last value{where}, "
+            f"no more values than the {window} that {plan.forecaster} reads "
+            f"to build its predictors ({shown}), so it cannot be trained on "
+            f"them. Use shorter lags and window features, or remove those "
+            f"series.",
+            code  = "insufficient_data",
+            field = "data",
+            hint  = (
+                f"Use lags and window features of at most {window - 1} "
+                f"observations, or remove the short series."
+            ),
+        )
+
+
+def _series_spans(
+    data: pd.DataFrame,
+    profile: DataProfile,
+) -> dict | None:
+    """
+    Return, for each series as the generated code reads it (wide: the target
+    columns on the grid of the frequency; long: each series on the grid from
+    its first to its last date), its dates and whether each one has a value.
+    None when the generated code cannot read the data.
+    """
+    if profile.data_format != "long":
+        frames = _target_frame(data, profile)
+        if frames is None:
+            return None
+        frame, _ = frames
+        present = frame.notna().to_numpy()
+        return {
+            column: (frame.index, present[:, position])
+            for position, column in enumerate(frame.columns)
+        }
+
+    date_column, series_id = profile.date_column, profile.series_id_column
+    if (
+        date_column not in data.columns
+        or series_id not in data.columns
+        or profile.target not in data.columns
+        or not profile.frequency
+    ):
+        return None
+    try:
+        dates = pd.DatetimeIndex(row_dates(data, date_column))
+        rows = pd.DataFrame({
+            "series": data[series_id].to_numpy(),
+            "date": dates,
+            "value": pd.notna(data[profile.target].to_numpy()),
+        }).dropna(subset=["series", "date"])
+        rows = rows.drop_duplicates(["series", "date"], keep="first")
+        spans = {}
+        for name, group in rows.groupby("series", sort=False):
+            grid = pd.date_range(
+                group["date"].min(), group["date"].max(), freq=profile.frequency
+            )
+            present = group.set_index("date")["value"].reindex(grid, fill_value=False)
+            spans[name] = (grid, present.to_numpy(dtype=bool))
+    except (ValueError, TypeError):
+        # The generated code fails on these dates with its own error.
+        return None
+
+    return spans
+
+
+def validate_evaluation_partition(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+) -> None:
+    """
+    Check the training partition of an evaluation-mode forecast.
+
+    The script trains on the dates up to `plan.end_train` and predicts the
+    `steps` dates after it, which the metrics compare by position. Checked
+    before running:
+
+    - ForecasterRecursiveMultiSeries: every series needs a value on the last
+      training date and on each of the `steps` test dates. A series that
+      ends earlier is not predicted (the metrics fail with "inconsistent
+      numbers of samples"); when no series has a value there, it forecasts
+      from an earlier date and the metrics compare other dates, without an
+      error; a missing test value makes the metrics fail with "Input
+      contains NaN".
+    - Every forecaster: the missing values of the training partition that
+      the predictions read follow the rule of the prediction mode
+      (`validate_last_window`): an error when the estimator does not
+      tolerate them, a warning when it does. Its last dates are not final
+      rows here: `test_size` sets them.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Data the forecaster runs on.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Forecast plan, in evaluation mode (`plan.end_train` is set).
+
+    Returns
+    -------
+    None
+    """
+    if plan.end_train is None:
+        return
+    dates = row_dates(data, profile.date_column)
+    if dates is None:
+        return
+    end = training_end(plan.end_train, dates.tz)
+    try:
+        in_training = np.asarray(dates <= end)
+    except TypeError:
+        # The generated code fails on these dates with its own error.
+        return
+
+    if plan.forecaster == "ForecasterRecursiveMultiSeries":
+        _check_multiseries_evaluation(data, profile, plan, end)
+
+    training = data.loc[in_training]
+    if not _per_series(plan, profile) and not (dates == end).any():
+        # The script slices the regular grid up to `end_train`, where a
+        # missing date is a missing value: it is added so the window ends
+        # there too.
+        training = _with_row_at(training, end, profile)
+
+    validate_last_window(
+        data       = training,
+        profile    = profile,
+        plan       = plan,
+        final_rows = False,
+    )
+
+
+def _with_row_at(
+    data: pd.DataFrame,
+    date: pd.Timestamp,
+    profile: DataProfile,
+) -> pd.DataFrame:
+    """
+    Append a row dated `date` without values, dated as the data is (the
+    date column, or the index).
+    """
+    row = pd.DataFrame({column: [np.nan] for column in data.columns})
+    if profile.date_column is not None and profile.date_column in data.columns:
+        row[profile.date_column] = [date]
+        return pd.concat([data, row], ignore_index=True)
+    row.index = pd.DatetimeIndex([date], name=data.index.name)
+    return pd.concat([data, row])
+
+
+def _check_multiseries_evaluation(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+    end: pd.Timestamp,
+) -> None:
+    """
+    Reject an evaluation of ForecasterRecursiveMultiSeries whose series do
+    not all have a value on the last training date and on the test dates.
+    """
+    spans = _series_spans(data, profile)
+    if spans is None or not profile.frequency:
+        return
+    try:
+        test_dates = pd.date_range(
+            start   = end,
+            periods = plan.steps + 1,
+            freq    = profile.frequency,
+        )[1:]
+    except (ValueError, TypeError):
+        return
+    ending, missing = [], {}
+    for name, (dates, present) in spans.items():
+        if not isinstance(dates, pd.DatetimeIndex):
+            return
+        with_value = pd.Series(present, index=dates)
+        if not with_value[with_value.index <= end].any():
+            # No value to train on: `validate_series_lengths` says so.
+            continue
+        if not with_value.get(end, False):
+            ending.append(_plain(name))
+            continue
+        absent = [
+            date for date in test_dates if not with_value.get(date, False)
+        ]
+        if absent:
+            missing[_plain(name)] = pd.DatetimeIndex(absent)
+
+    if ending:
+        raise InvalidInputError(
+            f"Some series have no value on the last training date "
+            f"({plan.end_train}): {_shown(ending)}. {plan.forecaster} does not "
+            f"predict a series that ends before the others, and when no series "
+            f"has a value there it starts the forecast earlier, so the "
+            f"metrics would compare other dates. Choose another `test_size`, "
+            f"or fill in those values.",
+            field = "test_size",
+            hint  = (
+                "Choose a `test_size` whose last training date has a value in "
+                "every series, or fill in the missing values."
+            ),
+        )
+    if missing:
+        found = [f"{name!r}: {_where(dates)}" for name, dates in missing.items()]
+        shown = "; ".join(found[:_SHOWN])
+        if len(found) > _SHOWN:
+            shown += f"; and {len(found) - _SHOWN} more series"
+        raise InvalidInputError(
+            f"The target has missing values in the test split ({shown}). "
+            f"skforecast cannot compute the metrics on them, whatever the "
+            f"estimator. Impute the target, or evaluate on dates without "
+            f"missing values.",
+            field = "data",
+        )

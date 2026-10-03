@@ -126,16 +126,17 @@ skforecast-ai plan "$DATA" --target y --date-column fecha --steps 12 \
 
 ## Backtest and compare
 
-`backtest` evaluates the plan over several folds, as it would run in production. The cross-validation options you do not pass (`--initial-train-size`, `--fold-stride`, `--refit`, `--fixed-train-size`, `--gap`, `--allow-incomplete-fold`) are decided by the assistant from the profile and the plan.
+`backtest` evaluates the plan over several folds, as it would run in production. The cross-validation options you do not pass (`--initial-train-size`, `--fold-stride`, `--refit`, `--fixed-train-size`, `--gap`, `--allow-incomplete-fold`) are decided by the assistant from the profile and the plan. `--fixed-train-size` and `--expanding-train` only apply with `--refit`.
 
 ```bash
 # Folds decided by the assistant
 skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12
 
 # Your own folds: 100 initial observations, a new fold every 6 steps,
-# a fixed training window, no refit and 3 steps between training and test
+# refit in every fold on a fixed training window, and 3 steps between
+# training and test
 skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12 \
-  --initial-train-size 100 --fold-stride 6 --fixed-train-size --no-refit --gap 3
+  --initial-train-size 100 --fold-stride 6 --refit --fixed-train-size --gap 3
 
 # Save the predictions of every fold and the script
 skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12 \
@@ -195,7 +196,7 @@ skforecast-ai forecast "$DATA" --from-plan plan.json --test-size 12 --interval "
 skforecast-ai backtest "$DATA" --from-plan plan.json
 ```
 
-`--from-plan` reads the file written by `plan` or `refine-plan`, a bundle with the profile and the plan. `--from-profile` reads the file written by `profile --format json` and is accepted by `plan`, `compare` and `ask`. With `--from-plan`, `forecast-code` and `backtest-code` need no data argument (the script loads the path recorded in the profile); `forecast`, `backtest` and `compare` always need the data because they run the model.
+`--from-plan` reads the file written by `plan` or `refine-plan`, a bundle with the profile and the plan. `--from-profile` reads the file written by `profile --format json` and is accepted by `plan`, `compare` and `ask`. The plan fixes the horizon: `--steps` with `--from-plan` must match it (use `refine-plan --steps` to change it). With `--from-plan`, `forecast-code` and `backtest-code` need no data argument (the script loads the path recorded in the profile); `forecast`, `backtest` and `compare` always need the data because they run the model. Data passed with a saved profile are profiled again: updated data (new rows, a new series) run with the new profile, which says so in its warnings, columns the profile does not name are not used, and data of another structure (another frequency, an exogenous column missing) exit with code 1 and say how they differ.
 
 Both options read from standard input when given `-`, so the commands chain with pipes. `-q` hides the progress spinners.
 
@@ -301,11 +302,12 @@ Each LLM setting is read from the first source that defines it: the command opti
 - `--format json` prints the full result as JSON, the same content as `model_dump_json()` in Python. The default is a table (`profile`, `plan`, `refine-plan`, `forecast`, `backtest`, `compare`, `check-llm`), the script (`forecast-code`, `backtest-code`) or text (`ask`).
 - `--output` (`-o`) writes the output of `profile`, `plan`, `refine-plan` and the `*-code` commands to a file. `--output-predictions` and `--output-code` save the predictions and the script of the commands that run a model.
 - `--quiet` (`-q`) hides the progress spinners.
+- Warnings and errors go to standard error, so they never mix with the JSON document that `--format json` prints on standard output. With `--format json`, an error is printed as a JSON object, `{"error": {"code": ..., "message": ..., "field": ..., "hint": ...}}`, with the stable code and the argument or field at fault of [Exceptions and warnings](../api/exceptions.md).
 
 | Exit code | Meaning |
 |-----------|---------|
 | 0 | Success |
 | 1 | Error: missing file, unknown column, no LLM configured, unreachable URL, failed execution or a failed `check-llm` |
-| 2 | Invalid usage: unknown option or missing argument |
+| 2 | Invalid usage: unknown option, missing argument or a value the option does not accept (such as `--format xml` or `--interval 0.1`), printed as text by the parser; with `--format json`, a value of a valid option that the command rejects is the JSON object above |
 
 Shell completion for commands and options (bash, zsh, fish, PowerShell) is installed with `skforecast-ai --install-completion`; restart the shell afterwards.

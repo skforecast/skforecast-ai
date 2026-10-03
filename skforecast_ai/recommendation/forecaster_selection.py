@@ -9,11 +9,11 @@ from typing import Literal
 from .._constants import (
     DEFAULT_FOUNDATION_MODEL_ID,
     FORECASTER_TASK_TYPES,
-    FREQUENCY_TO_SEASONAL_PERIOD,
     MAX_STATS_SEASONAL_PERIOD,
 )
 from ..schemas import DataProfile
 from ..exceptions import InvalidInputError
+from .autoregressive import tabulated_seasonal_period
 
 
 def _auto_arima_is_practical(frequency: str | None) -> bool:
@@ -36,10 +36,7 @@ def _auto_arima_is_practical(frequency: str | None) -> bool:
         `MAX_STATS_SEASONAL_PERIOD`, `True` otherwise (including unknown
         frequencies).
     """
-    if frequency is None:
-        return True
-
-    m = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
+    m = tabulated_seasonal_period(frequency)
 
     return m is None or m < MAX_STATS_SEASONAL_PERIOD
 

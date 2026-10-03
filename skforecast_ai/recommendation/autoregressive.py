@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from skforecast.stats import pacf
+from .._constants import FREQUENCY_TO_SEASONAL_PERIOD
 from .._dates import date_positions, row_dates
 from ..schemas import DataProfile, SeriesPacf
 
@@ -112,6 +113,53 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
         if c // interval_seconds >= 2
     ]
     return seasons[:2]
+
+
+# Aliases that pandas 2.1 infers and pandas 2.2 renamed, by their name in
+# `FREQUENCY_TO_SEASONAL_PERIOD`: month, quarter and year ends, hours and
+# minutes.
+_LEGACY_ALIASES = {
+    "M": "ME", "Q": "QE", "A": "YE", "Y": "YE", "AS": "YS", "H": "h", "T": "min",
+}
+
+
+def tabulated_seasonal_period(frequency: str | None) -> int | None:
+    """
+    Return the seasonal period of `FREQUENCY_TO_SEASONAL_PERIOD` for a
+    frequency, reading an anchored frequency as its base alias.
+
+    An anchor only says on which day a week, quarter or year starts or
+    ends (`'W-WED'`, `'QS-OCT'`, `'QE-DEC'`), not how long it is, so it has
+    the period of its base alias (`'W'`, `'QS'`, `'QE'`), as the lags and
+    the baseline read it (`estimate_seasonality`). The Auto-ARIMA script
+    and the rule that leaves Auto-ARIMA out of the candidates both read
+    this period. Multiplied frequencies (`'2W'`) are not in the table: the
+    baseline falls back to `estimate_seasonality` for them, and Auto-ARIMA
+    gets no seasonal period. The aliases pandas 2.1 infers (`'M'`,
+    `'Q-DEC'`, `'A-DEC'`, `'H'`, `'15T'`) are read as their current names.
+
+    Parameters
+    ----------
+    frequency : str, None
+        Pandas frequency string.
+
+    Returns
+    -------
+    period : int, None
+        Seasonal period in steps, or None when the frequency is None or not
+        in the table.
+    """
+    if frequency is None:
+        return None
+    period = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
+    if period is None:
+        base = frequency.split("-", 1)[0]
+        legacy = re.fullmatch(r"(\d*)([A-Za-z]+)", base)
+        if legacy and legacy.group(2) in _LEGACY_ALIASES:
+            base = f"{legacy.group(1)}{_LEGACY_ALIASES[legacy.group(2)]}"
+        period = FREQUENCY_TO_SEASONAL_PERIOD.get(base)
+
+    return period
 
 
 def _date_order(dates: pd.DatetimeIndex | None) -> np.ndarray | None:

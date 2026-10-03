@@ -119,3 +119,91 @@ def with_missing_long(data: pd.DataFrame, series: str, positions: list[int]):
     for position in positions:
         data.loc[rows[-position], "value"] = np.nan
     return data
+
+
+def with_infinite(data: pd.DataFrame, positions: list[int], column: str = "y"):
+    """
+    Return a copy of `data` with the target infinite at `positions` (1 is the
+    last row).
+    """
+    data = data.copy()
+    for position in positions:
+        data.loc[data.index[-position], column] = np.inf
+    return data
+
+
+def with_leading_missing(data: pd.DataFrame, column: str, n_values: int):
+    """
+    Return a copy of wide `data` where `column` only has its last `n_values`
+    values (the rest, at the start, is missing).
+    """
+    data = data.copy()
+    data.iloc[: len(data) - n_values, data.columns.get_loc(column)] = np.nan
+    return data
+
+
+def long_starting_late(data: pd.DataFrame, series: str, n_values: int):
+    """
+    Return a copy of long-format `data` where `series` only has its last
+    `n_values` rows (the earlier ones are dropped).
+    """
+    drop = data.index[data["series"] == series][:-n_values]
+    return data.drop(index=drop)
+
+
+# --- Wide data with seven series, each one with only its last 3 values ---
+# More series than a message lists (5), for the "and N more" suffix.
+data_wide_many = pd.DataFrame(
+    {f"s{number}": np.arange(60, dtype=float) for number in range(1, 8)},
+    index=_dates,
+)
+for _column in data_wide_many.columns:
+    data_wide_many = with_leading_missing(data_wide_many, _column, 3)
+_profile_wide_many = _assistant.profile(
+    data_wide_many, target=list(data_wide_many.columns)
+)
+profile_wide_many = _profile_wide_many.data_profile
+
+
+# --- Plans in evaluation mode (`end_train` set) ---
+# data_single ends on 2023-03-01: with 3 test dates the training partition
+# ends on 2023-02-26, so the last training row is position 4 of the data.
+# The wide and long items_sales data end on 2012-04-29: 7 test dates end the
+# training partition on 2012-04-22.
+def in_evaluation(plan, end_train: str):
+    """Return a copy of `plan` in evaluation mode, with `end_train` set."""
+    return plan.model_copy(update={"end_train": end_train}, deep=True)
+
+
+plan_single_ridge_eval = in_evaluation(plan_single_ridge, "2023-02-26")
+plan_single_lgbm_eval = in_evaluation(plan_single_lgbm, "2023-02-26")
+
+_multiseries_kwargs = {
+    "steps": 7,
+    "forecaster": "ForecasterRecursiveMultiSeries",
+    "lags": [1, 5],
+}
+plan_wide_multiseries_eval = in_evaluation(
+    _assistant.plan(_profile_wide, estimator="Ridge", **_multiseries_kwargs),
+    "2012-04-22",
+)
+plan_long_multiseries_eval = in_evaluation(
+    _assistant.plan(_profile_long, estimator="Ridge", **_multiseries_kwargs),
+    "2012-04-22",
+)
+
+# Seven complete daily series (60 dates, last date 2023-03-01), more than a
+# message lists (5), for the "and N more" suffix; 7 test dates end the
+# training partition on 2023-02-22.
+data_wide_seven = pd.DataFrame(
+    {f"s{number}": np.arange(60, dtype=float) for number in range(1, 8)},
+    index=_dates,
+)
+_profile_wide_seven = _assistant.profile(
+    data_wide_seven, target=list(data_wide_seven.columns)
+)
+profile_wide_seven = _profile_wide_seven.data_profile
+plan_wide_seven_eval = in_evaluation(
+    _assistant.plan(_profile_wide_seven, estimator="Ridge", **_multiseries_kwargs),
+    "2023-02-22",
+)

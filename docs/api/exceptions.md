@@ -21,20 +21,24 @@ Every error derives from `SkforecastAIError`, which carries a `code` from a clos
 
 `refine_plan()` and `create_cv()` do not raise when the LLM fails: they emit a `UserWarning` and return their deterministic result, which is valid on its own.
 
+The warnings that skforecast emits while `forecast()`, `backtest()` and `compare()` run the generated script (for example `MissingValuesWarning`) are shown when the script ends, after its printed output is discarded. Your warning filters apply as usual: `warnings.simplefilter('ignore', category=...)` hides them, and an `error` filter makes the script fail.
+
 ## Error codes
 
 | `code` | Raised as | When |
 |---|---|---|
 | `invalid_argument` | `InvalidInputError`, `InvalidInputTypeError` | An argument or a received object is not valid. |
-| `insufficient_data` | `InvalidInputError` | The data is too short for what was asked: fewer than two folds for the cross-validation, or lags and window features longer than the data allows. |
+| `insufficient_data` | `InvalidInputError` | The data is too short for what was asked: fewer than two folds for the cross-validation, lags and window features longer than the data allows, a target column without any value, or a series of `ForecasterRecursiveMultiSeries` without values or shorter than its lags and window features. |
 | `data_not_found` | `DataNotFoundError` | A file to read (the CSV path or URL, or an input of the CLI) cannot be found. |
-| `data_unreadable` | `DataNotFoundError`, `InvalidInputError` | An input exists but cannot be parsed: a URL whose content is not a CSV (`DataNotFoundError`, as before), or the JSON of `--from-plan` or `--from-profile` in the CLI. |
-| `missing_dependency` | `InvalidInputError` | The package of the chosen estimator is not installed. |
+| `data_unreadable` | `DataNotFoundError`, `InvalidInputError` | An input exists but cannot be parsed: a CSV file that pandas cannot read (empty, binary, not UTF-8, or rows with more fields than the header), a URL whose content is not a CSV (`DataNotFoundError`, as before), or the JSON of `--from-plan` or `--from-profile` in the CLI. |
+| `missing_dependency` | `InvalidInputError` | The package of the chosen estimator, or the backend package of the foundation model, is not installed. Checked before `forecast()` and `backtest()` run the script. |
 | `execution_failed` | `ForecastExecutionError` | The generated script fails. |
 | `all_candidates_failed` | `AllCandidatesFailedError` | Every candidate of `compare()` fails. |
 | `llm_required` | `LLMRequiredError` | The method needs an LLM and none is configured. |
 | `llm_call_failed` | `LLMCallError` | The call to the LLM fails. |
 | `internal_error` | | Not raised by skforecast-ai: `ErrorInfo` uses it for any exception that skforecast-ai did not raise itself (it is also the default code of a bare `SkforecastAIError`). |
+
+Some errors carry a remedy in `hint` that does not depend on Python, for a program or an agent that passes paths (the CLI prints it as a tip): for example how to write the dates, or what a CSV file that cannot be read must look like. Messages that suggest a pandas call keep it, and `hint` gives the remedy without it.
 
 `ErrorInfo.from_exception()`, in `skforecast_ai.schemas`, turns an exception into plain data (`code`, `message`, `field`, `hint`) for a reader outside Python: it never holds a traceback or generated code, takes the field of a pydantic `ValidationError` from the location of its first error, and describes any other exception by its type and the first line of its message.
 

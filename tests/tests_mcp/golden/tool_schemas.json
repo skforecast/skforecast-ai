@@ -824,7 +824,7 @@
             }
           ],
           "default": null,
-          "description": "Whether the training window keeps its size when refitting (true) or grows (false). Null for false; it only matters with `refit`.",
+          "description": "Whether the training window keeps its size when refitting (true) or grows (false). Null for false. Only with `refit` true or an integer: with `refit` false or null it is an error, as it would not run (ForecasterStats aside).",
           "title": "Fixed Train Size"
         },
         "gap": {
@@ -838,7 +838,7 @@
             }
           ],
           "default": null,
-          "description": "Observations between the end of training and the test set. Null for 0.",
+          "description": "Observations between the end of training and the test set. Null for 0. A direct forecaster (ForecasterDirect, ForecasterDirectMultiVariate) cannot be backtested with a gap.",
           "title": "Gap"
         },
         "skip_folds": {
@@ -859,7 +859,7 @@
             }
           ],
           "default": null,
-          "description": "Folds are numbered from 0, and fold 0 always runs. An integer n keeps folds 0, n, 2n, ...; a list skips the folds at those numbers (each at least 1). Null for every fold.",
+          "description": "Folds are numbered from 0, and fold 0 always runs. An integer n keeps folds 0, n, 2n, ...; a list skips the folds at those numbers (each at least 1 and below the number of folds). Null for every fold.",
           "title": "Skip Folds"
         },
         "allow_incomplete_fold": {

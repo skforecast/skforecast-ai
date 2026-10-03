@@ -12,7 +12,7 @@ from sklearn.linear_model import Ridge
 from skforecast_ai import _utils as utils_module
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import FORECASTER_TASK_TYPES, SUPPORTED_TRANSFORMERS
-from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 from skforecast_ai.recommendation.baseline import select_baseline_config
 from skforecast_ai.recommendation.calendar import (
     CALENDAR_FEATURE_RELEVANCE,
@@ -28,6 +28,7 @@ from skforecast_ai._validation import (
     _validate_lags,
     _validate_window_features,
     check_estimator_installed,
+    is_symmetric_interval,
     validate_estimator,
     validate_estimator_kwargs,
     validate_forecaster,
@@ -160,6 +161,35 @@ def test_validate_estimator_kwargs_ValueError_when_name_unknown():
         validate_estimator_kwargs("Ridge", {"alpha": 1.0, "alpah": 2.0})
 
 
+@pytest.mark.parametrize(
+    "estimator_kwargs, suggestion",
+    [({"foo": 1}, ""), ({"ordr": (1, 0, 0)}, " Did you mean 'order'?")],
+    ids=["no close match", "close match"],
+)
+def test_validate_estimator_kwargs_InvalidInputError_when_arima_name_unknown(
+    estimator_kwargs, suggestion
+):
+    """
+    Test that an unknown keyword argument of Arima (the ARIMA model of
+    ForecasterStats) raises, with the closest name when there is one.
+    """
+    name = next(iter(estimator_kwargs))
+    err_msg = re.escape(f"Arima has no parameter '{name}'.{suggestion}")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_estimator_kwargs("Arima", estimator_kwargs)
+
+    assert exc_info.value.field == "estimator_kwargs"
+
+
+def test_validate_estimator_kwargs_output_when_arima_names_valid():
+    """
+    Test that the parameters of Arima pass without warnings.
+    """
+    messages = validate_estimator_kwargs("Arima", {"order": (1, 0, 0)})
+
+    assert messages == []
+
+
 def test_validate_estimator_kwargs_UserWarning_when_passthrough_name_unknown():
     """
     Test that an unknown keyword argument of LightGBM, which forwards
@@ -261,8 +291,68 @@ def test_check_estimator_installed_output_when_not_machine_learning(monkeypatch)
         validation_module.importlib.util, "find_spec", lambda name: None
     )
 
-    assert check_estimator_installed("autogluon/chronos-2-small", "foundation") is None
     assert check_estimator_installed("Arima", "statistical") is None
+
+
+# =============================================================================
+# Tests: check_estimator_installed, foundation models
+# =============================================================================
+def test_check_estimator_installed_InvalidInputError_when_foundation_backend_missing(
+    monkeypatch,
+):
+    """
+    Test that a ForecasterFoundation plan is checked through the backend of
+    its model, with the code 'missing_dependency' and the field 'estimator'.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+    )
+
+    err_msg = re.escape(
+        "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
+        "which is not installed (pip install \"chronos-forecasting\")."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        check_estimator_installed("autogluon/chronos-2-small", "foundation")
+
+    assert exc_info.value.code == "missing_dependency"
+    assert exc_info.value.field == "estimator"
+
+
+def test_check_estimator_installed_output_when_foundation_backend_installed(
+    monkeypatch,
+):
+    """
+    Test that a ForecasterFoundation plan passes when the backend of its model
+    is installed.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
+    )
+
+    assert check_estimator_installed("autogluon/chronos-2-small", "foundation") is None
+
+
+# =============================================================================
+# Tests: is_symmetric_interval
+# =============================================================================
+@pytest.mark.parametrize(
+    "interval, expected",
+    [
+        ([0.1, 0.9], True),
+        ([0.05, 0.95], True),
+        ([0.3, 0.7], True),
+        ([0.1, 0.8], False),
+        ([0.2, 0.7], False),
+        ([0.1, 0.95], False),
+    ],
+    ids=lambda value: f"interval, expected: {value}",
+)
+def test_is_symmetric_interval_output(interval, expected):
+    """
+    Test that an interval is symmetric when lower + upper is 1.
+    """
+    assert is_symmetric_interval(interval) is expected
 
 
 # =============================================================================
@@ -359,6 +449,29 @@ def test_validate_kwarg_names_ValueError_when_key_not_parameter_name(key):
     )
     with pytest.raises(ValueError, match=err_msg):
         validate_kwarg_names({key: 1})
+
+
+@pytest.mark.parametrize(
+    "estimator_kwargs, type_name",
+    [([1, 2], "list"), ("alpha=1", "str"), (3, "int"), ((("alpha", 1),), "tuple")],
+    ids=["list", "str", "int", "tuple"],
+)
+def test_validate_kwarg_names_InvalidInputTypeError_when_not_a_dict(
+    estimator_kwargs, type_name
+):
+    """
+    Test that `estimator_kwargs` that is not a dict raises
+    InvalidInputTypeError (a TypeError) with the field 'estimator_kwargs'.
+    """
+    err_msg = re.escape(
+        f"`estimator_kwargs` must be a dict of keyword arguments, such as "
+        f"{{'alpha': 0.5}}, got {type_name}."
+    )
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        validate_kwarg_names(estimator_kwargs)
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == "estimator_kwargs"
 
 
 @pytest.mark.parametrize(

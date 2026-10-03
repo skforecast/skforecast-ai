@@ -362,11 +362,17 @@ def test_try_parse_first_date_column_ValueError_when_later_column_is_not_dates()
         _try_parse_first_date_column(data)
 
 
-def test_try_parse_first_date_column_leaves_zone_names_to_pandas():
+@pytest.mark.parametrize("date_column", [None, "date"], ids=["detected", "named"])
+def test_try_parse_first_date_column_InvalidInputError_when_zone_names_change(
+    date_column
+):
     """
-    Test that zone names that change at a daylight saving time change (CET
-    then CEST) are not read as time zones: pandas parses the dates without
-    them and warns that it drops them.
+    Test that dates with zone names that change at a daylight saving time
+    change (CET then CEST) raise the error of dates in several time zones,
+    detected or named: the generated script reads every date with the
+    format of the first one, which holds 'CET', and fails on the others,
+    which were read one by one before. pandas still warns that it does not
+    recognize the zone names.
     """
     dates = pd.date_range("2012-03-24", periods=72, freq="h", tz="Europe/Madrid")
     data = pd.DataFrame({
@@ -374,12 +380,21 @@ def test_try_parse_first_date_column_leaves_zone_names_to_pandas():
         "y": range(72),
     })
 
+    err_msg = re.escape(
+        "The dates of column 'date' mix time zones (CET, CEST), so they cannot "
+        "be placed on one time axis (local time does that across a daylight "
+        "saving time change). Write every date in one time zone: in UTC for "
+        "data recorded within the day, or without the time zone for daily or "
+        "coarser data."
+    )
     warn_msg = re.escape("included an un-recognized timezone")
-    with pytest.warns(FutureWarning, match=warn_msg):
-        parsed = _try_parse_first_date_column(data)
+    with (
+        pytest.raises(InvalidInputError, match=err_msg) as exc_info,
+        pytest.warns(FutureWarning, match=warn_msg),
+    ):
+        _try_parse_first_date_column(data, date_column=date_column)
 
-    assert pd.api.types.is_datetime64_any_dtype(parsed["date"])
-    assert parsed["date"].iloc[0] == pd.Timestamp("2012-03-24 00:00:00")
+    assert exc_info.value.field == "data"
 
 
 @pytest.mark.parametrize(

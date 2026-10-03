@@ -7,13 +7,14 @@
 
 from __future__ import annotations
 import copy
+import re
 import warnings
 import pandas as pd
 from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
 from .._constants import DIRECT_FORECASTERS
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
-from ..exceptions import InvalidInputError
+from ..exceptions import InvalidInputError, InvalidInputTypeError
 
 
 def derive_cv_defaults(
@@ -449,6 +450,12 @@ def build_cv(
     checks that a date-based size can be located on the dataset index. A
     `ValueError` is raised when fewer than `min_folds` folds result.
 
+    An argument that `TimeSeriesFold` rejects raises `InvalidInputError`
+    (`InvalidInputTypeError` for a wrong type) naming it in `field` when
+    its message names a single one, and a list of `skip_folds` with
+    indexes beyond the folds of the strategy, which `TimeSeriesFold`
+    ignores, raises too.
+
     Parameters
     ----------
     cv_params : dict
@@ -474,25 +481,32 @@ def build_cv(
         data_profile = data_profile,
     )
 
-    cv = TimeSeriesFold(
-        steps                 = cv_params["steps"],
-        initial_train_size    = cv_params["initial_train_size"],
-        refit                 = cv_params["refit"],
-        fixed_train_size      = cv_params["fixed_train_size"],
-        gap                   = cv_params["gap"],
-        fold_stride           = cv_params.get("fold_stride"),
-        skip_folds            = cv_params.get("skip_folds"),
-        allow_incomplete_fold = cv_params.get("allow_incomplete_fold", True),
-        differentiation       = cv_params.get("differentiation"),
-        verbose               = False,
-    )
+    try:
+        cv = TimeSeriesFold(
+            steps                 = cv_params["steps"],
+            initial_train_size    = cv_params["initial_train_size"],
+            refit                 = cv_params["refit"],
+            fixed_train_size      = cv_params["fixed_train_size"],
+            gap                   = cv_params["gap"],
+            fold_stride           = cv_params.get("fold_stride"),
+            skip_folds            = cv_params.get("skip_folds"),
+            allow_incomplete_fold = cv_params.get("allow_incomplete_fold", True),
+            differentiation       = cv_params.get("differentiation"),
+            verbose               = False,
+        )
 
-    n_folds = count_cv_folds(
-                  cv             = cv,
-                  n_observations = data_profile.span_index_length,
-                  start_date     = data_profile.start_date,
-                  frequency      = data_profile.frequency,
-              )
+        n_folds = count_cv_folds(
+                      cv             = cv,
+                      n_observations = data_profile.span_index_length,
+                      start_date     = data_profile.start_date,
+                      frequency      = data_profile.frequency,
+                  )
+    except InvalidInputError:
+        raise
+    except (ValueError, TypeError) as exc:
+        raise _strategy_error(exc) from exc
+
+    _check_skip_folds(cv, data_profile)
     if n_folds < min_folds:
         public_params = {
             key: value for key, value in cv_params.items()
@@ -506,6 +520,80 @@ def build_cv(
         )
 
     return cv
+
+
+# Arguments of `TimeSeriesFold` that its error messages name in backticks.
+_CV_ARGUMENT = re.compile(
+    r"`(initial_train_size|fold_stride|gap|skip_folds|refit|fixed_train_size"
+    r"|allow_incomplete_fold|steps)\b"
+)
+
+
+def _strategy_error(exc: Exception) -> InvalidInputError:
+    """
+    Turn an error of skforecast while it builds or splits a cross-validation
+    strategy into an `InvalidInputError` naming the argument at fault.
+
+    `TimeSeriesFold` checks its arguments (`gap >= 0`, `fold_stride >= 1`,
+    an `initial_train_size` inside the data, ...) with a `ValueError` or a
+    `TypeError` of its own; the message, which quotes sizes and dates of
+    the index but no value of the data, is kept on one line, and a
+    `TypeError` stays one (`InvalidInputTypeError`).
+    """
+    message = " ".join(str(exc).split()) or type(exc).__name__
+    # A message that names several arguments (`initial_train_size + gap`)
+    # does not say which one to change.
+    named = set(_CV_ARGUMENT.findall(message))
+    error_class = (
+        InvalidInputTypeError if isinstance(exc, TypeError) else InvalidInputError
+    )
+    field = named.pop() if len(named) == 1 else None
+    # The folds are the remedy only when the strategy does not fit in the
+    # data; a value `TimeSeriesFold` rejects by itself (`gap=-1`,
+    # `refit='yes'`) is fixed in its own argument.
+    if field not in (None, "initial_train_size", "steps"):
+        hint = f"Pass a value that `TimeSeriesFold` accepts for `{field}`."
+    else:
+        hint = (
+            "Change the arguments of the strategy (`initial_train_size`, "
+            "`fold_stride`, `gap`, `skip_folds`) or the `steps` of the plan "
+            "so that at least two folds fit in the data."
+        )
+
+    return error_class(
+        f"The cross-validation strategy cannot be built: {message}",
+        field = field,
+        hint  = hint,
+    )
+
+
+def _check_skip_folds(cv: TimeSeriesFold, data_profile: DataProfile) -> None:
+    """
+    Reject a list of `skip_folds` with indexes beyond the folds of `cv`,
+    which `TimeSeriesFold` ignores without an error.
+    """
+    skip_folds = cv.skip_folds
+    if not isinstance(skip_folds, list) or not skip_folds:
+        return
+    unskipped = copy.copy(cv)
+    unskipped.skip_folds = None
+    n_folds = count_cv_folds(
+                  cv             = unskipped,
+                  n_observations = data_profile.span_index_length,
+                  start_date     = data_profile.start_date,
+                  frequency      = data_profile.frequency,
+              )
+    beyond = [index for index in skip_folds if index >= n_folds]
+    if beyond:
+        shown = (
+            f"{beyond[:5]} and {len(beyond) - 5} more" if len(beyond) > 5
+            else f"{beyond}"
+        )
+        raise InvalidInputError(
+            f"`skip_folds` names folds that do not exist ({shown}): the "
+            f"strategy has {n_folds} folds, numbered from 0 to {n_folds - 1}.",
+            field = "skip_folds",
+        )
 
 
 def _resolve_initial_train_size(

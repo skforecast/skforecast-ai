@@ -1,16 +1,26 @@
 # Unit test cli skforecast_ai
 
 import ast
+import io
 import json
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 import typer
 from typer.testing import CliRunner
+from skforecast.exceptions.exceptions import rich_warning_handler
 
-from skforecast_ai.cli import app, _parse_initial_train_size, _parse_lags
+from skforecast_ai.cli import (
+    app,
+    _parse_initial_train_size,
+    _parse_lags,
+    _report_error,
+    _showwarning_to_stderr,
+)
+from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_assistant import df_single, df_multi_long, df_multi_wide
@@ -1433,3 +1443,430 @@ class TestCompare:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["ranking_metric"] == "mean_absolute_scaled_error"
+
+
+# ---------------------------------------------------------------------------
+# Warnings go to stderr
+# ---------------------------------------------------------------------------
+
+
+class TestWarningsToStderr:
+    """Tests for the warning handler that the CLI sends to stderr."""
+
+    def test_backtest_json_stdout_parseable_when_skforecast_warning(self, tmp_path):
+        """
+        A skforecast warning (rich panel printed on stdout by skforecast's own
+        handler) goes to stderr with its format, so the JSON document on
+        stdout stays parseable.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with warnings.catch_warnings():
+            warnings.simplefilter("always")
+            warnings.showwarning = rich_warning_handler
+            result = runner.invoke(
+                app,
+                ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+                 "--steps", "1", "--initial-train-size", "40", "--refit",
+                 "--format", "json", "--quiet"],
+            )
+            handler_after = warnings.showwarning
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert "metrics" in payload
+        assert "LongTrainingWarning" in result.stderr
+        assert "LongTrainingWarning" not in result.stdout
+        assert handler_after is rich_warning_handler
+
+    def test_showwarning_to_stderr_keeps_explicit_file(self, capsys):
+        """
+        A warning shown on an explicit file is written there, not to stderr.
+        """
+        def file_handler(message, category, filename, lineno, file=None, line=None):
+            print(f"shown: {message}", file=file)
+
+        buffer = io.StringIO()
+        handler = _showwarning_to_stderr(file_handler)
+        handler(UserWarning("to the file"), UserWarning, "f.py", 1, file=buffer)
+        captured = capsys.readouterr()
+        assert "to the file" in buffer.getvalue()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_showwarning_to_stderr_sends_stdout_to_stderr(self, capsys):
+        """
+        A handler that prints on stdout writes to stderr once wrapped.
+        """
+        def printing_handler(message, category, filename, lineno, file=None, line=None):
+            print(f"shown: {message}")
+
+        handler = _showwarning_to_stderr(printing_handler)
+        handler(UserWarning("panel"), UserWarning, "f.py", 1)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == "shown: panel\n"
+
+    def test_main_keeps_handler_when_already_wrapped(self):
+        """
+        A handler already wrapped (a command invoked from another one) is
+        neither wrapped again nor replaced when the command ends.
+        """
+        wrapped = _showwarning_to_stderr(rich_warning_handler)
+        with warnings.catch_warnings():
+            warnings.showwarning = wrapped
+            result = runner.invoke(app, ["config", "path"])
+            assert warnings.showwarning is wrapped
+        assert result.exit_code == 0, result.output
+
+    def test_main_leaves_handler_for_mcp(self, monkeypatch):
+        """
+        The `mcp` command keeps the handler it finds: the server records
+        warnings itself in a worker thread.
+        """
+        seen = {}
+
+        def fake_run_server(**kwargs):
+            seen["handler"] = warnings.showwarning
+
+        monkeypatch.setattr("skforecast_ai.mcp.server.run_server", fake_run_server)
+        with warnings.catch_warnings():
+            warnings.showwarning = rich_warning_handler
+            result = runner.invoke(app, ["mcp", "--allow-dir", "/tmp"])
+        assert result.exit_code == 0, result.output
+        assert seen["handler"] is rich_warning_handler
+
+
+# ---------------------------------------------------------------------------
+# Error contract
+# ---------------------------------------------------------------------------
+
+
+def _write_plan_bundle(tmp_path, csv_path, steps=5):
+    """Write the JSON bundle of `plan` for df_single and return its path."""
+    result = runner.invoke(
+        app,
+        ["plan", csv_path, "--target", "sales", "--date-column", "date",
+         "--steps", str(steps), "--format", "json", "--quiet"],
+    )
+    assert result.exit_code == 0, result.output
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(result.stdout)
+    return str(plan_file)
+
+
+class TestErrorContract:
+    """Tests for how the CLI reports errors."""
+
+    def test_error_on_stderr_with_brackets_kept(self, tmp_path):
+        """
+        An error goes to stderr, with text in brackets kept: rich markup
+        used to eat `[lower, upper]`.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--interval", "0.9,0.1", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "Error: `interval` must be `[lower, upper]` with 0 < lower" in result.stderr
+
+    def test_error_json_object_on_stderr_when_format_json(self, tmp_path):
+        """
+        With --format json an error is a JSON object `{"error": {...}}` with
+        the fields of `ErrorInfo`, on stderr; stdout stays empty.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "missing", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        payload = json.loads(result.stderr)
+        assert list(payload) == ["error"]
+        assert set(payload["error"]) == {"code", "message", "field", "hint"}
+        assert payload["error"]["code"] == "invalid_argument"
+        assert payload["error"]["field"] == "target"
+
+    def test_error_json_when_required_option_missing(self, tmp_path):
+        """
+        A missing required option is reported like any other error: code 1
+        and, with --format json, the JSON object naming the option.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": "--steps is required.",
+                "field": "steps",
+                "hint": None,
+            }
+        }
+
+    def test_error_json_when_no_llm(self, monkeypatch):
+        """
+        Without an LLM, the JSON error carries the CLI message that says how
+        to configure one.
+        """
+        monkeypatch.delenv("SKFORECAST_AI_LLM", raising=False)
+        monkeypatch.setattr("skforecast_ai.cli.get_config_value", lambda key: None)
+        result = runner.invoke(app, ["ask", "Why?", "--format", "json"])
+        assert result.exit_code == 1
+        payload = json.loads(result.stderr)["error"]
+        assert payload["code"] == "llm_required"
+        assert payload["message"] == (
+            "No LLM configured. Set the SKFORECAST_AI_LLM environment variable "
+            "or use the --llm flag."
+        )
+
+    def test_error_json_when_bundle_does_not_validate(self, tmp_path):
+        """
+        A bundle that does not validate is `invalid_argument` with the tip of
+        the text output as `hint`.
+        """
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps({"profile": {}, "plan": {}}))
+        result = runner.invoke(
+            app, ["forecast-code", "--from-plan", str(plan_file), "--format", "json"]
+        )
+        assert result.exit_code == 1
+        payload = json.loads(result.stderr)["error"]
+        assert payload["code"] == "invalid_argument"
+        assert payload["hint"] == (
+            "Use --format json with the source command to produce valid input."
+        )
+
+    def test_error_json_when_csv_is_empty(self, tmp_path):
+        """
+        `profile` of an empty CSV with --format json reports the code
+        'data_unreadable', the field 'data' and the hint on stderr.
+        """
+        csv_path = tmp_path / "empty.csv"
+        csv_path.write_bytes(b"")
+        result = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "sales", "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "data_unreadable",
+                "message": (
+                    f"The CSV file '{csv_path}' could not be read: No columns "
+                    f"to parse from file"
+                ),
+                "field": "data",
+                "hint": (
+                    "Pass a comma-separated text file in UTF-8 with a header "
+                    "row, and the same number of fields in every row."
+                ),
+            }
+        }
+
+    def test_error_text_shows_tip_when_csv_is_empty(self, tmp_path):
+        """
+        In text mode the hint of the error is shown after "Tip: " on stderr.
+        """
+        csv_path = tmp_path / "empty.csv"
+        csv_path.write_bytes(b"")
+        result = runner.invoke(
+            app, ["profile", str(csv_path), "--target", "sales", "--quiet"]
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert (
+            "Tip: Pass a comma-separated text file in UTF-8 with a header "
+            "row, and the same number of fields in every row."
+        ) in " ".join(result.stderr.split())
+
+    def test_report_error_execution_tip(self, capsys):
+        """
+        A failed script points to the `*-code` commands: `--output-code` is
+        only written when the command succeeds.
+        """
+        error = ForecastExecutionError(
+            original_error      = ValueError("boom"),
+            generated_code      = "x = 1",
+            execution_traceback = "Traceback",
+        )
+        _report_error(error, json_errors=False)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Execution Error:" in captured.err
+        assert (
+            "Tip: Run forecast-code or backtest-code with the same options to "
+            "get the script that failed."
+        ) in " ".join(captured.err.split())
+
+        _report_error(error, json_errors=True)
+        payload = json.loads(capsys.readouterr().err)["error"]
+        assert payload["code"] == "execution_failed"
+        assert payload["hint"].startswith("Run forecast-code or backtest-code")
+
+    @pytest.mark.parametrize(
+        "command, value",
+        [("forecast", "code"), ("forecast-code", "table"), ("ask", "code"),
+         ("plan", "xml")],
+    )
+    def test_format_invalid_value_exit_2(self, command, value):
+        """
+        `--format` only accepts the values of the command: any other is a
+        usage error (exit code 2) instead of the default output.
+        """
+        result = runner.invoke(app, [command, "data.csv", "--format", value])
+        assert result.exit_code == 2
+        assert "Invalid value for '--format'" in result.output
+
+    @pytest.mark.parametrize(
+        "command", ["forecast", "forecast-code", "backtest", "backtest-code"],
+    )
+    def test_steps_different_from_plan_raises(self, tmp_path, command):
+        """
+        `--steps` with `--from-plan` must match the steps of the plan, as in
+        Python: it was ignored and the plan's horizon used.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        result = runner.invoke(
+            app,
+            [command, csv_path, "--from-plan", plan_file, "--steps", "3",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": (
+                    "--steps (3) does not match the steps of the plan in "
+                    "--from-plan (5). Omit --steps to use the plan's horizon, "
+                    "or change it with `refine-plan --steps`."
+                ),
+                "field": "steps",
+                "hint": None,
+            }
+        }
+
+    @pytest.mark.parametrize("command", ["forecast", "backtest"])
+    def test_data_of_another_structure_than_plan_raises(self, tmp_path, command):
+        """
+        Data passed with `--from-plan` whose structure differs from the
+        profile of the bundle (an exogenous column is missing) exit with
+        code 1 and say how they differ.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        new_csv = _write_csv(
+            tmp_path, df_single.drop(columns="promo"), name="new.csv"
+        )
+        result = runner.invoke(
+            app,
+            [command, new_csv, "--from-plan", plan_file, "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": (
+                    "The data do not have the structure of the profile passed "
+                    "(exog_columns: ['promo'] != []): profile these data and "
+                    "build the plan from that profile."
+                ),
+                "field": "profile",
+                "hint": (
+                    "Profile these data again and build the plan from that "
+                    "profile."
+                ),
+            }
+        }
+
+    def test_steps_different_from_plan_raises_ask(self, tmp_path):
+        """
+        `ask --from-plan` rejects a different `--steps` before calling the LLM.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        result = runner.invoke(
+            app,
+            ["ask", "Why?", "--from-plan", plan_file, "--steps", "3",
+             "--llm", "test", "--format", "json"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr)["error"]["field"] == "steps"
+
+    def test_steps_equal_to_plan_runs(self, tmp_path):
+        """
+        `--steps` equal to the steps of the plan is accepted.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        result = runner.invoke(
+            app,
+            ["forecast-code", csv_path, "--from-plan", plan_file, "--steps", "5",
+             "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+
+    @pytest.mark.parametrize(
+        "bundle, missing",
+        [({"plan": {}}, "'profile'"), ([1], "'profile' or 'plan'")],
+        ids=["no_profile", "not_an_object"],
+    )
+    def test_error_json_when_bundle_has_no_profile(self, tmp_path, bundle, missing):
+        """
+        A `--from-plan` input without a profile or a plan, or that is not a
+        JSON object, is an invalid argument naming what is missing, not an
+        internal `KeyError` or `TypeError`.
+        """
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(bundle))
+        result = runner.invoke(
+            app, ["forecast-code", "--from-plan", str(plan_file), "--format", "json"]
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": (
+                    f"The --from-plan input has no {missing}: pass the file "
+                    f"written by `plan` or `refine-plan` with --format json."
+                ),
+                "field": "from_plan",
+                "hint": None,
+            }
+        }
+
+    def test_error_json_when_option_value_rejected(self, tmp_path):
+        """
+        A value that an option parser rejects keeps exit code 2 and, with
+        --format json, is the JSON object too; without it, the usage error
+        of the parser.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        args = ["forecast-code", csv_path, "--target", "sales", "--steps", "3",
+                "--interval", "0.1"]
+        result = runner.invoke(app, [*args, "--format", "json"])
+        assert result.exit_code == 2
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": "Interval must be two comma-separated quantiles, e.g. '0.1,0.9'.",
+                "field": None,
+                "hint": None,
+            }
+        }
+
+        result = runner.invoke(app, args)
+        assert result.exit_code == 2
+        assert "Invalid value" in result.stderr
+

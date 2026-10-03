@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from skforecast.foundation import FoundationModelInfo, list_adapters
 from .._constants import DEFAULT_FOUNDATION_MODEL_ID, FORECASTER_TASK_TYPES
-from .._foundation import foundation_backend_installed, resolve_foundation_model
+from .._foundation import missing_foundation_backend, resolve_foundation_model
 from ..exceptions import InvalidInputError
 from ._errors import ServerError
 from .models import ToolNotice
@@ -332,15 +332,10 @@ class ModelPolicy:
         None
         """
 
-        if model_id is None:
+        # The rule of the core, with a message and a hint for the server.
+        package = missing_foundation_backend(model_id)
+        if package is None:
             return
-        try:
-            info = resolve_foundation_model(model_id)
-        except InvalidInputError:
-            return
-        if foundation_backend_installed(info):
-            return
-        package = info.backend_package
         raise ServerError(
             f"'{model_id}' needs the '{package}' package, which is not "
             f"installed where the server runs. Nothing was run.",

@@ -1,5 +1,7 @@
 # Unit test render_forecast_statistical rendering
 
+import pytest
+
 from skforecast_ai.rendering import render_forecast_statistical
 from skforecast_ai.schemas import RenderedScript
 
@@ -190,3 +192,37 @@ def test_render_forecast_statistical_output_when_categorical_exog():
     assert expected_exog_block in script
     assert expected_fit in script
     assert "'holiday'" not in script
+
+
+# =============================================================================
+# Tests: render_forecast_statistical: seasonal period
+# =============================================================================
+@pytest.mark.parametrize(
+    "frequency, expected_estimator",
+    [
+        ("QS-OCT", "Arima(order=None, seasonal_order=None, m=4)"),
+        ("QE-DEC", "Arima(order=None, seasonal_order=None, m=4)"),
+        ("W-WED", "Arima(order=None, seasonal_order=None, m=52)"),
+        ("YE-DEC", "Arima(order=None, seasonal_order=None, m=1)"),
+        ("Q-DEC", "Arima(order=None, seasonal_order=None, m=4)"),
+        ("2W", "Arima(order=None, seasonal_order=None)"),
+    ],
+    ids=lambda dt: f"frequency, expected_estimator: {dt}",
+)
+def test_render_forecast_statistical_output_seasonal_period_when_anchored_frequency(
+    frequency, expected_estimator
+):
+    """
+    Test that render_forecast_statistical gives Auto-ARIMA the seasonal
+    period of the base alias of an anchored frequency (quarters starting in
+    October, weeks ending on Wednesday, years ending in December, and the
+    quarter alias of pandas 2.1), as the
+    lags and the baseline read it, and none for a multiplied frequency
+    outside the table.
+    """
+    profile = profile_single_no_exog.model_copy(update={"frequency": frequency})
+
+    result = render_forecast_statistical(plan_statistical, profile)
+
+    assert f"    estimator = {expected_estimator},\n" in result.full_script
+    assert f"data = data.asfreq({frequency!r})\n" in result.full_script

@@ -10,8 +10,11 @@ import ast
 import io
 import re
 import textwrap
+import threading
 import traceback
-from contextlib import redirect_stdout
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager, redirect_stdout
 from typing import Any
 
 from ..exceptions import ForecastExecutionError
@@ -39,6 +42,13 @@ def exec_rendered(
     the script and every variable the script defines is returned. Output
     printed by the script is discarded rather than shown.
 
+    The warnings the script emits are shown once it has run (or failed),
+    with stdout restored: skforecast prints its warnings on stdout, so
+    they were discarded with the output. The filters of the caller apply
+    when the warning is emitted, as always (an `error` filter still makes
+    the script fail). Like the redirection of stdout, this changes global
+    state: concurrent calls from several threads are not supported.
+
     Parameters
     ----------
     code : str
@@ -64,23 +74,69 @@ def exec_rendered(
     # The tree is parsed once and kept to locate the failed statement, so
     # a warning raised while parsing is not emitted a second time.
     tree = None
-    try:
-        tree = ast.parse(code, filename)
-        compiled = compile(tree, filename, "exec")
-        with redirect_stdout(io.StringIO()):
-            exec(compiled, namespace)  # noqa: S102
-    except Exception as e:
-        tb = traceback.format_exc()
-        failed_line = _find_failed_line(e, filename)
-        raise ForecastExecutionError(
-            original_error      = e,
-            generated_code      = code,
-            execution_traceback = tb,
-            failed_line         = failed_line,
-            failed_statement    = _find_failed_statement(code, failed_line, tree),
-        ) from e
+    # Shown outside the `try`, so a handler that fails is not reported as a
+    # failure of the script.
+    with _deferred_warnings():
+        try:
+            tree = ast.parse(code, filename)
+            compiled = compile(tree, filename, "exec")
+            with redirect_stdout(io.StringIO()):
+                exec(compiled, namespace)  # noqa: S102
+        except Exception as e:
+            tb = traceback.format_exc()
+            failed_line = _find_failed_line(e, filename)
+            raise ForecastExecutionError(
+                original_error      = e,
+                generated_code      = code,
+                execution_traceback = tb,
+                failed_line         = failed_line,
+                failed_statement    = _find_failed_statement(code, failed_line, tree),
+            ) from e
 
     return namespace
+
+
+@contextmanager
+def _deferred_warnings() -> Iterator[None]:
+    """
+    Show the warnings of the current thread when the block ends.
+
+    The filters are not changed: they decide, when a warning is emitted,
+    whether it is ignored, raised or shown, and a warning to show is kept
+    and passed to the handler found on entry (`warnings.showwarning`, or
+    the recorder of an enclosing `catch_warnings(record=True)`) on exit,
+    also when the block raises. The filters are not applied a second time
+    (`warnings.warn_explicit`): on exit they would be matched against a
+    module derived from the file name instead of the module that warned,
+    and an `error` filter could then raise outside the script. A warning
+    of another thread is shown at once.
+    """
+
+    records: list[warnings.WarningMessage] = []
+    thread = threading.get_ident()
+    show = warnings.showwarning
+
+    def record(message, category, filename, lineno, file=None, line=None):
+        if threading.get_ident() == thread:
+            records.append(warnings.WarningMessage(
+                message, category, filename, lineno, file, line
+            ))
+        else:
+            show(message, category, filename, lineno, file, line)
+
+    # The handler is swapped by hand: `catch_warnings()` would reset the
+    # registries of the warnings already shown, so a warning shown once per
+    # location (the default) would come back on every run.
+    warnings.showwarning = record
+    try:
+        yield
+    finally:
+        warnings.showwarning = show
+        for msg in records:
+            show(
+                msg.message, msg.category, msg.filename, msg.lineno,
+                msg.file, msg.line,
+            )
 
 
 def _find_failed_line(error: Exception, filename: str) -> int | None:
