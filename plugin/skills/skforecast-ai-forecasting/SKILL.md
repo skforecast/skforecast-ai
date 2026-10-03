@@ -120,7 +120,9 @@ progress). Meanwhile only the read tools (`get_code`, `get_failure`,
 - Messages of the library name the arguments of its Python API: `data` is
   `data_path`, `exog` is `exog_path`, `profile`, `plan` and `cv` are the
   ids `profile_id`, `plan_id` and `cv_id`, and `forecast()` or
-  `backtest()` are the tools `forecast` and `backtest`.
+  `backtest()` are the tools `forecast` and `backtest`. A message can
+  also give advice that needs Python (read the file with pandas,
+  `dayfirst=True`): follow the `hint` of the error instead.
 - Future exogenous values (`exog_path`): one row per date of the horizon
   (and per series when they are stacked), with the date column of the data.
 - Ids are valid while the server runs. After a restart, or when an id was
@@ -182,7 +184,7 @@ and follow `hint` when there is one:
 | code | What to do |
 |---|---|
 | `invalid_argument` | Fix the argument named in `field`, as the message says. |
-| `insufficient_data` | Ask for less: a shorter horizon, fewer lags, a smaller first training set. A target column without any value is also reported this way. |
+| `insufficient_data` | Ask for less: a shorter horizon, fewer lags, a smaller first training set. A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
 | `data_not_found`, `invalid_path`, `path_not_allowed`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
 | `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header). Tell the user, as for the data problems above. |
 | `file_too_large` | The file is larger than the server reads (`--max-file-mb`, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |
