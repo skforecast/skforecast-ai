@@ -142,7 +142,9 @@ def test_tool_backtest_execution_failed_keeps_the_failure(tmp_path):
     """
     Test that a script that fails while it runs is `execution_failed`, with
     the id of its failure in the details, whose traceback and code
-    `get_failure` returns.
+    `get_failure` returns. The error names only the type of what failed (its
+    message, of scikit-learn here, may quote a value), and the traceback of
+    `get_failure` has no absolute path.
     """
     server, path = h2o_server(tmp_path)
     _, _, cv_id = cv_of(
@@ -159,11 +161,19 @@ def test_tool_backtest_execution_failed_keeps_the_failure(tmp_path):
     )
 
     assert error["code"] == "execution_failed"
-    assert error["message"].startswith("Error executing generated forecasting code.")
+    assert error["message"] == (
+        "The generated script failed with InvalidParameterError. Its message, "
+        "the traceback and the code that ran are in `get_failure`, with the "
+        "`failure_id` of `details`."
+    )
     assert failure["id"] == error["details"]["failure_id"]
     assert failure["text"].startswith("Error executing generated forecasting code.")
     assert "Traceback:\n" in failure["text"]
     assert "'no-such-solver'" in failure["text"].split("Code that ran:\n")[1]
+    traceback_text = failure["text"].split("Traceback:\n")[1].split("Code that ran")[0]
+    assert 'File "sklearn/' in traceback_text
+    assert 'File "/' not in traceback_text
+    assert "site-packages" not in traceback_text
 
 
 def test_tool_backtest_heartbeat_progress_while_it_runs(tmp_path, monkeypatch):
