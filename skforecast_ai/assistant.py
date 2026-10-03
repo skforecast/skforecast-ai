@@ -132,7 +132,9 @@ from ._last_window import (
     validate_series_lengths,
 )
 from ._utils import (
+    _check_cv_matches_profile,
     _check_evaluated_target,
+    _check_plan_matches_profile,
     _check_feature_name_collisions,
     _check_window_needs_refit,
     _resolve_data_and_target,
@@ -1255,6 +1257,9 @@ class ForecastingAssistant:
             again before the script is rendered, so one edited with
             `model_copy(update=...)` or by assignment raises
             `ValidationError` unless it is still a valid `ForecastPlan`.
+            A plan built for data of another frequency or shape, or that
+            uses exogenous variables the data does not have, raises
+            `ValueError`.
 
         Returns
         -------
@@ -1342,6 +1347,9 @@ class ForecastingAssistant:
         not final rows: `test_size` sets them), and with
         `ForecasterRecursiveMultiSeries` every series needs a value on the
         last training date and on the test dates.
+        A plan that carries the `end_train` of an earlier evaluation
+        raises `ValueError` when `test_size` is not passed, instead of
+        evaluating the same dates again: pass `test_size` to evaluate.
         - Prediction mode (`test_size` is None, the default): the
         forecaster is trained on all available data and forecasts the
         future. No metrics are returned because there is no ground
@@ -1467,6 +1475,9 @@ class ForecastingAssistant:
             again before the script is rendered, so one edited with
             `model_copy(update=...)` or by assignment raises
             `ValidationError` unless it is still a valid `ForecastPlan`.
+            A plan built for data of another frequency or shape, or that
+            uses exogenous variables the data does not have, raises
+            `ValueError`.
 
         Returns
         -------
@@ -1851,6 +1862,10 @@ class ForecastingAssistant:
             `create_cv()` or user-constructed) [1]_.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
+            Without `plan`, `forecaster`, `estimator`, `estimator_kwargs`
+            and `interval`, its plan is the one run. Its profile must
+            describe data of the same structure (format, target, series,
+            frequency, exogenous columns), or `ValueError` is raised.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -1928,6 +1943,7 @@ class ForecastingAssistant:
 
         """
 
+        cv_result = cv if isinstance(cv, CVResult) else None
         cv = _unwrap_cv(cv)
 
         profile, plan = self._prepare_backtest(
@@ -1942,6 +1958,7 @@ class ForecastingAssistant:
             interval         = interval,
             profile          = profile,
             plan             = plan,
+            cv_result        = cv_result,
         )
         profile = _with_data_path(profile, data)
 
@@ -1991,6 +2008,10 @@ class ForecastingAssistant:
             or user-constructed) [1]_.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
+            Without `plan`, `forecaster`, `estimator`, `estimator_kwargs`
+            and `interval`, its plan is the one run. Its profile must
+            describe data of the same structure (format, target, series,
+            frequency, exogenous columns), or `ValueError` is raised.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -2080,6 +2101,7 @@ class ForecastingAssistant:
         
         """
 
+        cv_result = cv if isinstance(cv, CVResult) else None
         cv = _unwrap_cv(cv)
 
         data_df, target, date_column, series_id_column = (
@@ -2100,6 +2122,7 @@ class ForecastingAssistant:
             estimator_kwargs = estimator_kwargs,
             profile          = profile,
             plan             = plan,
+            cv_result        = cv_result,
         )
         profile = _with_data_path(profile, data)
 
@@ -2213,6 +2236,9 @@ class ForecastingAssistant:
             candidate. The `steps` value is inferred from `cv.steps`.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
+            Its profile must describe data of the same structure (format,
+            target, series, frequency, exogenous columns), or `ValueError`
+            is raised.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -2348,6 +2374,7 @@ class ForecastingAssistant:
                 field = "progress_callback",
             )
 
+        cv_result = cv if isinstance(cv, CVResult) else None
         cv = _unwrap_cv(cv)
 
         data_df, target, date_column, series_id_column = (
@@ -2363,6 +2390,8 @@ class ForecastingAssistant:
                 date_column      = date_column,
                 series_id_column = series_id_column,
             )
+        if cv_result is not None:
+            _check_cv_matches_profile(cv_result, profile.data_profile)
         # Every candidate script loads the file the comparison read.
         profile = _with_data_path(profile, data)
         run_data_path = (
@@ -3054,7 +3083,9 @@ class ForecastingAssistant:
             Whether prediction mode must be given `exog` when the data has
             exogenous columns, after the last values of the target are
             checked (`validate_last_window`). True when the workflow executes
-            the script, False when it only renders it.
+            the script, False when it only renders it. When True, a `plan`
+            with `end_train` also needs `test_size` (`forecast()` does not
+            evaluate a split it was not asked for).
 
         Returns
         -------
@@ -3062,6 +3093,13 @@ class ForecastingAssistant:
             Resolved profile.
         plan : ForecastPlan
             Resolved plan, carrying `end_train` when `test_size` is set.
+
+        Raises
+        ------
+        ValueError
+            When a `plan` is given for data of another frequency or shape
+            (`_check_plan_matches_profile`), or carries `end_train` without
+            `test_size` and `require_exog` is True.
         """
 
         plan = _revalidate_plan(plan)
@@ -3099,6 +3137,21 @@ class ForecastingAssistant:
                 "`steps` is required when `plan` is not provided.",
                 field = "steps",
             )
+
+        if plan is not None:
+            _check_plan_matches_profile(plan, profile.data_profile)
+            # The split of an earlier evaluation is not reused without
+            # saying so: forecast() would evaluate old dates again when the
+            # future was asked for.
+            if require_exog and test_size is None and plan.end_train is not None:
+                raise InvalidInputError(
+                    f"The plan carries the split of an evaluation "
+                    f"(`end_train='{plan.end_train}'`) and `test_size` was not "
+                    f"passed. Pass `test_size` to evaluate again, or a plan "
+                    f"without it, `plan.model_copy(update={{'end_train': None}})`, "
+                    f"to forecast the future.",
+                    field = "plan",
+                )
 
         has_exog = bool(profile.data_profile.exog_columns)
         # Evaluation mode is driven by `test_size`, or by a pre-built plan
@@ -3195,6 +3248,7 @@ class ForecastingAssistant:
         estimator_kwargs: dict | None,
         profile: ForecastingProfile | None,
         plan: ForecastPlan | None,
+        cv_result: CVResult | None = None,
     ) -> tuple[ForecastingProfile, ForecastPlan]:
         """
         Resolve profile and plan for backtesting workflows.
@@ -3230,6 +3284,11 @@ class ForecastingAssistant:
             Pre-computed profile.
         plan : ForecastPlan, None
             Pre-computed plan.
+        cv_result : CVResult, default None
+            The `CVResult` passed as `cv`, when it was one. Without `plan`
+            and without model arguments (`forecaster`, `estimator`,
+            `estimator_kwargs`, `interval`), its plan is the one run. Its
+            profile must describe data of the same structure.
 
         Returns
         -------
@@ -3246,6 +3305,19 @@ class ForecastingAssistant:
             estimator        = estimator,
             estimator_kwargs = estimator_kwargs,
         )
+        # A CVResult carries the plan its strategy was created for: without
+        # a plan or model arguments, that plan runs instead of a new default
+        # one (another estimator, no interval).
+        if (
+            plan is None
+            and cv_result is not None
+            and forecaster is None
+            and estimator is None
+            and estimator_kwargs is None
+            and interval is None
+        ):
+            plan = _revalidate_plan(cv_result.plan)
+        received_plan = plan is not None
 
         if data is None and profile is None:
             raise InvalidInputError(
@@ -3270,6 +3342,9 @@ class ForecastingAssistant:
                 date_column      = date_column,
                 series_id_column = series_id_column,
             )
+        # Before a plan is built: the strategy must fit these data first.
+        if cv_result is not None:
+            _check_cv_matches_profile(cv_result, profile.data_profile)
 
         if plan is None:
             plan = self.plan(
@@ -3292,6 +3367,8 @@ class ForecastingAssistant:
             if interval is not None:
                 plan = _apply_interval_to_plan(plan, interval)
 
+        if received_plan:
+            _check_plan_matches_profile(plan, profile.data_profile)
         # A plan received (saved, or built for other data) is checked
         # against the exogenous columns of this profile, as `plan()` does.
         _check_feature_name_collisions(plan, profile.data_profile)

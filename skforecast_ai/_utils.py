@@ -1142,6 +1142,156 @@ def _check_feature_name_collisions(
         )
 
 
+def profile_structure(data_profile: DataProfile) -> dict:
+    """
+    Return what a profile says about the structure of the data.
+
+    The structure is what a plan, a cross-validation strategy and the
+    generated script are built on: the format, the target and its series,
+    the date and series id columns, the type and frequency of the index,
+    and the exogenous columns. Two profiles of the same structure differ
+    only in their values (statistics, missing values, warnings) or in the
+    path of the data.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    structure : dict
+        Structural fields of the profile.
+    """
+    target = data_profile.target
+    # The order of the columns does not change what the data holds.
+    return {
+        "data_format": data_profile.data_format,
+        "target": sorted(map(str, target)) if isinstance(target, list) else target,
+        "series": sorted(map(str, data_profile.series_lengths)),
+        "date_column": data_profile.date_column,
+        "series_id_column": data_profile.series_id_column,
+        "index_type": data_profile.index_type,
+        "frequency": data_profile.frequency,
+        "exog_columns": sorted(map(str, data_profile.exog_columns)),
+        "categorical_exog": sorted(map(str, data_profile.categorical_exog)),
+    }
+
+
+def structure_differences(first: DataProfile, second: DataProfile) -> list[str]:
+    """
+    Return the structural fields in which two profiles differ.
+
+    Parameters
+    ----------
+    first : DataProfile
+        First profile.
+    second : DataProfile
+        Second profile.
+
+    Returns
+    -------
+    differences : list of str
+        One `'name: first != second'` per field of `profile_structure` that
+        differs, with lists cut at 5 items. Empty when the structure is the
+        same.
+    """
+    a, b = profile_structure(first), profile_structure(second)
+    return [
+        f"{name}: {_short(a[name])} != {_short(b[name])}"
+        for name in a if a[name] != b[name]
+    ]
+
+
+def _short(value: object) -> str:
+    """Quote a structural value, listing at most 5 items of a list."""
+    if isinstance(value, list) and len(value) > 5:
+        return f"{value[:5]} (first 5 of {len(value)})"
+    return repr(value)
+
+
+def _check_plan_matches_profile(plan: ForecastPlan, data_profile: DataProfile) -> None:
+    """
+    Reject a plan received for data of another structure.
+
+    A plan is built from a profile (`plan()`); used with the profile of
+    other data, the script ran with lags, features and a frequency that do
+    not fit it, without an error. Checked: the frequency the plan was built
+    for (when it has one), that its task type fits the shape of the data
+    (`_validate_task_input`), that the data has exogenous variables when the
+    plan uses them, and a datetime index for its calendar features. Which
+    columns are exogenous is not compared: a plan reads the exogenous
+    columns of the profile it runs with.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan received.
+    data_profile : DataProfile
+        Profile of the data it runs on.
+
+    Returns
+    -------
+    None
+    """
+    # A plan built by hand may have no frequency: the script reads the one
+    # of the profile, so there is nothing to compare.
+    if plan.frequency is not None and plan.frequency != data_profile.frequency:
+        raise InvalidInputError(
+            f"The plan was built for data of frequency {plan.frequency!r}, "
+            f"and the data has frequency {data_profile.frequency!r}. Build "
+            f"the plan from the profile of these data with `plan()`.",
+            field = "plan",
+        )
+    _validate_task_input(data_profile, plan.task_type)
+    if plan.use_exog and not data_profile.exog_columns:
+        raise InvalidInputError(
+            "The plan uses exogenous variables and the data has none. Build "
+            "the plan from the profile of these data with `plan()`.",
+            field = "plan",
+        )
+    if (
+        plan.forecaster_kwargs.get("calendar_features")
+        and data_profile.index_type != "datetime"
+    ):
+        raise InvalidInputError(
+            "The plan has calendar features, which need dates, and the data "
+            "has no datetime index. Build the plan from the profile of these "
+            "data with `plan()`.",
+            field = "plan",
+        )
+
+
+def _check_cv_matches_profile(cv: CVResult, data_profile: DataProfile) -> None:
+    """
+    Reject the `CVResult` of a profile of another structure.
+
+    Its strategy (the first training window, a date or a size) was derived
+    from that profile; with data of another shape it failed inside the
+    script or split other dates.
+
+    Parameters
+    ----------
+    cv : CVResult
+        Result of `create_cv()`.
+    data_profile : DataProfile
+        Profile of the data it runs on.
+
+    Returns
+    -------
+    None
+    """
+    differences = structure_differences(cv.profile.data_profile, data_profile)
+    if differences:
+        raise InvalidInputError(
+            f"The CVResult was created for data of another structure "
+            f"({'; '.join(differences)}). Create the strategy from the "
+            f"profile of these data with `create_cv()`, or pass its "
+            f"TimeSeriesFold (`cv.cv`).",
+            field = "cv",
+        )
+
+
 def _check_window_needs_refit(
     fixed_train_size: bool | None,
     refit: object,

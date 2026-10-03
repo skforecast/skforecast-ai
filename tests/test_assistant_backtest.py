@@ -21,7 +21,7 @@ from skforecast_ai.exceptions import (
     InvalidInputTypeError,
 )
 
-from tests.fixtures_assistant import df_single, df_no_exog
+from tests.fixtures_assistant import df_single, df_multi_wide, df_no_exog
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
 
 assistant = ForecastingAssistant()
@@ -591,3 +591,221 @@ def test_backtest_ForecastExecutionError_when_time_zone_data_and_cv_date_without
                 data=data, cv=cv, target="x", estimator="Ridge",
                 show_progress=False,
             )
+
+
+# =============================================================================
+# Tests: coherence of the CVResult, the plan and the profile
+# =============================================================================
+def test_backtest_output_when_cv_result_without_plan_keeps_its_plan():
+    """
+    Test that backtest() with the CVResult of create_cv() and no `plan`,
+    `forecaster`, `estimator`, `estimator_kwargs` or `interval` runs the
+    plan of the CVResult: its estimator and interval are kept.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor", interval=[0.1, 0.9]
+    )
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+
+    result = assistant.backtest(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        cv=cv_result,
+        show_progress=False,
+    )
+
+    assert result.plan == cv_result.plan
+    assert result.plan.estimator == "LGBMRegressor"
+    assert result.plan.interval == [0.1, 0.9]
+    assert list(result.predictions.columns) == [
+        "fold", "pred", "lower_bound", "upper_bound"
+    ]
+    assert result.cv_config == cv_result.cv_config
+
+
+def test_backtest_output_when_cv_result_and_estimator_passed_builds_new_plan():
+    """
+    Test that backtest() with the CVResult and an `estimator` builds a new
+    plan with it, without the interval of the plan of the CVResult.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor", interval=[0.1, 0.9]
+    )
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+
+    result = assistant.backtest(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        cv=cv_result,
+        estimator="Ridge",
+        show_progress=False,
+    )
+
+    assert result.plan.estimator == "Ridge"
+    assert result.plan.interval is None
+    assert list(result.predictions.columns) == ["fold", "pred"]
+
+
+def test_backtest_output_when_bare_time_series_fold_builds_default_plan():
+    """
+    Test that backtest() with the TimeSeriesFold of a CVResult (not the
+    CVResult) builds the default plan, not the plan of the CVResult.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor", interval=[0.1, 0.9]
+    )
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+
+    result = assistant.backtest(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        cv=cv_result.cv,
+        show_progress=False,
+    )
+
+    assert result.plan == assistant.plan(profile, steps=5)
+    assert result.plan.estimator == "Ridge"
+    assert result.plan.interval is None
+
+
+def test_backtest_InvalidInputError_when_cv_result_of_another_structure():
+    """
+    Test that backtest() raises InvalidInputError with the field 'cv' when
+    the CVResult was created for data of another structure (single series
+    of monthly data used with wide multi-series daily data).
+    """
+    h2o_profile = assistant.profile(data=df_h2o, target="x")
+    cv_result = assistant.create_cv(h2o_profile, assistant.plan(h2o_profile, steps=5))
+
+    err_msg = re.escape(
+        "The CVResult was created for data of another structure "
+        "(data_format: 'single' != 'wide'; "
+        "target: 'x' != ['series_a', 'series_b']; "
+        "series: ['x'] != ['series_a', 'series_b']; "
+        "date_column: None != 'date'; "
+        "frequency: 'MS' != 'D'). Create the strategy from the profile of "
+        "these data with `create_cv()`, or pass its TimeSeriesFold "
+        "(`cv.cv`)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=df_multi_wide,
+            target=["series_a", "series_b"],
+            date_column="date",
+            cv=cv_result,
+            show_progress=False,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "cv"
+
+
+def test_backtest_output_when_cv_result_of_same_data_shorter():
+    """
+    Test that backtest() accepts a CVResult created for the same data with
+    more observations (same structure).
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    cv_result = assistant.create_cv(profile, assistant.plan(profile, steps=5))
+
+    result = assistant.backtest(
+        data=df_single.iloc[:80],
+        target="sales",
+        date_column="date",
+        cv=cv_result,
+        show_progress=False,
+    )
+
+    assert len(result.predictions) > 0
+
+
+def test_backtest_InvalidInputError_when_plan_of_another_frequency():
+    """
+    Test that backtest() raises InvalidInputError with the field 'plan'
+    when the plan was built for monthly data and the data is daily.
+    """
+    h2o_profile = assistant.profile(data=df_h2o, target="x")
+    h2o_plan = assistant.plan(h2o_profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    err_msg = re.escape(
+        "The plan was built for data of frequency 'MS', and the data has "
+        "frequency 'D'. Build the plan from the profile of these data with "
+        "`plan()`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            cv=cv,
+            plan=h2o_plan,
+            show_progress=False,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "plan"
+
+
+def test_backtest_InvalidInputError_when_single_series_plan_on_multi_series_data():
+    """
+    Test that backtest() raises the task type error of the plan when a
+    single-series plan is used with wide multi-series data of the same
+    frequency.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    err_msg = re.escape(
+        "Task type 'single_series' supports a single series only, but the "
+        "input contains 2 series (['series_a', 'series_b']). Use a "
+        "multi-series forecaster (e.g. 'ForecasterRecursiveMultiSeries') or "
+        "provide a single series."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=df_multi_wide,
+            target=["series_a", "series_b"],
+            date_column="date",
+            cv=cv,
+            plan=plan,
+            show_progress=False,
+        )
+
+    assert exc_info.value.field == "forecaster"
+
+
+def test_backtest_InvalidInputError_when_plan_uses_exog_and_data_has_none():
+    """
+    Test that backtest() raises InvalidInputError with the field 'plan'
+    when the plan uses exogenous variables and the data has none.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    err_msg = re.escape(
+        "The plan uses exogenous variables and the data has none. Build the "
+        "plan from the profile of these data with `plan()`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=df_no_exog,
+            target="sales",
+            date_column="date",
+            cv=cv,
+            plan=plan,
+            show_progress=False,
+        )
+
+    assert exc_info.value.field == "plan"

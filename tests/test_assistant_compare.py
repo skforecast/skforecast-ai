@@ -38,6 +38,7 @@ from skforecast_ai import (
     MissingBackendWarning,
 )
 
+from tests.fixtures_datasets import df_h2o
 from tests.fixtures_assistant import (
     df_multi_wide,
     df_no_exog,
@@ -2324,3 +2325,60 @@ def test_compare_CandidateFailedWarning_when_direct_candidate_and_cv_with_gap():
     assert list(result.candidates) == ["recursive"]
     assert list(result.failures) == ["direct"]
     assert result.best_name == "recursive"
+
+
+# =============================================================================
+# Tests: coherence of the CVResult and the profile
+# =============================================================================
+def test_compare_InvalidInputError_when_cv_result_of_another_structure():
+    """
+    Test that compare() raises InvalidInputError with the field 'cv' when
+    the CVResult was created for data of another structure (single series
+    of monthly data used with wide multi-series daily data).
+    """
+    h2o_profile = assistant.profile(data=df_h2o, target="x")
+    cv_result = assistant.create_cv(h2o_profile, assistant.plan(h2o_profile, steps=5))
+
+    err_msg = re.escape(
+        "The CVResult was created for data of another structure "
+        "(data_format: 'single' != 'wide'; "
+        "target: 'x' != ['series_a', 'series_b']; "
+        "series: ['x'] != ['series_a', 'series_b']; "
+        "date_column: None != 'date'; "
+        "frequency: 'MS' != 'D'). Create the strategy from the profile of "
+        "these data with `create_cv()`, or pass its TimeSeriesFold "
+        "(`cv.cv`)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.compare(
+            data=df_multi_wide,
+            cv=cv_result,
+            target=["series_a", "series_b"],
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            show_progress=False,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "cv"
+
+
+def test_compare_output_when_cv_result_of_same_structure():
+    """
+    Test that compare() accepts a CVResult created for the same data with
+    fewer observations (same structure) and ranks the candidates.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    cv_result = assistant.create_cv(profile, assistant.plan(profile, steps=5))
+
+    result = assistant.compare(
+        data=df_single.iloc[:90],
+        cv=cv_result,
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert set(result.results["name"]) == {"recursive_default", "direct_ridge"}

@@ -27,6 +27,8 @@ from tests.fixtures_datasets import (
 )
 from tests.fixtures_assistant import (
     df_calendar_named_exog,
+    df_multi_wide,
+    df_range_index,
     df_single,
     df_no_exog,
     df_short,
@@ -596,12 +598,12 @@ def test_forecast_ValueError_when_exog_provided_without_exog_data():
         )
 
 
-def test_forecast_prebuilt_evaluation_plan_without_test_size_no_exog_required():
+def test_forecast_InvalidInputError_when_prebuilt_evaluation_plan_without_test_size():
     """
     Test that a pre-built evaluation-mode plan (its `end_train` already set)
-    passed without `test_size` runs in evaluation mode and does NOT demand
-    future `exog`, even when the data contains exogenous variables. The
-    effective mode is driven by the plan's `end_train`, not by `test_size`.
+    passed without `test_size` raises instead of evaluating the old split
+    again when the future was asked for (section 10.4 of the MCP
+    preparation: `end_train` was hidden state).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -609,17 +611,41 @@ def test_forecast_prebuilt_evaluation_plan_without_test_size_no_exog_required():
     split_date = str(df_single["date"].iloc[-6].date())
     plan = plan.model_copy(update={"end_train": split_date})
 
+    err_msg = re.escape(
+        f"The plan carries the split of an evaluation (`end_train='{split_date}'`) "
+        f"and `test_size` was not passed. Pass `test_size` to evaluate again, "
+        f"or a plan without it, `plan.model_copy(update={{'end_train': None}})`, "
+        f"to forecast the future."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            steps=5,
+            profile=profile,
+            plan=plan,
+        )
+    assert exc_info.value.field == "plan"
+
+
+def test_forecast_output_when_prebuilt_evaluation_plan_with_test_size():
+    """
+    Test that a pre-built evaluation-mode plan passed with `test_size` runs
+    in evaluation mode, with the split of `test_size`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5).model_copy(
+        update={"end_train": str(df_single["date"].iloc[-21].date())}
+    )
+
     result = assistant.forecast(
-        data=df_single,
-        target="sales",
-        date_column="date",
-        steps=5,
-        profile=profile,
-        plan=plan,
+        data=df_single, profile=profile, plan=plan, test_size=5
     )
 
     assert result.metrics is not None
-    assert result.plan.end_train == split_date
+    assert result.plan.end_train == str(df_single["date"].iloc[-6].date())
 
 
 def test_forecast_ValueError_when_exog_with_prebuilt_evaluation_plan():
@@ -646,6 +672,7 @@ def test_forecast_ValueError_when_exog_with_prebuilt_evaluation_plan():
             exog=exog,
             profile=profile,
             plan=plan,
+            test_size=5,
         )
 
 
@@ -877,7 +904,8 @@ def test_forecast_ValueError_when_test_size_differs_from_steps(test_size, n_test
 def test_forecast_ValueError_when_plan_end_train_leaves_other_test_length():
     """
     Test that a pre-built plan carrying `end_train` (evaluation mode
-    without `test_size`) is checked the same way against `steps`.
+    without `test_size`, which `forecast_code()` still renders) is checked
+    the same way against `steps`.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -887,7 +915,7 @@ def test_forecast_ValueError_when_plan_end_train_leaves_other_test_length():
 
     err_msg = re.escape("The test set has 20 observations but `steps` is 5.")
     with pytest.raises(ValueError, match=err_msg):
-        assistant.forecast(data=df_single, profile=profile, plan=plan)
+        assistant.forecast_code(data=df_single, profile=profile, plan=plan)
 
 
 def test_forecast_output_when_every_supported_metric_requested():
@@ -1754,15 +1782,14 @@ def test_forecast_InvalidInputError_when_target_has_infinite_value(
     plan = assistant.plan(
         profile, steps=3, forecaster=forecaster, estimator=estimator
     )
-    if test_size is not None:
-        plan = plan.model_copy(update={"end_train": "2008-03-01"})
-
     err_msg = re.escape(
         f"The target has infinite values (1 value(s), such as '1995-09-01'). "
         f"{forecaster} cannot be trained on them: replace them."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
-        assistant.forecast(data=_H2O_WITH_INFINITE, profile=profile, plan=plan)
+        assistant.forecast(
+            data=_H2O_WITH_INFINITE, profile=profile, plan=plan, test_size=test_size
+        )
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "data"
@@ -2076,3 +2103,86 @@ def test_forecast_InvalidInputError_when_received_plan_clashes_with_exog_names(
         )
 
     assert exc_info.value.field == "data"
+
+
+# =============================================================================
+# Tests: plan received for data of another structure
+# =============================================================================
+_PLAN_OF_ANOTHER_STRUCTURE = [
+    (
+        {"data": df_single, "target": "sales", "date_column": "date"},
+        "monthly",
+        "The plan was built for data of frequency 'MS', and the data has "
+        "frequency 'D'. Build the plan from the profile of these data with "
+        "`plan()`.",
+        "plan",
+    ),
+    (
+        {
+            "data": df_multi_wide,
+            "target": ["series_a", "series_b"],
+            "date_column": "date",
+        },
+        "daily",
+        "Task type 'single_series' supports a single series only, but the "
+        "input contains 2 series (['series_a', 'series_b']). Use a "
+        "multi-series forecaster (e.g. 'ForecasterRecursiveMultiSeries') or "
+        "provide a single series.",
+        "forecaster",
+    ),
+    (
+        {"data": df_no_exog, "target": "sales", "date_column": "date"},
+        "daily",
+        "The plan uses exogenous variables and the data has none. Build the "
+        "plan from the profile of these data with `plan()`.",
+        "plan",
+    ),
+    (
+        {"data": df_range_index, "target": "sales"},
+        "no_frequency",
+        "The plan has calendar features, which need dates, and the data has "
+        "no datetime index. Build the plan from the profile of these data "
+        "with `plan()`.",
+        "plan",
+    ),
+]
+
+
+def _plan_for(kind):
+    """
+    Return the plan of the case: one built for monthly data (h2o), or a
+    daily one of df_single (edited to frequency None and without exog for
+    the case of data without frequency).
+    """
+    assistant = ForecastingAssistant()
+    if kind == "monthly":
+        return assistant.plan(assistant.profile(data=df_h2o, target="x"), steps=5)
+    plan = assistant.plan(
+        assistant.profile(data=df_single, target="sales", date_column="date"),
+        steps=5,
+    )
+    if kind == "no_frequency":
+        plan = plan.model_copy(update={"frequency": None, "use_exog": False})
+    return plan
+
+
+@pytest.mark.parametrize(
+    "data_kwargs, plan_kind, message, field",
+    _PLAN_OF_ANOTHER_STRUCTURE,
+    ids=["frequency", "task_type", "exog", "calendar_features"],
+)
+def test_forecast_InvalidInputError_when_plan_built_for_other_data(
+    data_kwargs, plan_kind, message, field
+):
+    """
+    Test that forecast() raises InvalidInputError when the plan was built for
+    data of another frequency, shape, exogenous variables or index type
+    than the data received.
+    """
+    assistant = ForecastingAssistant()
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        assistant.forecast(steps=5, plan=_plan_for(plan_kind), **data_kwargs)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == field
