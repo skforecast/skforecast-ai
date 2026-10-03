@@ -107,45 +107,92 @@ _TAG_START = re.compile(r"<(?=/?[A-Za-z])")
 # pattern above would otherwise find.
 _FREE_TEXT_ESCAPED_CATEGORIES = frozenset({"Cc", "Zl", "Zp", "Cf"})
 
+# What `str.splitlines` breaks a text at, written out so the two agree.
+_LINE_BREAK = re.compile(r"\r\n|[\n\r\x0b\x0c\x1c\x1d\x1e\x85  ]")
 
-def _free_text(text: str) -> str:
+
+def _without_tags(text: str) -> str:
     """
-    Make a free text of a plan safe to write on one line of a section.
-
-    The explanation of a plan and the reasons of its preprocessing steps are
-    free text: a plan loaded from JSON (`--from-plan`) can hold any, and
-    `refine_plan()` appends the reasoning of the LLM to the explanation.
-    Characters of the Unicode categories Cc, Zl, Zp and Cf (line breaks and
-    other control characters, line and paragraph separators, invisible
-    format characters) are written as their escape sequence (`'\\n'`
-    becomes the two characters `\\n`), and the `<` that starts text read as
-    a tag (`<forecast_context>`, `</forecast_plan`) is written as `&lt;`, so
-    the text cannot open, close or imitate a section. Any other text,
-    comparisons such as `n < 500` included, is returned unchanged, and so
-    are the texts `plan()` writes, which hold neither.
-
-    Parameters
-    ----------
-    text : str
-        Free text of the plan.
-
-    Returns
-    -------
-    text : str
-        The same text on a single line, without tags.
+    Write the `<` that starts text read as a tag (`<forecast_context>`,
+    `</forecast_plan`) as `&lt;`, so the text cannot open or close a section.
+    Comparisons such as `n < 500` are left as they are.
     """
-
-    text = "".join(
-        char.encode("unicode_escape").decode("ascii")
-        if unicodedata.category(char) in _FREE_TEXT_ESCAPED_CATEGORIES
-        else char
-        for char in text
-    )
 
     return _TAG_START.sub("&lt;", text)
 
 
-def _tag(name: str, body: str) -> str:
+def _one_line(text: Any) -> str:
+    """
+    Write a name or a message of the data on one line of a section.
+
+    Column names, series ids and the warnings that quote them come from the
+    data (the header of a CSV file) or from a profile loaded from JSON.
+    Characters of the Unicode categories Cc, Zl, Zp and Cf (line breaks and
+    other control characters, line and paragraph separators, invisible
+    format characters) are written as their escape sequence (`'\\n'`
+    becomes the two characters `\\n`), so the text cannot start a line of
+    its own. Tags are escaped by `_tag` when the section is closed.
+
+    Parameters
+    ----------
+    text : object
+        Name or message. Anything that is not a str is formatted with `str`.
+
+    Returns
+    -------
+    text : str
+        The same text on a single line.
+    """
+
+    return "".join(
+        char.encode("unicode_escape").decode("ascii")
+        if unicodedata.category(char) in _FREE_TEXT_ESCAPED_CATEGORIES
+        else char
+        for char in str(text)
+    )
+
+
+def _free_text(text: str, indent: str = "    ") -> str:
+    """
+    Make a free text safe to write as one item of a section.
+
+    The explanations of a profile and of a plan and the reasons of the
+    preprocessing steps are free text: an object loaded from JSON
+    (`--from-plan`) can hold any, and `refine_plan()` appends the reasoning
+    of the LLM, which has paragraphs, to the explanation of the plan. Each
+    line after the first is written indented under the item, so it stays
+    readable and cannot be read as an item of the section; empty lines are
+    dropped. The other characters of the Unicode categories Cc and Cf
+    (control and invisible format characters) are written as their escape
+    sequence, and the `<` that starts text read as a tag is written as
+    `&lt;`. A text without any of them, comparisons such as `n < 500`
+    included, is returned unchanged, as are the texts `plan()` writes.
+
+    Parameters
+    ----------
+    text : str
+        Free text of a profile or a plan.
+    indent : str, default `'    '`
+        What the lines after the first start with: deeper than any item of
+        the section the text is written in.
+
+    Returns
+    -------
+    text : str
+        The same text, without tags, with its lines after the first
+        indented.
+    """
+
+    lines = [
+        _without_tags(_one_line(line.strip()))
+        for line in _LINE_BREAK.split(text)
+    ]
+    lines = [line for line in lines if line] or [""]
+
+    return f"\n{indent}".join(lines)
+
+
+def _tag(name: str, body: str, nested: str = "") -> str:
     """
     Wrap a rendered section body in an XML-style tag.
 
@@ -154,18 +201,30 @@ def _tag(name: str, body: str) -> str:
     `##`. Tagging each section instead makes the boundary between injected
     deterministic output and everything else unambiguous.
 
+    The body carries text this module does not write: names of columns and
+    series, warnings and explanations that quote them, tables of results.
+    Any text in it that reads as a tag is escaped (`_without_tags`), so the
+    only tags of the context are the ones written here.
+
     Parameters
     ----------
     name : str
         Tag name.
     body : str
         Already rendered section body.
+    nested : str, default `''`
+        Section already rendered by this function, written after the body
+        with its tags as they are.
 
     Returns
     -------
     section : str
         Body wrapped in an opening and closing tag.
     """
+
+    body = _without_tags(body)
+    if nested:
+        body = f"{body}\n{nested}"
 
     return f"<{name}>\n{body}\n</{name}>"
 
@@ -379,7 +438,10 @@ def render_dataset_section(
 
     dp = profile.data_profile
     exog_columns, exog_suffix = _first_items(dp.exog_columns, for_describe)
-    exog = ", ".join(exog_columns) + exog_suffix if exog_columns else "none"
+    exog = (
+        ", ".join(_one_line(column) for column in exog_columns) + exog_suffix
+        if exog_columns else "none"
+    )
     parts = [
         f"- Observations: {dp.n_observations_display}",
         f"- Series: {dp.n_series}",
@@ -404,13 +466,14 @@ def render_dataset_section(
         shown, suffix = _first_items(target, for_describe)
         target = f"{shown}{suffix}" if suffix else target
     parts += [
-        f"- Target: {target}",
+        f"- Target: {_one_line(target)}",
         f"- Exogenous columns: {exog}",
     ]
     if dp.categorical_exog:
         categorical, suffix = _first_items(dp.categorical_exog, for_describe)
         parts.append(
-            f"- Categorical exogenous columns: {', '.join(categorical)}{suffix}"
+            f"- Categorical exogenous columns: "
+            f"{', '.join(_one_line(column) for column in categorical)}{suffix}"
         )
 
     # Scale of the target. Needed to judge MAPE (unreliable near zero) and
@@ -418,7 +481,10 @@ def render_dataset_section(
     for series, stats in _limited(dp.target_stats.items(), MAX_STATS_SERIES):
         if not stats:
             continue
-        label = "Target statistics" if len(dp.target_stats) == 1 else f"Target statistics ({series})"
+        label = (
+            "Target statistics" if len(dp.target_stats) == 1
+            else f"Target statistics ({_one_line(series)})"
+        )
         parts.append(
             f"- {label}: min {_fmt(stats['min'])}, max {_fmt(stats['max'])}, "
             f"mean {_fmt(stats['mean'])}, std {_fmt(stats['std'])}"
@@ -456,7 +522,7 @@ def render_dataset_section(
     )
     warnings_shown, suffix = _first_items(dp.warnings, for_describe)
     for warning in warnings_shown:
-        parts.append(f"- Data warning: {warning}")
+        parts.append(f"- Data warning: {_free_text(warning)}")
     if suffix:
         parts.append(f"- Data warnings shown{suffix}")
 
@@ -524,7 +590,7 @@ def render_profile_decision_section(
     if profile is None:
         return ""
 
-    parts = [profile.explanation]
+    parts = [_free_text(profile.explanation)]
 
     # The temporal structure the profiler found. It is what the plan's
     # lags and features are derived from, so a question about the profile
@@ -534,7 +600,10 @@ def render_profile_decision_section(
             continue
         lags = ", ".join(str(lag) for lag in pacf.lags[:MAX_PACF_LAGS])
         suffix = "" if len(pacf.lags) <= MAX_PACF_LAGS else f" (first {MAX_PACF_LAGS} of {len(pacf.lags)})"
-        label = "Significant lags" if len(profile.series_pacf) == 1 else f"Significant lags for {pacf.series_id}"
+        label = (
+            "Significant lags" if len(profile.series_pacf) == 1
+            else f"Significant lags for {_one_line(pacf.series_id)}"
+        )
         parts.append(f"- {label} (partial autocorrelation, strongest first): {lags}{suffix}")
     if for_describe and len(profile.series_pacf) > MAX_STATS_SERIES:
         parts.append(
@@ -618,7 +687,9 @@ def render_plan_section(
             prefix = (
                 "[in generated code]" if step.blocking else "[informational]"
             )
-            parts.append(f"  - {prefix} {_free_text(step.reason)}")
+            parts.append(
+                f"  - {prefix} {_free_text(step.reason, indent='      ')}"
+            )
     parts.append(f"- {_free_text(plan.explanation)}")
     if not for_describe:
         parts.append("")
@@ -1007,7 +1078,7 @@ def render_comparison_overview_section(
     parts = [
         f"- Candidates evaluated: {n_candidates}",
         f"- Ranking metric: {result.ranking_metric}",
-        f"- Winner: {result.best_name}",
+        f"- Winner: {_one_line(result.best_name)}",
     ]
     if result.baseline_name is not None:
         parts.append(
@@ -1160,7 +1231,10 @@ def render_failures_section(
         return ""
 
     shown, suffix = _first_items(list(failures.items()), for_describe)
-    parts = [f"- {name}: {failure.summary()}" for name, failure in shown]
+    parts = [
+        f"- {_one_line(name)}: {_free_text(failure.summary())}"
+        for name, failure in shown
+    ]
     if suffix:
         parts.append(f"- Failures shown{suffix}")
 
@@ -1195,15 +1269,18 @@ def render_winning_candidate_section(
     """
 
     parts = [
-        f"Name: {best_name}",
+        f"Name: {_one_line(best_name)}",
         (
             "Only the winning configuration is detailed below. The other "
             "candidates are represented by their leaderboard rows."
         ),
-        render_plan_section(plan, for_describe=for_describe),
     ]
 
-    return _tag("winning_candidate", "\n".join(p for p in parts if p))
+    return _tag(
+        "winning_candidate",
+        "\n".join(parts),
+        nested = render_plan_section(plan, for_describe=for_describe),
+    )
 
 
 def build_context_message(
