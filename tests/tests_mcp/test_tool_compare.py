@@ -23,6 +23,7 @@ from .fixtures_mcp import (
     call,
     content_of,
     cv_of,
+    df_h2o_csv,
     error_of,
     h2o_server,
     run_session,
@@ -322,3 +323,46 @@ def test_tool_compare_default_candidates_of_the_profile(tmp_path):
 
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()
+
+
+def test_tool_compare_announces_model_download_of_a_candidate_that_ran(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a foundation candidate whose weights are not in the local
+    Hugging Face cache and whose script ran (here it fails without its
+    backend, which a download could precede) gets one `ModelDownloadNotice`
+    in the comparison, and none in a second comparison.
+    """
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hf"))
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    path = write_csv(tmp_path, "h2o.csv", df_h2o_csv)
+    server = create_server(
+        allow_dir    = tmp_path,
+        output_dir   = tmp_path / "out",
+        allow_models = ["Salesforce/moirai-2"],
+    )
+    _, _, cv_id = cv_of(server, path)
+    arguments = {
+        "cv_id": cv_id,
+        "candidates": [
+            {"name": "ridge", "config": {"estimator": "Ridge"}},
+            {
+                "name": "moirai",
+                "config": {
+                    "forecaster": "ForecasterFoundation",
+                    "estimator": "Salesforce/moirai-2.0-R-small",
+                },
+            },
+        ],
+    }
+
+    first = content_of(call(server, "compare", arguments))
+    second = content_of(call(server, "compare", arguments))
+
+    assert [
+        (n["source"], n["category"]) for n in first["notices"]
+        if n["category"] == "ModelDownloadNotice"
+    ] == [("plan", "ModelDownloadNotice")]
+    assert "CC-BY-NC-4.0" in first["notices"][0]["message"]
+    assert all(n["category"] != "ModelDownloadNotice" for n in second["notices"])

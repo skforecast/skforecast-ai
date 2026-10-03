@@ -298,6 +298,7 @@ def build_notices(
     plan_warnings: Iterable[str] = (),
     data_warnings: Iterable[str] = (),
     default_source: str = "runtime",
+    server_notices: Iterable[ToolNotice] = (),
 ) -> tuple[list[ToolNotice], int]:
     """
     Turn the warnings of a call into notices.
@@ -318,6 +319,9 @@ def build_notices(
         with one of these texts has source `'data'`.
     default_source : str, default 'runtime'
         Source of any other warning (`'data'` for the `profile` tool).
+    server_notices : iterable of ToolNotice, default ()
+        Notices of the server itself (a model that will download its
+        weights), placed before the warnings so they are never omitted.
 
     Returns
     -------
@@ -341,7 +345,10 @@ def build_notices(
         key = (category.__name__, text)
         counts[key] = counts.get(key, 0) + 1
 
-    notices = []
+    notices = [
+        notice.model_copy(update={"message": _cut_notice(notice.message)})
+        for notice in server_notices
+    ]
     for (category, text), count in counts.items():
         if text in plan_texts:
             source = "plan"
@@ -349,22 +356,29 @@ def build_notices(
             source = "data"
         else:
             source = default_source
-        message = text
-        if len(message) > MAX_NOTICE_CHARS:
-            omitted_chars = len(message) - MAX_NOTICE_CHARS
-            message = (
-                f"{message[:MAX_NOTICE_CHARS]} ... ({omitted_chars} more characters)"
-            )
         notices.append(
             ToolNotice(
                 source   = source,
                 category = category,
-                message  = message,
+                message  = _cut_notice(text),
                 count    = count,
             )
         )
 
     return notices[:MAX_NOTICES], max(0, len(notices) - MAX_NOTICES)
+
+
+def _cut_notice(message: str) -> str:
+    """
+    Cut the text of a notice to `MAX_NOTICE_CHARS`, saying how many
+    characters were left out.
+    """
+
+    if len(message) <= MAX_NOTICE_CHARS:
+        return message
+    omitted_chars = len(message) - MAX_NOTICE_CHARS
+
+    return f"{message[:MAX_NOTICE_CHARS]} ... ({omitted_chars} more characters)"
 
 
 def notice_text(record: warnings.WarningMessage) -> str:

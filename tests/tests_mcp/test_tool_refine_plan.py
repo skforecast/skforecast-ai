@@ -134,3 +134,41 @@ def test_tool_refine_plan_overrides_given_as_json_text(tmp_path):
     )
 
     assert as_text["summary"] == as_object["summary"]
+
+
+def test_tool_refine_plan_announces_model_download(tmp_path, monkeypatch):
+    """
+    Test that refining a plan to a foundation model whose weights are not in
+    the local Hugging Face cache announces the download once.
+    """
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hf"))
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path)
+
+    refined = content_of(
+        call(
+            server,
+            "refine_plan",
+            {
+                "plan_id": plan_id,
+                "overrides": {
+                    "forecaster": "ForecasterFoundation",
+                    "estimator": "soda-inria/tabicl",
+                },
+            },
+        )
+    )
+    again = content_of(
+        call(
+            server,
+            "refine_plan",
+            {"plan_id": refined["id"], "overrides": {"interval": [0.1, 0.9]}},
+        )
+    )
+
+    assert [(n["source"], n["category"]) for n in refined["notices"]] == [
+        ("plan", "ModelDownloadNotice")
+    ]
+    assert "'soda-inria/tabicl'" in refined["notices"][0]["message"]
+    assert again["notices"] == []

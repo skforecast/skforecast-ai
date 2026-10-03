@@ -17,6 +17,7 @@ from skforecast_ai.mcp._errors import (
     MAX_MESSAGE_CHARS,
     SERVER_ERROR_CODES,
 )
+from skforecast_ai.mcp._foundation import permissive_adapters, restricted_adapters
 from skforecast_ai.mcp._runtime import MAX_NOTICE_CHARS, MAX_NOTICES
 from skforecast_ai.mcp.server import FOUNDATION_KWARGS, MAX_SUMMARY_CHARS
 from skforecast_ai.schemas.errors import _INTERNAL_MESSAGE_MAX_LENGTH
@@ -149,3 +150,19 @@ def test_skill_md_is_shipped_and_shown_in_the_docs():
     assert "mcp/skills/**/*" in package_data
     assert re.search("[\u2013\u2014]", skill) is None
     assert '--8<-- "skforecast-ai-forecasting/SKILL.md"' in guide
+
+
+def test_skill_md_and_guide_name_the_foundation_models_that_need_allow_model():
+    """
+    Test that SKILL.md and the user guide name the model ID prefix of every
+    foundation model that needs `--allow-model`, as derived from the
+    information of skforecast, and that the guide also names those that run
+    without it, so neither goes out of date when skforecast adds a model.
+    """
+    skill = SKILL_PATH.read_text(encoding="utf-8")
+    guide = GUIDE_PATH.read_text(encoding="utf-8")
+    restricted = [p for info in restricted_adapters() for p in info.model_id_prefixes]
+    permissive = [p for info in permissive_adapters() for p in info.model_id_prefixes]
+
+    assert [p for p in restricted if f"`{p}`" not in skill] == []
+    assert [p for p in restricted + permissive if f"`{p}`" not in guide] == []

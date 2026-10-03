@@ -10,8 +10,10 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import pytest
+from skforecast.foundation import get_model_info
 
 from skforecast_ai.mcp import create_server
+from skforecast_ai.mcp._foundation import permissive_adapters, restricted_adapters
 
 from .fixtures_mcp import (
     MARKER_CODE,
@@ -492,3 +494,183 @@ def test_security_foundation_kwargs_outside_the_allowlist_in_refine_and_compare(
         "invalid_argument",
         "candidates[0].config.estimator_kwargs",
     )
+
+
+RESTRICTED_MODELS = [info.default_model_id for info in restricted_adapters()]
+
+
+def test_security_restricted_models_are_the_documented_ones():
+    """
+    Test that the foundation models the server rejects by default, derived
+    from the information skforecast registers, are TimesFM 3.0, Moirai,
+    TabPFN, t0 and TS-ICL, and that Chronos-2, TimesFM 2.5, TabICL and Nori
+    run without `--allow-model`.
+    """
+    assert RESTRICTED_MODELS == [
+        "google/timesfm-3.0-pytorch",
+        "Salesforce/moirai-2.0-R-small",
+        "priorlabs/tabpfn-ts",
+        "theforecastingcompany/t0-alpha",
+        "taharnbl/TS-ICL",
+    ]
+    assert [info.default_model_id for info in permissive_adapters()] == [
+        "autogluon/chronos-2-small",
+        "google/timesfm-2.5-200m-pytorch",
+        "soda-inria/tabicl",
+        "Synthefy/Nori",
+    ]
+
+
+@pytest.mark.parametrize("model_id", RESTRICTED_MODELS)
+def test_security_restricted_model_in_plan_is_model_not_allowed(tmp_path, model_id):
+    """
+    Test that `plan` with a foundation model that has a license restriction
+    or gated weights is `model_not_allowed`, naming the model and the
+    `--allow-model` option in its hint, and registers no plan.
+    """
+    server, path, _ = _server(tmp_path)
+    profile_id, _ = profile_and_plan(server, path)
+
+    error = error_of(
+        call(
+            server,
+            "plan",
+            {
+                "profile_id": profile_id,
+                "steps": 12,
+                "forecaster": "ForecasterFoundation",
+                "estimator": model_id,
+            },
+        ),
+        "plan",
+    )
+    plans = content_of(call(server, "list_objects", {"kind": "plan"}))["objects"]
+    info = get_model_info(model_id)
+
+    assert (error["code"], error["field"]) == ("model_not_allowed", "estimator")
+    assert error["details"]["model_id"] == model_id
+    assert error["details"]["license"] == info.license_restriction
+    assert error["details"]["requires_hf_auth"] == info.requires_hf_auth
+    assert f"--allow-model {info.model_id_prefixes[0]}" in error["hint"]
+    assert len(plans) == 1
+
+
+@pytest.mark.parametrize("model_id", RESTRICTED_MODELS)
+def test_security_restricted_model_in_refine_plan_is_model_not_allowed(
+    tmp_path, model_id
+):
+    """
+    Test that `refine_plan` to a foundation model with a license restriction
+    or gated weights is `model_not_allowed` on `overrides.estimator`.
+    """
+    server, path, _ = _server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, forecaster="ForecasterFoundation")
+
+    error = error_of(
+        call(
+            server,
+            "refine_plan",
+            {"plan_id": plan_id, "overrides": {"estimator": model_id}},
+        ),
+        "refine_plan",
+    )
+
+    assert (error["code"], error["field"]) == (
+        "model_not_allowed",
+        "overrides.estimator",
+    )
+    assert error["details"]["model_id"] == model_id
+
+
+@pytest.mark.parametrize("model_id", RESTRICTED_MODELS)
+def test_security_restricted_model_in_compare_is_model_not_allowed(tmp_path, model_id):
+    """
+    Test that a candidate of `compare` with a foundation model that has a
+    license restriction or gated weights makes the call `model_not_allowed`
+    before any candidate runs, and registers nothing.
+    """
+    server, path, _ = _server(tmp_path)
+    _, plan_id = profile_and_plan(server, path)
+    cv_id = content_of(call(server, "create_cv", {"plan_id": plan_id}))["id"]
+
+    error = error_of(
+        call(
+            server,
+            "compare",
+            {
+                "cv_id": cv_id,
+                "candidates": [
+                    {"name": "ridge", "config": {"estimator": "Ridge"}},
+                    {
+                        "name": "restricted",
+                        "config": {
+                            "forecaster": "ForecasterFoundation",
+                            "estimator": model_id,
+                        },
+                    },
+                ],
+            },
+        ),
+        "compare",
+    )
+    comparisons = content_of(call(server, "list_objects", {"kind": "comparison"}))
+
+    assert (error["code"], error["field"]) == (
+        "model_not_allowed",
+        "candidates[1].config.estimator",
+    )
+    assert comparisons["objects"] == []
+
+
+@pytest.mark.parametrize("model_id", RESTRICTED_MODELS)
+def test_security_allow_model_runs_a_restricted_model(tmp_path, monkeypatch, model_id):
+    """
+    Test that `--allow-model` with the prefix of a restricted model lets
+    `plan`, `refine_plan` and the candidates of `compare` use it (the
+    candidate fails without its backend, ranked last, as in Python), and
+    that a prefix of another model does not.
+    """
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hf"))
+    data = tmp_path / "data"
+    data.mkdir()
+    path = write_csv(data, "h2o.csv", df_h2o_csv)
+    prefix = get_model_info(model_id).model_id_prefixes[0]
+    other = next(m for m in RESTRICTED_MODELS if m != model_id)
+    server = create_server(
+        allow_dir    = data,
+        output_dir   = tmp_path / "out",
+        allow_models = [prefix],
+    )
+    profile_id, plan_id = profile_and_plan(server, path)
+    base = {"profile_id": profile_id, "steps": 12, "forecaster": "ForecasterFoundation"}
+    cv_id = content_of(call(server, "create_cv", {"plan_id": plan_id}))["id"]
+
+    planned = call(server, "plan", {**base, "estimator": model_id})
+    refined = call(
+        server,
+        "refine_plan",
+        {"plan_id": content_of(planned)["id"], "overrides": {"interval": None}},
+    )
+    other_error = error_of(call(server, "plan", {**base, "estimator": other}), "plan")
+    compared = call(
+        server,
+        "compare",
+        {
+            "cv_id": cv_id,
+            "candidates": [
+                {"name": "ridge", "config": {"estimator": "Ridge"}},
+                {
+                    "name": "allowed",
+                    "config": {
+                        "forecaster": "ForecasterFoundation",
+                        "estimator": model_id,
+                    },
+                },
+            ],
+        },
+    )
+
+    assert content_of(planned)["kind"] == "plan"
+    assert content_of(refined)["kind"] == "plan"
+    assert other_error["code"] == "model_not_allowed"
+    assert content_of(compared)["kind"] == "comparison"

@@ -96,7 +96,11 @@ end once started.
   removed to keep the server within its limits, create the object again.
 - Foundation models only take the `estimator_kwargs` `context_length`,
   `cross_learning`, `point_estimate`, `max_horizon`,
-  `add_calendar_features` and `n_fourier_terms`.
+  `add_calendar_features` and `n_fourier_terms`. Models with a license
+  restriction or gated weights (prefixes `google/timesfm-3.0`,
+  `Salesforce/moirai-2`, `priorlabs/tabpfn`, `theforecastingcompany/t0`,
+  `taharnbl/TS-ICL`) only run when the user started the server with
+  `--allow-model PREFIX`; without it they are `model_not_allowed`.
 
 ## Responses
 
@@ -130,6 +134,7 @@ and follow `hint` when there is one:
 | `inconsistent_ids` | Pass `backtest` a plan and a strategy built from the same profile. |
 | `execution_failed`, `all_candidates_failed` | `get_failure(details.failure_id)` returns the traceback and the code. |
 | `missing_dependency` | Tell the user which package to install. |
+| `model_not_allowed` | Tell the user the license in the message; only if they accept it, ask them to restart the server with the `--allow-model` option of `hint`. |
 | `internal_error` | Report it to the user; do not retry with the same inputs. |
 
 A candidate of `compare` that fails is ranked last instead of failing the
@@ -149,5 +154,7 @@ data file; the other summaries do not. Tell the user when they ask what you
 can see.
 
 Foundation models download their weights from the Hugging Face Hub the
-first time they run; the user can forbid it by starting the server with
+first time they run; a `ModelDownloadNotice` (source `plan`) says so, with
+the license, the first time a model whose weights are not in the local
+cache is used. The user can forbid downloads by starting the server with
 `HF_HUB_OFFLINE=1`.

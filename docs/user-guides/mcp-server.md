@@ -24,6 +24,7 @@ skforecast-ai mcp --allow-dir /path/to/data
 | `--output-dir` | a new temporary directory | Where the server writes predictions, metrics, leaderboards and long texts. It is also the working directory of the server, and it is kept when the server stops. Its path is logged when the server starts. |
 | `--max-objects` | 256 | Most objects (profiles, plans, results) the server keeps. |
 | `--max-memory-mb` | 1024 | Memory the objects may take. Beyond either limit, the least recently used objects are removed. |
+| `--allow-model` | (none) | Model ID prefix of a foundation model with a license restriction or gated weights that the server may run, for example `google/timesfm-3.0`. Repeat it for several. |
 
 The client starts the command by name. If it does not find `skforecast-ai`, give the absolute path of the one in your Python environment (`which skforecast-ai` on Linux and macOS, `where skforecast-ai` on Windows) in the commands below.
 
@@ -80,7 +81,7 @@ Each of these tools returns an id for the next ones, a plain-text summary (the o
 
 ## Errors
 
-A failed call returns an error whose text is `Error executing tool <name>: ` followed by a JSON object with `code`, `message`, `field`, `hint` and `details`. `code` is stable, so the agent can act on it: the [error codes](../api/mcp.md#errors) are those of the Python API plus the ones of the server (`unknown_id`, `inconsistent_ids`, `invalid_path`, `path_not_allowed`, `url_not_allowed`, `data_changed`). When a script fails, `details.failure_id` names its traceback and code, which `get_failure` returns.
+A failed call returns an error whose text is `Error executing tool <name>: ` followed by a JSON object with `code`, `message`, `field`, `hint` and `details`. `code` is stable, so the agent can act on it: the [error codes](../api/mcp.md#errors) are those of the Python API plus the ones of the server (`unknown_id`, `inconsistent_ids`, `invalid_path`, `path_not_allowed`, `url_not_allowed`, `data_changed`, `model_not_allowed`). When a script fails, `details.failure_id` names its traceback and code, which `get_failure` returns.
 
 ---
 
@@ -101,7 +102,8 @@ The data never travels whole to the agent, and the agent's language model sees w
 
 - **Files.** The server reads only absolute paths of `.csv` files inside `--allow-dir`. A path outside it is rejected before the server looks at the file system, so the error does not say whether the file exists, and checked again after resolving symbolic links. URLs are rejected: download the file first. A file that changes between the profile and a later call, or during a call, is rejected (`data_changed`).
 - **Code.** The server never accepts a plan, a profile or a strategy as JSON, only ids and typed arguments, and checks every value the scripts use. The scripts run in the process of the server, with the permissions of the user who started it: the server limits what the agent can read and pass, not what a script can do. Run it as a user without access to what the agent should not reach.
-- **Network.** The server does not open network connections itself. Foundation models (`ForecasterFoundation`) download their weights from the Hugging Face Hub the first time they run; set `HF_HUB_OFFLINE=1` in the environment of the server to forbid it (and use only models already downloaded). Through the server, foundation models only take the `estimator_kwargs` that keep the data on your machine.
+- **Network.** The server does not open network connections itself. Foundation models (`ForecasterFoundation`) download their weights from the Hugging Face Hub the first time they run; the first time a model whose weights are not in the local Hugging Face cache is used, a `ModelDownloadNotice` tells the agent, with the license of the model. Set `HF_HUB_OFFLINE=1` in the environment of the server to forbid downloads (and use only models already downloaded). Through the server, foundation models only take the `estimator_kwargs` that keep the data on your machine.
+- **Foundation models and their licenses.** By default the server only runs the foundation models for which skforecast registers no license restriction and no gated weights: Chronos-2 (`autogluon/chronos-2`, `amazon/chronos-2`, the default), TimesFM 2.5 (`google/timesfm-2.5`), TabICL (`soda-inria/tabicl`) and Nori (`Synthefy/Nori`). The others need `--allow-model` with their prefix, once you have read and accepted their license: TimesFM 3.0 (`google/timesfm-3.0`, non-commercial), Moirai (`Salesforce/moirai-2`, CC-BY-NC-4.0), TabPFN (`priorlabs/tabpfn`, non-commercial without an enterprise license), TS-ICL (`taharnbl/TS-ICL`, non-commercial) and t0 (`theforecastingcompany/t0`, gated weights). Without it, `plan`, `refine_plan` and `compare` reject them with `model_not_allowed`, whose hint tells the agent which option to ask you for.
 - **Working directory.** The server runs in the output directory, so a library that writes files next to it (CatBoost writes `catboost_info/`) does not write into your project.
 
 ---

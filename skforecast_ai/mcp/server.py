@@ -14,7 +14,7 @@ import os
 import tempfile
 import threading
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args, get_origin
@@ -40,6 +40,7 @@ from ._errors import (
     failure_text,
     tool_error,
 )
+from ._foundation import ModelPolicy, check_allow_models
 from ._inputs import AllowedDir
 from ._runtime import CallControl, build_notices, notice_text, run_call
 from ._store import Entry, Store, estimate_nbytes
@@ -297,12 +298,16 @@ class _ServerState:
         file with the full text, if any. `get_failure` returns them.
     failures_lock : threading.Lock
         Guards `failures`.
+    models : ModelPolicy
+        Foundation models the server runs, and those whose download was
+        announced.
     """
 
     allowed: AllowedDir
     output_dir: Path
     store: Store
     assistant: ForecastingAssistant
+    models: ModelPolicy = field(default_factory=ModelPolicy)
     failures: OrderedDict[str, tuple[str, str | None]] = field(
         default_factory=OrderedDict
     )
@@ -703,12 +708,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         summary: tuple[str, bool, dict[str, str]],
         code: tuple[str, str | None],
         notices: tuple[list, int] | None = None,
+        server_notices: list | None = None,
     ) -> ToolResult:
         if notices is None:
             notices = build_notices(
                 outcome_warnings,
-                plan_warnings = new_plan.warnings,
-                data_warnings = source.data_warnings,
+                plan_warnings  = new_plan.warnings,
+                data_warnings  = source.data_warnings,
+                server_notices = server_notices or (),
             )
         return _register(
             state,
@@ -723,6 +730,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             code_file  = code[1],
             changeable = sorted(REFINE_PLAN_OVERRIDE_KEYS),
         )
+
+    def _check_plan_model(plan_obj: Any, argument: str) -> list[str]:
+        # The foundation model of a plan must be allowed; returns it when
+        # its weights are not in the local cache yet, to announce once the
+        # plan is registered.
+        model_id = state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
+        state.models.check(model_id, argument)
+        return state.models.uncached([model_id])
 
     def _describe_plan(control: CallControl, profile_obj: Any, new_plan: Any):
         script = assistant.forecast_code(
@@ -785,14 +800,19 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             _check_foundation_kwargs(
                 new_plan.forecaster, new_plan.estimator_kwargs, "estimator_kwargs"
             )
-            return new_plan, *_describe_plan(control, profile_entry.obj, new_plan)
+            uncached = _check_plan_model(new_plan, "estimator")
+            return (
+                new_plan, *_describe_plan(control, profile_entry.obj, new_plan),
+                uncached,
+            )
 
         outcome = await run_call(work)
-        new_plan, object_id, summary, code = outcome.value
+        new_plan, object_id, summary, code, uncached = outcome.value
 
         return _plan_envelope(
             object_id, new_plan, profile_entry, outcome.warnings,
             {"profile_id": profile_entry.id}, summary, code,
+            server_notices = state.models.announce(uncached),
         )
 
     @_reported
@@ -826,15 +846,20 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 new_plan.estimator_kwargs,
                 "overrides.estimator_kwargs",
             )
-            return new_plan, *_describe_plan(control, plan_entry.profile, new_plan)
+            uncached = _check_plan_model(new_plan, "overrides.estimator")
+            return (
+                new_plan, *_describe_plan(control, plan_entry.profile, new_plan),
+                uncached,
+            )
 
         outcome = await run_call(work)
-        new_plan, object_id, summary, code = outcome.value
+        new_plan, object_id, summary, code, uncached = outcome.value
 
         return _plan_envelope(
             object_id, new_plan, plan_entry, outcome.warnings,
             {"profile_id": plan_entry.profile_id, "parent_plan_id": plan_entry.id},
             summary, code,
+            server_notices = state.models.announce(uncached),
         )
 
     @_reported
@@ -926,6 +951,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         # when the plan was built.
         _check_foundation_kwargs(
             plan_obj.forecaster, plan_obj.estimator_kwargs, argument
+        )
+        state.models.check(
+            state.models.model_of(plan_obj.forecaster, plan_obj.estimator), argument
         )
 
     def _keep_failure(exc: Exception) -> None:
@@ -1051,21 +1079,35 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         cv_entry = store.get(cv_id, "cv_id", ("cv",))
         profile_obj = cv_entry.profile
         configs = None
-        if candidates is not None:
-            configs = []
+        if candidates is None:
+            # The default candidates are named by their forecaster and run
+            # the default foundation model, if any.
+            models = {
+                name: state.models.model_of(name, None)
+                for name in profile_obj.forecaster_candidates
+            }
+        else:
+            configs, models = [], {}
             for position, candidate in enumerate(candidates):
                 prefix = f"candidates[{position}]"
                 _inputs.check_text_argument(candidate.name, f"{prefix}.name")
                 config = dict(candidate.config)
+                forecaster_name = config.get("forecaster") or profile_obj.forecaster
                 _check_foundation_kwargs(
-                    config.get("forecaster") or profile_obj.forecaster,
+                    forecaster_name,
                     config.get("estimator_kwargs"),
                     f"{prefix}.config.estimator_kwargs",
                 )
+                model_id = state.models.model_of(
+                    forecaster_name, config.get("estimator")
+                )
+                state.models.check(model_id, f"{prefix}.config.estimator")
+                models[candidate.name] = model_id
                 configs.append((candidate.name, config))
 
         def work(control: CallControl):
             path = _data_of(cv_entry)
+            uncached = state.models.uncached(models.values())
 
             def on_progress(event):
                 # The start of a candidate repeats the count of the end of the
@@ -1122,14 +1164,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             best_plan = _describe_plan(control, profile_obj, best.plan)
             return (
                 result, object_id, files, summary, code_file, code_files, failures,
-                nbytes, best_plan,
+                nbytes, best_plan, uncached,
             )
 
         report = None if ctx is None else ctx.report_progress
         outcome = await run_call(work, report=report)
         (
             result, object_id, files, summary, code_file, code_files, failures,
-            nbytes, best_plan,
+            nbytes, best_plan, uncached,
         ) = outcome.value
         best = result.best_candidate
         best_plan_id, best_summary, best_code = best_plan
@@ -1154,6 +1196,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             ]
             for candidate in result.candidates.values()
         )
+        # Only the candidates whose script ran (also those that failed while
+        # running) can have downloaded weights.
+        ran_models = {
+            state.models.model_of(candidate.plan.forecaster, candidate.plan.estimator)
+            for candidate in result.candidates.values()
+        } | {
+            models.get(name) for name, failure in result.failures.items()
+            if failure.generated_code is not None
+        }
         cost = {
             "n_folds": int(result.cv_config["n_folds"]),
             "n_fits": int(result.cv_config["n_fits"]),
@@ -1173,8 +1224,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             summary              = summary,
             notices              = build_notices(
                                        outcome.warnings,
-                                       plan_warnings = plan_warnings,
-                                       data_warnings = cv_entry.data_warnings,
+                                       plan_warnings  = plan_warnings,
+                                       data_warnings  = cv_entry.data_warnings,
+                                       server_notices = state.models.announce(
+                                           model for model in uncached
+                                           if model in ran_models
+                                       ),
                                    ),
             source               = cv_entry,
             code                 = best.code,
@@ -1443,6 +1498,7 @@ def _build_state(
     output_dir: str | Path | None,
     max_objects: int,
     max_memory_mb: int,
+    allow_models: Iterable[str] = (),
 ) -> _ServerState:
     """
     Check the settings of a server and build what its tools share.
@@ -1455,6 +1511,9 @@ def _build_state(
                 field = name,
             )
     allowed = AllowedDir.from_path(allow_dir)
+    if isinstance(allow_models, str):
+        allow_models = [allow_models]
+    models = ModelPolicy(allowed_prefixes=check_allow_models(allow_models))
     if output_dir is None:
         output = Path(tempfile.mkdtemp(prefix="skforecast-ai-mcp-"))
     else:
@@ -1478,6 +1537,7 @@ def _build_state(
         output_dir = output,
         store      = store,
         assistant  = ForecastingAssistant(),
+        models     = models,
     )
 
 
@@ -1500,6 +1560,7 @@ def create_server(
     output_dir: str | Path | None = None,
     max_objects: int = DEFAULT_MAX_OBJECTS,
     max_memory_mb: int = DEFAULT_MAX_MEMORY_MB,
+    allow_models: Iterable[str] = (),
 ) -> MCPServer:
     """
     Create the MCP server of skforecast-ai, without running it.
@@ -1524,6 +1585,11 @@ def create_server(
     max_memory_mb : int, default 1024
         Memory, in MB, the objects may take (an estimate); the least
         recently used ones are removed beyond it.
+    allow_models : iterable of str, default ()
+        Model ID prefixes of foundation models with a license restriction
+        or gated weights that the server may run (`'google/timesfm-3.0'`).
+        Each must start with the prefix of an adapter of skforecast. Models
+        without either run without it.
 
     Returns
     -------
@@ -1531,7 +1597,9 @@ def create_server(
         Server of the `mcp` package with the tools of skforecast-ai.
     """
 
-    state = _build_state(allow_dir, output_dir, max_objects, max_memory_mb)
+    state = _build_state(
+        allow_dir, output_dir, max_objects, max_memory_mb, allow_models
+    )
 
     return _build_server(state)
 
@@ -1541,6 +1609,7 @@ def run_server(
     output_dir: str | Path | None = None,
     max_objects: int = DEFAULT_MAX_OBJECTS,
     max_memory_mb: int = DEFAULT_MAX_MEMORY_MB,
+    allow_models: Iterable[str] = (),
 ) -> None:
     """
     Run the MCP server of skforecast-ai over stdio until the client closes.
@@ -1563,13 +1632,18 @@ def run_server(
         Most objects the server keeps.
     max_memory_mb : int, default 1024
         Memory, in MB, the objects may take (an estimate).
+    allow_models : iterable of str, default ()
+        Model ID prefixes of foundation models with a license restriction
+        or gated weights that the server may run.
 
     Returns
     -------
     None
     """
 
-    state = _build_state(allow_dir, output_dir, max_objects, max_memory_mb)
+    state = _build_state(
+        allow_dir, output_dir, max_objects, max_memory_mb, allow_models
+    )
     server = _build_server(state)
     os.chdir(state.output_dir)
     logger.info(

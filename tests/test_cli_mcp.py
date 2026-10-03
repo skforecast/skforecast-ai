@@ -12,7 +12,8 @@ runner = CliRunner()
 def test_cli_mcp_runs_the_server_with_its_options(tmp_path, monkeypatch):
     """
     Test that `skforecast-ai mcp` runs the server with the allowed
-    directory, the output directory and the limits given.
+    directory, the output directory, the limits and the allowed foundation
+    models given.
     """
     calls = []
     monkeypatch.setattr(server_module, "run_server", lambda **kwargs: calls.append(kwargs))
@@ -20,12 +21,14 @@ def test_cli_mcp_runs_the_server_with_its_options(tmp_path, monkeypatch):
     result = runner.invoke(app, [
         "mcp", "--allow-dir", str(tmp_path), "--output-dir", str(tmp_path / "out"),
         "--max-objects", "10", "--max-memory-mb", "64",
+        "--allow-model", "google/timesfm-3.0", "--allow-model", "taharnbl/TS-ICL",
     ])
 
     assert result.exit_code == 0, result.output
     assert calls == [{
         "allow_dir": tmp_path, "output_dir": tmp_path / "out",
         "max_objects": 10, "max_memory_mb": 64,
+        "allow_models": ["google/timesfm-3.0", "taharnbl/TS-ICL"],
     }]
 
 
@@ -42,7 +45,7 @@ def test_cli_mcp_defaults(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert calls == [{
         "allow_dir": tmp_path, "output_dir": None, "max_objects": 256,
-        "max_memory_mb": 1024,
+        "max_memory_mb": 1024, "allow_models": (),
     }]
 
 
@@ -61,6 +64,22 @@ def test_cli_mcp_exit_code_when_allow_dir_missing_or_invalid(tmp_path):
     assert invalid.exit_code == 1
     assert "does not exist or is not a directory." in " ".join(invalid.output.split())
     assert limit.exit_code == 2
+
+
+def test_cli_mcp_exit_code_when_allow_model_is_not_a_model_prefix(tmp_path):
+    """
+    Test that an `--allow-model` prefix that does not start with the prefix
+    of a foundation model of skforecast exits with code 1 and its message,
+    before serving anything.
+    """
+    result = runner.invoke(
+        app, ["mcp", "--allow-dir", str(tmp_path), "--allow-model", "google/"]
+    )
+
+    assert result.exit_code == 1
+    assert "`--allow-model google/` does not start with the model ID prefix" in (
+        " ".join(result.output.split())
+    )
 
 
 def test_cli_mcp_exit_code_when_mcp_extra_missing(tmp_path, monkeypatch):

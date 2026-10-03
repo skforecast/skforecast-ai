@@ -24,6 +24,7 @@ ServerErrorCode = Literal[
     "path_not_allowed",
     "url_not_allowed",
     "data_changed",
+    "model_not_allowed",
 ]
 """Codes of the errors that only the server raises."""
 

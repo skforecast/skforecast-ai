@@ -64,10 +64,13 @@ class ToolNotice(BaseModel):
     ----------
     source : str
         Where the warning comes from: `'data'` (reading or profiling the
-        data), `'plan'` (a warning the plan carries in `plan.warnings`) or
-        `'runtime'` (any other warning of the call).
+        data), `'plan'` (a warning the plan carries in `plan.warnings`, or
+        the model a plan uses) or `'runtime'` (any other warning of the
+        call).
     category : str
-        Class name of the warning (e.g. `'LongTrainingWarning'`).
+        Class name of the warning (e.g. `'LongTrainingWarning'`), or
+        `'ModelDownloadNotice'` for the notice of the server that a
+        foundation model will download its weights.
     message : str
         Text of the warning, without the suggestion of skforecast on how to
         silence it, cut to 1,000 characters.

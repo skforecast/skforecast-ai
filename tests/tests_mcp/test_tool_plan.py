@@ -164,3 +164,38 @@ def test_tool_plan_unknown_or_wrong_id(tmp_path):
         f"{plan_id!r} is the id of a plan, and `profile_id` takes the id of a "
         f"profile (returned by profile)."
     )
+
+
+def test_tool_plan_announces_model_download_once(tmp_path, monkeypatch):
+    """
+    Test that the first plan with a foundation model whose weights are not
+    in the local Hugging Face cache carries a `ModelDownloadNotice` (source
+    'plan') with its license, that a second plan with the same model does
+    not, and that a model already in the cache is never announced.
+    """
+    cache = tmp_path / "hf"
+    (cache / "models--Synthefy--Nori" / "snapshots" / "abc").mkdir(parents=True)
+    monkeypatch.setenv("HF_HUB_CACHE", str(cache))
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    server, _, profile_id = _profiled(tmp_path)
+    base = {"profile_id": profile_id, "steps": 12, "forecaster": "ForecasterFoundation"}
+
+    first = content_of(call(server, "plan", base))
+    second = content_of(call(server, "plan", {**base, "interval": [0.1, 0.9]}))
+    cached = content_of(call(server, "plan", {**base, "estimator": "Synthefy/Nori"}))
+
+    assert first["notices"] == [
+        ToolNotice(
+            source   = "plan",
+            category = "ModelDownloadNotice",
+            message  = (
+                "The weights of 'autogluon/chronos-2-small' are not in the "
+                "local Hugging Face cache: the first run downloads them from "
+                "the Hugging Face Hub. License: skforecast registers no "
+                "license restriction for it."
+            ),
+            count    = 1,
+        ).model_dump()
+    ]
+    assert second["notices"] == []
+    assert cached["notices"] == []

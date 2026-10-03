@@ -70,7 +70,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -336,7 +336,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -589,7 +589,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -854,7 +854,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -1023,7 +1023,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -1309,7 +1309,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -1497,7 +1497,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -1941,7 +1941,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`) or\n    `'runtime'` (any other warning of the call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
