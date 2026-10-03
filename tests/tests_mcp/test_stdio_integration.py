@@ -1,7 +1,11 @@
 # Integration test of the MCP server over stdio
 
+import json
 import os
+import subprocess
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import sys
+import time
 import anyio
 import pytest
 from mcp import Client, StdioServerParameters
@@ -249,3 +253,110 @@ def test_stdio_server_heartbeat_during_a_long_backtest(tmp_path):
     assert all(
         message.startswith("ForecasterRecursive: running (") for _, _, message in events
     )
+
+
+def _jsonrpc_server(tmp_path):
+    """
+    Start the slow server of `_SLOW_SERVER` as a process with pipes, run the
+    handshake and a profile, a plan and a strategy, and return the process,
+    a function that sends a message and the id of the strategy.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    path = write_csv(data, "h2o.csv", df_h2o_csv)
+    process = subprocess.Popen(
+        [
+            sys.executable, "-c", _SLOW_SERVER, "mcp",
+            "--allow-dir", str(data), "--output-dir", str(tmp_path / "out"),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(tmp_path),
+    )
+
+    def send(message):
+        process.stdin.write((json.dumps({"jsonrpc": "2.0", **message}) + "\n").encode())
+        process.stdin.flush()
+
+    def readline():
+        # Bounded: a server that hangs is killed, which ends the read.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            line = pool.submit(process.stdout.readline)
+            try:
+                return line.result(timeout=60)
+            except TimeoutError:
+                process.kill()
+                raise
+
+    def call(number, name, arguments):
+        send({
+            "id": number,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        })
+        return json.loads(readline())["result"]["structuredContent"]
+
+    send({
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "test", "version": "1"},
+        },
+    })
+    try:
+        readline()
+        send({"method": "notifications/initialized"})
+        profile = call(2, "profile", {"data_path": path, "target": "x"})
+        plan = call(3, "plan", {"profile_id": profile["id"], "steps": 12})
+        cv = call(4, "create_cv", {"plan_id": plan["id"]})
+    except BaseException:
+        process.kill()
+        process.wait()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close()
+        raise
+
+    return process, send, cv["id"]
+
+
+@pytest.mark.slow
+def test_stdio_server_exits_cleanly_when_the_client_disconnects_during_a_call(
+    tmp_path,
+):
+    """
+    Test that when the client closes its pipes while a backtest runs, the
+    server ends the call and exits with code 0, logging two plain lines (the
+    start, with both directories on one line, and the disconnection) and no
+    traceback of the broken pipe.
+    """
+    process, send, cv_id = _jsonrpc_server(tmp_path)
+    try:
+        send({
+            "id": 5,
+            "method": "tools/call",
+            "params": {"name": "backtest", "arguments": {"cv_id": cv_id}},
+        })
+        time.sleep(0.5)
+        process.stdout.close()
+        process.stdin.close()
+        code = process.wait(timeout=60)
+        stderr = process.stderr.read().decode()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close()
+
+    lines = stderr.splitlines()
+    assert code == 0
+    assert "Traceback" not in stderr
+    assert len(lines) == 2
+    assert lines[0].endswith(
+        f"skforecast-ai MCP server: reads CSV files in {tmp_path / 'data'}, "
+        f"writes files to {tmp_path / 'out'}."
+    )
+    assert lines[1].endswith("The client disconnected; the server stops.")

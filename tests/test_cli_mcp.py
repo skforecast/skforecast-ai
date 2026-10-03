@@ -102,3 +102,27 @@ def test_cli_mcp_exit_code_when_mcp_extra_missing(tmp_path, monkeypatch):
     output = " ".join(result.output.split())
     assert "the MCP server needs the `mcp` extra" in output
     assert 'pip install "skforecast-ai[mcp]"' in output
+
+
+def test_cli_mcp_exit_code_when_output_dir_not_writable(tmp_path, monkeypatch):
+    """
+    Test that an output directory the server cannot write stops the command
+    with code 1 and its message before serving.
+    """
+    def read_only(*args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(server_module.tempfile, "NamedTemporaryFile", read_only)
+    served = []
+    monkeypatch.setattr(
+        server_module.MCPServer, "run", lambda *args, **kwargs: served.append(1)
+    )
+
+    result = runner.invoke(
+        app,
+        ["mcp", "--allow-dir", str(tmp_path), "--output-dir", str(tmp_path / "out")],
+    )
+
+    assert result.exit_code == 1
+    assert "cannot be written: Permission denied." in " ".join(result.output.split())
+    assert served == []

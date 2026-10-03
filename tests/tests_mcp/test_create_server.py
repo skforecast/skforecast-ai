@@ -90,6 +90,34 @@ def test_create_server_output_dir_created_or_temporary(tmp_path, monkeypatch):
     assert excinfo.value.field == "output_dir"
 
 
+def test_create_server_InvalidInputError_when_output_dir_not_writable(
+    tmp_path, monkeypatch
+):
+    """
+    Test that an output directory the server cannot write stops it when it
+    is created, instead of failing at the end of every run, and that the
+    check leaves no file behind.
+    """
+    from skforecast_ai.mcp import server as server_module
+
+    output_dir = tmp_path / "out"
+    create_server(allow_dir=tmp_path, output_dir=output_dir)
+
+    def read_only(*args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(server_module.tempfile, "NamedTemporaryFile", read_only)
+    err_msg = re.escape(
+        f"The output directory {str(output_dir)!r} cannot be written: "
+        f"Permission denied."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as excinfo:
+        create_server(allow_dir=tmp_path, output_dir=output_dir)
+
+    assert excinfo.value.field == "output_dir"
+    assert os.listdir(output_dir) == []
+
+
 @pytest.mark.parametrize(
     "arguments, message",
     [

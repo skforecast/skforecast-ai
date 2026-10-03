@@ -1779,3 +1779,7 @@ def mcp_server(
     except InvalidInputError as exc:
         err_console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=1)
+
+
+if __name__ == "__main__":
+    app(prog_name="skforecast-ai")

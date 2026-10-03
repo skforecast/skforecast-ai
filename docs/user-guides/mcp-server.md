@@ -27,7 +27,9 @@ skforecast-ai mcp --allow-dir /path/to/data
 | `--max-file-mb` | 256 | Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it. 0 for no limit. |
 | `--allow-model` | (none) | Model ID prefix of a foundation model with a license restriction or gated weights that the server may run, for example `google/timesfm-3.0`. Repeat it for several. |
 
-The client starts the command by name. If it does not find `skforecast-ai`, give the absolute path of the one in your Python environment (`which skforecast-ai` on Linux and macOS, `where skforecast-ai` on Windows) in the commands below.
+The client starts the command by name. If it does not find `skforecast-ai`, give the absolute path of the one in your Python environment (`which skforecast-ai` on Linux and macOS, `where skforecast-ai` on Windows) in the commands below, or start it with the Python of that environment: `/path/to/python -m skforecast_ai mcp --allow-dir /path/to/data`.
+
+When it starts, the server checks that it can write to the output directory and stops with an error otherwise. It writes its log to the standard error, one line per event: the directories it uses when it starts, the message and traceback of an unexpected error with its id, and one line when the client disconnects (it then exits with code 0, also in the middle of a call).
 
 ### Claude Code
 

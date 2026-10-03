@@ -11,6 +11,7 @@ import functools
 import json
 import logging
 import os
+import sys
 import tempfile
 import threading
 from collections import OrderedDict
@@ -18,6 +19,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args, get_origin
+import anyio
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.server.mcpserver.tools import Tool
@@ -1575,6 +1577,57 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     ]
 
 
+def _check_writable(output: Path) -> None:
+    """
+    Check that the server can write files in its output directory, so a
+    directory it cannot write stops the server when it starts rather than
+    every run when it ends.
+    """
+
+    try:
+        with tempfile.NamedTemporaryFile(dir=output, prefix=".skforecast-ai-check-"):
+            pass
+    except OSError as exc:
+        raise InvalidInputError(
+            f"The output directory {str(output)!r} cannot be written: "
+            f"{exc.strerror or exc}.",
+            field = "output_dir",
+        ) from exc
+
+
+# Errors of a stream whose other end is gone: the client closed its pipes.
+_DISCONNECTED = (
+    BrokenPipeError,
+    ConnectionResetError,
+    anyio.BrokenResourceError,
+    anyio.ClosedResourceError,
+)
+
+
+def _client_disconnected(exc: BaseException) -> bool:
+    """
+    Whether an exception, or every exception of a group, says that the
+    client closed its end of the connection.
+    """
+
+    # An exception group (anyio's backport before Python 3.11).
+    inner = getattr(exc, "exceptions", None)
+    if isinstance(inner, tuple) and inner:
+        return all(_client_disconnected(item) for item in inner)
+
+    return isinstance(exc, _DISCONNECTED)
+
+
+class _OneLineFormatter(logging.Formatter):
+    """
+    Format of the log of the server: one line per record (the traceback of
+    an unexpected error follows it), never wrapped to the terminal width.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+
 def _build_state(
     allow_dir: str | Path,
     output_dir: str | Path | None,
@@ -1618,6 +1671,7 @@ def _build_state(
                 field = "output_dir",
             ) from exc
 
+    _check_writable(output)
     store = Store(
         max_objects = max_objects,
         max_bytes   = max_memory_mb * 1024 * 1024,
@@ -1714,7 +1768,13 @@ def run_server(
 
     The working directory of the process becomes `output_dir`, so a library
     that writes files next to it (CatBoost writes `catboost_info/`) does not
-    write them into the project of the user.
+    write them into the project of the user. While it serves, the logger
+    `skforecast_ai.mcp` writes one plain line per record to the standard
+    error and does not pass its records to the root logger; both are
+    restored when it returns. When the client disconnects, also during a
+    call, it logs one line and returns instead of raising, and the standard
+    output (the closed pipe of the client) is pointed to the null device so
+    flushing it at exit does not fail again.
 
     Parameters
     ----------
@@ -1746,9 +1806,44 @@ def run_server(
     )
     server = _build_server(state)
     os.chdir(state.output_dir)
-    logger.info(
-        "skforecast-ai MCP server: reads CSV files in %s, writes files to %s.",
-        state.allowed.path,
-        state.output_dir,
-    )
-    server.run("stdio")
+    # The log of the server goes to stderr in plain lines; the SDK of MCP
+    # configures a handler that wraps them to the width of a terminal.
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(_OneLineFormatter())
+    previous = (logger.level, logger.propagate)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    try:
+        logger.info(
+            "skforecast-ai MCP server: reads CSV files in %s, writes files to %s.",
+            state.allowed.path,
+            state.output_dir,
+        )
+        try:
+            server.run("stdio")
+        except BaseException as exc:
+            if not _client_disconnected(exc):
+                raise
+            # The client went away while a call ran: nothing is left to
+            # answer, so the server stops as if the client had closed it.
+            logger.info("The client disconnected; the server stops.")
+            _discard_stdout()
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous[0])
+        logger.propagate = previous[1]
+
+
+def _discard_stdout() -> None:
+    """
+    Point the standard output to the null device, so flushing it when the
+    process ends does not fail again on the closed pipe.
+    """
+
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        os.close(devnull)
+    except (OSError, ValueError):
+        pass
