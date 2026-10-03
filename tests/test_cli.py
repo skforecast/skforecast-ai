@@ -1,16 +1,24 @@
 # Unit test cli skforecast_ai
 
 import ast
+import io
 import json
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 import typer
 from typer.testing import CliRunner
+from skforecast.exceptions.exceptions import rich_warning_handler
 
-from skforecast_ai.cli import app, _parse_initial_train_size, _parse_lags
+from skforecast_ai.cli import (
+    app,
+    _parse_initial_train_size,
+    _parse_lags,
+    _showwarning_to_stderr,
+)
 from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_assistant import df_single, df_multi_long, df_multi_wide
@@ -1433,3 +1441,93 @@ class TestCompare:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["ranking_metric"] == "mean_absolute_scaled_error"
+
+
+# ---------------------------------------------------------------------------
+# Warnings go to stderr
+# ---------------------------------------------------------------------------
+
+
+class TestWarningsToStderr:
+    """Tests for the warning handler that the CLI sends to stderr."""
+
+    def test_backtest_json_stdout_parseable_when_skforecast_warning(self, tmp_path):
+        """
+        A skforecast warning (rich panel printed on stdout by skforecast's own
+        handler) goes to stderr with its format, so the JSON document on
+        stdout stays parseable.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with warnings.catch_warnings():
+            warnings.simplefilter("always")
+            warnings.showwarning = rich_warning_handler
+            result = runner.invoke(
+                app,
+                ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+                 "--steps", "1", "--initial-train-size", "40", "--refit",
+                 "--format", "json", "--quiet"],
+            )
+            handler_after = warnings.showwarning
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert "metrics" in payload
+        assert "LongTrainingWarning" in result.stderr
+        assert "LongTrainingWarning" not in result.stdout
+        assert handler_after is rich_warning_handler
+
+    def test_showwarning_to_stderr_keeps_explicit_file(self, capsys):
+        """
+        A warning shown on an explicit file is written there, not to stderr.
+        """
+        def file_handler(message, category, filename, lineno, file=None, line=None):
+            print(f"shown: {message}", file=file)
+
+        buffer = io.StringIO()
+        handler = _showwarning_to_stderr(file_handler)
+        handler(UserWarning("to the file"), UserWarning, "f.py", 1, file=buffer)
+        captured = capsys.readouterr()
+        assert "to the file" in buffer.getvalue()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_showwarning_to_stderr_sends_stdout_to_stderr(self, capsys):
+        """
+        A handler that prints on stdout writes to stderr once wrapped.
+        """
+        def printing_handler(message, category, filename, lineno, file=None, line=None):
+            print(f"shown: {message}")
+
+        handler = _showwarning_to_stderr(printing_handler)
+        handler(UserWarning("panel"), UserWarning, "f.py", 1)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == "shown: panel\n"
+
+    def test_main_keeps_handler_when_already_wrapped(self):
+        """
+        A handler already wrapped (a command invoked from another one) is
+        neither wrapped again nor replaced when the command ends.
+        """
+        wrapped = _showwarning_to_stderr(rich_warning_handler)
+        with warnings.catch_warnings():
+            warnings.showwarning = wrapped
+            result = runner.invoke(app, ["config", "path"])
+            assert warnings.showwarning is wrapped
+        assert result.exit_code == 0, result.output
+
+    def test_main_leaves_handler_for_mcp(self, monkeypatch):
+        """
+        The `mcp` command keeps the handler it finds: the server records
+        warnings itself in a worker thread.
+        """
+        seen = {}
+
+        def fake_run_server(**kwargs):
+            seen["handler"] = warnings.showwarning
+
+        monkeypatch.setattr("skforecast_ai.mcp.server.run_server", fake_run_server)
+        with warnings.catch_warnings():
+            warnings.showwarning = rich_warning_handler
+            result = runner.invoke(app, ["mcp", "--allow-dir", "/tmp"])
+        assert result.exit_code == 0, result.output
+        assert seen["handler"] is rich_warning_handler

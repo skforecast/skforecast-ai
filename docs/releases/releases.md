@@ -139,6 +139,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-danger">Fix</span> The "How it works" diagram of the README and the [Agentic forecasting][agentic-guide] guides showed `create_cv()` in the fast path, where it needs a profile and a plan. It now shows a `TimeSeriesFold` passed to `backtest(data, cv)`.
 
++ <span class="badge text-bg-danger">Fix</span> With `--format json`, the CLI printed skforecast's warnings (such as `LongTrainingWarning`) on standard output, before the JSON document, so it could not be parsed or piped. Every warning now goes to standard error, with the same format.
+
 + <span class="badge text-bg-danger">Fix</span> `skforecast-ai config set` no longer accepts `output.format`. No command read it, so the setting had no effect. `config show` lists it, and any other unknown key found in the file, as ignored.
 
 

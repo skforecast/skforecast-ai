@@ -11,6 +11,7 @@ import contextlib
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
 from typing import Annotated
 import typer
@@ -111,8 +112,40 @@ app = typer.Typer(
 )
 
 
+def _showwarning_to_stderr(showwarning):
+    """
+    Wrap a `warnings.showwarning` handler so it writes to stderr.
+
+    skforecast installs a handler that prints its warnings as rich panels
+    on stdout, which breaks the JSON of `--format json`. The wrapper sends
+    stdout to stderr while the handler runs, so the panels keep their
+    format; a warning shown on an explicit `file` is left untouched.
+
+    Parameters
+    ----------
+    showwarning : callable
+        Handler to wrap, with the signature of `warnings.showwarning`.
+
+    Returns
+    -------
+    wrapper : callable
+        Handler that runs `showwarning` with stdout sent to stderr.
+    """
+
+    def wrapper(message, category, filename, lineno, file=None, line=None):
+        if file is not None:
+            showwarning(message, category, filename, lineno, file, line)
+            return
+        with contextlib.redirect_stdout(sys.stderr):
+            showwarning(message, category, filename, lineno, file, line)
+
+    wrapper._skforecast_ai_stderr = True
+    return wrapper
+
+
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: Annotated[
         bool | None,
         typer.Option("--version", callback=_version_callback, is_eager=True, help="Show version."),
@@ -123,6 +156,9 @@ def main(
 
     Parameters
     ----------
+    ctx : typer.Context
+        Context of the invocation, used to restore the warning handler when
+        the command ends.
     version : bool, default None
         Show version and exit.
 
@@ -130,6 +166,20 @@ def main(
     -------
     None
     """
+    # Every warning goes to stderr, so stdout holds only the output of the
+    # command (the JSON document with `--format json`). The MCP server keeps
+    # its own handling: it records warnings per call in a worker thread, and
+    # `redirect_stdout` is not thread safe.
+    if ctx.invoked_subcommand == "mcp":
+        return
+    previous = warnings.showwarning
+    if not getattr(previous, "_skforecast_ai_stderr", False):
+        warnings.showwarning = _showwarning_to_stderr(previous)
+
+        def restore() -> None:
+            warnings.showwarning = previous
+
+        ctx.call_on_close(restore)
 
 
 console = Console()

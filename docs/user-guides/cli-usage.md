@@ -301,6 +301,7 @@ Each LLM setting is read from the first source that defines it: the command opti
 - `--format json` prints the full result as JSON, the same content as `model_dump_json()` in Python. The default is a table (`profile`, `plan`, `refine-plan`, `forecast`, `backtest`, `compare`, `check-llm`), the script (`forecast-code`, `backtest-code`) or text (`ask`).
 - `--output` (`-o`) writes the output of `profile`, `plan`, `refine-plan` and the `*-code` commands to a file. `--output-predictions` and `--output-code` save the predictions and the script of the commands that run a model.
 - `--quiet` (`-q`) hides the progress spinners.
+- Warnings go to standard error, so they never mix with the JSON document that `--format json` prints on standard output.
 
 | Exit code | Meaning |
 |-----------|---------|
