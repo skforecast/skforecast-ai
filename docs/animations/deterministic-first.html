@@ -121,7 +121,8 @@ const TOP = 166, BOT = 376;                                   // first row of ca
 const DX0 = 50, DX1 = 280, RX0 = 312, RX1 = 530, NX0 = 562, NX1 = 850;
 const rowY = i => 252 + i*32;
 const GX = MX1, GY = rowY(LAGS_ROW) - 5, GW = 78, GH = 44;   // validation gate
-const LX0 = 960, LX1 = 1240, LY0 = 250, LY1 = 408;           // LLM
+const LX0 = 960, LX1 = 1240, LY0 = 278, LY1 = 436;           // LLM
+const PY0 = 158, PY1 = 264;                                   // call and prompt, above the LLM
 const CX0 = 50, CX1 = 440, FX0 = 470, FX1 = 880, BY0 = 420, BY1 = 672;   // code, forecast
 
 // chart in the data card: the last week before the forecast
@@ -253,18 +254,17 @@ function planCard(t, o){
   });
 }
 
-function promptBubble(o, call, prompt, close, op){
+// A call with its prompt: the code in mono type, and the prompt indented on
+// its own lines between the call and the parenthesis that closes it.
+function promptBubble(o, call, prompt, op){
   if (op <= 0) return;
   // Regular type: the engine measures text once, and an italic face that loads
   // late would be measured with the fallback font and overflow the bubble.
-  const lines = wrap(`"${prompt}"`, LX1 - LX0 - 36, 14).slice(0, 2);
-  // What closes the call is code, like the call: its own line and the same type.
-  // The lines tighten to make room for it above the LLM box.
-  const [h, y0, gap, dy] = close ? [84, 178, 18, 18] : [78, 182, 22, 19];
-  o.push(rect(LX0, 158, LX1 - LX0, h, {rx:10, fill:V('llm'), fo:.07, stroke:V('llm'), so:.4, op}));
-  o.push(text(LX0 + 14, y0, call, {size:12.5, cls:'m', weight:700, op}));
-  lines.forEach((s, k) => o.push(text(LX0 + 14, y0 + gap + k*dy, s, {size:14, fill:V('muted'), op})));
-  if (close) o.push(text(LX0 + 14, y0 + gap + lines.length*dy - 1, close, {size:12.5, cls:'m', weight:700, op}));
+  const lines = wrap(`"${prompt}"`, LX1 - LX0 - 40, 14).slice(0, 2);
+  o.push(rect(LX0, PY0, LX1 - LX0, PY1 - PY0, {rx:10, fill:V('llm'), fo:.07, stroke:V('llm'), so:.4, op}));
+  o.push(text(LX0 + 14, PY0 + 25, call, {size:12.5, cls:'m', weight:700, op}));
+  lines.forEach((s, k) => o.push(text(LX0 + 28, PY0 + 48 + k*20, s, {size:14, fill:V('muted'), op})));
+  o.push(text(LX0 + 14, PY0 + 50 + lines.length*20, ')', {size:12.5, cls:'m', weight:700, op}));
 }
 
 function llmZone(t, o){
@@ -272,8 +272,8 @@ function llmZone(t, o){
   if (a <= 0) return;
   const k3 = 1 - P(t, ...T.refineOut);        // what belongs to refine_plan() fades when ask() starts
   o.push(text(LX0, MY0 + 22, 'LLM, optional', {size:14, weight:700, fill:V('llm'), op:a}));
-  promptBubble(o, 'refine_plan(..., prompt=', D.llm.refine_prompt, ')', P(t, ...T.prompt)*k3);
-  promptBubble(o, 'ask(prompt, context=result)', ASK_PROMPT, '', P(t, ...T.askPrompt));
+  promptBubble(o, 'refine_plan(..., prompt=', D.llm.refine_prompt, P(t, ...T.prompt)*k3);
+  promptBubble(o, 'ask(context=result, prompt=', ASK_PROMPT, P(t, ...T.askPrompt));
   // model
   o.push(rect(LX0, LY0, LX1 - LX0, LY1 - LY0, {rx:12, fill:V('panel'), stroke:V('llm'), so:.7, sw:1.5, op:a}));
   o.push(text(LX0 + 16, LY0 + 32, 'LLM', {size:20, weight:700, fill:V('llm'), op:a}));
