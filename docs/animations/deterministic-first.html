@@ -326,7 +326,7 @@ function llmZone(t, o){
 }
 
 function gate(t, o){
-  const a = P(t, ...T.llm)*(1 - .6*P(t, ...T.refineOut));
+  const a = P(t, ...T.llmBox)*(1 - .6*P(t, ...T.refineOut));
   if (a <= 0) return;
   const red = P(t, T.red[0], T.red[0] + .15)*(1 - P(t, T.red[1] - .4, T.red[1]));
   const green = P(t, T.green[0], T.green[0] + .15)*(1 - P(t, T.green[1] - .4, T.green[1]));
