@@ -20,6 +20,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 - Steps: 12
 - Estimator: Arima
 - Primary metric: mean_absolute_error
+- Chosen by the user instead of the rules: forecaster
 - Plan: ForecasterStats + Arima. No lag or window features: the statistical model estimates its own autoregressive and seasonal structure. MAE is interpretable, robust to outliers, and works at any scale.
 </forecast_plan>
 <backtesting_strategy>

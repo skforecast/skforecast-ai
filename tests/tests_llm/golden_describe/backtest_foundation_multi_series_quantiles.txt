@@ -25,6 +25,7 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 - Prediction interval: [0.1, 0.9] (80% coverage)
 - Interval method: native
 - Primary metric: mean_absolute_scaled_error
+- Chosen by the user instead of the rules: forecaster
 - Plan: ForecasterFoundation + autogluon/chronos-2-small. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. MASE is scale-independent, enabling fair comparison across differently-scaled series. The model reads up to 8192 observations of each series as context, so the whole history is used (the longest series has 100).
 </forecast_plan>
 <backtesting_strategy>
