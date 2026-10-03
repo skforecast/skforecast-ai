@@ -2429,25 +2429,21 @@ _PROFILE_OF_ANOTHER_STRUCTURE = [
         df_h2o_daily,
         "(frequency: 'MS' != 'D')",
     ),
-    (
-        df_h2o_with_exog,
-        "(exog_columns: [] != ['z'])",
-    ),
 ]
 
 
 @pytest.mark.parametrize(
     "data, differences",
     _PROFILE_OF_ANOTHER_STRUCTURE,
-    ids=["frequency", "exog_columns"],
+    ids=["frequency"],
 )
 def test_forecast_InvalidInputError_when_data_have_other_structure_than_profile(
     data, differences
 ):
     """
     Test that forecast() raises InvalidInputError with the field 'profile'
-    when the data have another frequency or a new exogenous column than the
-    saved profile (monthly h2o without exog).
+    when the data have another frequency than the saved
+    profile (monthly h2o without exog).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_h2o, target="x")
@@ -2463,28 +2459,97 @@ def test_forecast_InvalidInputError_when_data_have_other_structure_than_profile(
     assert exc_info.value.field == "profile"
 
 
+def test_forecast_InvalidInputError_when_data_lack_exog_column_of_profile():
+    """
+    Test that forecast() raises InvalidInputError with the field 'profile'
+    when the data lack an exogenous column of the saved profile.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o_with_exog, target="x")
+
+    err_msg = re.escape(
+        "The data do not have the structure of the profile passed "
+        "(exog_columns: ['z'] != []): profile these data and build the plan "
+        "from that profile."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(data=df_h2o, profile=profile, steps=3)
+
+    assert exc_info.value.field == "profile"
+
+
+_NOTE_UNUSED = (
+    "Columns of the data that the profile passed does not name are not used: "
+    "{columns}. Profile the data again to use them."
+)
+
+
+def test_forecast_output_when_data_have_column_the_profile_does_not_name():
+    """
+    Test that forecast() ignores a column of the data that the saved profile
+    does not name: same predictions as without it, the profile keeps its
+    exogenous columns and a note names the column, once, also when the
+    profile of the result is passed again.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    expected = assistant.forecast(data=df_h2o, profile=profile, steps=3)
+
+    result = assistant.forecast(data=df_h2o_with_exog, profile=profile, steps=3)
+    again = assistant.forecast(
+        data=df_h2o_with_exog, profile=result.profile, steps=3
+    )
+
+    note = _NOTE_UNUSED.format(columns="['z']")
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.code == expected.code
+    assert result.profile.data_profile.exog_columns == []
+    assert result.profile.data_profile.warnings == [note]
+    assert again.profile.data_profile.warnings == [note]
+
+
+def test_forecast_output_when_wide_data_have_new_column_than_profile():
+    """
+    Test that forecast() of wide multi-series data with a column the saved
+    profile does not name predicts the series of the profile and notes the
+    column.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data        = df_multi_wide,
+        target      = ["series_a", "series_b"],
+        date_column = "date",
+    )
+
+    result = assistant.forecast(
+        data    = df_multi_wide.assign(series_c=1.0),
+        profile = profile,
+        steps   = 3,
+    )
+
+    assert sorted(set(result.predictions["level"])) == ["series_a", "series_b"]
+    assert result.profile.data_profile.warnings == [
+        _NOTE_UNUSED.format(columns="['series_c']")
+    ]
+
+
 @pytest.mark.parametrize(
-    "data, differences",
+    "data, series, forecaster",
     [
-        (
-            df_multi_long_one_series,
-            "(series: ['store_a', 'store_b'] != ['store_a'])",
-        ),
+        (df_multi_long_one_series, ["store_a"], "ForecasterRecursive"),
         (
             df_multi_long_three_series,
-            "(series: ['store_a', 'store_b'] != ['store_a', 'store_b', "
-            "'store_c'])",
+            ["store_a", "store_b", "store_c"],
+            "ForecasterRecursiveMultiSeries",
         ),
     ],
     ids=["series_removed", "series_added"],
 )
-def test_forecast_InvalidInputError_when_series_differ_from_profile(
-    data, differences
-):
+def test_forecast_output_when_series_differ_from_profile(data, series, forecaster):
     """
-    Test that forecast() raises InvalidInputError with the field 'profile'
-    when a long format dataset has fewer or more series than the saved
-    profile.
+    Test that forecast() of long format data with fewer or more series than
+    the saved profile (a product that disappears or appears) profiles the
+    data again, with a note, and forecasts the series of the data.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(
@@ -2494,40 +2559,40 @@ def test_forecast_InvalidInputError_when_series_differ_from_profile(
         series_id_column = "series_id",
     )
 
-    err_msg = re.escape(
-        f"The data do not have the structure of the profile passed {differences}: "
-        f"profile these data and build the plan from that profile."
+    result = assistant.forecast(data=data, profile=profile, steps=3)
+
+    data_profile = result.profile.data_profile
+    assert list(data_profile.series_lengths) == series
+    assert result.plan.forecaster == forecaster
+    assert data_profile.warnings[-1] == (
+        "The data differ in their values from the profile passed (changed: "
+        "n_series, series_lengths, n_total_observations, target_stats): the "
+        "profile was computed again from these data."
     )
-    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
-        assistant.forecast(data=data, profile=profile, steps=3)
-
-    assert exc_info.value.code == "invalid_argument"
-    assert exc_info.value.field == "profile"
 
 
-def test_forecast_InvalidInputError_when_wide_data_have_new_column_than_profile():
+def test_forecast_output_when_data_have_another_stamp_of_the_same_period():
     """
-    Test that forecast() raises InvalidInputError with the field 'profile'
-    when wide multi-series data have a new column (an exogenous variable)
-    that the saved profile does not have.
+    Test that forecast() runs a profile and a plan of monthly data stamped
+    on the first day of the month ('MS') on the same data stamped on the
+    last ('ME'): same predicted values, and the profile is computed again
+    with a note.
     """
     assistant = ForecastingAssistant()
-    profile = assistant.profile(
-        data        = df_multi_wide,
-        target      = ["series_a", "series_b"],
-        date_column = "date",
-    )
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=3)
+    expected = assistant.forecast(data=df_h2o, profile=profile, plan=plan)
+    month_end = df_h2o.copy()
+    month_end.index = (month_end.index + pd.offsets.MonthEnd(0)).rename("fecha")
 
-    err_msg = re.escape(
-        "The data do not have the structure of the profile passed "
-        "(exog_columns: [] != ['series_c']): profile these data and build the "
-        "plan from that profile."
-    )
-    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
-        assistant.forecast(
-            data    = df_multi_wide.assign(series_c=1.0),
-            profile = profile,
-            steps   = 3,
-        )
+    result = assistant.forecast(data=month_end, profile=profile, plan=plan)
 
-    assert exc_info.value.field == "profile"
+    np.testing.assert_array_equal(
+        result.predictions.to_numpy(), expected.predictions.to_numpy()
+    )
+    assert result.profile.data_profile.frequency == "ME"
+    assert result.profile.data_profile.warnings[-1] == (
+        "The data differ in their values from the profile passed (changed: "
+        "series_lengths, frequency, frequency_is_set, start_date): the profile "
+        "was computed again from these data."
+    )

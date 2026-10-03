@@ -25,7 +25,6 @@ from tests.fixtures_assistant import df_single, df_multi_wide, df_no_exog
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
-    df_h2o_with_exog,
     df_items_sales_long,
 )
 
@@ -699,7 +698,6 @@ def test_backtest_InvalidInputError_when_cv_result_of_another_structure():
         "The CVResult was created for data of another structure "
         "(data_format: 'single' != 'wide'; "
         "target: 'x' != ['series_a', 'series_b']; "
-        "series: ['x'] != ['series_a', 'series_b']; "
         "date_column: None != 'date'; "
         "frequency: 'MS' != 'D'). Create the strategy from the profile of "
         "these data with `create_cv()`, or pass its TimeSeriesFold "
@@ -873,17 +871,16 @@ def test_backtest_output_when_data_equal_to_profile():
     "data, differences",
     [
         (df_h2o_daily, "(frequency: 'MS' != 'D')"),
-        (df_h2o_with_exog, "(exog_columns: [] != ['z'])"),
     ],
-    ids=["frequency", "exog_columns"],
+    ids=["frequency"],
 )
 def test_backtest_InvalidInputError_when_data_have_other_structure_than_profile(
     data, differences
 ):
     """
     Test that backtest() raises InvalidInputError with the field 'profile'
-    when the data have another frequency or a new exogenous column than the
-    saved profile, before running the backtest.
+    when the data have another frequency than the saved
+    profile, before running the backtest.
     """
     cv = TimeSeriesFold(steps=3, initial_train_size=50, verbose=False)
     profile = assistant.profile(data=df_h2o, target="x")

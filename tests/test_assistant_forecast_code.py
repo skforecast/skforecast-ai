@@ -21,7 +21,6 @@ from tests.fixtures_assistant import (
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
-    df_h2o_with_exog,
 )
 
 
@@ -698,16 +697,15 @@ def test_forecast_code_output_when_same_data_in_another_csv_file(tmp_path):
     "data, differences",
     [
         (df_h2o_daily, "(frequency: 'MS' != 'D')"),
-        (df_h2o_with_exog, "(exog_columns: [] != ['z'])"),
     ],
-    ids=["frequency", "exog_columns"],
+    ids=["frequency"],
 )
 def test_forecast_code_InvalidInputError_when_data_have_other_structure_than_profile(
     data, differences
 ):
     """
     Test that forecast_code() raises InvalidInputError with the field
-    'profile' when the data have another frequency or a new exogenous column
+    'profile' when the data have another frequency
     than the saved profile.
     """
     assistant = ForecastingAssistant()

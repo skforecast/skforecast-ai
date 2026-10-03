@@ -41,7 +41,6 @@ from skforecast_ai import (
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
-    df_h2o_with_exog,
 )
 from tests.fixtures_assistant import (
     df_multi_wide,
@@ -2347,7 +2346,6 @@ def test_compare_InvalidInputError_when_cv_result_of_another_structure():
         "The CVResult was created for data of another structure "
         "(data_format: 'single' != 'wide'; "
         "target: 'x' != ['series_a', 'series_b']; "
-        "series: ['x'] != ['series_a', 'series_b']; "
         "date_column: None != 'date'; "
         "frequency: 'MS' != 'D'). Create the strategy from the profile of "
         "these data with `create_cv()`, or pass its TimeSeriesFold "
@@ -2446,17 +2444,16 @@ def test_compare_output_when_data_have_more_rows_than_profile():
     "data, differences",
     [
         (df_h2o_daily, "(frequency: 'MS' != 'D')"),
-        (df_h2o_with_exog, "(exog_columns: [] != ['z'])"),
     ],
-    ids=["frequency", "exog_columns"],
+    ids=["frequency"],
 )
 def test_compare_InvalidInputError_when_data_have_other_structure_than_profile(
     data, differences
 ):
     """
     Test that compare() raises InvalidInputError with the field 'profile'
-    when the data have another frequency or a new exogenous column than the
-    saved profile.
+    when the data have another frequency than the saved
+    profile.
     """
     profile = assistant.profile(data=df_h2o, target="x")
     cv = TimeSeriesFold(steps=3, initial_train_size=50, verbose=False)

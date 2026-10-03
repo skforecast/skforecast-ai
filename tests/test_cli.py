@@ -1760,12 +1760,14 @@ class TestErrorContract:
     def test_data_of_another_structure_than_plan_raises(self, tmp_path, command):
         """
         Data passed with `--from-plan` whose structure differs from the
-        profile of the bundle (a new exogenous column) exit with code 1 and
-        say how they differ, instead of running without that column.
+        profile of the bundle (an exogenous column is missing) exit with
+        code 1 and say how they differ.
         """
         csv_path = _write_csv(tmp_path, df_single)
         plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
-        new_csv = _write_csv(tmp_path, df_single.assign(z=1.0), name="new.csv")
+        new_csv = _write_csv(
+            tmp_path, df_single.drop(columns="promo"), name="new.csv"
+        )
         result = runner.invoke(
             app,
             [command, new_csv, "--from-plan", plan_file, "--format", "json",
@@ -1777,8 +1779,8 @@ class TestErrorContract:
                 "code": "invalid_argument",
                 "message": (
                     "The data do not have the structure of the profile passed "
-                    "(exog_columns: ['promo'] != ['promo', 'z']): profile these "
-                    "data and build the plan from that profile."
+                    "(exog_columns: ['promo'] != []): profile these data and "
+                    "build the plan from that profile."
                 ),
                 "field": "profile",
                 "hint": (

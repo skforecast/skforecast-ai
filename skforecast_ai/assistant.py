@@ -1284,10 +1284,12 @@ class ForecastingAssistant:
             Pre-computed profile. If None, profiling is performed from
             `data`. When given, it is usually the profile the plan was
             built from. `data` is profiled again with its target, date and
-            series id columns: data of another structure (frequency,
-            series, target or exogenous columns) raise `ValueError`, and
-            data with other values (new rows, for example) run with the
-            new profile, which says so in `DataProfile.warnings`.
+            series id columns: data of another structure (another
+            frequency, an exogenous column missing) raise `ValueError`, and
+            data with other values (new rows or a new series, for example)
+            run with the new profile, which says so in
+            `DataProfile.warnings`. Columns the profile does not name are
+            not used.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. If None, a plan is
             generated from the profile. Requires `profile` to also be
@@ -1508,10 +1510,12 @@ class ForecastingAssistant:
             Pre-computed profile. If None, profiling is performed from
             `data`. When given, it is usually the profile the plan was
             built from. `data` is profiled again with its target, date and
-            series id columns: data of another structure (frequency,
-            series, target or exogenous columns) raise `ValueError`, and
-            data with other values (new rows, for example) run with the
-            new profile, which says so in `DataProfile.warnings`.
+            series id columns: data of another structure (another
+            frequency, an exogenous column missing) raise `ValueError`, and
+            data with other values (new rows or a new series, for example)
+            run with the new profile, which says so in
+            `DataProfile.warnings`. Columns the profile does not name are
+            not used.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. If None, a plan is
             generated from the profile. Requires `profile` to also be
@@ -1950,10 +1954,12 @@ class ForecastingAssistant:
         profile : ForecastingProfile, default None
             Pre-computed profile, usually the profile the plan was built
             from. `data` is profiled again with its target, date and
-            series id columns: data of another structure (frequency,
-            series, target or exogenous columns) raise `ValueError`, and
-            data with other values (new rows, for example) run with the
-            new profile, which says so in `DataProfile.warnings`.
+            series id columns: data of another structure (another
+            frequency, an exogenous column missing) raise `ValueError`, and
+            data with other values (new rows or a new series, for example)
+            run with the new profile, which says so in
+            `DataProfile.warnings`. Columns the profile does not name are
+            not used.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. `forecaster`, `estimator`
             and `estimator_kwargs` are fixed by the plan: a value equal
@@ -2101,10 +2107,12 @@ class ForecastingAssistant:
         profile : ForecastingProfile, default None
             Pre-computed profile, usually the profile the plan was built
             from. `data` is profiled again with its target, date and
-            series id columns: data of another structure (frequency,
-            series, target or exogenous columns) raise `ValueError`, and
-            data with other values (new rows, for example) run with the
-            new profile, which says so in `DataProfile.warnings`.
+            series id columns: data of another structure (another
+            frequency, an exogenous column missing) raise `ValueError`, and
+            data with other values (new rows or a new series, for example)
+            run with the new profile, which says so in
+            `DataProfile.warnings`. Columns the profile does not name are
+            not used.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. `forecaster`, `estimator`
             and `estimator_kwargs` are fixed by the plan: a value equal
@@ -2335,10 +2343,11 @@ class ForecastingAssistant:
         profile : ForecastingProfile, default None
             Pre-computed profile, shared by every candidate. `data` is
             profiled again with its target, date and series id columns:
-            data of another structure (frequency, series, target or
-            exogenous columns) raise `ValueError`, and data with other
-            values (new rows, for example) run with the new profile,
-            which says so in `DataProfile.warnings`.
+            data of another structure (another frequency, an exogenous
+            column missing) raise `ValueError`, and data with other
+            values (new rows or a new series, for example) run with the
+            new profile, which says so in `DataProfile.warnings`. Columns
+            the profile does not name are not used.
         show_progress : bool, default True
             Whether to display a progress bar across candidates.
         baseline : bool, default True
@@ -3434,12 +3443,19 @@ class ForecastingAssistant:
 
         - same structure and values: `profile` is returned unchanged, and the
           warnings of profiling them again are not shown;
-        - another structure (`structure_differences`: frequency, series,
-          target or exogenous columns): `InvalidInputError`;
-        - same structure, other values (new rows, a changed value): the data
-          are profiled with `profile()`, whose warnings are shown, and the
-          new profile is returned with a note in `DataProfile.warnings`
-          naming the fields that changed.
+        - another structure (`structure_differences`: frequency, target or
+          exogenous columns): `InvalidInputError`;
+        - same structure, other values (new rows, a changed value, a series
+          that appears or disappears in long format, another stamp of the
+          same period such as `'ME'` for `'MS'`): the data are profiled with
+          `profile()`, whose warnings are shown, and the new profile is
+          returned with a note in `DataProfile.warnings` naming the fields
+          that changed.
+
+        Columns of `data` the profile does not name are left out of both
+        profiles: the plan and the script read the columns of the profile,
+        so the workflow runs as without them, and a note in
+        `DataProfile.warnings` names them.
 
         Parameters
         ----------
@@ -3455,6 +3471,13 @@ class ForecastingAssistant:
         """
 
         saved = profile.data_profile
+        targets = saved.target if isinstance(saved.target, list) else [saved.target]
+        known = {
+            *targets, *saved.exog_columns, saved.date_column, saved.series_id_column
+        }
+        unused = [column for column in data.columns if column not in known]
+        if unused:
+            data = data.drop(columns=unused)
         frame, target = _resolve_data_and_target(
             data, saved.target, saved.date_column
         )
@@ -3482,31 +3505,44 @@ class ForecastingAssistant:
                 ),
             )
 
+        notes = []
+        if unused:
+            shown = [str(column) for column in unused[:5]]
+            more = f" (first 5 of {len(unused)})" if len(unused) > 5 else ""
+            notes.append(
+                f"Columns of the data that the profile passed does not name "
+                f"are not used: {shown}{more}. Profile the data again to use "
+                f"them."
+            )
+
         saved_values = _profile_values(saved)
         fresh_values = _profile_values(fresh)
         changed = [
             name for name in saved_values
             if saved_values[name] != fresh_values[name]
         ]
-        if not changed:
+        if changed:
+            profile = self.profile(
+                data             = data,
+                target           = saved.target,
+                date_column      = saved.date_column,
+                series_id_column = saved.series_id_column,
+            )
+            notes.append(
+                f"The data differ in their values from the profile passed "
+                f"(changed: {', '.join(changed)}): the profile was computed "
+                f"again from these data."
+            )
+
+        data_profile = profile.data_profile
+        # A profile that comes back from a result already has its notes.
+        notes = [note for note in notes if note not in data_profile.warnings]
+        if not notes:
             return profile
 
-        refreshed = self.profile(
-            data             = data,
-            target           = saved.target,
-            date_column      = saved.date_column,
-            series_id_column = saved.series_id_column,
-        )
-        note = (
-            f"The data differ in their values from the profile passed "
-            f"(changed: {', '.join(changed)}): the profile was computed again "
-            f"from these data."
-        )
-        data_profile = refreshed.data_profile
-
-        return refreshed.model_copy(update={
+        return profile.model_copy(update={
             "data_profile": data_profile.model_copy(
-                update={"warnings": [*data_profile.warnings, note]}
+                update={"warnings": [*data_profile.warnings, *notes]}
             )
         })
 

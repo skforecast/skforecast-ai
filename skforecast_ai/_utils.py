@@ -1149,10 +1149,11 @@ def profile_structure(data_profile: DataProfile) -> dict:
     Return what a profile says about the structure of the data.
 
     The structure is what a plan, a cross-validation strategy and the
-    generated script are built on: the format, the target and its series,
-    the date and series id columns, the type and frequency of the index,
-    and the exogenous columns. Two profiles of the same structure differ
-    only in their values (statistics, missing values, warnings) or in the
+    generated script are built on: the format, the target, the date and
+    series id columns, the type and frequency of the index, and the
+    exogenous columns. Two profiles of the same structure differ only in
+    their values (statistics, missing values, warnings), in the series of
+    data in long format (a product that appears or disappears) or in the
     path of the data.
 
     Parameters
@@ -1170,7 +1171,6 @@ def profile_structure(data_profile: DataProfile) -> dict:
     return {
         "data_format": data_profile.data_format,
         "target": sorted(map(str, target)) if isinstance(target, list) else target,
-        "series": sorted(map(str, data_profile.series_lengths)),
         "date_column": data_profile.date_column,
         "series_id_column": data_profile.series_id_column,
         "index_type": data_profile.index_type,
@@ -1196,13 +1196,64 @@ def structure_differences(first: DataProfile, second: DataProfile) -> list[str]:
     differences : list of str
         One `'name: first != second'` per field of `profile_structure` that
         differs, with lists cut at 5 items. Empty when the structure is the
-        same.
+        same. Two frequencies of the same period (`same_period`) are not a
+        difference.
     """
     a, b = profile_structure(first), profile_structure(second)
     return [
         f"{name}: {_short(a[name])} != {_short(b[name])}"
-        for name in a if a[name] != b[name]
+        for name in a
+        if a[name] != b[name]
+        and not (name == "frequency" and same_period(a[name], b[name]))
     ]
+
+
+def _period(frequency: str | None) -> object:
+    """
+    Return the period a frequency counts in, whatever the date each
+    observation is stamped with: `'MS'` and `'ME'` are both months,
+    `'W-SUN'` and `'W-MON'` weeks, `'QS-JAN'` and `'QE-DEC'` quarters. A
+    frequency pandas cannot read is returned as it is.
+    """
+    if frequency is None:
+        return None
+    try:
+        offset = pd.tseries.frequencies.to_offset(frequency)
+    except (ValueError, TypeError):
+        return frequency
+    # 'W-SUN' -> 'W', 'QS-JAN' -> 'QS': the anchor is the stamp, not the
+    # period. Then the start and end variants: 'QS' and 'QE' -> 'Q'. The
+    # units of time ('s', 'ms') are lower case and stay as they are.
+    name = offset.name.split("-")[0]
+    if len(name) > 1 and name[-1] in "SE":
+        name = name[:-1]
+
+    return (offset.n, name)
+
+
+def same_period(first: str | None, second: str | None) -> bool:
+    """
+    Tell whether two frequencies count the same period.
+
+    Monthly data stamped on the first day of the month (`'MS'`) and on the
+    last (`'ME'`) have the same observations, seasonality and lags, and so
+    have weekly data stamped on another weekday: a plan built for one runs
+    unchanged on the other.
+
+    Parameters
+    ----------
+    first : str, None
+        First frequency.
+    second : str, None
+        Second frequency.
+
+    Returns
+    -------
+    same : bool
+        Whether both are the same multiple of the same period.
+    """
+
+    return first == second or _period(first) == _period(second)
 
 
 def _short(value: object) -> str:
@@ -1219,7 +1270,8 @@ def _check_plan_matches_profile(plan: ForecastPlan, data_profile: DataProfile) -
     A plan is built from a profile (`plan()`); used with the profile of
     other data, the script ran with lags, features and a frequency that do
     not fit it, without an error. Checked: the frequency the plan was built
-    for (when it has one), that its task type fits the shape of the data
+    for (when it has one; another stamp of the same period, `'ME'` for
+    `'MS'`, is accepted, see `same_period`), that its task type fits the shape of the data
     (`_validate_task_input`), that the data has exogenous variables when the
     plan uses them, and a datetime index for its calendar features. Which
     columns are exogenous is not compared: a plan reads the exogenous
@@ -1238,7 +1290,9 @@ def _check_plan_matches_profile(plan: ForecastPlan, data_profile: DataProfile) -
     """
     # A plan built by hand may have no frequency: the script reads the one
     # of the profile, so there is nothing to compare.
-    if plan.frequency is not None and plan.frequency != data_profile.frequency:
+    if plan.frequency is not None and not same_period(
+        plan.frequency, data_profile.frequency
+    ):
         raise InvalidInputError(
             f"The plan was built for data of frequency {plan.frequency!r}, "
             f"and the data has frequency {data_profile.frequency!r}. Build "

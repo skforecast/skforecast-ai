@@ -25,6 +25,7 @@ from skforecast_ai._utils import (
     _data_path_of_run,
     _with_data_path,
     profile_structure,
+    same_period,
     structure_differences,
 )
 from skforecast_ai import ForecastingAssistant
@@ -1259,7 +1260,6 @@ def test_check_feature_name_collisions_passes_when_data_has_no_exog():
             {
                 "data_format": "single",
                 "target": "sales",
-                "series": ["sales"],
                 "date_column": "date",
                 "series_id_column": None,
                 "index_type": "datetime",
@@ -1274,7 +1274,6 @@ def test_check_feature_name_collisions_passes_when_data_has_no_exog():
             {
                 "data_format": "wide",
                 "target": ["series_a", "series_b"],
-                "series": ["series_a", "series_b"],
                 "date_column": "date",
                 "series_id_column": None,
                 "index_type": "datetime",
@@ -1293,7 +1292,6 @@ def test_check_feature_name_collisions_passes_when_data_has_no_exog():
             {
                 "data_format": "long",
                 "target": "value",
-                "series": ["store_a", "store_b"],
                 "date_column": "date",
                 "series_id_column": "series_id",
                 "index_type": "datetime",
@@ -1308,7 +1306,6 @@ def test_check_feature_name_collisions_passes_when_data_has_no_exog():
             {
                 "data_format": "single",
                 "target": "x",
-                "series": ["x"],
                 "date_column": None,
                 "series_id_column": None,
                 "index_type": "datetime",
@@ -1367,7 +1364,6 @@ def test_structure_differences_output_when_profiles_differ():
     assert structure_differences(single, wide) == [
         "data_format: 'single' != 'wide'",
         "target: 'x' != ['series_a', 'series_b']",
-        "series: ['x'] != ['series_a', 'series_b']",
         "date_column: None != 'date'",
         "frequency: 'MS' != 'D'",
     ]
@@ -1386,6 +1382,61 @@ def test_structure_differences_output_when_profiles_have_same_structure():
 
     assert structure_differences(full.data_profile, full.data_profile) == []
     assert structure_differences(full.data_profile, short.data_profile) == []
+
+
+@pytest.mark.parametrize(
+    "first, second, expected",
+    [
+        ("MS", "ME", True),
+        ("W-SUN", "W-MON", True),
+        ("QS-JAN", "QE-DEC", True),
+        ("YS", "YE-DEC", True),
+        ("D", "D", True),
+        (None, None, True),
+        ("MS", "2MS", False),
+        ("MS", "QS-JAN", False),
+        ("D", "B", False),
+        ("s", "ms", False),
+        ("MS", None, False),
+    ],
+)
+def test_same_period_output(first, second, expected):
+    """
+    Test that same_period() tells apart the period of two frequencies and
+    not the date their observations are stamped with.
+    """
+    assert same_period(first, second) is expected
+    assert same_period(second, first) is expected
+
+
+def test_structure_differences_output_when_same_period_or_series_change():
+    """
+    Test that structure_differences() returns an empty list for monthly
+    data stamped on another day of the month, and for long format data with
+    one more series: both are profiled again, not rejected.
+    """
+    assistant = ForecastingAssistant()
+    month_start = assistant.profile(data=df_h2o, target="x").data_profile
+    data = df_h2o.copy()
+    data.index = data.index + pd.offsets.MonthEnd(0)
+    month_end = assistant.profile(data=data, target="x").data_profile
+    long_arguments = {
+        "target": "value", "date_column": "date", "series_id_column": "series_id"
+    }
+    two = assistant.profile(data=df_multi_long, **long_arguments).data_profile
+    three = assistant.profile(
+        data=pd.concat([
+            df_multi_long,
+            df_multi_long[df_multi_long["series_id"] == "store_a"].assign(
+                series_id="store_c"
+            ),
+        ]),
+        **long_arguments,
+    ).data_profile
+
+    assert month_end.frequency == "ME"
+    assert structure_differences(month_start, month_end) == []
+    assert structure_differences(two, three) == []
 
 
 def test_structure_differences_cuts_lists_at_five_items():
@@ -1416,11 +1467,9 @@ def test_structure_differences_cuts_lists_at_five_items():
     first_five = "['s0', 's1', 's2', 's3', 's4']"
     assert structure_differences(seven, eight) == [
         f"target: {first_five} (first 5 of 7) != {first_five} (first 5 of 8)",
-        f"series: {first_five} (first 5 of 7) != {first_five} (first 5 of 8)",
     ]
     assert structure_differences(five, seven) == [
         f"target: {first_five} != {first_five} (first 5 of 7)",
-        f"series: {first_five} != {first_five} (first 5 of 7)",
     ]
 
 
@@ -1464,6 +1513,21 @@ def test_check_plan_matches_profile_InvalidInputError_when_frequency_differs():
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "plan"
+
+
+def test_check_plan_matches_profile_output_when_same_period():
+    """
+    Test that a plan built for monthly data stamped on the first day of the
+    month ('MS') is accepted for data stamped on the last ('ME').
+    """
+    assistant = ForecastingAssistant()
+    plan = assistant.plan(assistant.profile(data=df_h2o, target="x"), steps=5)
+    data = df_h2o.copy()
+    data.index = data.index + pd.offsets.MonthEnd(0)
+    profile = assistant.profile(data=data, target="x")
+
+    assert plan.frequency == "MS"
+    assert _check_plan_matches_profile(plan, profile.data_profile) is None
 
 
 def test_check_plan_matches_profile_InvalidInputError_when_task_type_does_not_fit_data():
@@ -1579,7 +1643,6 @@ def test_check_cv_matches_profile_InvalidInputError_when_structure_differs():
         "The CVResult was created for data of another structure "
         "(data_format: 'single' != 'wide'; "
         "target: 'x' != ['series_a', 'series_b']; "
-        "series: ['x'] != ['series_a', 'series_b']; "
         "date_column: None != 'date'; "
         "frequency: 'MS' != 'D'). Create the strategy from the profile of "
         "these data with `create_cv()`, or pass its TimeSeriesFold "
