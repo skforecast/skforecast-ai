@@ -6,7 +6,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server, server as server_module
 from skforecast_ai.mcp.models import ToolNotice
 
-from ..fixtures_datasets import df_items_sales_long
+from ..fixtures_datasets import df_items_sales_long, df_mixed_date_formats
 from .fixtures_mcp import (
     DATA_WARNING,
     GAPS_WARNING,
@@ -240,6 +240,39 @@ def test_tool_profile_rejects_column_names_with_line_breaks(tmp_path):
         ),
         "field": "data_path",
         "hint": "Rename those columns (or series) in the CSV file.",
+        "details": None,
+    }
+    assert content_of(call(server, "list_objects", {}))["objects"] == []
+
+
+def test_tool_profile_invalid_argument_when_dates_in_more_than_one_format(tmp_path):
+    """
+    Test that a CSV whose dates are written in more than one format is
+    `invalid_argument` with the remedy as `hint`, and that nothing is
+    registered.
+    """
+    path = write_csv(tmp_path, "mixed.csv", df_mixed_date_formats)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(
+            server,
+            "profile",
+            {"data_path": path, "target": "y", "date_column": "date"},
+        ),
+        "profile",
+    )
+
+    assert error == {
+        "code": "invalid_argument",
+        "message": (
+            "The dates of column 'date' are written in more than one format, "
+            "such as '2015-01-01' and '2017/07/01 00:00': the generated script "
+            "reads every date with the format of the first one. Write all the "
+            "dates in one format."
+        ),
+        "field": "data_path",
+        "hint": "Write all the dates of the column in one format.",
         "details": None,
     }
     assert content_of(call(server, "list_objects", {}))["objects"] == []

@@ -602,9 +602,10 @@ def _resolve_data_and_target(
         Series (the name is used instead).
     date_column : str, default None
         Name of the date column, when the caller gives it. A CSV column of
-        dates with empty cells or mixed time zones raises an error when it is
-        this column, or when it is not given and no later column holds
-        complete dates (see `_try_parse_first_date_column`).
+        dates with empty cells, mixed time zones or more than one format
+        raises an error when it is this column, or when it is not given and
+        no later column holds complete dates (see
+        `_try_parse_first_date_column`).
 
     Returns
     -------
@@ -620,8 +621,9 @@ def _resolve_data_and_target(
     ValueError
         When `data` is a Series and `target` is provided but does not
         match the Series name, when `data` is not a Series and `target` is
-        None, when the dates of a CSV have empty cells or mixed time zones
-        (see `date_column`), or when a CSV file cannot be read as one.
+        None, when the dates of a CSV have empty cells, mixed time zones or
+        more than one format (see `date_column`), or when a CSV file cannot
+        be read as one.
     FileNotFoundError
         When `data` is a path or URL that cannot be read.
     """
@@ -864,7 +866,7 @@ def load_exog(
                 # The dates were read already: pandas only repeats that it
                 # parses each one on its own.
                 warnings.simplefilter("ignore", UserWarning)
-                parse_text_dates(text[found], mixed=False)
+                parse_text_dates(text[found])
         except (ValueError, TypeError) as exc:
             raise InvalidInputError(
                 f"Exog CSV '{path}': the dates of column {found!r} cannot be "

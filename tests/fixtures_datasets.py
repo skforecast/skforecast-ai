@@ -177,3 +177,25 @@ df_h2o_daily = pd.DataFrame(
     {"x": np.arange(100, dtype=float)},
     index=pd.date_range("2020-01-01", periods=100, freq="D", name="fecha"),
 )
+
+
+# Monthly series whose dates are written in two formats: ISO for the first 30
+# rows, then with slashes and a time. The generated script, which reads them
+# with the format of the first date, fails on them.
+_mixed_dates = pd.date_range("2015-01-01", periods=60, freq="MS")
+df_mixed_date_formats = pd.DataFrame({
+    "date": (
+        [date.strftime("%Y-%m-%d") for date in _mixed_dates[:30]]
+        + [date.strftime("%Y/%m/%d %H:%M") for date in _mixed_dates[30:]]
+    ),
+    "y": np.arange(60, dtype=float) + np.sin(np.arange(60)),
+})
+
+# The same series with ISO dates, the first 30 without a time and the rest
+# with one, which the script cannot read either.
+df_iso_dates_with_and_without_time = df_mixed_date_formats.assign(
+    date=(
+        [date.strftime("%Y-%m-%d") for date in _mixed_dates[:30]]
+        + [date.strftime("%Y-%m-%d %H:%M:%S") for date in _mixed_dates[30:]]
+    )
+)

@@ -113,7 +113,7 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.profile()</code>][assistant] reads rows that are not in date order as the generated script does, sorted, and says so in `DataProfile.warnings`: descending dates gave a script that failed, and shuffled rows gave other lags and predictions without any warning. Repeated identical rows and rows without a date no longer count for the lags, which can change them.
 
-+ <span class="badge text-bg-danger">Fix</span> Text dates, in a CSV or in a `date_column`, are read as the generated script reads them, so for day-first dates such as `13/01/2012` the profile, the lags and `forecast()` now match the script instead of reading `01/02/2012` as the second of January.
++ <span class="badge text-bg-danger">Fix</span> Text dates, in a CSV or in a `date_column`, are read as the generated script reads them, so for day-first dates such as `13/01/2012` the profile, the lags and `forecast()` now match the script instead of reading `01/02/2012` as the second of January. Dates written in more than one format (`2015-01-01` and `2015/01/02 00:00`) raise `InvalidInputError` asking for one format, where the profile was built and the generated script failed on them.
 
 + <span class="badge text-bg-danger">Fix</span> A CSV whose date column has empty cells or mixes UTC offsets raises `InvalidInputError` naming the column and the rows, where its dates silently became an exogenous variable; when a later column holds complete dates, it is used with a warning.
 

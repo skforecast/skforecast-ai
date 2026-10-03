@@ -16,6 +16,7 @@ import pandas as pd
 from dateutil import parser as dateutil_parser
 from .._dates import (
     date_positions,
+    first_date,
     guess_datetime_format,
     guessed_date_format,
     is_missing_date,
@@ -453,9 +454,10 @@ def _try_parse_first_date_column(
     dates are parsed as the generated script parses them (see
     `parse_text_dates`).
 
-    A column of dates with empty cells or with UTC offsets that change
-    cannot be the date column (see `_read_date_column`). When it is the
-    `date_column`, or no later column is converted, an error says why. When
+    A column of dates with empty cells, with UTC offsets that change or
+    written in more than one format cannot be the date column (see
+    `_read_date_column`). When it is the `date_column`, or no later column
+    is converted, an error says why. When
     a later column is converted instead, a warning names the columns. The
     `date_column` is checked even when an earlier column was converted.
 
@@ -539,8 +541,8 @@ def _read_date_column(
 ) -> tuple[pd.Series | None, tuple[str, str] | None]:
     """
     Parse a text column as the generated script does, and say why it cannot
-    be the date column when its dates have empty cells or UTC offsets that
-    change.
+    be the date column when its dates have empty cells, UTC offsets that
+    change or more than one format.
 
     Parameters
     ----------
@@ -560,7 +562,8 @@ def _read_date_column(
         issue.
     issue : tuple, None
         Why the column holds dates but cannot be the date column, as what was
-        found and how to fix it (see `_text_dates_issue`), or None.
+        found and how to fix it (see `_text_dates_issue` and
+        `_mixed_formats_issue`), or None.
     """
     # Most date columns parse with the format of their first date, with no
     # empty cell and one time zone: no further check needed.
@@ -571,7 +574,60 @@ def _read_date_column(
     if issue is not None:
         return None, issue
     # Mixed offsets are reported below, so the pandas warning about them
-    # would only repeat it.
+    # would only repeat it; so would its note that, without a format, it
+    # parses each date on its own.
+    with _warnings.catch_warnings():
+        _warnings.filterwarnings(
+            action   = "ignore",
+            message  = ".*mixed time zones",
+            category = FutureWarning,
+        )
+        _warnings.filterwarnings(
+            action   = "ignore",
+            message  = "Could not infer format",
+            category = UserWarning,
+        )
+        try:
+            parsed = parse_text_dates(values)
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            # The generated script cannot read them either.
+            return _read_dates_one_by_one(name, values, named)
+    # Offsets in a spelling `time_zones` does not read give pandas
+    # Timestamps of several offsets.
+    issue = _mixed_offsets_issue(name, parsed)
+
+    return (None, issue) if issue is not None else (parsed, None)
+
+
+def _read_dates_one_by_one(
+    name: str,
+    values: pd.Series,
+    named: bool,
+) -> tuple[pd.Series | None, tuple[str, str] | None]:
+    """
+    Parse each date of a column on its own, for a column the generated
+    script cannot read, and say why it cannot be the date column.
+
+    Parameters
+    ----------
+    name : str
+        Name of the column, for the message.
+    values : pandas Series
+        Values of the column: text, or date objects.
+    named : bool
+        Whether the caller named this column as the date column.
+
+    Returns
+    -------
+    parsed : pandas Series, None
+        The dates, read one by one, when the column is in one format the
+        script reads otherwise (day-first dates whose first date reads
+        month-first, left to the check of the frequency); None when it does
+        not parse or has an issue.
+    issue : tuple, None
+        Why the column holds dates but cannot be the date column (see
+        `_mixed_formats_issue`), or None.
+    """
     with _warnings.catch_warnings():
         _warnings.filterwarnings(
             action   = "ignore",
@@ -579,14 +635,14 @@ def _read_date_column(
             category = FutureWarning,
         )
         try:
-            parsed = parse_text_dates(values)
+            each = pd.to_datetime(values, format="mixed")
         except (ValueError, TypeError, AttributeError, OverflowError):
             return None, None
-    # Offsets in a spelling `time_zones` does not read give pandas
-    # Timestamps of several offsets.
-    issue = _mixed_offsets_issue(name, parsed)
+    issue = _mixed_offsets_issue(name, each)
+    if issue is None:
+        issue = _mixed_formats_issue(name, values, named, each)
 
-    return (None, issue) if issue is not None else (parsed, None)
+    return (None, issue) if issue is not None else (each, None)
 
 
 def _parse_with_guessed_format(values: pd.Series) -> pd.Series | None:
@@ -687,6 +743,120 @@ def _text_dates_issue(
     )
 
 
+def _mixed_formats_issue(
+    name: str,
+    values: pd.Series,
+    named: bool,
+    each: pd.Series,
+) -> tuple[str, str] | None:
+    """
+    Say why a column of dates written in more than one format cannot be the
+    date column.
+
+    The generated script reads the column with `pandas.to_datetime`, which
+    takes the format of the first date for all of them and fails on a date
+    written otherwise ('2015-01-01' and '2015/01/02', or a date with and
+    without a time). Read one by one (`format='mixed'`), the profile would
+    describe dates the script cannot read, so the column is rejected: a
+    single format is what makes the reading unambiguous. Zone names that
+    change at a daylight saving time change ('CET', then 'CEST') are
+    reported as time zones. Day-first dates whose first date reads
+    month-first ('01/02/2023', then '13/02/2023') are in one format: they
+    are left to the check of the frequency, which says how to read them.
+
+    Parameters
+    ----------
+    name : str
+        Name of the column, for the message.
+    values : pandas Series
+        Values of the column, which the script cannot read.
+    named : bool
+        Whether the caller named this column as the date column. When
+        False, its first date must clearly be one (see `_is_clearly_date`),
+        as in `_text_dates_issue`.
+    each : pandas Series
+        The values parsed one by one.
+
+    Returns
+    -------
+    issue : tuple, None
+        What was found and how to fix it, or None when the column is not
+        made of dates in more than one format.
+    """
+    first = first_date(values)
+    if not isinstance(first, str) or (not named and not _is_clearly_date(first)):
+        return None
+    date_format = guessed_date_format(values)
+    if date_format is None or each.isna().any():
+        return None
+    present = values.notna()
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        day_first = guess_datetime_format(first, dayfirst=True)
+        misfit = present & pd.to_datetime(
+            values, format=date_format, errors="coerce"
+        ).isna()
+        if day_first not in (None, date_format):
+            misfit_day_first = present & pd.to_datetime(
+                values, format=day_first, errors="coerce"
+            ).isna()
+            if not misfit_day_first.any():
+                return None
+            # The date to quote fits neither reading of the first one.
+            if (misfit & misfit_day_first).any():
+                misfit = misfit & misfit_day_first
+    if not misfit.any():
+        return None
+    zones = _changing_zone_names(values)
+    if zones is not None:
+        return _mixed_zones_message(name, zones)
+    other = values[misfit].iloc[0]
+
+    return DateIssue(
+        f"The dates of column {name!r} are written in more than one format, "
+        f"such as {_shown_date(first)!r} and {_shown_date(other)!r}",
+        ": the generated script reads every date with the format of the "
+        "first one. Write all the dates in one format.",
+        hint = "Write all the dates of the column in one format.",
+    )
+
+
+# A zone name written after the time ('2012-03-24 00:00:00 CET').
+_ZONE_NAME = re.compile(r"^(.*\S)\s+([A-Za-z]{2,5})$")
+
+
+def _changing_zone_names(values: pd.Series) -> list[str] | None:
+    """
+    Return the zone names of dates in one format but for a zone name that
+    changes ('CET', then 'CEST'), in order of appearance; None otherwise.
+    """
+    text = values[values.notna()].astype(str)
+    matches = text.str.extract(_ZONE_NAME)
+    if matches.isna().any().any():
+        return None
+    zones = list(dict.fromkeys(matches[1]))
+    if len(zones) < 2:
+        return None
+    dates = matches[0]
+    date_format = guessed_date_format(dates)
+    if date_format is None:
+        return None
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        parsed = pd.to_datetime(dates, format=date_format, errors="coerce")
+
+    return zones if parsed.notna().all() else None
+
+
+def _shown_date(value: object) -> str:
+    """
+    Return a date of the data for a message, cut in the middle when long:
+    what differs between formats (a time, a zone name) is often at the end.
+    """
+    text = str(value)
+    return text if len(text) <= 60 else f"{text[:28]}...{text[-28:]}"
+
+
 class DateIssue(tuple):
     """
     Why a column of dates cannot be the date column: what was found and how
@@ -704,7 +874,7 @@ class DateIssue(tuple):
 
 def date_issue_hint(issue: tuple[str, str]) -> str | None:
     """
-    Return the remedy of a date issue of `_text_dates_issue` as a hint.
+    Return the remedy of a date issue of `_read_date_column` as a hint.
     """
     return getattr(issue, "hint", None)
 
@@ -978,8 +1148,8 @@ def detect_date_column(
     referenced column or index is validated with `_is_datetime_like`; when
     it does not hold dates a `ValueError` quotes values that could not be
     parsed, instead of treating the column as an exogenous variable. A text
-    column of dates with empty cells or with time zones that change raises
-    a `ValueError` that says so.
+    column of dates with empty cells, with time zones that change or
+    written in more than one format raises a `ValueError` that says so.
     """
     if date_column is not None:
         if date_column in data.columns:
@@ -2036,7 +2206,7 @@ def _parse_text_date_column(data: pd.DataFrame, date_col: str | None) -> pd.Data
         return data
 
     data = data.copy()
-    data[date_col] = parse_text_dates(values, mixed=False)
+    data[date_col] = parse_text_dates(values)
 
     return data
 

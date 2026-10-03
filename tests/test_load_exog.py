@@ -55,14 +55,18 @@ def test_load_exog_DataNotFoundError_when_file_missing(tmp_path):
         (
             "date,temp\n2023-01-01,1\n2023-01-02 00:00:00,2\n2023/01/03,3\n",
             None,
-            "the dates of column 'date' cannot be read as the generated code "
-            "reads them",
+            "The dates of column 'date' are written in more than one format, "
+            "such as '2023-01-01' and '2023-01-02 00:00:00': the generated "
+            "script reads every date with the format of the first one. Write "
+            "all the dates in one format.",
         ),
         (
             "date,temp\n2023-01-01,1\n2023-01-02 00:00:00,2\n2023/01/03,3\n",
             "date",
-            "the dates of column 'date' cannot be read as the generated code "
-            "reads them",
+            "The dates of column 'date' are written in more than one format, "
+            "such as '2023-01-01' and '2023-01-02 00:00:00': the generated "
+            "script reads every date with the format of the first one. Write "
+            "all the dates in one format.",
         ),
         (
             "date,temp\n2023-01-01,1,,\n2023-01-02,2,,\n",

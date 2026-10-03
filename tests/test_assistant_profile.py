@@ -19,8 +19,10 @@ from skforecast_ai.schemas import DataProfile, ForecastingProfile
 
 from tests.fixtures_datasets import (
     df_h2o_text,
+    df_iso_dates_with_and_without_time,
     df_items_sales_long,
     df_madrid_hourly_text,
+    df_mixed_date_formats,
 )
 from tests.fixtures_assistant import (
     df_single,
@@ -375,6 +377,106 @@ def test_profile_ValueError_when_csv_dates_change_time_zone(tmp_path):
         ForecastingAssistant().profile(data=csv_path, target="users")
 
     assert exc_info.value.field == "data"
+
+
+_MIXED_FORMATS_CASES = pytest.mark.parametrize(
+    "data, other",
+    [
+        (df_mixed_date_formats, "2017/07/01 00:00"),
+        (df_iso_dates_with_and_without_time, "2017-07-01 00:00:00"),
+    ],
+    ids=["slashes_and_time", "iso_with_and_without_time"],
+)
+
+
+@_MIXED_FORMATS_CASES
+def test_profile_InvalidInputError_when_csv_dates_in_more_than_one_format(
+    tmp_path, data, other
+):
+    """
+    Test that a CSV whose dates are written in more than one format raises
+    an error that quotes two of them and asks for one format. Before, the
+    dates were parsed one by one and profiled, and the generated script,
+    which reads them with the format of the first date, failed.
+    """
+    csv_path = tmp_path / "mixed.csv"
+    data.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        f"The dates of column 'date' are written in more than one format, "
+        f"such as '2015-01-01' and '{other}': the generated script reads every "
+        f"date with the format of the first one. Write all the dates in one "
+        f"format."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=csv_path, target="y", date_column="date")
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == "Write all the dates of the column in one format."
+
+
+@_MIXED_FORMATS_CASES
+def test_profile_InvalidInputError_when_dataframe_dates_in_more_than_one_format(
+    data, other
+):
+    """
+    Test that a DataFrame whose `date_column` holds text dates in more than
+    one format raises the same error as a CSV, instead of the raw pandas
+    `ValueError` raised before.
+    """
+    err_msg = re.escape(
+        f"The dates of column 'date' are written in more than one format, "
+        f"such as '2015-01-01' and '{other}': the generated script reads every "
+        f"date with the format of the first one. Write all the dates in one "
+        f"format."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=data, target="y", date_column="date")
+
+    assert exc_info.value.field == "data"
+
+
+def test_profile_InvalidInputError_quotes_date_of_another_format_when_day_first():
+    """
+    Test that, when the first date reads month-first and the column also
+    holds a date in another format, the error quotes that date, which fits
+    neither reading of the first one, and not a day-first date written as
+    the first one ('13/02/2023').
+    """
+    data = pd.DataFrame({
+        "date": ["01/02/2023", "13/02/2023", "14/02/2023", "2023-02-15"],
+        "y": [1.0, 2.0, 3.0, 4.0],
+    })
+
+    err_msg = re.escape(
+        "The dates of column 'date' are written in more than one format, such "
+        "as '01/02/2023' and '2023-02-15': the generated script reads every "
+        "date with the format of the first one. Write all the dates in one "
+        "format."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        ForecastingAssistant().profile(data=data, target="y", date_column="date")
+
+
+def test_profile_output_when_csv_day_first_dates_read_month_first(tmp_path):
+    """
+    Test that day-first dates whose first date reads month-first
+    ('01/01/2023', then '13/01/2023') are not taken for dates in more than
+    one format: they are written in one, and the profile is built as before,
+    without a frequency, which `plan()` reports with the day-first advice.
+    """
+    csv_path = tmp_path / "dayfirst.csv"
+    df_single.assign(
+        date=df_single["date"].dt.strftime("%d/%m/%Y")
+    ).to_csv(csv_path, index=False)
+
+    profile = ForecastingAssistant().profile(
+        data=csv_path, target="sales", date_column="date"
+    )
+
+    assert profile.data_profile.frequency is None
+    assert profile.data_profile.start_date == "2023-01-01"
 
 
 def test_profile_output_when_csv_dates_in_utc(tmp_path):

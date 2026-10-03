@@ -20,25 +20,22 @@ except ImportError:  # pragma: no cover, pandas < 2.2
 _SKIPPED_TEXT = {"", "NaT", "nat", "NAT", "nan", "NaN", "NAN", "now", "today"}
 
 
-def parse_text_dates(values: pd.Series, mixed: bool = True) -> pd.Series:
+def parse_text_dates(values: pd.Series) -> pd.Series:
     """
     Parse text dates as the generated script parses them.
 
     The format is guessed from the first date, as `pandas.to_datetime(values)`
     does, so day-first dates such as '13/01/2012' are read day-first
-    throughout. The warning pandas emits for that guess is not shown.
+    throughout. The warning pandas emits for that guess is not shown. When
+    no format can be guessed, or a date does not follow it,
+    `pandas.to_datetime(values)` is called, which raises as the script does
+    (dates in more than one format are rejected when the data is profiled,
+    see `_mixed_formats_issue`).
 
     Parameters
     ----------
     values : pandas Series
         Text dates.
-    mixed : bool, default True
-        What to do when no format can be guessed, or a date does not follow
-        it. When True, every date is parsed on its own (`format='mixed'`),
-        as the CSV loader did; the generated script may then read them
-        differently, a known limitation for mixed formats. When False,
-        `pandas.to_datetime(values)` is called, which raises as the script
-        does.
 
     Returns
     -------
@@ -52,7 +49,7 @@ def parse_text_dates(values: pd.Series, mixed: bool = True) -> pd.Series:
         except (ValueError, TypeError):
             pass
 
-    return pd.to_datetime(values, format="mixed") if mixed else pd.to_datetime(values)
+    return pd.to_datetime(values)
 
 
 def guessed_date_format(values: pd.Series) -> str | None:
@@ -72,7 +69,7 @@ def guessed_date_format(values: pd.Series) -> str | None:
     date_format : str, None
         The guessed format, or None when there is none.
     """
-    first = _first_date(values)
+    first = first_date(values)
     if type(first) is not str:
         return None
     # The guess warns about day-first formats; the script parses with the
@@ -84,7 +81,7 @@ def guessed_date_format(values: pd.Series) -> str | None:
     return date_format
 
 
-def _first_date(values: pd.Series | pd.Index) -> object:
+def first_date(values: pd.Series | pd.Index) -> object:
     """
     Return the value pandas guesses the date format from.
 
@@ -106,7 +103,7 @@ def _as_dates(values: pd.Series | pd.Index) -> pd.DatetimeIndex:
     Return the values as dates, parsing text as the generated script does.
     """
     if pd.api.types.is_object_dtype(values) or pd.api.types.is_string_dtype(values):
-        values = parse_text_dates(pd.Series(values), mixed=False)
+        values = parse_text_dates(pd.Series(values))
 
     return pd.DatetimeIndex(pd.to_datetime(values))
 
