@@ -1562,3 +1562,55 @@ El núcleo en Python no cambia salvo `skforecast_ai/__main__.py` (nuevo) y la gu
 - Publicar skforecast 0.26.0 y skforecast-ai 0.4.0 en PyPI antes de anunciar el plugin, y las preguntas de arriba.
 
 **Siguiente:** los PRs 20 a 38 de 0.4.0 y, al final, el check de pago.
+
+### 17.1 Revisión del autor y correcciones
+
+Antes de mergear la fase 4b, una verificación independiente comparó `0.4.x` (`396c7e6`, con el servidor de la fase 4) con la rama, y el autor decidió las preguntas abiertas. Las correcciones van como commits nuevos al final de `fix/mcp-hardening`; ninguno subido se reescribió.
+
+**Verificación.**
+- El núcleo solo cambia en `skforecast_ai/__main__.py`, la guarda `__main__` y las dos opciones del comando `mcp` en `cli.py` (más `AGENTS.md` y `README.md`).
+- Paridad exacta con la API de Python por stdio en h2o, h2o con exógenas, bike_sharing e items_sales ancho y largo; la salida estándar sigue siendo solo JSON-RPC, también con las notificaciones de progreso periódicas. Cada diferencia frente al servidor de la fase 4 es una de las previstas.
+- El bloqueo de modelos foundation aguantó por todas las vías probadas (plan, `refine_plan`, candidatos, mayúsculas, espacios, Unicode, prefijos parciales); `internal_error` ya no lleva valores ni rutas; la tabla de ataques de la fase 4 da lo mismo.
+- Como agente, las cinco tareas se resuelven en 4 a 6 llamadas sin puntos muertos.
+- Un test fallaba en macOS (la sesión remota, en Linux, lo veía pasar): ver `554b71f`.
+
+**Decisiones del autor.**
+
+| Pregunta | Decisión | Commit |
+|---|---|---|
+| 1 | `execution_failed` y `all_candidates_failed` envían solo el tipo del error cuando no es de skforecast-ai, como `internal_error`; el texto completo queda en `get_failure` | `5044ab0` |
+| 2 | `compare` sin intervalo: se deja como está (crear el CV desde un plan sin intervalo) | |
+| 3 | `steps` mayor que la serie más larga: se mantiene el rechazo en `plan` y `refine_plan` | |
+| 4 | El aviso de descarga dice que los pesos "no se encontraron" y "pueden" descargarse; la caché exige un fichero dentro de un snapshot. Pedir a skforecast el repositorio real de cada adaptador queda para después | `65849a2` |
+| 5 | El aviso de descarga va también en `details.notices` de `all_candidates_failed` | `65849a2` |
+| 6 | `npx skills add` instala la copia del plugin, sin conflicto (comprobado en una copia local). Cursor y Codex siguen sin probar en real | |
+| 7 | `userConfig` en el plugin: después de 0.4.0 | |
+| 8 | Publicar primero en PyPI y después mergear a `main`; la subida de versión en cinco sitios va a la lista de la release (abajo) | |
+| 9 | Los avisos de datos no se repiten en más tools; en su lugar, el aviso de valores ausentes del target | `8b5d365` |
+
+**Otros commits.**
+- `554b71f`: al desconectarse el cliente durante una llamada, el servidor salía con 0 pero dejaba "Exception ignored ... BrokenPipeError" en stderr en macOS, por el duplicado privado de stdout con el que escribe el SDK. Ahora se apuntan al dispositivo nulo todos los descriptores abiertos sobre esa tubería.
+- `08b5bd6`: `--allow-dir` debe ser una ruta absoluta; vacío o relativo se resolvía contra el directorio de arranque (alcanzable si un cliente expande `${CLAUDE_PROJECT_DIR}` a vacío).
+- `9102d2b`: solo corren sin `--allow-model` los adaptadores revisados (`REVIEWED_ADAPTERS`: Chronos, TimesFM 2.5, TabICL, Nori). Un adaptador que añada una versión futura de skforecast necesita la opción hasta que se revise su licencia.
+- `31b0e66`: una estrategia que skforecast rechaza (`initial_train_size` fuera de los datos, `gap` demasiado grande) y un `test_size` de texto que no es fecha vuelven a ser `invalid_argument` con su motivo; desde `11f7292` llegaban como `internal_error` sin pista.
+- `5044ab0`: `get_failure` ya no devuelve rutas absolutas de instalación (llevan el nombre del usuario).
+- `89f460b`: `create_cv` da en `cost.compare_estimator_fits` los ajustes de un `compare` sin candidatos con esa estrategia, y un `CompareCostNotice` cuando superan los del plan (12 ajustes del plan frente a 432 del `compare`, 185 s, en el caso medido).
+- `8db06b7`: timeouts en el fragmento de Codex, la frase sobre candidatos rechazados, el aviso de que el plugin expone todos los CSV del proyecto y la entrada de la release.
+
+**Tests.** De 3257 a 3277 (más 1 omitido), en macOS con el entorno conda local. Probado con `mcp` 2.2.0 y 2.3.0.
+
+**Plan de release (decisión del autor).**
+1. El autor publica skforecast 0.26.0 la semana del 5 de octubre de 2026. Lo que skforecast-ai necesite de skforecast, o un fallo que se encuentre en él, se le comunica antes para que entre en esa versión.
+2. Después, el autor publica skforecast-ai 0.4.0 en PyPI.
+3. Solo entonces se mergea `0.4.x` a `main`: el marketplace del plugin se lee de la rama por defecto, y su pin (`skforecast-ai[mcp]==0.4.0`) no debe apuntar a una versión que no esté en PyPI.
+4. La versión se sube en cinco sitios (pyproject, `__version__`, `plugin/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` dos veces y `plugin/.mcp.json`); `tests/test_plugin_distribution.py` falla si alguno no coincide.
+
+**Para skforecast 0.26.0** (sugerencias, no bloquean):
+- Exponer en `FoundationModelInfo` el repositorio real de los pesos de cada adaptador: TabICL los guarda en `jingang/TabICL`, no bajo su id, así que el aviso de descarga del servidor no puede saber si están en la caché.
+- Registrar `license_restriction` para todo adaptador nuevo; el servidor ya no asume que `None` significa permisivo.
+
+**Pendiente o anotado.**
+- El check de pago, una sola vez al final. Esta fase no añade nada al contexto del LLM.
+- Cancelación dura y timeouts (un candidato en curso no se puede parar), `userConfig` del plugin, y Cursor y Codex probados en real: después de 0.4.0.
+- Un CSV por debajo de `--max-file-mb` pero con cientos de miles de columnas aún consume mucha memoria y tiempo; documentado como límite de bytes, no de memoria.
+- Los PRs 20 a 38 de la tabla 10.8; el PR 23 (comprobaciones tempranas) quitará los `internal_error` que quedan por CSV ilegibles.
