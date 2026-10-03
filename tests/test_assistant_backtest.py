@@ -22,7 +22,12 @@ from skforecast_ai.exceptions import (
 )
 
 from tests.fixtures_assistant import df_single, df_multi_wide, df_no_exog
-from tests.fixtures_datasets import df_h2o, df_items_sales_long
+from tests.fixtures_datasets import (
+    df_h2o,
+    df_h2o_daily,
+    df_h2o_with_exog,
+    df_items_sales_long,
+)
 
 assistant = ForecastingAssistant()
 
@@ -406,8 +411,8 @@ def test_backtest_InvalidInputError_when_target_has_infinite_value(
     """
     Test that backtest() raises, before running the script, when the target
     has an infinite value (h2o, position 50, 1995-09-01) and the forecaster
-    is trained on it. The plan is built from the data without it, which
-    profiling would warn about.
+    is trained on it. The plan is built from the data without it; the data
+    are profiled again, which warns about the infinite value.
     """
     data = df_h2o.copy()
     data.iloc[50, 0] = np.inf
@@ -421,7 +426,11 @@ def test_backtest_InvalidInputError_when_target_has_infinite_value(
         f"The target has infinite values (1 value(s), such as '1995-09-01'). "
         f"{forecaster} cannot be trained on them: replace them."
     )
-    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+    with (
+        pytest.raises(InvalidInputError, match=err_msg) as exc_info,
+        pytest.warns(RuntimeWarning, match="invalid value encountered in subtract"),
+        pytest.warns(MissingValuesWarning, match="Interleaved NaN/inf detected"),
+    ):
         assistant.backtest(
             data=data, cv=cv, profile=profile, plan=plan, show_progress=False
         )
@@ -809,3 +818,84 @@ def test_backtest_InvalidInputError_when_plan_uses_exog_and_data_has_none():
         )
 
     assert exc_info.value.field == "plan"
+
+
+# =============================================================================
+# Tests: data against a saved profile
+# =============================================================================
+def test_backtest_output_when_data_have_more_rows_than_profile():
+    """
+    Test that backtest() with data that extend the saved profile (192 rows
+    in the profile, 204 in the data) uses the new data: the note is added to
+    the profile and the backtest runs 35 folds, not the 31 of the profile.
+    """
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+    profile = assistant.profile(data=df_h2o.iloc[:192], target="x")
+
+    saved_result = assistant.backtest(
+        data=df_h2o.iloc[:192], cv=cv, profile=profile, show_progress=False
+    )
+    result = assistant.backtest(
+        data=df_h2o, cv=cv, profile=profile, show_progress=False
+    )
+
+    assert saved_result.cv_config["n_folds"] == 31
+    assert saved_result.profile.data_profile.warnings == []
+    assert result.cv_config["n_folds"] == 35
+    assert result.profile.data_profile.n_total_observations == 204
+    assert result.profile.data_profile.warnings == [
+        "The data differ in their values from the profile passed (changed: "
+        "series_lengths, span_index_length, n_total_observations, "
+        "target_stats): the profile was computed again from these data."
+    ]
+    assert result.predictions.shape == (104, 2)
+    assert result.predictions.index[-1] == pd.Timestamp("2008-06-01")
+
+
+def test_backtest_output_when_data_equal_to_profile():
+    """
+    Test that backtest() with data equal to the saved profile keeps the
+    profile unchanged, without a note.
+    """
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+    profile = assistant.profile(data=df_h2o, target="x")
+
+    result = assistant.backtest(
+        data=df_h2o, cv=cv, profile=profile, show_progress=False
+    )
+
+    assert result.profile.data_profile == profile.data_profile
+    assert result.profile.data_profile.warnings == []
+    assert result.cv_config["n_folds"] == 35
+
+
+@pytest.mark.parametrize(
+    "data, differences",
+    [
+        (df_h2o_daily, "(frequency: 'MS' != 'D')"),
+        (df_h2o_with_exog, "(exog_columns: [] != ['z'])"),
+    ],
+    ids=["frequency", "exog_columns"],
+)
+def test_backtest_InvalidInputError_when_data_have_other_structure_than_profile(
+    data, differences
+):
+    """
+    Test that backtest() raises InvalidInputError with the field 'profile'
+    when the data have another frequency or a new exogenous column than the
+    saved profile, before running the backtest.
+    """
+    cv = TimeSeriesFold(steps=3, initial_train_size=50, verbose=False)
+    profile = assistant.profile(data=df_h2o, target="x")
+
+    err_msg = re.escape(
+        f"The data do not have the structure of the profile passed {differences}: "
+        f"profile these data and build the plan from that profile."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=data, cv=cv, profile=profile, show_progress=False
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "profile"

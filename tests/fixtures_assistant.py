@@ -83,6 +83,14 @@ df_multi_long = pd.DataFrame(
     }
 )
 
+# The long data with one series fewer, or one more, than `df_multi_long`
+# (tests of data against a saved profile).
+df_multi_long_one_series = df_multi_long[df_multi_long["series_id"] == "store_a"]
+df_multi_long_three_series = pd.concat([
+    df_multi_long,
+    df_multi_long_one_series.assign(series_id="store_c"),
+])
+
 # --- Multi-series wide format (2 series as columns) ---
 df_multi_wide = pd.DataFrame(
     {

@@ -84,6 +84,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-api-change">API Change</span> A `plan` passed to [<code>ForecastingAssistant.forecast()</code>][assistant], `forecast_code()`, `backtest()` or `backtest_code()` that was built for data of another frequency or shape, or that uses exogenous variables the data does not have, raises `ValueError` instead of running with lags and features that do not fit.
 
++ <span class="badge text-bg-api-change">API Change</span> A `profile` passed with `data` to [<code>ForecastingAssistant.forecast()</code>][assistant], `forecast_code()`, `backtest()`, `backtest_code()` or `compare()` is checked against those data, which are profiled again. Data of another structure (frequency, series, target or exogenous columns) raise `ValueError`, where daily data with a monthly profile were resampled to months without an error; data that only differ in their values (new rows, for example) run with the new profile, which says so in `DataProfile.warnings`, so the split dates, the folds and the explanation describe the data that ran.
+
 + <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.forecast()</code>][assistant] without `test_size`, given a plan that carries the `end_train` of an evaluation, raises `ValueError` instead of evaluating the same dates again: pass `test_size`, or `plan.model_copy(update={'end_train': None})` to forecast the future. `forecast_code()` still renders the split of the plan.
 
 + <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.profile()</code>][assistant] raises `ValueError` when `series_id_column` is also the target or the date column.

@@ -38,7 +38,11 @@ from skforecast_ai import (
     MissingBackendWarning,
 )
 
-from tests.fixtures_datasets import df_h2o
+from tests.fixtures_datasets import (
+    df_h2o,
+    df_h2o_daily,
+    df_h2o_with_exog,
+)
 from tests.fixtures_assistant import (
     df_multi_wide,
     df_no_exog,
@@ -2382,3 +2386,93 @@ def test_compare_output_when_cv_result_of_same_structure():
     )
 
     assert set(result.results["name"]) == {"recursive_default", "direct_ridge"}
+
+
+# =============================================================================
+# Tests: data against a saved profile
+# =============================================================================
+_REFRESH_CANDIDATES = [("recursive", {"forecaster": "ForecasterRecursive"})]
+
+
+def test_compare_output_when_data_equal_to_profile():
+    """
+    Test that compare() with data equal to the saved profile keeps the
+    profile unchanged, without a note.
+    """
+    profile = assistant.profile(data=df_h2o, target="x")
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+
+    result = assistant.compare(
+        data=df_h2o,
+        cv=cv,
+        candidates=_REFRESH_CANDIDATES,
+        profile=profile,
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert result.profile.data_profile == profile.data_profile
+    assert result.profile.data_profile.warnings == []
+
+
+def test_compare_output_when_data_have_more_rows_than_profile():
+    """
+    Test that compare() with data that extend the saved profile (192 rows in
+    the profile, 204 in the data) ranks the candidates on the new data and
+    returns the new profile with the note.
+    """
+    profile = assistant.profile(data=df_h2o.iloc[:192], target="x")
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+
+    result = assistant.compare(
+        data=df_h2o,
+        cv=cv,
+        candidates=_REFRESH_CANDIDATES,
+        profile=profile,
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert result.best_name == "recursive"
+    assert result.profile.data_profile.n_total_observations == 204
+    assert result.profile.data_profile.warnings == [
+        "The data differ in their values from the profile passed (changed: "
+        "series_lengths, span_index_length, n_total_observations, "
+        "target_stats): the profile was computed again from these data."
+    ]
+
+
+@pytest.mark.parametrize(
+    "data, differences",
+    [
+        (df_h2o_daily, "(frequency: 'MS' != 'D')"),
+        (df_h2o_with_exog, "(exog_columns: [] != ['z'])"),
+    ],
+    ids=["frequency", "exog_columns"],
+)
+def test_compare_InvalidInputError_when_data_have_other_structure_than_profile(
+    data, differences
+):
+    """
+    Test that compare() raises InvalidInputError with the field 'profile'
+    when the data have another frequency or a new exogenous column than the
+    saved profile.
+    """
+    profile = assistant.profile(data=df_h2o, target="x")
+    cv = TimeSeriesFold(steps=3, initial_train_size=50, verbose=False)
+
+    err_msg = re.escape(
+        f"The data do not have the structure of the profile passed {differences}: "
+        f"profile these data and build the plan from that profile."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.compare(
+            data=data,
+            cv=cv,
+            candidates=_REFRESH_CANDIDATES,
+            profile=profile,
+            show_progress=False,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "profile"

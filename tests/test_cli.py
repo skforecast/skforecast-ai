@@ -1756,6 +1756,38 @@ class TestErrorContract:
             }
         }
 
+    @pytest.mark.parametrize("command", ["forecast", "backtest"])
+    def test_data_of_another_structure_than_plan_raises(self, tmp_path, command):
+        """
+        Data passed with `--from-plan` whose structure differs from the
+        profile of the bundle (a new exogenous column) exit with code 1 and
+        say how they differ, instead of running without that column.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        new_csv = _write_csv(tmp_path, df_single.assign(z=1.0), name="new.csv")
+        result = runner.invoke(
+            app,
+            [command, new_csv, "--from-plan", plan_file, "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": (
+                    "The data do not have the structure of the profile passed "
+                    "(exog_columns: ['promo'] != ['promo', 'z']): profile these "
+                    "data and build the plan from that profile."
+                ),
+                "field": "profile",
+                "hint": (
+                    "Profile these data again and build the plan from that "
+                    "profile."
+                ),
+            }
+        }
+
     def test_steps_different_from_plan_raises_ask(self, tmp_path):
         """
         `ask --from-plan` rejects a different `--steps` before calling the LLM.

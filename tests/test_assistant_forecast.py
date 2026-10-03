@@ -21,7 +21,11 @@ from skforecast_ai._constants import ALLOWED_METRICS
 
 from tests.fixtures_datasets import (
     df_h2o,
+    df_h2o_changed_value,
+    df_h2o_daily,
     df_h2o_text,
+    df_h2o_with_exog,
+    df_h2o_with_nan,
     df_items_sales_long,
     df_items_sales_wide,
 )
@@ -33,6 +37,8 @@ from tests.fixtures_assistant import (
     df_no_exog,
     df_short,
     df_multi_long,
+    df_multi_long_one_series,
+    df_multi_long_three_series,
     series_single,
     series_unnamed,
 )
@@ -1775,7 +1781,8 @@ def test_forecast_InvalidInputError_when_target_has_infinite_value(
     Test that forecast() raises, before running the script, when the target
     has an infinite value and the forecaster is trained on it (h2o, position
     50, 1995-09-01), in prediction and in evaluation mode. The plan is built
-    from the data without it, which profiling would warn about.
+    from the data without it; the data are profiled again, which warns about
+    the infinite value.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_h2o, target="x")
@@ -1786,7 +1793,13 @@ def test_forecast_InvalidInputError_when_target_has_infinite_value(
         f"The target has infinite values (1 value(s), such as '1995-09-01'). "
         f"{forecaster} cannot be trained on them: replace them."
     )
-    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+    # The data are profiled again: they differ from the profile, and
+    # profiling them warns about the infinite value.
+    with (
+        pytest.raises(InvalidInputError, match=err_msg) as exc_info,
+        pytest.warns(RuntimeWarning, match="invalid value encountered in subtract"),
+        pytest.warns(MissingValuesWarning, match="Interleaved NaN/inf detected"),
+    ):
         assistant.forecast(
             data=_H2O_WITH_INFINITE, profile=profile, plan=plan, test_size=test_size
         )
@@ -1800,14 +1813,19 @@ def test_forecast_output_when_baseline_does_not_read_infinite_value():
     """
     Test that forecast() with ForecasterEquivalentDate still forecasts when
     the infinite value (position 50) is not one that its predictions read:
-    they are those of the data without it.
+    they are those of the data without it. The data are profiled again,
+    which warns about the infinite value.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_h2o, target="x")
     plan = assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")
 
-    # skforecast warns inside the script when it fits on the infinite value.
-    with pytest.warns(RuntimeWarning, match="invalid value encountered in subtract"):
+    # Profiling the data and skforecast, inside the script when it fits on
+    # the infinite value, warn about it.
+    with (
+        pytest.warns(RuntimeWarning, match="invalid value encountered in subtract"),
+        pytest.warns(MissingValuesWarning, match="Interleaved NaN/inf detected"),
+    ):
         result = assistant.forecast(
             data=_H2O_WITH_INFINITE, profile=profile, plan=plan
         )
@@ -1824,7 +1842,8 @@ def test_forecast_InvalidInputError_when_baseline_reads_infinite_value():
     Test that forecast() in prediction mode with ForecasterEquivalentDate
     raises when its predictions read the infinite values of the last 12
     observations of h2o (3 steps of a yearly offset read positions 12, 11
-    and 10 from the end).
+    and 10 from the end). The data are profiled again, which warns about the
+    infinite value.
     """
     data = df_h2o.copy()
     data.iloc[-12, 0] = np.inf
@@ -1837,7 +1856,11 @@ def test_forecast_InvalidInputError_when_baseline_reads_infinite_value():
         "value(s), such as '2007-07-01'). ForecasterEquivalentDate repeats "
         "them as infinite predictions: replace them."
     )
-    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+    with (
+        pytest.raises(InvalidInputError, match=err_msg) as exc_info,
+        pytest.warns(RuntimeWarning, match="invalid value encountered in subtract"),
+        pytest.warns(MissingValuesWarning, match="Interleaved NaN/inf detected"),
+    ):
         assistant.forecast(data=data, profile=profile, plan=plan)
 
     assert exc_info.value.field == "data"
@@ -2186,3 +2209,325 @@ def test_forecast_InvalidInputError_when_plan_built_for_other_data(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == field
+
+
+# =============================================================================
+# Tests: data against a saved profile
+# =============================================================================
+_NOTE_192_204 = (
+    "The data differ in their values from the profile passed (changed: "
+    "series_lengths, span_index_length, n_total_observations, target_stats): "
+    "the profile was computed again from these data."
+)
+_NOTE_204_204 = (
+    "The data differ in their values from the profile passed (changed: "
+    "target_stats): the profile was computed again from these data."
+)
+
+
+def test_forecast_output_when_data_equal_to_profile():
+    """
+    Test that forecast() with data equal to the saved profile keeps the
+    profile unchanged: no note is added and its warnings are the saved ones.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+
+    result = assistant.forecast(data=df_h2o, profile=profile, steps=3)
+
+    assert result.profile.data_profile == profile.data_profile
+    assert result.profile.data_profile.warnings == []
+    assert result.profile.data_profile.n_total_observations == 204
+    np.testing.assert_array_almost_equal(
+        result.predictions["pred"].to_numpy(),
+        np.array([0.97755777, 1.07009966, 1.0921686]),
+    )
+
+
+def test_forecast_does_not_warn_again_when_data_equal_to_profile():
+    """
+    Test that forecast() does not show again the warnings of profiling data
+    equal to the saved profile (a missing value inside the series): only the
+    warnings of the script that fits the forecaster are shown.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.warns(MissingValuesWarning, match="Interleaved NaN/inf detected"):
+        profile = assistant.profile(data=df_h2o_with_nan, target="x")
+
+    # The forecaster itself warns about the missing value it drops.
+    with pytest.warns(MissingValuesWarning) as record:
+        result = assistant.forecast(data=df_h2o_with_nan, profile=profile, steps=3)
+
+    messages = [str(warning.message) for warning in record]
+    assert any("NaNs detected in `y_train`" in message for message in messages)
+    assert not any("Interleaved NaN/inf detected" in message for message in messages)
+    assert result.profile.data_profile.warnings == profile.data_profile.warnings
+    assert result.profile.data_profile.n_total_observations == 204
+
+
+def test_forecast_output_when_data_have_more_rows_than_profile():
+    """
+    Test that forecast() with data that extend the saved profile (192 rows
+    in the profile, 204 in the data) uses the new profile: the note is its
+    last warning, `n_total_observations` is 204 and the predictions start
+    after the last date of the data.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o.iloc[:192], target="x")
+
+    result = assistant.forecast(data=df_h2o, profile=profile, steps=3)
+
+    assert result.profile.data_profile.warnings == [_NOTE_192_204]
+    assert result.profile.data_profile.n_total_observations == 204
+    assert profile.data_profile.n_total_observations == 192
+    assert profile.data_profile.warnings == []
+    expected = pd.DataFrame(
+        {"pred": [0.97755777, 1.07009966, 1.0921686]},
+        index=pd.DatetimeIndex(
+            ["2008-07-01", "2008-08-01", "2008-09-01"], freq="MS"
+        ),
+    )
+    pd.testing.assert_frame_equal(
+        result.predictions, expected, check_freq=False
+    )
+
+
+def test_forecast_output_when_data_equal_to_profile_with_columns_reordered():
+    """
+    Test that forecast() keeps the saved profile when the data only have
+    their exogenous columns in another order: the order is neither a
+    difference of structure nor of values.
+    """
+    data = df_h2o.assign(a=np.arange(len(df_h2o), dtype=float), b=1.0)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data[["x", "a", "b"]], target="x")
+
+    result = assistant.forecast(
+        data=data[["x", "b", "a"]], profile=profile, steps=3, test_size=3
+    )
+
+    assert result.profile.data_profile == profile.data_profile
+
+
+def test_forecast_output_when_data_equal_to_profile_with_nan_statistics():
+    """
+    Test that forecast() keeps the saved profile of data whose statistics
+    are NaN (the standard deviation of a target with an infinite value):
+    the profile is not built again, so profiling does not warn a second
+    time, and only the script warns.
+    """
+    assistant = ForecastingAssistant()
+    with (
+        pytest.warns(RuntimeWarning, match="invalid value encountered in subtract"),
+        pytest.warns(MissingValuesWarning, match="Interleaved NaN/inf detected"),
+    ):
+        profile = assistant.profile(data=_H2O_WITH_INFINITE, target="x")
+    plan = assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")
+
+    with pytest.warns(RuntimeWarning, match="invalid value encountered in subtract"):
+        result = assistant.forecast(
+            data=_H2O_WITH_INFINITE, profile=profile, plan=plan
+        )
+
+    assert result.profile.data_profile == profile.data_profile
+
+
+def test_forecast_output_when_refreshed_profile_meets_same_data_again():
+    """
+    Test that forecast() given the profile it refreshed and the same data
+    keeps that profile: the note of the first refresh is not taken for a
+    difference, so it is not added a second time.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o.iloc[:192], target="x")
+    first = assistant.forecast(data=df_h2o, profile=profile, steps=3)
+
+    result = assistant.forecast(data=df_h2o, profile=first.profile, steps=3)
+
+    assert result.profile.data_profile.warnings == [_NOTE_192_204]
+    assert result.profile == first.profile
+    pd.testing.assert_frame_equal(result.predictions, first.predictions)
+
+
+def test_forecast_output_when_data_have_more_rows_than_profile_in_evaluation_mode():
+    """
+    Test that forecast() with `test_size` and data that extend the saved
+    profile evaluates on the last rows of the new data (April to June 2008),
+    not on those of the profile (2007).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o.iloc[:192], target="x")
+
+    result = assistant.forecast(
+        data=df_h2o, profile=profile, steps=3, test_size=3
+    )
+
+    assert result.profile.data_profile.warnings == [_NOTE_192_204]
+    assert result.profile.data_profile.n_total_observations == 204
+    assert list(result.predictions.index.strftime("%Y-%m-%d")) == [
+        "2008-04-01",
+        "2008-05-01",
+        "2008-06-01",
+    ]
+    np.testing.assert_array_almost_equal(
+        result.predictions["pred"].to_numpy(),
+        np.array([0.6252326, 0.75429064, 0.85657171]),
+    )
+    np.testing.assert_almost_equal(
+        result.metrics["MAE"].iloc[0], 0.11968448815913664
+    )
+
+
+def test_forecast_output_when_data_have_a_changed_value():
+    """
+    Test that forecast() with data of the same length as the saved profile
+    but with one value changed uses the new profile and adds the note.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+
+    result = assistant.forecast(
+        data=df_h2o_changed_value, profile=profile, steps=3
+    )
+
+    assert result.profile.data_profile.warnings == [_NOTE_204_204]
+    assert result.profile.data_profile.n_total_observations == 204
+    assert (
+        result.profile.data_profile.target_stats
+        != profile.data_profile.target_stats
+    )
+    np.testing.assert_array_almost_equal(
+        result.predictions["pred"].to_numpy(),
+        np.array([0.89718816, 0.99928717, 1.11112147]),
+    )
+
+
+def test_forecast_warns_again_when_data_differ_from_profile():
+    """
+    Test that forecast() shows the warnings of profiling data that differ
+    from the saved profile (a missing value inside the series), once the new
+    profile is used, and keeps the note as the last warning of the profile.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.warns(MissingValuesWarning, match="Interleaved NaN/inf detected"):
+        profile = assistant.profile(data=df_h2o_with_nan, target="x")
+    data = df_h2o_with_nan.copy()
+    data.iloc[100, 0] = 5.0
+
+    with pytest.warns(MissingValuesWarning) as record:
+        result = assistant.forecast(data=data, profile=profile, steps=3)
+
+    messages = [str(warning.message) for warning in record]
+    assert (
+        sum("Interleaved NaN/inf detected" in message for message in messages) == 1
+    )
+    assert result.profile.data_profile.warnings[-1] == _NOTE_204_204
+
+
+_PROFILE_OF_ANOTHER_STRUCTURE = [
+    (
+        df_h2o_daily,
+        "(frequency: 'MS' != 'D')",
+    ),
+    (
+        df_h2o_with_exog,
+        "(exog_columns: [] != ['z'])",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "data, differences",
+    _PROFILE_OF_ANOTHER_STRUCTURE,
+    ids=["frequency", "exog_columns"],
+)
+def test_forecast_InvalidInputError_when_data_have_other_structure_than_profile(
+    data, differences
+):
+    """
+    Test that forecast() raises InvalidInputError with the field 'profile'
+    when the data have another frequency or a new exogenous column than the
+    saved profile (monthly h2o without exog).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+
+    err_msg = re.escape(
+        f"The data do not have the structure of the profile passed {differences}: "
+        f"profile these data and build the plan from that profile."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(data=data, profile=profile, steps=3)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "profile"
+
+
+@pytest.mark.parametrize(
+    "data, differences",
+    [
+        (
+            df_multi_long_one_series,
+            "(series: ['store_a', 'store_b'] != ['store_a'])",
+        ),
+        (
+            df_multi_long_three_series,
+            "(series: ['store_a', 'store_b'] != ['store_a', 'store_b', "
+            "'store_c'])",
+        ),
+    ],
+    ids=["series_removed", "series_added"],
+)
+def test_forecast_InvalidInputError_when_series_differ_from_profile(
+    data, differences
+):
+    """
+    Test that forecast() raises InvalidInputError with the field 'profile'
+    when a long format dataset has fewer or more series than the saved
+    profile.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data             = df_multi_long,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+
+    err_msg = re.escape(
+        f"The data do not have the structure of the profile passed {differences}: "
+        f"profile these data and build the plan from that profile."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(data=data, profile=profile, steps=3)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "profile"
+
+
+def test_forecast_InvalidInputError_when_wide_data_have_new_column_than_profile():
+    """
+    Test that forecast() raises InvalidInputError with the field 'profile'
+    when wide multi-series data have a new column (an exogenous variable)
+    that the saved profile does not have.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data        = df_multi_wide,
+        target      = ["series_a", "series_b"],
+        date_column = "date",
+    )
+
+    err_msg = re.escape(
+        "The data do not have the structure of the profile passed "
+        "(exog_columns: [] != ['series_c']): profile these data and build the "
+        "plan from that profile."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(
+            data    = df_multi_wide.assign(series_c=1.0),
+            profile = profile,
+            steps   = 3,
+        )
+
+    assert exc_info.value.field == "profile"

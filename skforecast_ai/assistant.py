@@ -5,6 +5,7 @@
 ################################################################################
 
 from __future__ import annotations
+import json
 import sys
 import warnings
 from collections.abc import Callable
@@ -153,6 +154,7 @@ from ._utils import (
     _data_path_of_run,
     _revalidate_plan,
     recorded_data_path,
+    structure_differences,
     warn_long_training,
 )
 
@@ -181,6 +183,40 @@ def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
                 "are not read month-first."
             ),
         )
+
+
+def _profile_values(data_profile: DataProfile) -> dict[str, str]:
+    """
+    Return the fields of a data profile that describe the values of the
+    data, each as text, to tell whether two profiles describe the same data.
+
+    `data_path` and `warnings` are left out: the path is set by the caller,
+    and the warnings derive from the values (and hold the note of an earlier
+    refresh). The column lists are sorted, as `structure_differences` reads
+    them, and NaN statistics (the standard deviation of a target with an
+    infinite value) compare equal through their text.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Data profile to read.
+
+    Returns
+    -------
+    values : dict
+        Text of each field, by field name.
+    """
+
+    values = data_profile.model_dump(exclude={"data_path", "warnings"})
+    for name in ("exog_columns", "categorical_exog"):
+        values[name] = sorted(values[name])
+    if isinstance(values["target"], list):
+        values["target"] = sorted(values["target"])
+
+    return {
+        name: json.dumps(value, sort_keys=True, default=str)
+        for name, value in values.items()
+    }
 
 
 class ForecastingAssistant:
@@ -1245,8 +1281,13 @@ class ForecastingAssistant:
             window features are selected automatically from the
             characteristics of the data.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling. If None, profiling
-            is performed from `data`.
+            Pre-computed profile. If None, profiling is performed from
+            `data`. When given, it is usually the profile the plan was
+            built from. `data` is profiled again with its target, date and
+            series id columns: data of another structure (frequency,
+            series, target or exogenous columns) raise `ValueError`, and
+            data with other values (new rows, for example) run with the
+            new profile, which says so in `DataProfile.warnings`.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. If None, a plan is
             generated from the profile. Requires `profile` to also be
@@ -1275,13 +1316,14 @@ class ForecastingAssistant:
 
         # A supplied profile is what the script is rendered from. When data
         # is supplied as well, check it is the dataset the profile describes.
+        data_df = data
         if profile is not None and data is not None:
-            _resolve_inputs_with_profile(
+            data_df, *_ = _resolve_inputs_with_profile(
                 data, target, date_column, series_id_column, profile
             )
 
         profile, plan = self._prepare_forecast(
-            data             = data,
+            data             = data_df,
             target           = target,
             date_column      = date_column,
             series_id_column = series_id_column,
@@ -1463,8 +1505,13 @@ class ForecastingAssistant:
             window features are selected automatically from the
             characteristics of the data.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling. If None, profiling
-            is performed from `data`.
+            Pre-computed profile. If None, profiling is performed from
+            `data`. When given, it is usually the profile the plan was
+            built from. `data` is profiled again with its target, date and
+            series id columns: data of another structure (frequency,
+            series, target or exogenous columns) raise `ValueError`, and
+            data with other values (new rows, for example) run with the
+            new profile, which says so in `DataProfile.warnings`.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. If None, a plan is
             generated from the profile. Requires `profile` to also be
@@ -1908,7 +1955,12 @@ class ForecastingAssistant:
             flags), with user values taking precedence. When None, only
             the built-in defaults are used.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling.
+            Pre-computed profile, usually the profile the plan was built
+            from. `data` is profiled again with its target, date and
+            series id columns: data of another structure (frequency,
+            series, target or exogenous columns) raise `ValueError`, and
+            data with other values (new rows, for example) run with the
+            new profile, which says so in `DataProfile.warnings`.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. `forecaster`, `estimator`
             and `estimator_kwargs` are fixed by the plan: a value equal
@@ -2054,7 +2106,12 @@ class ForecastingAssistant:
             flags), with user values taking precedence. When None, only
             the built-in defaults are used.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling.
+            Pre-computed profile, usually the profile the plan was built
+            from. `data` is profiled again with its target, date and
+            series id columns: data of another structure (frequency,
+            series, target or exogenous columns) raise `ValueError`, and
+            data with other values (new rows, for example) run with the
+            new profile, which says so in `DataProfile.warnings`.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. `forecaster`, `estimator`
             and `estimator_kwargs` are fixed by the plan: a value equal
@@ -2283,8 +2340,12 @@ class ForecastingAssistant:
             `[lower, upper]` computed for every candidate. When None, no
             prediction intervals are computed.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling and guarantee a shared
-            profile across candidates.
+            Pre-computed profile, shared by every candidate. `data` is
+            profiled again with its target, date and series id columns:
+            data of another structure (frequency, series, target or
+            exogenous columns) raise `ValueError`, and data with other
+            values (new rows, for example) run with the new profile,
+            which says so in `DataProfile.warnings`.
         show_progress : bool, default True
             Whether to display a progress bar across candidates.
         baseline : bool, default True
@@ -2341,7 +2402,8 @@ class ForecastingAssistant:
             If `metric` is an empty list, or if `candidates` is empty,
             contains a malformed entry, repeats a name, mixes forecaster
             families whose metrics are not comparable (multi-series with
-            multivariate), or uses the name reserved for the baseline.
+            multivariate), or uses the name reserved for the baseline, or
+            if `data` does not have the structure of `profile`.
 
         Warns
         -----
@@ -2390,6 +2452,8 @@ class ForecastingAssistant:
                 date_column      = date_column,
                 series_id_column = series_id_column,
             )
+        else:
+            profile = self._refresh_profile(data_df, profile)
         if cv_result is not None:
             _check_cv_matches_profile(cv_result, profile.data_profile)
         # Every candidate script loads the file the comparison read.
@@ -3097,9 +3161,11 @@ class ForecastingAssistant:
         Raises
         ------
         ValueError
-            When a `plan` is given for data of another frequency or shape
-            (`_check_plan_matches_profile`), or carries `end_train` without
-            `test_size` and `require_exog` is True.
+            When `data` does not have the structure of a given `profile`
+            (`_refresh_profile`), when a `plan` is given for data of
+            another frequency or shape (`_check_plan_matches_profile`), or
+            carries `end_train` without `test_size` and `require_exog` is
+            True.
         """
 
         plan = _revalidate_plan(plan)
@@ -3112,6 +3178,7 @@ class ForecastingAssistant:
             window_features  = window_features,
         )
 
+        received_profile = profile is not None
         if profile is None:
             profile = self.profile(
                 data             = data,
@@ -3138,6 +3205,8 @@ class ForecastingAssistant:
                 field = "steps",
             )
 
+        if received_profile and data is not None:
+            profile = self._refresh_profile(data, profile)
         if plan is not None:
             _check_plan_matches_profile(plan, profile.data_profile)
             # The split of an earlier evaluation is not reused without
@@ -3325,7 +3394,7 @@ class ForecastingAssistant:
                 field = "data",
             )
         if data is not None:
-            _, target, date_column, series_id_column = (
+            data_df, target, date_column, series_id_column = (
                 _resolve_inputs_with_profile(
                     data, target, date_column, series_id_column, profile
                 )
@@ -3342,6 +3411,8 @@ class ForecastingAssistant:
                 date_column      = date_column,
                 series_id_column = series_id_column,
             )
+        elif data is not None:
+            profile = self._refresh_profile(data_df, profile)
         # Before a plan is built: the strategy must fit these data first.
         if cv_result is not None:
             _check_cv_matches_profile(cv_result, profile.data_profile)
@@ -3374,6 +3445,99 @@ class ForecastingAssistant:
         _check_feature_name_collisions(plan, profile.data_profile)
 
         return profile, plan
+
+    def _refresh_profile(
+        self,
+        data: pd.DataFrame,
+        profile: ForecastingProfile,
+    ) -> ForecastingProfile:
+        """
+        Profile again the data passed with a saved profile.
+
+        The profile is what the plan, the strategy and the script are built
+        on, so it must describe the data that run: daily data run with a
+        monthly profile were resampled without an error, and `end_train`,
+        `cv_config` and the explanation described the old data. The data
+        profile is built with the target, date and series id columns of
+        `profile`, and compared with the saved one (`_profile_values`):
+
+        - same structure and values: `profile` is returned unchanged, and the
+          warnings of profiling them again are not shown;
+        - another structure (`structure_differences`: frequency, series,
+          target or exogenous columns): `InvalidInputError`;
+        - same structure, other values (new rows, a changed value): the data
+          are profiled with `profile()`, whose warnings are shown, and the
+          new profile is returned with a note in `DataProfile.warnings`
+          naming the fields that changed.
+
+        Parameters
+        ----------
+        data : pandas DataFrame
+            Data the workflow runs on, as read by the caller.
+        profile : ForecastingProfile
+            Profile passed by the caller.
+
+        Returns
+        -------
+        profile : ForecastingProfile
+            Profile of `data`.
+        """
+
+        saved = profile.data_profile
+        frame, target = _resolve_data_and_target(
+            data, saved.target, saved.date_column
+        )
+        # Not shown: the caller saw them when the saved profile was built,
+        # and `profile()` shows them below when the values differ.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fresh = create_data_profile(
+                data             = frame,
+                target           = target,
+                date_column      = saved.date_column,
+                series_id_column = saved.series_id_column,
+            )
+
+        differences = structure_differences(saved, fresh)
+        if differences:
+            raise InvalidInputError(
+                f"The data do not have the structure of the profile passed "
+                f"({'; '.join(differences)}): profile these data and build "
+                f"the plan from that profile.",
+                field = "profile",
+                hint  = (
+                    "Profile these data again and build the plan from that "
+                    "profile."
+                ),
+            )
+
+        saved_values = _profile_values(saved)
+        fresh_values = _profile_values(fresh)
+        changed = [
+            name for name in saved_values
+            if saved_values[name] != fresh_values[name]
+        ]
+        if not changed:
+            return profile
+
+        refreshed = self.profile(
+            data             = data,
+            target           = saved.target,
+            date_column      = saved.date_column,
+            series_id_column = saved.series_id_column,
+        )
+        note = (
+            f"The data differ in their values from the profile passed "
+            f"(changed: {', '.join(changed)}): the profile was computed again "
+            f"from these data."
+        )
+        data_profile = refreshed.data_profile
+
+        return refreshed.model_copy(update={
+            "data_profile": data_profile.model_copy(
+                update={"warnings": [*data_profile.warnings, note]}
+            )
+        })
 
     def _resolve_model(self):
         """

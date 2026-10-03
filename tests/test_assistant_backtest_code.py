@@ -15,7 +15,11 @@ from tests.fixtures_assistant import (
     df_no_exog,
     df_single,
 )
-from tests.fixtures_datasets import df_h2o
+from tests.fixtures_datasets import (
+    df_h2o,
+    df_h2o_daily,
+    df_h2o_with_exog,
+)
 
 assistant = ForecastingAssistant()
 
@@ -372,3 +376,56 @@ def test_backtest_code_InvalidInputError_when_plan_of_another_frequency():
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "plan"
+
+
+# =============================================================================
+# Tests: data against a saved profile
+# =============================================================================
+def test_backtest_code_output_when_data_have_more_rows_than_profile():
+    """
+    Test that backtest_code() with data that extend the saved profile (192
+    rows in the profile, 204 in the data) returns the new profile with the
+    note.
+    """
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+    profile = assistant.profile(data=df_h2o.iloc[:192], target="x")
+
+    result = assistant.backtest_code(data=df_h2o, cv=cv, profile=profile)
+
+    assert isinstance(result, CodeGenerationResult)
+    assert result.profile.data_profile.n_total_observations == 204
+    assert result.profile.data_profile.warnings == [
+        "The data differ in their values from the profile passed (changed: "
+        "series_lengths, span_index_length, n_total_observations, "
+        "target_stats): the profile was computed again from these data."
+    ]
+
+
+@pytest.mark.parametrize(
+    "data, differences",
+    [
+        (df_h2o_daily, "(frequency: 'MS' != 'D')"),
+        (df_h2o_with_exog, "(exog_columns: [] != ['z'])"),
+    ],
+    ids=["frequency", "exog_columns"],
+)
+def test_backtest_code_InvalidInputError_when_data_have_other_structure_than_profile(
+    data, differences
+):
+    """
+    Test that backtest_code() raises InvalidInputError with the field
+    'profile' when the data have another frequency or a new exogenous column
+    than the saved profile.
+    """
+    cv = TimeSeriesFold(steps=3, initial_train_size=50, verbose=False)
+    profile = assistant.profile(data=df_h2o, target="x")
+
+    err_msg = re.escape(
+        f"The data do not have the structure of the profile passed {differences}: "
+        f"profile these data and build the plan from that profile."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest_code(data=data, cv=cv, profile=profile)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "profile"
