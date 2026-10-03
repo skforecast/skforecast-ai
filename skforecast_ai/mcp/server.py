@@ -37,6 +37,7 @@ from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
 from . import _inputs
 from ._errors import (
     ServerError,
+    add_details,
     argument_error_payload,
     attach_details,
     candidate_failure_text,
@@ -1369,6 +1370,23 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 )
             except SkforecastAIError as exc:
                 _keep_failure(exc)
+                # Every candidate failed, so no result carries the notice of
+                # the weights the candidates that ran may have downloaded:
+                # it goes in the details of the error.
+                failures = getattr(exc, "failures", {})
+                downloaded = state.models.announce(
+                    (
+                        model for model in uncached
+                        if any(
+                            models.get(name) == model
+                            and failure.generated_code is not None
+                            for name, failure in failures.items()
+                        )
+                    ),
+                    ran = True,
+                )
+                if downloaded:
+                    add_details(exc, {"notices": [n.model_dump() for n in downloaded]})
                 raise
             _inputs.check_unchanged(path, cv_entry.data_sha256, "data_path")
             best = result.best_candidate
@@ -1463,8 +1481,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                        plan_warnings  = plan_warnings,
                                        data_warnings  = cv_entry.data_warnings,
                                        server_notices = state.models.announce(
-                                           model for model in uncached
-                                           if model in ran_models
+                                           (
+                                               model for model in uncached
+                                               if model in ran_models
+                                           ),
+                                           ran = True,
                                        ),
                                    ),
             source               = cv_entry,

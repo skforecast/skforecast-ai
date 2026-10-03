@@ -195,17 +195,25 @@ def weights_cached(model_id: str) -> bool:
     -------
     cached : bool
         Whether `models--owner--name/snapshots` of the cache holds at least
-        one snapshot.
+        one snapshot with a file in it (an interrupted download leaves an
+        empty snapshot).
     """
 
     folder = "models--" + model_id.replace("/", "--")
     snapshots = os.path.join(hf_hub_cache(), folder, "snapshots")
     try:
         with os.scandir(snapshots) as entries:
-            return any(True for _ in entries)
+            for entry in entries:
+                if not entry.is_dir():
+                    continue
+                with os.scandir(entry.path) as files:
+                    if any(True for _ in files):
+                        return True
     except (OSError, ValueError):
         # ValueError: a model ID with a NUL byte, which no cache holds.
         return False
+
+    return False
 
 
 @dataclass
@@ -376,15 +384,24 @@ class ModelPolicy:
 
         return found
 
-    def announce(self, model_ids: Iterable[str]) -> list[ToolNotice]:
+    def announce(
+        self, model_ids: Iterable[str], ran: bool = False
+    ) -> list[ToolNotice]:
         """
-        Notices that models will download their weights, once per model and
+        Notices that models download their weights, once per model and
         server.
+
+        The cache is looked up by the model ID, while some adapters keep
+        their weights in another repository, so the notice says that the
+        weights were not found and may be downloaded, not that they will.
 
         Parameters
         ----------
         model_ids : iterable of str
             Models found by `uncached` that the call used.
+        ran : bool, default False
+            Whether the call already ran the models (a comparison), so the
+            download, if any, has happened.
 
         Returns
         -------
@@ -405,12 +422,16 @@ class ModelPolicy:
                 self.announced.add(model_id)
             # The cache is not named: its path holds the home directory of
             # the user.
-            message = (
-                f"The weights of '{model_id}' are not in the local Hugging Face "
-                f"cache: the first run downloads them from the Hugging Face "
-                f"Hub. License: {_license_text(info)}."
+            when = (
+                "this call may have downloaded them" if ran
+                else "the first run may download them"
             )
-            if offline:
+            message = (
+                f"The weights of '{model_id}' were not found in the local "
+                f"Hugging Face cache: {when} from the Hugging Face Hub. "
+                f"License: {_license_text(info)}."
+            )
+            if offline and not ran:
                 message += (
                     " HF_HUB_OFFLINE is set, so they cannot be downloaded and "
                     "the run fails until they are in the cache."

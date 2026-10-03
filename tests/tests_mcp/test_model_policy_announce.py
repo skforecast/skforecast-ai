@@ -14,6 +14,7 @@ def _cache(tmp_path, monkeypatch, *model_ids):
     for model_id in model_ids:
         folder = cache / ("models--" + model_id.replace("/", "--")) / "snapshots"
         (folder / "abc123").mkdir(parents=True)
+        (folder / "abc123" / "config.json").write_text("{}")
 
 
 def test_model_policy_announce_once_the_models_not_cached(tmp_path, monkeypatch):
@@ -36,12 +37,33 @@ def test_model_policy_announce_once_the_models_not_cached(tmp_path, monkeypatch)
     assert [notice.source for notice in notices] == ["plan", "plan"]
     assert [notice.category for notice in notices] == [MODEL_DOWNLOAD_NOTICE] * 2
     assert notices[0].message == (
-        "The weights of 'autogluon/chronos-2-small' are not in the local "
-        "Hugging Face cache: the first run downloads them from the Hugging "
-        "Face Hub. License: skforecast registers no license restriction for it."
+        "The weights of 'autogluon/chronos-2-small' were not found in the "
+        "local Hugging Face cache: the first run may download them from the "
+        "Hugging Face Hub. License: skforecast registers no license "
+        "restriction for it."
     )
     assert "License: its license is TimesFM Non-Commercial" in notices[1].message
     assert again == []
+
+
+def test_model_policy_announce_after_the_models_ran(tmp_path, monkeypatch):
+    """
+    Test that the notice of a call that already ran the model (a
+    comparison) says that the download may have happened, and does not add
+    the sentence of HF_HUB_OFFLINE, which is about a run to come.
+    """
+    _cache(tmp_path, monkeypatch)
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    policy = ModelPolicy()
+
+    notices = policy.announce(["autogluon/chronos-2-small"], ran=True)
+
+    assert notices[0].message == (
+        "The weights of 'autogluon/chronos-2-small' were not found in the "
+        "local Hugging Face cache: this call may have downloaded them from "
+        "the Hugging Face Hub. License: skforecast registers no license "
+        "restriction for it."
+    )
 
 
 def test_model_policy_announce_skips_unknown_models_without_marking_them(

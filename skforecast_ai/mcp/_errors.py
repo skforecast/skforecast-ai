@@ -137,6 +137,25 @@ def attach_details(exc: Exception, details: dict[str, Any]) -> None:
     setattr(exc, _DETAILS_ATTRIBUTE, details)
 
 
+def add_details(exc: Exception, details: dict[str, Any]) -> None:
+    """
+    Add details to those an exception of the core already carries.
+
+    Parameters
+    ----------
+    exc : Exception
+        Exception raised by the core.
+    details : dict
+        Plain data to add to `details`.
+
+    Returns
+    -------
+    None
+    """
+
+    attach_details(exc, {**(getattr(exc, _DETAILS_ATTRIBUTE, None) or {}), **details})
+
+
 def failure_text(exc: Exception) -> str | None:
     """
     Describe in full a failed run of a generated script: what failed, where,

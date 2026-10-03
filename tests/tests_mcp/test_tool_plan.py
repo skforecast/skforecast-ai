@@ -184,6 +184,7 @@ def test_tool_plan_announces_model_download_once(tmp_path, monkeypatch):
     """
     cache = tmp_path / "hf"
     (cache / "models--Synthefy--Nori" / "snapshots" / "abc").mkdir(parents=True)
+    (cache / "models--Synthefy--Nori" / "snapshots" / "abc" / "f").write_text("")
     monkeypatch.setenv("HF_HUB_CACHE", str(cache))
     monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
     server, _, profile_id = _profiled(tmp_path)
@@ -198,10 +199,10 @@ def test_tool_plan_announces_model_download_once(tmp_path, monkeypatch):
             source   = "plan",
             category = "ModelDownloadNotice",
             message  = (
-                "The weights of 'autogluon/chronos-2-small' are not in the "
-                "local Hugging Face cache: the first run downloads them from "
-                "the Hugging Face Hub. License: skforecast registers no "
-                "license restriction for it."
+                "The weights of 'autogluon/chronos-2-small' were not found in "
+                "the local Hugging Face cache: the first run may download "
+                "them from the Hugging Face Hub. License: skforecast "
+                "registers no license restriction for it."
             ),
             count    = 1,
         ).model_dump()
