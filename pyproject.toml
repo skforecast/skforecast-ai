@@ -97,6 +97,7 @@ test = [
     "pytest>=9",
     "pytest-cov>=7",
     "pytest-xdist>=3.8",
+    "pytest-github-actions-annotate-failures>=0.4.2",
     "pydantic-ai[groq]>=2,<3",
     "mcp>=2.2,<3",
 ]
