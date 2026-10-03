@@ -39,6 +39,7 @@ skforecast-ai forecast "$DATA" --target y --date-column fecha --steps 12 --test-
 | `ask` | Answer a question about your data, a plan or forecasting in general | Required |
 | `check-llm` | Check how the LLM configuration resolves | Required |
 | `config` | Show, set and locate the configuration file | |
+| `mcp` | Serve the workflow to coding agents as an MCP server | |
 
 The commands that read data take a local CSV path or an `https://` URL as their first argument.
 
@@ -253,6 +254,20 @@ skforecast-ai refine-plan --from-plan plan.json \
 skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12 \
   --prompt "We retrain every month with a one-month data delay"
 ```
+
+---
+
+## Serve coding agents
+
+`mcp` runs the MCP server, so a coding agent (Claude Code, Cursor, Claude Desktop) calls the deterministic workflow as tools. It needs the `[mcp]` extra, speaks over stdio and is started by the agent, which you configure with the command below. `--allow-dir` is required: the server only reads CSV files inside that directory, given by their absolute path.
+
+```bash
+pip install "skforecast-ai[mcp]"
+
+skforecast-ai mcp --allow-dir /path/to/data
+```
+
+How to connect an agent, the skill that teaches it the workflow, what the agent sees and the limits of the server are in [MCP server for coding agents](mcp-server.md); the tools and their errors, in the [MCP server reference](../api/mcp.md).
 
 ---
 

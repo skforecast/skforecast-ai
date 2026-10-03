@@ -38,6 +38,7 @@ nav:
     - Configuring the LLM: user-guides/llm-configuration.md
     - Skills for the LLM: user-guides/skills.md
     - Using the CLI: user-guides/cli-usage.md
+    - MCP server for coding agents: user-guides/mcp-server.md
 
   - API Reference:
     - Assistant: api/assistant.md
@@ -47,6 +48,7 @@ nav:
       - Profiles: api/schemas/profiles.md
     - Exceptions and warnings: api/exceptions.md
     - CLI: api/cli.md
+    - MCP server: api/mcp.md
 
   - Releases:
     - Changelog: releases/releases.md
@@ -192,8 +194,9 @@ markdown_extensions:
   - pymdownx.smartsymbols
   - pymdownx.snippets:
       # Reusable HTML components shared by the Markdown pages and the theme
-      # templates (for example, the team cards: --8<-- "team.html")
-      base_path: [docs/overrides/partials]
+      # templates (for example, the team cards: --8<-- "team.html"), and the
+      # SKILL.md of the MCP server, shown whole in its user guide
+      base_path: [docs/overrides/partials, skforecast_ai/mcp/skills]
       check_paths: true
   - pymdownx.superfences
   - pymdownx.tabbed:
