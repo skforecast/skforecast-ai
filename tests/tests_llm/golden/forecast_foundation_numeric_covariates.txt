@@ -24,7 +24,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Interval method: native
 - Primary metric: mean_absolute_error
   - [informational] Categorical exogenous variables detected: ['weekday']. 'google/timesfm-3.0-pytorch' only accepts numeric covariates, so these columns are excluded. Encode them manually to include them.
-- Plan: ForecasterFoundation + google/timesfm-3.0-pytorch. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. Exogenous variables included. MAE is interpretable, robust to outliers, and works at any scale. The model reads up to 2048 observations of the series as context, so the whole history is used (the series has 100). The weights of 'google/timesfm-3.0-pytorch' are released under TimesFM Non-Commercial License v1.0, which restricts commercial use (https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE).
+- Plan: ForecasterFoundation + google/timesfm-3.0-pytorch. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. Exogenous variables included. MAE is interpretable, robust to outliers, and works at any scale. The model reads up to 2048 observations of the series as context, so the whole history is used (the series has 100). The weights of 'google/timesfm-3.0-pytorch' are released under timesfm-non-commercial-license-v1.0, which restricts commercial use (https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE).
 
 Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
 </forecast_plan>

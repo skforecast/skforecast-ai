@@ -503,20 +503,20 @@ def test_security_restricted_models_are_the_documented_ones():
     """
     Test that the foundation models the server rejects by default, derived
     from the information skforecast registers, are TimesFM 3.0, Moirai,
-    TabPFN, t0 and TS-ICL, and that Chronos-2, TimesFM 2.5, TabICL and Nori
+    TabPFN and TS-ICL, and that Chronos-2, TimesFM 2.5, TabICL, t0 and Nori
     run without `--allow-model`.
     """
     assert RESTRICTED_MODELS == [
         "google/timesfm-3.0-pytorch",
         "Salesforce/moirai-2.0-R-small",
         "priorlabs/tabpfn-ts",
-        "theforecastingcompany/t0-alpha",
         "taharnbl/TS-ICL",
     ]
     assert [info.default_model_id for info in permissive_adapters()] == [
         "autogluon/chronos-2-small",
         "google/timesfm-2.5-200m-pytorch",
         "soda-inria/tabicl",
+        "theforecastingcompany/t0-alpha",
         "Synthefy/Nori",
     ]
 
@@ -524,8 +524,8 @@ def test_security_restricted_models_are_the_documented_ones():
 @pytest.mark.parametrize("model_id", RESTRICTED_MODELS)
 def test_security_restricted_model_in_plan_is_model_not_allowed(tmp_path, model_id):
     """
-    Test that `plan` with a foundation model that has a license restriction
-    or gated weights is `model_not_allowed`, naming the model and the
+    Test that `plan` with a foundation model that needs `--allow-model`
+    is `model_not_allowed`, naming the model and the
     `--allow-model` option in its hint, and registers no plan.
     """
     server, path, _ = _server(tmp_path)
@@ -549,8 +549,14 @@ def test_security_restricted_model_in_plan_is_model_not_allowed(tmp_path, model_
 
     assert (error["code"], error["field"]) == ("model_not_allowed", "estimator")
     assert error["details"]["model_id"] == model_id
-    assert error["details"]["license"] == info.license_restriction
+    assert error["details"]["license"] == info.license
+    assert error["details"]["commercial_use_restricted"] == (
+        info.commercial_use_restricted
+    )
     assert error["details"]["requires_hf_auth"] == info.requires_hf_auth
+    assert error["details"]["requires_provider_auth"] == (
+        info.requires_provider_auth
+    )
     assert f"--allow-model {info.model_id_prefixes[0]}" in error["hint"]
     assert len(plans) == 1
 
@@ -560,8 +566,8 @@ def test_security_restricted_model_in_refine_plan_is_model_not_allowed(
     tmp_path, model_id
 ):
     """
-    Test that `refine_plan` to a foundation model with a license restriction
-    or gated weights is `model_not_allowed` on `overrides.estimator`.
+    Test that `refine_plan` to a foundation model that needs `--allow-model`
+    is `model_not_allowed` on `overrides.estimator`.
     """
     server, path, _ = _server(tmp_path)
     _, plan_id = profile_and_plan(server, path, forecaster="ForecasterFoundation")
@@ -585,8 +591,8 @@ def test_security_restricted_model_in_refine_plan_is_model_not_allowed(
 @pytest.mark.parametrize("model_id", RESTRICTED_MODELS)
 def test_security_restricted_model_in_compare_is_model_not_allowed(tmp_path, model_id):
     """
-    Test that a candidate of `compare` with a foundation model that has a
-    license restriction or gated weights makes the call `model_not_allowed`
+    Test that a candidate of `compare` with a foundation model that needs
+    `--allow-model` makes the call `model_not_allowed`
     before any candidate runs, and registers nothing.
     """
     server, path, _ = _server(tmp_path)

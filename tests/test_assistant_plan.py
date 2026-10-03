@@ -392,7 +392,7 @@ def test_plan_output_when_foundation_model_id_given():
     )
     assert (
         "The weights of 'google/timesfm-3.0-pytorch' are released under "
-        "TimesFM Non-Commercial License v1.0, which restricts commercial use "
+        "timesfm-non-commercial-license-v1.0, which restricts commercial use "
         "(https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE)."
     ) in plan.explanation
 
@@ -449,10 +449,11 @@ def test_plan_output_when_foundation_model_requires_numeric_covariates():
     )
 
 
-def test_plan_output_when_foundation_model_is_gated():
+def test_plan_output_when_foundation_provider_requires_account():
     """
-    Test that the explanation warns that the weights of a gated foundation
-    model need an authenticated Hugging Face account.
+    Test that the explanation of a TabPFN plan says that its provider
+    requires its own account, and that t0, no longer gated, gets no
+    sentence about its weights.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -460,14 +461,22 @@ def test_plan_output_when_foundation_model_is_gated():
         profile    = profile,
         steps      = 10,
         forecaster = "ForecasterFoundation",
+        estimator  = "priorlabs/tabpfn-ts",
+    )
+    plan_t0 = assistant.plan(
+        profile    = profile,
+        steps      = 10,
+        forecaster = "ForecasterFoundation",
         estimator  = "theforecastingcompany/t0-alpha",
     )
 
     assert (
-        "The weights of 'theforecastingcompany/t0-alpha' are gated on the "
-        "Hugging Face Hub: log in with an account that has accepted the model "
-        "license before running the script."
+        "The provider of 'priorlabs/tabpfn-ts' requires its own account and "
+        "accepting its license, outside the Hugging Face Hub, before running "
+        "the script."
     ) in plan.explanation
+    assert "The weights of" not in plan_t0.explanation
+    assert "provider" not in plan_t0.explanation
 
 
 def test_plan_ValueError_when_foundation_model_not_supported():

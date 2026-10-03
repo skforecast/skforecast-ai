@@ -25,25 +25,23 @@ MODEL_DOWNLOAD_NOTICE = "ModelDownloadNotice"
 _TRUE_VALUES = frozenset({"1", "on", "yes", "true"})
 
 
-# Adapters of skforecast whose models the server runs by default: those
-# whose license was checked to allow any use when this list was written.
-# skforecast registers a license restriction only when it knows of one
-# (None "does not confirm that the license permits commercial use"), so an
-# adapter added by a later skforecast is not run until it is reviewed and
-# added here; meanwhile it needs `--allow-model`, like a restricted one.
-REVIEWED_ADAPTERS = frozenset({
-    "ChronosAdapter",
-    "TimesFM25Adapter",
-    "TabICLAdapter",
-    "NoriAdapter",
-})
+# Fields of `FoundationModelInfo` that decide whether a model needs
+# `--allow-model`: the server runs a model by default only when skforecast
+# says, with a bool, that none of them applies. A missing field (an older or
+# newer skforecast) counts as applying, so the model is blocked by default.
+_RESTRICTING_FIELDS = (
+    "commercial_use_restricted",
+    "requires_hf_auth",
+    "requires_provider_auth",
+)
 
 
 def is_permissive(info: FoundationModelInfo) -> bool:
     """
     Whether the server runs a foundation model without `--allow-model`:
-    its adapter is one of `REVIEWED_ADAPTERS`, and skforecast registers
-    neither a license restriction nor gated weights for the model.
+    skforecast registers its license and says that the license does not
+    restrict commercial use, that its weights are not gated on the Hugging
+    Face Hub and that its provider asks for no account of its own.
 
     Parameters
     ----------
@@ -53,13 +51,15 @@ def is_permissive(info: FoundationModelInfo) -> bool:
     Returns
     -------
     permissive : bool
-        Whether the server runs it without `--allow-model`.
+        Whether the server runs it without `--allow-model`. False when
+        skforecast does not give one of these facts.
     """
 
-    return (
-        info.adapter in REVIEWED_ADAPTERS
-        and info.license_restriction is None
-        and not info.requires_hf_auth
+    if not getattr(info, "license", None):
+        return False
+
+    return all(
+        getattr(info, name, None) is False for name in _RESTRICTING_FIELDS
     )
 
 
@@ -71,8 +71,8 @@ def permissive_adapters() -> list[FoundationModelInfo]:
     Returns
     -------
     adapters : list of FoundationModelInfo
-        Adapters without a license restriction or gated weights, in the
-        order of skforecast.
+        Adapters for which `is_permissive` holds, in the order of
+        skforecast.
     """
 
     return [info for info in list_adapters() if is_permissive(info)]
@@ -85,8 +85,8 @@ def restricted_adapters() -> list[FoundationModelInfo]:
     Returns
     -------
     adapters : list of FoundationModelInfo
-        Adapters with a license restriction or gated weights, in the order
-        of skforecast.
+        Adapters for which `is_permissive` does not hold, in the order of
+        skforecast.
     """
 
     return [info for info in list_adapters() if not is_permissive(info)]
@@ -133,25 +133,48 @@ def check_allow_models(prefixes: Iterable[str]) -> tuple[str, ...]:
 
 def _license_text(info: FoundationModelInfo) -> str:
     """
-    The license of a model as skforecast registers it.
+    The license of a model as skforecast registers it, and what else a user
+    must accept before running it.
     """
 
-    if info.license_restriction is None and info.adapter not in REVIEWED_ADAPTERS:
+    license_name = getattr(info, "license", None)
+    if not license_name:
         text = (
-            "its license has not been reviewed for this server (skforecast "
-            "registers no restriction for it, which does not confirm that it "
-            "permits every use)"
+            "skforecast gives no license information for it, so the server "
+            "cannot tell which uses its license permits"
         )
-    elif info.license_restriction is None:
-        text = "skforecast registers no license restriction for it"
     else:
-        text = f"its license is {info.license_restriction}"
-        if info.license_url is not None:
-            text += f" ({info.license_url})"
-    if info.requires_hf_auth:
+        text = f"its license is {license_name}"
+        license_url = getattr(info, "license_url", None)
+        if license_url:
+            text += f" ({license_url})"
+        restricted = getattr(info, "commercial_use_restricted", None)
+        if restricted is True:
+            text += ", which restricts commercial use"
+        elif restricted is not False:
+            text += (
+                ", and skforecast does not say whether it restricts "
+                "commercial use"
+            )
+    gated = getattr(info, "requires_hf_auth", None)
+    if gated is True:
         text += (
             "; its weights are gated on the Hugging Face Hub and need a login "
             "with an account that accepted the license"
+        )
+    elif gated is not False:
+        text += "; skforecast does not say whether its weights are gated"
+    provider = getattr(info, "requires_provider_auth", None)
+    if provider is True:
+        text += (
+            "; its provider requires its own account and accepting its "
+            "license, outside the Hugging Face Hub, before the weights can be "
+            "used"
+        )
+    elif provider is not False:
+        text += (
+            "; skforecast does not say whether its provider requires an "
+            "account"
         )
 
     return text
@@ -181,15 +204,15 @@ def hf_hub_cache() -> str:
     )
 
 
-def weights_cached(model_id: str) -> bool:
+def weights_cached(repo_id: str) -> bool:
     """
     Whether the local cache of Hugging Face holds a snapshot of a model
     repository.
 
     Parameters
     ----------
-    model_id : str
-        Hugging Face model ID, `'owner/name'`.
+    repo_id : str
+        Hugging Face repository of the weights, `'owner/name'`.
 
     Returns
     -------
@@ -199,7 +222,7 @@ def weights_cached(model_id: str) -> bool:
         empty snapshot).
     """
 
-    folder = "models--" + model_id.replace("/", "--")
+    folder = "models--" + repo_id.replace("/", "--")
     snapshots = os.path.join(hf_hub_cache(), folder, "snapshots")
     try:
         with os.scandir(snapshots) as entries:
@@ -210,10 +233,22 @@ def weights_cached(model_id: str) -> bool:
                     if any(True for _ in files):
                         return True
     except (OSError, ValueError):
-        # ValueError: a model ID with a NUL byte, which no cache holds.
+        # ValueError: an ID with a NUL byte, which no cache holds.
         return False
 
     return False
+
+
+def _weights_repo(info: FoundationModelInfo, model_id: str) -> str:
+    """
+    Hugging Face repository the backend downloads the weights of a model
+    from: `weights_repo_id` of skforecast, or the model ID when it gives
+    none.
+    """
+
+    repo_id = getattr(info, "weights_repo_id", None)
+
+    return repo_id if isinstance(repo_id, str) and repo_id else model_id
 
 
 @dataclass
@@ -225,8 +260,8 @@ class ModelPolicy:
     Attributes
     ----------
     allowed_prefixes : tuple of str
-        Prefixes given to `--allow-model`: models with a license
-        restriction or gated weights whose ID starts with one of them run.
+        Prefixes given to `--allow-model`: models that need it (see
+        `is_permissive`) run when their ID starts with one of them.
     announced : set of str
         Model IDs whose download a notice already announced.
     lock : threading.Lock
@@ -262,8 +297,8 @@ class ModelPolicy:
 
     def check(self, model_id: str | None, argument: str) -> None:
         """
-        Reject a foundation model with a license restriction or gated
-        weights that `--allow-model` does not allow.
+        Reject a foundation model that needs `--allow-model` (see
+        `is_permissive`) when the option does not allow it.
 
         A model ID that skforecast does not serve is left to the core,
         which reports it (or ranks the candidate last in a comparison).
@@ -296,7 +331,8 @@ class ModelPolicy:
         )
         raise ServerError(
             f"The server does not run '{model_id}': {_license_text(info)}. "
-            f"Foundation models with a license restriction or gated weights "
+            f"Foundation models whose license restricts commercial use, "
+            f"whose weights are gated or whose provider requires an account "
             f"only run when the server is started with `--allow-model`.",
             code    = "model_not_allowed",
             field   = argument,
@@ -309,9 +345,15 @@ class ModelPolicy:
             details = {
                 "model_id": model_id,
                 "allow_model": prefix,
-                "license": info.license_restriction,
-                "license_url": info.license_url,
-                "requires_hf_auth": info.requires_hf_auth,
+                "license": getattr(info, "license", None),
+                "license_url": getattr(info, "license_url", None),
+                "commercial_use_restricted": getattr(
+                    info, "commercial_use_restricted", None
+                ),
+                "requires_hf_auth": getattr(info, "requires_hf_auth", None),
+                "requires_provider_auth": getattr(
+                    info, "requires_provider_auth", None
+                ),
             },
         )
 
@@ -354,7 +396,11 @@ class ModelPolicy:
         """
         Models not announced yet whose weights are not in the local cache.
 
-        Checked before anything runs, since a run fills the cache.
+        Checked before anything runs, since a run fills the cache. The
+        cache is looked up under the repository skforecast registers for
+        the weights (`weights_repo_id`). A model whose weights skforecast
+        does not keep in the Hugging Face cache (`weights_in_hf_cache` is
+        False, as for TabPFN) cannot be looked up, so it is listed too.
 
         Parameters
         ----------
@@ -364,8 +410,9 @@ class ModelPolicy:
         Returns
         -------
         model_ids : list of str
-            Those without weights in the cache, in order, without
-            repetitions.
+            Those without weights in the cache, or whose cache cannot be
+            looked up, in order, without repetitions. A model ID that
+            skforecast does not serve is skipped.
         """
 
         with self.lock:
@@ -374,7 +421,13 @@ class ModelPolicy:
         for model_id in model_ids:
             if model_id is None or model_id in announced or model_id in found:
                 continue
-            if not weights_cached(model_id):
+            try:
+                info = resolve_foundation_model(model_id)
+            except InvalidInputError:
+                continue
+            if getattr(info, "weights_in_hf_cache", None) is not True:
+                found.append(model_id)
+            elif not weights_cached(_weights_repo(info, model_id)):
                 found.append(model_id)
 
         return found
@@ -386,9 +439,10 @@ class ModelPolicy:
         Notices that models download their weights, once per model and
         server.
 
-        The cache is looked up by the model ID, while some adapters keep
-        their weights in another repository, so the notice says that the
-        weights were not found and may be downloaded, not that they will.
+        The notice says that the weights were not found and may be
+        downloaded, not that they will: a backend may keep a copy of its
+        own. For a model whose weights skforecast does not keep in the
+        Hugging Face cache, it says nothing about that cache.
 
         Parameters
         ----------
@@ -421,12 +475,29 @@ class ModelPolicy:
                 "this call may have downloaded them" if ran
                 else "the first run may download them"
             )
-            message = (
-                f"The weights of '{model_id}' were not found in the local "
-                f"Hugging Face cache: {when} from the Hugging Face Hub. "
-                f"License: {_license_text(info)}."
-            )
-            if offline and not ran:
+            in_hf_cache = getattr(info, "weights_in_hf_cache", None) is True
+            if in_hf_cache:
+                repo_id = _weights_repo(info, model_id)
+                repository = (
+                    f" (repository '{repo_id}')" if repo_id != model_id else ""
+                )
+                message = (
+                    f"The weights of '{model_id}'{repository} were not found "
+                    f"in the local Hugging Face cache: {when} from the Hugging "
+                    f"Face Hub. License: {_license_text(info)}."
+                )
+            else:
+                where = (
+                    "its backend keeps them in a cache of its own"
+                    if getattr(info, "weights_in_hf_cache", None) is False
+                    else "skforecast does not say where they are cached"
+                )
+                message = (
+                    f"The server cannot tell whether the weights of "
+                    f"'{model_id}' are already downloaded: {where}, so "
+                    f"{when}. License: {_license_text(info)}."
+                )
+            if offline and not ran and in_hf_cache:
                 message += (
                     " HF_HUB_OFFLINE is set, so they cannot be downloaded and "
                     "the run fails until they are in the cache."

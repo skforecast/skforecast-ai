@@ -171,7 +171,8 @@ def build_foundation_explanation(
     -------
     explanation : str
         Sentences about the context the model reads, unused exogenous
-        variables, restricted licenses and gated weights.
+        variables, licenses that restrict commercial use, gated weights and
+        providers that require an account.
     """
     model_id = foundation_model.model_id
     parts: list[str] = []
@@ -195,10 +196,10 @@ def build_foundation_explanation(
             f"Exogenous variables {exog_columns} are not used: "
             f"'{model_id}' does not support covariates."
         )
-    if foundation_model.license_restriction is not None:
+    if foundation_model.commercial_use_restricted:
         parts.append(
             f"The weights of '{model_id}' are released under "
-            f"{foundation_model.license_restriction}, which restricts "
+            f"{foundation_model.license}, which restricts "
             f"commercial use ({foundation_model.license_url})."
         )
     if foundation_model.requires_hf_auth:
@@ -206,6 +207,12 @@ def build_foundation_explanation(
             f"The weights of '{model_id}' are gated on the Hugging Face Hub: "
             f"log in with an account that has accepted the model license "
             f"before running the script."
+        )
+    if foundation_model.requires_provider_auth:
+        parts.append(
+            f"The provider of '{model_id}' requires its own account and "
+            f"accepting its license, outside the Hugging Face Hub, before "
+            f"running the script."
         )
 
     return " ".join(parts)

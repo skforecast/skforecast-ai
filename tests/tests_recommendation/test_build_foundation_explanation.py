@@ -1,6 +1,7 @@
 # Unit test build_foundation_explanation
 """Tests for the build_foundation_explanation recommendation function."""
 
+import dataclasses
 import pytest
 from skforecast.foundation import get_model_info
 
@@ -80,10 +81,14 @@ def test_build_foundation_explanation_output_when_model_is_gated():
     """
     Test that the explanation states that the weights of a gated model need
     an authenticated Hugging Face account, and says nothing about the exog
-    of a model that accepts covariates.
+    of a model that accepts covariates. No adapter of skforecast 0.26 is
+    gated, so the information of t0 is marked as gated.
     """
+    info = dataclasses.replace(
+        get_model_info("theforecastingcompany/t0-alpha"), requires_hf_auth=True
+    )
     explanation = build_foundation_explanation(
-        foundation_model = get_model_info("theforecastingcompany/t0-alpha"),
+        foundation_model = info,
         exog_columns     = ["promo"],
         context_length   = 8192,
         n_observations   = 100,
@@ -96,4 +101,49 @@ def test_build_foundation_explanation_output_when_model_is_gated():
         "The weights of 'theforecastingcompany/t0-alpha' are gated on the "
         "Hugging Face Hub: log in with an account that has accepted the model "
         "license before running the script."
+    )
+
+
+def test_build_foundation_explanation_output_when_t0_is_not_gated():
+    """
+    Test that t0, whose weights skforecast no longer registers as gated and
+    whose license does not restrict commercial use, only gets the sentence
+    about the context.
+    """
+    explanation = build_foundation_explanation(
+        foundation_model = get_model_info("theforecastingcompany/t0-alpha"),
+        exog_columns     = ["promo"],
+        context_length   = 8192,
+        n_observations   = 100,
+        n_series         = 1,
+    )
+
+    assert explanation == (
+        "The model reads up to 8192 observations of the series as context, so "
+        "the whole history is used (the series has 100)."
+    )
+
+
+def test_build_foundation_explanation_output_when_provider_requires_account():
+    """
+    Test that the explanation of TabPFN states its license, which restricts
+    commercial use, and that its provider requires its own account.
+    """
+    explanation = build_foundation_explanation(
+        foundation_model = get_model_info("priorlabs/tabpfn-ts"),
+        exog_columns     = ["promo"],
+        context_length   = 4096,
+        n_observations   = 100,
+        n_series         = 1,
+    )
+
+    assert explanation == (
+        "The model reads up to 4096 observations of the series as context, so "
+        "the whole history is used (the series has 100). "
+        "The weights of 'priorlabs/tabpfn-ts' are released under "
+        "tabpfn-3-5-license-v1.0, which restricts commercial use "
+        "(https://huggingface.co/Prior-Labs/tabpfn_3_5/blob/main/LICENSE). "
+        "The provider of 'priorlabs/tabpfn-ts' requires its own account and "
+        "accepting its license, outside the Hugging Face Hub, before running "
+        "the script."
     )

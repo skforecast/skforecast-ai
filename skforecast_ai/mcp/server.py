@@ -1981,10 +1981,12 @@ def create_server(
         Memory, in MB, the objects may take (an estimate); the least
         recently used ones are removed beyond it.
     allow_models : iterable of str, default ()
-        Model ID prefixes of foundation models with a license restriction
-        or gated weights that the server may run (`'google/timesfm-3.0'`).
-        Each must start with the prefix of an adapter of skforecast. Models
-        without either run without it.
+        Model ID prefixes of foundation models that the server may run
+        although their license restricts commercial use, their weights are
+        gated, their provider requires an account or skforecast gives no
+        license information (`'google/timesfm-3.0'`).
+        Each must start with the prefix of an adapter of skforecast. Other
+        models run without it.
     max_file_mb : int, default 256
         Largest CSV file (data or future exogenous values) the server reads,
         in MB, checked on the size of the file before reading it. 0 for no
@@ -2039,8 +2041,10 @@ def run_server(
     max_memory_mb : int, default 1024
         Memory, in MB, the objects may take (an estimate).
     allow_models : iterable of str, default ()
-        Model ID prefixes of foundation models with a license restriction
-        or gated weights that the server may run.
+        Model ID prefixes of foundation models that the server may run
+        although their license restricts commercial use, their weights are
+        gated, their provider requires an account or skforecast gives no
+        license information.
     max_file_mb : int, default 256
         Largest CSV file the server reads, in MB; 0 for no limit.
 

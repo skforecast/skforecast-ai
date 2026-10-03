@@ -1913,7 +1913,7 @@ def mcp_server(
     max_objects: Annotated[int, typer.Option("--max-objects", min=1, help="Most objects the server keeps; the least recently used ones are removed beyond it.")] = 256,
     max_memory_mb: Annotated[int, typer.Option("--max-memory-mb", min=1, help="Memory, in MB, the objects may take; the least recently used ones are removed beyond it.")] = 1024,
     max_file_mb: Annotated[int, typer.Option("--max-file-mb", min=0, help="Largest CSV file the server reads, in MB, checked before reading it; 0 for no limit.")] = 256,
-    allow_model: Annotated[list[str] | None, typer.Option("--allow-model", help="Model ID prefix of a foundation model with a license restriction or gated weights that the server may run, e.g. google/timesfm-3.0 (repeatable). Models without either run without it.")] = None,
+    allow_model: Annotated[list[str] | None, typer.Option("--allow-model", help="Model ID prefix of a foundation model that the server may run although its license restricts commercial use, its weights are gated, its provider requires an account or skforecast gives no license information, e.g. google/timesfm-3.0 (repeatable). Other models run without it.")] = None,
 ) -> None:
     """Serve the deterministic workflow to MCP clients (coding agents) over stdio."""
     try:
