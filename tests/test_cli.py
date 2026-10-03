@@ -17,8 +17,10 @@ from skforecast_ai.cli import (
     app,
     _parse_initial_train_size,
     _parse_lags,
+    _report_error,
     _showwarning_to_stderr,
 )
+from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_assistant import df_single, df_multi_long, df_multi_wide
@@ -1531,3 +1533,261 @@ class TestWarningsToStderr:
             result = runner.invoke(app, ["mcp", "--allow-dir", "/tmp"])
         assert result.exit_code == 0, result.output
         assert seen["handler"] is rich_warning_handler
+
+
+# ---------------------------------------------------------------------------
+# Error contract
+# ---------------------------------------------------------------------------
+
+
+def _write_plan_bundle(tmp_path, csv_path, steps=5):
+    """Write the JSON bundle of `plan` for df_single and return its path."""
+    result = runner.invoke(
+        app,
+        ["plan", csv_path, "--target", "sales", "--date-column", "date",
+         "--steps", str(steps), "--format", "json", "--quiet"],
+    )
+    assert result.exit_code == 0, result.output
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(result.stdout)
+    return str(plan_file)
+
+
+class TestErrorContract:
+    """Tests for how the CLI reports errors."""
+
+    def test_error_on_stderr_with_brackets_kept(self, tmp_path):
+        """
+        An error goes to stderr, with text in brackets kept: rich markup
+        used to eat `[lower, upper]`.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--interval", "0.9,0.1", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "Error: `interval` must be `[lower, upper]` with 0 < lower" in result.stderr
+
+    def test_error_json_object_on_stderr_when_format_json(self, tmp_path):
+        """
+        With --format json an error is a JSON object `{"error": {...}}` with
+        the fields of `ErrorInfo`, on stderr; stdout stays empty.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "missing", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        payload = json.loads(result.stderr)
+        assert list(payload) == ["error"]
+        assert set(payload["error"]) == {"code", "message", "field", "hint"}
+        assert payload["error"]["code"] == "invalid_argument"
+        assert payload["error"]["field"] == "target"
+
+    def test_error_json_when_required_option_missing(self, tmp_path):
+        """
+        A missing required option is reported like any other error: code 1
+        and, with --format json, the JSON object naming the option.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": "--steps is required.",
+                "field": "steps",
+                "hint": None,
+            }
+        }
+
+    def test_error_json_when_no_llm(self, monkeypatch):
+        """
+        Without an LLM, the JSON error carries the CLI message that says how
+        to configure one.
+        """
+        monkeypatch.delenv("SKFORECAST_AI_LLM", raising=False)
+        monkeypatch.setattr("skforecast_ai.cli.get_config_value", lambda key: None)
+        result = runner.invoke(app, ["ask", "Why?", "--format", "json"])
+        assert result.exit_code == 1
+        payload = json.loads(result.stderr)["error"]
+        assert payload["code"] == "llm_required"
+        assert payload["message"] == (
+            "No LLM configured. Set the SKFORECAST_AI_LLM environment variable "
+            "or use the --llm flag."
+        )
+
+    def test_error_json_when_bundle_does_not_validate(self, tmp_path):
+        """
+        A bundle that does not validate is `invalid_argument` with the tip of
+        the text output as `hint`.
+        """
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps({"profile": {}, "plan": {}}))
+        result = runner.invoke(
+            app, ["forecast-code", "--from-plan", str(plan_file), "--format", "json"]
+        )
+        assert result.exit_code == 1
+        payload = json.loads(result.stderr)["error"]
+        assert payload["code"] == "invalid_argument"
+        assert payload["hint"] == (
+            "Use --format json with the source command to produce valid input."
+        )
+
+    def test_report_error_execution_tip(self, capsys):
+        """
+        A failed script points to the `*-code` commands: `--output-code` is
+        only written when the command succeeds.
+        """
+        error = ForecastExecutionError(
+            original_error      = ValueError("boom"),
+            generated_code      = "x = 1",
+            execution_traceback = "Traceback",
+        )
+        _report_error(error, json_errors=False)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Execution Error:" in captured.err
+        assert (
+            "Tip: Run forecast-code or backtest-code with the same options to "
+            "get the script that failed."
+        ) in " ".join(captured.err.split())
+
+        _report_error(error, json_errors=True)
+        payload = json.loads(capsys.readouterr().err)["error"]
+        assert payload["code"] == "execution_failed"
+        assert payload["hint"].startswith("Run forecast-code or backtest-code")
+
+    @pytest.mark.parametrize(
+        "command, value",
+        [("forecast", "code"), ("forecast-code", "table"), ("ask", "code"),
+         ("plan", "xml")],
+    )
+    def test_format_invalid_value_exit_2(self, command, value):
+        """
+        `--format` only accepts the values of the command: any other is a
+        usage error (exit code 2) instead of the default output.
+        """
+        result = runner.invoke(app, [command, "data.csv", "--format", value])
+        assert result.exit_code == 2
+        assert "Invalid value for '--format'" in result.output
+
+    @pytest.mark.parametrize(
+        "command", ["forecast", "forecast-code", "backtest", "backtest-code"],
+    )
+    def test_steps_different_from_plan_raises(self, tmp_path, command):
+        """
+        `--steps` with `--from-plan` must match the steps of the plan, as in
+        Python: it was ignored and the plan's horizon used.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        result = runner.invoke(
+            app,
+            [command, csv_path, "--from-plan", plan_file, "--steps", "3",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": (
+                    "--steps (3) does not match the steps of the plan in "
+                    "--from-plan (5). Omit --steps to use the plan's horizon, "
+                    "or change it with `refine-plan --steps`."
+                ),
+                "field": "steps",
+                "hint": None,
+            }
+        }
+
+    def test_steps_different_from_plan_raises_ask(self, tmp_path):
+        """
+        `ask --from-plan` rejects a different `--steps` before calling the LLM.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        result = runner.invoke(
+            app,
+            ["ask", "Why?", "--from-plan", plan_file, "--steps", "3",
+             "--llm", "test", "--format", "json"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr)["error"]["field"] == "steps"
+
+    def test_steps_equal_to_plan_runs(self, tmp_path):
+        """
+        `--steps` equal to the steps of the plan is accepted.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        result = runner.invoke(
+            app,
+            ["forecast-code", csv_path, "--from-plan", plan_file, "--steps", "5",
+             "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+
+    @pytest.mark.parametrize(
+        "bundle, missing",
+        [({"plan": {}}, "'profile'"), ([1], "'profile' or 'plan'")],
+        ids=["no_profile", "not_an_object"],
+    )
+    def test_error_json_when_bundle_has_no_profile(self, tmp_path, bundle, missing):
+        """
+        A `--from-plan` input without a profile or a plan, or that is not a
+        JSON object, is an invalid argument naming what is missing, not an
+        internal `KeyError` or `TypeError`.
+        """
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(bundle))
+        result = runner.invoke(
+            app, ["forecast-code", "--from-plan", str(plan_file), "--format", "json"]
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": (
+                    f"The --from-plan input has no {missing}: pass the file "
+                    f"written by `plan` or `refine-plan` with --format json."
+                ),
+                "field": "from_plan",
+                "hint": None,
+            }
+        }
+
+    def test_error_json_when_option_value_rejected(self, tmp_path):
+        """
+        A value that an option parser rejects keeps exit code 2 and, with
+        --format json, is the JSON object too; without it, the usage error
+        of the parser.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        args = ["forecast-code", csv_path, "--target", "sales", "--steps", "3",
+                "--interval", "0.1"]
+        result = runner.invoke(app, [*args, "--format", "json"])
+        assert result.exit_code == 2
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": "Interval must be two comma-separated quantiles, e.g. '0.1,0.9'.",
+                "field": None,
+                "hint": None,
+            }
+        }
+
+        result = runner.invoke(app, args)
+        assert result.exit_code == 2
+        assert "Invalid value" in result.stderr
+

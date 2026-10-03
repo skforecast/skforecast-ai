@@ -76,6 +76,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.plan()</code>][assistant], every method that builds a plan and the CLI raise `ValueError` when `lags` or `window_features` are passed for `ForecasterStats`, `ForecasterFoundation` or `ForecasterEquivalentDate`, which do not use them, and when `estimator` or `estimator_kwargs` are passed for `ForecasterEquivalentDate`. `ForecasterStats` and `ForecasterFoundation` ignored them silently, so the plan differed from what was asked.
 
++ <span class="badge text-bg-api-change">API Change</span> The CLI (`forecast`, `backtest`, the `*-code` commands and `ask`) exits with code 1 when `--steps` is passed with `--from-plan` and differs from the steps of the plan, which it ignored, as the Python API does (use `refine-plan --steps` to change the horizon), and `--format` only accepts the values of each command (`table`, `code` or `text`, and `json`), where any other value printed the default output; it now exits with code 2.
+
 + <span class="badge text-bg-enhancement">Enhancement</span> The reason of the categorical preprocessing step of a plan names at most 15 columns, followed by "(first 15 of N)", instead of all of them, so `describe()` of a plan stays short with hundreds of categorical columns.
 
 + <span class="badge text-bg-docs">Docs</span> The Quick start section is reorganized into [Installation](../quick-start/how-to-install.md), [Your first forecast](../quick-start/first-forecast.ipynb), now a notebook with its outputs, and the new [Ask the assistant](../quick-start/ask-the-assistant.md), on what the LLM layer adds. The [API reference][assistant] opens with a table of the methods of `ForecastingAssistant`, what each one returns and whether it uses the LLM.
@@ -138,6 +140,8 @@ All significant changes to this project are documented in this release file.
 + <span class="badge text-bg-danger">Fix</span> Two explanations were wrong, and `ask()` repeated them. The explanation of [<code>ForecastingAssistant.compare()</code>][assistant] said that multi-series candidates were ranked by the metric "pooled across series", but the ranking uses the `average` row; it now says "averaged across series". The plan explanation said "NaN rows kept (NaN-tolerant estimator)" even when no value was missing; it now appears only when the data has missing values.
 
 + <span class="badge text-bg-danger">Fix</span> The "How it works" diagram of the README and the [Agentic forecasting][agentic-guide] guides showed `create_cv()` in the fast path, where it needs a profile and a plan. It now shows a `TimeSeriesFold` passed to `backtest(data, cv)`.
+
++ <span class="badge text-bg-danger">Fix</span> CLI errors were printed on standard output, where a program reading the JSON of `--format json` got text instead, lost any text in brackets (such as the `[lower, upper]` of an `--interval` error), and a failed script pointed to `--output-code`, which is only written on success. Errors now go to standard error, as a JSON object `{"error": {"code", "message", "field", "hint"}}` with `--format json`, and a failed script points to `forecast-code` and `backtest-code` (see [Using the CLI][cli-guide]).
 
 + <span class="badge text-bg-danger">Fix</span> With `--format json`, the CLI printed skforecast's warnings (such as `LongTrainingWarning`) on standard output, before the JSON document, so it could not be parsed or piped. Every warning now goes to standard error, with the same format.
 

@@ -92,11 +92,12 @@ class TestConfigSet:
 
     def test_config_set_invalid_key(self):
         """
-        Config set rejects invalid keys with a helpful error.
+        Config set rejects invalid keys with a helpful error, on stderr.
         """
         result = runner.invoke(app, ["config", "set", "invalid.key", "value"])
         assert result.exit_code == 1
-        assert "Unknown config key" in result.output
+        assert result.stdout == ""
+        assert "Unknown config key" in result.stderr
 
     def test_config_set_rejects_output_format_key(self):
         """
