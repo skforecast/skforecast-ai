@@ -57,15 +57,26 @@ class AllowedDir:
         Parameters
         ----------
         path : str, Path
-            Directory to allow. It must exist.
+            Directory to allow. It must be an absolute path and exist: an
+            empty or relative value would resolve against the directory
+            the server was started in, which is not what the user set (a
+            client that expands an unset variable to nothing passes an
+            empty value).
 
         Returns
         -------
         allowed : AllowedDir
-            The directory, absolute and with its links resolved.
+            The directory, with its links resolved.
         """
 
-        absolute = os.path.normpath(os.path.abspath(os.fspath(path)))
+        given = os.fspath(path)
+        if not given or not os.path.isabs(given):
+            raise InvalidInputError(
+                f"The allowed directory must be an absolute path, got "
+                f"{given!r}.",
+                field = "allow_dir",
+            )
+        absolute = os.path.normpath(os.path.abspath(given))
         if not os.path.isdir(absolute):
             raise InvalidInputError(
                 f"The allowed directory {absolute!r} does not exist or is not a "

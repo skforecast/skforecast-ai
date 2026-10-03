@@ -123,7 +123,7 @@ skforecast-ai mcp --allow-dir /path/to/data
 
 | Option | Default | Meaning |
 |:--|:--|:--|
-| `--allow-dir` | (required) | Directory the server may read. Only absolute paths of `.csv` files inside it are accepted, also after resolving symbolic links. |
+| `--allow-dir` | (required) | Directory the server may read, as an absolute path (an empty or relative value is rejected). Only absolute paths of `.csv` files inside it are accepted, also after resolving symbolic links. |
 | `--output-dir` | a new temporary directory | Where the server writes predictions, metrics, leaderboards and long texts. It is also the working directory of the server, and it is kept when the server stops. Its path is logged when the server starts. |
 | `--max-objects` | 256 | Most objects (profiles, plans, results) the server keeps. |
 | `--max-memory-mb` | 1024 | Memory the objects may take. Beyond either limit, the least recently used objects are removed. |
