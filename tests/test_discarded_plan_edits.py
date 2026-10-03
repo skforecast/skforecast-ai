@@ -67,3 +67,19 @@ def test_discarded_plan_edits_skips_fields_overridden_in_the_call():
     assert discarded_plan_edits(edited, PLAN, set()) == [
         "estimator", "interval_method", "forecaster_kwargs['lags']"
     ]
+
+
+def test_discarded_plan_edits_skips_the_metric_when_overridden():
+    """
+    Test that the metric and the metrics computed are not reported when
+    the call overrides `metric`.
+    """
+    edited = PLAN.model_copy(update={
+        "metric": "mean_squared_error",
+        "metrics_to_compute": ["mean_squared_error"],
+    })
+
+    assert discarded_plan_edits(edited, PLAN, {"metric"}) == []
+    assert discarded_plan_edits(edited, PLAN, set()) == [
+        "metric", "metrics_to_compute"
+    ]

@@ -581,3 +581,38 @@ def test_standalone_script_matches_forecast_when_in_memory_data_has_no_dates(
     # `_run_standalone` parses the index as dates; integers come back as
     # nanoseconds from the epoch.
     assert list(standalone.index.asi8) == list(executed.predictions.index)
+
+
+def test_standalone_scripts_match_forecast_and_backtest_when_metric_override(
+    tmp_path,
+):
+    """
+    Test that, with metrics chosen through `metric`, the scripts of
+    forecast_code() (evaluation mode) and backtest_code() run as files and
+    give the predictions of forecast() and backtest(), whose metrics are
+    the ones chosen.
+    """
+    csv_path = tmp_path / "sales.csv"
+    df_single.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    metric = ["mean_squared_error", "median_absolute_error"]
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    inputs = {"data": csv_path, "target": "sales", "date_column": "date"}
+
+    forecast_code = assistant.forecast_code(
+        **inputs, steps=5, test_size=5, metric=metric
+    ).code
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5, metric=metric)
+    backtest_code = assistant.backtest_code(**inputs, cv=cv, metric=metric).code
+    backtest = assistant.backtest(**inputs, cv=cv, metric=metric, show_progress=False)
+
+    assert forecast_code == forecast.code
+    assert backtest_code == backtest.code
+    assert list(forecast.metrics.columns) == ["series", "MSE", "MedAE"]
+    assert list(backtest.metrics.columns) == metric
+    _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
+    np.testing.assert_allclose(
+        _run_standalone(backtest_code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )

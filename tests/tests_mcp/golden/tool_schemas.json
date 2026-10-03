@@ -336,6 +336,46 @@
           "default": null,
           "description": "Rolling features, one entry per window size: {'stats': [...], 'window_size': n}, with stats among ['mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', 'coef_variation', 'ewm'], e.g. [{'stats': ['mean', 'std'], 'window_size': 7}]. Null for the deterministic selection.",
           "title": "Window Features"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "enum": [
+                "mean_squared_error",
+                "mean_absolute_error",
+                "mean_absolute_percentage_error",
+                "mean_squared_log_error",
+                "mean_absolute_scaled_error",
+                "root_mean_squared_scaled_error",
+                "median_absolute_error",
+                "symmetric_mean_absolute_percentage_error"
+              ],
+              "type": "string"
+            },
+            {
+              "items": {
+                "enum": [
+                  "mean_squared_error",
+                  "mean_absolute_error",
+                  "mean_absolute_percentage_error",
+                  "mean_squared_log_error",
+                  "mean_absolute_scaled_error",
+                  "root_mean_squared_scaled_error",
+                  "median_absolute_error",
+                  "symmetric_mean_absolute_percentage_error"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null for the metric selected from the data (MAE for one series, MASE for several) and its default panel.",
+          "title": "Metric"
         }
       },
       "required": [
@@ -490,7 +530,7 @@
       "$defs": {
         "RefinePlanArgs": {
           "additionalProperties": false,
-          "description": "Decisions of the plan to change. An omitted key keeps the value of the plan; estimator_kwargs, interval, lags and window_features set to null ask for the deterministic default.",
+          "description": "Decisions of the plan to change. An omitted key keeps the value of the plan; estimator_kwargs, interval, lags, window_features and metric set to null ask for the deterministic default.",
           "properties": {
             "forecaster": {
               "description": "skforecast forecaster class: ForecasterRecursive or ForecasterDirect (one series, machine learning), ForecasterRecursiveMultiSeries (several series), ForecasterDirectMultiVariate (one series predicted from several), ForecasterStats (Auto-ARIMA), ForecasterFoundation (pre-trained foundation model, no training) or ForecasterEquivalentDate (seasonal naive baseline).",
@@ -592,6 +632,45 @@
               ],
               "description": "Rolling features, one entry per window size: {'stats': [...], 'window_size': n}, with stats among ['mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', 'coef_variation', 'ewm'], e.g. [{'stats': ['mean', 'std'], 'window_size': 7}]. Null selects them again with the deterministic rules.",
               "title": "Window Features"
+            },
+            "metric": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "mean_squared_error",
+                    "mean_absolute_error",
+                    "mean_absolute_percentage_error",
+                    "mean_squared_log_error",
+                    "mean_absolute_scaled_error",
+                    "root_mean_squared_scaled_error",
+                    "median_absolute_error",
+                    "symmetric_mean_absolute_percentage_error"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "enum": [
+                      "mean_squared_error",
+                      "mean_absolute_error",
+                      "mean_absolute_percentage_error",
+                      "mean_squared_log_error",
+                      "mean_absolute_scaled_error",
+                      "root_mean_squared_scaled_error",
+                      "median_absolute_error",
+                      "symmetric_mean_absolute_percentage_error"
+                    ],
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null selects them again from the data. Omitted, a metric chosen before is kept.",
+              "title": "Metric"
             }
           },
           "title": "RefinePlanArgs",
@@ -1342,6 +1421,46 @@
           "default": null,
           "description": "Prediction interval computed for every candidate. Prediction interval as two quantiles [lower, upper] with 0 < lower < upper < 1, e.g. [0.1, 0.9] for 80 %. The baseline and ForecasterStats only take symmetric ones (lower + upper = 1). Null for the interval of the plan the strategy was built for.",
           "title": "Interval"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "enum": [
+                "mean_squared_error",
+                "mean_absolute_error",
+                "mean_absolute_percentage_error",
+                "mean_squared_log_error",
+                "mean_absolute_scaled_error",
+                "root_mean_squared_scaled_error",
+                "median_absolute_error",
+                "symmetric_mean_absolute_percentage_error"
+              ],
+              "type": "string"
+            },
+            {
+              "items": {
+                "enum": [
+                  "mean_squared_error",
+                  "mean_absolute_error",
+                  "mean_absolute_percentage_error",
+                  "mean_squared_log_error",
+                  "mean_absolute_scaled_error",
+                  "root_mean_squared_scaled_error",
+                  "median_absolute_error",
+                  "symmetric_mean_absolute_percentage_error"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metric of every candidate. Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null for the metric chosen for the plan the strategy was built for, if one was chosen, else the one selected from the data.",
+          "title": "Metric"
         },
         "baseline": {
           "default": true,

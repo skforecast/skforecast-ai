@@ -23,11 +23,13 @@ files.
 2. `plan(profile_id, steps, ...)`: `steps` is the horizon in observations
    (12 for a year of monthly data), at most the length of the longest
    series. Leave the other arguments out to take the recommendation; set
-   them only when the user asks.
+   them only when the user asks. `metric` (one metric, or a list whose
+   first one ranks) replaces the metric selected from the data, and only
+   the metrics given are computed.
 3. Optionally `refine_plan(plan_id, overrides)` to change some decisions.
    An omitted key keeps the value of the plan; `estimator_kwargs`,
-   `interval`, `lags` and `window_features` set to null go back to the
-   default.
+   `interval`, `lags`, `window_features` and `metric` set to null go back
+   to the default.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
    running anything; above 50 estimator fits it already carries the
    `LongTrainingWarning` the backtest would emit.
@@ -35,8 +37,9 @@ files.
    over its folds. `plan_id` backtests another plan of the same profile on
    the same folds.
 6. Optionally `compare(cv_id, candidates?)`: several configurations on the
-   same folds, ranked by the metric of the profile, with a seasonal naive
-   baseline. `links.best_plan_id` is the plan of the winner. Without
+   same folds, ranked by its `metric`, else by the metric chosen for the
+   plan of the strategy, else by the one selected from the data, with a
+   seasonal naive baseline. `links.best_plan_id` is the plan of the winner. Without
    `candidates` it runs the forecasters the profile recommends for the
    family of the data (with several series, ForecasterRecursiveMultiSeries
    and ForecasterFoundation), or the estimators of the recommended
@@ -116,7 +119,9 @@ progress). Meanwhile only the read tools (`get_code`, `get_failure`,
   (`initial_train_size` of `create_cv`, `test_size` of `forecast`). A count
   is a number, never text: `"12"` is rejected.
 - Arguments are strict: an unknown argument or a wrong type is an error,
-  never ignored. `compare` takes no `metric` in this version.
+  never ignored. Metrics are the names of skforecast:
+  `mean_absolute_error`, `mean_squared_error`,
+  `mean_absolute_scaled_error`, and the others the schema lists.
 - Messages of the library name the arguments of its Python API: `data` is
   `data_path`, `exog` is `exog_path`, `profile`, `plan` and `cv` are the
   ids `profile_id`, `plan_id` and `cv_id`, and `forecast()` or

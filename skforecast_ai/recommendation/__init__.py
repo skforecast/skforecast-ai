@@ -25,6 +25,7 @@ from .calendar import (
 from .explanation import (
     _build_profile_explanation,
     build_foundation_explanation,
+    build_metric_override_explanation,
     build_plan_explanation,
 )
 from .forecaster_selection import (
@@ -48,6 +49,7 @@ __all__ = [
     "build_cv",
     "build_cv_explanation",
     "build_foundation_explanation",
+    "build_metric_override_explanation",
     "build_plan_explanation",
     "build_forecaster_kwargs",
     "check_exog_usage",

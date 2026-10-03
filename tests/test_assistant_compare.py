@@ -288,6 +288,26 @@ def test_compare_ValueError_when_metric_is_empty_list():
         )
 
 
+def test_compare_ValueError_when_metric_is_repeated():
+    """
+    Test that compare() rejects a metric listed twice before any candidate
+    runs (the backtest failed with a TypeError of pandas).
+    """
+    err_msg = re.escape(
+        "`metric` repeats ['mean_squared_error']: list each metric once."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            metric=["mean_squared_error", "mean_squared_error"],
+            show_progress=False,
+        )
+
+
 # =============================================================================
 # Tests: basic output
 # =============================================================================
@@ -492,6 +512,12 @@ def test_compare_output_when_metric_list_ranks_by_first():
     ]
     ranking_values = result.results["mean_squared_error"].to_numpy()
     assert np.all(np.diff(ranking_values) >= 0)
+    # The metric is a decision of each candidate plan, so refine_plan()
+    # keeps it in the plan of the winner.
+    assert result.best_candidate.plan.metrics_to_compute == [
+        "mean_squared_error", "mean_absolute_error"
+    ]
+    assert "metric" in result.best_candidate.plan.overridden_fields
 
 
 # =============================================================================

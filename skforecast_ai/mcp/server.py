@@ -33,7 +33,7 @@ from .._constants import (
     FORECASTER_TASK_TYPES,
     LONG_TRAINING_FITS,
 )
-from .._utils import load_exog, warn_long_training
+from .._utils import load_exog, plan_override_value, warn_long_training
 from ..assistant import ForecastingAssistant
 from ..exceptions import InvalidInputError, SkforecastAIError
 from ..recommendation import count_estimator_fits, resolve_cv_config
@@ -58,6 +58,7 @@ from .models import (
     FORECASTER_DESCRIPTION,
     INTERVAL_DESCRIPTION,
     LAGS_DESCRIPTION,
+    METRIC_DESCRIPTION,
     STEPS_DESCRIPTION,
     WINDOW_FEATURES_DESCRIPTION,
     CandidateArg,
@@ -65,6 +66,7 @@ from .models import (
     FailureResult,
     ForecasterName,
     Interval,
+    Metric,
     ObjectInfo,
     ObjectKind,
     ObjectList,
@@ -1006,6 +1008,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             f"{WINDOW_FEATURES_DESCRIPTION} Null for the deterministic "
             f"selection."
         ))] = None,
+        metric: Annotated[Metric | None, Field(description=(
+            f"{METRIC_DESCRIPTION} Null for the metric selected from the data "
+            f"(MAE for one series, MASE for several) and its default panel."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         profile_entry = store.get(profile_id, "profile_id", ("profile",))
@@ -1021,6 +1027,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 estimator_kwargs = estimator_kwargs,
                 lags             = lags,
                 window_features  = window_features,
+                metric           = metric,
             )
             _check_foundation_kwargs(
                 new_plan.forecaster, new_plan.estimator_kwargs, "estimator_kwargs"
@@ -1368,6 +1375,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             f"{INTERVAL_DESCRIPTION} Null for the interval of the plan the "
             f"strategy was built for."
         ))] = None,
+        metric: Annotated[Metric | None, Field(description=(
+            f"Metric of every candidate. {METRIC_DESCRIPTION} Null for the "
+            f"metric chosen for the plan the strategy was built for, if one "
+            f"was chosen, else the one selected from the data."
+        ))] = None,
         baseline: Annotated[bool, Field(description=(
             "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) "
             "to the ranking."
@@ -1381,6 +1393,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         shared_interval = interval
         if shared_interval is None and cv_entry.obj.plan.interval is not None:
             shared_interval = list(cv_entry.obj.plan.interval)
+        # Likewise the metric, when one was chosen for that plan.
+        shared_metric = metric
+        if shared_metric is None and "metric" in cv_entry.obj.plan.overridden_fields:
+            shared_metric = plan_override_value(cv_entry.obj.plan, "metric")
         configs = None
         if candidates is None:
             # The default candidates are named by their forecaster and run
@@ -1431,6 +1447,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     profile           = _copy(profile_obj),
                     candidates        = copy.deepcopy(configs),
                     interval          = shared_interval,
+                    metric            = shared_metric,
                     show_progress     = False,
                     baseline          = baseline,
                     progress_callback = on_progress,

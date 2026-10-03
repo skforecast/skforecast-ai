@@ -1554,3 +1554,83 @@ def test_plan_output_overridden_fields_record_the_arguments_given():
     assert chosen.overridden_fields == [
         "forecaster", "estimator", "lags", "window_features"
     ]
+
+
+@pytest.mark.parametrize(
+    "metric, expected_metric, expected_metrics, sentence",
+    [
+        (
+            "mean_squared_error",
+            "mean_squared_error",
+            ["mean_squared_error"],
+            "Metric: mean_squared_error, as requested.",
+        ),
+        (
+            ["median_absolute_error", "mean_absolute_error"],
+            "median_absolute_error",
+            ["median_absolute_error", "mean_absolute_error"],
+            "Primary metric: median_absolute_error, as requested; also "
+            "computed: mean_absolute_error.",
+        ),
+    ],
+    ids=["one metric", "list"],
+)
+def test_plan_output_when_metric_given(
+    metric, expected_metric, expected_metrics, sentence
+):
+    """
+    Test that `metric` sets the primary metric (the first one) and the only
+    metrics computed, records the decision and replaces the sentence that
+    explains the selected metric.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan = assistant.plan(profile, steps=10, metric=metric)
+
+    assert plan.metric == expected_metric
+    assert plan.metrics_to_compute == expected_metrics
+    assert plan.overridden_fields == ["metric"]
+    assert plan.explanation.endswith(sentence)
+    assert "MAE is interpretable" not in plan.explanation
+
+
+@pytest.mark.parametrize(
+    "metric, error, message",
+    [
+        ([], ValueError, "`metric` must not be an empty list."),
+        (
+            ["mean_squared_error", "mean_squared_error"],
+            ValueError,
+            "`metric` repeats ['mean_squared_error']: list each metric once.",
+        ),
+        ("accuracy", ValueError, "Unknown metric 'accuracy'."),
+        (3, TypeError, "`metric` must be a metric name or a list of metric names"),
+        ([1], TypeError, "`metric` must be a metric name or a list of metric names"),
+    ],
+    ids=["empty", "repeated", "unknown", "int", "list of int"],
+)
+def test_plan_error_when_metric_invalid(metric, error, message):
+    """
+    Test that an empty, repeated, unknown or non-text metric is rejected
+    with `field='metric'`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(error, match=re.escape(message)) as info:
+        assistant.plan(profile, steps=10, metric=metric)
+
+    assert info.value.field == "metric"
+
+
+def test_plan_TypeError_when_metric_given_positionally():
+    """
+    Test that `metric` is keyword-only, so the positional order of the
+    arguments of 0.3 does not change.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(TypeError):
+        assistant.plan(profile, 10, None, None, None, None, None, None, "mae")

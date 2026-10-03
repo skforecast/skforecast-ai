@@ -172,6 +172,15 @@ plan_single_recursive_no_exog = ForecastPlan(
     explanation="Single series recursive forecasting without exogenous.",
 )
 
+# The metrics chosen with `plan(metric=[...])`: only those are computed.
+plan_single_metric_override = plan_single_recursive_no_exog.model_copy(
+    update={
+        "metric": "mean_squared_error",
+        "metrics_to_compute": ["mean_squared_error", "median_absolute_error"],
+        "overridden_fields": ["metric"],
+    }
+)
+
 plan_single_direct = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterDirect",

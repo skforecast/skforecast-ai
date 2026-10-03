@@ -532,6 +532,56 @@ def validate_metrics(metrics: list[str], field: str = "metric") -> None:
             )
 
 
+def resolve_metric_override(metric: object) -> list[str] | None:
+    """
+    Check a `metric` argument and return it as the list of metrics to
+    compute, the first one being the primary metric.
+
+    Parameters
+    ----------
+    metric : str, list of str, None
+        A metric name, or a list of them whose first one ranks (as in
+        `compare()`). None asks for the deterministic selection.
+
+    Returns
+    -------
+    metrics : list of str, None
+        The metrics, in the order given; None when `metric` is None.
+
+    Notes
+    -----
+    A `TypeError` is raised when `metric` is not a str or a list of str,
+    and a `ValueError` for an empty list, a repeated metric or a name
+    outside `ALLOWED_METRICS`.
+    """
+
+    if metric is None:
+        return None
+    metrics = [metric] if isinstance(metric, str) else metric
+    if not isinstance(metrics, (list, tuple)) or not all(
+        isinstance(name, str) for name in metrics
+    ):
+        raise InvalidInputTypeError(
+            f"`metric` must be a metric name or a list of metric names, got "
+            f"{metric!r}.",
+            field = "metric",
+        )
+    if not metrics:
+        raise InvalidInputError(
+            "`metric` must not be an empty list.",
+            field = "metric",
+        )
+    repeated = sorted({name for name in metrics if metrics.count(name) > 1})
+    if repeated:
+        raise InvalidInputError(
+            f"`metric` repeats {repeated}: list each metric once.",
+            field = "metric",
+        )
+    validate_metrics(list(metrics))
+
+    return list(metrics)
+
+
 def validate_steps(steps: object) -> int:
     """
     Check a forecast horizon and return it as an int.

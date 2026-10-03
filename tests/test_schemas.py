@@ -601,7 +601,7 @@ def test_refine_plan_overrides_keys_are_all_optional():
     assert RefinePlanOverrides.__required_keys__ == frozenset()
     assert RefinePlanOverrides.__optional_keys__ == {
         "forecaster", "estimator", "estimator_kwargs", "steps", "interval",
-        "lags", "window_features",
+        "lags", "window_features", "metric",
     }
 
 
@@ -609,12 +609,12 @@ def test_candidate_config_keys_are_all_optional():
     """
     Test that the candidate configuration dictionary declares every key
     optional and matches the keys compare() accepts: the refine_plan()
-    keys without `steps` and `interval`, which are shared by every
-    candidate.
+    keys without `steps`, `interval` and `metric`, which are shared by
+    every candidate.
     """
     assert CandidateConfig.__required_keys__ == frozenset()
     assert CandidateConfig.__optional_keys__ == (
-        RefinePlanOverrides.__optional_keys__ - {"steps", "interval"}
+        RefinePlanOverrides.__optional_keys__ - {"steps", "interval", "metric"}
     )
 
 

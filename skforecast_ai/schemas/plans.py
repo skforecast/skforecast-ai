@@ -279,6 +279,7 @@ OverrideName = Literal[
     "estimator_kwargs",
     "lags",
     "window_features",
+    "metric",
 ]
 """Decisions of a plan that the user can make instead of the rules of
 `plan()`, as recorded in `ForecastPlan.overridden_fields`."""
@@ -321,6 +322,11 @@ class RefinePlanOverrides(TypedDict, total=False):
         scalar `'window_size'` per window size; the same statistic cannot
         repeat the same window size across entries. None re-runs the
         deterministic selection.
+    metric : str, list of str, None
+        Metric(s) to compute, the first one being the primary metric, as
+        in `plan()`. None selects them from the data again. When omitted,
+        a metric chosen by the user is kept and a selected one is
+        selected again.
     """
 
     forecaster: str
@@ -330,6 +336,7 @@ class RefinePlanOverrides(TypedDict, total=False):
     interval: list[float] | None
     lags: int | list[int] | None
     window_features: list[dict[str, list[str] | int]] | None
+    metric: str | list[str] | None
 
 
 class CandidateConfig(TypedDict, total=False):
@@ -458,11 +465,12 @@ class ForecastPlan(DisplayMixin, BaseModel):
     overridden_fields : list
         Names of the decisions the user made instead of the rules of
         `plan()`: the arguments passed with a value other than None among
-        `forecaster`, `estimator`, `estimator_kwargs`, `lags` and
-        `window_features` (an argument passed as None asks for the rule
-        and is not recorded). It holds names only; the values are those of
-        the plan. `refine_plan()` keeps a name while the refined plan keeps
-        its value. Empty for a plan of an earlier version.
+        `forecaster`, `estimator`, `estimator_kwargs`, `lags`,
+        `window_features` and `metric` (an argument passed as None asks
+        for the rule and is not recorded). It holds names only; the values
+        are those of the plan. `refine_plan()` keeps a name while the
+        refined plan keeps its value. Empty for a plan of an earlier
+        version.
     explanation : str
         Explanation of the plan-level decisions.
     """

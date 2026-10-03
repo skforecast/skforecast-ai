@@ -191,7 +191,6 @@ The data never travels whole to the agent, and the agent's language model sees w
 - The server reads CSV files of at most `--max-file-mb` (256 MB by default), and a horizon (`steps`) longer than the longest series is rejected when the plan is built.
 - Ids live while the server runs. An id of a previous run, or of an object removed to stay within `--max-objects` and `--max-memory-mb`, gives `unknown_id` saying which.
 - A summary, a script or a failure longer than 20,000 characters is cut in the response; the full text is written to the output directory.
-- `compare` has no `metric` argument yet: candidates are ranked by the metric of the profile.
 - Foundation models (`ForecasterFoundation`) need their backend package where the server runs: Chronos-2, the default, needs `chronos-forecasting` (the `foundation` extra). Without it, `backtest` and `forecast` answer `missing_dependency`, whose hint gives the `pip install` command and the `--with` option of `uvx`.
 - The script of a forecast with future exogenous values reads them from `exog_future.csv` in its working directory: copy the file there to run it.
 

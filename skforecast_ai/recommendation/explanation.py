@@ -138,6 +138,30 @@ def build_plan_explanation(
     return " ".join(parts)
 
 
+def build_metric_override_explanation(metrics: list[str]) -> str:
+    """
+    Explain the metrics a plan computes when the user chose them.
+
+    Parameters
+    ----------
+    metrics : list of str
+        Metrics in the order given; the first one is the primary metric.
+
+    Returns
+    -------
+    explanation : str
+        One sentence naming the primary metric, and the other metrics
+        computed when there are several.
+    """
+    if len(metrics) == 1:
+        return f"Metric: {metrics[0]}, as requested."
+
+    return (
+        f"Primary metric: {metrics[0]}, as requested; also computed: "
+        f"{', '.join(metrics[1:])}."
+    )
+
+
 def build_foundation_explanation(
     foundation_model: FoundationModelInfo,
     exog_columns: list[str],

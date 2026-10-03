@@ -16,6 +16,7 @@ if sys.version_info >= (3, 12):
 else:
     from typing_extensions import TypedDict
 from .._constants import (
+    ALLOWED_METRICS,
     DEFAULT_FOUNDATION_MODEL_ID,
     SUPPORTED_ESTIMATORS,
     WindowStat,
@@ -78,8 +79,16 @@ WINDOW_FEATURES_DESCRIPTION = (
     f"[{{'stats': ['mean', 'std'], 'window_size': 7}}]."
 )
 
+METRIC_DESCRIPTION = (
+    "Metric, or list of metrics whose first one is the primary metric "
+    "(the one that ranks); only the ones given are computed."
+)
+
 Interval = Annotated[list[float], Field(min_length=2, max_length=2)]
 WindowFeatures = list[dict[str, list[str] | int]]
+MetricName = Literal[ALLOWED_METRICS]
+"""Regression metrics of skforecast (`ALLOWED_METRICS`)."""
+Metric = MetricName | Annotated[list[MetricName], Field(min_length=1)]
 
 
 @with_config(ConfigDict(
@@ -89,8 +98,8 @@ WindowFeatures = list[dict[str, list[str] | int]]
     json_schema_extra = {
         "description": (
             "Decisions of the plan to change. An omitted key keeps the value "
-            "of the plan; estimator_kwargs, interval, lags and "
-            "window_features set to null ask for the deterministic default."
+            "of the plan; estimator_kwargs, interval, lags, window_features "
+            "and metric set to null ask for the deterministic default."
         ),
     },
 ))
@@ -131,6 +140,13 @@ class RefinePlanArgs(TypedDict, total=False):
         Field(description=(
             f"{WINDOW_FEATURES_DESCRIPTION} Null selects them again with the "
             f"deterministic rules."
+        )),
+    ]
+    metric: Annotated[
+        Metric | None,
+        Field(description=(
+            f"{METRIC_DESCRIPTION} Null selects them again from the data. "
+            f"Omitted, a metric chosen before is kept."
         )),
     ]
 

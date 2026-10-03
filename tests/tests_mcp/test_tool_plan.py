@@ -78,6 +78,7 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
         "forecaster",
         "interval",
         "lags",
+        "metric",
         "steps",
         "window_features",
     ]
@@ -125,7 +126,13 @@ def test_tool_plan_notices_of_the_plan(tmp_path):
         ({"steps": 12.0}, "invalid_argument", "steps"),
         ({"steps": True}, "invalid_argument", "steps"),
         ({"steps": 0}, "invalid_argument", "steps"),
-        ({"steps": 12, "metric": "mean_absolute_error"}, "invalid_argument", "metric"),
+        ({"steps": 12, "metric": "accuracy"}, "invalid_argument", "metric"),
+        ({"steps": 12, "metric": []}, "invalid_argument", "metric"),
+        (
+            {"steps": 12, "metric": ["mean_absolute_error", "mean_absolute_error"]},
+            "invalid_argument",
+            "metric",
+        ),
         ({"steps": 12, "lags": ["1"]}, "invalid_argument", "lags"),
         (
             {"steps": 12, "forecaster": "ForecasterStats", "lags": 3},

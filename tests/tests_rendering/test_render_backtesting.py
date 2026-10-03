@@ -28,6 +28,7 @@ from .fixtures_rendering import (
     plan_multivariate,
     plan_multi_series_with_intervals,
     plan_multivariate_with_intervals,
+    plan_single_metric_override,
     plan_single_recursive_no_exog,
     plan_statistical,
     plan_statistical_exog,
@@ -1032,4 +1033,59 @@ def test_render_backtesting_multivariate_output_when_wide_format_with_intervals(
         "print(metrics)\n"
         "print(predictions.head())"
     )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_single_series_output_when_metric_override():
+    """
+    Test that the backtest of a plan whose metrics were chosen passes only
+    those metrics to skforecast, in the order given.
+    """
+    result = render_backtesting_single_series(
+        plan_single_metric_override, profile_single_no_exog, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_squared_error', 'median_absolute_error'],\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+
     assert result.full_script == expected

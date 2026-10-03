@@ -44,7 +44,9 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-enhancement">Enhancement</span> `ForecastPlan.warnings`, empty until now, holds the text of the warnings that [<code>ForecastingAssistant.plan()</code>][assistant] emits, so they travel with the plan, its JSON and the results built from it. The warnings are still emitted, and the plan display shows them in a "Plan Warnings" panel.
 
-+ <span class="badge text-bg-enhancement">Enhancement</span> `ForecastPlan.overridden_fields` names the decisions you made instead of the rules (`forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`). [<code>ForecastingAssistant.refine_plan()</code>][assistant] warns with the new `PlanEditsDiscardedWarning` when values edited by hand in the plan (a metric, a key of `forecaster_kwargs`) are not kept in the refined plan, as already happened without a warning; the ones it takes as overrides (`forecaster`, `estimator`, `lags`...) can be passed again to keep them.
++ <span class="badge text-bg-feature">Feature</span> New keyword-only `metric` argument in [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()`, `forecast()`, `forecast_code()`, `backtest()` and `backtest_code()`, with the semantics of `compare()`: a metric, or a list whose first one is the primary metric, and only those are computed. `refine_plan()` keeps a chosen metric, and the plan of the winner of `compare(metric=...)` keeps it too. `backtest()` and `backtest_code()` also take `lags` and `window_features`. In the MCP server, `plan`, `refine_plan` and `compare` take `metric`; `compare` without it ranks by the metric chosen for the plan of the strategy.
+
++ <span class="badge text-bg-enhancement">Enhancement</span> `ForecastPlan.overridden_fields` names the decisions you made instead of the rules (`forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `metric`...). [<code>ForecastingAssistant.refine_plan()</code>][assistant] warns with the new `PlanEditsDiscardedWarning` when values edited by hand in the plan (a key of `forecaster_kwargs`, the preprocessing steps) are not kept in the refined plan, as already happened without a warning; the ones it takes as overrides (`forecaster`, `lags`, `metric`...) can be passed again to keep them.
 
 + <span class="badge text-bg-feature">Feature</span> Every error of skforecast-ai derives from the new `SkforecastAIError`, with a stable `code` and the argument at fault in `field`, so a program can react to it without parsing the message, some carry a remedy in `hint`, and `ErrorInfo.from_exception()` in `skforecast_ai.schemas` turns any error into plain data. Invalid inputs raise `InvalidInputError`, `InvalidInputTypeError` or `DataNotFoundError`, still a `ValueError`, a `TypeError` (now also a `ValueError`) and a `FileNotFoundError` with the same messages (see [Exceptions and warnings][exceptions]).
 
@@ -106,6 +108,8 @@ All significant changes to this project are documented in this release file.
 
 
 **Fixed**
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.compare()</code>][assistant] with a metric listed twice in `metric` raises `ValueError` before running any candidate, instead of failing with a `TypeError` of pandas.
 
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` given a CSV path returned a script that loaded `'data.csv'` instead of that file. The script now loads the CSV path or URL passed, in these methods and in `forecast_code()` and `backtest_code()` (and in the CLI, also with `--from-plan`), also when the `profile` passed was built from another file; with a DataFrame and such a profile, the script loads `'data.csv'`, where data passed in memory is saved, instead of the file of the profile.
 

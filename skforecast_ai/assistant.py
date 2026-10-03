@@ -32,7 +32,7 @@ from ._validation import (
     validate_estimator,
     validate_estimator_kwargs,
     validate_interval,
-    validate_metrics,
+    resolve_metric_override,
     validate_steps,
 )
 from .exceptions import (
@@ -85,6 +85,7 @@ from .recommendation import (
     baseline_missing_values_note,
     build_cv,
     build_foundation_explanation,
+    build_metric_override_explanation,
     build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
@@ -175,7 +176,8 @@ def _carried_plan_arguments(
     A value is carried over only when the new forecaster can use it: lags
     and window features only by the autoregressive forecasters, an
     estimator (and its keyword arguments) only within its own family (an
-    ML regressor is not an ARIMA order, and the baseline has none).
+    ML regressor is not an ARIMA order, and the baseline has none). The
+    metric is carried over only when it is in `plan.overridden_fields`.
 
     Parameters
     ----------
@@ -207,6 +209,13 @@ def _carried_plan_arguments(
         "interval": plan.interval,
         "lags": kwargs.get("lags") if inherits_features else None,
         "window_features": kwargs.get("window_features") if inherits_features else None,
+        # The decisions added by the overrides of 0.4.0 are carried over
+        # only when the user made them; otherwise the rule decides again.
+        "metric": (
+            plan_override_value(plan, "metric")
+            if "metric" in plan.overridden_fields
+            else None
+        ),
     }
 
 
@@ -485,6 +494,8 @@ class ForecastingAssistant:
         estimator_kwargs: dict | None = None,
         lags: int | list[int] | None = None,
         window_features: list[dict[str, list[str] | int]] | None = None,
+        *,
+        metric: str | list[str] | None = None,
     ) -> ForecastPlan:
         """
         Build a detailed `ForecastPlan` from a `ForecastingProfile`.
@@ -551,6 +562,14 @@ class ForecastingAssistant:
             provided, bypasses the deterministic window feature selection.
             Like `lags`, raises `ValueError` for a forecaster without
             window features.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, among the regression metrics of
+            skforecast (`'mean_absolute_error'`, `'mean_squared_error'`,
+            ...), with the semantics of `compare()`: the first one is the
+            primary metric (`plan.metric`) and only the ones given are
+            computed (`plan.metrics_to_compute`). If None, the metric is
+            selected from the data (MAE for one series, MASE for several)
+            and the default panel is computed.
 
         Returns
         -------
@@ -571,12 +590,17 @@ class ForecastingAssistant:
             `estimator_kwargs` for `ForecasterEquivalentDate`. For
             `ForecasterFoundation`, also if `estimator` is not a model
             supported by skforecast, if `estimator_kwargs` contains
-            `'model_id'`, or if the model cannot predict `interval`.
+            `'model_id'`, or if the model cannot predict `interval`. Also if
+            `metric` is empty, repeats a metric or names one outside the
+            regression metrics of skforecast.
+        TypeError
+            If `metric` is not a str or a list of str.
         """
 
         # Checked first, so an invalid horizon fails before anything is
         # derived from it (a bool or a string would otherwise be coerced).
         steps = validate_steps(steps)
+        metric_override = resolve_metric_override(metric)
 
         data_profile = profile.data_profile
 
@@ -821,9 +845,14 @@ class ForecastingAssistant:
             foundation_model = foundation_model,
         )
 
-        metric, metric_explanation, metrics_to_compute = select_metric(
-            data_profile = data_profile,
-        )
+        if metric_override is None:
+            metric, metric_explanation, metrics_to_compute = select_metric(
+                data_profile = data_profile,
+            )
+        else:
+            metric = metric_override[0]
+            metrics_to_compute = metric_override
+            metric_explanation = build_metric_override_explanation(metric_override)
 
         # `dropna_from_series=False` also means that no value is missing
         # (missing timestamps become missing values after `asfreq()`), and
@@ -888,6 +917,7 @@ class ForecastingAssistant:
                 ("estimator_kwargs", estimator_kwargs or None),
                 ("lags", lags),
                 ("window_features", window_features),
+                ("metric", metric_override),
             )
             if value is not None
         ]
@@ -946,7 +976,7 @@ class ForecastingAssistant:
           `explanation`.
 
         Supported overrides: `forecaster`, `estimator`, `estimator_kwargs`,
-        `steps`, `interval`, `lags`, `window_features` (see
+        `steps`, `interval`, `lags`, `window_features`, `metric` (see
         `RefinePlanOverrides`). What matters is whether a key is passed:
         an omitted key keeps the value of `plan`, while a key passed as
         None asks for the deterministic default (`interval=None` removes
@@ -963,7 +993,9 @@ class ForecastingAssistant:
         switching to another forecaster family drops `estimator` and
         `estimator_kwargs`, which are then re-derived, and changing the
         `estimator` without passing `estimator_kwargs` drops the kwargs of
-        the previous estimator. The
+        the previous estimator. The decisions added in 0.4.0 (`metric`)
+        are carried over only when they are in `plan.overridden_fields`;
+        otherwise the rules decide them again. The
         `llm_refined_fields` marks of the original plan are kept for the
         fields whose value is carried over unchanged. The `end_train` split
         boundary is not kept: a refined plan starts in prediction mode, so
@@ -996,7 +1028,7 @@ class ForecastingAssistant:
         **overrides : Unpack[RefinePlanOverrides]
             Keyword arguments to override. Accepted keys:
             `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
-            `interval`, `lags`, `window_features`. Typed through
+            `interval`, `lags`, `window_features`, `metric`. Typed through
             `RefinePlanOverrides`, so editors autocomplete them and type
             checkers reject unknown names; unknown keys also raise
             `ValueError` at run time.
@@ -1017,8 +1049,9 @@ class ForecastingAssistant:
         -----
         PlanEditsDiscardedWarning
             When `plan` holds values that `plan()` does not build from what
-            is carried over (values edited by hand, such as the metric or a
-            key of `forecaster_kwargs`): the refined plan does not keep them.
+            is carried over (values edited by hand, such as a key of
+            `forecaster_kwargs`, or a metric that is not passed as `metric`):
+            the refined plan does not keep them.
             The split boundary, the explanation, the warnings and the marks
             are not compared, nor the fields overridden in the call.
         """
@@ -1253,6 +1286,8 @@ class ForecastingAssistant:
         window_features: list[dict[str, list[str] | int]] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
+        *,
+        metric: str | list[str] | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete forecasting script.
@@ -1392,6 +1427,12 @@ class ForecastingAssistant:
             A plan built for data of another frequency or shape, or that
             uses exogenous variables the data does not have, raises
             `ValueError`.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, as in `plan()`: the first one is
+            the primary metric and only the ones given are computed. When
+            None, they are selected from the data. With `plan`, a value
+            equal to what the plan computes is accepted and a different one
+            raises `ValueError`, pointing to `refine_plan()`.
 
         Returns
         -------
@@ -1430,6 +1471,7 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             require_exog     = False,
+            overrides        = {"metric": metric},
         )
         profile = _with_data_path(profile, data)
 
@@ -1460,6 +1502,8 @@ class ForecastingAssistant:
         window_features: list[dict[str, list[str] | int]] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
+        *,
+        metric: str | list[str] | None = None,
     ) -> ForecastResult:
         """
         Execute a full forecasting workflow end-to-end.
@@ -1618,6 +1662,12 @@ class ForecastingAssistant:
             A plan built for data of another frequency or shape, or that
             uses exogenous variables the data does not have, raises
             `ValueError`.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, as in `plan()`: the first one is
+            the primary metric and only the ones given are computed. When
+            None, they are selected from the data. With `plan`, a value
+            equal to what the plan computes is accepted and a different one
+            raises `ValueError`, pointing to `refine_plan()`.
 
         Returns
         -------
@@ -1666,6 +1716,7 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             require_exog     = True,
+            overrides        = {"metric": metric},
         )
         profile = _with_data_path(profile, data)
 
@@ -1973,6 +2024,10 @@ class ForecastingAssistant:
         estimator_kwargs: dict | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
+        *,
+        lags: int | list[int] | None = None,
+        window_features: list[dict[str, list[str] | int]] | None = None,
+        metric: str | list[str] | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete backtesting script.
@@ -1995,8 +2050,9 @@ class ForecastingAssistant:
             `create_cv()` or user-constructed) [1]_.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
-            Without `plan`, `forecaster`, `estimator`, `estimator_kwargs`
-            and `interval`, its plan is the one run. Its profile must
+            Without `plan` and the arguments of the model (`forecaster`,
+            `estimator`, `estimator_kwargs`, `interval` and the
+            keyword-only overrides), its plan is the one run. Its profile must
             describe data of the same structure (format, target, series,
             frequency, exogenous columns), or `ValueError` is raised.
         target : str, list of str, default None
@@ -2057,6 +2113,18 @@ class ForecastingAssistant:
             again before the script is rendered, so one edited with
             `model_copy(update=...)` or by assignment raises
             `ValidationError` unless it is still a valid `ForecastPlan`.
+        lags : int, list of int, default None
+            Explicit lag configuration, as in `plan()`. With `plan`, it
+            must match the plan.
+        window_features : list of dict, default None
+            Explicit window features configuration, as in `plan()`. With
+            `plan`, it must match the plan.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, as in `plan()`: the first one is
+            the primary metric and only the ones given are computed. When
+            None, they are selected from the data. With `plan`, a value
+            equal to what the plan computes is accepted and a different one
+            raises `ValueError`, pointing to `refine_plan()`.
 
         Returns
         -------
@@ -2099,6 +2167,9 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             cv_result        = cv_result,
+            lags             = lags,
+            window_features  = window_features,
+            overrides        = {"metric": metric},
         )
         profile = _with_data_path(profile, data)
 
@@ -2126,6 +2197,10 @@ class ForecastingAssistant:
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
         show_progress: bool = True,
+        *,
+        lags: int | list[int] | None = None,
+        window_features: list[dict[str, list[str] | int]] | None = None,
+        metric: str | list[str] | None = None,
     ) -> BacktestResult:
         """
         Execute backtesting with a pre-configured time series cross-validation 
@@ -2148,8 +2223,9 @@ class ForecastingAssistant:
             or user-constructed) [1]_.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
-            Without `plan`, `forecaster`, `estimator`, `estimator_kwargs`
-            and `interval`, its plan is the one run. Its profile must
+            Without `plan` and the arguments of the model (`forecaster`,
+            `estimator`, `estimator_kwargs`, `interval` and the
+            keyword-only overrides), its plan is the one run. Its profile must
             describe data of the same structure (format, target, series,
             frequency, exogenous columns), or `ValueError` is raised.
         target : str, list of str, default None
@@ -2212,6 +2288,18 @@ class ForecastingAssistant:
             `ValidationError` unless it is still a valid `ForecastPlan`.
         show_progress : bool, default True
             Whether to display a progress bar during backtesting.
+        lags : int, list of int, default None
+            Explicit lag configuration, as in `plan()`. With `plan`, it
+            must match the plan.
+        window_features : list of dict, default None
+            Explicit window features configuration, as in `plan()`. With
+            `plan`, it must match the plan.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, as in `plan()`: the first one is
+            the primary metric and only the ones given are computed. When
+            None, they are selected from the data. With `plan`, a value
+            equal to what the plan computes is accepted and a different one
+            raises `ValueError`, pointing to `refine_plan()`.
 
         Returns
         -------
@@ -2270,6 +2358,9 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             cv_result        = cv_result,
+            lags             = lags,
+            window_features  = window_features,
+            overrides        = {"metric": metric},
         )
         profile = _with_data_path(profile, data)
 
@@ -2490,7 +2581,8 @@ class ForecastingAssistant:
         TypeError
             If `progress_callback` is not callable.
         ValueError
-            If `metric` is an empty list, or if `candidates` is empty,
+            If `metric` is an empty list or repeats a metric, or if
+            `candidates` is empty,
             contains a malformed entry, repeats a name, mixes forecaster
             families whose metrics are not comparable (multi-series with
             multivariate), or uses the name reserved for the baseline, or
@@ -2595,13 +2687,7 @@ class ForecastingAssistant:
                 profile.data_profile
             )
         else:
-            metric_override = [metric] if isinstance(metric, str) else list(metric)
-            if not metric_override:
-                raise InvalidInputError(
-                    "`metric` must not be an empty list.",
-                    field = "metric",
-                )
-            validate_metrics(metric_override)
+            metric_override = resolve_metric_override(metric)
             ranking_metric = metric_override[0]
             metric_columns = metric_override
 
@@ -2689,6 +2775,8 @@ class ForecastingAssistant:
             ranking_value = float("nan")
 
             try:
+                # The metric of the comparison is a decision of each plan,
+                # so it is validated and carried over like any override.
                 cand_plan = self.plan(
                     profile          = profile,
                     steps            = steps,
@@ -2698,10 +2786,8 @@ class ForecastingAssistant:
                     lags             = config.get("lags"),
                     window_features  = config.get("window_features"),
                     interval         = interval,
+                    metric           = metric_override,
                 )
-                if metric_override is not None:
-                    cand_plan.metrics_to_compute = list(metric_override)
-                    cand_plan.metric = metric_override[0]
 
                 row["forecaster"] = cand_plan.forecaster
                 row["estimator"] = cand_plan.estimator
@@ -3207,6 +3293,7 @@ class ForecastingAssistant:
         profile: ForecastingProfile | None,
         plan: ForecastPlan | None,
         require_exog: bool,
+        overrides: dict[str, object] | None = None,
     ) -> tuple[ForecastingProfile, ForecastPlan]:
         """
         Resolve profile and plan for the forecasting workflows.
@@ -3261,6 +3348,9 @@ class ForecastingAssistant:
             the script, False when it only renders it. When True, a `plan`
             with `end_train` also needs `test_size` (`forecast()` does not
             evaluate a split it was not asked for).
+        overrides : dict, default None
+            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`),
+            passed to `plan()`, or checked against a supplied `plan`.
 
         Returns
         -------
@@ -3279,6 +3369,7 @@ class ForecastingAssistant:
             True.
         """
 
+        overrides = overrides or {}
         plan = _revalidate_plan(plan)
         _check_plan_overrides(
             plan             = plan,
@@ -3287,6 +3378,7 @@ class ForecastingAssistant:
             estimator_kwargs = estimator_kwargs,
             lags             = lags,
             window_features  = window_features,
+            **overrides,
         )
 
         received_profile = profile is not None
@@ -3351,6 +3443,7 @@ class ForecastingAssistant:
                 interval         = interval,
                 lags             = lags,
                 window_features  = window_features,
+                **overrides,
             )
         elif interval is not None:
             plan = _apply_interval_to_plan(plan, interval)
@@ -3429,6 +3522,9 @@ class ForecastingAssistant:
         profile: ForecastingProfile | None,
         plan: ForecastPlan | None,
         cv_result: CVResult | None = None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict[str, list[str] | int]] | None = None,
+        overrides: dict[str, object] | None = None,
     ) -> tuple[ForecastingProfile, ForecastPlan]:
         """
         Resolve profile and plan for backtesting workflows.
@@ -3467,8 +3563,16 @@ class ForecastingAssistant:
         cv_result : CVResult, default None
             The `CVResult` passed as `cv`, when it was one. Without `plan`
             and without model arguments (`forecaster`, `estimator`,
-            `estimator_kwargs`, `interval`), its plan is the one run. Its
-            profile must describe data of the same structure.
+            `estimator_kwargs`, `interval`, `lags`, `window_features` and
+            the `overrides`), its plan is the one run. Its profile must
+            describe data of the same structure.
+        lags : int, list of int, default None
+            Explicit lag configuration.
+        window_features : list of dict, default None
+            Explicit window features configuration.
+        overrides : dict, default None
+            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`),
+            passed to `plan()`, or checked against a supplied `plan`.
 
         Returns
         -------
@@ -3478,12 +3582,19 @@ class ForecastingAssistant:
             Resolved plan.
         """
 
+        overrides = {
+            name: value for name, value in (overrides or {}).items()
+            if value is not None
+        }
         plan = _revalidate_plan(plan)
         _check_plan_overrides(
             plan             = plan,
             forecaster       = forecaster,
             estimator        = estimator,
             estimator_kwargs = estimator_kwargs,
+            lags             = lags,
+            window_features  = window_features,
+            **overrides,
         )
         # A CVResult carries the plan its strategy was created for: without
         # a plan or model arguments, that plan runs instead of a new default
@@ -3495,6 +3606,9 @@ class ForecastingAssistant:
             and estimator is None
             and estimator_kwargs is None
             and interval is None
+            and lags is None
+            and window_features is None
+            and not overrides
         ):
             plan = _revalidate_plan(cv_result.plan)
         received_plan = plan is not None
@@ -3536,6 +3650,9 @@ class ForecastingAssistant:
                 estimator        = estimator,
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
+                lags             = lags,
+                window_features  = window_features,
+                **overrides,
             )
         else:
             if cv.steps != plan.steps:

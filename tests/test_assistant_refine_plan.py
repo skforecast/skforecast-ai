@@ -30,7 +30,7 @@ def test_refine_plan_ValueError_when_invalid_override_key():
 
     err_msg = re.escape(
         "Invalid override keys: ['not_a_valid_key']. "
-        "Allowed keys: ['estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'steps', 'window_features']."
+        "Allowed keys: ['estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', 'steps', 'window_features']."
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.refine_plan(profile, plan, not_a_valid_key="something")
@@ -487,8 +487,8 @@ def test_refine_plan_InvalidInputError_field_when_invalid_override_key():
 
     err_msg = re.escape(
         "Invalid override keys: ['lagz', 'stepz']. Allowed keys: ['estimator', "
-        "'estimator_kwargs', 'forecaster', 'interval', 'lags', 'steps', "
-        "'window_features']."
+        "'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', "
+        "'steps', 'window_features']."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.refine_plan(profile, plan, stepz=3, lagz=2)
@@ -590,8 +590,8 @@ def test_refine_plan_PlanEditsDiscardedWarning_when_plan_edited_by_hand():
         "plan, which differ from what plan() builds for it, were discarded: "
         "['metric', \"forecaster_kwargs['differentiation']\"]. Pass the ones "
         "that `refine_plan()` accepts (['estimator', 'estimator_kwargs', "
-        "'forecaster', 'interval', 'lags', 'steps', 'window_features']) as "
-        "overrides to keep them."
+        "'forecaster', 'interval', 'lags', 'metric', 'steps', "
+        "'window_features']) as overrides to keep them."
     )
     with pytest.warns(PlanEditsDiscardedWarning, match=re.escape(expected)):
         refined = assistant.refine_plan(profile, edited, steps=12)
@@ -668,3 +668,26 @@ def test_refine_plan_PlanEditsDiscardedWarning_when_plan_cannot_be_rebuilt():
         )
 
     assert refined.warnings == [expected]
+
+
+def test_refine_plan_output_metric_kept_only_when_chosen():
+    """
+    Test that a metric chosen by the user is kept by a refinement of
+    another field and reset with `metric=None`, while a selected metric is
+    selected again (MASE for several series would replace it).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    chosen = assistant.plan(profile, steps=10, metric=["mean_squared_error"])
+    default = assistant.plan(profile, steps=10)
+
+    kept = assistant.refine_plan(profile, chosen, steps=12)
+    reset = assistant.refine_plan(profile, chosen, metric=None)
+    changed = assistant.refine_plan(profile, default, metric="median_absolute_error")
+
+    assert kept.metrics_to_compute == ["mean_squared_error"]
+    assert kept.overridden_fields == ["metric"]
+    assert reset.metrics_to_compute == default.metrics_to_compute
+    assert reset.overridden_fields == []
+    assert changed.metric == "median_absolute_error"
+    assert changed.overridden_fields == ["metric"]

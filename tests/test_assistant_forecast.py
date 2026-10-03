@@ -2616,3 +2616,28 @@ def test_forecast_output_when_data_have_another_stamp_of_the_same_period():
         "series_lengths, frequency, start_date): the profile was computed "
         "again from these data."
     )
+
+
+def test_forecast_output_when_metric_given_in_evaluation_mode():
+    """
+    Test that forecast() builds its plan with `metric` and evaluates only
+    the metrics chosen, and rejects a `metric` that differs from a given
+    plan.
+    """
+    assistant = ForecastingAssistant()
+    inputs = {"data": df_no_exog, "target": "sales", "date_column": "date"}
+
+    result = assistant.forecast(
+        **inputs, steps=5, test_size=5, metric=["median_absolute_error"]
+    )
+
+    assert result.plan.metric == "median_absolute_error"
+    assert result.plan.overridden_fields == ["metric"]
+    assert list(result.metrics.columns) == ["series", "MedAE"]
+    with pytest.raises(InvalidInputError, match=re.escape("['metric']")):
+        assistant.forecast(
+            **inputs, test_size=5, plan=result.plan.model_copy(
+                update={"end_train": None}
+            ),
+            metric="mean_absolute_error",
+        )

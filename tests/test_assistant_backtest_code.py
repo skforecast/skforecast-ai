@@ -426,3 +426,28 @@ def test_backtest_code_InvalidInputError_when_data_have_other_structure_than_pro
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "profile"
+
+
+def test_backtest_code_output_when_lags_window_features_and_metric_given():
+    """
+    Test that backtest_code() builds its plan with `lags`,
+    `window_features` and `metric`, written into the script.
+    """
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+
+    result = assistant.backtest_code(
+        data            = df_single,
+        target          = "sales",
+        date_column     = "date",
+        cv              = cv,
+        lags            = 3,
+        window_features = [{"stats": ["mean"], "window_size": 3}],
+        metric          = ["mean_squared_error", "mean_absolute_error"],
+    )
+
+    assert result.plan.overridden_fields == ["lags", "window_features", "metric"]
+    assert re.search(r"\n    lags +=", result.code)
+    assert result.plan.forecaster_kwargs["lags"] == 3
+    assert (
+        "    metric            = ['mean_squared_error', 'mean_absolute_error'],\n"
+    ) in result.code

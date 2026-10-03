@@ -896,3 +896,58 @@ def test_backtest_InvalidInputError_when_data_have_other_structure_than_profile(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "profile"
+
+
+def test_backtest_output_when_lags_window_features_and_metric_given():
+    """
+    Test that backtest() takes `lags`, `window_features` and `metric` to
+    build its plan, also with the CVResult of create_cv(), whose plan is
+    then not the one run.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+    window_features = [{"stats": ["mean"], "window_size": 3}]
+
+    result = assistant.backtest(
+        data            = df_single,
+        target          = "sales",
+        date_column     = "date",
+        cv              = cv_result,
+        lags            = [1, 2],
+        window_features = window_features,
+        metric          = "mean_squared_error",
+        show_progress   = False,
+    )
+
+    assert result.plan.forecaster_kwargs["lags"] == [1, 2]
+    assert result.plan.forecaster_kwargs["window_features"] == window_features
+    assert result.plan.metrics_to_compute == ["mean_squared_error"]
+    assert result.plan.overridden_fields == ["lags", "window_features", "metric"]
+    assert list(result.metrics.columns) == ["mean_squared_error"]
+
+
+def test_backtest_ValueError_when_metric_differs_from_plan():
+    """
+    Test that a `metric` different from what a given plan computes is
+    rejected, pointing to refine_plan(), and an equal one is accepted.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, metric="mean_squared_error")
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+    inputs = {
+        "data": df_single, "target": "sales", "date_column": "date", "cv": cv,
+        "profile": profile, "plan": plan, "show_progress": False,
+    }
+
+    err_msg = re.escape(
+        "A pre-built `plan` was provided and the following argument(s) differ "
+        "from what it holds: ['metric']."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        assistant.backtest(**inputs, metric="mean_absolute_error")
+    result = assistant.backtest(**inputs, metric=["mean_squared_error"])
+
+    assert result.plan.metric == "mean_squared_error"

@@ -32,6 +32,7 @@ from ._foundation import resolve_foundation_model, validate_foundation_interval
 from ._validation import (
     _validate_lags as _validate_lags,
     _validate_window_features as _validate_window_features,
+    resolve_metric_override,
     validate_interval,
 )
 from ._dates import is_text, parse_text_dates, training_end
@@ -262,6 +263,7 @@ def _check_plan_overrides(
     estimator_kwargs: dict | None,
     lags: int | list[int] | None = None,
     window_features: list[dict] | None = None,
+    **overrides: object,
 ) -> None:
     """
     Reject plan-shaping arguments that contradict a supplied plan.
@@ -289,6 +291,9 @@ def _check_plan_overrides(
         Lag override. An integer denotes lags 1 to `lags`.
     window_features : list of dict, default None
         Window features override.
+    **overrides : object
+        Overrides added in 0.4.0 (`metric`), compared with the value the
+        plan holds in the form `plan()` takes them (`plan_override_value`).
 
     Returns
     -------
@@ -305,6 +310,14 @@ def _check_plan_overrides(
             ("estimator_kwargs", estimator_kwargs, plan.estimator_kwargs),
             ("lags", _normalize_lags(lags), _normalize_lags(kwargs.get("lags"))),
             ("window_features", window_features, kwargs.get("window_features")),
+            *(
+                (
+                    name,
+                    _normalize_override(name, value),
+                    plan_override_value(plan, name),
+                )
+                for name, value in overrides.items()
+            ),
         )
         if value is not None and value != plan_value
     ]
@@ -315,6 +328,18 @@ def _check_plan_overrides(
             f"plan as is, or refine the plan with `refine_plan()` first.",
             field = conflicts[0],
         )
+
+
+def _normalize_override(name: str, value: object) -> object:
+    """
+    An override, checked, in the form `plan_override_value` reads it from
+    a plan: a single metric as a list.
+    """
+
+    if name == "metric":
+        return resolve_metric_override(value)
+
+    return value
 
 
 def plan_override_value(plan: ForecastPlan, name: str) -> object:
@@ -342,6 +367,12 @@ def plan_override_value(plan: ForecastPlan, name: str) -> object:
         return plan.estimator
     if name == "estimator_kwargs":
         return plan.estimator_kwargs or None
+    if name == "metric":
+        # The primary metric first, then the others computed.
+        return [
+            plan.metric,
+            *(other for other in plan.metrics_to_compute if other != plan.metric),
+        ]
 
     return kwargs.get(name)
 
@@ -356,6 +387,8 @@ _FIELD_OVERRIDES: dict[str, str] = {
     "steps": "steps",
     "interval": "interval",
     "interval_method": "interval",
+    "metric": "metric",
+    "metrics_to_compute": "metric",
 }
 _FORECASTER_KWARG_OVERRIDES: dict[str, str] = {
     "lags": "lags",
