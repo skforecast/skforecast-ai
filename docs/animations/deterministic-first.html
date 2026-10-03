@@ -306,8 +306,8 @@ function llmZone(t, o){
   o.push(text(LX0, LY1 + 28, 'Accepted: it passes the same', {size:14, weight:700, fill:V('ok'), op:oa}));
   o.push(text(LX0, LY1 + 48, 'checks as a manual override.', {size:14, weight:700, fill:V('ok'), op:oa}));
   const fa = P(t, ...T.fallback)*k3;
-  o.push(text(LX0, LY1 + 104, 'If 3 attempts fail: a warning, and', {size:14, cls:'i', fill:V('muted'), op:fa}));
-  o.push(text(LX0, LY1 + 124, 'the deterministic plan is kept.', {size:14, cls:'i', fill:V('muted'), op:fa}));
+  o.push(text(LX0, LY1 + 76, 'If 3 attempts fail: a warning, and', {size:14, cls:'i', fill:V('muted'), op:fa}));
+  o.push(text(LX0, LY1 + 96, 'the deterministic plan is kept.', {size:14, cls:'i', fill:V('muted'), op:fa}));
   // the answer of ask()
   const aa = P(t, ...T.answer);
   if (aa > 0){
