@@ -25,10 +25,25 @@ MODEL_DOWNLOAD_NOTICE = "ModelDownloadNotice"
 _TRUE_VALUES = frozenset({"1", "on", "yes", "true"})
 
 
+# Adapters of skforecast whose models the server runs by default: those
+# whose license was checked to allow any use when this list was written.
+# skforecast registers a license restriction only when it knows of one
+# (None "does not confirm that the license permits commercial use"), so an
+# adapter added by a later skforecast is not run until it is reviewed and
+# added here; meanwhile it needs `--allow-model`, like a restricted one.
+REVIEWED_ADAPTERS = frozenset({
+    "ChronosAdapter",
+    "TimesFM25Adapter",
+    "TabICLAdapter",
+    "NoriAdapter",
+})
+
+
 def is_permissive(info: FoundationModelInfo) -> bool:
     """
-    Whether skforecast registers neither a license restriction nor gated
-    weights for a foundation model.
+    Whether the server runs a foundation model without `--allow-model`:
+    its adapter is one of `REVIEWED_ADAPTERS`, and skforecast registers
+    neither a license restriction nor gated weights for the model.
 
     Parameters
     ----------
@@ -41,7 +56,11 @@ def is_permissive(info: FoundationModelInfo) -> bool:
         Whether the server runs it without `--allow-model`.
     """
 
-    return info.license_restriction is None and not info.requires_hf_auth
+    return (
+        info.adapter in REVIEWED_ADAPTERS
+        and info.license_restriction is None
+        and not info.requires_hf_auth
+    )
 
 
 def permissive_adapters() -> list[FoundationModelInfo]:
@@ -117,7 +136,13 @@ def _license_text(info: FoundationModelInfo) -> str:
     The license of a model as skforecast registers it.
     """
 
-    if info.license_restriction is None:
+    if info.license_restriction is None and info.adapter not in REVIEWED_ADAPTERS:
+        text = (
+            "its license has not been reviewed for this server (skforecast "
+            "registers no restriction for it, which does not confirm that it "
+            "permits every use)"
+        )
+    elif info.license_restriction is None:
         text = "skforecast registers no license restriction for it"
     else:
         text = f"its license is {info.license_restriction}"

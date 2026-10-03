@@ -1,9 +1,11 @@
 # Unit test is_permissive
 
+import dataclasses
 import pytest
 from skforecast.foundation import get_model_info
 
 from skforecast_ai.mcp._foundation import (
+    REVIEWED_ADAPTERS,
     is_permissive,
     permissive_adapters,
     restricted_adapters,
@@ -47,3 +49,22 @@ def test_is_permissive_splits_the_adapters_of_skforecast():
         "T0Adapter",
         "TSICLAdapter",
     ]
+
+
+def test_is_permissive_false_for_an_adapter_not_reviewed():
+    """
+    Test that a model of an adapter outside `REVIEWED_ADAPTERS` is not
+    permissive although skforecast registers no restriction for it: a later
+    skforecast may add an adapter whose license was never checked here, and
+    None does not confirm that a license permits every use.
+    """
+    info = dataclasses.replace(
+        get_model_info("autogluon/chronos-2-small"), adapter="NewAdapter"
+    )
+
+    assert info.license_restriction is None
+    assert info.requires_hf_auth is False
+    assert is_permissive(info) is False
+    assert REVIEWED_ADAPTERS == {
+        "ChronosAdapter", "TimesFM25Adapter", "TabICLAdapter", "NoriAdapter"
+    }

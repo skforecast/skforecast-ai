@@ -128,7 +128,7 @@ skforecast-ai mcp --allow-dir /path/to/data
 | `--max-objects` | 256 | Most objects (profiles, plans, results) the server keeps. |
 | `--max-memory-mb` | 1024 | Memory the objects may take. Beyond either limit, the least recently used objects are removed. |
 | `--max-file-mb` | 256 | Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it. 0 for no limit. |
-| `--allow-model` | (none) | Model ID prefix of a foundation model with a license restriction or gated weights that the server may run, for example `google/timesfm-3.0`. Repeat it for several. |
+| `--allow-model` | (none) | Model ID prefix of a foundation model with a license restriction or gated weights that the server may run, for example `google/timesfm-3.0`. Repeat it for several. Without it the server only runs the models whose license was reviewed for it: Chronos-2, TimesFM 2.5, TabICL and Nori; a model that a later skforecast adds needs the option too. |
 
 When it starts, the server checks that it can write to the output directory and stops with an error otherwise. It writes its log to the standard error, one line per event: the directories it uses when it starts, the message and traceback of an unexpected error with its id, and one line when the client disconnects (it then exits with code 0, also in the middle of a call).
 
