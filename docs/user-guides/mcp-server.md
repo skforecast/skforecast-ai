@@ -17,7 +17,7 @@ There are three ways to install it. Pick the tab of your agent: the Claude Code 
     /plugin install skforecast-ai@skforecast-ai
     ```
 
-    The plugin starts `uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai mcp --allow-dir <your project>`: the server may read the CSV files of the project you open in Claude Code, and the version of the server is the version of the plugin. To pass other options (another directory, `--allow-model`, `HF_HUB_OFFLINE`), add the server by hand instead, as in the next tab, and disable the plugin: with both, two servers run.
+    The plugin starts `uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai mcp --allow-dir <your project>`: the server may read every CSV file of the project you open in Claude Code (also an export of credentials or of personal data saved as `.csv`, whose values an error or a summary can quote), and the version of the server is the version of the plugin. To pass other options (another directory, `--allow-model`, `HF_HUB_OFFLINE`, or the backend of a foundation model with `uvx --with`), add the server by hand instead, as in the next tab, and disable the plugin: with both, two servers run.
 
     Before the first use, warm up `uvx` with the version of the plugin (see below why): `uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai --version`.
 
@@ -56,7 +56,11 @@ There are three ways to install it. Pick the tab of your agent: the Claude Code 
       "--from", "skforecast-ai[mcp]",
       "skforecast-ai", "mcp", "--allow-dir", "/absolute/path/to/project",
     ]
+    startup_timeout_sec = 120
+    tool_timeout_sec = 1800
     ```
+
+    The two timeouts are needed: by default Codex waits 10 seconds for a server to start, less than the first start of `uvx` takes, and 60 seconds for a tool to answer, less than a comparison can take.
 
     **Claude Code without the plugin**, for every project (`-s user`):
 
