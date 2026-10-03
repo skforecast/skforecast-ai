@@ -8,6 +8,7 @@
 from __future__ import annotations
 import ast
 import re
+import unicodedata
 from typing import Any
 import pandas as pd
 from .._constants import (
@@ -94,6 +95,54 @@ def _first_items(items: list, for_describe: bool) -> tuple[list, str]:
         list(items[:MAX_DESCRIBE_ITEMS]),
         f" (first {MAX_DESCRIBE_ITEMS} of {len(items)})",
     )
+
+
+# The start of text that reads as the opening or closing tag of a section
+# ('<forecast_context>', '</forecast_plan', with or without its '>').
+_TAG_START = re.compile(r"<(?=/?[A-Za-z])")
+
+# Line breaks and other control characters, line and paragraph separators,
+# as in the comments of the scripts (`_comment_text`), plus the invisible
+# format characters (a zero-width space), which could split a tag the
+# pattern above would otherwise find.
+_FREE_TEXT_ESCAPED_CATEGORIES = frozenset({"Cc", "Zl", "Zp", "Cf"})
+
+
+def _free_text(text: str) -> str:
+    """
+    Make a free text of a plan safe to write on one line of a section.
+
+    The explanation of a plan and the reasons of its preprocessing steps are
+    free text: a plan loaded from JSON (`--from-plan`) can hold any, and
+    `refine_plan()` appends the reasoning of the LLM to the explanation.
+    Characters of the Unicode categories Cc, Zl, Zp and Cf (line breaks and
+    other control characters, line and paragraph separators, invisible
+    format characters) are written as their escape sequence (`'\\n'`
+    becomes the two characters `\\n`), and the `<` that starts text read as
+    a tag (`<forecast_context>`, `</forecast_plan`) is written as `&lt;`, so
+    the text cannot open, close or imitate a section. Any other text,
+    comparisons such as `n < 500` included, is returned unchanged, and so
+    are the texts `plan()` writes, which hold neither.
+
+    Parameters
+    ----------
+    text : str
+        Free text of the plan.
+
+    Returns
+    -------
+    text : str
+        The same text on a single line, without tags.
+    """
+
+    text = "".join(
+        char.encode("unicode_escape").decode("ascii")
+        if unicodedata.category(char) in _FREE_TEXT_ESCAPED_CATEGORIES
+        else char
+        for char in text
+    )
+
+    return _TAG_START.sub("&lt;", text)
 
 
 def _tag(name: str, body: str) -> str:
@@ -569,8 +618,8 @@ def render_plan_section(
             prefix = (
                 "[in generated code]" if step.blocking else "[informational]"
             )
-            parts.append(f"  - {prefix} {step.reason}")
-    parts.append(f"- {plan.explanation}")
+            parts.append(f"  - {prefix} {_free_text(step.reason)}")
+    parts.append(f"- {_free_text(plan.explanation)}")
     if not for_describe:
         parts.append("")
         parts.append(PLAN_CODE_NOTE)
