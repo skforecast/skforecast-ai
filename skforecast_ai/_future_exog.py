@@ -66,6 +66,7 @@ def as_exog_frame(exog: object) -> pd.DataFrame | None:
         f"exogenous variables, not {type(exog).__name__}. Read a CSV file with "
         f"pandas.read_csv first (the CLI reads it with --exog).",
         field = "exog",
+        hint  = "Pass the future exogenous values as a table indexed by their dates.",
     )
 
 
@@ -321,6 +322,7 @@ def _exog_dates(
                 f"The dates of `exog` (column {date_column!r}) are text: convert "
                 f"them with pandas.to_datetime first.",
                 field = "exog",
+                hint  = "Give the future exogenous values dates, not text.",
             )
         try:
             # Python dates and datetimes, which pandas reads as dates.

@@ -150,7 +150,8 @@ tell the user and prefer fewer folds or `refit=false`.
 3. Read `notices` before reporting and tell the user about data problems \
 (missing dates, rows without target) and plan warnings.
 4. `compare` without `interval` uses the interval of the plan of the \
-strategy; the baseline only takes symmetric ones ([0.1, 0.9]).
+strategy; with an asymmetric one there is no baseline ([0.1, 0.9] is \
+symmetric).
 5. Never modify the user's data. If the CSV has a problem, tell the user; \
 only with their permission write a corrected copy inside the allowed \
 directory under a new name and profile it.
@@ -697,34 +698,11 @@ def _text_notices(
     ]
 
 
-def _cv_argument_error(exc: Exception) -> ServerError:
-    """
-    Turn an error of skforecast while it builds the cross-validation
-    strategy into an `invalid_argument` the agent can act on.
-
-    `create_cv` reads the profile and the plan, never the rows of the data,
-    so the message of skforecast (sizes, dates of the index) is sent as it
-    is, where an unexpected error only sends its type: an
-    `initial_train_size` beyond the data, a `gap` too large or a horizon
-    that leaves no fold are mistakes in the arguments, and the agent needs
-    the reason to correct them.
-    """
-
-    message = " ".join(str(exc).split()) or type(exc).__name__
-    return ServerError(
-        f"The cross-validation strategy cannot be built: {message}",
-        code  = "invalid_argument",
-        hint  = (
-            "Change the arguments of `create_cv` (or `steps` of the plan with "
-            "`refine_plan`) so that at least two folds fit in the data."
-        ),
-    )
-
-
 def _check_test_size_date(test_size: object) -> None:
     """
-    Reject a `test_size` given as text that is not a date, which pandas
-    would report as an unexpected error.
+    Reject a `test_size` given as text that is not a date before anything
+    is read. The core rejects it too (`resolve_end_train`), after reading
+    the data; here the text quoted back is also cut at 80 characters.
     """
 
     if not isinstance(test_size, str):
@@ -1133,8 +1111,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ))] = None,
         fixed_train_size: Annotated[bool | None, Field(description=(
             "Whether the training window keeps its size when refitting "
-            "(true) or grows (false). Null for false; it only matters with "
-            "`refit`."
+            "(true) or grows (false). Null for false. Only with `refit` true "
+            "or an integer: with `refit` false or null it is an error, as it "
+            "would not run (ForecasterStats aside)."
         ))] = None,
         gap: Annotated[int | None, Field(ge=0, description=(
             "Observations between the end of training and the test set. Null "
@@ -1143,7 +1122,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         skip_folds: Annotated[Count | list[Count] | None, Field(description=(
             "Folds are numbered from 0, and fold 0 always runs. An integer n "
             "keeps folds 0, n, 2n, ...; a list skips the folds at those "
-            "numbers (each at least 1). Null for every fold."
+            "numbers (each at least 1 and below the number of folds). Null "
+            "for every fold."
         ))] = None,
         allow_incomplete_fold: Annotated[bool | None, Field(description=(
             "Whether the last fold may have fewer than `steps` observations. "
@@ -1155,22 +1135,20 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
 
         def work(control: CallControl):
-            try:
-                result = assistant.create_cv(
-                    profile               = _copy(plan_entry.profile),
-                    plan                  = _copy(plan_entry.obj),
-                    initial_train_size    = initial_train_size,
-                    fold_stride           = fold_stride,
-                    refit                 = refit,
-                    fixed_train_size      = fixed_train_size,
-                    gap                   = gap,
-                    skip_folds            = skip_folds,
-                    allow_incomplete_fold = allow_incomplete_fold,
-                )
-            except (ValueError, TypeError) as exc:
-                if isinstance(exc, SkforecastAIError):
-                    raise
-                raise _cv_argument_error(exc) from exc
+            # The core turns what skforecast rejects in the strategy (an
+            # `initial_train_size` beyond the data, a `gap` too large) into
+            # `invalid_argument` with its reason and the argument at fault.
+            result = assistant.create_cv(
+                profile               = _copy(plan_entry.profile),
+                plan                  = _copy(plan_entry.obj),
+                initial_train_size    = initial_train_size,
+                fold_stride           = fold_stride,
+                refit                 = refit,
+                fixed_train_size      = fixed_train_size,
+                gap                   = gap,
+                skip_folds            = skip_folds,
+                allow_incomplete_fold = allow_incomplete_fold,
+            )
             cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
             # The warning a backtest of this strategy will emit, given now,
             # when the strategy can still change.

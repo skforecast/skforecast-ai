@@ -1644,6 +1644,51 @@ class TestErrorContract:
             "Use --format json with the source command to produce valid input."
         )
 
+    def test_error_json_when_csv_is_empty(self, tmp_path):
+        """
+        `profile` of an empty CSV with --format json reports the code
+        'data_unreadable', the field 'data' and the hint on stderr.
+        """
+        csv_path = tmp_path / "empty.csv"
+        csv_path.write_bytes(b"")
+        result = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "sales", "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "data_unreadable",
+                "message": (
+                    f"The CSV file '{csv_path}' could not be read: No columns "
+                    f"to parse from file"
+                ),
+                "field": "data",
+                "hint": (
+                    "Pass a comma-separated text file in UTF-8 with a header "
+                    "row, and the same number of fields in every row."
+                ),
+            }
+        }
+
+    def test_error_text_shows_tip_when_csv_is_empty(self, tmp_path):
+        """
+        In text mode the hint of the error is shown after "Tip: " on stderr.
+        """
+        csv_path = tmp_path / "empty.csv"
+        csv_path.write_bytes(b"")
+        result = runner.invoke(
+            app, ["profile", str(csv_path), "--target", "sales", "--quiet"]
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert (
+            "Tip: Pass a comma-separated text file in UTF-8 with a header "
+            "row, and the same number of fields in every row."
+        ) in " ".join(result.stderr.split())
+
     def test_report_error_execution_tip(self, capsys):
         """
         A failed script points to the `*-code` commands: `--output-code` is

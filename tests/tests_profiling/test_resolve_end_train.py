@@ -1,8 +1,11 @@
 # Unit test resolve_end_train
 
+import re
+
 import pandas as pd
 import pytest
 
+from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling import resolve_end_train
 
 
@@ -138,3 +141,43 @@ def test_resolve_end_train_TypeError_when_unsupported_type():
         resolve_end_train(
             start_date="2023-01-01", frequency="D", n_observations=100, test_size=[10]
         )
+
+
+def test_resolve_end_train_InvalidInputError_when_text_is_not_a_date():
+    """
+    Test that a text `test_size` that is not a date raises with the field
+    'test_size' instead of the raw error of pandas.
+    """
+    err_msg = re.escape(
+        "`test_size` is text that is not a date: 'abc'. Pass an integer, a "
+        "fraction in (0, 1) or the first date of the test set, such as "
+        "'2023-03-01'."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        resolve_end_train(
+            start_date=_START, frequency=_FREQ, n_observations=_N, test_size="abc"
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "test_size"
+
+
+def test_resolve_end_train_InvalidInputError_hint_when_no_frequency():
+    """
+    Test that the error of a missing datetime index with a known frequency
+    carries the field 'test_size' and a hint.
+    """
+    err_msg = re.escape(
+        "`test_size` requires a datetime index with a known frequency. Set the "
+        "index frequency (e.g. `data.asfreq(...)`) before forecasting."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        resolve_end_train(
+            start_date=_START, frequency=None, n_observations=_N, test_size=20
+        )
+
+    assert exc_info.value.field == "test_size"
+    assert exc_info.value.hint == (
+        "Give the data a datetime index with a regular frequency, or a date "
+        "column whose dates follow one."
+    )

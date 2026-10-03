@@ -2131,3 +2131,161 @@ def test_compare_candidate_scripts_load_csv_path_that_ran(tmp_path):
     assert len(result.candidates) == 3
     for bt in result.candidates.values():
         assert f"data = pd.read_csv({str(csv_path)!r})" in bt.code
+
+
+# =============================================================================
+# Tests: early input checks
+# =============================================================================
+@pytest.mark.parametrize(
+    "cv, type_name",
+    [({"steps": 5}, "dict"), (None, "NoneType"), (5, "int")],
+    ids=["dict", "None", "int"],
+)
+def test_compare_InvalidInputTypeError_when_cv_wrong_type(cv, type_name):
+    """
+    Test that compare() raises InvalidInputTypeError (a TypeError) with the
+    field 'cv' when it is not a TimeSeriesFold or a CVResult.
+    """
+    err_msg = re.escape(
+        f"`cv` must be a skforecast TimeSeriesFold or the CVResult of "
+        f"create_cv(), got {type_name}."
+    )
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        assistant.compare(
+            data          = df_single,
+            cv            = cv,
+            target        = "sales",
+            date_column   = "date",
+            candidates    = _LIGHT_CANDIDATES,
+            show_progress = False,
+        )
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == "cv"
+
+
+def test_compare_output_when_interval_asymmetric_and_baseline_requested():
+    """
+    Test that compare() with an asymmetric interval leaves the baseline out,
+    since ForecasterEquivalentDate predicts symmetric intervals only, and
+    says so in the explanation, without any candidate failing.
+    """
+    result = assistant.compare(
+        data          = df_single,
+        cv            = _single_cv(),
+        target        = "sales",
+        date_column   = "date",
+        candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
+        interval      = [0.1, 0.8],
+        show_progress = False,
+    )
+
+    assert result.baseline_name is None
+    assert list(result.results["name"]) == ["ridge"]
+    assert result.failures == {}
+    assert result.explanation.endswith(
+        "No baseline: ForecasterEquivalentDate predicts symmetric intervals "
+        "only (lower + upper = 1), and the interval is [0.1, 0.8]. Pass a "
+        "symmetric interval, such as [0.1, 0.9], to compare the candidates "
+        "against it."
+    )
+
+
+def test_compare_output_when_interval_symmetric_adds_baseline():
+    """
+    Test that compare() with a symmetric interval still adds the baseline.
+    """
+    result = assistant.compare(
+        data          = df_single,
+        cv            = _single_cv(),
+        target        = "sales",
+        date_column   = "date",
+        candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
+        interval      = [0.1, 0.9],
+        show_progress = False,
+    )
+
+    assert result.baseline_name == "Baseline (seasonal naive)"
+    assert list(result.results["name"]) == ["ridge", "Baseline (seasonal naive)"]
+
+
+@pytest.mark.parametrize(
+    "interval, expected_baseline",
+    [
+        (None, "Baseline (seasonal naive)"),
+        ([0.1, 0.9], "Baseline (seasonal naive)"),
+        ([0.05, 0.95], "Baseline (seasonal naive)"),
+        ([0.1, 0.8], None),
+        ([0.2, 0.7], None),
+    ],
+    ids=lambda value: f"interval: {value}",
+)
+def test_add_baseline_candidate_output_when_interval(interval, expected_baseline):
+    """
+    Test that the baseline is added unless the interval is asymmetric
+    (lower + upper different from 1), which its conformal intervals cannot
+    predict.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    candidates = [("recursive", {"forecaster": "ForecasterRecursive"})]
+
+    resolved, baseline_name, note = add_baseline_candidate(
+        candidates, profile, interval
+    )
+
+    assert baseline_name == expected_baseline
+    if expected_baseline is None:
+        assert resolved == candidates
+        assert note == (
+            f"No baseline: ForecasterEquivalentDate predicts symmetric "
+            f"intervals only (lower + upper = 1), and the interval is "
+            f"{interval}. Pass a symmetric interval, such as [0.1, 0.9], to "
+            f"compare the candidates against it."
+        )
+    else:
+        assert resolved == [
+            *candidates,
+            (
+                "Baseline (seasonal naive)",
+                {"forecaster": "ForecasterEquivalentDate"},
+            ),
+        ]
+        assert note is None
+
+
+def test_compare_CandidateFailedWarning_when_foundation_backend_not_installed(
+    monkeypatch,
+):
+    """
+    Test that an explicit ForecasterFoundation candidate whose backend is not
+    installed fails with the install message (CandidateFailedWarning) and is
+    ranked last, while the other candidates are ranked.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+    )
+    candidates = [
+        ("ridge", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
+        ("foundation", {"forecaster": "ForecasterFoundation"}),
+    ]
+
+    warn_msg = re.escape(
+        "Candidate 'foundation' failed and is ranked last: ValueError: "
+        "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
+        "which is not installed (pip install \"chronos-forecasting\")."
+    )
+    with pytest.warns(CandidateFailedWarning, match=warn_msg):
+        result = assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = candidates,
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert list(result.results["name"]) == ["ridge", "foundation"]
+    assert list(result.candidates) == ["ridge"]
+    assert list(result.failures) == ["foundation"]
+    assert result.best_name == "ridge"

@@ -1246,6 +1246,158 @@ def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
 
 
 # =============================================================================
+# Tests: early input checks
+# =============================================================================
+@pytest.mark.parametrize(
+    "data, type_name", [([1.0, 2.0, 3.0], "list"), (5, "int")], ids=["list", "int"]
+)
+def test_forecast_InvalidInputTypeError_when_data_wrong_type(data, type_name):
+    """
+    Test that forecast() raises InvalidInputTypeError (a TypeError) with the
+    field 'data' when it is not a DataFrame, a Series or a path.
+    """
+    err_msg = re.escape(
+        f"`data` must be a pandas DataFrame, a pandas Series, or the path or "
+        f"URL of a CSV file, got {type_name}."
+    )
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(data=data, target="sales", steps=5)
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == "data"
+
+
+@pytest.mark.parametrize("test_size", [None, 5], ids=["prediction", "evaluation"])
+def test_forecast_InvalidInputError_when_foundation_backend_not_installed(
+    monkeypatch, test_size
+):
+    """
+    Test that forecast() with a ForecasterFoundation plan raises the error
+    'missing_dependency' for the field 'estimator', with the install command,
+    before running any script, in prediction and in evaluation mode.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+    )
+
+    def _not_called(*args, **kwargs):
+        raise AssertionError("run_forecast must not be called")
+
+    monkeypatch.setattr("skforecast_ai.assistant.run_forecast", _not_called)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+
+    err_msg = re.escape(
+        "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
+        "which is not installed (pip install \"chronos-forecasting\")."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(
+            data      = df_no_exog,
+            profile   = profile,
+            plan      = plan,
+            test_size = test_size,
+        )
+
+    assert exc_info.value.code == "missing_dependency"
+    assert exc_info.value.field == "estimator"
+    assert exc_info.value.hint == (
+        'Install it where skforecast-ai runs: pip install "chronos-forecasting".'
+    )
+
+
+_H2O_WITH_INFINITE = df_h2o.copy()
+_H2O_WITH_INFINITE.iloc[50, 0] = np.inf
+_INFINITE_TARGET_HINT = (
+    "Replace the infinite values of the target, for example with NaN."
+)
+
+
+@pytest.mark.parametrize("test_size", [None, 3], ids=["prediction", "evaluation"])
+@pytest.mark.parametrize(
+    "forecaster, estimator",
+    [("ForecasterRecursive", "Ridge"), ("ForecasterStats", None)],
+    ids=["ridge", "stats"],
+)
+def test_forecast_InvalidInputError_when_target_has_infinite_value(
+    forecaster, estimator, test_size
+):
+    """
+    Test that forecast() raises, before running the script, when the target
+    has an infinite value and the forecaster is trained on it (h2o, position
+    50, 1995-09-01), in prediction and in evaluation mode. The plan is built
+    from the data without it, which profiling would warn about.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(
+        profile, steps=3, forecaster=forecaster, estimator=estimator
+    )
+    if test_size is not None:
+        plan = plan.model_copy(update={"end_train": "2008-03-01"})
+
+    err_msg = re.escape(
+        f"The target has infinite values (1 value(s), such as '1995-09-01'). "
+        f"{forecaster} cannot be trained on them: replace them."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(data=_H2O_WITH_INFINITE, profile=profile, plan=plan)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == _INFINITE_TARGET_HINT
+
+
+def test_forecast_output_when_baseline_does_not_read_infinite_value():
+    """
+    Test that forecast() with ForecasterEquivalentDate still forecasts when
+    the infinite value (position 50) is not one that its predictions read:
+    they are those of the data without it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")
+
+    # skforecast warns inside the script when it fits on the infinite value.
+    with pytest.warns(RuntimeWarning, match="invalid value encountered in subtract"):
+        result = assistant.forecast(
+            data=_H2O_WITH_INFINITE, profile=profile, plan=plan
+        )
+
+    expected = pd.DataFrame(
+        {"pred": [0.954144, 1.07821949, 1.11098161]},
+        index=pd.date_range("2008-07-01", periods=3, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected, check_freq=False)
+
+
+def test_forecast_InvalidInputError_when_baseline_reads_infinite_value():
+    """
+    Test that forecast() in prediction mode with ForecasterEquivalentDate
+    raises when its predictions read the infinite values of the last 12
+    observations of h2o (3 steps of a yearly offset read positions 12, 11
+    and 10 from the end).
+    """
+    data = df_h2o.copy()
+    data.iloc[-12, 0] = np.inf
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")
+
+    err_msg = re.escape(
+        "The forecaster reads infinite values of the target to predict (1 "
+        "value(s), such as '2007-07-01'). ForecasterEquivalentDate repeats "
+        "them as infinite predictions: replace them."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(data=data, profile=profile, plan=plan)
+
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == _INFINITE_TARGET_HINT
+
+
+# =============================================================================
 # Tests: the script loads the file that ran
 # =============================================================================
 def test_forecast_output_script_loads_csv_path_that_ran(tmp_path):

@@ -126,16 +126,17 @@ skforecast-ai plan "$DATA" --target y --date-column fecha --steps 12 \
 
 ## Backtest and compare
 
-`backtest` evaluates the plan over several folds, as it would run in production. The cross-validation options you do not pass (`--initial-train-size`, `--fold-stride`, `--refit`, `--fixed-train-size`, `--gap`, `--allow-incomplete-fold`) are decided by the assistant from the profile and the plan.
+`backtest` evaluates the plan over several folds, as it would run in production. The cross-validation options you do not pass (`--initial-train-size`, `--fold-stride`, `--refit`, `--fixed-train-size`, `--gap`, `--allow-incomplete-fold`) are decided by the assistant from the profile and the plan. `--fixed-train-size` and `--expanding-train` only apply with `--refit`.
 
 ```bash
 # Folds decided by the assistant
 skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12
 
 # Your own folds: 100 initial observations, a new fold every 6 steps,
-# a fixed training window, no refit and 3 steps between training and test
+# refit in every fold on a fixed training window, and 3 steps between
+# training and test
 skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12 \
-  --initial-train-size 100 --fold-stride 6 --fixed-train-size --no-refit --gap 3
+  --initial-train-size 100 --fold-stride 6 --refit --fixed-train-size --gap 3
 
 # Save the predictions of every fold and the script
 skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12 \

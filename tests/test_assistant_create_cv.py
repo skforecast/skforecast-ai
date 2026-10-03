@@ -376,15 +376,58 @@ def test_create_cv_output_when_refit_override():
 
 def test_create_cv_output_when_fixed_train_size_override():
     """
-    Test that explicit fixed_train_size overrides the default.
+    Test that explicit fixed_train_size overrides the default when the
+    forecaster is refitted.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    cv = assistant.create_cv(profile, plan, fixed_train_size=True).cv
+    cv = assistant.create_cv(profile, plan, refit=True, fixed_train_size=True).cv
 
     assert cv.fixed_train_size is True
+
+
+@pytest.mark.parametrize("fixed_train_size", [True, False])
+@pytest.mark.parametrize("refit", [None, False, 0])
+def test_create_cv_ValueError_when_fixed_train_size_without_refit(
+    refit, fixed_train_size
+):
+    """
+    Test that create_cv raises InvalidInputError when `fixed_train_size` is
+    passed for a forecaster that is trained once (`refit` False, 0 or the
+    default), where it would not run.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    resolved = False if refit is None else refit
+    err_msg = re.escape(
+        f"`fixed_train_size={fixed_train_size!r}` only applies when the "
+        f"forecaster is refitted, and with `refit={resolved!r}` it is trained "
+        f"once. Pass `refit=True` (or an integer) to refit it, or omit "
+        f"`fixed_train_size`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.create_cv(
+            profile, plan, refit=refit, fixed_train_size=fixed_train_size
+        )
+    assert exc_info.value.field == "fixed_train_size"
+
+
+def test_create_cv_output_when_fixed_train_size_with_integer_refit():
+    """
+    Test that `fixed_train_size` is accepted with an integer `refit`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    cv = assistant.create_cv(profile, plan, refit=2, fixed_train_size=False).cv
+
+    assert cv.refit == 2
+    assert cv.fixed_train_size is False
 
 
 def test_create_cv_output_when_gap_override():
@@ -799,7 +842,7 @@ def test_create_cv_prompt_ignored_when_all_params_explicit(monkeypatch):
             prompt="I retrain weekly",
             initial_train_size=50,
             fold_stride=5,
-            refit=False,
+            refit=True,
             fixed_train_size=True,
             gap=0,
             skip_folds=1,
@@ -808,7 +851,7 @@ def test_create_cv_prompt_ignored_when_all_params_explicit(monkeypatch):
 
     assert isinstance(cv, TimeSeriesFold)
     assert cv.initial_train_size == 50
-    assert cv.refit is False
+    assert cv.refit is True
     assert cv.fixed_train_size is True
     assert cv.gap == 0
     ignored = [
@@ -1195,3 +1238,96 @@ def test_create_cv_InvalidInputError_code_and_field(
 
     assert exc_info.value.code == expected_code
     assert exc_info.value.field == expected_field
+
+
+# =============================================================================
+# Tests: early input checks
+# =============================================================================
+_STRATEGY_HINT = (
+    "Change the arguments of the strategy (`initial_train_size`, "
+    "`fold_stride`, `gap`, `skip_folds`) or the `steps` of the plan so that "
+    "at least two folds fit in the data."
+)
+
+
+@pytest.mark.parametrize(
+    "kwargs, field, reason",
+    [
+        (
+            {"gap": -1},
+            "gap",
+            "`gap` must be an integer greater than or equal to 0. Got -1.",
+        ),
+        (
+            {"fold_stride": 0},
+            "fold_stride",
+            "`fold_stride` must be an integer greater than 0. Got 0.",
+        ),
+        (
+            {"initial_train_size": 500},
+            "initial_train_size",
+            "The time series must have more than `initial_train_size + gap` "
+            "observations to create at least one fold. Time series length: "
+            "100 Required > 500 initial_train_size: 500 gap: 0",
+        ),
+        (
+            {"skip_folds": [0]},
+            "skip_folds",
+            "`skip_folds` list must contain integers greater than or equal "
+            "to 1. The first fold is always needed to train the forecaster. "
+            "Got [0].",
+        ),
+    ],
+    ids=["gap", "fold_stride", "initial_train_size", "skip_folds"],
+)
+def test_create_cv_InvalidInputError_when_strategy_cannot_be_built(
+    kwargs, field, reason
+):
+    """
+    Test that create_cv() raises an InvalidInputError that names the argument
+    that TimeSeriesFold rejects, with the message of skforecast and a hint.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    err_msg = re.escape(f"The cross-validation strategy cannot be built: {reason}")
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        assistant.create_cv(profile, plan, **kwargs)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == field
+    assert exc_info.value.hint == _STRATEGY_HINT
+
+
+def test_create_cv_InvalidInputError_when_skip_folds_do_not_exist():
+    """
+    Test that create_cv() rejects `skip_folds` that name folds beyond the
+    strategy (6 folds, numbered from 0 to 5), which TimeSeriesFold ignores.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    err_msg = re.escape(
+        "`skip_folds` names folds that do not exist ([100]): the strategy has "
+        "6 folds, numbered from 0 to 5."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.create_cv(profile, plan, skip_folds=[100])
+
+    assert exc_info.value.field == "skip_folds"
+
+
+def test_create_cv_output_when_skip_folds_in_range():
+    """
+    Test that create_cv() accepts `skip_folds` within the folds of the
+    strategy.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    cv = assistant.create_cv(profile, plan, skip_folds=[1, 2]).cv
+
+    assert cv.skip_folds == [1, 2]

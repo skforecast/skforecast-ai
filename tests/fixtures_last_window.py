@@ -119,3 +119,14 @@ def with_missing_long(data: pd.DataFrame, series: str, positions: list[int]):
     for position in positions:
         data.loc[rows[-position], "value"] = np.nan
     return data
+
+
+def with_infinite(data: pd.DataFrame, positions: list[int], column: str = "y"):
+    """
+    Return a copy of `data` with the target infinite at `positions` (1 is the
+    last row).
+    """
+    data = data.copy()
+    for position in positions:
+        data.loc[data.index[-position], column] = np.inf
+    return data

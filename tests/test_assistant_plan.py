@@ -10,6 +10,7 @@ from skforecast.exceptions import MissingValuesWarning
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import (
     InvalidInputError,
+    InvalidInputTypeError,
     UnrecommendedForecasterWarning,
 )
 from skforecast_ai.schemas import ForecastPlan
@@ -1089,6 +1090,75 @@ def test_plan_InvalidInputError_when_long_format_dated_by_index():
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         assistant.plan(profile, steps=7)
+
+
+@pytest.mark.parametrize(
+    "estimator_kwargs, type_name",
+    [([1, 2], "list"), ("alpha=1", "str")],
+    ids=["list", "str"],
+)
+def test_plan_InvalidInputTypeError_when_estimator_kwargs_not_a_dict(
+    estimator_kwargs, type_name
+):
+    """
+    Test that plan() raises InvalidInputTypeError with the field
+    'estimator_kwargs' when it is not a dict.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"`estimator_kwargs` must be a dict of keyword arguments, such as "
+        f"{{'alpha': 0.5}}, got {type_name}."
+    )
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        assistant.plan(profile, steps=5, estimator_kwargs=estimator_kwargs)
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == "estimator_kwargs"
+
+
+@pytest.mark.parametrize(
+    "name, suggestion",
+    [("foo", ""), ("ordr", " Did you mean 'order'?")],
+    ids=["no close match", "close match"],
+)
+def test_plan_InvalidInputError_when_arima_kwarg_unknown(name, suggestion):
+    """
+    Test that plan() with ForecasterStats rejects a keyword argument that
+    Arima does not have, with the closest name when there is one.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(f"Arima has no parameter '{name}'.{suggestion}")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.plan(
+            profile,
+            steps            = 5,
+            forecaster       = "ForecasterStats",
+            estimator_kwargs = {name: 1},
+        )
+
+    assert exc_info.value.field == "estimator_kwargs"
+
+
+def test_plan_output_when_arima_kwarg_valid():
+    """
+    Test that plan() with ForecasterStats accepts a parameter of Arima.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan = assistant.plan(
+        profile,
+        steps            = 5,
+        forecaster       = "ForecasterStats",
+        estimator_kwargs = {"order": (1, 0, 0)},
+    )
+
+    assert plan.forecaster == "ForecasterStats"
+    assert plan.estimator_kwargs == {"order": (1, 0, 0)}
 
 
 # =============================================================================

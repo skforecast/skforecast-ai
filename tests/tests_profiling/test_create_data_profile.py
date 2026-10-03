@@ -1185,3 +1185,92 @@ def test_create_data_profile_note_when_long_dates_beyond_nanoseconds():
         "the missing timestamps were read from the first series only, so the "
         "other series were not checked."
     ]
+
+
+# =============================================================================
+# Tests: early input checks
+# =============================================================================
+@pytest.mark.parametrize(
+    "series_id_column, date_column, err_msg",
+    [
+        (
+            "missing",
+            "date",
+            "series_id_column='missing' was not found in the data. Available "
+            "columns: ['date', 'series_id', 'value', 'exog_1'].",
+        ),
+        (
+            "value",
+            "date",
+            "series_id_column='value' is also the target: pass the column "
+            "that identifies the series, other than the values to forecast.",
+        ),
+        (
+            "date",
+            "date",
+            "series_id_column='date' is also the date column: pass the column "
+            "that identifies the series, other than the dates.",
+        ),
+    ],
+    ids=["not a column", "the target", "the date column"],
+)
+def test_create_data_profile_InvalidInputError_when_series_id_column_invalid(
+    series_id_column, date_column, err_msg
+):
+    """
+    Test that a `series_id_column` that is not a column, or is the target or
+    the date column, raises with the field 'series_id_column'.
+    """
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        create_data_profile(
+            data             = df_multi_long,
+            target           = "value",
+            date_column      = date_column,
+            series_id_column = series_id_column,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "series_id_column"
+
+
+def test_create_data_profile_InvalidInputError_when_target_is_empty_list():
+    """
+    Test that an empty list of targets raises with the field 'target'.
+    """
+    err_msg = re.escape(
+        "`target` is an empty list: pass the name of the column to forecast, "
+        "or a list with the column of each series."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        create_data_profile(data=df_single_daily, target=[])
+
+    assert exc_info.value.field == "target"
+
+
+def test_create_data_profile_InvalidInputError_when_target_has_no_values():
+    """
+    Test that a target column with every value missing raises with the code
+    'insufficient_data' and the field 'target'.
+    """
+    data = df_single_daily.assign(y=np.nan)
+
+    err_msg = re.escape("Target column 'y' has no values: every row is missing.")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        create_data_profile(data=data, target="y")
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "target"
+
+
+def test_create_data_profile_output_when_target_is_numeric_strings():
+    """
+    Test that a target of text, such as numeric strings, is described and
+    not rejected: only `ForecastingAssistant.profile()` checks that the
+    target holds numbers.
+    """
+    data = df_single_daily.assign(y=df_single_daily["y"].astype(str))
+
+    profile = create_data_profile(data=data, target="y")
+
+    assert profile.target == "y"
+    assert profile.series_lengths["y"].length == 365

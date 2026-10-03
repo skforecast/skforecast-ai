@@ -7,6 +7,7 @@ import pytest
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import CodeGenerationResult, ForecastingAssistant
+from skforecast_ai.exceptions import InvalidInputTypeError
 
 from tests.fixtures_assistant import df_single, df_multi_long, df_no_exog
 
@@ -197,3 +198,26 @@ def test_backtest_code_loads_data_path_when_saved_profile(tmp_path):
     assert f"data = pd.read_csv({str(new_path)!r})" in with_data.code
     assert f"data = pd.read_csv({str(old_path)!r})" in without_data.code
     assert without_data.profile is profile
+
+
+@pytest.mark.parametrize(
+    "cv, type_name",
+    [({"steps": 5}, "dict"), (None, "NoneType"), (5, "int")],
+    ids=["dict", "None", "int"],
+)
+def test_backtest_code_InvalidInputTypeError_when_cv_wrong_type(cv, type_name):
+    """
+    Test that backtest_code() raises InvalidInputTypeError (a TypeError) with
+    the field 'cv' when it is not a TimeSeriesFold or a CVResult.
+    """
+    err_msg = re.escape(
+        f"`cv` must be a skforecast TimeSeriesFold or the CVResult of "
+        f"create_cv(), got {type_name}."
+    )
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        assistant.backtest_code(
+            data=df_single, cv=cv, target="sales", date_column="date"
+        )
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == "cv"

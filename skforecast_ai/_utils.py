@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import numbers
 import re
 import warnings
 from collections.abc import Iterator
@@ -34,9 +35,14 @@ from ._validation import (
     validate_interval,
 )
 from ._dates import is_text, parse_text_dates
-from .profiling.data_profile import _read_date_column, _try_parse_first_date_column
+from .profiling.data_profile import (
+    _read_date_column,
+    _try_parse_first_date_column,
+    date_issue_hint,
+    read_csv_file,
+)
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
-from .exceptions import DataNotFoundError, InvalidInputError
+from .exceptions import DataNotFoundError, InvalidInputError, InvalidInputTypeError
 
 _CODE_BLOCK_RE = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
 _CODE_BLOCK_REPLACEMENT = "(See `result.code` for the validated implementation.)"
@@ -581,14 +587,22 @@ def _resolve_data_and_target(
 
     Raises
     ------
+    TypeError
+        When `data` is none of the accepted types.
     ValueError
         When `data` is a Series and `target` is provided but does not
         match the Series name, when `data` is not a Series and `target` is
-        None, or when the dates of a CSV have empty cells or mixed time
-        zones (see `date_column`).
+        None, when the dates of a CSV have empty cells or mixed time zones
+        (see `date_column`), or when a CSV file cannot be read as one.
     FileNotFoundError
         When `data` is a path or URL that cannot be read.
     """
+    if not isinstance(data, (pd.Series, pd.DataFrame, str, Path)):
+        raise InvalidInputTypeError(
+            f"`data` must be a pandas DataFrame, a pandas Series, or the path "
+            f"or URL of a CSV file, got {type(data).__name__}.",
+            field = "data",
+        )
     if isinstance(data, pd.Series):
         name = data.name
         if target is not None and target != name:
@@ -636,7 +650,7 @@ def _resolve_data_and_target(
                 f"CSV file not found: '{path}'. Please provide a valid file path.",
                 field = "data",
             )
-        df = pd.read_csv(path)
+        df = read_csv_file(path)
         return _try_parse_first_date_column(df, date_column), target
 
     return data, target
@@ -727,7 +741,7 @@ def load_exog(
             field = "exog",
         )
 
-    exog = pd.read_csv(path)
+    exog = read_csv_file(path, field="exog")
     # Rows one field longer than the header shift every column; when the
     # last column is then empty, the extra field is a separator at the end
     # of each row, not the index of `to_csv(index_label=False)`.
@@ -768,6 +782,7 @@ def load_exog(
             raise InvalidInputError(
                 f"Exog CSV '{path}': {''.join(issue)}",
                 field = "exog",
+                hint  = date_issue_hint(issue),
             )
         if parsed is None or parsed.isna().any():
             raise InvalidInputError(
@@ -796,6 +811,7 @@ def load_exog(
                 raise InvalidInputError(
                     f"Exog CSV '{path}': {exc}",
                     field = "exog",
+                    hint  = exc.hint,
                 ) from exc
             found = next(
                 (
@@ -1035,6 +1051,48 @@ def _with_data_path(
     return profile.model_copy(update={"data_profile": data_profile})
 
 
+def _check_window_needs_refit(
+    fixed_train_size: bool | None,
+    refit: object,
+    forecaster: str,
+) -> None:
+    """
+    Reject a `fixed_train_size` passed for a forecaster trained once.
+
+    A forecaster trained once has one training window, so a window type
+    passed for it would not run. `ForecasterStats`, which skforecast refits
+    in every fold, is warned about by `create_cv()` instead.
+
+    Parameters
+    ----------
+    fixed_train_size : bool, None
+        Value passed by the caller; None when not passed.
+    refit : bool, int
+        Resolved `refit` of the strategy.
+    forecaster : str
+        Forecaster of the plan.
+
+    Returns
+    -------
+    None
+    """
+    if fixed_train_size is None or forecaster == "ForecasterStats":
+        return
+    refits = refit is True or (
+        isinstance(refit, numbers.Integral)
+        and not isinstance(refit, bool)
+        and refit > 0
+    )
+    if not refits:
+        raise InvalidInputError(
+            f"`fixed_train_size={fixed_train_size!r}` only applies when the "
+            f"forecaster is refitted, and with `refit={refit!r}` it is "
+            f"trained once. Pass `refit=True` (or an integer) to refit it, "
+            f"or omit `fixed_train_size`.",
+            field = "fixed_train_size",
+        )
+
+
 def _unwrap_cv(cv: TimeSeriesFold | CVResult) -> TimeSeriesFold:
     """
     Return the `TimeSeriesFold` behind a `cv` argument.
@@ -1053,7 +1111,15 @@ def _unwrap_cv(cv: TimeSeriesFold | CVResult) -> TimeSeriesFold:
         The splitter itself.
     """
 
-    return cv.cv if isinstance(cv, CVResult) else cv
+    if isinstance(cv, CVResult):
+        return cv.cv
+    if not isinstance(cv, TimeSeriesFold):
+        raise InvalidInputTypeError(
+            f"`cv` must be a skforecast TimeSeriesFold or the CVResult of "
+            f"create_cv(), got {type(cv).__name__}.",
+            field = "cv",
+        )
+    return cv
 
 
 def _check_evaluated_target(

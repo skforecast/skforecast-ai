@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 from skforecast.model_selection import TimeSeriesFold
 
+from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 from skforecast_ai.recommendation.backtesting import build_cv
 
 from tests.tests_recommendation.fixtures_recommendation import (
@@ -130,3 +131,129 @@ def test_build_cv_output_when_min_folds_relaxed():
     cv = build_cv(_make_cv_params(95), profile_single_daily_100, min_folds=1)
 
     assert cv.initial_train_size == 95
+
+
+_STRATEGY_HINT = (
+    "Change the arguments of the strategy (`initial_train_size`, "
+    "`fold_stride`, `gap`, `skip_folds`) or the `steps` of the plan so that "
+    "at least two folds fit in the data."
+)
+
+
+@pytest.mark.parametrize(
+    "changes, field, reason",
+    [
+        (
+            {"gap": -1},
+            "gap",
+            "`gap` must be an integer greater than or equal to 0. Got -1.",
+        ),
+        (
+            {"fold_stride": 0},
+            "fold_stride",
+            "`fold_stride` must be an integer greater than 0. Got 0.",
+        ),
+        (
+            {"initial_train_size": 500},
+            "initial_train_size",
+            "The time series must have more than `initial_train_size + gap` "
+            "observations to create at least one fold. Time series length: "
+            "100 Required > 500 initial_train_size: 500 gap: 0",
+        ),
+        (
+            {"skip_folds": [0]},
+            "skip_folds",
+            "`skip_folds` list must contain integers greater than or equal "
+            "to 1. The first fold is always needed to train the forecaster. "
+            "Got [0].",
+        ),
+    ],
+    ids=["gap", "fold_stride", "initial_train_size", "skip_folds"],
+)
+def test_build_cv_InvalidInputError_when_strategy_cannot_be_built(
+    changes, field, reason
+):
+    """
+    Test that an argument that TimeSeriesFold rejects raises an
+    InvalidInputError that names it in `field`, keeps the message of
+    skforecast on one line and carries the hint.
+    """
+    cv_params = {**_make_cv_params(70, steps=5), **changes}
+
+    err_msg = re.escape(f"The cross-validation strategy cannot be built: {reason}")
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        build_cv(cv_params, profile_single_daily_100)
+
+    assert isinstance(exc_info.value, ValueError)
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == field
+    assert exc_info.value.hint == _STRATEGY_HINT
+
+
+@pytest.mark.parametrize(
+    "skip_folds, beyond",
+    [([100], "[100]"), ([1, 6], "[6]"), ([7, 100], "[7, 100]")],
+    ids=["far beyond", "first fold beyond", "several beyond"],
+)
+def test_build_cv_InvalidInputError_when_skip_folds_do_not_exist(skip_folds, beyond):
+    """
+    Test that `skip_folds` with indexes beyond the folds of the strategy
+    (6 folds, numbered from 0 to 5), which TimeSeriesFold ignores, raises
+    naming them, with the field 'skip_folds'.
+    """
+    cv_params = {**_make_cv_params(70, steps=5), "skip_folds": skip_folds}
+
+    err_msg = re.escape(
+        f"`skip_folds` names folds that do not exist ({beyond}): the "
+        f"strategy has 6 folds, numbered from 0 to 5."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        build_cv(cv_params, profile_single_daily_100)
+
+    assert exc_info.value.field == "skip_folds"
+
+
+def test_build_cv_output_when_skip_folds_in_range():
+    """
+    Test that `skip_folds` within the folds of the strategy are kept.
+    """
+    cv_params = {**_make_cv_params(70, steps=5), "skip_folds": [1, 5]}
+
+    cv = build_cv(cv_params, profile_single_daily_100)
+
+    assert cv.skip_folds == [1, 5]
+
+
+@pytest.mark.parametrize(
+    "changes, field, reason",
+    [
+        (
+            {"refit": "x"},
+            "refit",
+            "`refit` must be a boolean or an integer equal or greater than 0. "
+            "Got x.",
+        ),
+        (
+            {"fixed_train_size": "x"},
+            "fixed_train_size",
+            "`fixed_train_size` must be a boolean: `True`, `False`. Got x.",
+        ),
+    ],
+    ids=["refit", "fixed_train_size"],
+)
+def test_build_cv_InvalidInputTypeError_when_argument_has_wrong_type(
+    changes, field, reason
+):
+    """
+    Test that an argument of the wrong type that TimeSeriesFold rejects with
+    a TypeError raises InvalidInputTypeError, still a TypeError, naming it.
+    """
+    cv_params = {**_make_cv_params(70, steps=5), **changes}
+
+    err_msg = re.escape(f"The cross-validation strategy cannot be built: {reason}")
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        build_cv(cv_params, profile_single_daily_100)
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == field
+    assert exc_info.value.hint == _STRATEGY_HINT

@@ -42,8 +42,8 @@ files.
    and ForecasterFoundation), or the estimators of the recommended
    forecaster when that leaves one, without those above 500 estimator
    fits. Without `interval` it uses the interval of the plan of the
-   strategy, so the winner keeps it (the baseline only takes symmetric
-   intervals, such as `[0.1, 0.9]`).
+   strategy, so the winner keeps it (with an asymmetric interval there
+   is no baseline: it only takes symmetric ones, such as `[0.1, 0.9]`).
 7. `forecast(plan_id, test_size?, exog_path?)`: the future. `exog_path` is
    required when the data has exogenous variables. With `test_size` it is
    a single hold-out evaluation instead, without `exog_path`: pass the
@@ -63,8 +63,9 @@ From most to least reliable:
 1. A `compare` in which the winner beats the baseline: measured over the
    `n_folds` of the strategy (at least 2) against a reference. If the
    baseline wins, say so: the data may not be forecastable better than
-   repeating the last season. There is no baseline with several series or
-   when the target has missing values or dates (the summary says why):
+   repeating the last season. There is no baseline with several series,
+   when the target has missing values or dates, or with an asymmetric
+   interval (the summary says why):
    then read the rows per series of `files.best_metrics` (`files.metrics`
    of a backtest). A `mean_absolute_scaled_error` below 1 beats a naive
    forecast of that series, above 1 does worse. The summary only gives the
@@ -179,15 +180,15 @@ and follow `hint` when there is one:
 | code | What to do |
 |---|---|
 | `invalid_argument` | Fix the argument named in `field`, as the message says. |
-| `insufficient_data` | Ask for less: a shorter horizon, fewer lags, a smaller first training set. |
+| `insufficient_data` | Ask for less: a shorter horizon, fewer lags, a smaller first training set. A target column without any value is also reported this way. |
 | `data_not_found`, `invalid_path`, `path_not_allowed`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
-| `data_unreadable` | The file is not a CSV the server can read. |
+| `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header). Tell the user, as for the data problems above. |
 | `file_too_large` | The file is larger than the server reads (`--max-file-mb`, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |
 | `data_changed` | The file changed: call `profile` again (or the tool again for an exogenous file). |
 | `unknown_id` | Use an id from `list_objects`, or create the object again. |
 | `inconsistent_ids` | Pass `backtest` a plan and a strategy built from the same profile. |
 | `execution_failed`, `all_candidates_failed` | `get_failure(details.failure_id)` returns the traceback and the code. |
-| `missing_dependency` | Tell the user which package to install; `hint` says how, for pip and for uvx. A foundation model without its backend fails this way before running. |
+| `missing_dependency` | Tell the user which package to install; `hint` says how, for pip and for uvx. A foundation model without its backend fails this way before running (in `compare`, such a candidate fails and is ranked last). |
 | `model_not_allowed` | Tell the user the license in the message; only if they accept it, ask them to restart the server with the `--allow-model` option of `hint`. |
 | `internal_error` | Report it to the user with `details.error_id`, which finds the message in the log of the server; do not retry with the same inputs. |
 

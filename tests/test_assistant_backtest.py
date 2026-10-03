@@ -11,8 +11,10 @@ from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import BacktestResult, ForecastingAssistant
+from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 
 from tests.fixtures_assistant import df_single, df_no_exog
+from tests.fixtures_datasets import df_h2o
 
 assistant = ForecastingAssistant()
 
@@ -317,3 +319,107 @@ def test_backtest_output_script_loads_csv_path_that_ran(tmp_path):
         assert f"data = pd.read_csv({str(csv_path)!r})" in res.code
         assert res.profile.data_profile.data_path == str(csv_path)
     assert profile.data_profile.data_path == str(old_path)
+
+
+# =============================================================================
+# Tests: early input checks
+# =============================================================================
+@pytest.mark.parametrize(
+    "cv, type_name",
+    [({"steps": 5}, "dict"), (None, "NoneType"), (5, "int")],
+    ids=["dict", "None", "int"],
+)
+def test_backtest_InvalidInputTypeError_when_cv_wrong_type(cv, type_name):
+    """
+    Test that backtest() raises InvalidInputTypeError (a TypeError) with the
+    field 'cv' when it is not a TimeSeriesFold or a CVResult.
+    """
+    err_msg = re.escape(
+        f"`cv` must be a skforecast TimeSeriesFold or the CVResult of "
+        f"create_cv(), got {type_name}."
+    )
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=df_single, cv=cv, target="sales", date_column="date"
+        )
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == "cv"
+
+
+def test_backtest_InvalidInputError_when_foundation_backend_not_installed(
+    monkeypatch,
+):
+    """
+    Test that backtest() with a ForecasterFoundation plan raises the error
+    'missing_dependency' for the field 'estimator', with the install command,
+    before running any script.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+    )
+
+    def _not_called(*args, **kwargs):
+        raise AssertionError("run_backtest must not be called")
+
+    monkeypatch.setattr("skforecast_ai.assistant.run_backtest", _not_called)
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    err_msg = re.escape(
+        "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
+        "which is not installed (pip install \"chronos-forecasting\")."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data          = df_no_exog,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
+
+    assert exc_info.value.code == "missing_dependency"
+    assert exc_info.value.field == "estimator"
+    assert exc_info.value.hint == (
+        'Install it where skforecast-ai runs: pip install "chronos-forecasting".'
+    )
+
+
+@pytest.mark.parametrize(
+    "forecaster, estimator",
+    [("ForecasterRecursive", "Ridge"), ("ForecasterStats", None)],
+    ids=["ridge", "stats"],
+)
+def test_backtest_InvalidInputError_when_target_has_infinite_value(
+    forecaster, estimator
+):
+    """
+    Test that backtest() raises, before running the script, when the target
+    has an infinite value (h2o, position 50, 1995-09-01) and the forecaster
+    is trained on it. The plan is built from the data without it, which
+    profiling would warn about.
+    """
+    data = df_h2o.copy()
+    data.iloc[50, 0] = np.inf
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(
+        profile, steps=3, forecaster=forecaster, estimator=estimator
+    )
+    cv = assistant.create_cv(profile, plan)
+
+    err_msg = re.escape(
+        f"The target has infinite values (1 value(s), such as '1995-09-01'). "
+        f"{forecaster} cannot be trained on them: replace them."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=data, cv=cv, profile=profile, plan=plan, show_progress=False
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == (
+        "Replace the infinite values of the target, for example with NaN."
+    )

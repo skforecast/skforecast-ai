@@ -331,10 +331,14 @@ def test_tool_compare_announces_model_download_of_a_candidate_that_ran(
 ):
     """
     Test that a foundation candidate whose weights are not in the local
-    Hugging Face cache and whose script ran (here it fails without its
-    backend, which a download could precede) gets one `ModelDownloadNotice`
-    in the comparison, and none in a second comparison.
+    Hugging Face cache and whose script ran (here it fails inside the script
+    without its backend, which a download could precede; the backend is
+    taken as installed so the check before running lets it run) gets one
+    `ModelDownloadNotice` in the comparison, and none in a second comparison.
     """
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
+    )
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hf"))
     monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
     path = write_csv(tmp_path, "h2o.csv", df_h2o_csv)

@@ -321,7 +321,7 @@ def test_forecaster_equivalent_date_full_workflow():
     [
         ({"initial_train_size": 80}, "initial_train_size", 80),
         ({"refit": False}, "refit", False),
-        ({"fixed_train_size": True}, "fixed_train_size", True),
+        ({"refit": True, "fixed_train_size": True}, "fixed_train_size", True),
         ({"gap": 2}, "gap", 2),
     ],
     ids=["initial_train_size=80", "refit=False", "fixed_train_size=True", "gap=2"],

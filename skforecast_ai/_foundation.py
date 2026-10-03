@@ -114,6 +114,70 @@ def foundation_backend_installed(info: FoundationModelInfo) -> bool:
     return True
 
 
+def missing_foundation_backend(model_id: str | None) -> str | None:
+    """
+    Return the backend package of a foundation model when it is not
+    installed.
+
+    Like `foundation_backend_installed`, it imports nothing. A model ID
+    that no adapter serves is left to the validation of the plan.
+
+    Parameters
+    ----------
+    model_id : str, None
+        Hugging Face model ID of a `ForecasterFoundation` plan.
+
+    Returns
+    -------
+    package : str, None
+        Name to pass to `pip install` (with its extras), or None when the
+        backend is installed or the model is not known.
+    """
+    if model_id is None:
+        return None
+    try:
+        info = resolve_foundation_model(model_id)
+    except InvalidInputError:
+        return None
+    if foundation_backend_installed(info):
+        return None
+    return info.backend_package
+
+
+def check_foundation_backend(model_id: str | None) -> None:
+    """
+    Check that the backend package of a foundation model is installed.
+
+    Called before a plan is executed, not when a script is only rendered:
+    a script may run on another machine.
+
+    Parameters
+    ----------
+    model_id : str, None
+        Hugging Face model ID of a `ForecasterFoundation` plan.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    An `InvalidInputError` with code `'missing_dependency'` and the
+    `pip install` command is raised when the package is missing, instead of
+    an `ImportError` inside the executed script.
+    """
+    package = missing_foundation_backend(model_id)
+    if package is None:
+        return
+    raise InvalidInputError(
+        f"'{model_id}' needs the '{package}' package, which is not "
+        f"installed (pip install \"{package}\").",
+        code  = "missing_dependency",
+        field = "estimator",
+        hint  = f'Install it where skforecast-ai runs: pip install "{package}".',
+    )
+
+
 def validate_foundation_estimator_kwargs(estimator_kwargs: dict | None) -> None:
     """
     Reject a model ID given in the estimator keyword arguments.

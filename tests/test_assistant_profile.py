@@ -3,13 +3,18 @@
 import re
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.exceptions import DataNotFoundError, InvalidInputError
+from skforecast_ai.exceptions import (
+    DataNotFoundError,
+    InvalidInputError,
+    InvalidInputTypeError,
+)
 from skforecast_ai.schemas import DataProfile, ForecastingProfile
 
 from tests.fixtures_datasets import (
@@ -414,3 +419,253 @@ def test_profile_UserWarning_points_at_the_call_when_later_column_used(tmp_path)
     assert profile.data_profile.date_column == "date"
     assert profile.data_profile.exog_columns == ["contract_end"]
     assert record[0].filename == __file__
+
+
+# =============================================================================
+# Tests: early input checks
+# =============================================================================
+@pytest.mark.parametrize(
+    "series_id_column, err_msg",
+    [
+        (
+            "missing",
+            "series_id_column='missing' was not found in the data. Available "
+            "columns: ['date', 'series_id', 'value'].",
+        ),
+        (
+            "value",
+            "series_id_column='value' is also the target: pass the column "
+            "that identifies the series, other than the values to forecast.",
+        ),
+        (
+            "date",
+            "series_id_column='date' is also the date column: pass the column "
+            "that identifies the series, other than the dates.",
+        ),
+    ],
+    ids=["not a column", "the target", "the date column"],
+)
+def test_profile_InvalidInputError_when_series_id_column_invalid(
+    series_id_column, err_msg
+):
+    """
+    Test that profile() rejects a `series_id_column` that is not a column or
+    is the target or the date column, with the field 'series_id_column'.
+    """
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        ForecastingAssistant().profile(
+            data             = df_multi_long,
+            target           = "value",
+            date_column      = "date",
+            series_id_column = series_id_column,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "series_id_column"
+
+
+def test_profile_InvalidInputError_when_target_is_empty_list():
+    """
+    Test that profile() rejects an empty list of targets, with the field
+    'target'.
+    """
+    err_msg = re.escape(
+        "`target` is an empty list: pass the name of the column to forecast, "
+        "or a list with the column of each series."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(
+            data=df_multi_wide, target=[], date_column="date"
+        )
+
+    assert exc_info.value.field == "target"
+
+
+def test_profile_InvalidInputError_when_target_has_no_values():
+    """
+    Test that profile() rejects a target with every value missing, with the
+    code 'insufficient_data'.
+    """
+    data = df_single.assign(sales=np.nan)
+
+    err_msg = re.escape("Target column 'sales' has no values: every row is missing.")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(
+            data=data, target="sales", date_column="date"
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "target"
+
+
+_TARGET_NOT_NUMERIC_HINT = (
+    "Leave the cells of missing values empty instead of marking them with "
+    "text such as '-' or '?', and check that the target is the column of "
+    "values to forecast."
+)
+
+
+def test_profile_InvalidInputError_when_target_not_numeric():
+    """
+    Test that profile() rejects a target with text that is not a number,
+    listing the values, before the lags are selected.
+    """
+    data = df_single.assign(sales=df_single["sales"].astype(object))
+    data.loc[3, "sales"] = "abc"
+
+    err_msg = re.escape(
+        "Target column 'sales' is not numeric: values such as ['abc'] are "
+        "not numbers."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(
+            data=data, target="sales", date_column="date"
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "target"
+    assert exc_info.value.hint == _TARGET_NOT_NUMERIC_HINT
+
+
+def test_profile_InvalidInputError_when_csv_target_has_placeholders(tmp_path):
+    """
+    Test that profile() of a CSV whose missing values are marked with '-'
+    rejects the target, quoting the placeholder.
+    """
+    data = df_h2o_text.copy()
+    data["x"] = data["x"].astype(object)
+    data.loc[[3, 5], "x"] = "-"
+    csv_path = tmp_path / "h2o.csv"
+    data.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "Target column 'x' is not numeric: values such as ['-'] are not numbers."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=csv_path, target="x")
+
+    assert exc_info.value.field == "target"
+    assert exc_info.value.hint == _TARGET_NOT_NUMERIC_HINT
+
+
+def test_profile_output_when_target_is_numeric_strings():
+    """
+    Test that profile() does not reject a target of text that holds numbers.
+    """
+    data = df_single.assign(sales=df_single["sales"].astype(str))
+
+    profile = ForecastingAssistant().profile(
+        data=data, target="sales", date_column="date"
+    )
+
+    assert profile.data_profile.target == "sales"
+
+
+@pytest.mark.parametrize(
+    "content, reason",
+    [
+        (b"", "No columns to parse from file"),
+        (
+            bytes(range(256)),
+            "'utf-8' codec can't decode byte 0x80 in position 128: invalid "
+            "start byte",
+        ),
+        (
+            b"date,x\n2020-01-01,1\n2020-01-02,2,3,4\n2020-01-03,4\n",
+            "Error tokenizing data. C error: Expected 2 fields in line 3, saw 4",
+        ),
+        (
+            "date,x,name\n2020-01-01,1,caf\xe9\n".encode("latin-1"),
+            "'utf-8' codec can't decode byte 0xe9 in position 28: invalid "
+            "continuation byte",
+        ),
+    ],
+    ids=["empty", "binary", "more fields than the header", "latin-1"],
+)
+def test_profile_InvalidInputError_when_csv_unreadable(tmp_path, content, reason):
+    """
+    Test that profile() of a file that is not a readable CSV raises an
+    InvalidInputError (a ValueError) with the code 'data_unreadable', the
+    field 'data' and a hint.
+    """
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_bytes(content)
+
+    err_msg = re.escape(f"The CSV file '{csv_path}' could not be read: {reason}")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=csv_path, target="x")
+
+    assert isinstance(exc_info.value, ValueError)
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == (
+        "Pass a comma-separated text file in UTF-8 with a header row, and the "
+        "same number of fields in every row."
+    )
+
+
+@pytest.mark.parametrize(
+    "data, type_name", [([1.0, 2.0, 3.0], "list"), (5, "int")], ids=["list", "int"]
+)
+def test_profile_InvalidInputTypeError_when_data_wrong_type(data, type_name):
+    """
+    Test that profile() raises InvalidInputTypeError (a TypeError) with the
+    field 'data' when it is not a DataFrame, a Series or a path.
+    """
+    err_msg = re.escape(
+        f"`data` must be a pandas DataFrame, a pandas Series, or the path or "
+        f"URL of a CSV file, got {type_name}."
+    )
+    with pytest.raises(InvalidInputTypeError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=data, target="sales")
+
+    assert isinstance(exc_info.value, TypeError)
+    assert exc_info.value.field == "data"
+
+
+def test_profile_hint_when_csv_date_column_has_an_empty_cell(tmp_path):
+    """
+    Test that the error of a CSV date column with an empty cell carries the
+    remedy as the hint.
+    """
+    data = df_h2o_text.copy()
+    data.loc[100, "date"] = None
+    csv_path = tmp_path / "h2o.csv"
+    data.to_csv(csv_path, index=False)
+
+    with pytest.raises(InvalidInputError) as exc_info:
+        ForecastingAssistant().profile(data=csv_path, target="x", date_column="date")
+
+    assert exc_info.value.hint == (
+        "Every row needs a date: fill in or drop the rows without one."
+    )
+
+
+@pytest.mark.parametrize(
+    "date_column, advice",
+    [
+        (None, ""),
+        ("date", ""),
+    ],
+    ids=["date_column: None", "date_column: date"],
+)
+def test_profile_hint_when_csv_dates_change_time_zone(
+    tmp_path, date_column, advice
+):
+    """
+    Test that the error of CSV dates in several time zones carries the time
+    zone remedy as the hint (followed, without `date_column`, by the advice
+    about a column of dates that is an exogenous variable).
+    """
+    csv_path = tmp_path / "madrid.csv"
+    df_madrid_hourly_text.to_csv(csv_path, index=False)
+
+    with pytest.raises(InvalidInputError) as exc_info:
+        ForecastingAssistant().profile(
+            data=csv_path, target="users", date_column=date_column
+        )
+
+    assert exc_info.value.hint == (
+        "Write every date in one time zone: in UTC for data recorded within "
+        "the day, or without the time zone for daily or coarser data." + advice
+    )

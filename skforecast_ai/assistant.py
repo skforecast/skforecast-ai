@@ -75,6 +75,7 @@ from .profiling import (
     create_data_profile,
     resolve_end_train,
 )
+from .profiling.data_profile import validate_target_numeric
 from .recommendation import (
     _build_profile_explanation,
     baseline_missing_values_note,
@@ -122,9 +123,10 @@ from .schemas import (
 )
 from ._foundation import foundation_exog_columns, validate_foundation_plan
 from ._future_exog import as_exog_frame, validate_future_exog
-from ._last_window import validate_last_window
+from ._last_window import validate_infinite_target, validate_last_window
 from ._utils import (
     _check_evaluated_target,
+    _check_window_needs_refit,
     _resolve_data_and_target,
     _resolve_inputs_with_profile,
     _strip_code_blocks,
@@ -306,6 +308,7 @@ class ForecastingAssistant:
             series_id_column = series_id_column,
             data_path        = data_path,
         )
+        validate_target_numeric(data, data_profile.target)
 
         forecaster, forecaster_candidates = select_forecaster_and_candidates(data_profile)
         task_type = select_task_type_from_forecaster(forecaster)
@@ -574,6 +577,10 @@ class ForecastingAssistant:
                 f"explicitly, for example with "
                 f"pandas.to_datetime(..., dayfirst=True).",
                 field = "profile",
+                hint  = (
+                    "Write the dates in ISO 8601 (such as '2023-02-13'), "
+                    "so they are not read month-first."
+                ),
             )
 
         # The baseline cannot take exogenous variables; the explanation says
@@ -1480,6 +1487,12 @@ class ForecastingAssistant:
                 profile = profile.data_profile,
                 plan    = plan,
             )
+        validate_infinite_target(
+            data       = data_df,
+            profile    = profile.data_profile,
+            plan       = plan,
+            prediction = plan.end_train is None,
+        )
 
         check_estimator_installed(plan.estimator, plan.task_type)
 
@@ -1563,6 +1576,9 @@ class ForecastingAssistant:
             every `refit` folds.
         fixed_train_size : bool, default None
             Whether the training size is fixed or increases in each fold.
+            Only applies when the forecaster is refitted: passing it with
+            `refit=False` (explicit or by default) raises `ValueError`,
+            except for `ForecasterStats`, which is always refitted.
         gap : int, default None
             Number of observations between the end of the training set and the start of the
             test set.
@@ -1574,7 +1590,8 @@ class ForecastingAssistant:
 
             For example, if `skip_folds=3` and there are 10 folds, the returned folds are
             0, 3, 6, and 9. If `skip_folds=[1, 2, 3]`, the returned folds are 0, 4, 5, 6, 7,
-            8, and 9.
+            8, and 9. A list with an index beyond the folds of the strategy
+            raises `ValueError`.
         allow_incomplete_fold : bool, default None
             Whether to allow the last fold to include fewer observations than `steps`.
             If `False`, the last fold is excluded if it is incomplete.
@@ -1623,6 +1640,14 @@ class ForecastingAssistant:
             skip_folds,
             allow_incomplete_fold,
         )
+        # Checked before any LLM call when `refit` is explicit.
+        if refit is not None:
+            _check_window_needs_refit(
+                fixed_train_size = fixed_train_size,
+                refit            = refit,
+                forecaster       = plan.forecaster,
+            )
+
         use_llm = prompt is not None
         if use_llm and all(param is not None for param in llm_decidable):
             warnings.warn(
@@ -1661,6 +1686,13 @@ class ForecastingAssistant:
         # The LLM narrative is not a TimeSeriesFold parameter: keep it out
         # of the splitter and prepend it to the explanation.
         reasoning = defaults.pop("_reasoning", None)
+
+        # Checked again with the `refit` the LLM chose.
+        _check_window_needs_refit(
+            fixed_train_size = fixed_train_size,
+            refit            = defaults.get("refit"),
+            forecaster       = plan.forecaster,
+        )
 
         # Same construction and validation path the LLM loop uses, so a
         # configuration that passed there cannot fail here. Resolves a
@@ -2010,6 +2042,12 @@ class ForecastingAssistant:
             data_profile = profile.data_profile,
             cv           = cv,
         )
+        validate_infinite_target(
+            data       = data_df,
+            profile    = profile.data_profile,
+            plan       = plan,
+            prediction = False,
+        )
 
         # Resolved CV parameters (with the fold and training counts) and their
         # explanation, which states the cost of the backtest.
@@ -2149,7 +2187,8 @@ class ForecastingAssistant:
             not added for multi-series data, which it cannot forecast, nor
             when the target has missing values or missing timestamps, which
             it would repeat as missing predictions (the explanation says
-            why), nor when `candidates` already contains a
+            why), nor with an asymmetric `interval`, which it cannot
+            predict, nor when `candidates` already contains a
             `ForecasterEquivalentDate` (that candidate is then the
             baseline).
         progress_callback : Callable, default None
@@ -2277,7 +2316,7 @@ class ForecastingAssistant:
         baseline_note = None
         if baseline:
             candidate_configs, baseline_name, baseline_note = (
-                add_baseline_candidate(candidate_configs, profile)
+                add_baseline_candidate(candidate_configs, profile, interval)
             )
 
         # Resolve the ranking metric and the metric columns once, so the

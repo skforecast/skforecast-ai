@@ -78,7 +78,7 @@ FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="L
 InitialTrainSizeOption = Annotated[str | None, typer.Option("--initial-train-size", help="Initial training window: number of observations or an ISO date marking the end of the initial training set.")]
 FoldStrideOption = Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")]
 RefitOption = Annotated[bool | None, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold (default: decided by the assistant).")]
-FixedTrainSizeOption = Annotated[bool | None, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window (default: decided by the assistant).")]
+FixedTrainSizeOption = Annotated[bool | None, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window when the forecaster is refitted; needs --refit (default: decided by the assistant).")]
 GapOption = Annotated[int | None, typer.Option("--gap", help="Gap between training and test sets.")]
 AllowIncompleteFoldOption = Annotated[bool | None, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations (default: decided by the assistant).")]
 BaseUrlOption = Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint: server URL for ollama or an OpenAI-compatible API, AWS region for bedrock.")]

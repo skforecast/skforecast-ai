@@ -640,3 +640,106 @@ def _weekends_without_value(
         "days, drop every Saturday and Sunday row instead, so that the data "
         "has a business-day frequency."
     )
+
+
+def validate_infinite_target(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+    prediction: bool,
+) -> None:
+    """
+    Reject infinite values of the target that the forecaster cannot use.
+
+    The estimators reject them inside the script ("Input contains
+    infinity"), ForecasterStats predicts missing values from them or fails,
+    and ForecasterEquivalentDate repeats the ones it reads as infinite
+    predictions, so they raise before anything runs:
+
+    - for every forecaster that is trained, whatever the mode;
+    - for ForecasterEquivalentDate, in prediction mode, when its
+      predictions read one (in evaluation and backtesting the metrics fail
+      on them with their own error). One it does not read changes nothing.
+
+    A ForecasterFoundation model takes the values as they are, and is not
+    checked.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Data the forecaster runs on.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Plan to run.
+    prediction : bool
+        Whether the run forecasts the future (prediction mode).
+
+    Returns
+    -------
+    None
+    """
+    if plan.task_type == "foundation":
+        return
+    targets = profile.target if isinstance(profile.target, list) else [profile.target]
+    columns = [
+        column for column in dict.fromkeys(targets)
+        if column in data.columns
+        and pd.api.types.is_numeric_dtype(data[column].dtype)
+        and not pd.api.types.is_bool_dtype(data[column].dtype)
+    ]
+    if not columns:
+        return
+    infinite = np.isinf(data[columns].to_numpy(dtype=float)).any(axis=1)
+    if not infinite.any():
+        return
+
+    if plan.forecaster == "ForecasterEquivalentDate":
+        if not prediction:
+            return
+        dates = _infinite_values_read(data, profile, plan)
+        if not len(dates):
+            return
+        raise InvalidInputError(
+            f"The forecaster reads infinite values of the target to predict "
+            f"({_where(dates)}). {plan.forecaster} repeats them as infinite "
+            f"predictions: replace them.",
+            field = "data",
+            hint  = "Replace the infinite values of the target, for example with NaN.",
+        )
+
+    dates = row_dates(data, profile.date_column)
+    labels = data.index if dates is None else dates
+    raise InvalidInputError(
+        f"The target has infinite values ({_where(labels[infinite])}). "
+        f"{plan.forecaster} cannot be trained on them: replace them.",
+        field = "data",
+        hint  = "Replace the infinite values of the target, for example with NaN.",
+    )
+
+
+def _infinite_values_read(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+) -> pd.Index:
+    """
+    Return the dates of the infinite values of a single series that the
+    predictions of ForecasterEquivalentDate read, read as `_check_wide`
+    reads the missing ones (from the last value of the series).
+    """
+    frames = _target_frame(data, profile)
+    if frames is None:
+        return pd.Index([])
+    frame, _ = frames
+    values = frame.iloc[:, 0].to_numpy(dtype=float)
+    with_value = np.flatnonzero(~np.isnan(values))
+    if not len(with_value):
+        return pd.Index([])
+    end = with_value[-1] + 1
+    values = values[:end]
+    positions, _, size = _read_positions(plan, limit=end)
+    window = np.isinf(values[::-1][:size])
+    read = [int(p) for p in positions if p <= len(window) and window[p - 1]]
+
+    return frame.index[end - np.asarray(read, dtype=int)]
