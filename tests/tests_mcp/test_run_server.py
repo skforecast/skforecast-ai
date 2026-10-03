@@ -1,6 +1,7 @@
 # Unit test run_server
 
 import os
+import subprocess
 import sys
 import anyio
 import pytest
@@ -53,7 +54,7 @@ def test_run_server_returns_when_the_client_disconnects(
     of a traceback, and that the log of the server is restored afterwards.
     """
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(server_module, "_discard_stdout", lambda: None)
+    monkeypatch.setattr(server_module, "_discard_stdout", lambda wire=None: None)
 
     def fake_run(self, transport="stdio", **kwargs):
         raise error
@@ -89,3 +90,33 @@ def test_run_server_other_errors_are_raised(tmp_path, monkeypatch):
 
     with pytest.raises(ExceptionGroup):
         run_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+
+def test_discard_stdout_points_duplicates_of_the_wire_to_the_null_device():
+    """
+    Test that `_discard_stdout` points to the null device every descriptor
+    open on the pipe of the client, as the private duplicate through which
+    the SDK writes the responses: its buffer is flushed when the process
+    ends, which printed "Exception ignored ... BrokenPipeError". A
+    descriptor of another pipe is left as it is. It runs in its own process,
+    whose standard output the function also discards.
+    """
+    script = (
+        "import os, sys\n"
+        "from skforecast_ai.mcp import server\n"
+        "read_end, wire = os.pipe()\n"
+        "duplicate = os.dup(wire)\n"
+        "other_read, other = os.pipe()\n"
+        "server._discard_stdout(os.fstat(wire))\n"
+        "null = os.stat(os.devnull)\n"
+        "same = [os.path.samestat(os.fstat(fd), null)"
+        " for fd in (wire, duplicate, other, 1)]\n"
+        "sys.stderr.write(repr(same))\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=120
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == "[True, True, False, True]"

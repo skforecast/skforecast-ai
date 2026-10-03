@@ -95,6 +95,10 @@ DEFAULT_MAX_OBJECTS = 256
 DEFAULT_MAX_MEMORY_MB = 1024
 DEFAULT_MAX_FILE_MB = 256
 
+# Descriptors looked at for duplicates of the pipe of a client that went
+# away: the server opens a handful, far below this.
+_MAX_DESCRIPTORS = 256
+
 # Bounds that `TimeSeriesFold` checks, so a value out of them is reported as
 # an invalid argument rather than as an error of skforecast.
 Count = Annotated[int, Field(ge=1)]
@@ -1917,6 +1921,7 @@ def run_server(
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
     logger.propagate = False
+    wire = _stdout_stat()
     try:
         logger.info(
             "skforecast-ai MCP server: reads CSV files in %s, writes files to %s.",
@@ -1931,22 +1936,61 @@ def run_server(
             # The client went away while a call ran: nothing is left to
             # answer, so the server stops as if the client had closed it.
             logger.info("The client disconnected; the server stops.")
-            _discard_stdout()
+            _discard_stdout(wire)
     finally:
         logger.removeHandler(handler)
         logger.setLevel(previous[0])
         logger.propagate = previous[1]
 
 
-def _discard_stdout() -> None:
+def _stdout_stat() -> os.stat_result | None:
+    """
+    Return the status of the file behind the standard output (the pipe of
+    the client), or None when it has no file descriptor.
+    """
+
+    try:
+        return os.fstat(sys.stdout.fileno())
+    except (OSError, ValueError):
+        return None
+
+
+def _discard_stdout(wire: os.stat_result | None = None) -> None:
     """
     Point the standard output to the null device, so flushing it when the
     process ends does not fail again on the closed pipe.
+
+    The SDK of MCP writes the responses through a private duplicate of the
+    standard output, whose buffer is flushed when the process ends: every
+    other descriptor open on the same pipe (`wire`, its status when the
+    server started) is pointed to the null device too. Without it the
+    process ended with "Exception ignored ... BrokenPipeError" on the
+    standard error.
     """
 
     try:
         devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, sys.stdout.fileno())
+    except OSError:
+        return
+    try:
+        descriptors = {1}
+        try:
+            descriptors.add(sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        if wire is not None:
+            for fd in range(3, _MAX_DESCRIPTORS):
+                if fd == devnull:
+                    continue
+                try:
+                    if os.path.samestat(os.fstat(fd), wire):
+                        descriptors.add(fd)
+                except OSError:
+                    continue
+        for fd in descriptors:
+            try:
+                os.dup2(devnull, fd)
+            except OSError:
+                pass
+    finally:
         os.close(devnull)
-    except (OSError, ValueError):
-        pass
