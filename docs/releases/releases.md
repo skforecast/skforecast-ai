@@ -141,6 +141,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-danger">Fix</span> The "How it works" diagram of the README and the [Agentic forecasting][agentic-guide] guides showed `create_cv()` in the fast path, where it needs a profile and a plan. It now shows a `TimeSeriesFold` passed to `backtest(data, cv)`.
 
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` did not show the warnings that skforecast emits while the generated script runs (such as `MissingValuesWarning` when the estimator is trained with missing values): skforecast prints them on standard output, which is discarded while the script runs. They are now shown once it ends, and your warning filters still decide which ones.
+
 + <span class="badge text-bg-danger">Fix</span> CLI errors were printed on standard output, where a program reading the JSON of `--format json` got text instead, lost any text in brackets (such as the `[lower, upper]` of an `--interval` error), and a failed script pointed to `--output-code`, which is only written on success. Errors now go to standard error, as a JSON object `{"error": {"code", "message", "field", "hint"}}` with `--format json`, and a failed script points to `forecast-code` and `backtest-code` (see [Using the CLI][cli-guide]).
 
 + <span class="badge text-bg-danger">Fix</span> With `--format json`, the CLI printed skforecast's warnings (such as `LongTrainingWarning`) on standard output, before the JSON document, so it could not be parsed or piped. Every warning now goes to standard error, with the same format.

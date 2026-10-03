@@ -21,6 +21,8 @@ Every error derives from `SkforecastAIError`, which carries a `code` from a clos
 
 `refine_plan()` and `create_cv()` do not raise when the LLM fails: they emit a `UserWarning` and return their deterministic result, which is valid on its own.
 
+The warnings that skforecast emits while `forecast()`, `backtest()` and `compare()` run the generated script (for example `MissingValuesWarning`) are shown when the script ends, after its printed output is discarded. Your warning filters apply as usual: `warnings.simplefilter('ignore', category=...)` hides them, and an `error` filter makes the script fail.
+
 ## Error codes
 
 | `code` | Raised as | When |
