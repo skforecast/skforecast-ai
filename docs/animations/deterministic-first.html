@@ -257,10 +257,14 @@ function promptBubble(o, call, prompt, close, op){
   if (op <= 0) return;
   // Regular type: the engine measures text once, and an italic face that loads
   // late would be measured with the fallback font and overflow the bubble.
-  const lines = wrap(`"${prompt}"${close}`, LX1 - LX0 - 36, 14).slice(0, 2);
-  o.push(rect(LX0, 158, LX1 - LX0, 78, {rx:10, fill:V('llm'), fo:.07, stroke:V('llm'), so:.4, op}));
-  o.push(text(LX0 + 14, 182, call, {size:12.5, cls:'m', weight:700, op}));
-  lines.forEach((s, k) => o.push(text(LX0 + 14, 204 + k*19, s, {size:14, fill:V('muted'), op})));
+  const lines = wrap(`"${prompt}"`, LX1 - LX0 - 36, 14).slice(0, 2);
+  // What closes the call is code, like the call: its own line and the same type.
+  // The lines tighten to make room for it above the LLM box.
+  const [h, y0, gap, dy] = close ? [84, 178, 18, 18] : [78, 182, 22, 19];
+  o.push(rect(LX0, 158, LX1 - LX0, h, {rx:10, fill:V('llm'), fo:.07, stroke:V('llm'), so:.4, op}));
+  o.push(text(LX0 + 14, y0, call, {size:12.5, cls:'m', weight:700, op}));
+  lines.forEach((s, k) => o.push(text(LX0 + 14, y0 + gap + k*dy, s, {size:14, fill:V('muted'), op})));
+  if (close) o.push(text(LX0 + 14, y0 + gap + lines.length*dy - 1, close, {size:12.5, cls:'m', weight:700, op}));
 }
 
 function llmZone(t, o){
