@@ -1527,3 +1527,30 @@ def test_plan_warnings_kept_when_plan_reloaded_from_json():
 
     assert reloaded.warnings == plan.warnings
     assert len(reloaded.warnings) == 1
+
+
+def test_plan_output_overridden_fields_record_the_arguments_given():
+    """
+    Test that `overridden_fields` names the arguments passed with a value,
+    in the canonical order, and not those left to the rules: None and an
+    empty `estimator_kwargs`, and `steps` and `interval`, which have no
+    rule.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    default = assistant.plan(profile, steps=10, interval=[0.1, 0.9])
+    chosen = assistant.plan(
+        profile,
+        steps            = 10,
+        window_features  = [{"stats": ["mean"], "window_size": 7}],
+        lags             = 3,
+        estimator        = "Ridge",
+        estimator_kwargs = {},
+        forecaster       = "ForecasterRecursive",
+    )
+
+    assert default.overridden_fields == []
+    assert chosen.overridden_fields == [
+        "forecaster", "estimator", "lags", "window_features"
+    ]

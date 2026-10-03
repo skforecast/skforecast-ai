@@ -8,6 +8,7 @@ import pytest
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import (
     InvalidInputError,
+    PlanEditsDiscardedWarning,
     UnrecommendedForecasterWarning,
 )
 from skforecast_ai.schemas import ForecastPlan
@@ -521,3 +522,149 @@ def test_refine_plan_warnings_are_those_of_the_rebuilt_plan():
         )
 
     assert recommended.warnings == []
+
+
+# =============================================================================
+# Tests: overridden_fields and discarded edits
+# =============================================================================
+def test_refine_plan_output_overridden_fields_kept_while_value_is_kept():
+    """
+    Test that the decisions of the user are kept in `overridden_fields`
+    while the refined plan holds their values, that a key passed in the
+    call is added (unless it is None, which asks for the rule), and that a
+    decision whose value is not carried over (lags with ForecasterStats)
+    is dropped.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, lags=[1, 2, 7], estimator="Ridge")
+
+    steps = assistant.refine_plan(profile, plan, steps=12)
+    kwargs = assistant.refine_plan(profile, plan, estimator_kwargs={"alpha": 0.5})
+    reset = assistant.refine_plan(profile, plan, lags=None)
+    stats = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
+
+    assert plan.overridden_fields == ["estimator", "lags"]
+    assert steps.overridden_fields == ["estimator", "lags"]
+    assert kwargs.overridden_fields == ["estimator", "estimator_kwargs", "lags"]
+    assert reset.overridden_fields == ["estimator"]
+    assert stats.overridden_fields == ["forecaster"]
+
+
+def test_refine_plan_output_does_not_mark_carried_values_as_overridden():
+    """
+    Test that the values `refine_plan()` passes to `plan()` from a
+    deterministic plan (forecaster, estimator, lags) are not recorded as
+    decisions of the user.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    refined = assistant.refine_plan(profile, plan, steps=12)
+
+    assert plan.overridden_fields == []
+    assert refined.overridden_fields == []
+
+
+def test_refine_plan_PlanEditsDiscardedWarning_when_plan_edited_by_hand():
+    """
+    Test that values of the plan edited by hand, which `plan()` does not
+    rebuild, are named in a `PlanEditsDiscardedWarning` also kept in the
+    warnings of the refined plan, and that the refined plan holds the
+    values `plan()` builds.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+    edited = plan.model_copy(
+        update={
+            "metric": "mean_squared_error",
+            "forecaster_kwargs": {**plan.forecaster_kwargs, "differentiation": 1},
+        },
+        deep=True,
+    )
+
+    expected = (
+        "refine_plan() rebuilds the plan with plan(), so these values of the "
+        "plan, which differ from what plan() builds for it, were discarded: "
+        "['metric', \"forecaster_kwargs['differentiation']\"]. Pass the ones "
+        "that `refine_plan()` accepts (['estimator', 'estimator_kwargs', "
+        "'forecaster', 'interval', 'lags', 'steps', 'window_features']) as "
+        "overrides to keep them."
+    )
+    with pytest.warns(PlanEditsDiscardedWarning, match=re.escape(expected)):
+        refined = assistant.refine_plan(profile, edited, steps=12)
+
+    assert refined.warnings == [expected]
+    assert refined.metric == plan.metric
+    assert "differentiation" not in refined.forecaster_kwargs
+
+
+def test_refine_plan_no_warning_when_edit_is_replaced_by_an_override():
+    """
+    Test that a value edited by hand and passed again as an override of the
+    call is not reported as discarded, and that the end_train split, the
+    explanation, the warnings and the marks are not compared.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+    edited = plan.model_copy(
+        update={
+            "forecaster_kwargs": {**plan.forecaster_kwargs, "lags": [1, 3]},
+            "end_train": "2023-03-01",
+            "explanation": "Edited.",
+            "warnings": ["Edited."],
+            "llm_refined_fields": ["window_features"],
+        },
+        deep=True,
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        refined = assistant.refine_plan(profile, edited, lags=[1, 2])
+
+    assert refined.forecaster_kwargs["lags"] == [1, 2]
+    assert refined.warnings == []
+
+
+def test_refine_plan_PlanEditsDiscardedWarning_when_plan_cannot_be_rebuilt():
+    """
+    Test that, when `plan()` rejects the values of the plan, the comparison
+    runs again with the overrides of the call (here `lags`, which replace
+    lags too long for the data), and that when it cannot run at all (a
+    forecaster that does not fit the data, replaced in the call) the
+    warning says that edits may have been lost.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+    long_lags = plan.model_copy(
+        update={
+            "metric": "mean_squared_error",
+            "forecaster_kwargs": {**plan.forecaster_kwargs, "lags": [60]},
+        },
+        deep=True,
+    )
+    multi_series = plan.model_copy(
+        update={
+            "task_type": "multi_series",
+            "forecaster": "ForecasterRecursiveMultiSeries",
+        },
+    )
+
+    with pytest.warns(PlanEditsDiscardedWarning, match=re.escape("['metric']")):
+        assistant.refine_plan(profile, long_lags, lags=[1, 2])
+
+    expected = (
+        "refine_plan() rebuilds the plan with plan(), which rejects the values "
+        "of the plan for this profile, so values edited by hand in the plan "
+        "may have been discarded without being compared."
+    )
+    with pytest.warns(PlanEditsDiscardedWarning, match=re.escape(expected)):
+        refined = assistant.refine_plan(
+            profile, multi_series, forecaster="ForecasterRecursive"
+        )
+
+    assert refined.warnings == [expected]

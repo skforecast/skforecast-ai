@@ -388,6 +388,20 @@ class MissingBackendWarning(UserWarning):
     """
 
 
+class PlanEditsDiscardedWarning(UserWarning):
+    """
+    Warned by `refine_plan()` when edits made to the plan are discarded.
+
+    `refine_plan()` builds the refined plan with `plan()`, from the
+    decisions it carries over (the overrides of `RefinePlanOverrides` and
+    the fields in `ForecastPlan.overridden_fields`). A value changed by
+    hand in the plan (in `forecaster_kwargs`, the metric, the
+    preprocessing steps...) that `plan()` would not build is therefore
+    lost. The warning names those fields; its text is also kept in the
+    `warnings` of the refined plan.
+    """
+
+
 class UnrecommendedForecasterWarning(UserWarning):
     """
     Warned by `plan()` when the requested forecaster is not recommended.

@@ -317,6 +317,124 @@ def _check_plan_overrides(
         )
 
 
+def plan_override_value(plan: ForecastPlan, name: str) -> object:
+    """
+    Value a plan holds for one of the decisions in `OVERRIDE_NAMES`, in
+    the form the argument of `plan()` takes it.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to read.
+    name : str
+        Name of the decision, one of `OVERRIDE_NAMES`.
+
+    Returns
+    -------
+    value : object
+        The value; None when the plan does not hold one.
+    """
+
+    kwargs = plan.forecaster_kwargs
+    if name == "forecaster":
+        return plan.forecaster
+    if name == "estimator":
+        return plan.estimator
+    if name == "estimator_kwargs":
+        return plan.estimator_kwargs or None
+
+    return kwargs.get(name)
+
+
+# The argument of `refine_plan()` that sets each field of a plan, and each
+# key of its `forecaster_kwargs`. A field without one cannot be passed, so
+# an edit of it is always lost when the plan is rebuilt.
+_FIELD_OVERRIDES: dict[str, str] = {
+    "forecaster": "forecaster",
+    "estimator": "estimator",
+    "estimator_kwargs": "estimator_kwargs",
+    "steps": "steps",
+    "interval": "interval",
+    "interval_method": "interval",
+}
+_FORECASTER_KWARG_OVERRIDES: dict[str, str] = {
+    "lags": "lags",
+    "window_features": "window_features",
+    "steps": "steps",
+}
+# Fields compared by `discarded_plan_edits`: everything a plan decides, not
+# the split boundary, the explanation, the warnings or the marks.
+_COMPARED_PLAN_FIELDS = (
+    "task_type",
+    "forecaster",
+    "estimator",
+    "estimator_kwargs",
+    "steps",
+    "frequency",
+    "interval",
+    "interval_method",
+    "metric",
+    "metrics_to_compute",
+    "use_exog",
+    "preprocessing_steps",
+)
+
+
+def discarded_plan_edits(
+    plan: ForecastPlan,
+    rebuilt: ForecastPlan,
+    explicit_keys: set[str],
+) -> list[str]:
+    """
+    Fields of a plan that differ from the plan `plan()` builds from the
+    decisions `refine_plan()` carries over, so `refine_plan()` loses them.
+
+    `end_train`, `explanation`, `warnings`, `llm_refined_fields` and
+    `overridden_fields` are not compared, nor the fields that an explicit
+    override of the call replaces anyway.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan received by `refine_plan()`.
+    rebuilt : ForecastPlan
+        Plan that `plan()` builds from what `refine_plan()` carries over
+        from `plan`, without the overrides of the call.
+    explicit_keys : set of str
+        Keys overridden in the call.
+
+    Returns
+    -------
+    fields : list of str
+        Names of the fields that differ, `forecaster_kwargs['key']` for a
+        key of the `forecaster_kwargs` of `plan` that the rebuilt plan
+        drops or changes, in a fixed order.
+    """
+
+    fields: list[str] = []
+    for field in _COMPARED_PLAN_FIELDS:
+        if _FIELD_OVERRIDES.get(field) in explicit_keys:
+            continue
+        value, rebuilt_value = getattr(plan, field), getattr(rebuilt, field)
+        if field == "preprocessing_steps":
+            value = [step.model_dump() for step in value]
+            rebuilt_value = [step.model_dump() for step in rebuilt_value]
+        if value != rebuilt_value:
+            fields.append(field)
+
+    # Only the keys the received plan holds: a key that only the rebuilt
+    # plan has (one that `plan()` of an earlier version did not write) adds
+    # a value, it does not discard one.
+    kwargs, rebuilt_kwargs = plan.forecaster_kwargs, rebuilt.forecaster_kwargs
+    for key in kwargs:
+        if _FORECASTER_KWARG_OVERRIDES.get(key) in explicit_keys:
+            continue
+        if kwargs.get(key) != rebuilt_kwargs.get(key):
+            fields.append(f"forecaster_kwargs['{key}']")
+
+    return fields
+
+
 def resolve_interval_method(task_type: str, interval: list[float] | None) -> str | None:
     """
     Select the prediction interval method for a task type.

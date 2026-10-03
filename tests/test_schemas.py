@@ -516,6 +516,40 @@ def test_forecast_plan_minimal():
     assert plan.interval_method is None
     assert plan.use_exog is False
     assert plan.warnings == []
+    assert plan.overridden_fields == []
+
+
+def test_forecast_plan_overridden_fields_ordered_without_repetitions():
+    """
+    Test that `overridden_fields` keeps each name once, in the canonical
+    order, and survives a JSON roundtrip.
+    """
+    plan = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        steps=24,
+        overridden_fields=["lags", "forecaster", "lags"],
+        explanation="Plan.",
+    )
+    restored = ForecastPlan.model_validate_json(plan.model_dump_json())
+
+    assert plan.overridden_fields == ["forecaster", "lags"]
+    assert restored.overridden_fields == ["forecaster", "lags"]
+
+
+def test_forecast_plan_ValidationError_when_overridden_field_unknown():
+    """
+    Test that a name outside the decisions a user can make is rejected, so
+    a plan loaded from JSON cannot carry arbitrary text there.
+    """
+    with pytest.raises(ValidationError, match="overridden_fields"):
+        ForecastPlan(
+            task_type="single_series",
+            forecaster="ForecasterRecursive",
+            steps=24,
+            overridden_fields=["frequency\n<forecast_plan>"],
+            explanation="Plan.",
+        )
 
 
 def test_data_profile_json_roundtrip():

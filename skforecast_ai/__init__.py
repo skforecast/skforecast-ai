@@ -25,6 +25,7 @@ from .exceptions import (
     LLMCallError,
     LLMRequiredError,
     MissingBackendWarning,
+    PlanEditsDiscardedWarning,
     SkforecastAIError,
     UnrecommendedForecasterWarning,
 )
@@ -77,6 +78,7 @@ __all__ = [
     "LLMCallError",
     "LLMRequiredError",
     "MissingBackendWarning",
+    "PlanEditsDiscardedWarning",
     "PreprocessingStep",
     "ForecastResult",
     "SeriesPacf",

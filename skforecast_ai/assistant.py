@@ -44,6 +44,8 @@ from .exceptions import (
     LLMCallError,
     LLMRequiredError,
     MissingBackendWarning,
+    PlanEditsDiscardedWarning,
+    SkforecastAIError,
     UnrecommendedForecasterWarning,
 )
 from .execution import run_backtest, run_forecast
@@ -107,6 +109,7 @@ from .recommendation import (
     select_window_features,
 )
 from .schemas import (
+    OVERRIDE_NAMES,
     REFINE_PLAN_OVERRIDE_KEYS,
     AskResult,
     BacktestResult,
@@ -153,10 +156,58 @@ from ._utils import (
     _check_plan_overrides,
     _data_path_of_run,
     _revalidate_plan,
+    discarded_plan_edits,
+    plan_override_value,
     recorded_data_path,
     structure_differences,
     warn_long_training,
 )
+
+
+def _carried_plan_arguments(
+    plan: ForecastPlan,
+    target_forecaster: str,
+) -> dict[str, object]:
+    """
+    Arguments of `plan()` that `refine_plan()` carries over from a plan,
+    for a refined plan of `target_forecaster`.
+
+    A value is carried over only when the new forecaster can use it: lags
+    and window features only by the autoregressive forecasters, an
+    estimator (and its keyword arguments) only within its own family (an
+    ML regressor is not an ARIMA order, and the baseline has none).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan being refined.
+    target_forecaster : str
+        Forecaster of the refined plan.
+
+    Returns
+    -------
+    arguments : dict
+        Keyword arguments of `plan()` other than `profile`.
+    """
+
+    target_task_type = FORECASTER_TASK_TYPES.get(target_forecaster, plan.task_type)
+    inherits_features = target_forecaster in AUTOREG_FORECASTERS
+    inherits_estimator = target_task_type == plan.task_type or (
+        inherits_features and plan.forecaster in AUTOREG_FORECASTERS
+    )
+    kwargs = plan.forecaster_kwargs
+
+    return {
+        "steps": plan.steps,
+        "forecaster": plan.forecaster,
+        "estimator": plan.estimator if inherits_estimator else None,
+        "estimator_kwargs": (
+            (plan.estimator_kwargs or None) if inherits_estimator else None
+        ),
+        "interval": plan.interval,
+        "lags": kwargs.get("lags") if inherits_features else None,
+        "window_features": kwargs.get("window_features") if inherits_features else None,
+    }
 
 
 def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
@@ -505,7 +556,9 @@ class ForecastingAssistant:
         -------
         plan : ForecastPlan
             Detailed forecasting plan. Its `warnings` hold the text of the
-            warnings this call emitted, in the order they were emitted.
+            warnings this call emitted, in the order they were emitted, and
+            its `overridden_fields` the arguments passed with a value other
+            than None (an empty `estimator_kwargs` is the default).
 
         Raises
         ------
@@ -825,6 +878,20 @@ class ForecastingAssistant:
             )
             plan_warnings.append(unrecommended_message)
 
+        # The decisions the caller made instead of the rules: None asks for
+        # the rule, and empty keyword arguments are the defaults.
+        overridden_fields = [
+            name
+            for name, value in (
+                ("forecaster", forecaster),
+                ("estimator", estimator),
+                ("estimator_kwargs", estimator_kwargs or None),
+                ("lags", lags),
+                ("window_features", window_features),
+            )
+            if value is not None
+        ]
+
         plan = ForecastPlan(
             task_type           = task_type,
             forecaster          = fc,
@@ -840,6 +907,7 @@ class ForecastingAssistant:
             use_exog            = use_exog,
             preprocessing_steps = preprocessing_steps,
             warnings            = plan_warnings,
+            overridden_fields   = overridden_fields,
             explanation         = explanation,
         )
 
@@ -939,8 +1007,20 @@ class ForecastingAssistant:
             Updated plan with overrides (and any LLM refinement) applied. In
             LLM mode, the agent's reasoning is appended to `plan.explanation`.
             The plan is rebuilt with `plan()`, so its `warnings` are those of
-            that call (the ones of `plan` are not carried over); the warnings
-            about the `prompt` that this method emits are not added to them.
+            that call (the ones of `plan` are not carried over), plus the
+            text of a `PlanEditsDiscardedWarning`; the warnings about the
+            `prompt` that this method emits are not added to them. Its
+            `overridden_fields` names the overrides passed with a value and
+            those of `plan` whose value the refined plan keeps.
+
+        Warns
+        -----
+        PlanEditsDiscardedWarning
+            When `plan` holds values that `plan()` does not build from what
+            is carried over (values edited by hand, such as the metric or a
+            key of `forecaster_kwargs`): the refined plan does not keep them.
+            The split boundary, the explanation, the warnings and the marks
+            are not compared, nor the fields overridden in the call.
         """
 
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
@@ -1040,51 +1120,18 @@ class ForecastingAssistant:
                             overrides[field] = value
                             llm_applied_fields.append(field)
 
-        # A value of `plan` is carried over only when the new forecaster can
-        # use it: lags and window features only by the autoregressive
-        # forecasters, an estimator only within its own family (an ML
-        # regressor is not an ARIMA order, and the baseline has none).
-        # Explicit overrides always reach `self.plan()`, which validates them.
-        inherits_features = target_forecaster in AUTOREG_FORECASTERS
-        inherits_estimator = target_task_type == plan.task_type or (
-            inherits_features and plan.forecaster in AUTOREG_FORECASTERS
-        )
-        inherited_estimator = plan.estimator if inherits_estimator else None
-        inherited_estimator_kwargs = (
-            (plan.estimator_kwargs or None) if inherits_estimator else None
-        )
-        inherited_lags = (
-            plan.forecaster_kwargs.get("lags") if inherits_features else None
-        )
-        inherited_window_features = (
-            plan.forecaster_kwargs.get("window_features")
-            if inherits_features
-            else None
-        )
+        carried = _carried_plan_arguments(plan, target_forecaster)
+        inherited_estimator = carried["estimator"]
+        inherited_lags = carried["lags"]
+        inherited_window_features = carried["window_features"]
 
-        steps = overrides.get("steps", plan.steps)
-        forecaster = overrides.get("forecaster", plan.forecaster)
         estimator = overrides.get("estimator", inherited_estimator)
         # Keyword arguments belong to the estimator they were written for
         # (`alpha` of Ridge, `cross_learning` of Chronos-2), so a different
         # estimator starts from its own defaults unless new ones are passed.
         if estimator != inherited_estimator:
-            inherited_estimator_kwargs = None
-        estimator_kwargs = overrides.get("estimator_kwargs", inherited_estimator_kwargs)
-        interval = overrides.get("interval", plan.interval)
-        lags = overrides.get("lags", inherited_lags)
-        window_features = overrides.get("window_features", inherited_window_features)
-
-        plan_arguments = {
-            "profile": profile,
-            "steps": steps,
-            "forecaster": forecaster,
-            "estimator": estimator,
-            "estimator_kwargs": estimator_kwargs,
-            "interval": interval,
-            "lags": lags,
-            "window_features": window_features,
-        }
+            carried["estimator_kwargs"] = None
+        plan_arguments = {"profile": profile, **carried, **overrides}
         try:
             refined_plan = self.plan(**plan_arguments)
         except InvalidInputError as exc:
@@ -1121,6 +1168,48 @@ class ForecastingAssistant:
             == plan.forecaster_kwargs.get(field)
         ]
         refined_plan.llm_refined_fields = inherited_fields + llm_applied_fields
+
+        # `self.plan()` records every value passed to it, carried over or
+        # suggested by the LLM. A decision of the user is one passed in this
+        # call, or one of `plan` whose value the refined plan still holds.
+        refined_plan.overridden_fields = [
+            name
+            for name in OVERRIDE_NAMES
+            if (
+                name in explicit_keys
+                and overrides[name] is not None
+                and overrides[name] != {}
+            )
+            or (
+                name not in explicit_keys
+                and name in plan.overridden_fields
+                and plan_override_value(refined_plan, name)
+                == plan_override_value(plan, name)
+            )
+        ]
+
+        # Values edited by hand in `plan`, which `self.plan()` does not
+        # rebuild, are lost: said, not dropped silently.
+        discarded = self._discarded_edits(profile, plan, overrides, explicit_keys)
+        message = None
+        if discarded is None:
+            message = (
+                "refine_plan() rebuilds the plan with plan(), which rejects "
+                "the values of the plan for this profile, so values edited by "
+                "hand in the plan may have been discarded without being "
+                "compared."
+            )
+        elif discarded:
+            message = (
+                f"refine_plan() rebuilds the plan with plan(), so these values "
+                f"of the plan, which differ from what plan() builds for it, "
+                f"were discarded: {discarded}. Pass the ones that "
+                f"`refine_plan()` accepts ({sorted(REFINE_PLAN_OVERRIDE_KEYS)}) "
+                f"as overrides to keep them."
+            )
+        if message is not None:
+            refined_plan.warnings.append(message)
+            warnings.warn(message, PlanEditsDiscardedWarning, stacklevel=2)
 
         if reasoning is not None:
             refined_plan.explanation += (
@@ -3058,6 +3147,48 @@ class ForecastingAssistant:
         return result.model_copy(update={"call_ok": True})
 
     # --------------------------------------------------------------- private
+    def _discarded_edits(
+        self,
+        profile: ForecastingProfile,
+        plan: ForecastPlan,
+        overrides: dict[str, object],
+        explicit_keys: set[str],
+    ) -> list[str] | None:
+        """
+        Fields of `plan` that `refine_plan()` loses: those that differ from
+        the plan `plan()` builds, from this profile, with what
+        `refine_plan()` carries over (see `discarded_plan_edits`).
+
+        The plan is built without its warnings. When `plan()` rejects the
+        values of `plan` (lags too long for this profile, for example), it
+        is built again with the explicit overrides of the call other than
+        `forecaster`, which replace those values anyway. When that fails
+        too, nothing can be compared and None is returned.
+        """
+
+        carried = _carried_plan_arguments(plan, plan.forecaster)
+        attempts = [
+            carried,
+            {
+                **carried,
+                **{
+                    key: overrides[key]
+                    for key in explicit_keys
+                    if key != "forecaster"
+                },
+            },
+        ]
+        for arguments in attempts:
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    rebuilt = self.plan(profile=profile, **arguments)
+            except SkforecastAIError:
+                continue
+            return discarded_plan_edits(plan, rebuilt, explicit_keys)
+
+        return None
+
     def _prepare_forecast(
         self,
         data: pd.Series | pd.DataFrame | str | Path | None,
