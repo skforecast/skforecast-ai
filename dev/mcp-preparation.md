@@ -1614,3 +1614,179 @@ Antes de mergear la fase 4b, una verificación independiente comparó `0.4.x` (`
 - Cancelación dura y timeouts (un candidato en curso no se puede parar), `userConfig` del plugin, y Cursor y Codex probados en real: después de 0.4.0.
 - Un CSV por debajo de `--max-file-mb` pero con cientos de miles de columnas aún consume mucha memoria y tiempo; documentado como límite de bytes, no de memoria.
 - Los PRs 20 a 38 de la tabla 10.8; el PR 23 (comprobaciones tempranas) quitará los `internal_error` que quedan por CSV ilegibles.
+
+## 18. Fase 5a: hecho
+
+Arreglos del núcleo y del CLI que quedaban para 0.4.0 (PRs 20 a 29 de la tabla 10.8, más los puntos 11 y 12 de las preguntas de 10.10), en la rama `fix/core-checks`, creada desde `0.4.x` (`4047bfa`). Un commit por punto, en el orden pedido, cada uno con su código, sus tests, su documentación y, si se ve, su entrada en `docs/releases/releases.md` (0.4.0), y cada uno subido al terminar. Antes de cada commit se pasaron `/verify` (lint, tests afectados, suite completa y build de la documentación), el subagente `conventions-reviewer` y `/code-review`, y en el PR 23, el PR 27 y el punto 12 también `/security-review`, sin hallazgos en ninguno. Lo que encontraron las revisiones se corrigió antes de subir cada commit. Ningún commit subido se reescribió y ninguno necesitó una corrección posterior. Cada mensaje de commit lleva su lista "Cambios para el usuario" y las elecciones conservadoras con su criterio de la sección 10.
+
+Goldens: los de render y los de contexto del LLM (`ask()` y `describe()`) no cambian en ningún commit. El PR 28 podía cambiar los de render, pero ninguno usa una frecuencia anclada. El PR 27 y el punto 12 podían cambiar los del LLM, pero solo cambian para datos distintos del perfil o para textos con saltos de línea o etiquetas, que no salen en ningún golden. El golden de los esquemas de los tools del MCP cambia en 3 líneas: dos descripciones de `create_cv` en el PR 23 y la de `gap` en el PR 24.
+
+| Commit | Punto | Contenido |
+|---|---|---|
+| `fd868ad` | PR 20 | Los avisos del CLI van a stderr |
+| `b712ddc` | PR 21 | Contrato de errores del CLI y `--steps` con `--from-plan` |
+| `7b41d90` | PR 22 | `exec_rendered` muestra los avisos del script |
+| `86bb0ad` | PR 23 | Comprobaciones tempranas de entradas (10.3) |
+| `2be3853` | PR 24 | Rechazar planes que no pueden ejecutarse |
+| `961984a` | PR 25 | Comprobaciones de la partición de evaluación |
+| `ea4f9bd` | PR 26 | `CVResult`, plan contra perfil y `end_train` |
+| `e5c3773` | PR 27 | Datos frente a perfil guardado (SIL-1) |
+| `c81e5e3` | PR 28 | Periodo estacional con frecuencias ancladas |
+| `24953b0` | PR 29 | Se elimina el alias `result` de `ask()` |
+| `49d99f0` | Punto 11 | Fechas escritas en más de un formato |
+| `93ef36f` | Punto 12 | Texto libre del plan escapado en el contexto del LLM |
+
+**Qué cubre cada commit.**
+- PR 20: el callback del CLI envuelve el manejador de avisos de skforecast para que escriba en stderr con el mismo formato; se restaura al terminar el comando. `--format json` vuelve a dar un JSON que se puede leer aunque haya avisos.
+- PR 21:
+  - Los errores van a stderr, escapados (el texto entre corchetes ya no se pierde).
+  - Con `--format json` son un objeto `{"error": {...}}` con los campos de `ErrorInfo`.
+  - `--format` solo acepta los valores de cada comando (código de salida 2).
+  - `--steps` con `--from-plan` distinto del plan sale con 1, como en Python.
+  - Un bundle de `--from-plan` mal formado dice qué falta (`field='from_plan'`).
+  - El texto imprime `Tip: <hint>` cuando el error trae uno.
+- PR 22: `exec_rendered` guarda los avisos que el script emite en el hilo actual y los muestra al terminar, por el manejador que encontró (también si el script falla). Los filtros no se tocan y el manejador se cambia a mano, sin `catch_warnings`, para no reiniciar los registros de avisos ya mostrados.
+- PR 23 (10.3):
+  - Comprobaciones de `series_id_column` y de `target`: vacío, sin valores (`insufficient_data`) o con texto que no es número.
+  - CSV ilegibles como `data_unreadable`; `end_train` que no es fecha.
+  - `estimator_kwargs` que no es un dict, y los nombres de `Arima`.
+  - Los errores de `TimeSeriesFold` envueltos con su argumento en `field`; `skip_folds` fuera de los folds; `fixed_train_size` sin reentrenar.
+  - El backend de un modelo foundation, antes de ejecutar (`missing_dependency`).
+  - Valores infinitos del target; `compare()` sin baseline con un intervalo asimétrico.
+  - `data` y `cv` de un tipo incorrecto.
+  - `hint` en los remedios que los mensajes daban con llamadas de pandas.
+  - En el servidor se quitó `_cv_argument_error`, porque el núcleo da lo mismo o más; el control propio del backend se queda porque su pista nombra `uvx --with`.
+- PR 24:
+  - Forecasters multiserie sobre una serie; ForecasterDirectMultiVariate en formato largo con una serie.
+  - Exógenas con el nombre de un lag o de una window feature.
+  - Baseline sin frecuencia.
+  - Forecaster directo con `gap` en `backtest()`.
+  - Series sin valores o no más largas que la ventana en ForecasterRecursiveMultiSeries (`insufficient_data`).
+  - `refine_plan()` vuelve a los valores anteriores, con un aviso, cuando la sugerencia del LLM queda rechazada.
+- PR 25:
+  - En modo evaluación (`validate_evaluation_partition`), cada serie de ForecasterRecursiveMultiSeries necesita valor en el último día de entrenamiento y en las fechas de test.
+  - La partición de entrenamiento pasa por la regla de valores ausentes de la última ventana.
+  - `_check_evaluated_target` con `level` y huso horario.
+  - Un `end_train` subdiario a medianoche conserva la hora. Antes entrenaba con todo el día y comparaba predicciones desplazadas con estado ok; el fallo ya estaba en la base.
+- PR 26:
+  - `backtest()` y `backtest_code()` con un `CVResult` y sin plan ejecutan el plan del `CVResult`.
+  - Un `CVResult` de otra estructura falla en `backtest()`, `backtest_code()` y `compare()`.
+  - Un plan recibido se compara con el perfil: frecuencia, forma, exógenas que usa y calendario.
+  - `forecast()` sin `test_size` con un plan de evaluación falla.
+- PR 27 (decisión del autor, pregunta 7):
+  - Con `data` y un `profile` guardado, los datos se perfilan otra vez con el target, la fecha y la serie del perfil.
+  - Otra estructura (frecuencia, series, target o exógenas) da `InvalidInputError` con `field='profile'` y una pista.
+  - Mismos valores: se devuelve el perfil guardado, sin repetir sus avisos.
+  - Otros valores (filas nuevas): se usa el perfil nuevo, con una nota en `DataProfile.warnings` que nombra los campos que cambiaron.
+  - La comparación deja fuera `data_path` y `warnings`, ordena las columnas y trata NaN como igual a NaN. Un perfil refrescado vuelve igual si se le pasan los mismos datos.
+- PR 28: `tabulated_seasonal_period` lee una frecuencia anclada como su alias base. Lo usan el `m` de Auto-ARIMA, la regla que deja Auto-ARIMA fuera de los candidatos y el baseline. Afecta a todo dato trimestral (`QS-OCT`, `QE-DEC`), al semanal que no acaba en domingo o lunes (`W-WED`) y al anual (`YE-DEC`, que escribe `m=1`, su valor por defecto).
+- PR 29 (decisión del autor, pregunta 15): `ask(result=...)` da `TypeError`; los docstrings de `create_cv()` y `CVResult` dicen `context`. La fila 29 de la tabla 10.8 y la lista de 10.6, que decían "hasta 0.5.0", quedan superadas por esta decisión.
+- Punto 11 (decisión del autor, pregunta 5):
+  - `_read_date_column`, común a la detección de fechas del CSV, a `detect_date_column` y al cargador de exógenas futuras, lee la columna como el script.
+  - Solo si falla, lee las fechas una a una para decir por qué no puede ser la columna de fechas.
+  - El error cita la primera fecha y otra que no encaja con ninguna lectura de esa primera, y pide un solo formato.
+  - `format='mixed'` no se escribe en el script, y `parse_text_dates` pierde su opción `mixed`, que ya no usaba nadie.
+- Punto 12 (decisión del autor, pregunta 17):
+  - `_free_text` escribe la explicación del plan y la razón de cada paso de preprocesado en una línea.
+  - Los caracteres Cc, Zl, Zp y Cf pasan a su secuencia de escape, y el `<` que abre texto con forma de etiqueta pasa a `&lt;`.
+  - No se rechaza ningún plan. `plan.warnings` no llega al contexto (solo a la pantalla), así que no hay nada que escapar.
+
+**Desviaciones respecto a la sección 10, con su motivo.**
+- PR 20: el comando `mcp` conserva su manejador, porque el servidor registra los avisos por llamada en un hilo y `redirect_stdout` no es seguro entre hilos (criterio 3). No hay panel "Plan Warnings" en las tablas del CLI: cada aviso ya sale en stderr y `--format json` lleva `plan.warnings`.
+- PR 21: un valor rechazado por el parser de una opción mantiene el código 2 y el texto de uso de click; solo con `--format json` es el objeto JSON. Los errores que click da antes de que el comando conozca su formato (opción desconocida, `--format xml`) siguen siendo texto.
+- PR 22: los avisos se pasan al manejador guardado en lugar de reemitirse con `warn_explicit`, como decía 10.2. Reemitidos, los filtros verían un módulo derivado del nombre del fichero, y un filtro `error` lanzaría fuera del script.
+- PR 23:
+  - 10.3 no decide si los valores infinitos son error o aviso. En la base todos los forecasters entrenados ya fallaban o daban NaN, así que se rechazan antes; el baseline solo cuando sus predicciones leen el valor.
+  - El rango de `skip_folds` solo se comprueba en las estrategias de `create_cv()`; un `TimeSeriesFold` directo funcionaba en 0.3.1.
+  - La comprobación numérica del target está en `profile()` y no en `create_data_profile`, que es pública y describe un target categórico.
+- PR 24:
+  - `backtest_code()` y `create_cv()` no rechazan un forecaster directo con `gap`: devolvían su resultado en 0.3.1 y el documento no los decide. Va a las preguntas.
+  - El plan de ForecasterStats que aconseja `dropna_from_series` (sección 12) es un cambio de explicación, no un plan que no se pueda ejecutar: queda para después.
+- PR 25: las reglas multiserie solo se aplican en modo evaluación; en predicción siguen las decisiones de la sección 12.
+- PR 26:
+  - Un plan sin frecuencia (hecho a mano) no se compara.
+  - Las exógenas del plan no se comparan con las del perfil, para no romper planes reutilizados con datos nuevos (de eso se ocupa el PR 27).
+  - `forecast_code()` sigue generando el split de un plan con `end_train`.
+  - `interval` con un `CVResult` construye un plan nuevo, como los demás argumentos del modelo.
+- PR 27:
+  - Si cambian los valores, se rehace todo el `ForecastingProfile`, porque la decisión dice "re-perfilar". Un plan recibido se ejecuta tal cual aunque el perfil nuevo recomiende otro forecaster.
+  - Los datos que difieren se perfilan dos veces (el `DataProfile` silenciado y después `profile()`), para no reemitir avisos a mano.
+  - En el servidor, un CSV que cambió sigue dando `data_changed`, porque su comprobación de huella va antes que el núcleo.
+- PR 28: la regla de candidatos lee el mismo periodo que el script. Con solo el script arreglado, los datos semanales anclados de martes a sábado habrían seguido proponiendo ForecasterStats con `m=52`, cuya búsqueda tardó 47 s por ajuste frente a 2 s con `m=1` (260 filas; unos 5 minutos en un `compare()` por defecto). La regla `MAX_STATS_SEASONAL_PERIOD` ya lo hacía con `W-SUN`. Es un cambio para el usuario que el documento no nombra; está justificado en el commit.
+- PR 29: no se deja un error más amable, porque exigiría conservar el argumento, en contra de la decisión. La nota de la release da la migración.
+- Punto 11:
+  - Las fechas día-primero cuya primera fecha se lee mes-primero (`01/02/2023` y después `13/02/2023`) están en un solo formato. Se leen como en 0.3.1 y `plan()` da el error de frecuencia con el consejo de día-primero, porque rechazarlas en `profile()` rompería una llamada que funcionaba sin que el documento lo decida.
+  - Los nombres de zona que cambian (CET, CEST), con los que el script ya fallaba, dan el mensaje existente de varias zonas horarias.
+  - El control propio del cargador de exógenas se queda, para lo que el control común deja pasar.
+- Punto 12:
+  - Solo se escapan los textos del plan que nombra la decisión.
+  - El razonamiento que `refine_plan()` añade con un LLM tiene saltos de línea, así que sus párrafos se leen como `\n`; la nota de la release lo dice.
+  - La función no se comparte con `_comment_text` del render, que no escapa Cf, porque la capa `llm` no importa el render.
+
+**Cambios para el usuario.**
+- Python:
+  - Fallan antes de ejecutar, con código y campo, las llamadas de 0.3.1 que fallaban dentro del script o devolvían un resultado erróneo con estado ok. Son los casos de los PRs 23 a 26 y el punto 11: estructura, series cortas o sin valores, `gap` directo, infinitos, partición de evaluación, `CVResult` o plan de otros datos, fechas en varios formatos.
+  - Además dan `ValueError` llamadas que funcionaban:
+    - `create_cv(fixed_train_size=...)` sin `refit`;
+    - `skip_folds` fuera de rango;
+    - `series_id_column` igual al target o a la fecha;
+    - `forecast()` sin `test_size` con un plan de evaluación;
+    - datos de otra estructura con un perfil guardado;
+    - `ask(result=...)`, que da `TypeError`.
+  - Otros resultados:
+    - `backtest()` con un `CVResult` y sin plan ejecuta su plan;
+    - con un perfil guardado y datos con otros valores se usa el perfil nuevo, con una nota;
+    - Auto-ARIMA usa `m=4` o `m=52` con frecuencias ancladas, y deja de ser candidato con las semanas ancladas de martes a sábado;
+    - `end_train` subdiario a medianoche conserva la hora y da las métricas correctas;
+    - `compare()` con un intervalo asimétrico no tiene fila de baseline.
+  - Avisos nuevos:
+    - los avisos del script de skforecast se muestran;
+    - un valor ausente que lee un estimador tolerante en la partición de entrenamiento avisa;
+    - `refine_plan()` avisa cuando rechaza la sugerencia del LLM;
+    - `plan(forecaster='ForecasterStats')` con semanas ancladas de martes a sábado da `UnrecommendedForecasterWarning`.
+- CLI:
+  - Los avisos y los errores van a stderr; un error es JSON con `--format json`.
+  - `--steps` con `--from-plan` distinto del plan sale con 1, y un `--format` inválido con 2.
+  - Hay `Tip: <hint>`.
+  - `--fixed-train-size` necesita `--refit`.
+  - Los cambios de Python se ven igual, también con `--from-plan` y `--from-profile` frente a datos de otra estructura.
+- Servidor MCP:
+  - Los mismos errores llegan antes de ejecutar, con su código; los errores de `create_cv` llevan `field`.
+  - Un candidato foundation sin backend falla antes de correr.
+  - Los avisos del script llegan como notices después de los de la llamada.
+  - Un CSV con fechas en varios formatos es `invalid_argument` en `profile`.
+  - Los resúmenes (`describe()`) escapan el texto libre de un plan.
+  - El SKILL.md, su copia del plugin, `docs/api/mcp.md` y las descripciones de los tools lo dicen.
+
+**Tests.** De 3274 pasados en `0.4.x` (`4047bfa`) a 3735, es decir, 461 más; en cada `/verify`, todos pasados salvo el omitido de siempre. Por commit (pasados): 3279 (PR 20), 3298 (21), 3307 (22), 3477 (23), 3557 (24), 3628 (25), 3669 (26), 3701 (27), 3726 (28), 3726 (29), 3732 (punto 11) y 3735 (punto 12).
+
+**Paridad final.** Con `4047bfa` como base y el último commit de la rama, los cinco escenarios dan resultados idénticos, sin ningún aviso en ninguno de los dos lados: h2o desde CSV, h2o desde DataFrame, bike_sharing con exógenas futuras, e items_sales ancho y largo. Se compararon el perfil, el plan, el script de `forecast_code()`, las predicciones y el script de `forecast()`, las predicciones, métricas y script del modo evaluación, el CV, el script de `backtest_code()` y las predicciones, métricas y script de `backtest()`. También coincidía tras el punto 11, el último cambio de la lectura de datos. Ningún PR cambia a propósito estos escenarios: el PR 28 solo afecta a frecuencias ancladas y el PR 27 a datos distintos de su perfil.
+
+**Para la lista del check de pago.**
+- PR 23: la nota "No baseline: ..." de la explicación de `compare()` con un intervalo asimétrico.
+- PR 27: la nota de `DataProfile.warnings` cuando los datos difieren del perfil (llega a `ask()` y `describe()`).
+- Punto 12: el cambio de `llm/context.py`. Un plan con saltos de línea o etiquetas, y un plan refinado con LLM, cuyos párrafos llegan como `\n`.
+
+**Preguntas nuevas para el autor.**
+1. `backtest_code()` y `create_cv()` con un forecaster directo y `gap`: `backtest()` lo rechaza (PR 24), pero estos dos devuelven un resultado que fallará. ¿Se rechazan también? Un CV de `create_cv()` puede servir a otros forecasters en `compare()`.
+2. Texto libre de otros objetos en el contexto del LLM, sin escapar: la explicación del perfil y `DataProfile.warnings`, que un JSON de `--from-plan` o `--from-profile` también trae, y la explicación del CV, que incluye el razonamiento del LLM de `create_cv()`. ¿Se les aplica `_free_text`? Los goldens no cambiarían.
+3. Planes refinados con LLM: sus párrafos se leen como `\n` en el contexto. ¿Se aceptan así, o se renderizan con sangría en varias líneas, con las etiquetas escapadas?
+4. Fechas día-primero cuya primera fecha se lee mes-primero: `profile()` las acepta sin frecuencia y `plan()` falla después. ¿Se rechazan ya en `profile()` con el consejo de día-primero?
+5. Frecuencias multiplicadas (`2W`, `3h`): Auto-ARIMA sigue sin `m` mientras el baseline usa `estimate_seasonality`. Los alias antiguos de pandas 2.1 (`Q-DEC`, `H`) no están en la tabla, como antes. ¿Se unifican las dos tablas de periodos (`FREQUENCY_TO_SEASONAL_PERIOD` y la de `estimate_seasonality`)?
+6. PR 27: un plan recibido se ejecuta aunque el perfil refrescado recomiende otro forecaster. ¿Se avisa? Y en el servidor, ¿se mantiene `data_changed` (pregunta 5 de la sección 16) ahora que Python refresca el perfil?
+7. ForecasterStats que aconseja `dropna_from_series` (sección 12): pendiente desde el PR 24, porque es un cambio de explicación (check de pago).
+
+**Pendiente o anotado.**
+- `backtest()` de datos con huso horario y un `initial_train_size` de fecha falla dentro del script ("Cannot compare tz-naive and tz-aware"), como en 0.3.1.
+- `compare()` con un target infinito no falla antes de empezar: un baseline que no lee el valor aún puede ganar, como en 0.3.1.
+- El `start_date` de series en formato largo que empiezan en fechas distintas es el inicio más tardío.
+- Rendimiento: `validate_series_lengths` calcula `_series_spans` otra vez; un perfil guardado se vuelve a perfilar en cada llamada (y dos veces si los datos cambiaron).
+- El escape del punto 12 no cubre los corchetes de ancho completo (`＜`); un `\n` literal en el texto se lee igual que un salto escapado.
+
+**Qué queda para 0.4.0.**
+- PRs 30 a 38 de la tabla 10.8: overrides (`overridden_fields`, `metric`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer`, `dropna_from_series`), avisos del plan en el contexto, límites de `describe()` en `ask()` (opcional), paridad del CLI y `profile(exog_columns=...)`; cada uno con su exposición en el servidor.
+- El check de pago, una sola vez al final, con la lista de las secciones 3, 12, 13, 14 y 15, lo de esta fase (arriba) y lo que añadan los PRs 30 a 36.
+- Las preguntas de arriba.
+- El plan de release de 17.1: skforecast 0.26.0, después skforecast-ai 0.4.0 en PyPI y solo entonces el merge de `0.4.x` a `main`.
+
+**Siguiente:** los PRs 30 a 38 y, al final, el check de pago.
