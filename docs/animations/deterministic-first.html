@@ -91,7 +91,7 @@ const T = {
   machine:[0.2,0.8], data:[0.4,1.0], draw:[0.8,3.0],
   a1:[3.2,3.8], prof:[3.6,4.2], scan:[4.2,7.4], profRow:4.4, profStep:.6, chipDur:.7,
   a2:[9.6,10.2], plan:[10.0,10.6], planRow:10.8, planStep:.7, badge:[14.6,15.2],
-  llm:[17.0,17.6], prompt:[17.6,18.2], fly:18.8, flyDur:1.3, lock:[18.8,19.4],
+  llm:[17.0,17.6], prompt:[17.3,17.9], llmBox:[18.0,18.6], fly:18.8, flyDur:1.3, lock:[18.8,19.4],
   resp1:[21.0,21.8], go1:[22.0,23.0], red:[23.0,24.6], back1:[23.4,24.3], err:[23.2,26.8],
   resp2:[25.0,25.8], go2:[26.0,27.0], green:[27.0,28.6], into:[27.2,28.2], swap:[28.0,28.5], ok:[27.2,99],
   fallback:[28.8,29.4],
@@ -193,7 +193,6 @@ function dataCard(t, o){
   const a = P(t, ...T.data);
   if (a <= 0) return;
   card(o, DX0, TOP, DX1, BOT, 'data', 'bike_sharing, users per hour', a, false);
-  o.push(text(DX1 - 16, TOP + 28, 'last week', {size:12, anchor:'end', fill:V('muted'), op:a}));
   o.push(line(DX0 + 14, BOT - 15, DX1 - 14, BOT - 15, {op:a}));
   o.push(path(polyline(WEEK.map(dataPt), P(t, ...T.draw)), {stroke:V('series'), sw:1.4, op:a}));
   // profiling scans the series
@@ -274,9 +273,10 @@ function llmZone(t, o){
   o.push(text(LX0, MY0 + 22, 'LLM, optional', {size:14, weight:700, fill:V('llm'), op:a}));
   promptBubble(o, 'refine_plan(..., prompt=', D.llm.refine_prompt, P(t, ...T.prompt)*k3);
   promptBubble(o, 'ask(context=result, prompt=', ASK_PROMPT, P(t, ...T.askPrompt));
-  // model
-  o.push(rect(LX0, LY0, LX1 - LX0, LY1 - LY0, {rx:12, fill:V('panel'), stroke:V('llm'), so:.7, sw:1.5, op:a}));
-  o.push(text(LX0 + 16, LY0 + 32, 'LLM', {size:20, weight:700, fill:V('llm'), op:a}));
+  // model: after the call that reaches it
+  const b = P(t, ...T.llmBox);
+  o.push(rect(LX0, LY0, LX1 - LX0, LY1 - LY0, {rx:12, fill:V('panel'), stroke:V('llm'), so:.7, sw:1.5, op:b}));
+  o.push(text(LX0 + 16, LY0 + 32, 'LLM', {size:20, weight:700, fill:V('llm'), op:b}));
   // what it reads (the cards arrive in traffic())
   const ra = lin(t, T.fly + T.flyDur - .1, T.fly + T.flyDur + .2);
   const rr = lin(t, T.resFly[1] - .1, T.resFly[1] + .2);
