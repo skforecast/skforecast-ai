@@ -1,6 +1,5 @@
 # Unit test tool create_cv
 
-import logging
 import pytest
 
 from skforecast_ai import ForecastingAssistant
@@ -166,34 +165,58 @@ def test_tool_create_cv_invalid_argument(tmp_path, arguments, field):
     assert error["field"] == field
 
 
-def test_tool_create_cv_internal_error_when_skforecast_rejects_the_strategy(
-    tmp_path, caplog
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"initial_train_size": 500},
+        {"initial_train_size": "2030-01-01"},
+        {"gap": 190},
+    ],
+    ids=["train size beyond the data", "date after the data", "gap too large"],
+)
+def test_tool_create_cv_invalid_argument_when_skforecast_rejects_the_strategy(
+    tmp_path, arguments
 ):
     """
-    Test that an error of skforecast that the core does not wrap (a first
-    training set longer than the data, rejected by `TimeSeriesFold`) reaches
-    the agent as `internal_error` with its type and an id, its message going
-    to the log of the server, and registers nothing.
+    Test that a strategy that skforecast rejects (a first training set
+    beyond the data, a gap that leaves no fold) reaches the agent as
+    `invalid_argument` with the reason, not as an `internal_error` that only
+    names the type: the tool reads no rows of the data, and the agent needs
+    the reason to correct its arguments. Nothing is registered.
     """
     server, _, _, plan_id = _planned(tmp_path, steps=12)
 
-    with caplog.at_level(logging.ERROR, logger="skforecast_ai.mcp"):
-        error = error_of(
-            call(server, "create_cv", {"plan_id": plan_id, "initial_train_size": 500}),
-            "create_cv",
-        )
+    error = error_of(
+        call(server, "create_cv", {"plan_id": plan_id, **arguments}), "create_cv"
+    )
 
-    assert error["code"] == "internal_error"
-    assert error["details"] == {
-        "error_id": error["details"]["error_id"],
-        "error_type": "ValueError",
-    }
-    assert error["message"].startswith("Unexpected ValueError.")
-    # The whole message, with the lines the agent never saw, is logged.
-    assert caplog.records[-1].getMessage().startswith(
-        f"internal_error {error['details']['error_id']}: ValueError: The time "
-        f"series must have more than `initial_train_size + gap` observations "
-        f"to create at least one fold.\n"
+    assert error["code"] == "invalid_argument"
+    assert error["message"].startswith(
+        "The cross-validation strategy cannot be built: "
+    )
+    assert error["hint"] == (
+        "Change the arguments of `create_cv` (or `steps` of the plan with "
+        "`refine_plan`) so that at least two folds fit in the data."
     )
     kinds = [o["kind"] for o in content_of(call(server, "list_objects", {}))["objects"]]
     assert kinds == ["plan", "profile"]
+
+
+def test_tool_create_cv_invalid_argument_message_when_train_size_beyond_data(tmp_path):
+    """
+    Test the message of a first training set longer than the data: the one
+    of skforecast, on one line.
+    """
+    server, _, _, plan_id = _planned(tmp_path, steps=12)
+
+    error = error_of(
+        call(server, "create_cv", {"plan_id": plan_id, "initial_train_size": 500}),
+        "create_cv",
+    )
+
+    assert error["message"] == (
+        "The cross-validation strategy cannot be built: The time series must "
+        "have more than `initial_train_size + gap` observations to create at "
+        "least one fold. Time series length: 204 Required > 500 "
+        "initial_train_size: 500 gap: 0"
+    )

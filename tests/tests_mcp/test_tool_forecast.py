@@ -101,15 +101,19 @@ def test_tool_forecast_with_future_exog(tmp_path):
 
 @pytest.mark.parametrize(
     "test_size, field",
-    [("12", "test_size"), (True, "test_size"), ("1e1", "test_size")],
+    [
+        ("12", "test_size"), (True, "test_size"), ("1e1", "test_size"),
+        ("next month", "test_size"),
+    ],
     ids=lambda dt: f"{dt!r}",
 )
 def test_tool_forecast_invalid_argument_when_test_size_is_text_or_bool(
     tmp_path, test_size, field
 ):
     """
-    Test that a number written as text or a bool as `test_size` is
-    `invalid_argument`.
+    Test that a number written as text, a bool or text that is not a date
+    as `test_size` is `invalid_argument` (text that is not a date reached
+    pandas and came back as an `internal_error` without its reason).
     """
     server, path = h2o_server(tmp_path)
     _, plan_id = profile_and_plan(server, path)

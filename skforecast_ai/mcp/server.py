@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args, get_origin
 import anyio
+import pandas as pd
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.server.mcpserver.tools import Tool
@@ -662,6 +663,52 @@ def _text_notices(
     ]
 
 
+def _cv_argument_error(exc: Exception) -> ServerError:
+    """
+    Turn an error of skforecast while it builds the cross-validation
+    strategy into an `invalid_argument` the agent can act on.
+
+    `create_cv` reads the profile and the plan, never the rows of the data,
+    so the message of skforecast (sizes, dates of the index) is sent as it
+    is, where an unexpected error only sends its type: an
+    `initial_train_size` beyond the data, a `gap` too large or a horizon
+    that leaves no fold are mistakes in the arguments, and the agent needs
+    the reason to correct them.
+    """
+
+    message = " ".join(str(exc).split()) or type(exc).__name__
+    return ServerError(
+        f"The cross-validation strategy cannot be built: {message}",
+        code  = "invalid_argument",
+        hint  = (
+            "Change the arguments of `create_cv` (or `steps` of the plan with "
+            "`refine_plan`) so that at least two folds fit in the data."
+        ),
+    )
+
+
+def _check_test_size_date(test_size: object) -> None:
+    """
+    Reject a `test_size` given as text that is not a date, which pandas
+    would report as an unexpected error.
+    """
+
+    if not isinstance(test_size, str):
+        return
+    try:
+        pd.Timestamp(test_size)
+    except (ValueError, TypeError):
+        raise ServerError(
+            f"`test_size` is text that is not a date: {test_size[:80]!r}.",
+            code  = "invalid_argument",
+            field = "test_size",
+            hint  = (
+                "Pass an integer, a fraction or an ISO 8601 date such as "
+                "'2024-01-31'."
+            ),
+        ) from None
+
+
 def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
     """
     Cost of a backtest with a cross-validation strategy and a forecaster.
@@ -1046,17 +1093,22 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
 
         def work(control: CallControl):
-            result = assistant.create_cv(
-                profile               = _copy(plan_entry.profile),
-                plan                  = _copy(plan_entry.obj),
-                initial_train_size    = initial_train_size,
-                fold_stride           = fold_stride,
-                refit                 = refit,
-                fixed_train_size      = fixed_train_size,
-                gap                   = gap,
-                skip_folds            = skip_folds,
-                allow_incomplete_fold = allow_incomplete_fold,
-            )
+            try:
+                result = assistant.create_cv(
+                    profile               = _copy(plan_entry.profile),
+                    plan                  = _copy(plan_entry.obj),
+                    initial_train_size    = initial_train_size,
+                    fold_stride           = fold_stride,
+                    refit                 = refit,
+                    fixed_train_size      = fixed_train_size,
+                    gap                   = gap,
+                    skip_folds            = skip_folds,
+                    allow_incomplete_fold = allow_incomplete_fold,
+                )
+            except (ValueError, TypeError) as exc:
+                if isinstance(exc, SkforecastAIError):
+                    raise
+                raise _cv_argument_error(exc) from exc
             cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
             # The warning a backtest of this strategy will emit, given now,
             # when the strategy can still change.
@@ -1447,6 +1499,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_not_numeric_text(test_size, "test_size")
+        _check_test_size_date(test_size)
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
         _run_plan_locally(plan_entry.obj, "plan_id")
 
