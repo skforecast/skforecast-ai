@@ -30,7 +30,7 @@ def test_refine_plan_ValueError_when_invalid_override_key():
 
     err_msg = re.escape(
         "Invalid override keys: ['not_a_valid_key']. "
-        "Allowed keys: ['estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', 'steps', 'use_exog', 'window_features']."
+        "Allowed keys: ['differentiation', 'estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', 'steps', 'use_exog', 'window_features']."
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.refine_plan(profile, plan, not_a_valid_key="something")
@@ -486,9 +486,9 @@ def test_refine_plan_InvalidInputError_field_when_invalid_override_key():
     plan = assistant.plan(profile, steps=10)
 
     err_msg = re.escape(
-        "Invalid override keys: ['lagz', 'stepz']. Allowed keys: ['estimator', "
-        "'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', "
-        "'steps', 'use_exog', 'window_features']."
+        "Invalid override keys: ['lagz', 'stepz']. Allowed keys: "
+        "['differentiation', 'estimator', 'estimator_kwargs', 'forecaster', "
+        "'interval', 'lags', 'metric', 'steps', 'use_exog', 'window_features']."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.refine_plan(profile, plan, stepz=3, lagz=2)
@@ -589,9 +589,9 @@ def test_refine_plan_PlanEditsDiscardedWarning_when_plan_edited_by_hand():
         "refine_plan() rebuilds the plan with plan(), so these values of the "
         "plan, which differ from what plan() builds for it, were discarded: "
         "['metric', \"forecaster_kwargs['differentiation']\"]. Pass the ones "
-        "that `refine_plan()` accepts (['estimator', 'estimator_kwargs', "
-        "'forecaster', 'interval', 'lags', 'metric', 'steps', 'use_exog', "
-        "'window_features']) as overrides to keep them."
+        "that `refine_plan()` accepts (['differentiation', 'estimator', "
+        "'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', "
+        "'steps', 'use_exog', 'window_features']) as overrides to keep them."
     )
     with pytest.warns(PlanEditsDiscardedWarning, match=re.escape(expected)):
         refined = assistant.refine_plan(profile, edited, steps=12)
@@ -731,3 +731,25 @@ def test_refine_plan_output_use_exog_true_not_carried_to_the_baseline():
 
     assert baseline.use_exog is False
     assert baseline.overridden_fields == ["forecaster"]
+
+
+def test_refine_plan_output_differentiation_kept_while_it_applies():
+    """
+    Test that a differentiation order chosen by the user is kept by a
+    refinement of another field, dropped (with its mark) by a switch to
+    ForecasterStats and removed with `differentiation=None`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, differentiation=1)
+
+    kept = assistant.refine_plan(profile, plan, forecaster="ForecasterDirect")
+    stats = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
+    removed = assistant.refine_plan(profile, plan, differentiation=None)
+
+    assert kept.forecaster_kwargs["differentiation"] == 1
+    assert kept.overridden_fields == ["forecaster", "differentiation"]
+    assert stats.forecaster_kwargs == {}
+    assert stats.overridden_fields == ["forecaster"]
+    assert "differentiation" not in removed.forecaster_kwargs
+    assert removed.overridden_fields == []

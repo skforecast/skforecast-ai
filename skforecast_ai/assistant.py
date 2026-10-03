@@ -5,7 +5,9 @@
 ################################################################################
 
 from __future__ import annotations
+import copy
 import json
+import numbers
 import sys
 import warnings
 from collections.abc import Callable
@@ -24,6 +26,7 @@ from ._constants import (
     BASELINE_FORECASTERS,
     DIRECT_FORECASTERS,
     FORECASTER_TASK_TYPES,
+    MAX_FEATURE_FRACTION,
     OLLAMA_MAX_CONTEXT_TOKENS,
     REQUIRES_DATETIME_FREQ,
 )
@@ -150,6 +153,7 @@ from ._utils import (
     _validate_forecast_mode,
     resolve_interval_method,
     _validate_lags,
+    _max_window_size,
     _validate_max_window_size,
     _validate_task_input,
     _validate_window_features,
@@ -165,6 +169,11 @@ from ._utils import (
 )
 
 
+# Forecasters with a `differentiation` argument, whose order skforecast
+# requires to be the one of the strategy of a backtest.
+_DIFFERENTIATION_FORECASTERS = AUTOREG_FORECASTERS | BASELINE_FORECASTERS
+
+
 def _carried_plan_arguments(
     plan: ForecastPlan,
     target_forecaster: str,
@@ -177,8 +186,9 @@ def _carried_plan_arguments(
     and window features only by the autoregressive forecasters, an
     estimator (and its keyword arguments) only within its own family (an
     ML regressor is not an ARIMA order, and the baseline has none). The
-    metric and `use_exog` are carried over only when they are in
-    `plan.overridden_fields`.
+    metric, `use_exog` and `differentiation` are carried over only when
+    they are in `plan.overridden_fields` (`differentiation` only to the
+    autoregressive forecasters).
 
     Parameters
     ----------
@@ -227,6 +237,11 @@ def _carried_plan_arguments(
                 not plan.use_exog
                 or target_task_type not in ("baseline", "foundation")
             )
+            else None
+        ),
+        "differentiation": (
+            kwargs.get("differentiation")
+            if "differentiation" in plan.overridden_fields and inherits_features
             else None
         ),
     }
@@ -510,6 +525,7 @@ class ForecastingAssistant:
         *,
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
+        differentiation: int | None = None,
     ) -> ForecastPlan:
         """
         Build a detailed `ForecastPlan` from a `ForecastingProfile`.
@@ -594,6 +610,15 @@ class ForecastingAssistant:
             do not shape the plan (their missing values and categories need
             no handling). If None, they are used whenever the forecaster can
             use them.
+        differentiation : int, default None
+            Order of differencing applied to the target before training (an
+            integer of at least 1); predictions are integrated back. Only
+            the machine learning forecasters take it. The order counts in
+            the window of the forecaster, so the lags selected leave room
+            for it, the default window features without room for it are
+            left out, and explicit lags and window features must fit with
+            it.
+            If None, the target is not differenced.
 
         Returns
         -------
@@ -631,6 +656,20 @@ class ForecastingAssistant:
                 field = "use_exog",
             )
         use_exog_override = use_exog
+        if differentiation is not None:
+            error = (
+                InvalidInputTypeError
+                if isinstance(differentiation, bool)
+                or not isinstance(differentiation, numbers.Integral)
+                else InvalidInputError if differentiation < 1 else None
+            )
+            if error is not None:
+                raise error(
+                    f"`differentiation` must be an integer greater than or "
+                    f"equal to 1, got {differentiation!r}.",
+                    field = "differentiation",
+                )
+        differentiation = None if differentiation is None else int(differentiation)
 
         data_profile = profile.data_profile
 
@@ -681,6 +720,18 @@ class ForecastingAssistant:
             if given:
                 raise InvalidInputError(
                     f"'{fc}' {reason}, so {given} cannot be applied. Omit them.",
+                    field = given[0],
+                )
+            # Arguments of the machine learning forecasters only.
+            given = [
+                name for name, value in (("differentiation", differentiation),)
+                if value is not None
+            ]
+            if given:
+                raise InvalidInputError(
+                    f"{given} only apply to the machine learning forecasters "
+                    f"({sorted(AUTOREG_FORECASTERS)}), not to '{fc}'. Omit "
+                    f"them.",
                     field = given[0],
                 )
 
@@ -801,6 +852,7 @@ class ForecastingAssistant:
 
         baseline_explanation = None
         skipped_calendar_features: list[str] = []
+        dropped_windows: list[int] = []
         if task_type in ("statistical", "foundation", "baseline"):
             final_lags = None
             final_window_features = None
@@ -833,6 +885,8 @@ class ForecastingAssistant:
                 # t + steps), so reserve them from the lag budget. Recursive
                 # forecasters reserve nothing.
                 n_reserved_rows = steps - 1 if "Direct" in fc else 0
+                # The differentiation order adds to the window as well.
+                n_reserved_rows += differentiation or 0
                 final_lags = finalize_lags(
                     series_pacf     = profile.series_pacf,
                     task_type       = task_type,
@@ -845,6 +899,32 @@ class ForecastingAssistant:
                 final_window_features = window_features
             else:
                 final_window_features = profile.window_features
+                if differentiation is not None and final_window_features:
+                    # The rule sized the windows for the whole budget; those
+                    # that leave no room for the order are dropped, as the
+                    # lags selected leave room for it.
+                    max_window = (
+                        int(data_profile.span_index_length * MAX_FEATURE_FRACTION)
+                        - differentiation
+                    )
+                    kept = [
+                        entry for entry in final_window_features
+                        if _max_window_size(None, [entry]) <= max_window
+                    ]
+                    dropped_windows = [
+                        _max_window_size(None, [entry])
+                        for entry in final_window_features
+                        if entry not in kept
+                    ]
+                    final_window_features = kept or None
+
+            if differentiation is not None:
+                _validate_max_window_size(
+                    lags              = final_lags,
+                    window_features   = final_window_features,
+                    span_index_length = data_profile.span_index_length,
+                    differentiation   = differentiation,
+                )
 
             if profile.calendar_features:
                 calendar_encoding = select_calendar_encoding(est, task_type)
@@ -896,7 +976,8 @@ class ForecastingAssistant:
             calendar_features  = calendar_features,
             transformer_series = transformer_series,
             transformer_exog   = transformer_exog,
-            dropna_from_series = dropna_from_series
+            dropna_from_series = dropna_from_series,
+            differentiation    = differentiation,
         )
 
         if task_type == "baseline":
@@ -956,6 +1037,17 @@ class ForecastingAssistant:
                 n_series         = data_profile.n_series,
             )
             explanation = f"{explanation} {foundation_explanation}"
+        if differentiation is not None:
+            explanation += (
+                f" The target is differenced (order {differentiation}) before "
+                f"training, as requested, and the predictions are integrated "
+                f"back."
+            )
+            if dropped_windows:
+                explanation += (
+                    f" Window features of size {dropped_windows} are left out: "
+                    f"with the differentiation they exceed the data budget."
+                )
         if use_exog_override is False and rule_use_exog:
             explanation += (
                 f" Exogenous variables {data_profile.exog_columns} are not "
@@ -1000,6 +1092,7 @@ class ForecastingAssistant:
                 ("window_features", window_features),
                 ("metric", metric_override),
                 ("use_exog", use_exog_override),
+                ("differentiation", differentiation),
             )
             if value is not None
         ]
@@ -1057,13 +1150,13 @@ class ForecastingAssistant:
           plan. The agent's reasoning is appended to the returned plan's
           `explanation`.
 
-        Supported overrides: `forecaster`, `estimator`, `estimator_kwargs`,
-        `steps`, `interval`, `lags`, `window_features`, `metric`,
-        `use_exog` (see `RefinePlanOverrides`). What matters is whether a key is passed:
-        an omitted key keeps the value of `plan`, while a key passed as
-        None asks for the deterministic default (`interval=None` removes
-        the prediction intervals, `lags=None` re-runs the PACF-based
-        selection, `estimator_kwargs=None` resets the hyperparameters).
+        Supported overrides: `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
+        `interval`, `lags`, `window_features`, `metric`, `use_exog`, `differentiation`
+        (see `RefinePlanOverrides`). What matters is whether a key is passed: an omitted
+        key keeps the value of `plan`, while a key passed as None asks for the
+        deterministic default (`interval=None` removes the prediction intervals,
+        `lags=None` re-runs the PACF-based selection, `estimator_kwargs=None` resets the
+        hyperparameters).
 
         Note that `lags` and `window_features` default to the values
         already stored in `plan.forecaster_kwargs`, so refining an
@@ -1076,10 +1169,9 @@ class ForecastingAssistant:
         `estimator_kwargs`, which are then re-derived, and changing the
         `estimator` without passing `estimator_kwargs` drops the kwargs of
         the previous estimator. The decisions added in 0.4.0 (`metric`,
-        `use_exog`) are carried over only when they are in
-        `plan.overridden_fields` (and, for `use_exog=True`, when the new
-        forecaster can use the exogenous variables); otherwise the rules
-        decide them again. The
+        `use_exog`, `differentiation`) are carried over only when they are
+        in `plan.overridden_fields` (and when the new forecaster can apply
+        them); otherwise the rules decide them again. The
         `llm_refined_fields` marks of the original plan are kept for the
         fields whose value is carried over unchanged. The `end_train` split
         boundary is not kept: a refined plan starts in prediction mode, so
@@ -1112,7 +1204,8 @@ class ForecastingAssistant:
         **overrides : Unpack[RefinePlanOverrides]
             Keyword arguments to override. Accepted keys:
             `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
-            `interval`, `lags`, `window_features`, `metric`, `use_exog`. Typed through
+            `interval`, `lags`, `window_features`, `metric`, `use_exog`,
+            `differentiation`. Typed through
             `RefinePlanOverrides`, so editors autocomplete them and type
             checkers reject unknown names; unknown keys also raise
             `ValueError` at run time.
@@ -1373,6 +1466,7 @@ class ForecastingAssistant:
         *,
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
+        differentiation: int | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete forecasting script.
@@ -1522,6 +1616,9 @@ class ForecastingAssistant:
             Whether the plan uses the exogenous columns, as in `plan()`.
             When None, the rule decides. With `plan`, it must match
             `plan.use_exog`.
+        differentiation : int, default None
+            Order of differencing of the target, as in `plan()`. With
+            `plan`, it must match the order of the plan.
 
         Returns
         -------
@@ -1560,7 +1657,11 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             require_exog     = False,
-            overrides        = {"metric": metric, "use_exog": use_exog},
+            overrides        = {
+                "metric": metric,
+                "use_exog": use_exog,
+                "differentiation": differentiation,
+            },
         )
         profile = _with_data_path(profile, data)
 
@@ -1594,6 +1695,7 @@ class ForecastingAssistant:
         *,
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
+        differentiation: int | None = None,
     ) -> ForecastResult:
         """
         Execute a full forecasting workflow end-to-end.
@@ -1762,6 +1864,9 @@ class ForecastingAssistant:
             Whether the plan uses the exogenous columns, as in `plan()`.
             When None, the rule decides. With `plan`, it must match
             `plan.use_exog`.
+        differentiation : int, default None
+            Order of differencing of the target, as in `plan()`. With
+            `plan`, it must match the order of the plan.
 
         Returns
         -------
@@ -1810,7 +1915,11 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             require_exog     = True,
-            overrides        = {"metric": metric, "use_exog": use_exog},
+            overrides        = {
+                "metric": metric,
+                "use_exog": use_exog,
+                "differentiation": differentiation,
+            },
         )
         profile = _with_data_path(profile, data)
 
@@ -2123,6 +2232,7 @@ class ForecastingAssistant:
         window_features: list[dict[str, list[str] | int]] | None = None,
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
+        differentiation: int | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete backtesting script.
@@ -2224,6 +2334,9 @@ class ForecastingAssistant:
             Whether the plan uses the exogenous columns, as in `plan()`.
             When None, the rule decides. With `plan`, it must match
             `plan.use_exog`.
+        differentiation : int, default None
+            Order of differencing of the target, as in `plan()`. With
+            `plan`, it must match the order of the plan.
 
         Returns
         -------
@@ -2268,7 +2381,11 @@ class ForecastingAssistant:
             cv_result        = cv_result,
             lags             = lags,
             window_features  = window_features,
-            overrides        = {"metric": metric, "use_exog": use_exog},
+            overrides        = {
+                "metric": metric,
+                "use_exog": use_exog,
+                "differentiation": differentiation,
+            },
         )
         profile = _with_data_path(profile, data)
 
@@ -2301,6 +2418,7 @@ class ForecastingAssistant:
         window_features: list[dict[str, list[str] | int]] | None = None,
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
+        differentiation: int | None = None,
     ) -> BacktestResult:
         """
         Execute backtesting with a pre-configured time series cross-validation 
@@ -2404,6 +2522,9 @@ class ForecastingAssistant:
             Whether the plan uses the exogenous columns, as in `plan()`.
             When None, the rule decides. With `plan`, it must match
             `plan.use_exog`.
+        differentiation : int, default None
+            Order of differencing of the target, as in `plan()`. With
+            `plan`, it must match the order of the plan.
 
         Returns
         -------
@@ -2464,7 +2585,11 @@ class ForecastingAssistant:
             cv_result        = cv_result,
             lags             = lags,
             window_features  = window_features,
-            overrides        = {"metric": metric, "use_exog": use_exog},
+            overrides        = {
+                "metric": metric,
+                "use_exog": use_exog,
+                "differentiation": differentiation,
+            },
         )
         profile = _with_data_path(profile, data)
 
@@ -2603,7 +2728,8 @@ class ForecastingAssistant:
             `config` holds the forecaster/estimator settings. The `config`
             dict accepts the same override keys understood by `plan()`:
             `'forecaster'`, `'estimator'`, `'estimator_kwargs'`, `'lags'`,
-            `'window_features'` and `'use_exog'` (see `CandidateConfig`). Names must be
+            `'window_features'`, `'use_exog'` and `'differentiation'` (see
+            `CandidateConfig`). Names must be
             unique, and every candidate must belong to the same forecaster
             family: a multivariate forecaster is scored on the single series
             it predicts, a multi-series forecaster on the average across all
@@ -2842,6 +2968,7 @@ class ForecastingAssistant:
 
         rows: list[tuple[dict, float]] = []
         ranked: list[tuple[str, BacktestResult, float]] = []
+        own_differentiation: dict[str, int | None] = {}
         failures: dict[str, CandidateFailure] = {}
         n_candidates = len(candidate_configs)
 
@@ -2890,9 +3017,27 @@ class ForecastingAssistant:
                     lags             = config.get("lags"),
                     window_features  = config.get("window_features"),
                     use_exog         = config.get("use_exog"),
+                    differentiation  = config.get("differentiation"),
                     interval         = interval,
                     metric           = metric_override,
                 )
+                # Each candidate runs with its own differentiation order: the
+                # shared strategy is copied with it when they differ (10.4).
+                candidate_cv = cv
+                cand_differentiation = cand_plan.forecaster_kwargs.get(
+                    "differentiation"
+                )
+                # The baseline has no order of its own: it runs without one.
+                if (
+                    cand_plan.forecaster in _DIFFERENTIATION_FORECASTERS
+                    and cand_differentiation != cv.differentiation
+                ):
+                    candidate_cv = copy.deepcopy(cv)
+                    candidate_cv.set_params(
+                        {"differentiation": cand_differentiation}
+                    )
+                    if cand_plan.forecaster not in BASELINE_FORECASTERS:
+                        own_differentiation[name] = cand_differentiation
 
                 row["forecaster"] = cand_plan.forecaster
                 row["estimator"] = cand_plan.estimator
@@ -2904,7 +3049,7 @@ class ForecastingAssistant:
                     with _data_path_of_run(run_data_path):
                         bt = self.backtest(
                             data             = data_df,
-                            cv               = cv,
+                            cv               = candidate_cv,
                             target           = target,
                             date_column      = date_column,
                             series_id_column = series_id_column,
@@ -2971,6 +3116,12 @@ class ForecastingAssistant:
             baseline_note  = baseline_note,
             backend_note   = backend_note,
             budget_note    = budget_note,
+            differentiation_note = (
+                f"These candidates ran on a copy of the strategy with their "
+                f"own differentiation order (the strategy has "
+                f"{cv.differentiation}): {own_differentiation}."
+                if own_differentiation else None
+            ),
         )
 
         return ComparisonResult(
@@ -3776,6 +3927,22 @@ class ForecastingAssistant:
         # A plan received (saved, or built for other data) is checked
         # against the exogenous columns of this profile, as `plan()` does.
         _check_feature_name_collisions(plan, profile.data_profile)
+        # skforecast rejects inside the script a strategy whose
+        # differentiation order is not the one of a forecaster that has one
+        # (not ForecasterStats nor ForecasterFoundation, which ignore it).
+        plan_differentiation = plan.forecaster_kwargs.get("differentiation")
+        if (
+            plan.forecaster in _DIFFERENTIATION_FORECASTERS
+            and cv.differentiation != plan_differentiation
+        ):
+            raise InvalidInputError(
+                f"The cross-validation strategy has `differentiation="
+                f"{cv.differentiation}` and the plan "
+                f"`differentiation={plan_differentiation}`: they must match. "
+                f"Create the strategy from this plan with `create_cv()`, or "
+                f"pass the same `differentiation`.",
+                field = "cv",
+            )
 
         return profile, plan
 

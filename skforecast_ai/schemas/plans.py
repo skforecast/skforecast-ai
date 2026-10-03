@@ -281,6 +281,7 @@ OverrideName = Literal[
     "window_features",
     "metric",
     "use_exog",
+    "differentiation",
 ]
 """Decisions of a plan that the user can make instead of the rules of
 `plan()`, as recorded in `ForecastPlan.overridden_fields`."""
@@ -332,6 +333,10 @@ class RefinePlanOverrides(TypedDict, total=False):
         Whether the plan uses the exogenous variables, as in `plan()`. None
         lets the rule decide again. When omitted, a choice of the user is
         kept and the rule decides otherwise.
+    differentiation : int, None
+        Order of differencing of the target, as in `plan()`. None removes
+        it. When omitted, an order chosen by the user is kept while the
+        forecaster takes one.
     """
 
     forecaster: str
@@ -343,6 +348,7 @@ class RefinePlanOverrides(TypedDict, total=False):
     window_features: list[dict[str, list[str] | int]] | None
     metric: str | list[str] | None
     use_exog: bool | None
+    differentiation: int | None
 
 
 class CandidateConfig(TypedDict, total=False):
@@ -374,6 +380,9 @@ class CandidateConfig(TypedDict, total=False):
     use_exog : bool, None
         Whether the candidate uses the exogenous variables, as in `plan()`.
         None uses them whenever the forecaster can.
+    differentiation : int, None
+        Order of differencing of the target, as in `plan()`. The candidate
+        runs on a copy of the strategy with this order.
     """
 
     forecaster: str
@@ -382,6 +391,7 @@ class CandidateConfig(TypedDict, total=False):
     lags: int | list[int] | None
     window_features: list[dict[str, list[str] | int]] | None
     use_exog: bool | None
+    differentiation: int | None
 
 
 # Keys validated at run time, taken from the typed dictionaries so the two
@@ -476,11 +486,11 @@ class ForecastPlan(DisplayMixin, BaseModel):
         Names of the decisions the user made instead of the rules of
         `plan()`: the arguments passed with a value other than None among
         `forecaster`, `estimator`, `estimator_kwargs`, `lags`,
-        `window_features`, `metric` and `use_exog` (an argument passed as
-        None asks for the rule and is not recorded). It holds names only; the values
-        are those of the plan. `refine_plan()` keeps a name while the
-        refined plan keeps its value. Empty for a plan of an earlier
-        version.
+        `window_features`, `metric`, `use_exog` and `differentiation` (an
+        argument passed as None asks for the rule and is not recorded). It
+        holds names only; the values are those of the plan. `refine_plan()`
+        keeps a name while the refined plan keeps its value. Empty for a
+        plan of an earlier version.
     explanation : str
         Explanation of the plan-level decisions.
     """

@@ -27,10 +27,13 @@ files.
    first one ranks) replaces the metric selected from the data, and only
    the metrics given are computed. `use_exog: false` leaves the
    exogenous columns out, so `forecast` needs no `exog_path`.
+   `differentiation` (usually 1, for a series with a trend) differences
+   the target before training; build the strategy of `create_cv` from
+   that plan, since a backtest needs the same order in both.
 3. Optionally `refine_plan(plan_id, overrides)` to change some decisions.
    An omitted key keeps the value of the plan; `estimator_kwargs`,
-   `interval`, `lags`, `window_features`, `metric` and `use_exog` set to
-   null go back to the default.
+   `interval`, `lags`, `window_features`, `metric`, `use_exog` and
+   `differentiation` set to null go back to the default.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
    running anything; above 50 estimator fits it already carries the
    `LongTrainingWarning` the backtest would emit.

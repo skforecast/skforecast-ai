@@ -12,6 +12,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
 from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.recommendation.backtesting import _compute_min_train_size
 from skforecast_ai.schemas import CVParams, CVResult
 from tests.fixtures_assistant import (
     df_single,
@@ -1339,3 +1340,22 @@ def test_create_cv_output_when_skip_folds_in_range():
     cv = assistant.create_cv(profile, plan, skip_folds=[1, 2]).cv
 
     assert cv.skip_folds == [1, 2]
+
+
+def test_create_cv_output_when_plan_has_differentiation():
+    """
+    Test that the strategy of a plan with a differentiation order carries
+    it and says so, and that the order adds to the minimum size of the
+    first training window.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plain = assistant.plan(profile, steps=12, lags=12)
+    plan = assistant.plan(profile, steps=12, lags=12, differentiation=2)
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.cv.differentiation == 2
+    assert result.cv_config["differentiation"] == 2
+    assert result.explanation.endswith("differentiation order 2.")
+    assert _compute_min_train_size(plan) == _compute_min_train_size(plain) + 2

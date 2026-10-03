@@ -1859,8 +1859,8 @@ def test_compare_ValueError_when_metric_or_interval_invalid(kwargs, match):
         (
             [("lgbm", {"bogus": 1})], InvalidInputError,
             "Invalid config keys for 'lgbm': ['bogus']. Allowed keys: "
-            "['estimator', 'estimator_kwargs', 'forecaster', 'lags', "
-            "'use_exog', 'window_features'].",
+            "['differentiation', 'estimator', 'estimator_kwargs', 'forecaster', "
+            "'lags', 'use_exog', 'window_features'].",
         ),
     ],
     ids=["empty", "config_not_dict", "duplicate_names", "unknown_key"],
@@ -2524,3 +2524,32 @@ def test_compare_candidate_use_exog():
     assert result.candidates["without"].plan.overridden_fields == [
         "forecaster", "use_exog"
     ]
+
+
+def test_compare_candidate_differentiation_runs_on_a_copy_of_the_strategy():
+    """
+    Test that a candidate with its own differentiation order runs on a copy
+    of the shared strategy with that order (the strategy is not changed),
+    and that the explanation says so.
+    """
+    cv = _single_cv()
+    result = assistant.compare(
+        data=df_single,
+        cv=cv,
+        target="sales",
+        date_column="date",
+        candidates=[
+            ("plain", {"forecaster": "ForecasterRecursive"}),
+            ("diff", {"forecaster": "ForecasterRecursive", "differentiation": 1}),
+        ],
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert cv.differentiation is None
+    assert result.candidates["diff"].cv_config["differentiation"] == 1
+    assert result.candidates["plain"].cv_config["differentiation"] is None
+    assert result.explanation.endswith(
+        "These candidates ran on a copy of the strategy with their own "
+        "differentiation order (the strategy has None): {'diff': 1}."
+    )

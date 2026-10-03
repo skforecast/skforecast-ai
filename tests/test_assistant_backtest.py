@@ -968,3 +968,54 @@ def test_backtest_ValueError_when_use_exog_differs_from_plan():
             data=df_single, target="sales", date_column="date", cv=cv,
             profile=profile, plan=plan, use_exog=False, show_progress=False,
         )
+
+
+def test_backtest_ValueError_when_cv_differentiation_differs_from_plan():
+    """
+    Test that a strategy whose differentiation order is not the one of the
+    plan (also None against an order) is rejected before running, where
+    skforecast rejected it inside the script.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, differentiation=1)
+    inputs = {
+        "data": df_single, "target": "sales", "date_column": "date",
+        "profile": profile, "show_progress": False,
+    }
+
+    for cv_differentiation in (2, None):
+        err_msg = re.escape(
+            f"The cross-validation strategy has `differentiation="
+            f"{cv_differentiation}` and the plan `differentiation=1`: they "
+            f"must match."
+        )
+        cv = TimeSeriesFold(
+            steps=5, initial_train_size=60, differentiation=cv_differentiation
+        )
+        with pytest.raises(InvalidInputError, match=err_msg) as info:
+            assistant.backtest(**inputs, plan=plan, cv=cv)
+        assert info.value.field == "cv"
+    result = assistant.backtest(
+        **inputs, plan=plan,
+        cv=TimeSeriesFold(steps=5, initial_train_size=60, differentiation=1),
+    )
+
+    assert result.plan.forecaster_kwargs["differentiation"] == 1
+
+
+def test_backtest_output_when_stats_ignores_cv_differentiation():
+    """
+    Test that ForecasterStats, which skforecast backtests without checking
+    the differentiation order of the strategy, still runs with a strategy
+    that has one, as it did.
+    """
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=12, initial_train_size=150, differentiation=1)
+
+    result = assistant.backtest(
+        df_h2o, target="x", cv=cv, forecaster="ForecasterStats",
+        show_progress=False,
+    )
+
+    assert result.plan.forecaster == "ForecasterStats"

@@ -53,6 +53,7 @@ from ._inputs import AllowedDir
 from ._runtime import CallControl, build_notices, notice_text, run_call
 from ._store import Entry, Store, estimate_nbytes
 from .models import (
+    DIFFERENTIATION_DESCRIPTION,
     ESTIMATOR_DESCRIPTION,
     ESTIMATOR_KWARGS_DESCRIPTION,
     FORECASTER_DESCRIPTION,
@@ -1017,6 +1018,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             f"{USE_EXOG_DESCRIPTION} Null uses them whenever the forecaster "
             f"can."
         ))] = None,
+        differentiation: Annotated[int | None, Field(ge=1, description=(
+            f"{DIFFERENTIATION_DESCRIPTION} Null for none."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         profile_entry = store.get(profile_id, "profile_id", ("profile",))
@@ -1034,6 +1038,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 window_features  = window_features,
                 metric           = metric,
                 use_exog         = use_exog,
+                differentiation  = differentiation,
             )
             _check_foundation_kwargs(
                 new_plan.forecaster, new_plan.estimator_kwargs, "estimator_kwargs"

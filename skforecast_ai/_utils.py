@@ -90,6 +90,7 @@ def _validate_max_window_size(
     lags: int | list[int] | None,
     window_features: list[dict] | None,
     span_index_length: int,
+    differentiation: int | None = None,
 ) -> None:
     """
     Ensure explicit lags/window features fit within the available data.
@@ -112,6 +113,9 @@ def _validate_max_window_size(
         as a scalar int (a list is tolerated defensively).
     span_index_length : int
         Number of observations spanned by the series index.
+    differentiation : int, default None
+        Differentiation order of the forecaster, which adds as many
+        observations to its `window_size`.
 
     Returns
     -------
@@ -119,13 +123,22 @@ def _validate_max_window_size(
     """
     max_span = _max_window_size(lags, window_features)
     max_allowed = int(span_index_length * MAX_FEATURE_FRACTION)
-    if max_span > max_allowed:
+    if max_span + (differentiation or 0) > max_allowed:
+        with_differentiation = (
+            f" plus {differentiation} for the differentiation"
+            if differentiation else ""
+        )
         raise InvalidInputError(
             f"Explicit lags/window_features span up to {max_span} "
-            f"observations, exceeding the maximum of {max_allowed} "
-            f"({int(MAX_FEATURE_FRACTION * 100)}% of "
+            f"observations{with_differentiation}, exceeding the maximum of "
+            f"{max_allowed} ({int(MAX_FEATURE_FRACTION * 100)}% of "
             f"{span_index_length} observations). "
-            f"Reduce the largest lag or window size.",
+            f"Reduce the largest lag or window size"
+            + (
+                ", or pass `lags=None` (and smaller window sizes) so they "
+                "leave room for the differentiation."
+                if differentiation else "."
+            ),
             code  = "insufficient_data",
             field = (
                 "lags" if _max_window_size(lags, None) == max_span
@@ -398,6 +411,7 @@ _FORECASTER_KWARG_OVERRIDES: dict[str, str] = {
     "lags": "lags",
     "window_features": "window_features",
     "steps": "steps",
+    "differentiation": "differentiation",
 }
 # Fields compared by `discarded_plan_edits`: everything a plan decides, not
 # the split boundary, the explanation, the warnings or the marks.

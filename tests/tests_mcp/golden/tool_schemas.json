@@ -389,6 +389,20 @@
           "default": null,
           "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null uses them whenever the forecaster can.",
           "title": "Use Exog"
+        },
+        "differentiation": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. Null for none.",
+          "title": "Differentiation"
         }
       },
       "required": [
@@ -543,7 +557,7 @@
       "$defs": {
         "RefinePlanArgs": {
           "additionalProperties": false,
-          "description": "Decisions of the plan to change. An omitted key keeps the value of the plan; estimator_kwargs, interval, lags, window_features, metric and use_exog set to null ask for the deterministic default.",
+          "description": "Decisions of the plan to change. An omitted key keeps the value of the plan; estimator_kwargs, interval, lags, window_features, metric, use_exog and differentiation set to null ask for the deterministic default.",
           "properties": {
             "forecaster": {
               "description": "skforecast forecaster class: ForecasterRecursive or ForecasterDirect (one series, machine learning), ForecasterRecursiveMultiSeries (several series), ForecasterDirectMultiVariate (one series predicted from several), ForecasterStats (Auto-ARIMA), ForecasterFoundation (pre-trained foundation model, no training) or ForecasterEquivalentDate (seasonal naive baseline).",
@@ -696,6 +710,19 @@
               ],
               "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null lets the rule decide again. Omitted, a choice made before is kept.",
               "title": "Use Exog"
+            },
+            "differentiation": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. Null removes it. Omitted, an order chosen before is kept.",
+              "title": "Differentiation"
             }
           },
           "title": "RefinePlanArgs",
@@ -1411,6 +1438,19 @@
               ],
               "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null uses them whenever the forecaster can.",
               "title": "Use Exog"
+            },
+            "differentiation": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. The candidate runs on a copy of the strategy with this order.",
+              "title": "Differentiation"
             }
           },
           "title": "CandidateArgs",

@@ -250,3 +250,34 @@ def test_tool_backtest_missing_dependency_of_a_foundation_model(
         },
     }
     assert (forecast["code"], forecast["field"]) == ("missing_dependency", "plan_id")
+
+
+def test_tool_backtest_differentiation_of_the_plan_and_of_the_strategy(tmp_path):
+    """
+    Test that a plan with `differentiation` backtests on a strategy created
+    from it, as the Python API does, and that backtesting it on a strategy
+    with another order is an `invalid_argument` naming `cv_id`.
+    """
+    server, path = h2o_server(tmp_path)
+    profile_id, _, cv_id = cv_of(server, path)
+    _, _, diff_cv_id = cv_of(server, path, differentiation=1)
+    diff_plan = content_of(call(server, "plan", {
+        "profile_id": profile_id, "steps": 12, "differentiation": 1,
+    }))
+
+    result = content_of(call(server, "backtest", {"cv_id": diff_cv_id}))
+    error = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "plan_id": diff_plan["id"]}),
+        "backtest",
+    )
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="x")
+    plan = assistant.plan(profile=profile, steps=12, differentiation=1)
+    expected = assistant.backtest(
+        data=path, cv=assistant.create_cv(profile=profile, plan=plan),
+        profile=profile, show_progress=False,
+    )
+
+    assert result["summary"] == expected.describe()
+    assert (error["code"], error["field"]) == ("invalid_argument", "cv_id")

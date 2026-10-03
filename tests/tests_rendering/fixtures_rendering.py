@@ -186,6 +186,14 @@ plan_single_without_exog = plan_single_recursive.model_copy(
     update={"use_exog": False, "overridden_fields": ["use_exog"]}
 )
 
+# `plan(differentiation=1)`: the target is differenced before training.
+plan_single_differentiation = plan_single_recursive_no_exog.model_copy(
+    update={
+        "forecaster_kwargs": {"lags": 7, "differentiation": 1},
+        "overridden_fields": ["differentiation"],
+    }
+)
+
 plan_single_direct = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterDirect",
@@ -559,3 +567,6 @@ cv_basic = SimpleNamespace(
     allow_incomplete_fold=True,
     differentiation=None,
 )
+
+# The strategy `create_cv()` builds for a plan with `differentiation=1`.
+cv_differentiation = SimpleNamespace(**{**vars(cv_basic), "differentiation": 1})

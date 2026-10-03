@@ -4,6 +4,7 @@ import re
 import warnings
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from skforecast.exceptions import MissingValuesWarning
@@ -1779,3 +1780,113 @@ def test_plan_ValueError_when_use_exog_true_and_stats_has_only_categorical_exog(
     )
 
     assert plan.use_exog is False
+
+
+def test_plan_output_when_differentiation_given():
+    """
+    Test that `differentiation` is written into the forecaster arguments,
+    recorded, explained, and reserved from the lag budget: the lags
+    selected leave room for the order.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan = assistant.plan(profile, steps=10, differentiation=2)
+
+    assert plan.forecaster_kwargs["differentiation"] == 2
+    assert plan.overridden_fields == ["differentiation"]
+    assert plan.forecaster_kwargs["lags"] == [1, 2, 3, 4, 5, 7]
+    assert plan.explanation.endswith(
+        "The target is differenced (order 2) before training, as requested, "
+        "and the predictions are integrated back."
+    )
+
+
+@pytest.mark.parametrize(
+    "differentiation, error",
+    [(0, ValueError), (-1, ValueError), (1.5, TypeError), (True, TypeError), ("1", TypeError)],
+    ids=lambda dt: f"{dt!r}",
+)
+def test_plan_ValueError_or_TypeError_when_differentiation_invalid(differentiation, error):
+    """
+    Test that a differentiation order that is not an integer of at least 1
+    is rejected with `field='differentiation'`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"`differentiation` must be an integer greater than or equal to 1, got "
+        f"{differentiation!r}."
+    )
+    with pytest.raises(error, match=err_msg) as info:
+        assistant.plan(profile, steps=10, differentiation=differentiation)
+
+    assert info.value.field == "differentiation"
+
+
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterStats", "ForecasterEquivalentDate", "ForecasterFoundation"],
+)
+def test_plan_ValueError_when_differentiation_for_forecaster_without_it(forecaster):
+    """
+    Test that a forecaster that is not a machine learning one rejects
+    `differentiation`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"['differentiation'] only apply to the machine learning forecasters "
+        f"(['ForecasterDirect', 'ForecasterDirectMultiVariate', "
+        f"'ForecasterRecursive', 'ForecasterRecursiveMultiSeries']), not to "
+        f"'{forecaster}'. Omit them."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=10, forecaster=forecaster, differentiation=1)
+
+
+def test_plan_ValueError_when_explicit_lags_and_differentiation_exceed_budget():
+    """
+    Test that the differentiation order counts in the window budget of
+    explicit lags: 33 lags fit 100 observations, not with an order of 1.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    assistant.plan(profile, steps=10, lags=33)
+    err_msg = re.escape(
+        "Explicit lags/window_features span up to 33 observations plus 1 for "
+        "the differentiation, exceeding the maximum of 33"
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=10, lags=33, differentiation=1)
+
+
+def test_plan_output_when_differentiation_drops_default_windows_without_room():
+    """
+    Test that the default window features that leave no room for the
+    differentiation order are dropped instead of rejected: on 100 weekly
+    observations the rule picks a window of 33, the whole budget.
+    """
+    assistant = ForecastingAssistant()
+    data = pd.DataFrame({
+        "date": pd.date_range("2020-01-05", periods=100, freq="W"),
+        "y": np.arange(100, dtype=float),
+    })
+    profile = assistant.profile(data=data, target="y", date_column="date")
+
+    plan = assistant.plan(profile, steps=5, differentiation=1)
+
+    assert profile.window_features == [
+        {"stats": ["mean", "std"], "window_size": 3},
+        {"stats": ["mean"], "window_size": 33},
+    ]
+    assert plan.forecaster_kwargs["window_features"] == [
+        {"stats": ["mean", "std"], "window_size": 3}
+    ]
+    assert plan.explanation.endswith(
+        "Window features of size [33] are left out: with the differentiation "
+        "they exceed the data budget."
+    )

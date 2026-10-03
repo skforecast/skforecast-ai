@@ -749,7 +749,8 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
     Compute the minimum initial training size based on task type.
 
     The effective window size of a forecaster is
-    `max(max_lag, max_window_from_window_features)`.
+    `max(max_lag, max_window_from_window_features)`, plus its
+    differentiation order.
     `initial_train_size` must exceed this value for skforecast to
     accept the CV configuration.
 
@@ -790,6 +791,9 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
         effective_window = max(max_lag, max_window)
         if effective_window == 0:
             return 2 * steps
+
+        # The differentiation order adds to the window of skforecast.
+        effective_window += plan.forecaster_kwargs.get("differentiation") or 0
 
         # Need initial_train_size > window_size, so floor at window + steps
         return effective_window + steps

@@ -73,6 +73,7 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
     assert result["summary"] == script.describe()
     assert result["notices"] == []
     assert result["changeable"] == [
+        "differentiation",
         "estimator",
         "estimator_kwargs",
         "forecaster",

@@ -84,6 +84,11 @@ USE_EXOG_DESCRIPTION = (
     "out (forecast then takes no exog_path); true fails when the data has "
     "none or the forecaster cannot use them."
 )
+DIFFERENTIATION_DESCRIPTION = (
+    "Order of differencing of the target before training (an integer of at "
+    "least 1, usually 1 for a trend); predictions are integrated back. "
+    "Machine learning forecasters only."
+)
 METRIC_DESCRIPTION = (
     "Metric, or list of metrics whose first one is the primary metric "
     "(the one that ranks); only the ones given are computed."
@@ -104,8 +109,8 @@ Metric = MetricName | Annotated[list[MetricName], Field(min_length=1)]
         "description": (
             "Decisions of the plan to change. An omitted key keeps the value "
             "of the plan; estimator_kwargs, interval, lags, window_features, "
-            "metric and use_exog set to null ask for the deterministic "
-            "default."
+            "metric, use_exog and differentiation set to null ask for the "
+            "deterministic default."
         ),
     },
 ))
@@ -162,6 +167,13 @@ class RefinePlanArgs(TypedDict, total=False):
             f"Omitted, a choice made before is kept."
         )),
     ]
+    differentiation: Annotated[
+        Annotated[int, Field(ge=1)] | None,
+        Field(description=(
+            f"{DIFFERENTIATION_DESCRIPTION} Null removes it. Omitted, an "
+            f"order chosen before is kept."
+        )),
+    ]
 
 
 @with_config(ConfigDict(
@@ -209,6 +221,13 @@ class CandidateArgs(TypedDict, total=False):
         Field(description=(
             f"{USE_EXOG_DESCRIPTION} Null uses them whenever the forecaster "
             f"can."
+        )),
+    ]
+    differentiation: Annotated[
+        Annotated[int, Field(ge=1)] | None,
+        Field(description=(
+            f"{DIFFERENTIATION_DESCRIPTION} The candidate runs on a copy of "
+            f"the strategy with this order."
         )),
     ]
 
