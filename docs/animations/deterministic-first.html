@@ -110,7 +110,7 @@ const CAPTIONS = [
   [28.6,33.0,'A valid suggestion enters the plan. If 3 attempts fail, refine_plan() warns and keeps the deterministic plan.'],
   [33.0,38.4,'forecast() renders the plan as a skforecast script, runs it and evaluates it on 36 held-out hours.'],
   [38.4,43.0,'The script comes back as result.code, the one forecast_code() returns: the code you see is the code that ran.'],
-  [43.0,47.0,'Optional: ask() explains a result. The LLM reads its predictions and metrics, never your data.'],
+  [43.0,47.0,'Optional: ask() explains a result. The LLM reads its profile, plan, predictions and metrics, never your data.'],
   [47.0,99,  'The LLM explains the forecast; it never changes it.']
 ];
 const STEPPER = [['Profile',0,9.5],['Plan',9.5,17.0],['LLM refinement',17.0,33.0],['Run',33.0,43.0],['Ask',43.0,99]];
@@ -288,7 +288,8 @@ function llmZone(t, o){
     llmChip(o, readX(['profile', 'plan'], k), READ_Y, s, ka);
   });
   llmChip(o, readX(['result'], 0), READ_Y, 'result', t >= T.resFly[1] ? 1 : 0);
-  o.push(text(LX0 + 16, LY0 + 106, 'its predictions and metrics', {size:14, fill:V('muted'), op:rr}));
+  o.push(text(LX0 + 16, LY0 + 106, 'the profile, the plan,', {size:14, fill:V('muted'), op:rr}));
+  o.push(text(LX0 + 16, LY0 + 126, 'its predictions and metrics', {size:14, fill:V('muted'), op:rr}));
   // what it suggests
   const r1 = lin(t, T.resp1[0], T.resp1[0] + .2)*(1 - lin(t, T.resp2[0] - .4, T.resp2[0]));
   const r2a = lin(t, T.resp2[0], T.resp2[0] + .2)*k3;
@@ -441,7 +442,7 @@ SkfAnim.run({
         'the plan. If 3 attempts fail, a warning is emitted and the deterministic plan is kept. forecast() renders ' +
         'the plan as a skforecast script, runs it and evaluates it on 36 held-out hours ' +
         `(MAE ${D.metrics.mae}, MASE ${D.metrics.mase}), and returns the script with the results, the same one ` +
-        'forecast_code() returns. Finally, ask() sends the predictions and metrics of the result to the LLM with ' +
+        'forecast_code() returns. Finally, ask() sends the profile, the plan, the predictions and the metrics of the result to the LLM with ' +
         `the question "${ASK_PROMPT}", and the LLM answers: "${ANSWER}"`,
   total: T.total,
   height: 720,
