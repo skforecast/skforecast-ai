@@ -150,3 +150,34 @@ def test_tool_forecast_exog_changed_while_forecasting(tmp_path, monkeypatch):
     assert (error["code"], error["field"]) == ("data_changed", "exog_path")
     assert error["hint"] == "Call the tool again once the file no longer changes."
     assert "forecast" not in kinds
+
+
+def test_tool_forecast_file_too_large_for_exog_or_grown_data(tmp_path):
+    """
+    Test that a file of future exogenous values larger than `max_file_mb` is
+    `file_too_large` on `exog_path`, and that a data file that grew beyond
+    the limit after it was profiled is `data_changed` (it changed, and the
+    tool takes no path to pass a smaller one) without being read again.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    exog_path = write_csv(tmp_path, "future.csv", df_single_future_exog)
+    with open(exog_path, "a", encoding="utf-8") as handle:
+        handle.write("\n" * (1024 * 1024))
+    server = create_server(
+        allow_dir=tmp_path, output_dir=tmp_path / "out", max_file_mb=1
+    )
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    exog_error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": exog_path}),
+        "forecast",
+    )
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write("\n" * (1024 * 1024))
+    data_error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 10}), "forecast"
+    )
+
+    assert (exog_error["code"], exog_error["field"]) == ("file_too_large", "exog_path")
+    assert (data_error["code"], data_error["field"]) == ("data_changed", "data_path")
+    assert data_error["hint"] == "Call `profile` again on the file as it is now."

@@ -80,6 +80,7 @@ FOUNDATION_KWARGS = frozenset({
 
 DEFAULT_MAX_OBJECTS = 256
 DEFAULT_MAX_MEMORY_MB = 1024
+DEFAULT_MAX_FILE_MB = 256
 
 # Bounds that `TimeSeriesFold` checks, so a value out of them is reported as
 # an invalid argument rather than as an error of skforecast.
@@ -301,6 +302,8 @@ class _ServerState:
     models : ModelPolicy
         Foundation models the server runs, and those whose download was
         announced.
+    max_file_bytes : int
+        Largest CSV file the server reads, in bytes; 0 for no limit.
     """
 
     allowed: AllowedDir
@@ -308,6 +311,7 @@ class _ServerState:
     store: Store
     assistant: ForecastingAssistant
     models: ModelPolicy = field(default_factory=ModelPolicy)
+    max_file_bytes: int = DEFAULT_MAX_FILE_MB * 1024 * 1024
     failures: OrderedDict[str, tuple[str, str | None]] = field(
         default_factory=OrderedDict
     )
@@ -536,6 +540,46 @@ def _check_foundation_kwargs(
         )
 
 
+def _check_steps(steps: Any, profile: Any, argument: str) -> None:
+    """
+    Reject a horizon longer than the longest series of the profile.
+
+    The core accepts such a plan: a backtest of it fails late, since no
+    fold fits the data, and a huge `steps` would exhaust the memory of a
+    forecast. The server rejects it when the plan is built (a decision of
+    the author for the server, section 17 of the design).
+
+    Parameters
+    ----------
+    steps : int
+        Horizon given by the agent.
+    profile : ForecastingProfile
+        Profile the plan is built from.
+    argument : str
+        Argument of the tool that holds it.
+
+    Returns
+    -------
+    None
+    """
+
+    if not isinstance(steps, int) or isinstance(steps, bool):
+        return
+    longest = max(
+        info.length for info in profile.data_profile.series_lengths.values()
+    )
+    if steps > longest:
+        raise ServerError(
+            f"`steps` is {steps}, more than the {longest} observations of the "
+            f"longest series of the data. The horizon must not exceed the "
+            f"history.",
+            code    = "invalid_argument",
+            field   = argument,
+            hint    = f"Pass `steps` of at most {longest}, usually far fewer.",
+            details = {"steps": steps, "longest_series": longest},
+        )
+
+
 def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
     """
     Cost of a backtest with a cross-validation strategy and a forecaster.
@@ -668,6 +712,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
 
         def work(control: CallControl):
             path = _inputs.resolve_csv_path(data_path, state.allowed, "data_path")
+            _inputs.check_file_size(path, state.max_file_bytes, "data_path")
             digest = _inputs.file_sha256(path)
             result = assistant.profile(
                 data             = path,
@@ -785,6 +830,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ] = None,
     ) -> ToolResult:
         profile_entry = store.get(profile_id, "profile_id", ("profile",))
+        _check_steps(steps, profile_entry.obj, "steps")
 
         def work(control: CallControl):
             new_plan = assistant.plan(
@@ -827,6 +873,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ))],
     ) -> ToolResult:
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
+        if "steps" in overrides:
+            _check_steps(overrides["steps"], plan_entry.profile, "overrides.steps")
 
         def work(control: CallControl):
             try:
@@ -942,8 +990,16 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         # The file the profile was read from, checked again before it is
         # read: inside the allowed directory after resolving links, and as it
         # was when it was profiled.
+        # A file now larger than the limit changed since it was profiled, and
+        # is reported as such without reading it.
         path = _inputs.resolve_csv_path(entry.data_path, state.allowed, "data_path")
-        _inputs.check_unchanged(path, entry.data_sha256, "data_path", profiled=True)
+        _inputs.check_unchanged(
+            path,
+            entry.data_sha256,
+            "data_path",
+            profiled  = True,
+            max_bytes = state.max_file_bytes,
+        )
         return path
 
     def _run_plan_locally(plan_obj: Any, argument: str) -> None:
@@ -1271,6 +1327,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 exog_file = _inputs.resolve_csv_path(
                     exog_path, state.allowed, "exog_path"
                 )
+                _inputs.check_file_size(exog_file, state.max_file_bytes, "exog_path")
                 exog_digest = _inputs.file_sha256(exog_file)
                 data_profile = plan_entry.profile.data_profile
                 exog = load_exog(
@@ -1499,6 +1556,7 @@ def _build_state(
     max_objects: int,
     max_memory_mb: int,
     allow_models: Iterable[str] = (),
+    max_file_mb: int = DEFAULT_MAX_FILE_MB,
 ) -> _ServerState:
     """
     Check the settings of a server and build what its tools share.
@@ -1510,6 +1568,14 @@ def _build_state(
                 f"`{name}` must be an integer of at least 1, got {value!r}.",
                 field = name,
             )
+    if isinstance(max_file_mb, bool) or not isinstance(max_file_mb, int) or (
+        max_file_mb < 0
+    ):
+        raise InvalidInputError(
+            f"`max_file_mb` must be an integer of at least 0 (0 for no "
+            f"limit), got {max_file_mb!r}.",
+            field = "max_file_mb",
+        )
     allowed = AllowedDir.from_path(allow_dir)
     if isinstance(allow_models, str):
         allow_models = [allow_models]
@@ -1533,11 +1599,12 @@ def _build_state(
     )
 
     return _ServerState(
-        allowed    = allowed,
-        output_dir = output,
-        store      = store,
-        assistant  = ForecastingAssistant(),
-        models     = models,
+        allowed        = allowed,
+        output_dir     = output,
+        store          = store,
+        assistant      = ForecastingAssistant(),
+        models         = models,
+        max_file_bytes = max_file_mb * 1024 * 1024,
     )
 
 
@@ -1561,6 +1628,7 @@ def create_server(
     max_objects: int = DEFAULT_MAX_OBJECTS,
     max_memory_mb: int = DEFAULT_MAX_MEMORY_MB,
     allow_models: Iterable[str] = (),
+    max_file_mb: int = DEFAULT_MAX_FILE_MB,
 ) -> MCPServer:
     """
     Create the MCP server of skforecast-ai, without running it.
@@ -1590,6 +1658,10 @@ def create_server(
         or gated weights that the server may run (`'google/timesfm-3.0'`).
         Each must start with the prefix of an adapter of skforecast. Models
         without either run without it.
+    max_file_mb : int, default 256
+        Largest CSV file (data or future exogenous values) the server reads,
+        in MB, checked on the size of the file before reading it. 0 for no
+        limit.
 
     Returns
     -------
@@ -1598,7 +1670,7 @@ def create_server(
     """
 
     state = _build_state(
-        allow_dir, output_dir, max_objects, max_memory_mb, allow_models
+        allow_dir, output_dir, max_objects, max_memory_mb, allow_models, max_file_mb
     )
 
     return _build_server(state)
@@ -1610,6 +1682,7 @@ def run_server(
     max_objects: int = DEFAULT_MAX_OBJECTS,
     max_memory_mb: int = DEFAULT_MAX_MEMORY_MB,
     allow_models: Iterable[str] = (),
+    max_file_mb: int = DEFAULT_MAX_FILE_MB,
 ) -> None:
     """
     Run the MCP server of skforecast-ai over stdio until the client closes.
@@ -1635,6 +1708,8 @@ def run_server(
     allow_models : iterable of str, default ()
         Model ID prefixes of foundation models with a license restriction
         or gated weights that the server may run.
+    max_file_mb : int, default 256
+        Largest CSV file the server reads, in MB; 0 for no limit.
 
     Returns
     -------
@@ -1642,7 +1717,7 @@ def run_server(
     """
 
     state = _build_state(
-        allow_dir, output_dir, max_objects, max_memory_mb, allow_models
+        allow_dir, output_dir, max_objects, max_memory_mb, allow_models, max_file_mb
     )
     server = _build_server(state)
     os.chdir(state.output_dir)

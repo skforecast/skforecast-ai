@@ -24,6 +24,7 @@ skforecast-ai mcp --allow-dir /path/to/data
 | `--output-dir` | a new temporary directory | Where the server writes predictions, metrics, leaderboards and long texts. It is also the working directory of the server, and it is kept when the server stops. Its path is logged when the server starts. |
 | `--max-objects` | 256 | Most objects (profiles, plans, results) the server keeps. |
 | `--max-memory-mb` | 1024 | Memory the objects may take. Beyond either limit, the least recently used objects are removed. |
+| `--max-file-mb` | 256 | Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it. 0 for no limit. |
 | `--allow-model` | (none) | Model ID prefix of a foundation model with a license restriction or gated weights that the server may run, for example `google/timesfm-3.0`. Repeat it for several. |
 
 The client starts the command by name. If it does not find `skforecast-ai`, give the absolute path of the one in your Python environment (`which skforecast-ai` on Linux and macOS, `where skforecast-ai` on Windows) in the commands below.
@@ -81,7 +82,7 @@ Each of these tools returns an id for the next ones, a plain-text summary (the o
 
 ## Errors
 
-A failed call returns an error whose text is `Error executing tool <name>: ` followed by a JSON object with `code`, `message`, `field`, `hint` and `details`. `code` is stable, so the agent can act on it: the [error codes](../api/mcp.md#errors) are those of the Python API plus the ones of the server (`unknown_id`, `inconsistent_ids`, `invalid_path`, `path_not_allowed`, `url_not_allowed`, `data_changed`, `model_not_allowed`). When a script fails, `details.failure_id` names its traceback and code, which `get_failure` returns.
+A failed call returns an error whose text is `Error executing tool <name>: ` followed by a JSON object with `code`, `message`, `field`, `hint` and `details`. `code` is stable, so the agent can act on it: the [error codes](../api/mcp.md#errors) are those of the Python API plus the ones of the server (`unknown_id`, `inconsistent_ids`, `invalid_path`, `path_not_allowed`, `url_not_allowed`, `data_changed`, `model_not_allowed`, `file_too_large`). When a script fails, `details.failure_id` names its traceback and code, which `get_failure` returns.
 
 ---
 
@@ -111,6 +112,7 @@ The data never travels whole to the agent, and the agent's language model sees w
 ## Limits
 
 - Calls run one at a time; a call waits for the previous one to end.
+- The server reads CSV files of at most `--max-file-mb` (256 MB by default), and a horizon (`steps`) longer than the longest series is rejected when the plan is built.
 - Ids live while the server runs. An id of a previous run, or of an object removed to stay within `--max-objects` and `--max-memory-mb`, gives `unknown_id` saying which.
 - A summary, a script or a failure longer than 20,000 characters is cut in the response; the full text is written to the output directory.
 - `compare` has no `metric` argument yet: candidates are ranked by the metric of the profile.

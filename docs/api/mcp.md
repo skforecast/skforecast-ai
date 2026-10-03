@@ -43,6 +43,7 @@ The `notices` of a response are the warnings the call emitted, deduplicated, wit
 - Ids do not survive a restart of the server: an id of a previous run raises `unknown_id` saying so.
 - A summary, a script or a failure longer than 20,000 characters is cut in the response, and the full text is written to the output directory (`files`).
 - Calls run one at a time; a call waits for the previous one to end.
+- CSV files larger than `--max-file-mb` (256 MB by default) are rejected before being read, and `plan` and `refine_plan` reject a `steps` longer than the longest series of the profile (`invalid_argument`).
 - The output directory (`--output-dir`, by default a new temporary directory that is kept when the server stops) is also the working directory of the server.
 - The scripts run in the process of the server, with the permissions of the user who started it. The server trusts the agent as much as that user: it limits what the agent can read (`--allow-dir`) and pass, not what the scripts it builds can do.
 - The JSON of the results, their scripts and the summary of a plan (its script lists the file it reads) name the path of the data file; the other summaries do not.
@@ -58,6 +59,7 @@ A failure of a tool reaches the agent as an error result whose text is `Error ex
 | `invalid_path` | The path is not absolute, does not end in `.csv` or holds a control character. |
 | `path_not_allowed` | The path is outside the directory given to `--allow-dir`, also after resolving symbolic links. It is checked before looking at the file, so the error does not say whether a file outside exists. |
 | `url_not_allowed` | The path is a URL. Download the file into the allowed directory. |
+| `file_too_large` | The CSV file (data or future exogenous values) is larger than `--max-file-mb` (256 MB by default; 0 for no limit). Its size is checked before reading it; `details` has the size and the limit. |
 | `model_not_allowed` | A foundation model with a license restriction or gated weights that `--allow-model` does not allow. `details` has its license; `hint` names the option to ask the user for. |
 | `data_changed` | The CSV file changed since it was profiled, or the data or the exogenous file changed while the server was reading it. Nothing is registered; call `profile` again (or the tool again, for the exogenous file). |
 

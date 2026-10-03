@@ -28,6 +28,7 @@ ServerErrorCode = Literal[
     "url_not_allowed",
     "data_changed",
     "model_not_allowed",
+    "file_too_large",
 ]
 """Codes of the errors that only the server raises."""
 

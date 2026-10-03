@@ -102,6 +102,11 @@ def test_create_server_output_dir_created_or_temporary(tmp_path, monkeypatch):
             {"max_objects": 2.5},
             "`max_objects` must be an integer of at least 1, got 2.5.",
         ),
+        (
+            {"max_file_mb": -1},
+            "`max_file_mb` must be an integer of at least 0 (0 for no limit), "
+            "got -1.",
+        ),
     ],
     ids=lambda dt: f"{dt}",
 )
@@ -109,7 +114,8 @@ def test_create_server_InvalidInputError_when_limits_invalid(
     tmp_path, arguments, message
 ):
     """
-    Test that the limits of the store must be integers of at least 1.
+    Test that the limits of the store must be integers of at least 1, and
+    the size of a file an integer of at least 0.
     """
     with pytest.raises(InvalidInputError, match=re.escape(message)):
         create_server(allow_dir=tmp_path, output_dir=tmp_path, **arguments)

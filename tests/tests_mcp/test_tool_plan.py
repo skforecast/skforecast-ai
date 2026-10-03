@@ -199,3 +199,28 @@ def test_tool_plan_announces_model_download_once(tmp_path, monkeypatch):
     ]
     assert second["notices"] == []
     assert cached["notices"] == []
+
+
+@pytest.mark.parametrize("steps", [205, 500, 10**9], ids=lambda s: f"steps={s}")
+def test_tool_plan_invalid_argument_when_steps_longer_than_the_series(
+    tmp_path, steps
+):
+    """
+    Test that a horizon longer than the longest series of the profile (h2o
+    has 204 observations) is `invalid_argument` on `steps` when the plan is
+    built, instead of failing when it runs, and that 204 is accepted.
+    """
+    server, _, profile_id = _profiled(tmp_path)
+
+    error = error_of(
+        call(server, "plan", {"profile_id": profile_id, "steps": steps}), "plan"
+    )
+    longest = call(server, "plan", {"profile_id": profile_id, "steps": 204})
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "steps")
+    assert error["message"] == (
+        f"`steps` is {steps}, more than the 204 observations of the longest "
+        f"series of the data. The horizon must not exceed the history."
+    )
+    assert error["details"] == {"steps": steps, "longest_series": 204}
+    assert content_of(longest)["kind"] == "plan"

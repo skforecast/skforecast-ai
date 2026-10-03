@@ -291,3 +291,35 @@ def test_tool_profile_text_arguments_are_never_decoded_as_json(tmp_path):
     assert error["message"].startswith(
         'Target column(s) [\'["null", "fecha"]\'] not found in the DataFrame.'
     )
+
+
+def test_tool_profile_file_too_large_before_reading_it(tmp_path, monkeypatch):
+    """
+    Test that a CSV file larger than `max_file_mb` is `file_too_large` before
+    it is read (neither hashed nor profiled), and that 0 lifts the limit.
+    """
+    from skforecast_ai.mcp import _inputs
+
+    path = write_csv(tmp_path, "h2o.csv", df_h2o_csv)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write("\n" * (1024 * 1024))
+    limited = create_server(
+        allow_dir=tmp_path, output_dir=tmp_path / "out", max_file_mb=1
+    )
+    unlimited = create_server(
+        allow_dir=tmp_path, output_dir=tmp_path / "out", max_file_mb=0
+    )
+    read = []
+    original = _inputs.file_sha256
+    monkeypatch.setattr(
+        _inputs, "file_sha256", lambda p: read.append(p) or original(p)
+    )
+
+    error = error_of(
+        call(limited, "profile", {"data_path": path, "target": "x"}), "profile"
+    )
+    assert read == []
+    result = call(unlimited, "profile", {"data_path": path, "target": "x"})
+
+    assert (error["code"], error["field"]) == ("file_too_large", "data_path")
+    assert content_of(result)["kind"] == "profile"

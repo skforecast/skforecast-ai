@@ -21,7 +21,8 @@ files.
    are stacked. Read the summary: frequency, series, gaps, exogenous
    columns and the recommended forecaster.
 2. `plan(profile_id, steps, ...)`: `steps` is the horizon in observations
-   (12 for a year of monthly data). Leave the other arguments out to take
+   (12 for a year of monthly data), at most the length of the longest
+   series. Leave the other arguments out to take
    the recommendation; set them only when the user asks.
 3. Optionally `refine_plan(plan_id, overrides)` to change some decisions.
    An omitted key keeps the value of the plan; `estimator_kwargs`,
@@ -129,6 +130,7 @@ and follow `hint` when there is one:
 | `insufficient_data` | Ask for less: a shorter horizon, fewer lags, a smaller first training set. |
 | `data_not_found`, `invalid_path`, `path_not_allowed`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
 | `data_unreadable` | The file is not a CSV the server can read. |
+| `file_too_large` | The file is larger than the server reads (`--max-file-mb`, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |
 | `data_changed` | The file changed: call `profile` again (or the tool again for an exogenous file). |
 | `unknown_id` | Use an id from `list_objects`, or create the object again. |
 | `inconsistent_ids` | Pass `backtest` a plan and a strategy built from the same profile. |

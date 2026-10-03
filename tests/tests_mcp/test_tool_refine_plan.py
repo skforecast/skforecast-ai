@@ -172,3 +172,22 @@ def test_tool_refine_plan_announces_model_download(tmp_path, monkeypatch):
     ]
     assert "'soda-inria/tabicl'" in refined["notices"][0]["message"]
     assert again["notices"] == []
+
+
+def test_tool_refine_plan_invalid_argument_when_steps_longer_than_the_series(
+    tmp_path,
+):
+    """
+    Test that `overrides.steps` longer than the longest series of the
+    profile is `invalid_argument` before anything runs.
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path)
+
+    error = error_of(
+        call(server, "refine_plan", {"plan_id": plan_id, "overrides": {"steps": 500}}),
+        "refine_plan",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "overrides.steps")
+    assert error["details"] == {"steps": 500, "longest_series": 204}

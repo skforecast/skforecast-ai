@@ -19,7 +19,11 @@ from skforecast_ai.mcp._errors import (
 )
 from skforecast_ai.mcp._foundation import permissive_adapters, restricted_adapters
 from skforecast_ai.mcp._runtime import MAX_NOTICE_CHARS, MAX_NOTICES
-from skforecast_ai.mcp.server import FOUNDATION_KWARGS, MAX_SUMMARY_CHARS
+from skforecast_ai.mcp.server import (
+    DEFAULT_MAX_FILE_MB,
+    FOUNDATION_KWARGS,
+    MAX_SUMMARY_CHARS,
+)
 
 from .fixtures_mcp import tool_schemas
 
@@ -96,6 +100,7 @@ def test_skill_md_names_every_tool_error_code_and_foundation_kwarg(tmp_path):
         "carries only the type of the exception and an id",
         f"Above {LONG_TRAINING_FITS} estimator fits",
         f"the candidates above {COMPARE_FIT_BUDGET}",
+        f"(`--max-file-mb`, {DEFAULT_MAX_FILE_MB} MB by default)",
     ],
     ids=lambda phrase: phrase,
 )
@@ -104,7 +109,7 @@ def test_skill_md_states_the_limits_of_the_server(phrase):
     Test that every limit SKILL.md gives the agent is the one the server and
     the core apply: summary size, values quoted in a message, sizes of the
     message, hint, details and notices, what an unexpected error carries,
-    and the two thresholds of the cost of a backtest.
+    the largest file and the two thresholds of the cost of a backtest.
     """
     skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
 
@@ -121,6 +126,7 @@ def test_skill_md_states_the_limits_of_the_server(phrase):
         f"each text of its `details` at {MAX_DETAIL_CHARS}",
         f"at most {MAX_NOTICES} warnings of {MAX_NOTICE_CHARS:,} characters",
         "carries only the type of the exception and an id",
+        f"of at most `--max-file-mb` ({DEFAULT_MAX_FILE_MB} MB by default)",
     ],
     ids=lambda phrase: phrase,
 )

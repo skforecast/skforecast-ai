@@ -1751,6 +1751,7 @@ def mcp_server(
     output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Directory of the files the server writes; also its working directory. Default: a new temporary directory.")] = None,
     max_objects: Annotated[int, typer.Option("--max-objects", min=1, help="Most objects the server keeps; the least recently used ones are removed beyond it.")] = 256,
     max_memory_mb: Annotated[int, typer.Option("--max-memory-mb", min=1, help="Memory, in MB, the objects may take; the least recently used ones are removed beyond it.")] = 1024,
+    max_file_mb: Annotated[int, typer.Option("--max-file-mb", min=0, help="Largest CSV file the server reads, in MB, checked before reading it; 0 for no limit.")] = 256,
     allow_model: Annotated[list[str] | None, typer.Option("--allow-model", help="Model ID prefix of a foundation model with a license restriction or gated weights that the server may run, e.g. google/timesfm-3.0 (repeatable). Models without either run without it.")] = None,
 ) -> None:
     """Serve the deterministic workflow to MCP clients (coding agents) over stdio."""
@@ -1772,6 +1773,7 @@ def mcp_server(
             output_dir    = output_dir,
             max_objects   = max_objects,
             max_memory_mb = max_memory_mb,
+            max_file_mb   = max_file_mb,
             allow_models  = allow_model or (),
         )
     except InvalidInputError as exc:

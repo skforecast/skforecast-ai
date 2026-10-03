@@ -22,20 +22,21 @@ def test_cli_mcp_runs_the_server_with_its_options(tmp_path, monkeypatch):
         "mcp", "--allow-dir", str(tmp_path), "--output-dir", str(tmp_path / "out"),
         "--max-objects", "10", "--max-memory-mb", "64",
         "--allow-model", "google/timesfm-3.0", "--allow-model", "taharnbl/TS-ICL",
+        "--max-file-mb", "0",
     ])
 
     assert result.exit_code == 0, result.output
     assert calls == [{
         "allow_dir": tmp_path, "output_dir": tmp_path / "out",
-        "max_objects": 10, "max_memory_mb": 64,
+        "max_objects": 10, "max_memory_mb": 64, "max_file_mb": 0,
         "allow_models": ["google/timesfm-3.0", "taharnbl/TS-ICL"],
     }]
 
 
 def test_cli_mcp_defaults(tmp_path, monkeypatch):
     """
-    Test the defaults: no output directory (a temporary one), 256 objects
-    and 1024 MB.
+    Test the defaults: no output directory (a temporary one), 256 objects,
+    1024 MB, files of 256 MB and no restricted foundation model.
     """
     calls = []
     monkeypatch.setattr(server_module, "run_server", lambda **kwargs: calls.append(kwargs))
@@ -45,25 +46,27 @@ def test_cli_mcp_defaults(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert calls == [{
         "allow_dir": tmp_path, "output_dir": None, "max_objects": 256,
-        "max_memory_mb": 1024, "allow_models": (),
+        "max_memory_mb": 1024, "max_file_mb": 256, "allow_models": (),
     }]
 
 
 def test_cli_mcp_exit_code_when_allow_dir_missing_or_invalid(tmp_path):
     """
     Test that `--allow-dir` is required, that a directory that does not
-    exist exits with code 1 and its message, and that a limit below 1 is
-    rejected.
+    exist exits with code 1 and its message, and that a limit below 1 (below
+    0 for the file size) is rejected.
     """
     missing = runner.invoke(app, ["mcp"])
     invalid = runner.invoke(app, ["mcp", "--allow-dir", str(tmp_path / "nope")])
     limit = runner.invoke(app, ["mcp", "--allow-dir", str(tmp_path), "--max-objects", "0"])
+    size = runner.invoke(app, ["mcp", "--allow-dir", str(tmp_path), "--max-file-mb", "-1"])
 
     assert missing.exit_code == 2
     assert "Missing option '--allow-dir'" in missing.output
     assert invalid.exit_code == 1
     assert "does not exist or is not a directory." in " ".join(invalid.output.split())
     assert limit.exit_code == 2
+    assert size.exit_code == 2
 
 
 def test_cli_mcp_exit_code_when_allow_model_is_not_a_model_prefix(tmp_path):
