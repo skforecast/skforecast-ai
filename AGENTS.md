@@ -49,6 +49,10 @@ skforecast_ai/
   skills/, resources/ synced from skforecast (do not edit by hand)
   cli.py              Typer CLI mirroring the Python API
 tests/                mirrors the package: tests_<subpackage>/, fixtures_*.py
+plugin/               Claude Code plugin of the MCP server (marketplace in
+                      .claude-plugin/); its SKILL.md is a byte for byte copy
+                      of skforecast_ai/mcp/skills/ and its versions follow
+                      pyproject.toml (tests/test_plugin_distribution.py)
 tools/                maintenance scripts (see tools/README.md): ai/ for the
                       skforecast assets and the LLM context checks,
                       docs/ for the documentation build

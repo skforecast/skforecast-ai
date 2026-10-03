@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "skforecast-ai": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "skforecast-ai[mcp]==0.4.0",
+        "skforecast-ai",
+        "mcp",
+        "--allow-dir",
+        "${CLAUDE_PROJECT_DIR}"
+      ]
+    }
+  }
+}

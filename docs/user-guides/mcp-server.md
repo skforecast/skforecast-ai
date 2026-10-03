@@ -2,15 +2,118 @@
 
 Coding agents such as Claude Code, Cursor or Claude Desktop can call **skforecast-ai** as a set of tools through the [Model Context Protocol](https://modelcontextprotocol.io) (MCP). The agent brings the language model: it reads your request, calls the tools and explains the results. skforecast-ai brings the forecasting: every decision (forecaster, estimator, lags, metric, cross-validation) is made by the same deterministic rules as in Python, and every result comes with the script that produced it.
 
-The server needs the `mcp` extra (also included in `all`):
+---
+
+## Install
+
+There are three ways to install it. Pick the tab of your agent: the Claude Code plugin installs the server and its skill in two commands; the other agents install the skill with `npx skills` and start the server with `uvx`; or install the package yourself with pip or pipx.
+
+=== "Claude Code"
+
+    Claude Code installs the server and its skill as a plugin from the marketplace of this repository. The plugin starts the server with [uv](https://docs.astral.sh/uv/) (`uvx`), so install uv first. In Claude Code:
+
+    ```text
+    /plugin marketplace add skforecast/skforecast-ai
+    /plugin install skforecast-ai@skforecast-ai
+    ```
+
+    The plugin starts `uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai mcp --allow-dir <your project>`: the server may read the CSV files of the project you open in Claude Code, and the version of the server is the version of the plugin. To pass other options (another directory, `--allow-model`, `HF_HUB_OFFLINE`), add the server by hand instead, as in the next tab, and disable the plugin: with both, two servers run.
+
+    Before the first use, warm up `uvx` with the version of the plugin (see below why): `uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai --version`.
+
+=== "Cursor, Codex and others"
+
+    Install the skill for your agent with the [skills](https://github.com/vercel-labs/skills) command:
+
+    ```bash
+    npx skills add skforecast/skforecast-ai --skill skforecast-ai-forecasting
+    ```
+
+    Then add the server to the MCP configuration of your client. These examples start it with [uv](https://docs.astral.sh/uv/) (`uvx`), so nothing else has to be installed; the place and format of the configuration are those of each client, so check its documentation if they differ. The path of `--allow-dir` must be absolute: the client starts the server from a working directory of its own choosing.
+
+    **Cursor**, in `.cursor/mcp.json` of the project (or `~/.cursor/mcp.json` for every project):
+
+    ```json
+    {
+      "mcpServers": {
+        "skforecast-ai": {
+          "command": "uvx",
+          "args": [
+            "--from", "skforecast-ai[mcp]",
+            "skforecast-ai", "mcp", "--allow-dir", "/absolute/path/to/project"
+          ]
+        }
+      }
+    }
+    ```
+
+    **Codex**, in `~/.codex/config.toml`:
+
+    ```toml
+    [mcp_servers.skforecast-ai]
+    command = "uvx"
+    args = [
+      "--from", "skforecast-ai[mcp]",
+      "skforecast-ai", "mcp", "--allow-dir", "/absolute/path/to/project",
+    ]
+    ```
+
+    **Claude Code without the plugin**, for every project (`-s user`):
+
+    ```bash
+    claude mcp add -s user skforecast-ai -- uvx --from "skforecast-ai[mcp]" skforecast-ai mcp --allow-dir /absolute/path/to/project
+    ```
+
+    **Claude Desktop** takes the JSON of Cursor in `claude_desktop_config.json`.
+
+=== "pip or pipx"
+
+    Install the package with its `mcp` extra (also included in `all`) in a Python environment, or with pipx in an environment of its own:
+
+    ```bash
+    pip install "skforecast-ai[mcp]"
+    pipx install "skforecast-ai[mcp]"
+    ```
+
+    The client then starts the command `skforecast-ai mcp --allow-dir /absolute/path/to/data`, for example with `"command": "skforecast-ai"` in the JSON of the previous tab. If it does not find `skforecast-ai`, give the absolute path of the one in your environment (`which skforecast-ai` on Linux and macOS, `where skforecast-ai` on Windows), or start it with the Python of that environment: `/path/to/python -m skforecast_ai mcp --allow-dir /absolute/path/to/data`.
+
+    Copy the skill by hand: find it in your installation with
+
+    ```bash
+    python -c "from importlib.resources import files; print(files('skforecast_ai') / 'mcp' / 'skills' / 'skforecast-ai-forecasting')"
+    ```
+
+    and copy that folder into the skills directory of your agent (`.claude/skills/` of your project, or `~/.claude/skills/` for every project, with Claude Code).
+
+**The first start takes about a minute.** `uvx` downloads and installs the package and its dependencies the first time (about 60 seconds), and a client may give up on a server that takes that long to start. Run this once before connecting the agent, so later starts take about 2 seconds:
 
 ```bash
-pip install "skforecast-ai[mcp]"
+uvx --from "skforecast-ai[mcp]" skforecast-ai --version
 ```
+
+**Options in the configuration of the client.** Options of the server go at the end of `args` (for example `"--allow-model", "google/timesfm-3.0"` to run TimesFM 3.0 once you have accepted its license), and variables of its environment in `env`:
+
+```json
+{
+  "mcpServers": {
+    "skforecast-ai": {
+      "command": "uvx",
+      "args": [
+        "--from", "skforecast-ai[mcp]",
+        "skforecast-ai", "mcp", "--allow-dir", "/absolute/path/to/project",
+        "--allow-model", "google/timesfm-3.0"
+      ],
+      "env": {"HF_HUB_OFFLINE": "1"}
+    }
+  }
+}
+```
+
+With `claude mcp add`, the variables go before `--`: `claude mcp add -s user skforecast-ai -e HF_HUB_OFFLINE=1 -- uvx ...`. In `~/.codex/config.toml`, an `env = { HF_HUB_OFFLINE = "1" }` line under `[mcp_servers.skforecast-ai]`.
 
 ---
 
-## Start the server
+## Options of the server
 
 The agent starts the server itself, as a command, and talks to it over its standard input and output. `--allow-dir` is required: the server only reads CSV files inside that directory.
 
@@ -27,42 +130,9 @@ skforecast-ai mcp --allow-dir /path/to/data
 | `--max-file-mb` | 256 | Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it. 0 for no limit. |
 | `--allow-model` | (none) | Model ID prefix of a foundation model with a license restriction or gated weights that the server may run, for example `google/timesfm-3.0`. Repeat it for several. |
 
-The client starts the command by name. If it does not find `skforecast-ai`, give the absolute path of the one in your Python environment (`which skforecast-ai` on Linux and macOS, `where skforecast-ai` on Windows) in the commands below, or start it with the Python of that environment: `/path/to/python -m skforecast_ai mcp --allow-dir /path/to/data`.
-
 When it starts, the server checks that it can write to the output directory and stops with an error otherwise. It writes its log to the standard error, one line per event: the directories it uses when it starts, the message and traceback of an unexpected error with its id, and one line when the client disconnects (it then exits with code 0, also in the middle of a call).
 
-### Claude Code
-
-```bash
-claude mcp add skforecast-ai -- skforecast-ai mcp --allow-dir /path/to/data
-```
-
-### Claude Desktop and Cursor
-
-Add the server to the MCP configuration of the client (`claude_desktop_config.json` for Claude Desktop, `.cursor/mcp.json` for Cursor):
-
-```json
-{
-  "mcpServers": {
-    "skforecast-ai": {
-      "command": "skforecast-ai",
-      "args": ["mcp", "--allow-dir", "/path/to/data"]
-    }
-  }
-}
-```
-
----
-
-## Give the agent the skill
-
-The package ships a skill, `SKILL.md`, that teaches an agent the workflow, how far to trust each result, the cost of a backtest, the format of dates, what each error code asks for and what reaches the agent. It is written for the agent that calls the server; the [skills for the LLM](skills.md) are a different thing, the skforecast guides that `ask()` sends to its own model. Agents that follow the [Agent Skills](https://agentskills.io/specification) standard load it from a skills directory. Find it in your installation:
-
-```bash
-python -c "from importlib.resources import files; print(files('skforecast_ai') / 'mcp' / 'skills' / 'skforecast-ai-forecasting')"
-```
-
-and copy that folder into `.claude/skills/` of your project (or `~/.claude/skills/` for every project) to use it with Claude Code. Its content is [below](#the-skill).
+The skill, `SKILL.md`, teaches the agent the workflow, how far to trust each result, the cost of a backtest, the format of dates, what each error code asks for and what reaches the agent. It is written for the agent that calls the server; the [skills for the LLM](skills.md) are a different thing, the skforecast guides that `ask()` sends to its own model. It follows the [Agent Skills](https://agentskills.io/specification) standard, and its content is [below](#the-skill). The most important of its rules also reach the agent without it, in the instructions of the server.
 
 ---
 

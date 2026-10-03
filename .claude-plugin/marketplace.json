@@ -1,0 +1,19 @@
+{
+  "name": "skforecast-ai",
+  "owner": {
+    "name": "skforecast team",
+    "url": "https://github.com/skforecast"
+  },
+  "metadata": {
+    "description": "Deterministic time series forecasting for coding agents: the skforecast-ai MCP server and its skill.",
+    "version": "0.4.0"
+  },
+  "plugins": [
+    {
+      "name": "skforecast-ai",
+      "source": "./plugin",
+      "description": "Forecast time series in CSV files with deterministic skforecast workflows: the skforecast-ai MCP server (profile, plan, backtest, compare, forecast) and the skill that teaches the agent to use it.",
+      "version": "0.4.0"
+    }
+  ]
+}
