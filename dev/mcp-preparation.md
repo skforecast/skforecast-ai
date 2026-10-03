@@ -867,6 +867,18 @@ Más preguntas menores:
 
 Los scripts de reproducción de la fase 1 estaban en el scratchpad de la sesión y no se conservan. Cada hallazgo de este documento indica los datos y la llamada con que se reprodujo, para poder repetirlo.
 
+### 10.12 Fase 6: rendimiento y limpieza (antes del check de pago)
+
+Última fase antes de la release, después de los overrides (PRs 30 a 38). Cada fase añadió comprobaciones (el perfil ordena filas y lee fechas como texto, `forecast()` valida la última ventana y las exógenas futuras, cada método revalida el plan, el servidor calcula la huella del CSV antes y después de cada llamada) y ninguna midió su coste. El tiempo grande es de skforecast al ajustar modelos, así que lo que se busca es un cuello de botella inesperado en el código propio y los restos que dejaron las fases, no grandes mejoras.
+
+- **Medir primero, por función** (`cProfile` o `pyinstrument`): cada llamada pública (`profile`, `plan`, `forecast`, `backtest`, `compare` y los tools del servidor) con datos pequeños, medianos y grandes (h2o, bike_sharing, store_sales con 913 mil filas). Se informa de la parte del tiempo que es código propio frente a skforecast, pandas y el estimador.
+- **Después, línea a línea** (`line_profiler`), solo en las funciones propias que señale el paso anterior.
+- **También:** `python -X importtime` (importación y arranque del servidor) y la memoria de `profile()` en store_sales.
+- **Optimizar solo lo medido:** código propio por encima del 10 % de una llamada, o un coste que crece con el tamaño de los datos sin necesidad. Ya anotado en la sección 18: `validate_series_lengths` calcula `_series_spans` otra vez, y un perfil guardado se vuelve a perfilar en cada llamada (dos veces si los datos cambiaron).
+- **Limpieza:** código muerto y duplicados que quedaron entre fases (conjuntos de forecasters repetidos, helpers pequeños en varios módulos, las dos tablas de periodos estacionales de la pregunta 5 de la sección 18). Sin reorganizar los ficheros grandes (`assistant.py`, `mcp/server.py`): eso es para la 0.5.0.
+- **Regla:** todo se comporta igual. Goldens de render y de contexto idénticos byte a byte, predicciones idénticas en los conjuntos de paridad, ningún cambio de API ni de mensajes. Si algo cambia, se para.
+- **Opcional:** comparar tiempos con la v0.3.1 como caja negra, solo si corre sin esfuerzo (apunta a skforecast 0.25 y el código cambió mucho).
+
 ## 11. Fase 2: hecho
 
 Bloque de seguridad del MCP: los PRs 0 a 4 de la tabla 10.8, en la rama `fix/mcp-security`, creada desde `0.4.x` (`307de25`, que ya incluye `feature/mcp-audit`). Un commit por PR, en orden. Cada commit lleva su código, sus tests y su entrada en `docs/releases/releases.md` (0.4.0), salvo el PR 0, que es solo documentación. Antes de cada commit se pasaron `/verify` y el subagente `conventions-reviewer`, y en los PRs 1 a 3 también `/security-review`; cualquier prefijo de la rama se puede mergear.
