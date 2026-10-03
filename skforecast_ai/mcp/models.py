@@ -6,34 +6,175 @@
 ################################################################################
 
 from __future__ import annotations
-from typing import Literal
+import sys
+from typing import Annotated, Any, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field, with_config
-from ..schemas.plans import CandidateConfig, RefinePlanOverrides
+from skforecast.foundation import list_adapters
+
+if sys.version_info >= (3, 12):
+    from typing import TypedDict
+else:
+    from typing_extensions import TypedDict
+from .._constants import (
+    DEFAULT_FOUNDATION_MODEL_ID,
+    SUPPORTED_ESTIMATORS,
+    WindowStat,
+)
 
 ObjectKind = Literal["profile", "plan", "cv", "backtest", "comparison", "forecast"]
 """Kinds of the objects the server registers, the first part of their id."""
 
+ForecasterName = Literal[
+    "ForecasterRecursive",
+    "ForecasterDirect",
+    "ForecasterRecursiveMultiSeries",
+    "ForecasterDirectMultiVariate",
+    "ForecasterStats",
+    "ForecasterFoundation",
+    "ForecasterEquivalentDate",
+]
+"""Forecasters a plan can name (the keys of `FORECASTER_TASK_TYPES`)."""
 
-@with_config(ConfigDict(extra="forbid", strict=True))
-class RefinePlanArgs(RefinePlanOverrides, total=False):
+# Descriptions of the arguments shared by `plan`, `refine_plan` and the
+# candidates of `compare`, written for the agent: the schema of a tool is
+# all it reads about an argument. The valid values come from the constants
+# of the core and from skforecast, so they never go out of date.
+FORECASTER_DESCRIPTION = (
+    "skforecast forecaster class: ForecasterRecursive or ForecasterDirect "
+    "(one series, machine learning), ForecasterRecursiveMultiSeries (several "
+    "series), ForecasterDirectMultiVariate (one series predicted from "
+    "several), ForecasterStats (Auto-ARIMA), ForecasterFoundation "
+    "(pre-trained foundation model, no training) or ForecasterEquivalentDate "
+    "(seasonal naive baseline)."
+)
+ESTIMATOR_DESCRIPTION = (
+    f"Estimator: one of {sorted(SUPPORTED_ESTIMATORS)} for the machine "
+    f"learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face "
+    f"model id of a foundation model for ForecasterFoundation (default "
+    f"'{DEFAULT_FOUNDATION_MODEL_ID}'; model id prefixes: "
+    f"{[p for info in list_adapters() for p in info.model_id_prefixes]}). "
+    f"ForecasterEquivalentDate takes none."
+)
+ESTIMATOR_KWARGS_DESCRIPTION = (
+    "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A "
+    "foundation model only takes context_length, cross_learning, "
+    "point_estimate, max_horizon, add_calendar_features and n_fourier_terms."
+)
+STEPS_DESCRIPTION = (
+    "Forecast horizon: number of steps ahead to predict, from 1 to the length "
+    "of the longest series (12 for a year of monthly data)."
+)
+INTERVAL_DESCRIPTION = (
+    "Prediction interval as two quantiles [lower, upper] with 0 < lower < "
+    "upper < 1, e.g. [0.1, 0.9] for 80 %. The baseline and ForecasterStats "
+    "only take symmetric ones (lower + upper = 1)."
+)
+LAGS_DESCRIPTION = (
+    "Lags: an integer n for 1..n, or a list of distinct positive integers."
+)
+WINDOW_FEATURES_DESCRIPTION = (
+    f"Rolling features, one entry per window size: {{'stats': [...], "
+    f"'window_size': n}}, with stats among {list(get_args(WindowStat))}, e.g. "
+    f"[{{'stats': ['mean', 'std'], 'window_size': 7}}]."
+)
+
+Interval = Annotated[list[float], Field(min_length=2, max_length=2)]
+WindowFeatures = list[dict[str, list[str] | int]]
+
+
+@with_config(ConfigDict(
+    extra            = "forbid",
+    strict           = True,
+    title            = "RefinePlanArgs",
+    json_schema_extra = {
+        "description": (
+            "Decisions of the plan to change. An omitted key keeps the value "
+            "of the plan; estimator_kwargs, interval, lags and "
+            "window_features set to null ask for the deterministic default."
+        ),
+    },
+))
+class RefinePlanArgs(TypedDict, total=False):
     """
     Overrides of the `refine_plan` tool.
 
-    The keys of `RefinePlanOverrides`, with unknown keys rejected and no
-    type coercion. A key that is omitted keeps the value of the plan; a key
+    The keys of `RefinePlanOverrides` (a test checks they stay the same),
+    each described for the agent, with unknown keys rejected and no type
+    coercion. A key that is omitted keeps the value of the plan; a key
     passed as null asks for the deterministic default, as in
     `ForecastingAssistant.refine_plan()`.
     """
 
+    forecaster: Annotated[ForecasterName, Field(description=FORECASTER_DESCRIPTION)]
+    estimator: Annotated[str, Field(description=ESTIMATOR_DESCRIPTION)]
+    estimator_kwargs: Annotated[
+        dict[str, Any] | None,
+        Field(description=(
+            f"{ESTIMATOR_KWARGS_DESCRIPTION} Null for the defaults of the "
+            f"estimator."
+        )),
+    ]
+    steps: Annotated[int, Field(ge=1, description=STEPS_DESCRIPTION)]
+    interval: Annotated[
+        Interval | None,
+        Field(description=f"{INTERVAL_DESCRIPTION} Null removes the interval."),
+    ]
+    lags: Annotated[
+        int | list[int] | None,
+        Field(description=(
+            f"{LAGS_DESCRIPTION} Null selects them again from the partial "
+            f"autocorrelation."
+        )),
+    ]
+    window_features: Annotated[
+        WindowFeatures | None,
+        Field(description=(
+            f"{WINDOW_FEATURES_DESCRIPTION} Null selects them again with the "
+            f"deterministic rules."
+        )),
+    ]
 
-@with_config(ConfigDict(extra="forbid", strict=True))
-class CandidateArgs(CandidateConfig, total=False):
+
+@with_config(ConfigDict(
+    extra            = "forbid",
+    strict           = True,
+    title            = "CandidateArgs",
+    json_schema_extra = {
+        "description": (
+            "Configuration of one candidate. An omitted key keeps the "
+            "recommendation of the profile."
+        ),
+    },
+))
+class CandidateArgs(TypedDict, total=False):
     """
     Configuration of a candidate of the `compare` tool.
 
-    The keys of `CandidateConfig`, with unknown keys rejected and no type
+    The keys of `CandidateConfig` (a test checks they stay the same), each
+    described for the agent, with unknown keys rejected and no type
     coercion. An omitted key keeps the recommendation of the profile.
     """
+
+    forecaster: Annotated[ForecasterName, Field(description=FORECASTER_DESCRIPTION)]
+    estimator: Annotated[str, Field(description=ESTIMATOR_DESCRIPTION)]
+    estimator_kwargs: Annotated[
+        dict[str, Any] | None,
+        Field(description=ESTIMATOR_KWARGS_DESCRIPTION),
+    ]
+    lags: Annotated[
+        int | list[int] | None,
+        Field(description=(
+            f"{LAGS_DESCRIPTION} Null selects them from the partial "
+            f"autocorrelation."
+        )),
+    ]
+    window_features: Annotated[
+        WindowFeatures | None,
+        Field(description=(
+            f"{WINDOW_FEATURES_DESCRIPTION} Null selects them with the "
+            f"deterministic rules."
+        )),
+    ]
 
 
 class CandidateArg(BaseModel):
@@ -50,10 +191,23 @@ class CandidateArg(BaseModel):
         `lags` and `window_features`, as in `ForecastingAssistant.compare()`.
     """
 
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(
+        extra             = "forbid",
+        strict            = True,
+        json_schema_extra = {
+            "description": "A configuration to compare, with a unique name.",
+        },
+    )
 
-    name: str
-    config: CandidateArgs = Field(default_factory=dict)
+    name: str = Field(description=(
+        "Unique name of the candidate, which labels its row of the "
+        "leaderboard. 'Baseline (seasonal naive)' and 'Baseline (naive)' are "
+        "reserved for the baseline."
+    ))
+    config: CandidateArgs = Field(
+        default_factory = dict,
+        description     = "Its configuration; empty for the recommendation.",
+    )
 
 
 class ToolNotice(BaseModel):
@@ -64,10 +218,13 @@ class ToolNotice(BaseModel):
     ----------
     source : str
         Where the warning comes from: `'data'` (reading or profiling the
-        data), `'plan'` (a warning the plan carries in `plan.warnings`) or
-        `'runtime'` (any other warning of the call).
+        data), `'plan'` (a warning the plan carries in `plan.warnings`, or
+        the model a plan uses) or `'runtime'` (any other warning of the
+        call).
     category : str
-        Class name of the warning (e.g. `'LongTrainingWarning'`).
+        Class name of the warning (e.g. `'LongTrainingWarning'`), or
+        `'ModelDownloadNotice'` for the notice of the server that a
+        foundation model will download its weights.
     message : str
         Text of the warning, without the suggestion of skforecast on how to
         silence it, cut to 1,000 characters.
@@ -118,15 +275,18 @@ class ToolResult(BaseModel):
         forecast, `leaderboard`, `best_predictions` and `best_metrics` of a
         comparison, and `summary` when the summary was cut.
     values_included : bool
-        Always False: the response holds no rows of the data, the
-        predictions or the metrics. The summary carries statistics of the
-        predictions and the metrics; the rows are in `files`.
+        Always False: the response holds no rows of the data or of the
+        predictions. The summary carries statistics of the predictions, the
+        metrics and the leaderboard of a comparison; the rows are in
+        `files`.
     cost : dict, None
         Cost of a cross-validation strategy, a backtest or a comparison:
         `n_folds`, `n_fits` (trainings of the forecaster in the shared
         strategy) and `estimator_fits` (fits of an estimator, which a
         direct forecaster multiplies by `steps`; for a comparison, the sum
-        over its candidates). None for the other kinds.
+        over its candidates). A cross-validation strategy also has
+        `compare_estimator_fits`, the fits of a comparison without
+        candidates with it. None for the other kinds.
     changeable : list of str
         Arguments of `refine_plan` (for a plan) or of `create_cv` (for a
         cross-validation strategy) that build a variant of the object.
@@ -191,7 +351,8 @@ class FailureResult(BaseModel):
     text : str
         Error, line and statement that failed, traceback and code that ran,
         cut to 20,000 characters. Like the messages of the errors, it can
-        quote values of the data, and the code names the path of the data.
+        quote values of the data. The code that ran reads the data in memory,
+        so it does not name the path of the data file.
     text_truncated : bool
         Whether `text` was cut; the full text is then in `files['failure']`.
     files : dict

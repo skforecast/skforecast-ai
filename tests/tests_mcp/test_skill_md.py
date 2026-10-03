@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from skforecast_ai._constants import COMPARE_FIT_BUDGET, LONG_TRAINING_FITS
+from skforecast_ai._constants import (
+    COMPARE_FIT_BUDGET,
+    DEFAULT_FOUNDATION_MODEL_ID,
+    LONG_TRAINING_FITS,
+)
 from skforecast_ai._future_exog import _SHOWN
 from skforecast_ai.exceptions import ERROR_CODES
 from skforecast_ai.mcp import create_server
@@ -17,9 +21,17 @@ from skforecast_ai.mcp._errors import (
     MAX_MESSAGE_CHARS,
     SERVER_ERROR_CODES,
 )
-from skforecast_ai.mcp._runtime import MAX_NOTICE_CHARS, MAX_NOTICES
-from skforecast_ai.mcp.server import FOUNDATION_KWARGS, MAX_SUMMARY_CHARS
-from skforecast_ai.schemas.errors import _INTERNAL_MESSAGE_MAX_LENGTH
+from skforecast_ai.mcp._foundation import permissive_adapters, restricted_adapters
+from skforecast_ai.mcp._runtime import (
+    HEARTBEAT_SECONDS,
+    MAX_NOTICE_CHARS,
+    MAX_NOTICES,
+)
+from skforecast_ai.mcp.server import (
+    DEFAULT_MAX_FILE_MB,
+    FOUNDATION_KWARGS,
+    MAX_SUMMARY_CHARS,
+)
 
 from .fixtures_mcp import tool_schemas
 
@@ -93,9 +105,11 @@ def test_skill_md_names_every_tool_error_code_and_foundation_kwarg(tmp_path):
         f"each text of `details` at {MAX_DETAIL_CHARS:,}",
         f"each notice at {MAX_NOTICE_CHARS:,}",
         f"at most {MAX_NOTICES}, and `notices_omitted` counts the rest",
-        f"at most {_INTERNAL_MESSAGE_MAX_LENGTH} characters",
+        "carries only the type of the exception and an id",
         f"Above {LONG_TRAINING_FITS} estimator fits",
         f"the candidates above {COMPARE_FIT_BUDGET}",
+        f"(`--max-file-mb`, {DEFAULT_MAX_FILE_MB} MB by default)",
+        f"every {HEARTBEAT_SECONDS:g} seconds while it runs",
     ],
     ids=lambda phrase: phrase,
 )
@@ -103,8 +117,9 @@ def test_skill_md_states_the_limits_of_the_server(phrase):
     """
     Test that every limit SKILL.md gives the agent is the one the server and
     the core apply: summary size, values quoted in a message, sizes of the
-    message, hint, details and notices, the first line of an unexpected
-    error, and the two thresholds of the cost of a backtest.
+    message, hint, details and notices, what an unexpected error carries,
+    the largest file, the period of the heartbeat and the two thresholds
+    of the cost of a backtest.
     """
     skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
 
@@ -120,7 +135,9 @@ def test_skill_md_states_the_limits_of_the_server(phrase):
         f"its hint at {MAX_HINT_CHARS:,}",
         f"each text of its `details` at {MAX_DETAIL_CHARS}",
         f"at most {MAX_NOTICES} warnings of {MAX_NOTICE_CHARS:,} characters",
-        f"at most {_INTERNAL_MESSAGE_MAX_LENGTH} characters",
+        "carries only the type of the exception and an id",
+        f"of at most `--max-file-mb` ({DEFAULT_MAX_FILE_MB} MB by default)",
+        f"every {HEARTBEAT_SECONDS:g} seconds while it runs",
     ],
     ids=lambda phrase: phrase,
 )
@@ -149,3 +166,50 @@ def test_skill_md_is_shipped_and_shown_in_the_docs():
     assert "mcp/skills/**/*" in package_data
     assert re.search("[\u2013\u2014]", skill) is None
     assert '--8<-- "skforecast-ai-forecasting/SKILL.md"' in guide
+
+
+def test_skill_md_and_guide_name_the_foundation_models_that_need_allow_model():
+    """
+    Test that SKILL.md and the user guide name the model ID prefix of every
+    foundation model that needs `--allow-model`, as derived from the
+    information of skforecast, and that the guide also names those that run
+    without it, so neither goes out of date when skforecast adds a model.
+    """
+    skill = SKILL_PATH.read_text(encoding="utf-8")
+    guide = GUIDE_PATH.read_text(encoding="utf-8")
+    restricted = [p for info in restricted_adapters() for p in info.model_id_prefixes]
+    permissive = [p for info in permissive_adapters() for p in info.model_id_prefixes]
+
+    assert [p for p in restricted if f"`{p}`" not in skill] == []
+    assert [p for p in restricted + permissive if f"`{p}`" not in guide] == []
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "There is no baseline with several series",
+        "`files.best_metrics`",
+        "A `mean_absolute_scaled_error` below 1",
+        "the worst series is not in it",
+        "Never change their file",
+        "Only if they agree, write a corrected copy inside the allowed directory",
+        f"Its default model is Chronos-2 (`{DEFAULT_FOUNDATION_MODEL_ID}`)",
+        "tell the user which model, its license",
+        "A fraction only works when it gives exactly `steps` observations",
+        "Without `candidates` it runs the forecasters the profile recommends",
+        "`exog` is `exog_path`",
+        "no response holds rows of the data or of the predictions",
+        "The summaries do carry the metrics and the leaderboard",
+    ],
+    ids=lambda phrase: phrase,
+)
+def test_skill_md_covers_what_agents_get_wrong(phrase):
+    """
+    Test that SKILL.md covers the cases found in the review of phase 4: the
+    comparison without baseline, problems of the CSV file, foundation
+    models, `test_size` as a fraction, `compare` without candidates, the
+    names of the Python API in messages and what `values_included` means.
+    """
+    skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
+
+    assert phrase in skill

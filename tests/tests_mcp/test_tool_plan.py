@@ -3,9 +3,18 @@
 import pytest
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.mcp import create_server
 from skforecast_ai.mcp.models import ToolNotice
 
-from .fixtures_mcp import call, content_of, error_of, h2o_server
+from .fixtures_mcp import (
+    GAPS_WARNING,
+    call,
+    content_of,
+    df_h2o_gaps_csv,
+    error_of,
+    h2o_server,
+    write_csv,
+)
 
 LGBM_WARNING = (
     "'not_a_param' is not a named parameter of LGBMRegressor. It is passed to "
@@ -164,3 +173,97 @@ def test_tool_plan_unknown_or_wrong_id(tmp_path):
         f"{plan_id!r} is the id of a plan, and `profile_id` takes the id of a "
         f"profile (returned by profile)."
     )
+
+
+def test_tool_plan_announces_model_download_once(tmp_path, monkeypatch):
+    """
+    Test that the first plan with a foundation model whose weights are not
+    in the local Hugging Face cache carries a `ModelDownloadNotice` (source
+    'plan') with its license, that a second plan with the same model does
+    not, and that a model already in the cache is never announced.
+    """
+    cache = tmp_path / "hf"
+    (cache / "models--Synthefy--Nori" / "snapshots" / "abc").mkdir(parents=True)
+    (cache / "models--Synthefy--Nori" / "snapshots" / "abc" / "f").write_text("")
+    monkeypatch.setenv("HF_HUB_CACHE", str(cache))
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    server, _, profile_id = _profiled(tmp_path)
+    base = {"profile_id": profile_id, "steps": 12, "forecaster": "ForecasterFoundation"}
+
+    first = content_of(call(server, "plan", base))
+    second = content_of(call(server, "plan", {**base, "interval": [0.1, 0.9]}))
+    cached = content_of(call(server, "plan", {**base, "estimator": "Synthefy/Nori"}))
+
+    assert first["notices"] == [
+        ToolNotice(
+            source   = "plan",
+            category = "ModelDownloadNotice",
+            message  = (
+                "The weights of 'autogluon/chronos-2-small' were not found in "
+                "the local Hugging Face cache: the first run may download "
+                "them from the Hugging Face Hub. License: skforecast "
+                "registers no license restriction for it."
+            ),
+            count    = 1,
+        ).model_dump()
+    ]
+    assert second["notices"] == []
+    assert cached["notices"] == []
+
+
+@pytest.mark.parametrize("steps", [205, 500, 10**9], ids=lambda s: f"steps={s}")
+def test_tool_plan_invalid_argument_when_steps_longer_than_the_series(
+    tmp_path, steps
+):
+    """
+    Test that a horizon longer than the longest series of the profile (h2o
+    has 204 observations) is `invalid_argument` on `steps` when the plan is
+    built, instead of failing when it runs, and that 204 is accepted.
+    """
+    server, _, profile_id = _profiled(tmp_path)
+
+    error = error_of(
+        call(server, "plan", {"profile_id": profile_id, "steps": steps}), "plan"
+    )
+    longest = call(server, "plan", {"profile_id": profile_id, "steps": 204})
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "steps")
+    assert error["message"] == (
+        f"`steps` is {steps}, more than the 204 observations of the longest "
+        f"series of the data. The horizon must not exceed the history."
+    )
+    assert error["details"] == {"steps": steps, "longest_series": 204}
+    assert content_of(longest)["kind"] == "plan"
+
+
+def test_tool_plan_notices_of_the_plan_and_of_its_data(tmp_path):
+    """
+    Test that a plan carries, as notices, the warnings of the data it was
+    built from (source 'data') besides its own (source 'plan'), so the agent
+    sees a data problem where it decides the plan.
+    """
+    path = write_csv(tmp_path, "gaps.csv", df_h2o_gaps_csv)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile_id = content_of(
+        call(server, "profile", {"data_path": path, "target": "x"})
+    )["id"]
+
+    result = content_of(
+        call(
+            server,
+            "plan",
+            {
+                "profile_id": profile_id,
+                "steps": 12,
+                "estimator_kwargs": {"not_a_param": 1},
+                "estimator": "LGBMRegressor",
+            },
+        )
+    )
+
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(source="data", category="DataProfileWarning",
+                   message=GAPS_WARNING, count=1),
+        ToolNotice(source="plan", category="UserWarning",
+                   message=LGBM_WARNING, count=1),
+    ]

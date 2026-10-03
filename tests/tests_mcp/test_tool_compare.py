@@ -14,7 +14,7 @@ from skforecast_ai import (
     ForecastingAssistant,
     MissingBackendWarning,
 )
-from skforecast_ai.mcp import create_server
+from skforecast_ai.mcp import _runtime, create_server
 
 from ..fixtures_datasets import df_items_sales_long
 
@@ -23,6 +23,7 @@ from .fixtures_mcp import (
     call,
     content_of,
     cv_of,
+    df_h2o_csv,
     error_of,
     h2o_server,
     run_session,
@@ -139,12 +140,13 @@ def test_tool_compare_code_and_failures_of_the_candidates(tmp_path):
     )
 
 
-def test_tool_compare_reports_monotonic_progress(tmp_path):
+def test_tool_compare_reports_monotonic_progress(tmp_path, monkeypatch):
     """
     Test that `compare` reports progress when each candidate starts and
     ends: `2 * completed + started` over `2 * total`, always growing, the
-    baseline included.
+    baseline included (no heartbeat, which fires after a long silence).
     """
+    monkeypatch.setattr(_runtime, "HEARTBEAT_SECONDS", 3600)
     server, path = h2o_server(tmp_path)
     _, _, cv_id = cv_of(server, path)
     events = []
@@ -322,3 +324,136 @@ def test_tool_compare_default_candidates_of_the_profile(tmp_path):
 
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()
+
+
+def test_tool_compare_announces_model_download_of_a_candidate_that_ran(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a foundation candidate whose weights are not in the local
+    Hugging Face cache and whose script ran (here it fails without its
+    backend, which a download could precede) gets one `ModelDownloadNotice`
+    in the comparison, and none in a second comparison.
+    """
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hf"))
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    path = write_csv(tmp_path, "h2o.csv", df_h2o_csv)
+    server = create_server(
+        allow_dir    = tmp_path,
+        output_dir   = tmp_path / "out",
+        allow_models = ["Salesforce/moirai-2"],
+    )
+    _, _, cv_id = cv_of(server, path)
+    arguments = {
+        "cv_id": cv_id,
+        "candidates": [
+            {"name": "ridge", "config": {"estimator": "Ridge"}},
+            {
+                "name": "moirai",
+                "config": {
+                    "forecaster": "ForecasterFoundation",
+                    "estimator": "Salesforce/moirai-2.0-R-small",
+                },
+            },
+        ],
+    }
+
+    first = content_of(call(server, "compare", arguments))
+    second = content_of(call(server, "compare", arguments))
+
+    assert [
+        (n["source"], n["category"]) for n in first["notices"]
+        if n["category"] == "ModelDownloadNotice"
+    ] == [("plan", "ModelDownloadNotice")]
+    assert "CC-BY-NC-4.0" in first["notices"][0]["message"]
+    assert all(n["category"] != "ModelDownloadNotice" for n in second["notices"])
+
+
+def test_tool_compare_heartbeat_inside_a_long_candidate(tmp_path, monkeypatch):
+    """
+    Test that while a candidate runs for longer than the heartbeat, the
+    comparison sends notifications naming it ("ridge: running (0 s)"),
+    above its start event and below its end event, with the total of the
+    comparison.
+    """
+    monkeypatch.setattr(_runtime, "HEARTBEAT_SECONDS", 0.05)
+    backtest = ForecastingAssistant.backtest
+
+    def slow_backtest(self, *args, **kwargs):
+        if kwargs["plan"].estimator == "Ridge":
+            time.sleep(0.4)
+        return backtest(self, *args, **kwargs)
+
+    monkeypatch.setattr(ForecastingAssistant, "backtest", slow_backtest)
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    events = []
+
+    async def steps(client):
+        async def record(progress, total, message):
+            events.append((progress, total, message))
+
+        return await client.call_tool(
+            "compare",
+            {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES[:1]},
+            progress_callback=record,
+        )
+
+    content_of(run_session(server, steps))
+
+    values = [progress for progress, _, _ in events]
+    inside = [event for event in events if 1 < event[0] < 2]
+    assert values == sorted(set(values))
+    assert len(inside) >= 3
+    assert inside[0] == (1.5, 4.0, "ridge: running (0 s)")
+    assert (1.0, 4.0, "ridge: started") in events
+    assert (2.0, 4.0, "ridge: succeeded") in events
+
+
+def test_tool_compare_without_interval_uses_the_interval_of_the_plan_of_the_cv(
+    tmp_path,
+):
+    """
+    Test that `compare` without `interval` computes the interval of the plan
+    the strategy was built for, as the Python API with that interval does,
+    so the plan of the winner keeps it and its forecast has bounds; an
+    explicit `interval` still wins.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path, interval=[0.1, 0.9])
+    candidates = COMPARE_CANDIDATES[:1]
+
+    result = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": candidates})
+    )
+    explicit = content_of(
+        call(
+            server,
+            "compare",
+            {"cv_id": cv_id, "candidates": candidates, "interval": [0.2, 0.8]},
+        )
+    )
+    forecast = content_of(
+        call(server, "forecast", {"plan_id": result["links"]["best_plan_id"]})
+    )
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="x")
+    cv = assistant.create_cv(
+        profile=profile,
+        plan=assistant.plan(profile=profile, steps=12, interval=[0.1, 0.9]),
+    )
+    expected = assistant.compare(
+        data=path,
+        cv=cv,
+        profile=profile,
+        show_progress=False,
+        candidates=[(c["name"], dict(c["config"])) for c in candidates],
+        interval=[0.1, 0.9],
+    )
+
+    header = text_of(forecast["files"]["predictions"]).splitlines()[0]
+    assert header == ",pred,lower_bound,upper_bound"
+    assert expected.best_candidate.plan.interval == [0.1, 0.9]
+    assert result["summary"] == expected.describe()
+    assert explicit["summary"] != result["summary"]

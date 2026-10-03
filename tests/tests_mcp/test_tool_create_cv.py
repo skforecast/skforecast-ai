@@ -29,41 +29,48 @@ def _planned(tmp_path, **plan_arguments):
 
 
 @pytest.mark.parametrize(
-    "plan_arguments, cv_arguments, cost",
+    "plan_arguments, cv_arguments, cost, compare_fits",
     [
-        ({"steps": 12}, {}, {"n_folds": 6, "n_fits": 1, "estimator_fits": 1}),
+        ({"steps": 12}, {}, {"n_folds": 6, "n_fits": 1, "estimator_fits": 1}, 19),
         (
             {"steps": 12},
             {"initial_train_size": 120, "refit": True},
             {"n_folds": 7, "n_fits": 7, "estimator_fits": 7},
+            98,
         ),
         (
             {"steps": 12},
             {"initial_train_size": "2005-06-01", "refit": 2, "fixed_train_size": True},
             {"n_folds": 3, "n_fits": 2, "estimator_fits": 2},
+            29,
         ),
         (
             {"steps": 6, "forecaster": "ForecasterDirect"},
             {"refit": True},
             {"n_folds": 11, "n_fits": 11, "estimator_fits": 66},
+            88,
         ),
         (
             {"steps": 12, "forecaster": "ForecasterStats"},
             {},
             {"n_folds": 6, "n_fits": 6, "estimator_fits": 6},
+            19,
         ),
     ],
     ids=lambda dt: f"{dt}",
 )
 def test_tool_create_cv_output_matches_python_api(
-    tmp_path, plan_arguments, cv_arguments, cost
+    tmp_path, plan_arguments, cv_arguments, cost, compare_fits
 ):
     """
     Test that `create_cv` registers the strategy the Python API builds for
     the plan, states its cost (a direct forecaster fits one estimator per
     step, ForecasterStats is refitted in every fold), links it to its profile
     and plan and lists the arguments of `create_cv`; `get_code` returns the
-    code of its `TimeSeriesFold`.
+    code of its `TimeSeriesFold`. The cost also gives the estimator fits of
+    a `compare` without candidates with that strategy (the candidates of the
+    profile, each with the fits of the shared strategy), with a notice when
+    they exceed both 50 and the fits of the plan.
     """
     server, path, profile_id, plan_id = _planned(tmp_path, **plan_arguments)
 
@@ -78,10 +85,71 @@ def test_tool_create_cv_output_matches_python_api(
     assert result["kind"] == "cv"
     assert result["links"] == {"profile_id": profile_id, "plan_id": plan_id}
     assert result["summary"] == cv.describe()
-    assert result["cost"] == cost
+    assert result["cost"] == {**cost, "compare_estimator_fits": compare_fits}
     assert result["changeable"] == CV_ARGUMENTS
-    assert result["notices"] == []
+    expected = ["LongTrainingWarning"] if cost["estimator_fits"] > 50 else []
+    if compare_fits > max(50, cost["estimator_fits"]):
+        expected.append("CompareCostNotice")
+    assert sorted(notice["category"] for notice in result["notices"]) == sorted(
+        expected
+    )
     assert code["code"] == cv.code
+
+
+def test_tool_create_cv_long_training_notice_before_the_backtest(tmp_path):
+    """
+    Test that a strategy whose backtest fits the estimator more than 50
+    times carries, when it is built, the `LongTrainingWarning` that the
+    backtest emits later (source 'runtime'), with the same text, while it
+    can still change.
+    """
+    server, path, _, plan_id = _planned(
+        tmp_path, steps=6, forecaster="ForecasterDirect"
+    )
+
+    result = content_of(call(server, "create_cv", {"plan_id": plan_id, "refit": True}))
+    backtest = content_of(call(server, "backtest", {"cv_id": result["id"]}))
+
+    long_notices = [
+        notice for notice in backtest["notices"]
+        if notice["category"] == "LongTrainingWarning"
+    ]
+    built = [n for n in result["notices"] if n["category"] == "LongTrainingWarning"]
+    assert built == long_notices
+    assert built[0]["source"] == "runtime"
+    assert built[0]["message"].startswith("ForecasterDirect will be fit 66 times")
+
+
+def test_tool_create_cv_notice_of_the_cost_of_a_default_compare(tmp_path):
+    """
+    Test that a strategy that is cheap for its plan but expensive for a
+    `compare` without candidates says so when it is built: with `refit=True`
+    the plan fits 7 estimators, while the comparison also runs
+    ForecasterDirect, one estimator per step and fold.
+    """
+    server, _, _, plan_id = _planned(tmp_path, steps=12)
+
+    result = content_of(
+        call(
+            server, "create_cv",
+            {"plan_id": plan_id, "initial_train_size": 120, "refit": True},
+        )
+    )
+
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "CompareCostNotice",
+            message  = (
+                "`compare` without `candidates` on this strategy fits about 98 "
+                "estimators (ForecasterRecursive: 7, ForecasterDirect: 84, "
+                "ForecasterFoundation: 0, ForecasterStats: 7), more than the 7 "
+                "of this plan. Pass `candidates` to choose what runs, or use "
+                "`refit=false` or fewer folds."
+            ),
+            count    = 1,
+        )
+    ]
 
 
 def test_tool_create_cv_notices_of_the_runtime(tmp_path):
@@ -139,12 +207,47 @@ def test_tool_create_cv_invalid_argument(tmp_path, arguments, field):
     assert error["field"] == field
 
 
-def test_tool_create_cv_internal_error_when_skforecast_rejects_the_strategy(tmp_path):
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"initial_train_size": 500},
+        {"initial_train_size": "2030-01-01"},
+        {"gap": 190},
+    ],
+    ids=["train size beyond the data", "date after the data", "gap too large"],
+)
+def test_tool_create_cv_invalid_argument_when_skforecast_rejects_the_strategy(
+    tmp_path, arguments
+):
     """
-    Test that an error of skforecast that the core does not wrap (a first
-    training set longer than the data, rejected by `TimeSeriesFold`) reaches
-    the agent as `internal_error` with its type and message, and registers
-    nothing.
+    Test that a strategy that skforecast rejects (a first training set
+    beyond the data, a gap that leaves no fold) reaches the agent as
+    `invalid_argument` with the reason, not as an `internal_error` that only
+    names the type: the tool reads no rows of the data, and the agent needs
+    the reason to correct its arguments. Nothing is registered.
+    """
+    server, _, _, plan_id = _planned(tmp_path, steps=12)
+
+    error = error_of(
+        call(server, "create_cv", {"plan_id": plan_id, **arguments}), "create_cv"
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["message"].startswith(
+        "The cross-validation strategy cannot be built: "
+    )
+    assert error["hint"] == (
+        "Change the arguments of `create_cv` (or `steps` of the plan with "
+        "`refine_plan`) so that at least two folds fit in the data."
+    )
+    kinds = [o["kind"] for o in content_of(call(server, "list_objects", {}))["objects"]]
+    assert kinds == ["plan", "profile"]
+
+
+def test_tool_create_cv_invalid_argument_message_when_train_size_beyond_data(tmp_path):
+    """
+    Test the message of a first training set longer than the data: the one
+    of skforecast, on one line.
     """
     server, _, _, plan_id = _planned(tmp_path, steps=12)
 
@@ -153,15 +256,9 @@ def test_tool_create_cv_internal_error_when_skforecast_rejects_the_strategy(tmp_
         "create_cv",
     )
 
-    assert error == {
-        "code": "internal_error",
-        "message": (
-            "ValueError: The time series must have more than `initial_train_size + "
-            "gap` observations to create at least one fold."
-        ),
-        "field": None,
-        "hint": None,
-        "details": None,
-    }
-    kinds = [o["kind"] for o in content_of(call(server, "list_objects", {}))["objects"]]
-    assert kinds == ["plan", "profile"]
+    assert error["message"] == (
+        "The cross-validation strategy cannot be built: The time series must "
+        "have more than `initial_train_size + gap` observations to create at "
+        "least one fold. Time series length: 204 Required > 500 "
+        "initial_train_size: 500 gap: 0"
+    )

@@ -44,3 +44,31 @@ def test_check_unchanged_message_when_changed_since_profiled(tmp_path):
         f"the objects built from it no longer describe it. Nothing was run."
     )
     assert excinfo.value.hint == "Call `profile` again on the file as it is now."
+
+
+def test_check_unchanged_profiled_file_larger_than_the_limit_is_not_hashed(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a profiled file now larger than `max_bytes` (it was within the
+    limit when profiled, so it changed) is `data_changed` without being
+    hashed, and that a file within the limit is hashed as before.
+    """
+    from skforecast_ai.mcp import _inputs
+
+    path = tmp_path / "data.csv"
+    path.write_text("date,y\n2020-01-01,1\n")
+    digest = file_sha256(str(path))
+    hashed = []
+    original = _inputs.file_sha256
+    monkeypatch.setattr(
+        _inputs, "file_sha256", lambda p: hashed.append(p) or original(p)
+    )
+
+    check_unchanged(str(path), digest, "data_path", profiled=True, max_bytes=1024)
+    path.write_text("date,y\n" + "2020-01-01,1\n" * 100)
+    with pytest.raises(ServerError) as excinfo:
+        check_unchanged(str(path), digest, "data_path", profiled=True, max_bytes=1024)
+
+    assert hashed == [str(path)]
+    assert excinfo.value.code == "data_changed"

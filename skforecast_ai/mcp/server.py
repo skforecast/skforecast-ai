@@ -11,13 +11,16 @@ import functools
 import json
 import logging
 import os
+import sys
 import tempfile
 import threading
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args, get_origin
+import anyio
+import pandas as pd
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.server.mcpserver.tools import Tool
@@ -25,33 +28,50 @@ from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata
 from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, Field, ValidationError
 from .. import __version__
-from .._constants import FORECASTER_TASK_TYPES
-from .._utils import load_exog
+from .._constants import (
+    COMPARE_FIT_BUDGET,
+    FORECASTER_TASK_TYPES,
+    LONG_TRAINING_FITS,
+)
+from .._utils import load_exog, warn_long_training
 from ..assistant import ForecastingAssistant
 from ..exceptions import InvalidInputError, SkforecastAIError
-from ..recommendation import count_estimator_fits
+from ..recommendation import count_estimator_fits, resolve_cv_config
 from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
 from . import _inputs
 from ._errors import (
     ServerError,
+    add_details,
     argument_error_payload,
     attach_details,
     candidate_failure_text,
     failure_text,
     tool_error,
 )
+from ._foundation import ModelPolicy, check_allow_models
 from ._inputs import AllowedDir
 from ._runtime import CallControl, build_notices, notice_text, run_call
 from ._store import Entry, Store, estimate_nbytes
 from .models import (
+    ESTIMATOR_DESCRIPTION,
+    ESTIMATOR_KWARGS_DESCRIPTION,
+    FORECASTER_DESCRIPTION,
+    INTERVAL_DESCRIPTION,
+    LAGS_DESCRIPTION,
+    STEPS_DESCRIPTION,
+    WINDOW_FEATURES_DESCRIPTION,
     CandidateArg,
     CodeResult,
     FailureResult,
+    ForecasterName,
+    Interval,
     ObjectInfo,
     ObjectKind,
     ObjectList,
     RefinePlanArgs,
+    ToolNotice,
     ToolResult,
+    WindowFeatures,
 )
 
 logger = logging.getLogger("skforecast_ai.mcp")
@@ -79,6 +99,11 @@ FOUNDATION_KWARGS = frozenset({
 
 DEFAULT_MAX_OBJECTS = 256
 DEFAULT_MAX_MEMORY_MB = 1024
+DEFAULT_MAX_FILE_MB = 256
+
+# Descriptors looked at for duplicates of the pipe of a client that went
+# away: the server opens a handful, far below this.
+_MAX_DESCRIPTORS = 256
 
 # Bounds that `TimeSeriesFold` checks, so a value out of them is reported as
 # an invalid argument rather than as an error of skforecast.
@@ -111,7 +136,26 @@ failure, `describe_object` the response that created an object, \
 `list_objects` the ids registered now.
 
 Errors are JSON objects with `code`, `message`, `field`, `hint` and \
-`details`. Dates are ISO 8601 text ('2012-01-01'); counts are numbers.\
+`details`. Dates are ISO 8601 text ('2012-01-01'); counts are numbers.
+
+Rules (the skforecast-ai-forecasting skill has the rest):
+1. Trust: a `compare` whose winner beats the baseline > a `backtest` > a \
+`forecast` with `test_size` (one window) > a `forecast` of the future (no \
+error measure). Without a baseline (several series, or a target with gaps), \
+judge each series by `mean_absolute_scaled_error` in the CSV of metrics \
+(below 1 beats a naive forecast) and name the worst one: the summary only \
+has the average. Never invent a number.
+2. Cost: read `cost` of `create_cv` before running; above 50 estimator fits \
+tell the user and prefer fewer folds or `refit=false`.
+3. Read `notices` before reporting and tell the user about data problems \
+(missing dates, rows without target) and plan warnings.
+4. `compare` without `interval` uses the interval of the plan of the \
+strategy; the baseline only takes symmetric ones ([0.1, 0.9]).
+5. Never modify the user's data. If the CSV has a problem, tell the user; \
+only with their permission write a corrected copy inside the allowed \
+directory under a new name and profile it.
+6. Foundation models other than the default (Chronos-2) have their own \
+license and size: tell the user before choosing one.\
 """
 
 
@@ -261,6 +305,16 @@ class _StrictTool(Tool):
             raise ToolError(f"Error executing tool {self.name}: {payload}") from cause
 
 
+def _report(ctx: Context | None) -> Callable[..., Awaitable[None]] | None:
+    """
+    The function that sends progress notifications for the request of a
+    context (a no-op when the client asked for none); None without a
+    context.
+    """
+
+    return None if ctx is None else ctx.report_progress
+
+
 def _reported(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     """
     Report every exception of a tool as a `ToolError` with the JSON of the
@@ -297,12 +351,19 @@ class _ServerState:
         file with the full text, if any. `get_failure` returns them.
     failures_lock : threading.Lock
         Guards `failures`.
+    models : ModelPolicy
+        Foundation models the server runs, and those whose download was
+        announced.
+    max_file_bytes : int
+        Largest CSV file the server reads, in bytes; 0 for no limit.
     """
 
     allowed: AllowedDir
     output_dir: Path
     store: Store
     assistant: ForecastingAssistant
+    models: ModelPolicy = field(default_factory=ModelPolicy)
+    max_file_bytes: int = DEFAULT_MAX_FILE_MB * 1024 * 1024
     failures: OrderedDict[str, tuple[str, str | None]] = field(
         default_factory=OrderedDict
     )
@@ -531,6 +592,157 @@ def _check_foundation_kwargs(
         )
 
 
+def _check_steps(steps: Any, profile: Any, argument: str) -> None:
+    """
+    Reject a horizon longer than the longest series of the profile.
+
+    The core accepts such a plan: a backtest of it fails late, since no
+    fold fits the data, and a huge `steps` would exhaust the memory of a
+    forecast. The server rejects it when the plan is built (a decision of
+    the author for the server, section 17 of the design).
+
+    Parameters
+    ----------
+    steps : int
+        Horizon given by the agent.
+    profile : ForecastingProfile
+        Profile the plan is built from.
+    argument : str
+        Argument of the tool that holds it.
+
+    Returns
+    -------
+    None
+    """
+
+    if not isinstance(steps, int) or isinstance(steps, bool):
+        return
+    longest = max(
+        info.length for info in profile.data_profile.series_lengths.values()
+    )
+    if steps > longest:
+        raise ServerError(
+            f"`steps` is {steps}, more than the {longest} observations of the "
+            f"longest series of the data. The horizon must not exceed the "
+            f"history.",
+            code    = "invalid_argument",
+            field   = argument,
+            hint    = f"Pass `steps` of at most {longest}, usually far fewer.",
+            details = {"steps": steps, "longest_series": longest},
+        )
+
+
+def _data_texts(data_profile: Any) -> list[str]:
+    """
+    Problems of the data to give as notices: the warnings the profile
+    records, and the missing values of the target.
+
+    The profile only warns about missing values above a rate of 20 %, and
+    says how many there are in its summary. Fewer already matter to the
+    agent: rows at the end without a target make `forecast` fail, and a
+    missing value that a lag reads fails with an estimator that does not
+    accept them, both when the script runs, three calls later.
+    """
+
+    texts = list(data_profile.warnings)
+    missing = {name: n for name, n in data_profile.missing_target.items() if n > 0}
+    if missing:
+        shown = ", ".join(f"{name!r}: {n}" for name, n in list(missing.items())[:5])
+        if len(missing) > 5:
+            shown += f" (first 5 of {len(missing)})"
+        texts.append(
+            f"Missing values in the target: {shown}. `forecast` needs the data "
+            f"to end with a value of the target, and an estimator that does "
+            f"not accept missing values fails when its lags read one. Fill "
+            f"them in, or remove the rows at the end without a target, in a "
+            f"copy of the file."
+        )
+
+    return texts
+
+
+def _text_notices(
+    texts: Iterable[str],
+    records: Iterable[Any],
+    source: Literal["data", "plan"],
+) -> list[ToolNotice]:
+    """
+    Notices for the warnings an object records as text
+    (`data_profile.warnings`, `plan.warnings`) that the call did not emit
+    as Python warnings, which reach the agent anyway.
+
+    Parameters
+    ----------
+    texts : iterable of str
+        Warnings the object records.
+    records : iterable of warnings.WarningMessage
+        Warnings the call emitted, which already become notices.
+    source : str
+        `'data'` or `'plan'`.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One per text not emitted, with the category `'DataProfileWarning'`
+        or `'PlanWarning'`.
+    """
+
+    emitted = {notice_text(record) for record in records}
+    category = "DataProfileWarning" if source == "data" else "PlanWarning"
+
+    return [
+        ToolNotice(source=source, category=category, message=text, count=1)
+        for text in dict.fromkeys(texts)
+        if text not in emitted
+    ]
+
+
+def _cv_argument_error(exc: Exception) -> ServerError:
+    """
+    Turn an error of skforecast while it builds the cross-validation
+    strategy into an `invalid_argument` the agent can act on.
+
+    `create_cv` reads the profile and the plan, never the rows of the data,
+    so the message of skforecast (sizes, dates of the index) is sent as it
+    is, where an unexpected error only sends its type: an
+    `initial_train_size` beyond the data, a `gap` too large or a horizon
+    that leaves no fold are mistakes in the arguments, and the agent needs
+    the reason to correct them.
+    """
+
+    message = " ".join(str(exc).split()) or type(exc).__name__
+    return ServerError(
+        f"The cross-validation strategy cannot be built: {message}",
+        code  = "invalid_argument",
+        hint  = (
+            "Change the arguments of `create_cv` (or `steps` of the plan with "
+            "`refine_plan`) so that at least two folds fit in the data."
+        ),
+    )
+
+
+def _check_test_size_date(test_size: object) -> None:
+    """
+    Reject a `test_size` given as text that is not a date, which pandas
+    would report as an unexpected error.
+    """
+
+    if not isinstance(test_size, str):
+        return
+    try:
+        pd.Timestamp(test_size)
+    except (ValueError, TypeError):
+        raise ServerError(
+            f"`test_size` is text that is not a date: {test_size[:80]!r}.",
+            code  = "invalid_argument",
+            field = "test_size",
+            hint  = (
+                "Pass an integer, a fraction or an ISO 8601 date such as "
+                "'2024-01-31'."
+            ),
+        ) from None
+
+
 def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
     """
     Cost of a backtest with a cross-validation strategy and a forecaster.
@@ -551,6 +763,34 @@ def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
             )
         ),
     }
+
+
+def _default_compare_fits(profile: Any, cv: Any, steps: int) -> dict:
+    """
+    Estimator fits of each forecaster that a `compare` without candidates
+    runs with a strategy: the candidates of the profile, leaving out the
+    alternatives above the budget of `compare()`, which it never runs (the
+    recommended forecaster always runs). The fits are those of the strategy
+    as `compare()` shares it, not as the forecaster of the plan runs it
+    (ForecasterStats is refitted in every fold).
+    """
+
+    shared, _ = resolve_cv_config(cv, profile.data_profile)
+    fits = {}
+    for forecaster in profile.forecaster_candidates:
+        count = int(
+            count_estimator_fits(
+                n_fits     = int(shared["n_fits"]),
+                forecaster = forecaster,
+                steps      = steps,
+                n_folds    = int(shared["n_folds"]),
+            )
+        )
+        if count > COMPARE_FIT_BUDGET and forecaster != profile.forecaster:
+            continue
+        fits[forecaster] = count
+
+    return fits
 
 
 def _register(
@@ -656,6 +896,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         series_id_column: Annotated[str | None, Field(description=(
             "Column with the series ids of long multi-series data."
         ))] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
         _inputs.check_text_argument(date_column, "date_column")
@@ -663,6 +904,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
 
         def work(control: CallControl):
             path = _inputs.resolve_csv_path(data_path, state.allowed, "data_path")
+            _inputs.check_file_size(path, state.max_file_bytes, "data_path")
             digest = _inputs.file_sha256(path)
             result = assistant.profile(
                 data             = path,
@@ -677,7 +919,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             control.wrote(summary[2])
             return object_id, result, path, digest, summary
 
-        outcome = await run_call(work)
+        outcome = await run_call(work, report=_report(ctx), label="profile")
         object_id, result, path, digest, summary = outcome.value
 
         return _register(
@@ -687,7 +929,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             obj           = result,
             links         = {},
             summary       = summary,
-            notices       = build_notices(outcome.warnings, default_source="data"),
+            notices       = build_notices(
+                                outcome.warnings,
+                                default_source = "data",
+                                server_notices = _text_notices(
+                                    _data_texts(result.data_profile),
+                                    outcome.warnings,
+                                    "data",
+                                ),
+                            ),
             source        = None,
             data_path     = path,
             data_sha256   = digest,
@@ -703,12 +953,22 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         summary: tuple[str, bool, dict[str, str]],
         code: tuple[str, str | None],
         notices: tuple[list, int] | None = None,
+        server_notices: list | None = None,
     ) -> ToolResult:
         if notices is None:
+            # The plan carries its own warnings and the problems of the data
+            # it was built from, also when they were not emitted this call.
+            texts = [
+                *_text_notices(new_plan.warnings, outcome_warnings, "plan"),
+                *_text_notices(
+                    _data_texts(source.profile.data_profile), outcome_warnings, "data"
+                ),
+            ]
             notices = build_notices(
                 outcome_warnings,
-                plan_warnings = new_plan.warnings,
-                data_warnings = source.data_warnings,
+                plan_warnings  = new_plan.warnings,
+                data_warnings  = source.data_warnings,
+                server_notices = [*(server_notices or ()), *texts],
             )
         return _register(
             state,
@@ -724,6 +984,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             changeable = sorted(REFINE_PLAN_OVERRIDE_KEYS),
         )
 
+    def _check_plan_model(plan_obj: Any, argument: str) -> list[str]:
+        # The foundation model of a plan must be allowed; returns it when
+        # its weights are not in the local cache yet, to announce once the
+        # plan is registered.
+        model_id = state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
+        state.models.check(model_id, argument)
+        return state.models.uncached([model_id])
+
     def _describe_plan(control: CallControl, profile_obj: Any, new_plan: Any):
         script = assistant.forecast_code(
             profile = _copy(profile_obj),
@@ -738,38 +1006,32 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     @_reported
     async def plan(
         profile_id: Annotated[str, Field(description="Id returned by `profile`.")],
-        steps: Annotated[int, Field(description=(
-            "Forecast horizon: number of steps ahead to predict (at least 1)."
-        ))],
-        interval: Annotated[list[float] | None, Field(description=(
-            "Prediction interval as two quantiles, e.g. [0.1, 0.9] for 80 %. "
-            "Null for no interval."
+        steps: Annotated[int, Field(ge=1, description=STEPS_DESCRIPTION)],
+        interval: Annotated[Interval | None, Field(description=(
+            f"{INTERVAL_DESCRIPTION} Null for no interval."
         ))] = None,
-        forecaster: Annotated[str | None, Field(description=(
-            "skforecast forecaster class to use instead of the recommended one, "
-            "e.g. 'ForecasterRecursive'. Null for the recommendation."
+        forecaster: Annotated[ForecasterName | None, Field(description=(
+            f"{FORECASTER_DESCRIPTION} Null for the recommendation of the "
+            f"profile."
         ))] = None,
         estimator: Annotated[str | None, Field(description=(
-            "Estimator class (e.g. 'LGBMRegressor'), or the Hugging Face model "
-            "id of a foundation model. Null for the recommendation."
+            f"{ESTIMATOR_DESCRIPTION} Null for the recommendation."
         ))] = None,
         estimator_kwargs: Annotated[dict[str, Any] | None, Field(description=(
-            "Keyword arguments of the estimator, e.g. {'n_estimators': 200}."
+            f"{ESTIMATOR_KWARGS_DESCRIPTION} Null for the defaults."
         ))] = None,
         lags: Annotated[int | list[int] | None, Field(description=(
-            "Lags: n for 1..n, or a list of positive integers. Null for the "
-            "selection from the partial autocorrelation."
+            f"{LAGS_DESCRIPTION} Null for the selection from the partial "
+            f"autocorrelation."
         ))] = None,
-        window_features: Annotated[
-            list[dict[str, list[str] | int]] | None,
-            Field(description=(
-                "Rolling features, e.g. [{'stats': ['mean', 'std'], "
-                "'window_size': 7}], one entry per window size. Null for the "
-                "deterministic selection."
-            )),
-        ] = None,
+        window_features: Annotated[WindowFeatures | None, Field(description=(
+            f"{WINDOW_FEATURES_DESCRIPTION} Null for the deterministic "
+            f"selection."
+        ))] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         profile_entry = store.get(profile_id, "profile_id", ("profile",))
+        _check_steps(steps, profile_entry.obj, "steps")
 
         def work(control: CallControl):
             new_plan = assistant.plan(
@@ -785,28 +1047,34 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             _check_foundation_kwargs(
                 new_plan.forecaster, new_plan.estimator_kwargs, "estimator_kwargs"
             )
-            return new_plan, *_describe_plan(control, profile_entry.obj, new_plan)
+            uncached = _check_plan_model(new_plan, "estimator")
+            return (
+                new_plan, *_describe_plan(control, profile_entry.obj, new_plan),
+                uncached,
+            )
 
-        outcome = await run_call(work)
-        new_plan, object_id, summary, code = outcome.value
+        outcome = await run_call(work, report=_report(ctx), label="plan")
+        new_plan, object_id, summary, code, uncached = outcome.value
 
         return _plan_envelope(
             object_id, new_plan, profile_entry, outcome.warnings,
             {"profile_id": profile_entry.id}, summary, code,
+            server_notices = state.models.announce(uncached),
         )
 
     @_reported
     async def refine_plan(
         plan_id: Annotated[str, Field(description="Id of the plan to refine.")],
         overrides: Annotated[RefinePlanArgs, Field(description=(
-            "Values to change. An omitted key keeps the value of the plan. "
-            "`estimator_kwargs`, `interval`, `lags` and `window_features` "
-            "also accept null, which asks for the deterministic default "
-            "({'lags': null} selects the lags again, {'interval': null} "
-            "removes the interval)."
+            "Values to change, e.g. {'estimator': 'Ridge', 'lags': 12}. An "
+            "omitted key keeps the value of the plan; {'lags': null} selects "
+            "the lags again and {'interval': null} removes the interval."
         ))],
+        ctx: Context = None,
     ) -> ToolResult:
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
+        if "steps" in overrides:
+            _check_steps(overrides["steps"], plan_entry.profile, "overrides.steps")
 
         def work(control: CallControl):
             try:
@@ -826,15 +1094,20 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 new_plan.estimator_kwargs,
                 "overrides.estimator_kwargs",
             )
-            return new_plan, *_describe_plan(control, plan_entry.profile, new_plan)
+            uncached = _check_plan_model(new_plan, "overrides.estimator")
+            return (
+                new_plan, *_describe_plan(control, plan_entry.profile, new_plan),
+                uncached,
+            )
 
-        outcome = await run_call(work)
-        new_plan, object_id, summary, code = outcome.value
+        outcome = await run_call(work, report=_report(ctx), label="refine_plan")
+        new_plan, object_id, summary, code, uncached = outcome.value
 
         return _plan_envelope(
             object_id, new_plan, plan_entry, outcome.warnings,
             {"profile_id": plan_entry.profile_id, "parent_plan_id": plan_entry.id},
             summary, code,
+            server_notices = state.models.announce(uncached),
         )
 
     @_reported
@@ -843,56 +1116,105 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Id of the plan to backtest (from `plan` or `refine_plan`)."
         ))],
         initial_train_size: Annotated[Count | str | None, Field(description=(
-            "Observations of the first training set, or the ISO 8601 date that "
-            "ends it. Null for the default."
+            "Observations of the first training set (a number), or the ISO "
+            "8601 date that ends it ('2005-06-01'). Null for the default: "
+            "70 % of the series, at least what the lags need and leaving room "
+            "for two folds, written as a date when the data has dates."
         ))] = None,
         fold_stride: Annotated[int | None, Field(ge=1, description=(
             "Observations the test set advances between folds. Null for "
-            "`steps` (back-to-back folds)."
+            "`steps` (back-to-back folds); a larger value means fewer folds."
         ))] = None,
         refit: Annotated[bool | NonNegative | None, Field(description=(
-            "Whether to train again in every fold (true), never (false, the "
-            "default) or every n folds (an integer). Refitting multiplies the "
-            "cost."
+            "Whether to train again in every fold (true), never (false) or "
+            "every n folds (an integer). Null for false: train once. "
+            "Refitting multiplies the cost; ForecasterStats is refitted in "
+            "every fold whatever it says."
         ))] = None,
         fixed_train_size: Annotated[bool | None, Field(description=(
-            "Whether the training window keeps its size when refitting."
+            "Whether the training window keeps its size when refitting "
+            "(true) or grows (false). Null for false; it only matters with "
+            "`refit`."
         ))] = None,
         gap: Annotated[int | None, Field(ge=0, description=(
-            "Observations between the end of training and the test set."
+            "Observations between the end of training and the test set. Null "
+            "for 0."
         ))] = None,
-        skip_folds: Annotated[Count | list[NonNegative] | None, Field(description=(
-            "Keep every n-th fold (an integer), or skip the listed folds."
+        skip_folds: Annotated[Count | list[Count] | None, Field(description=(
+            "Folds are numbered from 0, and fold 0 always runs. An integer n "
+            "keeps folds 0, n, 2n, ...; a list skips the folds at those "
+            "numbers (each at least 1). Null for every fold."
         ))] = None,
         allow_incomplete_fold: Annotated[bool | None, Field(description=(
-            "Whether the last fold may have fewer than `steps` observations."
+            "Whether the last fold may have fewer than `steps` observations. "
+            "Null for true."
         ))] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_not_numeric_text(initial_train_size, "initial_train_size")
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
 
         def work(control: CallControl):
-            result = assistant.create_cv(
-                profile               = _copy(plan_entry.profile),
-                plan                  = _copy(plan_entry.obj),
-                initial_train_size    = initial_train_size,
-                fold_stride           = fold_stride,
-                refit                 = refit,
-                fixed_train_size      = fixed_train_size,
-                gap                   = gap,
-                skip_folds            = skip_folds,
-                allow_incomplete_fold = allow_incomplete_fold,
+            try:
+                result = assistant.create_cv(
+                    profile               = _copy(plan_entry.profile),
+                    plan                  = _copy(plan_entry.obj),
+                    initial_train_size    = initial_train_size,
+                    fold_stride           = fold_stride,
+                    refit                 = refit,
+                    fixed_train_size      = fixed_train_size,
+                    gap                   = gap,
+                    skip_folds            = skip_folds,
+                    allow_incomplete_fold = allow_incomplete_fold,
+                )
+            except (ValueError, TypeError) as exc:
+                if isinstance(exc, SkforecastAIError):
+                    raise
+                raise _cv_argument_error(exc) from exc
+            cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
+            # The warning a backtest of this strategy will emit, given now,
+            # when the strategy can still change.
+            warn_long_training(
+                estimator_fits = cost["estimator_fits"],
+                n_fits         = cost["n_fits"],
+                forecaster     = result.plan.forecaster,
+                steps          = result.plan.steps,
             )
+            compare_fits = _default_compare_fits(
+                plan_entry.profile, result.cv, result.plan.steps
+            )
+            cost["compare_estimator_fits"] = sum(compare_fits.values())
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
             control.wrote(summary[2], code_file)
-            return object_id, result, summary, code_file
+            return object_id, result, summary, code_file, cost, compare_fits
 
-        outcome = await run_call(work)
-        object_id, result, summary, code_file = outcome.value
-        cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
+        outcome = await run_call(work, report=_report(ctx), label="create_cv")
+        object_id, result, summary, code_file, cost, compare_fits = outcome.value
         links = {"profile_id": plan_entry.profile_id, "plan_id": plan_entry.id}
+        # A `compare` without candidates runs other forecasters with this
+        # strategy, which can cost far more than the plan it was built for
+        # (a direct forecaster fits one estimator per step and fold).
+        compare_notice = []
+        if cost["compare_estimator_fits"] > max(
+            LONG_TRAINING_FITS, cost["estimator_fits"]
+        ):
+            shown = ", ".join(f"{name}: {fits}" for name, fits in compare_fits.items())
+            compare_notice.append(
+                ToolNotice(
+                    source   = "runtime",
+                    category = "CompareCostNotice",
+                    message  = (
+                        f"`compare` without `candidates` on this strategy fits "
+                        f"about {cost['compare_estimator_fits']} estimators "
+                        f"({shown}), more than the {cost['estimator_fits']} of "
+                        f"this plan. Pass `candidates` to choose what runs, or "
+                        f"use `refit=false` or fewer folds."
+                    ),
+                    count    = 1,
+                )
+            )
 
         return _register(
             state,
@@ -903,8 +1225,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             summary       = summary,
             notices       = build_notices(
                                 outcome.warnings,
-                                plan_warnings = result.plan.warnings,
-                                data_warnings = plan_entry.data_warnings,
+                                plan_warnings  = result.plan.warnings,
+                                data_warnings  = plan_entry.data_warnings,
+                                server_notices = compare_notice,
                             ),
             source        = plan_entry,
             code          = result.code,
@@ -917,8 +1240,16 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         # The file the profile was read from, checked again before it is
         # read: inside the allowed directory after resolving links, and as it
         # was when it was profiled.
+        # A file now larger than the limit changed since it was profiled, and
+        # is reported as such without reading it.
         path = _inputs.resolve_csv_path(entry.data_path, state.allowed, "data_path")
-        _inputs.check_unchanged(path, entry.data_sha256, "data_path", profiled=True)
+        _inputs.check_unchanged(
+            path,
+            entry.data_sha256,
+            "data_path",
+            profiled  = True,
+            max_bytes = state.max_file_bytes,
+        )
         return path
 
     def _run_plan_locally(plan_obj: Any, argument: str) -> None:
@@ -927,6 +1258,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _check_foundation_kwargs(
             plan_obj.forecaster, plan_obj.estimator_kwargs, argument
         )
+        model_id = state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
+        state.models.check(model_id, argument)
+        state.models.check_backend(model_id, argument)
 
     def _keep_failure(exc: Exception) -> None:
         # The traceback and the code of a failed script never go in the
@@ -962,6 +1296,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Plan to backtest, built from the same profile. Null for the plan "
             "the cross-validation strategy was built for."
         ))] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         cv_entry = store.get(cv_id, "cv_id", ("cv",))
         cv_result = cv_entry.obj
@@ -999,7 +1334,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             frames = {"predictions": result.predictions, "metrics": result.metrics}
             return result, *_finish_run(control, "backtest", result, frames)
 
-        outcome = await run_call(work)
+        outcome = await run_call(
+            work,
+            report = _report(ctx),
+            label  = backtested.forecaster,
+        )
         result, object_id, files, summary, code_file, nbytes = outcome.value
         links = {
             "profile_id": cv_entry.profile_id, "plan_id": plan_link, "cv_id": cv_id,
@@ -1032,15 +1371,23 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Id returned by `create_cv`: every candidate is backtested on its "
             "folds."
         ))],
-        candidates: Annotated[list[CandidateArg] | None, Field(description=(
-            "Configurations to compare, each {'name': ..., 'config': "
-            "{'forecaster': ..., 'estimator': ..., 'estimator_kwargs': ..., "
-            "'lags': ..., 'window_features': ...}}. Null for the candidates "
-            "recommended by the profile. A candidate that fails is ranked last "
-            "with its error."
-        ))] = None,
-        interval: Annotated[list[float] | None, Field(description=(
-            "Prediction interval computed for every candidate, e.g. [0.1, 0.9]."
+        candidates: Annotated[list[CandidateArg] | None, Field(
+            min_length  = 1,
+            description = (
+                "Configurations to compare, each {'name': ..., 'config': "
+                "{...}}, e.g. [{'name': 'ridge', 'config': {'estimator': "
+                "'Ridge'}}]. Null for the candidates recommended by the "
+                "profile: the forecasters of its family (with several series, "
+                "ForecasterRecursiveMultiSeries and ForecasterFoundation), or "
+                "the estimators of the recommended forecaster when that leaves "
+                "one, without those above 500 estimator fits. A candidate that "
+                "fails is ranked last with its error."
+            ),
+        )] = None,
+        interval: Annotated[Interval | None, Field(description=(
+            f"Prediction interval computed for every candidate. "
+            f"{INTERVAL_DESCRIPTION} Null for the interval of the plan the "
+            f"strategy was built for."
         ))] = None,
         baseline: Annotated[bool, Field(description=(
             "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) "
@@ -1050,31 +1397,52 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     ) -> ToolResult:
         cv_entry = store.get(cv_id, "cv_id", ("cv",))
         profile_obj = cv_entry.profile
+        # Without `interval`, the one of the plan of the strategy, so the
+        # plan of the winner keeps the interval the agent asked for.
+        shared_interval = interval
+        if shared_interval is None and cv_entry.obj.plan.interval is not None:
+            shared_interval = list(cv_entry.obj.plan.interval)
         configs = None
-        if candidates is not None:
-            configs = []
+        if candidates is None:
+            # The default candidates are named by their forecaster and run
+            # the default foundation model, if any.
+            models = {
+                name: state.models.model_of(name, None)
+                for name in profile_obj.forecaster_candidates
+            }
+        else:
+            configs, models = [], {}
             for position, candidate in enumerate(candidates):
                 prefix = f"candidates[{position}]"
                 _inputs.check_text_argument(candidate.name, f"{prefix}.name")
                 config = dict(candidate.config)
+                forecaster_name = config.get("forecaster") or profile_obj.forecaster
                 _check_foundation_kwargs(
-                    config.get("forecaster") or profile_obj.forecaster,
+                    forecaster_name,
                     config.get("estimator_kwargs"),
                     f"{prefix}.config.estimator_kwargs",
                 )
+                model_id = state.models.model_of(
+                    forecaster_name, config.get("estimator")
+                )
+                state.models.check(model_id, f"{prefix}.config.estimator")
+                models[candidate.name] = model_id
                 configs.append((candidate.name, config))
 
         def work(control: CallControl):
             path = _data_of(cv_entry)
+            uncached = state.models.uncached(models.values())
 
             def on_progress(event):
                 # The start of a candidate repeats the count of the end of the
                 # previous one, so it counts as a half step: the progress then
                 # grows with every notification.
+                started = event.status == "started"
                 control.progress(
-                    2 * event.completed + (event.status == "started"),
+                    2 * event.completed + started,
                     2 * event.total,
                     f"{event.candidate}: {event.status}",
+                    running = event.candidate if started else None,
                 )
 
             try:
@@ -1083,13 +1451,30 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     cv                = copy.deepcopy(cv_entry.obj.cv),
                     profile           = _copy(profile_obj),
                     candidates        = copy.deepcopy(configs),
-                    interval          = interval,
+                    interval          = shared_interval,
                     show_progress     = False,
                     baseline          = baseline,
                     progress_callback = on_progress,
                 )
             except SkforecastAIError as exc:
                 _keep_failure(exc)
+                # Every candidate failed, so no result carries the notice of
+                # the weights the candidates that ran may have downloaded:
+                # it goes in the details of the error.
+                failures = getattr(exc, "failures", {})
+                downloaded = state.models.announce(
+                    (
+                        model for model in uncached
+                        if any(
+                            models.get(name) == model
+                            and failure.generated_code is not None
+                            for name, failure in failures.items()
+                        )
+                    ),
+                    ran = True,
+                )
+                if downloaded:
+                    add_details(exc, {"notices": [n.model_dump() for n in downloaded]})
                 raise
             _inputs.check_unchanged(path, cv_entry.data_sha256, "data_path")
             best = result.best_candidate
@@ -1122,14 +1507,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             best_plan = _describe_plan(control, profile_obj, best.plan)
             return (
                 result, object_id, files, summary, code_file, code_files, failures,
-                nbytes, best_plan,
+                nbytes, best_plan, uncached,
             )
 
-        report = None if ctx is None else ctx.report_progress
-        outcome = await run_call(work, report=report)
+        outcome = await run_call(work, report=_report(ctx), label="compare")
         (
             result, object_id, files, summary, code_file, code_files, failures,
-            nbytes, best_plan,
+            nbytes, best_plan, uncached,
         ) = outcome.value
         best = result.best_candidate
         best_plan_id, best_summary, best_code = best_plan
@@ -1154,6 +1538,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             ]
             for candidate in result.candidates.values()
         )
+        # Only the candidates whose script ran (also those that failed while
+        # running) can have downloaded weights.
+        ran_models = {
+            state.models.model_of(candidate.plan.forecaster, candidate.plan.estimator)
+            for candidate in result.candidates.values()
+        } | {
+            models.get(name) for name, failure in result.failures.items()
+            if failure.generated_code is not None
+        }
         cost = {
             "n_folds": int(result.cv_config["n_folds"]),
             "n_fits": int(result.cv_config["n_fits"]),
@@ -1173,8 +1566,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             summary              = summary,
             notices              = build_notices(
                                        outcome.warnings,
-                                       plan_warnings = plan_warnings,
-                                       data_warnings = cv_entry.data_warnings,
+                                       plan_warnings  = plan_warnings,
+                                       data_warnings  = cv_entry.data_warnings,
+                                       server_notices = state.models.announce(
+                                           (
+                                               model for model in uncached
+                                               if model in ran_models
+                                           ),
+                                           ran = True,
+                                       ),
                                    ),
             source               = cv_entry,
             code                 = best.code,
@@ -1194,8 +1594,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ))],
         test_size: Annotated[int | float | str | None, Field(description=(
             "Null to forecast the future. To evaluate instead, the test set: "
-            "the last n observations (an integer, which must equal `steps`), "
-            "a fraction in (0, 1), or the ISO 8601 date it starts at."
+            "the last n observations (an integer, which must equal `steps`) "
+            "or the ISO 8601 date it starts at. A fraction in (0, 1) only "
+            "works when it gives exactly `steps` observations."
         ))] = None,
         exog_path: Annotated[str | None, Field(description=(
             "Absolute path of a CSV file with the future values of the "
@@ -1204,8 +1605,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "exogenous variables. The script of `get_code` reads them from "
             "'exog_future.csv' in its working directory."
         ))] = None,
+        ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_not_numeric_text(test_size, "test_size")
+        _check_test_size_date(test_size)
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
         _run_plan_locally(plan_entry.obj, "plan_id")
 
@@ -1216,6 +1619,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 exog_file = _inputs.resolve_csv_path(
                     exog_path, state.allowed, "exog_path"
                 )
+                _inputs.check_file_size(exog_file, state.max_file_bytes, "exog_path")
                 exog_digest = _inputs.file_sha256(exog_file)
                 data_profile = plan_entry.profile.data_profile
                 exog = load_exog(
@@ -1240,7 +1644,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             frames = {"predictions": result.predictions, "metrics": result.metrics}
             return result, *_finish_run(control, "forecast", result, frames)
 
-        outcome = await run_call(work)
+        outcome = await run_call(
+            work,
+            report = _report(ctx),
+            label  = plan_entry.obj.forecaster,
+        )
         result, object_id, files, summary, code_file, nbytes = outcome.value
 
         # The plan of an evaluation (with `end_train`) is never registered as
@@ -1427,7 +1835,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _StrictTool.build(get_failure, "get_failure", (
             "Return the traceback and the code of a failed run or of a failed "
             "candidate of a comparison."
-        )),
+        ), read_only=True),
         _StrictTool.build(list_objects, "list_objects", (
             "List the ids of the objects the server keeps."
         ), read_only=True),
@@ -1438,11 +1846,64 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     ]
 
 
+def _check_writable(output: Path) -> None:
+    """
+    Check that the server can write files in its output directory, so a
+    directory it cannot write stops the server when it starts rather than
+    every run when it ends.
+    """
+
+    try:
+        with tempfile.NamedTemporaryFile(dir=output, prefix=".skforecast-ai-check-"):
+            pass
+    except OSError as exc:
+        raise InvalidInputError(
+            f"The output directory {str(output)!r} cannot be written: "
+            f"{exc.strerror or exc}.",
+            field = "output_dir",
+        ) from exc
+
+
+# Errors of a stream whose other end is gone: the client closed its pipes.
+_DISCONNECTED = (
+    BrokenPipeError,
+    ConnectionResetError,
+    anyio.BrokenResourceError,
+    anyio.ClosedResourceError,
+)
+
+
+def _client_disconnected(exc: BaseException) -> bool:
+    """
+    Whether an exception, or every exception of a group, says that the
+    client closed its end of the connection.
+    """
+
+    # An exception group (anyio's backport before Python 3.11).
+    inner = getattr(exc, "exceptions", None)
+    if isinstance(inner, tuple) and inner:
+        return all(_client_disconnected(item) for item in inner)
+
+    return isinstance(exc, _DISCONNECTED)
+
+
+class _OneLineFormatter(logging.Formatter):
+    """
+    Format of the log of the server: one line per record (the traceback of
+    an unexpected error follows it), never wrapped to the terminal width.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+
 def _build_state(
     allow_dir: str | Path,
     output_dir: str | Path | None,
     max_objects: int,
     max_memory_mb: int,
+    allow_models: Iterable[str] = (),
+    max_file_mb: int = DEFAULT_MAX_FILE_MB,
 ) -> _ServerState:
     """
     Check the settings of a server and build what its tools share.
@@ -1454,7 +1915,18 @@ def _build_state(
                 f"`{name}` must be an integer of at least 1, got {value!r}.",
                 field = name,
             )
+    if isinstance(max_file_mb, bool) or not isinstance(max_file_mb, int) or (
+        max_file_mb < 0
+    ):
+        raise InvalidInputError(
+            f"`max_file_mb` must be an integer of at least 0 (0 for no "
+            f"limit), got {max_file_mb!r}.",
+            field = "max_file_mb",
+        )
     allowed = AllowedDir.from_path(allow_dir)
+    if isinstance(allow_models, str):
+        allow_models = [allow_models]
+    models = ModelPolicy(allowed_prefixes=check_allow_models(allow_models))
     if output_dir is None:
         output = Path(tempfile.mkdtemp(prefix="skforecast-ai-mcp-"))
     else:
@@ -1468,16 +1940,19 @@ def _build_state(
                 field = "output_dir",
             ) from exc
 
+    _check_writable(output)
     store = Store(
         max_objects = max_objects,
         max_bytes   = max_memory_mb * 1024 * 1024,
     )
 
     return _ServerState(
-        allowed    = allowed,
-        output_dir = output,
-        store      = store,
-        assistant  = ForecastingAssistant(),
+        allowed        = allowed,
+        output_dir     = output,
+        store          = store,
+        assistant      = ForecastingAssistant(),
+        models         = models,
+        max_file_bytes = max_file_mb * 1024 * 1024,
     )
 
 
@@ -1500,6 +1975,8 @@ def create_server(
     output_dir: str | Path | None = None,
     max_objects: int = DEFAULT_MAX_OBJECTS,
     max_memory_mb: int = DEFAULT_MAX_MEMORY_MB,
+    allow_models: Iterable[str] = (),
+    max_file_mb: int = DEFAULT_MAX_FILE_MB,
 ) -> MCPServer:
     """
     Create the MCP server of skforecast-ai, without running it.
@@ -1524,6 +2001,15 @@ def create_server(
     max_memory_mb : int, default 1024
         Memory, in MB, the objects may take (an estimate); the least
         recently used ones are removed beyond it.
+    allow_models : iterable of str, default ()
+        Model ID prefixes of foundation models with a license restriction
+        or gated weights that the server may run (`'google/timesfm-3.0'`).
+        Each must start with the prefix of an adapter of skforecast. Models
+        without either run without it.
+    max_file_mb : int, default 256
+        Largest CSV file (data or future exogenous values) the server reads,
+        in MB, checked on the size of the file before reading it. 0 for no
+        limit.
 
     Returns
     -------
@@ -1531,7 +2017,9 @@ def create_server(
         Server of the `mcp` package with the tools of skforecast-ai.
     """
 
-    state = _build_state(allow_dir, output_dir, max_objects, max_memory_mb)
+    state = _build_state(
+        allow_dir, output_dir, max_objects, max_memory_mb, allow_models, max_file_mb
+    )
 
     return _build_server(state)
 
@@ -1541,13 +2029,21 @@ def run_server(
     output_dir: str | Path | None = None,
     max_objects: int = DEFAULT_MAX_OBJECTS,
     max_memory_mb: int = DEFAULT_MAX_MEMORY_MB,
+    allow_models: Iterable[str] = (),
+    max_file_mb: int = DEFAULT_MAX_FILE_MB,
 ) -> None:
     """
     Run the MCP server of skforecast-ai over stdio until the client closes.
 
     The working directory of the process becomes `output_dir`, so a library
     that writes files next to it (CatBoost writes `catboost_info/`) does not
-    write them into the project of the user.
+    write them into the project of the user. While it serves, the logger
+    `skforecast_ai.mcp` writes one plain line per record to the standard
+    error and does not pass its records to the root logger; both are
+    restored when it returns. When the client disconnects, also during a
+    call, it logs one line and returns instead of raising, and the standard
+    output (the closed pipe of the client) is pointed to the null device so
+    flushing it at exit does not fail again.
 
     Parameters
     ----------
@@ -1563,18 +2059,100 @@ def run_server(
         Most objects the server keeps.
     max_memory_mb : int, default 1024
         Memory, in MB, the objects may take (an estimate).
+    allow_models : iterable of str, default ()
+        Model ID prefixes of foundation models with a license restriction
+        or gated weights that the server may run.
+    max_file_mb : int, default 256
+        Largest CSV file the server reads, in MB; 0 for no limit.
 
     Returns
     -------
     None
     """
 
-    state = _build_state(allow_dir, output_dir, max_objects, max_memory_mb)
+    state = _build_state(
+        allow_dir, output_dir, max_objects, max_memory_mb, allow_models, max_file_mb
+    )
     server = _build_server(state)
     os.chdir(state.output_dir)
-    logger.info(
-        "skforecast-ai MCP server: reads CSV files in %s, writes files to %s.",
-        state.allowed.path,
-        state.output_dir,
-    )
-    server.run("stdio")
+    # The log of the server goes to stderr in plain lines; the SDK of MCP
+    # configures a handler that wraps them to the width of a terminal.
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(_OneLineFormatter())
+    previous = (logger.level, logger.propagate)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    wire = _stdout_stat()
+    try:
+        logger.info(
+            "skforecast-ai MCP server: reads CSV files in %s, writes files to %s.",
+            state.allowed.path,
+            state.output_dir,
+        )
+        try:
+            server.run("stdio")
+        except BaseException as exc:
+            if not _client_disconnected(exc):
+                raise
+            # The client went away while a call ran: nothing is left to
+            # answer, so the server stops as if the client had closed it.
+            logger.info("The client disconnected; the server stops.")
+            _discard_stdout(wire)
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous[0])
+        logger.propagate = previous[1]
+
+
+def _stdout_stat() -> os.stat_result | None:
+    """
+    Return the status of the file behind the standard output (the pipe of
+    the client), or None when it has no file descriptor.
+    """
+
+    try:
+        return os.fstat(sys.stdout.fileno())
+    except (OSError, ValueError):
+        return None
+
+
+def _discard_stdout(wire: os.stat_result | None = None) -> None:
+    """
+    Point the standard output to the null device, so flushing it when the
+    process ends does not fail again on the closed pipe.
+
+    The SDK of MCP writes the responses through a private duplicate of the
+    standard output, whose buffer is flushed when the process ends: every
+    other descriptor open on the same pipe (`wire`, its status when the
+    server started) is pointed to the null device too. Without it the
+    process ended with "Exception ignored ... BrokenPipeError" on the
+    standard error.
+    """
+
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        return
+    try:
+        descriptors = {1}
+        try:
+            descriptors.add(sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        if wire is not None:
+            for fd in range(3, _MAX_DESCRIPTORS):
+                if fd == devnull:
+                    continue
+                try:
+                    if os.path.samestat(os.fstat(fd), wire):
+                        descriptors.add(fd)
+                except OSError:
+                    continue
+        for fd in descriptors:
+            try:
+                os.dup2(devnull, fd)
+            except OSError:
+                pass
+    finally:
+        os.close(devnull)

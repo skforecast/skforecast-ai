@@ -9,11 +9,13 @@ from skforecast_ai.mcp.models import ToolNotice
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     DATA_WARNING,
+    GAPS_WARNING,
     ID_PATTERN,
     call,
     content_of,
     df_data_warning,
     df_h2o_csv,
+    df_h2o_gaps_csv,
     error_of,
     write_csv,
 )
@@ -291,3 +293,84 @@ def test_tool_profile_text_arguments_are_never_decoded_as_json(tmp_path):
     assert error["message"].startswith(
         'Target column(s) [\'["null", "fecha"]\'] not found in the DataFrame.'
     )
+
+
+def test_tool_profile_file_too_large_before_reading_it(tmp_path, monkeypatch):
+    """
+    Test that a CSV file larger than `max_file_mb` is `file_too_large` before
+    it is read (neither hashed nor profiled), and that 0 lifts the limit.
+    """
+    from skforecast_ai.mcp import _inputs
+
+    path = write_csv(tmp_path, "h2o.csv", df_h2o_csv)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write("\n" * (1024 * 1024))
+    limited = create_server(
+        allow_dir=tmp_path, output_dir=tmp_path / "out", max_file_mb=1
+    )
+    unlimited = create_server(
+        allow_dir=tmp_path, output_dir=tmp_path / "out", max_file_mb=0
+    )
+    read = []
+    original = _inputs.file_sha256
+    monkeypatch.setattr(
+        _inputs, "file_sha256", lambda p: read.append(p) or original(p)
+    )
+
+    error = error_of(
+        call(limited, "profile", {"data_path": path, "target": "x"}), "profile"
+    )
+    assert read == []
+    result = call(unlimited, "profile", {"data_path": path, "target": "x"})
+
+    assert (error["code"], error["field"]) == ("file_too_large", "data_path")
+    assert content_of(result)["kind"] == "profile"
+
+
+def test_tool_profile_notices_of_the_data_profile_warnings(tmp_path):
+    """
+    Test that the warnings the profile records without emitting them
+    (`data_profile.warnings`, here three missing months) reach the agent as
+    notices with source 'data' and the category 'DataProfileWarning'.
+    """
+    path = write_csv(tmp_path, "gaps.csv", df_h2o_gaps_csv)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    result = content_of(call(server, "profile", {"data_path": path, "target": "x"}))
+
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "data",
+            category = "DataProfileWarning",
+            message  = GAPS_WARNING,
+            count    = 1,
+        )
+    ]
+
+
+def test_tool_profile_and_plan_notice_when_the_target_has_missing_values(tmp_path):
+    """
+    Test that a target with a few missing values (its last 3 rows, below the
+    20 % the profile warns about) gives a 'DataProfileWarning' notice on
+    profile and again on plan: without it both returned no notice, and the
+    problem only showed when `forecast` failed.
+    """
+    data = df_h2o_csv.copy()
+    data.loc[data.index[-3:], "x"] = None
+    path = write_csv(tmp_path, "trailing.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    profile = content_of(call(server, "profile", {"data_path": path, "target": "x"}))
+    plan = content_of(call(server, "plan", {"profile_id": profile["id"], "steps": 12}))
+
+    message = (
+        "Missing values in the target: 'x': 3. `forecast` needs the data to end "
+        "with a value of the target, and an estimator that does not accept "
+        "missing values fails when its lags read one. Fill them in, or remove "
+        "the rows at the end without a target, in a copy of the file."
+    )
+    for result in (profile, plan):
+        assert message in [
+            notice["message"] for notice in result["notices"]
+            if notice["category"] == "DataProfileWarning"
+        ]

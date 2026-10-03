@@ -57,15 +57,26 @@ class AllowedDir:
         Parameters
         ----------
         path : str, Path
-            Directory to allow. It must exist.
+            Directory to allow. It must be an absolute path and exist: an
+            empty or relative value would resolve against the directory
+            the server was started in, which is not what the user set (a
+            client that expands an unset variable to nothing passes an
+            empty value).
 
         Returns
         -------
         allowed : AllowedDir
-            The directory, absolute and with its links resolved.
+            The directory, with its links resolved.
         """
 
-        absolute = os.path.normpath(os.path.abspath(os.fspath(path)))
+        given = os.fspath(path)
+        if not given or not os.path.isabs(given):
+            raise InvalidInputError(
+                f"The allowed directory must be an absolute path, got "
+                f"{given!r}.",
+                field = "allow_dir",
+            )
+        absolute = os.path.normpath(os.path.abspath(given))
         if not os.path.isdir(absolute):
             raise InvalidInputError(
                 f"The allowed directory {absolute!r} does not exist or is not a "
@@ -212,6 +223,43 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
     return real
 
 
+def check_file_size(path: str, max_bytes: int, field: str) -> None:
+    """
+    Reject a file larger than the limit of the server, before reading it.
+
+    Parameters
+    ----------
+    path : str
+        Path of the file, resolved by `resolve_csv_path`.
+    max_bytes : int
+        Largest size accepted, in bytes; 0 accepts any size.
+    field : str
+        Argument of the tool that holds the path.
+
+    Returns
+    -------
+    None
+    """
+
+    if max_bytes == 0:
+        return
+    size = os.path.getsize(path)
+    if size > max_bytes:
+        limit_mb = max_bytes // (1024 * 1024)
+        raise ServerError(
+            f"The file is {size / (1024 * 1024):.1f} MB, more than the "
+            f"{limit_mb} MB the server reads. Nothing was read.",
+            code    = "file_too_large",
+            field   = field,
+            hint    = (
+                "Pass a smaller file (for example the recent history only), "
+                "or ask the user to restart the server with a larger "
+                "`--max-file-mb` (0 for no limit)."
+            ),
+            details = {"size_bytes": size, "max_file_mb": limit_mb},
+        )
+
+
 def file_sha256(path: str) -> str:
     """
     Fingerprint of a file, to notice that it changed between two reads.
@@ -240,6 +288,7 @@ def check_unchanged(
     expected: str,
     field: str,
     profiled: bool = False,
+    max_bytes: int = 0,
 ) -> None:
     """
     Raise `data_changed` when a file no longer has the expected fingerprint.
@@ -256,13 +305,18 @@ def check_unchanged(
         Whether `expected` is the fingerprint the file had when it was
         profiled (checked before a call reads it again), rather than at the
         start of the call.
+    max_bytes : int, default 0
+        Largest file the server reads. A profiled file larger than it now
+        changed since it was profiled (it was read then), so it is reported
+        without hashing it. 0 hashes any size.
 
     Returns
     -------
     None
     """
 
-    if file_sha256(path) == expected:
+    grown = profiled and max_bytes > 0 and os.path.getsize(path) > max_bytes
+    if not grown and file_sha256(path) == expected:
         return
     if profiled:
         message = (

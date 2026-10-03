@@ -53,3 +53,25 @@ def test_AllowedDir_from_path_InvalidInputError_when_not_a_directory(tmp_path):
         AllowedDir.from_path(missing)
 
     assert excinfo.value.field == "allow_dir"
+
+
+@pytest.mark.parametrize("path", ["", ".", "data", "../data", "~/data"])
+def test_AllowedDir_from_path_InvalidInputError_when_not_absolute(
+    tmp_path, monkeypatch, path
+):
+    """
+    Test that an empty or relative allowed directory raises instead of
+    resolving against the working directory: a client that expands an unset
+    variable to nothing would make the server read the CSV files of wherever
+    it was started.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data").mkdir()
+
+    err_msg = re.escape(
+        f"The allowed directory must be an absolute path, got {path!r}."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as excinfo:
+        AllowedDir.from_path(path)
+
+    assert excinfo.value.field == "allow_dir"

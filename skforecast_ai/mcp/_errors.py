@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 import json
+import logging
+import re
+import secrets
 from typing import Any, Literal, get_args
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
@@ -14,6 +17,7 @@ from ..exceptions import (
     ERROR_CODES,
     AllCandidatesFailedError,
     ForecastExecutionError,
+    SkforecastAIError,
 )
 from ..schemas.errors import ErrorInfo, _format_location, _is_union_label
 
@@ -24,10 +28,14 @@ ServerErrorCode = Literal[
     "path_not_allowed",
     "url_not_allowed",
     "data_changed",
+    "model_not_allowed",
+    "file_too_large",
 ]
 """Codes of the errors that only the server raises."""
 
 SERVER_ERROR_CODES: tuple[str, ...] = get_args(ServerErrorCode)
+
+logger = logging.getLogger("skforecast_ai.mcp")
 
 # Longest message and hint sent to the agent. The messages of the core are
 # forwarded as they are (they name at most 5 values of the data); this only
@@ -36,6 +44,9 @@ MAX_MESSAGE_CHARS = 4_000
 MAX_HINT_CHARS = 1_000
 # Texts of `details` (an id or a path given by the agent) are cut as well.
 MAX_DETAIL_CHARS = 500
+
+# A file named by a line of a traceback.
+_TRACEBACK_FILE = re.compile(r'File "([^"\n]+)"')
 
 # The core names the argument of its Python API; the tools take ids and
 # paths in their place.
@@ -126,6 +137,25 @@ def attach_details(exc: Exception, details: dict[str, Any]) -> None:
     setattr(exc, _DETAILS_ATTRIBUTE, details)
 
 
+def add_details(exc: Exception, details: dict[str, Any]) -> None:
+    """
+    Add details to those an exception of the core already carries.
+
+    Parameters
+    ----------
+    exc : Exception
+        Exception raised by the core.
+    details : dict
+        Plain data to add to `details`.
+
+    Returns
+    -------
+    None
+    """
+
+    attach_details(exc, {**(getattr(exc, _DETAILS_ATTRIBUTE, None) or {}), **details})
+
+
 def failure_text(exc: Exception) -> str | None:
     """
     Describe in full a failed run of a generated script: what failed, where,
@@ -151,7 +181,7 @@ def failure_text(exc: Exception) -> str | None:
             parts.append(f"Failed line of the code that ran: {exc.failed_line}")
         if exc.failed_statement is not None:
             parts.append(f"Failed statement:\n{exc.failed_statement}")
-        parts.append(f"Traceback:\n{exc.execution_traceback}")
+        parts.append(f"Traceback:\n{without_install_paths(exc.execution_traceback)}")
         parts.append(f"Code that ran:\n{exc.generated_code}")
         return "\n\n".join(parts)
     if isinstance(exc, AllCandidatesFailedError):
@@ -182,12 +212,108 @@ def candidate_failure_text(name: str, failure: Any) -> str:
 
     parts = [
         f"Candidate {name!r} failed: {failure.error_type}: {failure.message}",
-        f"Traceback:\n{failure.traceback}",
+        f"Traceback:\n{without_install_paths(failure.traceback)}",
     ]
     if failure.generated_code is not None:
         parts.append(f"Code that ran:\n{failure.generated_code}")
 
     return "\n\n".join(parts)
+
+
+def without_install_paths(traceback_text: str | None) -> str | None:
+    """
+    Shorten the file paths of a traceback to what identifies the module.
+
+    A traceback names every file by its absolute path, which holds the
+    directory where the packages are installed and, with it, the home
+    directory and the name of the user. A path inside `site-packages` is cut
+    to what follows it, one inside this package to `skforecast_ai/...`, and
+    any other absolute path to its file name. The generated script
+    (`<forecast>`) and the line numbers are kept.
+
+    Parameters
+    ----------
+    traceback_text : str, None
+        Text of the traceback.
+
+    Returns
+    -------
+    text : str, None
+        The traceback with its paths shortened, or None.
+    """
+
+    if traceback_text is None:
+        return None
+
+    def shorten(match: re.Match) -> str:
+        path = match.group(1).replace("\\", "/")
+        for marker in ("/site-packages/", "/dist-packages/"):
+            if marker in path:
+                return f'File "{path.rsplit(marker, 1)[1]}"'
+        if "/skforecast_ai/" in path:
+            return f'File "skforecast_ai/{path.rsplit("/skforecast_ai/", 1)[1]}"'
+        if path.startswith("/") or re.match(r"^[A-Za-z]:/", path):
+            return f'File "{path.rsplit("/", 1)[1]}"'
+        return match.group(0)
+
+    return _TRACEBACK_FILE.sub(shorten, traceback_text)
+
+
+def _own_error_names() -> frozenset[str]:
+    """
+    Names of the exception classes of skforecast-ai, whose messages the
+    package writes itself.
+    """
+
+    from .. import exceptions
+
+    return frozenset(
+        name for name, value in vars(exceptions).items()
+        if isinstance(value, type) and issubclass(value, SkforecastAIError)
+    )
+
+
+def _execution_failed_message(exc: ForecastExecutionError) -> str:
+    """
+    Message of a script that failed, for the agent.
+
+    The error that stopped the script comes from skforecast, pandas or the
+    estimator, and its text can quote a value of the data, so only its type
+    is named, as for an unexpected error: the whole text is in `get_failure`.
+    An error that skforecast-ai raised keeps its message.
+    """
+
+    original = exc.original_error
+    if isinstance(original, SkforecastAIError):
+        return str(exc)
+
+    return (
+        f"The generated script failed with {type(original).__name__}. Its "
+        f"message, the traceback and the code that ran are in `get_failure`, "
+        f"with the `failure_id` of `details`."
+    )
+
+
+def _all_candidates_failed_message(exc: AllCandidatesFailedError) -> str:
+    """
+    Message of a comparison in which every candidate failed, for the agent:
+    one line per candidate with the type of its error, and its message only
+    when skforecast-ai wrote it (see `_execution_failed_message`).
+    """
+
+    own = _own_error_names()
+    lines = [
+        f"  - {name}: "
+        + (failure.summary() if failure.error_type in own else failure.error_type)
+        for name, failure in exc.failures.items()
+    ]
+
+    return (
+        f"All {len(exc.failures)} candidate configuration(s) failed to run, so "
+        f"there is no ranking to report. The message, the traceback and the "
+        f"code of each one are in `get_failure`, with the `failure_id` of "
+        f"`details`.\n\n" + "\n".join(lines)
+    )
 
 
 def _cut(text: str | None, max_chars: int) -> str | None:
@@ -210,8 +336,8 @@ def error_payload(exc: Exception) -> dict[str, Any]:
     exc : Exception
         Exception raised while a tool ran: a `ServerError`, an error of the
         core, a pydantic `ValidationError` or any other exception (an
-        `'internal_error'`, described by its type and the first line of its
-        message, never its traceback).
+        `'internal_error'`, described as `ErrorInfo` does; `tool_error`
+        sends `internal_error_payload` instead).
 
     Returns
     -------
@@ -230,6 +356,10 @@ def error_payload(exc: Exception) -> dict[str, Any]:
     else:
         info = ErrorInfo.from_exception(exc)
         code, message, field, hint = info.code, info.message, info.field, info.hint
+        if isinstance(exc, ForecastExecutionError):
+            message = _execution_failed_message(exc)
+        elif isinstance(exc, AllCandidatesFailedError):
+            message = _all_candidates_failed_message(exc)
         details = getattr(exc, _DETAILS_ATTRIBUTE, None)
         if field is not None:
             head, _, rest = field.partition(".")
@@ -291,8 +421,60 @@ def tool_error(exc: Exception) -> ToolError:
     Returns
     -------
     error : ToolError
-        Error whose text is the JSON of `error_payload(exc)`. ASCII only, so
-        no line break or separator of the data reaches the agent unescaped.
+        Error whose text is the JSON of `error_payload(exc)`, or of
+        `internal_error_payload(exc)` for an exception that neither the
+        server nor skforecast-ai raised. ASCII only, so no line break or
+        separator of the data reaches the agent unescaped.
     """
 
-    return ToolError(json.dumps(error_payload(exc), ensure_ascii=True))
+    # Classified by type, not by code: a `SkforecastAIError` with the code
+    # 'internal_error' was raised by skforecast-ai and keeps its message.
+    if isinstance(exc, (ServerError, SkforecastAIError, ValidationError)):
+        payload = error_payload(exc)
+    else:
+        payload = internal_error_payload(exc)
+
+    return ToolError(json.dumps(payload, ensure_ascii=True))
+
+
+def internal_error_payload(exc: Exception) -> dict[str, Any]:
+    """
+    Describe an unexpected exception to the agent by its type and an id
+    only, and write its message and traceback to the log of the server.
+
+    The message of an exception that skforecast-ai did not raise can quote
+    a value of the data (pandas: "could not convert string to float:
+    '...'"), so it never reaches the agent; the user finds it in the log
+    (stderr) by the id.
+
+    Parameters
+    ----------
+    exc : Exception
+        Exception that neither the server nor skforecast-ai raised.
+
+    Returns
+    -------
+    payload : dict
+        Keys `code` (`'internal_error'`), `message`, `field` (None), `hint`
+        and `details` (`error_id` and `error_type`).
+    """
+
+    error_id = f"error-{secrets.token_hex(6)}"
+    error_type = type(exc).__name__
+    logger.error(
+        "internal_error %s: %s: %s", error_id, error_type, exc, exc_info=exc
+    )
+
+    return {
+        "code": "internal_error",
+        "message": (
+            f"Unexpected {error_type}. Its message and traceback are in the "
+            f"log of the server (stderr) under the id {error_id}."
+        ),
+        "field": None,
+        "hint": (
+            "Report it to the user with the id; do not retry with the same "
+            "inputs."
+        ),
+        "details": {"error_id": error_id, "error_type": error_type},
+    }

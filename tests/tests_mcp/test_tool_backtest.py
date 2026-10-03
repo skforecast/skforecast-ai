@@ -1,7 +1,9 @@
 # Unit test tool backtest
 
+import time
+
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.mcp import create_server
+from skforecast_ai.mcp import _runtime, create_server
 
 from .fixtures_mcp import (
     call,
@@ -11,6 +13,7 @@ from .fixtures_mcp import (
     error_of,
     h2o_server,
     profile_and_plan,
+    run_session,
     text_of,
     write_csv,
 )
@@ -139,7 +142,9 @@ def test_tool_backtest_execution_failed_keeps_the_failure(tmp_path):
     """
     Test that a script that fails while it runs is `execution_failed`, with
     the id of its failure in the details, whose traceback and code
-    `get_failure` returns.
+    `get_failure` returns. The error names only the type of what failed (its
+    message, of scikit-learn here, may quote a value), and the traceback of
+    `get_failure` has no absolute path.
     """
     server, path = h2o_server(tmp_path)
     _, _, cv_id = cv_of(
@@ -156,8 +161,92 @@ def test_tool_backtest_execution_failed_keeps_the_failure(tmp_path):
     )
 
     assert error["code"] == "execution_failed"
-    assert error["message"].startswith("Error executing generated forecasting code.")
+    assert error["message"] == (
+        "The generated script failed with InvalidParameterError. Its message, "
+        "the traceback and the code that ran are in `get_failure`, with the "
+        "`failure_id` of `details`."
+    )
     assert failure["id"] == error["details"]["failure_id"]
     assert failure["text"].startswith("Error executing generated forecasting code.")
     assert "Traceback:\n" in failure["text"]
     assert "'no-such-solver'" in failure["text"].split("Code that ran:\n")[1]
+    traceback_text = failure["text"].split("Traceback:\n")[1].split("Code that ran")[0]
+    assert 'File "sklearn/' in traceback_text
+    assert 'File "/' not in traceback_text
+    assert "site-packages" not in traceback_text
+
+
+def test_tool_backtest_heartbeat_progress_while_it_runs(tmp_path, monkeypatch):
+    """
+    Test that a backtest that runs for longer than the heartbeat sends
+    growing progress notifications naming its forecaster and the seconds it
+    has run, so a client does not end the request, and still returns its
+    result.
+    """
+    monkeypatch.setattr(_runtime, "HEARTBEAT_SECONDS", 0.05)
+    backtest = ForecastingAssistant.backtest
+
+    def slow_backtest(self, *args, **kwargs):
+        time.sleep(0.4)
+        return backtest(self, *args, **kwargs)
+
+    monkeypatch.setattr(ForecastingAssistant, "backtest", slow_backtest)
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    events = []
+
+    async def steps(client):
+        async def record(progress, total, message):
+            events.append((progress, total, message))
+
+        return await client.call_tool(
+            "backtest", {"cv_id": cv_id}, progress_callback=record
+        )
+
+    result = content_of(run_session(server, steps))
+
+    assert result["kind"] == "backtest"
+    assert len(events) >= 3
+    values = [progress for progress, _, _ in events]
+    assert values == sorted(set(values))
+    assert all(0 < progress < 1 for progress in values)
+    assert events[0][1:] == (None, "ForecasterRecursive: running (0 s)")
+
+
+def test_tool_backtest_missing_dependency_of_a_foundation_model(
+    tmp_path, monkeypatch
+):
+    """
+    Test that backtesting a ForecasterFoundation plan whose backend is not
+    installed is `missing_dependency` before any script runs (it was
+    `execution_failed` after the script failed), with one install advice;
+    `forecast` checks the same.
+    """
+    from skforecast_ai.mcp import _foundation
+
+    monkeypatch.setattr(_foundation, "foundation_backend_installed", lambda info: False)
+    server, path = h2o_server(tmp_path)
+    _, plan_id, cv_id = cv_of(server, path, forecaster="ForecasterFoundation")
+
+    error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+    forecast = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
+
+    assert error == {
+        "code": "missing_dependency",
+        "message": (
+            "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
+            "which is not installed where the server runs. Nothing was run."
+        ),
+        "field": "plan_id",
+        "hint": (
+            'Ask the user to install it where the server runs and to restart the '
+            'server: `pip install "chronos-forecasting"` in its Python '
+            'environment, or `--with "chronos-forecasting"` added to the uvx '
+            'command that starts it.'
+        ),
+        "details": {
+            "model_id": "autogluon/chronos-2-small",
+            "package": "chronos-forecasting",
+        },
+    }
+    assert (forecast["code"], forecast["field"]) == ("missing_dependency", "plan_id")

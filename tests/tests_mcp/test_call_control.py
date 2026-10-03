@@ -21,7 +21,7 @@ def test_CallControl_progress_reports_and_stops_when_cancelled():
     with pytest.raises(CallCancelled):
         control.progress(2, 4, "a: succeeded")
 
-    assert sent == [(1, 4, "a: started")]
+    assert sent == [(1, 4, "a: started", None)]
     assert CallControl(cancelled=threading.Event()).progress(1, 2, "x") is None
 
 

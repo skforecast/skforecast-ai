@@ -1,7 +1,11 @@
 # Integration test of the MCP server over stdio
 
+import json
 import os
+import subprocess
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import sys
+import time
 import anyio
 import pytest
 from mcp import Client, StdioServerParameters
@@ -68,7 +72,9 @@ def test_stdio_server_runs_the_planning_workflow(tmp_path):
     assert profile["summary"] == expected_profile.describe()
     assert plan["summary"] == script.describe()
     assert cv["summary"] == expected_cv.describe()
-    assert cv["cost"] == {"n_folds": 6, "n_fits": 1, "estimator_fits": 1}
+    assert cv["cost"] == {
+        "n_folds": 6, "n_fits": 1, "estimator_fits": 1, "compare_estimator_fits": 19,
+    }
     assert code["code"] == script.code
     assert error_of(error, "plan")["code"] == "unknown_id"
     assert output_dir.is_dir()
@@ -125,7 +131,10 @@ def test_stdio_server_runs_executes_reports_progress_and_cancels(tmp_path):
             events = []
 
             async def record(progress, total, message):
-                events.append((progress, total))
+                # The events of the candidates; a heartbeat (a value between
+                # two of them) only comes after a long silence.
+                if progress == int(progress):
+                    events.append((progress, total))
 
             comparison = content_of(
                 await client.call_tool(
@@ -169,3 +178,187 @@ def test_stdio_server_runs_executes_reports_progress_and_cancels(tmp_path):
     ]
     assert cancelled is True
     assert [o["kind"] for o in objects].count("comparison") == 1
+
+
+# Starts the server with a heartbeat every 0.2 s and a backtest that takes
+# 1.5 s longer, to see the heartbeat cross the process boundary.
+_SLOW_SERVER = """
+import sys, time
+from skforecast_ai import ForecastingAssistant
+from skforecast_ai.mcp import _runtime
+from skforecast_ai.cli import app
+_runtime.HEARTBEAT_SECONDS = 0.2
+backtest = ForecastingAssistant.backtest
+def slow(self, *args, **kwargs):
+    time.sleep(1.5)
+    return backtest(self, *args, **kwargs)
+ForecastingAssistant.backtest = slow
+app()
+"""
+
+
+@pytest.mark.slow
+def test_stdio_server_heartbeat_during_a_long_backtest(tmp_path):
+    """
+    Test over stdio that a backtest longer than the heartbeat sends growing
+    progress notifications to the client while it runs, naming its
+    forecaster and the seconds it has run, and then returns its result.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    path = write_csv(data, "h2o.csv", df_h2o_csv)
+    parameters = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "-c",
+            _SLOW_SERVER,
+            "mcp",
+            "--allow-dir",
+            str(data),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+        env=dict(os.environ),
+        cwd=str(tmp_path),
+    )
+
+    async def main():
+        async with Client(parameters) as client:
+            profile = content_of(
+                await client.call_tool("profile", {"data_path": path, "target": "x"})
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan", {"profile_id": profile["id"], "steps": 12}
+                )
+            )
+            cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+            events = []
+
+            async def record(progress, total, message):
+                events.append((progress, total, message))
+
+            backtest = content_of(
+                await client.call_tool(
+                    "backtest", {"cv_id": cv["id"]}, progress_callback=record
+                )
+            )
+            return backtest, events
+
+    backtest, events = anyio.run(main)
+
+    values = [progress for progress, _, _ in events]
+    assert backtest["kind"] == "backtest"
+    assert len(events) >= 3
+    assert values == sorted(set(values))
+    assert all(0 < progress < 1 for progress in values)
+    assert all(
+        message.startswith("ForecasterRecursive: running (") for _, _, message in events
+    )
+
+
+def _jsonrpc_server(tmp_path):
+    """
+    Start the slow server of `_SLOW_SERVER` as a process with pipes, run the
+    handshake and a profile, a plan and a strategy, and return the process,
+    a function that sends a message and the id of the strategy.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    path = write_csv(data, "h2o.csv", df_h2o_csv)
+    process = subprocess.Popen(
+        [
+            sys.executable, "-c", _SLOW_SERVER, "mcp",
+            "--allow-dir", str(data), "--output-dir", str(tmp_path / "out"),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(tmp_path),
+    )
+
+    def send(message):
+        process.stdin.write((json.dumps({"jsonrpc": "2.0", **message}) + "\n").encode())
+        process.stdin.flush()
+
+    def readline():
+        # Bounded: a server that hangs is killed, which ends the read.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            line = pool.submit(process.stdout.readline)
+            try:
+                return line.result(timeout=60)
+            except TimeoutError:
+                process.kill()
+                raise
+
+    def call(number, name, arguments):
+        send({
+            "id": number,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        })
+        return json.loads(readline())["result"]["structuredContent"]
+
+    send({
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "test", "version": "1"},
+        },
+    })
+    try:
+        readline()
+        send({"method": "notifications/initialized"})
+        profile = call(2, "profile", {"data_path": path, "target": "x"})
+        plan = call(3, "plan", {"profile_id": profile["id"], "steps": 12})
+        cv = call(4, "create_cv", {"plan_id": plan["id"]})
+    except BaseException:
+        process.kill()
+        process.wait()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close()
+        raise
+
+    return process, send, cv["id"]
+
+
+@pytest.mark.slow
+def test_stdio_server_exits_cleanly_when_the_client_disconnects_during_a_call(
+    tmp_path,
+):
+    """
+    Test that when the client closes its pipes while a backtest runs, the
+    server ends the call and exits with code 0, logging two plain lines (the
+    start, with both directories on one line, and the disconnection) and no
+    traceback of the broken pipe.
+    """
+    process, send, cv_id = _jsonrpc_server(tmp_path)
+    try:
+        send({
+            "id": 5,
+            "method": "tools/call",
+            "params": {"name": "backtest", "arguments": {"cv_id": cv_id}},
+        })
+        time.sleep(0.5)
+        process.stdout.close()
+        process.stdin.close()
+        code = process.wait(timeout=60)
+        stderr = process.stderr.read().decode()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close()
+
+    lines = stderr.splitlines()
+    assert code == 0
+    assert "Traceback" not in stderr
+    assert len(lines) == 2
+    assert lines[0].endswith(
+        f"skforecast-ai MCP server: reads CSV files in {tmp_path / 'data'}, "
+        f"writes files to {tmp_path / 'out'}."
+    )
+    assert lines[1].endswith("The client disconnected; the server stops.")

@@ -114,6 +114,7 @@ answer = assistant.ask(
 - **[Model selection](https://ai.skforecast.org/stable/user-guides/agentic-forecasting.html)** with `compare()`: every candidate is backtested with the same data and cross-validation, and the ranking is a plain sort of the metric. For a single series, a seasonal naive baseline is ranked alongside them, so you also see whether a model beats the simplest reasonable forecast.
 - **Reproducible**: the same input always gives the same profile, plan, script and predictions.
 - **Python or terminal**: the [CLI](https://ai.skforecast.org/stable/user-guides/cli-usage.html) runs the same pipeline from a CSV file or URL.
+- **Coding agents**: an [MCP server](https://ai.skforecast.org/stable/user-guides/mcp-server.html) gives Claude Code, Cursor and other MCP clients the same pipeline as tools, with a skill that teaches them to use it. Responses never carry rows of your data. In Claude Code: `/plugin marketplace add skforecast/skforecast-ai` and `/plugin install skforecast-ai@skforecast-ai`.
 
 The engine chooses among the forecasters of skforecast: recursive and direct, multi-series and multivariate, statistical (ARIMA) and foundation models.
 
@@ -167,6 +168,7 @@ The full documentation is available at **https://ai.skforecast.org**.
 | [Step by step] | Every intermediate object, and how to change it |
 | [Configuring the LLM] | Providers, credentials, local models and what is sent |
 | [Using the CLI] | The same pipeline from the terminal |
+| [MCP server for coding agents] | The same pipeline as tools for Claude Code, Cursor and other MCP clients |
 | [API Reference] | `ForecastingAssistant`, its results, schemas and the CLI |
 | [Releases] | What changed in each version |
 
@@ -175,6 +177,7 @@ The full documentation is available at **https://ai.skforecast.org**.
 [Step by step]: https://ai.skforecast.org/stable/user-guides/agentic-forecasting-step-by-step.html
 [Configuring the LLM]: https://ai.skforecast.org/stable/user-guides/llm-configuration.html
 [Using the CLI]: https://ai.skforecast.org/stable/user-guides/cli-usage.html
+[MCP server for coding agents]: https://ai.skforecast.org/stable/user-guides/mcp-server.html
 [API Reference]: https://ai.skforecast.org/stable/api/assistant.html
 [Releases]: https://ai.skforecast.org/stable/releases/releases.html
 

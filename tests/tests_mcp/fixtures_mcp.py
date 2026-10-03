@@ -34,6 +34,15 @@ DATA_WARNING = (
     "column instead; pass `date_column` to choose another one."
 )
 
+# h2o without three months in 2005 (missing timestamps, which the profile
+# records in `data_profile.warnings` without emitting a Python warning).
+df_h2o_gaps_csv = df_h2o_csv.drop(index=[50, 51, 52]).reset_index(drop=True)
+
+GAPS_WARNING = (
+    "Missing timestamps: 3 timestamps of frequency 'MS' are missing from the "
+    "date range. asfreq() inserts them as rows with missing values."
+)
+
 # Ten future values of `promo` after the last date of `df_single`.
 df_single_future_exog = pd.DataFrame(
     {
