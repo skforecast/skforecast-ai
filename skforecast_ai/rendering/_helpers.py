@@ -12,12 +12,12 @@ import unicodedata
 from ..schemas import DataProfile, ForecastPlan
 from .._constants import (
     BLOCKING_PREPROCESSING_TEMPLATES,
-    FREQUENCY_TO_SEASONAL_PERIOD,
     PLACEHOLDER_DATA_PATH,
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
 )
 from .._validation import validate_kwarg_names
+from ..recommendation.autoregressive import tabulated_seasonal_period
 from ..exceptions import InvalidInputError
 
 # Render boundary: a value from a plan, a profile or a cross-validation
@@ -377,10 +377,11 @@ def _get_interval_method_literal(interval_method: str) -> str:
 
 
 def _get_seasonal_period(frequency: str | None) -> int | None:
-    """Return seasonal period m for the given pandas frequency string."""
-    if frequency is None:
-        return None
-    return FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
+    """
+    Return the seasonal period m of Auto-ARIMA for a pandas frequency, an
+    anchored one read as its base alias (`tabulated_seasonal_period`).
+    """
+    return tabulated_seasonal_period(frequency)
 
 
 def _get_interval_repr(plan: ForecastPlan) -> str:

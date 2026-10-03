@@ -25,6 +25,8 @@ def _make_profile(frequency: str | None, n_observations: int) -> DataProfile:
         ("h", 720, 24),
         ("MS", 120, 12),
         ("W-SUN", 520, 52),
+        ("W-WED", 520, 52),
+        ("QS-OCT", 120, 4),
         ("15min", 2880, 96),
         ("30min", 1440, 48),
         ("2W", 260, 26),

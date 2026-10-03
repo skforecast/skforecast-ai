@@ -53,6 +53,45 @@ def test_select_forecaster_and_candidates_output_when_single_series():
     assert candidates[0] == preferred
 
 
+@pytest.mark.parametrize(
+    "frequency, expected",
+    [
+        (
+            "QS-OCT",
+            [
+                "ForecasterRecursive",
+                "ForecasterDirect",
+                "ForecasterFoundation",
+                "ForecasterStats",
+            ],
+        ),
+        (
+            "W-WED",
+            ["ForecasterRecursive", "ForecasterDirect", "ForecasterFoundation"],
+        ),
+        (
+            "W-SUN",
+            ["ForecasterRecursive", "ForecasterDirect", "ForecasterFoundation"],
+        ),
+    ],
+    ids=lambda dt: f"frequency, expected: {dt}",
+)
+def test_select_forecaster_and_candidates_output_when_anchored_frequency(
+    frequency, expected
+):
+    """
+    Test that an anchored frequency is read with the seasonal period of its
+    base alias: quarters (m=4) keep ForecasterStats among the candidates,
+    and weeks ending on any day (m=52) leave it out, as 'W-SUN' does.
+    """
+    profile = profile_single.model_copy(update={"frequency": frequency})
+
+    preferred, candidates = select_forecaster_and_candidates(profile)
+
+    assert preferred == "ForecasterRecursive"
+    assert candidates == expected
+
+
 def test_select_forecaster_and_candidates_output_when_multi_series():
     """
     Test that a multi-series profile recommends

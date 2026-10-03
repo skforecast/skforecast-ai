@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from skforecast.stats import pacf
+from .._constants import FREQUENCY_TO_SEASONAL_PERIOD
 from .._dates import date_positions, row_dates
 from ..schemas import DataProfile, SeriesPacf
 
@@ -112,6 +113,40 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
         if c // interval_seconds >= 2
     ]
     return seasons[:2]
+
+
+def tabulated_seasonal_period(frequency: str | None) -> int | None:
+    """
+    Return the seasonal period of `FREQUENCY_TO_SEASONAL_PERIOD` for a
+    frequency, reading an anchored frequency as its base alias.
+
+    An anchor only says on which day a week, quarter or year starts or
+    ends (`'W-WED'`, `'QS-OCT'`, `'QE-DEC'`), not how long it is, so it has
+    the period of its base alias (`'W'`, `'QS'`, `'QE'`), as the lags and
+    the baseline read it (`estimate_seasonality`). The Auto-ARIMA script
+    and the rule that leaves Auto-ARIMA out of the candidates both read
+    this period. Multiplied frequencies (`'2W'`) are not in the table: the
+    baseline falls back to `estimate_seasonality` for them, and Auto-ARIMA
+    gets no seasonal period.
+
+    Parameters
+    ----------
+    frequency : str, None
+        Pandas frequency string.
+
+    Returns
+    -------
+    period : int, None
+        Seasonal period in steps, or None when the frequency is None or not
+        in the table.
+    """
+    if frequency is None:
+        return None
+    period = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
+    if period is None and "-" in frequency:
+        period = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency.split("-", 1)[0])
+
+    return period
 
 
 def _date_order(dates: pd.DatetimeIndex | None) -> np.ndarray | None:

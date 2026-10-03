@@ -6,9 +6,9 @@
 ################################################################################
 
 from __future__ import annotations
-from .._constants import FREQUENCY_TO_SEASONAL_PERIOD, MAX_FEATURE_FRACTION
+from .._constants import MAX_FEATURE_FRACTION
 from ..schemas import DataProfile
-from .autoregressive import estimate_seasonality
+from .autoregressive import estimate_seasonality, tabulated_seasonal_period
 
 
 def select_baseline_seasonal_period(frequency: str | None) -> int:
@@ -16,10 +16,11 @@ def select_baseline_seasonal_period(frequency: str | None) -> int:
     Select the seasonal period the baseline repeats.
 
     The period is read from `FREQUENCY_TO_SEASONAL_PERIOD`, the table the
-    statistical forecaster also uses, so the baseline repeats the same
-    cycle (the day for sub-daily data, the week for daily data). Frequencies
-    missing from the table (multiplied or anchored variants such as `'2W'`
-    or `'QS-OCT'`) fall back to the primary period of
+    statistical forecaster also uses (`tabulated_seasonal_period`, which
+    reads an anchored frequency such as `'QS-OCT'` as its base alias), so
+    the baseline repeats the same cycle (the day for sub-daily data, the
+    week for daily data). Frequencies missing from the table (multiplied
+    variants such as `'2W'`) fall back to the primary period of
     `estimate_seasonality()`.
 
     Parameters
@@ -35,7 +36,7 @@ def select_baseline_seasonal_period(frequency: str | None) -> int:
 
     if frequency is None:
         return 1
-    period = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
+    period = tabulated_seasonal_period(frequency)
     if period is None:
         seasonalities = estimate_seasonality(frequency)
         period = seasonalities[0] if seasonalities else 1
