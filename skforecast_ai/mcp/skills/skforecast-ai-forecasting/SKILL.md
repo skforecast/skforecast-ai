@@ -135,7 +135,7 @@ and follow `hint` when there is one:
 | `execution_failed`, `all_candidates_failed` | `get_failure(details.failure_id)` returns the traceback and the code. |
 | `missing_dependency` | Tell the user which package to install. |
 | `model_not_allowed` | Tell the user the license in the message; only if they accept it, ask them to restart the server with the `--allow-model` option of `hint`. |
-| `internal_error` | Report it to the user; do not retry with the same inputs. |
+| `internal_error` | Report it to the user with `details.error_id`, which finds the message in the log of the server; do not retry with the same inputs. |
 
 A candidate of `compare` that fails is ranked last instead of failing the
 call: `get_failure(comparison_id, candidate)` says why.
@@ -146,9 +146,10 @@ The server never sends rows of data in a response. Messages of errors and
 warnings are forwarded as the library writes them: they can name columns
 and series ids and quote up to 5 values of the data (categories, dates).
 The server cuts a message at 4,000 characters, a hint at 1,000, each text
-of `details` at 500 and each notice at 1,000; an unexpected error
-(`internal_error`) quotes only the first line of its message, at most 200
-characters. A failure (`get_failure`) holds a traceback, which can quote
+of `details` at 500 and each notice at 1,000. An unexpected error
+(`internal_error`) carries only the type of the exception and an id
+(`details.error_id`): its message, which can quote a value, goes to the log
+of the server with that id. A failure (`get_failure`) holds a traceback, which can quote
 values. Scripts, failures and the summary of a plan name the path of the
 data file; the other summaries do not. Tell the user when they ask what you
 can see.

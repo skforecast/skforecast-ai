@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 import json
+import logging
+import secrets
 from typing import Any, Literal, get_args
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
@@ -14,6 +16,7 @@ from ..exceptions import (
     ERROR_CODES,
     AllCandidatesFailedError,
     ForecastExecutionError,
+    SkforecastAIError,
 )
 from ..schemas.errors import ErrorInfo, _format_location, _is_union_label
 
@@ -29,6 +32,8 @@ ServerErrorCode = Literal[
 """Codes of the errors that only the server raises."""
 
 SERVER_ERROR_CODES: tuple[str, ...] = get_args(ServerErrorCode)
+
+logger = logging.getLogger("skforecast_ai.mcp")
 
 # Longest message and hint sent to the agent. The messages of the core are
 # forwarded as they are (they name at most 5 values of the data); this only
@@ -211,8 +216,8 @@ def error_payload(exc: Exception) -> dict[str, Any]:
     exc : Exception
         Exception raised while a tool ran: a `ServerError`, an error of the
         core, a pydantic `ValidationError` or any other exception (an
-        `'internal_error'`, described by its type and the first line of its
-        message, never its traceback).
+        `'internal_error'`, described as `ErrorInfo` does; `tool_error`
+        sends `internal_error_payload` instead).
 
     Returns
     -------
@@ -292,8 +297,60 @@ def tool_error(exc: Exception) -> ToolError:
     Returns
     -------
     error : ToolError
-        Error whose text is the JSON of `error_payload(exc)`. ASCII only, so
-        no line break or separator of the data reaches the agent unescaped.
+        Error whose text is the JSON of `error_payload(exc)`, or of
+        `internal_error_payload(exc)` for an exception that neither the
+        server nor skforecast-ai raised. ASCII only, so no line break or
+        separator of the data reaches the agent unescaped.
     """
 
-    return ToolError(json.dumps(error_payload(exc), ensure_ascii=True))
+    # Classified by type, not by code: a `SkforecastAIError` with the code
+    # 'internal_error' was raised by skforecast-ai and keeps its message.
+    if isinstance(exc, (ServerError, SkforecastAIError, ValidationError)):
+        payload = error_payload(exc)
+    else:
+        payload = internal_error_payload(exc)
+
+    return ToolError(json.dumps(payload, ensure_ascii=True))
+
+
+def internal_error_payload(exc: Exception) -> dict[str, Any]:
+    """
+    Describe an unexpected exception to the agent by its type and an id
+    only, and write its message and traceback to the log of the server.
+
+    The message of an exception that skforecast-ai did not raise can quote
+    a value of the data (pandas: "could not convert string to float:
+    '...'"), so it never reaches the agent; the user finds it in the log
+    (stderr) by the id.
+
+    Parameters
+    ----------
+    exc : Exception
+        Exception that neither the server nor skforecast-ai raised.
+
+    Returns
+    -------
+    payload : dict
+        Keys `code` (`'internal_error'`), `message`, `field` (None), `hint`
+        and `details` (`error_id` and `error_type`).
+    """
+
+    error_id = f"error-{secrets.token_hex(6)}"
+    error_type = type(exc).__name__
+    logger.error(
+        "internal_error %s: %s: %s", error_id, error_type, exc, exc_info=exc
+    )
+
+    return {
+        "code": "internal_error",
+        "message": (
+            f"Unexpected {error_type}. Its message and traceback are in the "
+            f"log of the server (stderr) under the id {error_id}."
+        ),
+        "field": None,
+        "hint": (
+            "Report it to the user with the id; do not retry with the same "
+            "inputs."
+        ),
+        "details": {"error_id": error_id, "error_type": error_type},
+    }

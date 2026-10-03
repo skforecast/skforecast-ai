@@ -1,5 +1,6 @@
 # Unit test tool create_cv
 
+import logging
 import pytest
 
 from skforecast_ai import ForecastingAssistant
@@ -139,29 +140,34 @@ def test_tool_create_cv_invalid_argument(tmp_path, arguments, field):
     assert error["field"] == field
 
 
-def test_tool_create_cv_internal_error_when_skforecast_rejects_the_strategy(tmp_path):
+def test_tool_create_cv_internal_error_when_skforecast_rejects_the_strategy(
+    tmp_path, caplog
+):
     """
     Test that an error of skforecast that the core does not wrap (a first
     training set longer than the data, rejected by `TimeSeriesFold`) reaches
-    the agent as `internal_error` with its type and message, and registers
-    nothing.
+    the agent as `internal_error` with its type and an id, its message going
+    to the log of the server, and registers nothing.
     """
     server, _, _, plan_id = _planned(tmp_path, steps=12)
 
-    error = error_of(
-        call(server, "create_cv", {"plan_id": plan_id, "initial_train_size": 500}),
-        "create_cv",
-    )
+    with caplog.at_level(logging.ERROR, logger="skforecast_ai.mcp"):
+        error = error_of(
+            call(server, "create_cv", {"plan_id": plan_id, "initial_train_size": 500}),
+            "create_cv",
+        )
 
-    assert error == {
-        "code": "internal_error",
-        "message": (
-            "ValueError: The time series must have more than `initial_train_size + "
-            "gap` observations to create at least one fold."
-        ),
-        "field": None,
-        "hint": None,
-        "details": None,
+    assert error["code"] == "internal_error"
+    assert error["details"] == {
+        "error_id": error["details"]["error_id"],
+        "error_type": "ValueError",
     }
+    assert error["message"].startswith("Unexpected ValueError.")
+    # The whole message, with the lines the agent never saw, is logged.
+    assert caplog.records[-1].getMessage().startswith(
+        f"internal_error {error['details']['error_id']}: ValueError: The time "
+        f"series must have more than `initial_train_size + gap` observations "
+        f"to create at least one fold.\n"
+    )
     kinds = [o["kind"] for o in content_of(call(server, "list_objects", {}))["objects"]]
     assert kinds == ["plan", "profile"]
