@@ -16,8 +16,8 @@ Every tool that creates an object returns a [`ToolResult`][skforecast_ai.mcp.mod
 | Tool | Takes | Returns |
 |:--|:--|:--|
 | `profile` | `data_path`, `target`, `date_column`, `series_id_column` | a profile id |
-| `plan` | `profile_id`, `steps`, `interval`, `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `metric`, `use_exog`, `differentiation` | a plan id |
-| `refine_plan` | `plan_id`, `overrides` (the keys of `refine_plan()`; an omitted key keeps the value of the plan, and `estimator_kwargs`, `interval`, `lags`, `window_features`, `metric`, `use_exog` and `differentiation` set to null ask for the default) | a new plan id |
+| `plan` | `profile_id`, `steps`, `interval`, `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `metric`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer`, `dropna_from_series` | a plan id |
+| `refine_plan` | `plan_id`, `overrides` (the keys of `refine_plan()`; an omitted key keeps the value of the plan, and every key but `forecaster`, `estimator` and `steps` set to null asks for the default) | a new plan id |
 | `create_cv` | `plan_id` and the arguments of `create_cv()` | a cv id, with its cost |
 | `backtest` | `cv_id`, `plan_id` (another plan of the same profile; null for the plan of the strategy) | a backtest id; predictions and metrics in CSV files |
 | `compare` | `cv_id`, `candidates` (`[{name, config}]`, null for those of the profile), `interval`, `metric`, `baseline` | a comparison id, the plan of the winner in `links.best_plan_id`; the leaderboard and the predictions and metrics of the winner in CSV files |

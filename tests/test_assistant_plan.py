@@ -1890,3 +1890,173 @@ def test_plan_output_when_differentiation_drops_default_windows_without_room():
         "Window features of size [33] are left out: with the differentiation "
         "they exceed the data budget."
     )
+
+
+def test_plan_output_when_feature_overrides_given():
+    """
+    Test that `calendar_features`, `target_transformer` and
+    `dropna_from_series` replace the rules, are recorded and explained;
+    the calendar encoding follows the estimator.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan = assistant.plan(
+        profile, steps=10, estimator="Ridge",
+        calendar_features=["month", "day_of_week"], target_transformer="none",
+        dropna_from_series=True,
+    )
+    none = assistant.plan(profile, steps=10, calendar_features=[])
+
+    assert plan.forecaster_kwargs["calendar_features"] == {
+        "features": ["month", "day_of_week"], "encoding": "cyclical"
+    }
+    assert "transformer_y" not in plan.forecaster_kwargs
+    assert plan.forecaster_kwargs["dropna_from_series"] is True
+    assert plan.overridden_fields == [
+        "estimator", "calendar_features", "target_transformer",
+        "dropna_from_series",
+    ]
+    assert plan.explanation.endswith(
+        "Calendar features as requested. Target not scaled, as requested. "
+        "Training rows with missing values are dropped, as requested."
+    )
+    assert none.forecaster_kwargs["calendar_features"] is None
+    assert none.explanation.endswith("No calendar features, as requested.")
+
+
+def test_plan_output_when_target_transformer_on_multi_series():
+    """
+    Test that `target_transformer` is written as `transformer_series` for a
+    multi-series forecaster, also with a tree-based estimator, which the
+    rule leaves unscaled.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor",
+        target_transformer="StandardScaler",
+    )
+
+    assert plan.forecaster_kwargs["transformer_series"] == "StandardScaler"
+
+
+@pytest.mark.parametrize(
+    "arguments, error, message",
+    [
+        (
+            {"calendar_features": "month"},
+            TypeError,
+            "`calendar_features` must be a list of calendar feature names",
+        ),
+        (
+            {"calendar_features": ["month", "holiday"]},
+            ValueError,
+            "Unknown calendar features ['holiday'].",
+        ),
+        (
+            {"calendar_features": ["month", "month"]},
+            ValueError,
+            "`calendar_features` repeats ['month']: list each feature once.",
+        ),
+        (
+            {"target_transformer": "MinMaxScaler"},
+            ValueError,
+            "`target_transformer` must be one of ['StandardScaler', 'none'], "
+            "got 'MinMaxScaler'.",
+        ),
+        (
+            {"dropna_from_series": "yes"},
+            TypeError,
+            "`dropna_from_series` must be True, False or None, got 'yes'.",
+        ),
+        (
+            {"forecaster": "ForecasterStats", "calendar_features": []},
+            ValueError,
+            "['calendar_features'] only apply to the machine learning forecasters",
+        ),
+    ],
+    ids=["str", "unknown", "repeated", "transformer", "dropna", "stats"],
+)
+def test_plan_ValueError_or_TypeError_when_feature_override_invalid(
+    arguments, error, message
+):
+    """
+    Test that an invalid calendar feature list, scaler or NaN flag, or one
+    given to a forecaster that is not a machine learning one, is rejected
+    with the name of the argument in `field`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(error, match=re.escape(message)) as info:
+        assistant.plan(profile, steps=10, **arguments)
+
+    assert info.value.field == [k for k in arguments if k != "forecaster"][0]
+
+
+def test_plan_ValueError_when_chosen_calendar_feature_is_an_exog_column():
+    """
+    Test that a chosen calendar feature whose column is an exogenous column
+    is rejected (the rule leaves it out), and accepted when the plan does
+    not use the exogenous columns.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_calendar_named_exog, target="sales", date_column="date"
+    )
+
+    err_msg = re.escape(
+        "Calendar features ['month'] create columns already among the "
+        "exogenous columns ['promo', 'month', 'weekend']."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=5, estimator="LGBMRegressor",
+            calendar_features=["month", "quarter"],
+        )
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor",
+        calendar_features=["month"], use_exog=False,
+    )
+
+    assert plan.forecaster_kwargs["calendar_features"]["features"] == ["month"]
+
+
+def test_plan_ValueError_when_calendar_features_without_datetime_index():
+    """
+    Test that chosen calendar features on data without dates are rejected.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_range_index, target="sales")
+
+    with pytest.raises(ValueError, match=re.escape("need a datetime index")):
+        assistant.plan(profile, steps=5, calendar_features=["month"])
+
+
+def test_plan_ValueError_when_dropna_false_cannot_run():
+    """
+    Test that `dropna_from_series=False` is rejected when the data has
+    missing values and the estimator does not accept them, and accepted
+    with one that does.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.warns(MissingValuesWarning):
+        profile = assistant.profile(
+            data=df_with_missing, target="sales", date_column="date"
+        )
+
+    err_msg = re.escape(
+        "`dropna_from_series=False` cannot be applied: the data has missing "
+        "values and 'Ridge' does not accept them."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=5, estimator="Ridge", dropna_from_series=False)
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor", dropna_from_series=False
+    )
+
+    assert plan.forecaster_kwargs["dropna_from_series"] is False

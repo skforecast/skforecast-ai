@@ -20,6 +20,7 @@ from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import (
+    AUTOREG_FORECASTERS,
     DIRECT_FORECASTERS,
     LONG_TRAINING_FITS,
     MAX_FEATURE_FRACTION,
@@ -33,6 +34,7 @@ from ._validation import (
     _validate_lags as _validate_lags,
     _validate_window_features as _validate_window_features,
     resolve_metric_override,
+    validate_calendar_override,
     validate_interval,
 )
 from ._dates import is_text, parse_text_dates, training_end
@@ -352,6 +354,8 @@ def _normalize_override(name: str, value: object) -> object:
 
     if name == "metric":
         return resolve_metric_override(value)
+    if name == "calendar_features":
+        return validate_calendar_override(value)
 
     return value
 
@@ -383,6 +387,17 @@ def plan_override_value(plan: ForecastPlan, name: str) -> object:
         return plan.estimator_kwargs or None
     if name == "use_exog":
         return plan.use_exog
+    autoregressive = plan.forecaster in AUTOREG_FORECASTERS
+    if name == "calendar_features":
+        calendar = kwargs.get("calendar_features")
+        if calendar:
+            return list(calendar["features"])
+        return [] if autoregressive else None
+    if name == "target_transformer":
+        transformer = kwargs.get("transformer_y") or kwargs.get("transformer_series")
+        if transformer:
+            return transformer
+        return "none" if autoregressive else None
     if name == "metric":
         # The primary metric first, then the others computed.
         return [
@@ -412,6 +427,10 @@ _FORECASTER_KWARG_OVERRIDES: dict[str, str] = {
     "window_features": "window_features",
     "steps": "steps",
     "differentiation": "differentiation",
+    "calendar_features": "calendar_features",
+    "transformer_y": "target_transformer",
+    "transformer_series": "target_transformer",
+    "dropna_from_series": "dropna_from_series",
 }
 # Fields compared by `discarded_plan_edits`: everything a plan decides, not
 # the split boundary, the explanation, the warnings or the marks.

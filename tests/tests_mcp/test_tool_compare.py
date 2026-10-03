@@ -493,3 +493,44 @@ def test_tool_compare_metric_of_the_call_or_of_the_plan(tmp_path):
     )
     assert "- Ranking metric: mean_squared_error" in of_plan["summary"]
     assert "Primary metric: mean_squared_error, as requested" in best["summary"]
+
+
+def test_tool_compare_candidates_with_the_overrides_of_a_plan(tmp_path):
+    """
+    Test that the candidates of `compare` take the overrides of a plan
+    (`differentiation`, `calendar_features`, `target_transformer`,
+    `dropna_from_series`, `use_exog`) and rank as the Python API does.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    candidates = [
+        {"name": "plain", "config": {"estimator": "Ridge"}},
+        {
+            "name": "variant",
+            "config": {
+                "estimator": "Ridge", "differentiation": 1,
+                "calendar_features": ["month"], "target_transformer": "none",
+                "dropna_from_series": True, "use_exog": False,
+            },
+        },
+    ]
+
+    result = content_of(call(server, "compare", {
+        "cv_id": cv_id, "candidates": candidates, "baseline": False,
+    }))
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="x")
+    expected = assistant.compare(
+        data=path,
+        cv=assistant.create_cv(
+            profile=profile, plan=assistant.plan(profile=profile, steps=12)
+        ),
+        profile=profile,
+        candidates=[(c["name"], dict(c["config"])) for c in candidates],
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()
+    assert result["summary"] == expected.describe()

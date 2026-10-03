@@ -582,6 +582,55 @@ def resolve_metric_override(metric: object) -> list[str] | None:
     return list(metrics)
 
 
+def validate_calendar_override(features: object) -> list[str] | None:
+    """
+    Check the `calendar_features` argument of `plan()`.
+
+    Parameters
+    ----------
+    features : list of str, None
+        Calendar features to generate; an empty list for none, None for
+        the deterministic selection.
+
+    Returns
+    -------
+    features : list of str, None
+        The features as a list, in the order given.
+
+    Notes
+    -----
+    A `TypeError` is raised when `features` is not a list of str (a single
+    str included), and a `ValueError` for a name outside the features of
+    skforecast's `CalendarFeatures` or a repeated one.
+    """
+
+    if features is None:
+        return None
+    if not isinstance(features, (list, tuple)) or not all(
+        isinstance(feature, str) for feature in features
+    ):
+        raise InvalidInputTypeError(
+            f"`calendar_features` must be a list of calendar feature names "
+            f"(an empty list for none), got {features!r}.",
+            field = "calendar_features",
+        )
+    unknown = [feature for feature in features if feature not in _CALENDAR_FEATURES]
+    if unknown:
+        raise InvalidInputError(
+            f"Unknown calendar features {unknown}. Supported: "
+            f"{list(_CALENDAR_FEATURES)}.",
+            field = "calendar_features",
+        )
+    repeated = sorted({f for f in features if list(features).count(f) > 1})
+    if repeated:
+        raise InvalidInputError(
+            f"`calendar_features` repeats {repeated}: list each feature once.",
+            field = "calendar_features",
+        )
+
+    return list(features)
+
+
 def validate_steps(steps: object) -> int:
     """
     Check a forecast horizon and return it as an int.

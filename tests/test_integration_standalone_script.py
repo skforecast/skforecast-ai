@@ -694,3 +694,48 @@ def test_standalone_scripts_match_forecast_and_backtest_when_differentiation(
         backtest.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+@pytest.mark.parametrize(
+    "frame, target",
+    [
+        (df_single, "sales"),
+        (df_multi_wide, ["series_a", "series_b"]),
+    ],
+    ids=["single series", "multi-series wide"],
+)
+def test_standalone_scripts_match_forecast_and_backtest_when_feature_overrides(
+    tmp_path, frame, target
+):
+    """
+    Test that, with `calendar_features`, `target_transformer` and
+    `dropna_from_series` chosen, the scripts of forecast_code() (evaluation
+    mode) and backtest_code() run as files and give the predictions of
+    forecast() and backtest().
+    """
+    csv_path = tmp_path / "data.csv"
+    frame.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    inputs = {
+        "data": csv_path, "target": target, "date_column": "date",
+        "estimator": "Ridge", "calendar_features": ["month", "day_of_week"],
+        "target_transformer": "none", "dropna_from_series": True,
+    }
+
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5)
+    backtest = assistant.backtest(**inputs, cv=cv, show_progress=False)
+
+    assert forecast.code == assistant.forecast_code(**inputs, steps=5, test_size=5).code
+    assert backtest.code == assistant.backtest_code(**inputs, cv=cv).code
+    assert "transformer_" not in forecast.code.replace("transformer_exog", "")
+    standalone = _run_standalone(forecast.code, tmp_path)
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), forecast.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )

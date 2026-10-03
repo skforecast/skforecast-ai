@@ -4,6 +4,7 @@ import re
 import warnings
 
 import pytest
+from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import (
@@ -13,7 +14,7 @@ from skforecast_ai.exceptions import (
 )
 from skforecast_ai.schemas import ForecastPlan
 
-from tests.fixtures_assistant import df_hourly, df_single
+from tests.fixtures_assistant import df_hourly, df_single, df_with_missing
 
 
 # =============================================================================
@@ -30,7 +31,7 @@ def test_refine_plan_ValueError_when_invalid_override_key():
 
     err_msg = re.escape(
         "Invalid override keys: ['not_a_valid_key']. "
-        "Allowed keys: ['differentiation', 'estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', 'steps', 'use_exog', 'window_features']."
+        "Allowed keys: ['calendar_features', 'differentiation', 'dropna_from_series', 'estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', 'steps', 'target_transformer', 'use_exog', 'window_features']."
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.refine_plan(profile, plan, not_a_valid_key="something")
@@ -487,8 +488,10 @@ def test_refine_plan_InvalidInputError_field_when_invalid_override_key():
 
     err_msg = re.escape(
         "Invalid override keys: ['lagz', 'stepz']. Allowed keys: "
-        "['differentiation', 'estimator', 'estimator_kwargs', 'forecaster', "
-        "'interval', 'lags', 'metric', 'steps', 'use_exog', 'window_features']."
+        "['calendar_features', 'differentiation', 'dropna_from_series', "
+        "'estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', "
+        "'metric', 'steps', 'target_transformer', 'use_exog', "
+        "'window_features']."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.refine_plan(profile, plan, stepz=3, lagz=2)
@@ -589,9 +592,11 @@ def test_refine_plan_PlanEditsDiscardedWarning_when_plan_edited_by_hand():
         "refine_plan() rebuilds the plan with plan(), so these values of the "
         "plan, which differ from what plan() builds for it, were discarded: "
         "['metric', \"forecaster_kwargs['differentiation']\"]. Pass the ones "
-        "that `refine_plan()` accepts (['differentiation', 'estimator', "
+        "that `refine_plan()` accepts (['calendar_features', "
+        "'differentiation', 'dropna_from_series', 'estimator', "
         "'estimator_kwargs', 'forecaster', 'interval', 'lags', 'metric', "
-        "'steps', 'use_exog', 'window_features']) as overrides to keep them."
+        "'steps', 'target_transformer', 'use_exog', 'window_features']) as "
+        "overrides to keep them."
     )
     with pytest.warns(PlanEditsDiscardedWarning, match=re.escape(expected)):
         refined = assistant.refine_plan(profile, edited, steps=12)
@@ -753,3 +758,59 @@ def test_refine_plan_output_differentiation_kept_while_it_applies():
     assert stats.overridden_fields == ["forecaster"]
     assert "differentiation" not in removed.forecaster_kwargs
     assert removed.overridden_fields == []
+
+
+def test_refine_plan_output_feature_overrides_kept_while_they_apply():
+    """
+    Test that chosen calendar features, scaling and NaN handling are kept
+    by a refinement of another field and dropped by a switch to
+    ForecasterStats, which takes none of them.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, calendar_features=[], target_transformer="none",
+        dropna_from_series=True,
+    )
+
+    kept = assistant.refine_plan(profile, plan, steps=12)
+    stats = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
+
+    assert kept.forecaster_kwargs["calendar_features"] is None
+    assert "transformer_y" not in kept.forecaster_kwargs
+    assert kept.forecaster_kwargs["dropna_from_series"] is True
+    assert kept.overridden_fields == [
+        "calendar_features", "target_transformer", "dropna_from_series"
+    ]
+    assert stats.overridden_fields == ["forecaster"]
+
+
+def test_refine_plan_ValueError_names_a_carried_decision_that_no_longer_applies():
+    """
+    Test that a decision of the user carried over from the plan that the
+    refined plan rejects (`dropna_from_series=False` once the estimator
+    does not accept missing values) raises saying it was carried over and
+    how to clear it, and that passing None lets the rule decide.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.warns(MissingValuesWarning):
+        profile = assistant.profile(
+            data=df_with_missing, target="sales", date_column="date"
+        )
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor", dropna_from_series=False
+    )
+
+    err_msg = re.escape(
+        "`dropna_from_series` was carried over from the plan, where the user "
+        "chose it (`plan.overridden_fields`); pass `dropna_from_series=None` "
+        "to let the rule decide."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as info:
+        assistant.refine_plan(profile, plan, estimator="Ridge")
+    refined = assistant.refine_plan(
+        profile, plan, estimator="Ridge", dropna_from_series=None
+    )
+
+    assert info.value.field == "dropna_from_series"
+    assert refined.forecaster_kwargs["dropna_from_series"] is True

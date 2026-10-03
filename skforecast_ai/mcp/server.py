@@ -53,7 +53,9 @@ from ._inputs import AllowedDir
 from ._runtime import CallControl, build_notices, notice_text, run_call
 from ._store import Entry, Store, estimate_nbytes
 from .models import (
+    CALENDAR_FEATURES_DESCRIPTION,
     DIFFERENTIATION_DESCRIPTION,
+    DROPNA_DESCRIPTION,
     ESTIMATOR_DESCRIPTION,
     ESTIMATOR_KWARGS_DESCRIPTION,
     FORECASTER_DESCRIPTION,
@@ -61,8 +63,10 @@ from .models import (
     LAGS_DESCRIPTION,
     METRIC_DESCRIPTION,
     STEPS_DESCRIPTION,
+    TARGET_TRANSFORMER_DESCRIPTION,
     USE_EXOG_DESCRIPTION,
     WINDOW_FEATURES_DESCRIPTION,
+    CalendarFeatureName,
     CandidateArg,
     CodeResult,
     FailureResult,
@@ -73,6 +77,7 @@ from .models import (
     ObjectKind,
     ObjectList,
     RefinePlanArgs,
+    TargetTransformer,
     ToolNotice,
     ToolResult,
     WindowFeatures,
@@ -1021,6 +1026,18 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         differentiation: Annotated[int | None, Field(ge=1, description=(
             f"{DIFFERENTIATION_DESCRIPTION} Null for none."
         ))] = None,
+        calendar_features: Annotated[list[CalendarFeatureName] | None, Field(
+            description=(
+                f"{CALENDAR_FEATURES_DESCRIPTION} Null for those selected "
+                f"from the frequency."
+            ),
+        )] = None,
+        target_transformer: Annotated[TargetTransformer | None, Field(
+            description=f"{TARGET_TRANSFORMER_DESCRIPTION} Null for the rule.",
+        )] = None,
+        dropna_from_series: Annotated[bool | None, Field(
+            description=f"{DROPNA_DESCRIPTION} Null for the rule.",
+        )] = None,
         ctx: Context = None,
     ) -> ToolResult:
         profile_entry = store.get(profile_id, "profile_id", ("profile",))
@@ -1028,17 +1045,20 @@ def _build_tools(state: _ServerState) -> list[Tool]:
 
         def work(control: CallControl):
             new_plan = assistant.plan(
-                profile          = _copy(profile_entry.obj),
-                steps            = steps,
-                interval         = interval,
-                forecaster       = forecaster,
-                estimator        = estimator,
-                estimator_kwargs = estimator_kwargs,
-                lags             = lags,
-                window_features  = window_features,
-                metric           = metric,
-                use_exog         = use_exog,
-                differentiation  = differentiation,
+                profile            = _copy(profile_entry.obj),
+                steps              = steps,
+                interval           = interval,
+                forecaster         = forecaster,
+                estimator          = estimator,
+                estimator_kwargs   = estimator_kwargs,
+                lags               = lags,
+                window_features    = window_features,
+                metric             = metric,
+                use_exog           = use_exog,
+                differentiation    = differentiation,
+                calendar_features  = calendar_features,
+                target_transformer = target_transformer,
+                dropna_from_series = dropna_from_series,
             )
             _check_foundation_kwargs(
                 new_plan.forecaster, new_plan.estimator_kwargs, "estimator_kwargs"

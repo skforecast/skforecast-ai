@@ -30,6 +30,7 @@ from .fixtures_rendering import (
     plan_multi_series_with_intervals,
     plan_multivariate_with_intervals,
     plan_single_differentiation,
+    plan_single_feature_overrides,
     plan_single_metric_override,
     plan_single_recursive_no_exog,
     plan_statistical,
@@ -1129,6 +1130,69 @@ def test_render_backtesting_single_series_output_when_differentiation():
         "    initial_train_size = 80,\n"
         "    refit              = False,\n"
         "    differentiation    = 1,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+
+    assert result.full_script == expected
+
+
+def test_render_backtesting_single_series_output_when_feature_overrides():
+    """
+    Test that the backtest of a plan with calendar features, target scaling
+    and NaN handling chosen by the user writes them into the forecaster.
+    """
+    result = render_backtesting_single_series(
+        plan_single_feature_overrides, profile_single_no_exog, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from sklearn.linear_model import Ridge\n"
+        "from skforecast.preprocessing import CalendarFeatures\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "calendar_features = CalendarFeatures(\n"
+        "    features = ['month', 'day_of_week'],\n"
+        "    encoding = 'cyclical',\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator          = Ridge(),\n"
+        "    lags               = 7,\n"
+        "    calendar_features  = calendar_features,\n"
+        "    dropna_from_series = True,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
         ")\n"
         "\n"
         "# Run backtesting\n"

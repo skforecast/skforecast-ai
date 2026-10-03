@@ -29,9 +29,11 @@ from ._constants import (
     MAX_FEATURE_FRACTION,
     OLLAMA_MAX_CONTEXT_TOKENS,
     REQUIRES_DATETIME_FREQ,
+    SUPPORTED_TRANSFORMERS,
 )
 from ._validation import (
     check_estimator_installed,
+    validate_calendar_override,
     validate_estimator,
     validate_estimator_kwargs,
     validate_interval,
@@ -169,6 +171,17 @@ from ._utils import (
 )
 
 
+# Decisions added in 0.4.0, which `refine_plan()` carries over only when the
+# user chose them (`ForecastPlan.overridden_fields`).
+_CHOSEN_DECISIONS = (
+    "metric",
+    "use_exog",
+    "differentiation",
+    "calendar_features",
+    "target_transformer",
+    "dropna_from_series",
+)
+
 # Forecasters with a `differentiation` argument, whose order skforecast
 # requires to be the one of the strategy of a backtest.
 _DIFFERENTIATION_FORECASTERS = AUTOREG_FORECASTERS | BASELINE_FORECASTERS
@@ -186,8 +199,9 @@ def _carried_plan_arguments(
     and window features only by the autoregressive forecasters, an
     estimator (and its keyword arguments) only within its own family (an
     ML regressor is not an ARIMA order, and the baseline has none). The
-    metric, `use_exog` and `differentiation` are carried over only when
-    they are in `plan.overridden_fields` (`differentiation` only to the
+    metric, `use_exog`, `differentiation`, `calendar_features`,
+    `target_transformer` and `dropna_from_series` are carried over only
+    when they are in `plan.overridden_fields` (the last four only to the
     autoregressive forecasters).
 
     Parameters
@@ -239,12 +253,56 @@ def _carried_plan_arguments(
             )
             else None
         ),
-        "differentiation": (
-            kwargs.get("differentiation")
-            if "differentiation" in plan.overridden_fields and inherits_features
-            else None
-        ),
+        **{
+            name: (
+                plan_override_value(plan, name)
+                if name in plan.overridden_fields and inherits_features
+                else None
+            )
+            for name in _CHOSEN_DECISIONS[2:]
+        },
     }
+
+
+def _chosen_calendar_features(
+    features: list[str],
+    encoding: str | None,
+    data_profile: DataProfile,
+    use_exog: bool,
+) -> dict | None:
+    """
+    Calendar features chosen with `plan(calendar_features=...)`, as the
+    `forecaster_kwargs` entry, or None for an empty list.
+
+    Unlike the rule, which leaves out a calendar feature whose column is an
+    exogenous column, a chosen feature is never dropped: the collision
+    raises (10.4), and so does a choice on data without a datetime index.
+    """
+
+    if not features:
+        return None
+    if data_profile.index_type != "datetime":
+        raise InvalidInputError(
+            f"`calendar_features` {features} need a datetime index, and the "
+            f"data has none. Omit them, or pass the dates as `date_column`.",
+            field = "calendar_features",
+        )
+    if use_exog:
+        _, colliding = drop_colliding_calendar_features(
+            features     = features,
+            encoding     = encoding,
+            exog_columns = data_profile.exog_columns,
+        )
+        if colliding:
+            raise InvalidInputError(
+                f"Calendar features {colliding} create columns already among "
+                f"the exogenous columns {data_profile.exog_columns}. Leave "
+                f"them out of `calendar_features`, or rename the exogenous "
+                f"columns.",
+                field = "calendar_features",
+            )
+
+    return {"features": features, "encoding": encoding}
 
 
 def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
@@ -526,6 +584,9 @@ class ForecastingAssistant:
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
         differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> ForecastPlan:
         """
         Build a detailed `ForecastPlan` from a `ForecastingProfile`.
@@ -619,6 +680,28 @@ class ForecastingAssistant:
             left out, and explicit lags and window features must fit with
             it.
             If None, the target is not differenced.
+        calendar_features : list of str, default None
+            Calendar features generated from the dates, among `'year'`,
+            `'month'`, `'week'`, `'day_of_week'`, `'day_of_month'`,
+            `'day_of_year'`, `'weekend'`, `'hour'`, `'minute'`, `'second'`
+            and `'quarter'`; an empty list for none. Only the machine
+            learning forecasters take them, and only with a datetime index.
+            A feature whose column is already an exogenous column used by
+            the plan raises `ValueError` (the rule leaves those out). The
+            encoding follows the estimator. If None, they are selected from
+            the frequency.
+        target_transformer : str, default None
+            Scaler of the target series of the machine learning
+            forecasters: `'StandardScaler'`, or `'none'` for no scaling.
+            Written as `transformer_y` or `transformer_series` depending on
+            the forecaster. If None, the target is scaled for the
+            estimators that need it (not the tree-based ones).
+        dropna_from_series : bool, default None
+            Whether the machine learning forecasters drop the training rows
+            with missing values. False with missing values in the data and
+            an estimator that does not accept them raises `ValueError`. If
+            None, rows are dropped only when the data has missing values and
+            the estimator does not accept them.
 
         Returns
         -------
@@ -670,6 +753,23 @@ class ForecastingAssistant:
                     field = "differentiation",
                 )
         differentiation = None if differentiation is None else int(differentiation)
+        calendar_override = validate_calendar_override(calendar_features)
+        if target_transformer is not None and (
+            target_transformer != "none"
+            and target_transformer not in SUPPORTED_TRANSFORMERS
+        ):
+            raise InvalidInputError(
+                f"`target_transformer` must be one of "
+                f"{[*SUPPORTED_TRANSFORMERS, 'none']}, got {target_transformer!r}.",
+                field = "target_transformer",
+            )
+        if dropna_from_series is not None and not isinstance(dropna_from_series, bool):
+            raise InvalidInputTypeError(
+                f"`dropna_from_series` must be True, False or None, got "
+                f"{dropna_from_series!r}.",
+                field = "dropna_from_series",
+            )
+        dropna_override = dropna_from_series
 
         data_profile = profile.data_profile
 
@@ -724,7 +824,12 @@ class ForecastingAssistant:
                 )
             # Arguments of the machine learning forecasters only.
             given = [
-                name for name, value in (("differentiation", differentiation),)
+                name for name, value in (
+                    ("differentiation", differentiation),
+                    ("calendar_features", calendar_override),
+                    ("target_transformer", target_transformer),
+                    ("dropna_from_series", dropna_override),
+                )
                 if value is not None
             ]
             if given:
@@ -926,7 +1031,14 @@ class ForecastingAssistant:
                     differentiation   = differentiation,
                 )
 
-            if profile.calendar_features:
+            if calendar_override is not None:
+                calendar_features = _chosen_calendar_features(
+                    features     = calendar_override,
+                    encoding     = select_calendar_encoding(est, task_type),
+                    data_profile = data_profile,
+                    use_exog     = use_exog,
+                )
+            elif profile.calendar_features:
                 calendar_encoding = select_calendar_encoding(est, task_type)
                 calendar_names = list(profile.calendar_features)
                 if use_exog:
@@ -950,7 +1062,12 @@ class ForecastingAssistant:
             else:
                 calendar_features = None
 
-            transformer_series = select_transformer_series(est, task_type)
+            if target_transformer is not None:
+                transformer_series = (
+                    None if target_transformer == "none" else target_transformer
+                )
+            else:
+                transformer_series = select_transformer_series(est, task_type)
 
             transformer_exog = select_transformer_exog(
                 estimator        = est,
@@ -959,12 +1076,26 @@ class ForecastingAssistant:
                 categorical_exog = data_profile.categorical_exog,
             ) if use_exog else None
 
-            dropna_from_series = select_dropna_from_series(
+            rule_dropna = select_dropna_from_series(
                 estimator        = est,
                 missing_target   = data_profile.missing_target,
                 missing_exog     = planned_profile.missing_exog,
                 task_type        = task_type,
                 has_gaps         = data_profile.has_gaps,
+            )
+            if dropna_override is False and rule_dropna:
+                # The rule drops the rows only when there are missing values
+                # and the estimator does not accept them: it would fail.
+                raise InvalidInputError(
+                    f"`dropna_from_series=False` cannot be applied: the data "
+                    f"has missing values and '{est}' does not accept them. "
+                    f"Omit it, impute the missing values, or choose an "
+                    f"estimator that accepts them (for example "
+                    f"'LGBMRegressor').",
+                    field = "dropna_from_series",
+                )
+            dropna_from_series = (
+                rule_dropna if dropna_override is None else dropna_override
             )
 
         forecaster_kwargs = build_forecaster_kwargs(
@@ -1048,6 +1179,22 @@ class ForecastingAssistant:
                     f" Window features of size {dropped_windows} are left out: "
                     f"with the differentiation they exceed the data budget."
                 )
+        if calendar_override is not None:
+            explanation += (
+                " Calendar features as requested." if calendar_override
+                else " No calendar features, as requested."
+            )
+        if target_transformer is not None:
+            explanation += (
+                " Target not scaled, as requested." if target_transformer == "none"
+                else f" Target scaled with {target_transformer}, as requested."
+            )
+        if dropna_override is not None:
+            explanation += (
+                " Training rows with missing values are dropped, as requested."
+                if dropna_override
+                else " Training rows with missing values are kept, as requested."
+            )
         if use_exog_override is False and rule_use_exog:
             explanation += (
                 f" Exogenous variables {data_profile.exog_columns} are not "
@@ -1093,6 +1240,9 @@ class ForecastingAssistant:
                 ("metric", metric_override),
                 ("use_exog", use_exog_override),
                 ("differentiation", differentiation),
+                ("calendar_features", calendar_override),
+                ("target_transformer", target_transformer),
+                ("dropna_from_series", dropna_override),
             )
             if value is not None
         ]
@@ -1151,8 +1301,9 @@ class ForecastingAssistant:
           `explanation`.
 
         Supported overrides: `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
-        `interval`, `lags`, `window_features`, `metric`, `use_exog`, `differentiation`
-        (see `RefinePlanOverrides`). What matters is whether a key is passed: an omitted
+        `interval`, `lags`, `window_features`, `metric`, `use_exog`, `differentiation`,
+        `calendar_features`, `target_transformer`, `dropna_from_series` (see
+        `RefinePlanOverrides`). What matters is whether a key is passed: an omitted
         key keeps the value of `plan`, while a key passed as None asks for the
         deterministic default (`interval=None` removes the prediction intervals,
         `lags=None` re-runs the PACF-based selection, `estimator_kwargs=None` resets the
@@ -1169,8 +1320,9 @@ class ForecastingAssistant:
         `estimator_kwargs`, which are then re-derived, and changing the
         `estimator` without passing `estimator_kwargs` drops the kwargs of
         the previous estimator. The decisions added in 0.4.0 (`metric`,
-        `use_exog`, `differentiation`) are carried over only when they are
-        in `plan.overridden_fields` (and when the new forecaster can apply
+        `use_exog`, `differentiation`, `calendar_features`,
+        `target_transformer`, `dropna_from_series`) are carried over only
+        when they are in `plan.overridden_fields` (and when the new forecaster can apply
         them); otherwise the rules decide them again. The
         `llm_refined_fields` marks of the original plan are kept for the
         fields whose value is carried over unchanged. The `end_train` split
@@ -1205,7 +1357,8 @@ class ForecastingAssistant:
             Keyword arguments to override. Accepted keys:
             `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
             `interval`, `lags`, `window_features`, `metric`, `use_exog`,
-            `differentiation`. Typed through
+            `differentiation`, `calendar_features`, `target_transformer`,
+            `dropna_from_series`. Typed through
             `RefinePlanOverrides`, so editors autocomplete them and type
             checkers reject unknown names; unknown keys also raise
             `ValueError` at run time.
@@ -1345,6 +1498,22 @@ class ForecastingAssistant:
         try:
             refined_plan = self.plan(**plan_arguments)
         except InvalidInputError as exc:
+            if (
+                exc.field in _CHOSEN_DECISIONS
+                and exc.field not in explicit_keys
+                and carried.get(exc.field) is not None
+            ):
+                # A decision of `plan` that no longer applies (dropna False
+                # with another estimator, say) is not dropped silently: the
+                # error says where it came from and how to clear it.
+                raise type(exc)(
+                    f"{exc} `{exc.field}` was carried over from the plan, where "
+                    f"the user chose it (`plan.overridden_fields`); pass "
+                    f"`{exc.field}=None` to let the rule decide.",
+                    code  = exc.code,
+                    field = exc.field,
+                    hint  = exc.hint,
+                ) from exc
             if not llm_applied_fields:
                 raise
             # A suggestion of the LLM that the plan rejects (lags named like
@@ -1467,6 +1636,9 @@ class ForecastingAssistant:
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
         differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete forecasting script.
@@ -1619,6 +1791,13 @@ class ForecastingAssistant:
         differentiation : int, default None
             Order of differencing of the target, as in `plan()`. With
             `plan`, it must match the order of the plan.
+        calendar_features : list of str, default None
+            Calendar features, as in `plan()`; an empty list for none.
+        target_transformer : str, default None
+            `'StandardScaler'` or `'none'`, as in `plan()`.
+        dropna_from_series : bool, default None
+            Whether to drop the training rows with missing values, as in
+            `plan()`. With `plan`, these three must match the plan.
 
         Returns
         -------
@@ -1661,6 +1840,9 @@ class ForecastingAssistant:
                 "metric": metric,
                 "use_exog": use_exog,
                 "differentiation": differentiation,
+                "calendar_features": calendar_features,
+                "target_transformer": target_transformer,
+                "dropna_from_series": dropna_from_series,
             },
         )
         profile = _with_data_path(profile, data)
@@ -1696,6 +1878,9 @@ class ForecastingAssistant:
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
         differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> ForecastResult:
         """
         Execute a full forecasting workflow end-to-end.
@@ -1867,6 +2052,13 @@ class ForecastingAssistant:
         differentiation : int, default None
             Order of differencing of the target, as in `plan()`. With
             `plan`, it must match the order of the plan.
+        calendar_features : list of str, default None
+            Calendar features, as in `plan()`; an empty list for none.
+        target_transformer : str, default None
+            `'StandardScaler'` or `'none'`, as in `plan()`.
+        dropna_from_series : bool, default None
+            Whether to drop the training rows with missing values, as in
+            `plan()`. With `plan`, these three must match the plan.
 
         Returns
         -------
@@ -1919,6 +2111,9 @@ class ForecastingAssistant:
                 "metric": metric,
                 "use_exog": use_exog,
                 "differentiation": differentiation,
+                "calendar_features": calendar_features,
+                "target_transformer": target_transformer,
+                "dropna_from_series": dropna_from_series,
             },
         )
         profile = _with_data_path(profile, data)
@@ -2233,6 +2428,9 @@ class ForecastingAssistant:
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
         differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete backtesting script.
@@ -2337,6 +2535,13 @@ class ForecastingAssistant:
         differentiation : int, default None
             Order of differencing of the target, as in `plan()`. With
             `plan`, it must match the order of the plan.
+        calendar_features : list of str, default None
+            Calendar features, as in `plan()`; an empty list for none.
+        target_transformer : str, default None
+            `'StandardScaler'` or `'none'`, as in `plan()`.
+        dropna_from_series : bool, default None
+            Whether to drop the training rows with missing values, as in
+            `plan()`. With `plan`, these three must match the plan.
 
         Returns
         -------
@@ -2385,6 +2590,9 @@ class ForecastingAssistant:
                 "metric": metric,
                 "use_exog": use_exog,
                 "differentiation": differentiation,
+                "calendar_features": calendar_features,
+                "target_transformer": target_transformer,
+                "dropna_from_series": dropna_from_series,
             },
         )
         profile = _with_data_path(profile, data)
@@ -2419,6 +2627,9 @@ class ForecastingAssistant:
         metric: str | list[str] | None = None,
         use_exog: bool | None = None,
         differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> BacktestResult:
         """
         Execute backtesting with a pre-configured time series cross-validation 
@@ -2525,6 +2736,13 @@ class ForecastingAssistant:
         differentiation : int, default None
             Order of differencing of the target, as in `plan()`. With
             `plan`, it must match the order of the plan.
+        calendar_features : list of str, default None
+            Calendar features, as in `plan()`; an empty list for none.
+        target_transformer : str, default None
+            `'StandardScaler'` or `'none'`, as in `plan()`.
+        dropna_from_series : bool, default None
+            Whether to drop the training rows with missing values, as in
+            `plan()`. With `plan`, these three must match the plan.
 
         Returns
         -------
@@ -2589,6 +2807,9 @@ class ForecastingAssistant:
                 "metric": metric,
                 "use_exog": use_exog,
                 "differentiation": differentiation,
+                "calendar_features": calendar_features,
+                "target_transformer": target_transformer,
+                "dropna_from_series": dropna_from_series,
             },
         )
         profile = _with_data_path(profile, data)
@@ -2728,8 +2949,9 @@ class ForecastingAssistant:
             `config` holds the forecaster/estimator settings. The `config`
             dict accepts the same override keys understood by `plan()`:
             `'forecaster'`, `'estimator'`, `'estimator_kwargs'`, `'lags'`,
-            `'window_features'`, `'use_exog'` and `'differentiation'` (see
-            `CandidateConfig`). Names must be
+            `'window_features'`, `'use_exog'`, `'differentiation'`,
+            `'calendar_features'`, `'target_transformer'` and
+            `'dropna_from_series'` (see `CandidateConfig`). Names must be
             unique, and every candidate must belong to the same forecaster
             family: a multivariate forecaster is scored on the single series
             it predicts, a multi-series forecaster on the average across all
@@ -3009,17 +3231,20 @@ class ForecastingAssistant:
                 # The metric of the comparison is a decision of each plan,
                 # so it is validated and carried over like any override.
                 cand_plan = self.plan(
-                    profile          = profile,
-                    steps            = steps,
-                    forecaster       = config.get("forecaster"),
-                    estimator        = config.get("estimator"),
-                    estimator_kwargs = config.get("estimator_kwargs"),
-                    lags             = config.get("lags"),
-                    window_features  = config.get("window_features"),
-                    use_exog         = config.get("use_exog"),
-                    differentiation  = config.get("differentiation"),
-                    interval         = interval,
-                    metric           = metric_override,
+                    profile            = profile,
+                    steps              = steps,
+                    forecaster         = config.get("forecaster"),
+                    estimator          = config.get("estimator"),
+                    estimator_kwargs   = config.get("estimator_kwargs"),
+                    lags               = config.get("lags"),
+                    window_features    = config.get("window_features"),
+                    use_exog           = config.get("use_exog"),
+                    differentiation    = config.get("differentiation"),
+                    calendar_features  = config.get("calendar_features"),
+                    target_transformer = config.get("target_transformer"),
+                    dropna_from_series = config.get("dropna_from_series"),
+                    interval           = interval,
+                    metric             = metric_override,
                 )
                 # Each candidate runs with its own differentiation order: the
                 # shared strategy is copied with it when they differ (10.4).

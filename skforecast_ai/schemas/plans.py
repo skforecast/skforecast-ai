@@ -282,6 +282,9 @@ OverrideName = Literal[
     "metric",
     "use_exog",
     "differentiation",
+    "calendar_features",
+    "target_transformer",
+    "dropna_from_series",
 ]
 """Decisions of a plan that the user can make instead of the rules of
 `plan()`, as recorded in `ForecastPlan.overridden_fields`."""
@@ -337,6 +340,15 @@ class RefinePlanOverrides(TypedDict, total=False):
         Order of differencing of the target, as in `plan()`. None removes
         it. When omitted, an order chosen by the user is kept while the
         forecaster takes one.
+    calendar_features : list of str, None
+        Calendar features to generate, as in `plan()`; an empty list for
+        none. None selects them again from the frequency.
+    target_transformer : str, None
+        `'StandardScaler'` or `'none'`, as in `plan()`. None lets the rule
+        decide again.
+    dropna_from_series : bool, None
+        Whether to drop the training rows with missing values, as in
+        `plan()`. None lets the rule decide again.
     """
 
     forecaster: str
@@ -349,6 +361,9 @@ class RefinePlanOverrides(TypedDict, total=False):
     metric: str | list[str] | None
     use_exog: bool | None
     differentiation: int | None
+    calendar_features: list[str] | None
+    target_transformer: str | None
+    dropna_from_series: bool | None
 
 
 class CandidateConfig(TypedDict, total=False):
@@ -383,6 +398,13 @@ class CandidateConfig(TypedDict, total=False):
     differentiation : int, None
         Order of differencing of the target, as in `plan()`. The candidate
         runs on a copy of the strategy with this order.
+    calendar_features : list of str, None
+        Calendar features to generate, as in `plan()`.
+    target_transformer : str, None
+        `'StandardScaler'` or `'none'`, as in `plan()`.
+    dropna_from_series : bool, None
+        Whether to drop the training rows with missing values, as in
+        `plan()`.
     """
 
     forecaster: str
@@ -392,6 +414,9 @@ class CandidateConfig(TypedDict, total=False):
     window_features: list[dict[str, list[str] | int]] | None
     use_exog: bool | None
     differentiation: int | None
+    calendar_features: list[str] | None
+    target_transformer: str | None
+    dropna_from_series: bool | None
 
 
 # Keys validated at run time, taken from the typed dictionaries so the two
@@ -486,9 +511,10 @@ class ForecastPlan(DisplayMixin, BaseModel):
         Names of the decisions the user made instead of the rules of
         `plan()`: the arguments passed with a value other than None among
         `forecaster`, `estimator`, `estimator_kwargs`, `lags`,
-        `window_features`, `metric`, `use_exog` and `differentiation` (an
-        argument passed as None asks for the rule and is not recorded). It
-        holds names only; the values are those of the plan. `refine_plan()`
+        `window_features`, `metric`, `use_exog`, `differentiation`,
+        `calendar_features`, `target_transformer` and `dropna_from_series`
+        (an argument passed as None asks for the rule and is not recorded).
+        It holds names only; the values are those of the plan. `refine_plan()`
         keeps a name while the refined plan keeps its value. Empty for a
         plan of an earlier version.
     explanation : str

@@ -1859,8 +1859,9 @@ def test_compare_ValueError_when_metric_or_interval_invalid(kwargs, match):
         (
             [("lgbm", {"bogus": 1})], InvalidInputError,
             "Invalid config keys for 'lgbm': ['bogus']. Allowed keys: "
-            "['differentiation', 'estimator', 'estimator_kwargs', 'forecaster', "
-            "'lags', 'use_exog', 'window_features'].",
+            "['calendar_features', 'differentiation', 'dropna_from_series', "
+            "'estimator', 'estimator_kwargs', 'forecaster', 'lags', "
+            "'target_transformer', 'use_exog', 'window_features'].",
         ),
     ],
     ids=["empty", "config_not_dict", "duplicate_names", "unknown_key"],
@@ -2553,3 +2554,37 @@ def test_compare_candidate_differentiation_runs_on_a_copy_of_the_strategy():
         "These candidates ran on a copy of the strategy with their own "
         "differentiation order (the strategy has None): {'diff': 1}."
     )
+
+
+def test_compare_candidate_feature_overrides():
+    """
+    Test that a candidate config takes `calendar_features`,
+    `target_transformer` and `dropna_from_series`, so variants of one
+    forecaster can be compared.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=[
+            ("scaled", {"estimator": "Ridge"}),
+            (
+                "plain",
+                {
+                    "estimator": "Ridge", "target_transformer": "none",
+                    "calendar_features": [], "dropna_from_series": True,
+                },
+            ),
+        ],
+        show_progress=False,
+        baseline=False,
+    )
+    plain = result.candidates["plain"].plan
+
+    assert result.candidates["scaled"].plan.forecaster_kwargs["transformer_y"] == (
+        "StandardScaler"
+    )
+    assert "transformer_y" not in plain.forecaster_kwargs
+    assert plain.forecaster_kwargs["calendar_features"] is None
+    assert plain.forecaster_kwargs["dropna_from_series"] is True

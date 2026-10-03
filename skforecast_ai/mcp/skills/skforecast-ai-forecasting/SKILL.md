@@ -30,10 +30,13 @@ files.
    `differentiation` (usually 1, for a series with a trend) differences
    the target before training; build the strategy of `create_cv` from
    that plan, since a backtest needs the same order in both.
+   `calendar_features` (an empty list for none), `target_transformer`
+   (`StandardScaler` or `none`) and `dropna_from_series` replace the
+   rules of the machine learning forecasters.
 3. Optionally `refine_plan(plan_id, overrides)` to change some decisions.
-   An omitted key keeps the value of the plan; `estimator_kwargs`,
-   `interval`, `lags`, `window_features`, `metric`, `use_exog` and
-   `differentiation` set to null go back to the default.
+   An omitted key keeps the value of the plan; every key but
+   `forecaster`, `estimator` and `steps` set to null goes back to the
+   default.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
    running anything; above 50 estimator fits it already carries the
    `LongTrainingWarning` the backtest would emit.

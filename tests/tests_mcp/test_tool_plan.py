@@ -73,7 +73,9 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
     assert result["summary"] == script.describe()
     assert result["notices"] == []
     assert result["changeable"] == [
+        "calendar_features",
         "differentiation",
+        "dropna_from_series",
         "estimator",
         "estimator_kwargs",
         "forecaster",
@@ -81,6 +83,7 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
         "lags",
         "metric",
         "steps",
+        "target_transformer",
         "use_exog",
         "window_features",
     ]

@@ -194,6 +194,26 @@ plan_single_differentiation = plan_single_recursive_no_exog.model_copy(
     }
 )
 
+# `plan(estimator='Ridge', calendar_features=['month', 'day_of_week'],
+# target_transformer='none', dropna_from_series=True)`.
+plan_single_feature_overrides = plan_single_recursive_no_exog.model_copy(
+    update={
+        "estimator": "Ridge",
+        "forecaster_kwargs": {
+            "lags": 7,
+            "calendar_features": {
+                "features": ["month", "day_of_week"],
+                "encoding": "cyclical",
+            },
+            "dropna_from_series": True,
+        },
+        "overridden_fields": [
+            "estimator", "calendar_features", "target_transformer",
+            "dropna_from_series",
+        ],
+    }
+)
+
 plan_single_direct = ForecastPlan(
     task_type="single_series",
     forecaster="ForecasterDirect",

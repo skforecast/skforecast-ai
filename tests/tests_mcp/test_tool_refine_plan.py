@@ -30,6 +30,13 @@ def _planned(tmp_path, **plan_arguments):
         {"lags": None, "steps": 6},
         {"forecaster": "ForecasterDirect", "estimator": "Ridge"},
         {"estimator_kwargs": None},
+        {"metric": ["mean_squared_error"], "use_exog": False},
+        {"differentiation": 1},
+        {
+            "calendar_features": [],
+            "target_transformer": "none",
+            "dropna_from_series": True,
+        },
     ],
     ids=lambda dt: f"overrides: {dt}",
 )
