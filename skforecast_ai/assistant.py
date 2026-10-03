@@ -1725,7 +1725,7 @@ class ForecastingAssistant:
         result : CVResult
             Cross-validation strategy and the decisions behind it. Pass it
             as `cv` to `backtest()`, `backtest_code()` or `compare()`, or
-            as `result` to `ask()`. Contains the following attributes:
+            as `context` to `ask()`. Contains the following attributes:
 
             - profile: profile the strategy was derived from.
             - plan: plan the strategy was derived from.
@@ -2710,7 +2710,6 @@ class ForecastingAssistant:
         plan: ForecastPlan | None = None,
         skills: list[str] | None = None,
         include_reference: bool = False,
-        result: ExplainableResult | None = None,
     ) -> AskResult:
         """
         Ask a forecasting question, optionally about an object to explain.
@@ -2758,9 +2757,6 @@ class ForecastingAssistant:
         include_reference : bool, default False
             Whether to include the skforecast API reference in the
             prompt.
-        result : ExplainableResult, default None
-            Deprecated alias of `context`, removed in 0.4.0. Passing it
-            emits a `DeprecationWarning`.
 
         Returns
         -------
@@ -2790,9 +2786,8 @@ class ForecastingAssistant:
             answer to fall back on.
         TypeError
             If `context` is not explainable (a bare `ForecastPlan` is
-            not: pass `context=profile, plan=plan`), if `plan` accompanies
-            a context other than a `ForecastingProfile`, or if `context`
-            and the deprecated `result` are both given.
+            not: pass `context=profile, plan=plan`), or if `plan`
+            accompanies a context other than a `ForecastingProfile`.
         pydantic.ValidationError
             If `plan` does not pass the validators of `ForecastPlan` (a
             subclass of `ValueError`).
@@ -2802,8 +2797,6 @@ class ForecastingAssistant:
         DataSentToLLMWarning
             If `context` carries values of its own (predictions, metrics)
             while `send_data_to_llm` is False.
-        DeprecationWarning
-            If the deprecated `result` alias is used.
 
         Notes
         -----
@@ -2813,21 +2806,6 @@ class ForecastingAssistant:
 
         if self.llm is None:
             raise LLMRequiredError("ask")
-
-        if result is not None:
-            warnings.warn(
-                "`result` is deprecated and will be removed in 0.4.0. Pass "
-                "the object to explain as `context` instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if context is not None:
-                raise InvalidInputTypeError(
-                    "Pass the object to explain as `context`; `result` is a "
-                    "deprecated alias of it and cannot be combined with it.",
-                    field = "result",
-                )
-            context = result
 
         if isinstance(context, ForecastPlan):
             raise InvalidInputTypeError(

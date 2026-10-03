@@ -412,7 +412,7 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
     Wraps the `TimeSeriesFold` splitter together with the resolved
     parameters, the fold count, the snippet that builds the splitter, and
     the explanation of the choices. Pass it to `backtest()`,
-    `backtest_code()` or `compare()` as `cv`, or to `ask()` as `result`.
+    `backtest_code()` or `compare()` as `cv`, or to `ask()` as `context`.
 
     Attributes
     ----------

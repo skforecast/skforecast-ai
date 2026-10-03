@@ -90,6 +90,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.profile()</code>][assistant] raises `ValueError` when `series_id_column` is also the target or the date column.
 
++ <span class="badge text-bg-api-change">API Change</span> The `result` keyword of [<code>ForecastingAssistant.ask()</code>][assistant], deprecated in 0.3.0, is removed and raises `TypeError`: pass the object to explain as `context` (`ask(prompt, context=result)`).
+
 + <span class="badge text-bg-enhancement">Enhancement</span> The reason of the categorical preprocessing step of a plan names at most 15 columns, followed by "(first 15 of N)", instead of all of them, so `describe()` of a plan stays short with hundreds of categorical columns.
 
 + <span class="badge text-bg-docs">Docs</span> The Quick start section is reorganized into [Installation](../quick-start/how-to-install.md), [Your first forecast](../quick-start/first-forecast.ipynb), now a notebook with its outputs, and the new [Ask the assistant](../quick-start/ask-the-assistant.md), on what the LLM layer adds. The [API reference][assistant] opens with a table of the methods of `ForecastingAssistant`, what each one returns and whether it uses the LLM.
