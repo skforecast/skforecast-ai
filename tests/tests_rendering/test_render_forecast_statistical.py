@@ -204,6 +204,7 @@ def test_render_forecast_statistical_output_when_categorical_exog():
         ("QE-DEC", "Arima(order=None, seasonal_order=None, m=4)"),
         ("W-WED", "Arima(order=None, seasonal_order=None, m=52)"),
         ("YE-DEC", "Arima(order=None, seasonal_order=None, m=1)"),
+        ("Q-DEC", "Arima(order=None, seasonal_order=None, m=4)"),
         ("2W", "Arima(order=None, seasonal_order=None)"),
     ],
     ids=lambda dt: f"frequency, expected_estimator: {dt}",
@@ -214,7 +215,8 @@ def test_render_forecast_statistical_output_seasonal_period_when_anchored_freque
     """
     Test that render_forecast_statistical gives Auto-ARIMA the seasonal
     period of the base alias of an anchored frequency (quarters starting in
-    October, weeks ending on Wednesday, years ending in December), as the
+    October, weeks ending on Wednesday, years ending in December, and the
+    quarter alias of pandas 2.1), as the
     lags and the baseline read it, and none for a multiplied frequency
     outside the table.
     """

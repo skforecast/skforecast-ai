@@ -115,6 +115,14 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
     return seasons[:2]
 
 
+# Aliases that pandas 2.1 infers and pandas 2.2 renamed, by their name in
+# `FREQUENCY_TO_SEASONAL_PERIOD`: month, quarter and year ends, hours and
+# minutes.
+_LEGACY_ALIASES = {
+    "M": "ME", "Q": "QE", "A": "YE", "Y": "YE", "AS": "YS", "H": "h", "T": "min",
+}
+
+
 def tabulated_seasonal_period(frequency: str | None) -> int | None:
     """
     Return the seasonal period of `FREQUENCY_TO_SEASONAL_PERIOD` for a
@@ -127,7 +135,8 @@ def tabulated_seasonal_period(frequency: str | None) -> int | None:
     and the rule that leaves Auto-ARIMA out of the candidates both read
     this period. Multiplied frequencies (`'2W'`) are not in the table: the
     baseline falls back to `estimate_seasonality` for them, and Auto-ARIMA
-    gets no seasonal period.
+    gets no seasonal period. The aliases pandas 2.1 infers (`'M'`,
+    `'Q-DEC'`, `'A-DEC'`, `'H'`, `'15T'`) are read as their current names.
 
     Parameters
     ----------
@@ -143,8 +152,12 @@ def tabulated_seasonal_period(frequency: str | None) -> int | None:
     if frequency is None:
         return None
     period = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
-    if period is None and "-" in frequency:
-        period = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency.split("-", 1)[0])
+    if period is None:
+        base = frequency.split("-", 1)[0]
+        legacy = re.fullmatch(r"(\d*)([A-Za-z]+)", base)
+        if legacy and legacy.group(2) in _LEGACY_ALIASES:
+            base = f"{legacy.group(1)}{_LEGACY_ALIASES[legacy.group(2)]}"
+        period = FREQUENCY_TO_SEASONAL_PERIOD.get(base)
 
     return period
 
