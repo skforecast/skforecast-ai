@@ -7,11 +7,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
+from skforecast.exceptions import (
+    IgnoredArgumentWarning,
+    LongTrainingWarning,
+    MissingValuesWarning,
+)
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import BacktestResult, ForecastingAssistant
-from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
+from skforecast_ai.exceptions import (
+    ForecastExecutionError,
+    InvalidInputError,
+    InvalidInputTypeError,
+)
 
 from tests.fixtures_assistant import df_single, df_no_exog
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
@@ -559,3 +567,27 @@ def test_backtest_InvalidInputError_when_received_plan_clashes_with_exog_names()
         )
 
     assert exc_info.value.field == "data"
+
+
+@pytest.mark.parametrize("tz", ["UTC", "Europe/Madrid"])
+def test_backtest_ForecastExecutionError_when_time_zone_data_and_cv_date_without_zone(
+    tz
+):
+    """
+    Test that backtest() of tz-aware data with a missing value in a test fold
+    and an `initial_train_size` date without time zone no longer raises a bare
+    TypeError from the check of the evaluated target: it reaches the script,
+    which fails with ForecastExecutionError.
+    """
+    data = df_h2o.copy()
+    data.index = data.index.tz_localize(tz)
+    data.iloc[-5, 0] = np.nan
+    cv = TimeSeriesFold(steps=12, initial_train_size="2004-01-01", verbose=False)
+
+    err_msg = re.escape("Error executing generated forecasting code.")
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(ForecastExecutionError, match=err_msg):
+            assistant.backtest(
+                data=data, cv=cv, target="x", estimator="Ridge",
+                show_progress=False,
+            )

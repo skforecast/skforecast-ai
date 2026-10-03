@@ -1179,3 +1179,114 @@ def test_validate_last_window_InvalidInputError_when_only_differentiation_reads(
             profile = profile_single,
             plan    = plan,
         )
+
+
+# =============================================================================
+# Tests: final_rows=False (training partition of an evaluation)
+# =============================================================================
+def test_validate_last_window_InvalidInputError_when_final_rows_false_and_ridge_reads_missing():
+    """
+    Test that with `final_rows=False` a trailing missing value is a value
+    that the lags read: Ridge raises the error of the values read, not the one
+    that asks to drop final rows (which `final_rows=True` raises).
+    """
+    data = with_missing(data_single, [1])
+
+    err_msg = re.escape(
+        "The data has no target value after 2023-02-28: drop its last 1 "
+        "row(s) (2023-03-01), so that it ends with the last value of the "
+        "target."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        validate_last_window(
+            data=data, profile=profile_single, plan=plan_single_ridge
+        )
+
+    err_msg = re.escape(
+        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "value(s), such as '2023-03-01'). ForecasterRecursive with Ridge cannot "
+        "use them, so its predictions would be missing: fill them in."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_last_window(
+            data       = data,
+            profile    = profile_single,
+            plan       = plan_single_ridge,
+            final_rows = False,
+        )
+
+    assert exc_info.value.field == "data"
+
+
+def test_validate_last_window_UserWarning_when_final_rows_false_and_lightgbm_reads_missing():
+    """
+    Test that with `final_rows=False` a trailing missing value only warns
+    with an estimator that tolerates missing values (LGBMRegressor).
+    """
+    warn_msg = re.escape(
+        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "value(s), such as '2023-03-01'). LGBMRegressor treats them as missing "
+        "values; check that they are meant to be missing."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        validate_last_window(
+            data       = with_missing(data_single, [1]),
+            profile    = profile_single,
+            plan       = plan_single_lgbm,
+            final_rows = False,
+        )
+
+
+def test_validate_last_window_no_error_when_final_rows_false_and_trailing_not_read():
+    """
+    Test that with `final_rows=False` trailing missing values that no lag
+    reads (position 2) are accepted, and that the multiseries forecasters
+    do not warn about ignored final rows.
+    """
+    result = validate_last_window(
+        data       = with_missing(data_single, [2]),
+        profile    = profile_single,
+        plan       = plan_single_ridge,
+        final_rows = False,
+    )
+    assert result is None
+
+    data = data_wide.copy()
+    data.iloc[-1] = np.nan
+    result = validate_last_window(
+        data       = data,
+        profile    = profile_wide,
+        plan       = plan_wide_ridge,
+        final_rows = False,
+    )
+    assert result is None
+
+
+def test_validate_last_window_final_rows_checked_by_default():
+    """
+    Test that the default (`final_rows=True`) is the prediction mode: a final
+    row without target still raises the final-rows error and a multiseries
+    forecaster still warns about the rows it ignores.
+    """
+    err_msg = re.escape(
+        "The data has no target value after 2023-02-27: drop its last 2 "
+        "row(s) (2023-02-28 to 2023-03-01), so that it ends with the last "
+        "value of the target."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        validate_last_window(
+            data    = with_missing(data_single, [1, 2]),
+            profile = profile_single,
+            plan    = plan_single_ridge,
+        )
+
+    data = data_wide.copy()
+    data.iloc[-1] = np.nan
+    warn_msg = re.escape(
+        "The data has no target value after 2012-04-28: "
+        "ForecasterRecursiveMultiSeries ignores its last 1 row(s) (2012-04-29) "
+        "and forecasts the dates after 2012-04-28. Drop those rows to avoid "
+        "this warning."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        validate_last_window(data=data, profile=profile_wide, plan=plan_wide_ridge)

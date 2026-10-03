@@ -34,7 +34,7 @@ from ._validation import (
     _validate_window_features as _validate_window_features,
     validate_interval,
 )
-from ._dates import is_text, parse_text_dates
+from ._dates import is_text, parse_text_dates, training_end
 from .profiling.data_profile import (
     _read_date_column,
     _try_parse_first_date_column,
@@ -1219,6 +1219,7 @@ def _check_evaluated_target(
     cv: TimeSeriesFold | None = None,
     end_train: str | None = None,
     steps: int | None = None,
+    level: str | None = None,
 ) -> None:
     """
     Reject an evaluation whose test dates have missing target values.
@@ -1230,7 +1231,9 @@ def _check_evaluated_target(
     contains NaN", whatever the estimator. The generated evaluation script
     fails the same way on the test split. This check names the dates up
     front. Multi-series backtesting drops them per series and is not
-    checked.
+    checked. `end_train` is read in the time zone of the dates; a date of
+    the strategy that cannot be compared with them (a naive date on a time
+    zone aware index) skips the check, and the generated script reports it.
 
     Parameters
     ----------
@@ -1245,6 +1248,10 @@ def _check_evaluated_target(
         dates after it are checked. Ignored when `cv` is given.
     steps : int, default None
         Forecast horizon of an evaluation-mode forecast.
+    level : str, default None
+        Series of wide-format data whose test dates are checked: the level
+        that `ForecasterDirectMultiVariate` predicts, the series its
+        metrics are computed on. None checks the target of a single series.
 
     Returns
     -------
@@ -1256,8 +1263,11 @@ def _check_evaluated_target(
         If a checked date has a missing target value.
     """
 
-    if data_profile.n_series != 1 or not isinstance(data_profile.target, str):
+    if level is None and (
+        data_profile.n_series != 1 or not isinstance(data_profile.target, str)
+    ):
         return
+    target = data_profile.target if level is None else level
     if not data_profile.missing_target and not data_profile.has_gaps:
         return
 
@@ -1267,7 +1277,9 @@ def _check_evaluated_target(
         index = pd.to_datetime(data[data_profile.date_column])
     else:
         index = data.index
-    y = pd.Series(data[data_profile.target].to_numpy(), index=index).sort_index()
+    if target not in data:
+        return
+    y = pd.Series(data[target].to_numpy(), index=index).sort_index()
     if y.index.has_duplicates:
         return
     if data_profile.frequency is not None and isinstance(y.index, pd.DatetimeIndex):
@@ -1280,6 +1292,10 @@ def _check_evaluated_target(
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 folds = cv.split(X=y, as_pandas=True)
+        except TypeError:
+            # A date of the strategy without the time zone of the index: the
+            # generated script fails on it with its own error.
+            return
         finally:
             cv.verbose = original_verbose
         positions = sorted({
@@ -1292,7 +1308,8 @@ def _check_evaluated_target(
         evaluated = y.iloc[positions]
         where = "in the test folds"
     elif end_train is not None and steps is not None:
-        evaluated = y.loc[y.index > pd.Timestamp(end_train)].iloc[:steps]
+        end = training_end(end_train, getattr(y.index, "tz", None))
+        evaluated = y.loc[y.index > end].iloc[:steps]
         where = "in the test split"
     else:
         return

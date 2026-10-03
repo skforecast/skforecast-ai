@@ -126,6 +126,7 @@ from .schemas import (
 from ._foundation import foundation_exog_columns, validate_foundation_plan
 from ._future_exog import as_exog_frame, validate_future_exog
 from ._last_window import (
+    validate_evaluation_partition,
     validate_infinite_target,
     validate_last_window,
     validate_series_lengths,
@@ -1335,7 +1336,12 @@ class ForecastingAssistant:
         - Evaluation mode (`test_size` is set): the data is split into
         train and test sets, the forecaster is trained on the training
         set, predictions are made for the test set and metrics are
-        computed against the held-out observations.
+        computed against the held-out observations. Before running, a
+        missing value of the training set that the predictions read
+        follows the rule of the prediction mode below (its last dates are
+        not final rows: `test_size` sets them), and with
+        `ForecasterRecursiveMultiSeries` every series needs a value on the
+        last training date and on the test dates.
         - Prediction mode (`test_size` is None, the default): the
         forecaster is trained on all available data and forecasts the
         future. No metrics are returned because there is no ground
@@ -1518,6 +1524,14 @@ class ForecastingAssistant:
                 data_profile = profile.data_profile,
                 end_train    = plan.end_train,
                 steps        = plan.steps,
+                # ForecasterDirectMultiVariate is scored on its level, the
+                # first target column, as the script writes it.
+                level        = (
+                    profile.data_profile.target[0]
+                    if plan.forecaster == "ForecasterDirectMultiVariate"
+                    and isinstance(profile.data_profile.target, list)
+                    else None
+                ),
             )
         elif exog is not None:
             validate_future_exog(
@@ -1537,6 +1551,13 @@ class ForecastingAssistant:
             profile   = profile.data_profile,
             plan      = plan,
             end_train = plan.end_train,
+        )
+        # Last of the checks: it can warn, and a warning is not given for a
+        # forecast that a later check rejects.
+        validate_evaluation_partition(
+            data    = data_df,
+            profile = profile.data_profile,
+            plan    = plan,
         )
 
         check_estimator_installed(plan.estimator, plan.task_type)

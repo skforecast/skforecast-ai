@@ -181,3 +181,55 @@ def test_resolve_end_train_InvalidInputError_hint_when_no_frequency():
         "Give the data a datetime index with a regular frequency, or a date "
         "column whose dates follow one."
     )
+
+
+# =============================================================================
+# Tests: sub-daily data and time zones
+# =============================================================================
+@pytest.mark.parametrize(
+    "start, test_size, expected",
+    [
+        ("2023-06-01 03:00:00", 3, "2023-06-02 00:00:00"),
+        ("2023-06-01 03:00:00+02:00", 3, "2023-06-02 00:00:00+02:00"),
+        ("2023-06-01 03:00:00", "2023-06-02 00:00:00", "2023-06-01 23:00:00"),
+        (
+            "2023-06-01 03:00:00+02:00",
+            "2023-06-02 00:00:00",
+            "2023-06-01 23:00:00+02:00",
+        ),
+        (
+            "2023-06-01 03:00:00+02:00",
+            pd.Timestamp("2023-06-02 00:00:00"),
+            "2023-06-01 23:00:00+02:00",
+        ),
+    ],
+    ids=["naive", "tz", "naive_text", "tz_text_without_zone", "tz_timestamp"],
+)
+def test_resolve_end_train_output_when_hourly_data(start, test_size, expected):
+    """
+    Test that on hourly data `end_train` keeps the time also at midnight (a
+    date only made the script train on the whole day), with the time zone of
+    tz-aware dates, and that a `test_size` written without a time zone is read
+    in the zone of the data (it raised TypeError).
+    """
+    end_train = resolve_end_train(
+        start_date=start, frequency="h", n_observations=25, test_size=test_size
+    )
+
+    assert end_train == expected
+
+
+def test_resolve_end_train_output_when_daily_and_monthly_data_keep_the_date_only():
+    """
+    Test that daily and monthly data, all at midnight, still give a date-only
+    `end_train`.
+    """
+    daily = resolve_end_train(
+        start_date="2023-01-01", frequency="D", n_observations=100, test_size=7
+    )
+    monthly = resolve_end_train(
+        start_date="1991-07-01", frequency="MS", n_observations=204, test_size=12
+    )
+
+    assert daily == "2023-04-03"
+    assert monthly == "2007-06-01"

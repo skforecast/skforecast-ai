@@ -24,6 +24,7 @@ from .._dates import (
     parse_text_dates,
     row_dates,
     time_zones,
+    training_end,
 )
 from ..schemas import DataProfile
 from ..exceptions import InvalidInputError, InvalidInputTypeError
@@ -3229,7 +3230,7 @@ def _check_target_is_constant(data: pd.DataFrame, target: str) -> bool:
     return bool(series.std() == 0)
 
 
-def _format_split_ts(ts: pd.Timestamp) -> str:
+def _format_split_ts(ts: pd.Timestamp, with_time: bool = False) -> str:
     """
     Format a split-boundary timestamp as a string literal.
 
@@ -3242,15 +3243,19 @@ def _format_split_ts(ts: pd.Timestamp) -> str:
     ----------
     ts : pandas Timestamp
         The split-boundary timestamp.
+    with_time : bool, default False
+        Whether to write the time also at midnight: True when the dates
+        are not all at midnight (sub-daily data), where a date-only
+        `end_train` made `.loc[:end_train]` train on the whole day.
 
     Returns
     -------
     end_train : str
         Date-only string (e.g. `'2005-03-01'`) when the timestamp falls
-        on midnight, otherwise a full timestamp string (e.g.
-        `'2012-08-07 23:00:00'`).
+        on midnight and `with_time` is False, otherwise a full timestamp
+        string (e.g. `'2012-08-07 23:00:00'`).
     """
-    if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+    if with_time or ts.hour != 0 or ts.minute != 0 or ts.second != 0:
         return str(ts)
     return str(ts.date())
 
@@ -3340,7 +3345,8 @@ def resolve_end_train(
         boundary_idx = n - n_test - 1
     elif isinstance(test_size, (str, pd.Timestamp)):
         try:
-            ts = pd.Timestamp(test_size)
+            # A date without time zone is read in the zone of the data.
+            ts = training_end(test_size, index.tz)
         except (ValueError, TypeError) as exc:
             raise InvalidInputError(
                 f"`test_size` is text that is not a date: {test_size!r}. Pass "
@@ -3364,7 +3370,9 @@ def resolve_end_train(
             field = "test_size",
         )
 
-    return _format_split_ts(index[boundary_idx])
+    return _format_split_ts(
+        index[boundary_idx], with_time=bool((index != index.normalize()).any())
+    )
 
 
 def count_test_observations(
@@ -3401,4 +3409,4 @@ def count_test_observations(
 
     index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
 
-    return int((index > pd.Timestamp(end_train)).sum())
+    return int((index > training_end(end_train, index.tz)).sum())

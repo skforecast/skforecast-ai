@@ -1,5 +1,6 @@
 # Unit test forecast ForecastingAssistant
 
+import contextlib
 import re
 import warnings
 
@@ -1228,25 +1229,440 @@ def test_forecast_UserWarning_when_last_window_missing_value_and_lightgbm():
 
 def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
     """
-    Test that the last window is not checked in evaluation mode, where the
-    forecaster is trained on the training split (left for the checks of the
-    evaluation split): a missing value of the training split that a lag
-    reads gives LightGBM predictions without the warning.
+    Test that in evaluation mode the last window of the training split is
+    checked as in prediction mode: a missing value that a lag reads gives
+    LightGBM predictions with the warning of the estimators that tolerate
+    missing values.
     """
     data = df_h2o.copy()
     data.iloc[-16, 0] = np.nan
 
     # skforecast warns about the missing value, when profiling and fitting.
-    with pytest.warns(MissingValuesWarning) as record:
+    with (
+        pytest.warns(UserWarning, match="reads missing values of the target") as record,
+        pytest.warns(MissingValuesWarning),
+    ):
         result = ForecastingAssistant().forecast(
             data=data, target="x", steps=3, test_size=3, estimator="LGBMRegressor"
+        )
+
+    messages = [
+        str(warning.message) for warning in record
+        if "reads missing values of the target" in str(warning.message)
+    ]
+    assert messages == [
+        "The forecaster reads missing values of the target to predict ('x': 1 "
+        "value(s), such as '2007-03-01'). LGBMRegressor treats them as missing "
+        "values; check that they are meant to be missing."
+    ]
+    assert result.predictions["pred"].notna().all()
+
+
+_H2O_LAST_TRAINING_READ = (
+    "The forecaster reads missing values of the target to predict ('x': 1 "
+    "value(s), such as '2007-06-01'). "
+)
+_H2O_LGBM_PREDICTIONS = [
+    0.8277571065635025, 1.0205027382164744, 1.007466843600445,
+    1.1209519874787484, 1.1665125040119138, 1.1516798899801441,
+    1.1961369585574637, 0.6235227873454375, 0.7302412908869749,
+    0.5799352257692894, 0.7430074572161064, 0.6159413043579267,
+]
+_H2O_RIDGE_FAR_PREDICTIONS = [
+    0.86013224120506, 1.040723948807036, 0.9888977187331605,
+    1.1745827805058775, 1.0877071723097516, 1.1184101903448553,
+    1.2218821412132566, 0.6620868331391002, 0.7107535611148452,
+    0.5971145894051624, 0.7564693445789693, 0.8592354552041727,
+]
+
+
+def test_forecast_InvalidInputError_when_evaluation_training_ends_with_missing_and_ridge():
+    """
+    Test that forecast() in evaluation mode with Ridge raises before running
+    when the last training date of h2o (position -13 for `test_size` 12) or a
+    date that a lag reads (-14) has no value: the predictions would be
+    missing.
+    """
+    for position, date in [(-13, "2007-06-01"), (-14, "2007-05-01")]:
+        data = df_h2o.copy()
+        data.iloc[position, 0] = np.nan
+
+        err_msg = re.escape(
+            "The forecaster reads missing values of the target to predict ('x': "
+            f"1 value(s), such as '{date}'). ForecasterRecursive with Ridge "
+            "cannot use them, so its predictions would be missing: fill them in."
+        )
+        with pytest.warns(MissingValuesWarning):
+            with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+                ForecastingAssistant().forecast(
+                    data=data, target="x", steps=12, test_size=12, estimator="Ridge"
+                )
+
+        assert exc_info.value.field == "data"
+        assert exc_info.value.code == "invalid_argument"
+
+
+def test_forecast_UserWarning_when_evaluation_training_ends_with_missing_and_lightgbm():
+    """
+    Test that forecast() in evaluation mode with LightGBM warns, naming the
+    missing value of the last training date, and gives the predictions of the
+    run without the check.
+    """
+    data = df_h2o.copy()
+    data.iloc[-13, 0] = np.nan
+
+    warn_msg = re.escape(
+        _H2O_LAST_TRAINING_READ
+        + "LGBMRegressor treats them as missing values; check that they are "
+        "meant to be missing."
+    )
+    # skforecast warns too, when profiling and from the executed script.
+    with pytest.warns(MissingValuesWarning):
+        with pytest.warns(UserWarning, match=warn_msg):
+            result = ForecastingAssistant().forecast(
+                data=data, target="x", steps=12, test_size=12,
+                estimator="LGBMRegressor",
+            )
+
+    expected = pd.DataFrame(
+        {"pred": _H2O_LGBM_PREDICTIONS},
+        index=pd.date_range("2007-07-01", periods=12, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+
+
+def test_forecast_output_when_evaluation_missing_value_not_read_by_lags():
+    """
+    Test that a missing value far in the past (position -100 of h2o, that no
+    lag reads) gives no "reads missing values" error or warning in evaluation
+    mode, and the predictions of the run without the check.
+    """
+    data = df_h2o.copy()
+    data.iloc[-100, 0] = np.nan
+
+    # Only skforecast warns, when profiling and training.
+    with pytest.warns(MissingValuesWarning) as record:
+        result = ForecastingAssistant().forecast(
+            data=data, target="x", steps=12, test_size=12, estimator="Ridge"
         )
 
     assert not [
         warning for warning in record
         if "reads missing values of the target" in str(warning.message)
     ]
-    assert result.predictions["pred"].notna().all()
+    expected = pd.DataFrame(
+        {"pred": _H2O_RIDGE_FAR_PREDICTIONS},
+        index=pd.date_range("2007-07-01", periods=12, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+
+
+def _items_frame(data_format: str, series: str, date: str) -> pd.DataFrame:
+    """Return the items_sales data with the target of `series` missing on `date`."""
+    if data_format == "wide":
+        data = df_items_sales_wide.copy()
+        data.loc[date, series] = np.nan
+    else:
+        data = df_items_sales_long.copy()
+        data.loc[
+            (data["series"] == series) & (data["date"] == date), "value"
+        ] = np.nan
+
+    return data
+
+
+def _items_kwargs(data_format: str) -> dict:
+    """Return the arguments of forecast() for the items_sales data."""
+    if data_format == "wide":
+        return {"target": list(df_items_sales_wide.columns)}
+
+    return {
+        "target": "value", "date_column": "date", "series_id_column": "series"
+    }
+
+
+@pytest.mark.parametrize("data_format", ["wide", "long"])
+def test_forecast_InvalidInputError_when_evaluation_series_has_no_last_training_value(
+    data_format
+):
+    """
+    Test that forecast() in evaluation mode with ForecasterRecursiveMultiSeries
+    raises, with the field `test_size`, when a series has no value on the last
+    training date (2012-04-22), and names every series when none has one.
+    """
+    kwargs = _items_kwargs(data_format)
+    end_message = (
+        "ForecasterRecursiveMultiSeries does not predict a series that ends "
+        "before the others, and when no series has a value there it starts the "
+        "forecast earlier, so the metrics would compare other dates. Choose "
+        "another `test_size`, or fill in those values."
+    )
+
+    err_msg = re.escape(
+        "Some series have no value on the last training date (2012-04-22): "
+        f"'item_1'. {end_message}"
+    )
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+            ForecastingAssistant().forecast(
+                data=_items_frame(data_format, "item_1", "2012-04-22"),
+                steps=7, test_size=7, **kwargs,
+            )
+    assert exc_info.value.field == "test_size"
+
+    data = df_items_sales_wide.copy()
+    data.loc["2012-04-22"] = np.nan
+    if data_format == "long":
+        data = df_items_sales_long[df_items_sales_long["date"] != "2012-04-22"]
+    err_msg = re.escape(
+        "Some series have no value on the last training date (2012-04-22): "
+        f"'item_1', 'item_2', 'item_3'. {end_message}"
+    )
+    # skforecast warns about the missing values of the wide data only: the
+    # long data has absent rows.
+    expected_warning = (
+        pytest.warns(MissingValuesWarning)
+        if data_format == "wide" else contextlib.nullcontext()
+    )
+    with expected_warning:
+        with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+            ForecastingAssistant().forecast(
+                data=data, steps=7, test_size=7, **kwargs
+            )
+    assert exc_info.value.field == "test_size"
+
+
+@pytest.mark.parametrize("data_format", ["wide", "long"])
+def test_forecast_InvalidInputError_when_evaluation_series_has_missing_test_value(
+    data_format
+):
+    """
+    Test that forecast() in evaluation mode with ForecasterRecursiveMultiSeries
+    raises, with the field `data`, when one series has a missing value in the
+    test split.
+    """
+    err_msg = re.escape(
+        "The target has missing values in the test split ('item_2': 1 value(s), "
+        "such as '2012-04-25'). skforecast cannot compute the metrics on them, "
+        "whatever the estimator. Impute the target, or evaluate on dates "
+        "without missing values."
+    )
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+            ForecastingAssistant().forecast(
+                data=_items_frame(data_format, "item_2", "2012-04-25"),
+                steps=7, test_size=7, **_items_kwargs(data_format),
+            )
+
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_InvalidInputError_when_evaluation_series_without_values_up_to_end_train():
+    """
+    Test that a series without any value up to the end of training keeps the
+    message of `validate_series_lengths`, not the one of the last training
+    date.
+    """
+    data = df_items_sales_wide.copy()
+    data.loc[:"2012-04-22", "item_3"] = np.nan
+
+    err_msg = re.escape(
+        "Some series have no values up to the end of training (2012-04-22) "
+        "('item_3'), so ForecasterRecursiveMultiSeries cannot be trained on "
+        "them. Remove them from the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=data, target=list(data.columns), steps=7, test_size=7
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+
+
+@pytest.mark.parametrize("tz", ["UTC", "Europe/Madrid"])
+def test_forecast_evaluation_mode_with_time_zone(tz):
+    """
+    Test that forecast() in evaluation mode runs on a tz-aware index, and that
+    a missing value in the test split of a single series raises the message of
+    the evaluated target (it raised `TypeError: Invalid comparison`).
+    """
+    data = df_h2o.copy()
+    data.index = data.index.tz_localize(tz)
+
+    result = ForecastingAssistant().forecast(
+        data=data, target="x", steps=12, test_size=12, estimator="Ridge"
+    )
+    assert result.predictions.index[0] == pd.Timestamp("2007-07-01", tz=tz)
+    assert result.predictions.index.tz is not None
+    np.testing.assert_array_almost_equal(
+        result.predictions["pred"].to_numpy()[:3],
+        np.array([0.8514855921715546, 1.048000010028995, 0.9981468545403993]),
+    )
+
+    data.iloc[-5, 0] = np.nan
+    offset = "+00:00" if tz == "UTC" else "+01:00"
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test split "
+        f"(2008-02-01 00:00:00{offset}), counting the missing timestamps that "
+        "asfreq() restores. skforecast cannot compute the metrics on them, "
+        "whatever the estimator. Impute the target, or evaluate on dates "
+        "without missing values."
+    )
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(InvalidInputError, match=err_msg):
+            ForecastingAssistant().forecast(
+                data=data, target="x", steps=12, test_size=12, estimator="Ridge"
+            )
+
+
+def test_forecast_InvalidInputError_when_evaluation_time_zone_and_last_training_missing():
+    """
+    Test that the training partition of a tz-aware index is checked too: the
+    missing value of the last training date is reported with Ridge.
+    """
+    data = df_h2o.copy()
+    data.index = data.index.tz_localize("Europe/Madrid")
+    data.iloc[-13, 0] = np.nan
+
+    err_msg = re.escape(_H2O_LAST_TRAINING_READ + "ForecasterRecursive with Ridge")
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(InvalidInputError, match=err_msg):
+            ForecastingAssistant().forecast(
+                data=data, target="x", steps=12, test_size=12, estimator="Ridge"
+            )
+
+
+def test_forecast_evaluation_mode_when_last_training_date_absent():
+    """
+    Test that forecast() in evaluation mode treats a last training date
+    missing from the data (h2o without 2007-06-01, a gap and not a NaN) as a
+    missing value read by the lags: Ridge raises before running and
+    LGBMRegressor warns and forecasts.
+    """
+    data = df_h2o.drop(index=pd.Timestamp("2007-06-01"))
+
+    err_msg = re.escape(
+        _H2O_LAST_TRAINING_READ + "ForecasterRecursive with Ridge cannot use "
+        "them, so its predictions would be missing: fill them in."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=data, target="x", steps=12, test_size=12, estimator="Ridge",
+            lags=3,
+        )
+    assert exc_info.value.field == "data"
+
+    warn_msg = re.escape(
+        _H2O_LAST_TRAINING_READ
+        + "LGBMRegressor treats them as missing values; check that they are "
+        "meant to be missing."
+    )
+    with pytest.warns(MissingValuesWarning):
+        with pytest.warns(UserWarning, match=warn_msg):
+            result = ForecastingAssistant().forecast(
+                data=data, target="x", steps=12, test_size=12,
+                estimator="LGBMRegressor", lags=3,
+            )
+
+    np.testing.assert_array_almost_equal(
+        result.predictions["pred"].to_numpy()[:3],
+        np.array([0.7442731932499239, 0.8548371869682814, 0.9667814209167767]),
+    )
+
+
+def test_forecast_evaluation_mode_with_direct_multivariate_checks_the_level():
+    """
+    Test that forecast() in evaluation mode with ForecasterDirectMultiVariate
+    checks the test split of its level (the first target column, 'item_1'):
+    a missing value there raises the message of the evaluated target, and one
+    of another series does not.
+    """
+    target = list(df_items_sales_wide.columns)
+
+    data = df_items_sales_wide.copy()
+    data.loc["2012-04-25", "item_1"] = np.nan
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test split "
+        "(2012-04-25 00:00:00), counting the missing timestamps that asfreq() "
+        "restores. skforecast cannot compute the metrics on them, whatever the "
+        "estimator. Impute the target, or evaluate on dates without missing "
+        "values."
+    )
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+            ForecastingAssistant().forecast(
+                data=data, target=target, steps=7, test_size=7,
+                forecaster="ForecasterDirectMultiVariate",
+            )
+    assert exc_info.value.field == "data"
+
+    data = df_items_sales_wide.copy()
+    data.loc["2012-04-25", "item_2"] = np.nan
+    with pytest.warns(MissingValuesWarning):
+        result = ForecastingAssistant().forecast(
+            data=data, target=target, steps=7, test_size=7,
+            forecaster="ForecasterDirectMultiVariate",
+        )
+    np.testing.assert_array_almost_equal(
+        result.predictions["pred"].to_numpy()[:3],
+        np.array([19.11669360058141, 19.389706633268087, 23.034484246415076]),
+    )
+
+
+@pytest.mark.parametrize("tz", [None, "Europe/Madrid"])
+def test_forecast_evaluation_mode_when_hourly_data_and_test_size_int(tz):
+    """
+    Test that forecast() in evaluation mode on hourly data (naive and tz-aware)
+    ends the training at the midnight written with its time, so the three test
+    predictions are at 01:00, 02:00 and 03:00 (a date-only `end_train` trained
+    on the whole day), and that the tz-aware data does not raise TypeError.
+    """
+    index = pd.date_range("2023-06-01 03:00", periods=25, freq="h", tz=tz)
+    data = pd.DataFrame(
+        {"y": np.arange(25, dtype=float) + np.sin(np.arange(25))}, index=index
+    )
+
+    result = ForecastingAssistant().forecast(
+        data=data, target="y", steps=3, test_size=3, estimator="Ridge"
+    )
+
+    offset = "" if tz is None else "+02:00"
+    assert result.plan.end_train == f"2023-06-02 00:00:00{offset}"
+    expected_index = pd.date_range("2023-06-02 01:00", periods=3, freq="h", tz=tz)
+    pd.testing.assert_index_equal(
+        result.predictions.index, expected_index, check_names=False
+    )
+
+
+def test_forecast_evaluation_mode_when_monthly_data_keeps_end_train_date_only():
+    """
+    Test that monthly data keeps a date-only `end_train` ('2007-06-01' for h2o
+    with `test_size` 12).
+    """
+    result = ForecastingAssistant().forecast(
+        data=df_h2o, target="x", steps=12, test_size=12, estimator="Ridge"
+    )
+
+    assert result.plan.end_train == "2007-06-01"
+
+
+def test_forecast_InvalidInputError_when_prediction_mode_final_row_without_target():
+    """
+    Test that prediction mode is unchanged: a final row without target still
+    raises the error that asks to drop final rows, not the one of the
+    values read.
+    """
+    data = df_h2o.copy()
+    data.iloc[-1, 0] = np.nan
+
+    err_msg = re.escape(
+        "The data has no target value after 2008-05-01: drop its last 1 row(s) "
+        "(2008-06-01), so that it ends with the last value of the target."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        ForecastingAssistant().forecast(
+            data=data, target="x", steps=3, estimator="Ridge"
+        )
 
 
 # =============================================================================

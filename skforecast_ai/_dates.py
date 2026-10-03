@@ -153,6 +153,34 @@ def row_dates(data: pd.DataFrame, date_column: str | None) -> pd.DatetimeIndex |
     return None
 
 
+def training_end(end_train: str, tz: object = None) -> pd.Timestamp:
+    """
+    Return `end_train` as a timestamp comparable with dates of time zone
+    `tz`.
+
+    A plan writes `end_train` without the time zone of the data (the script
+    slices `.loc[:end_train]`, where pandas reads it in the zone of the
+    index), so it is localized to `tz` when it has none.
+
+    Parameters
+    ----------
+    end_train : str
+        Last training date of an evaluation-mode plan.
+    tz : tzinfo, str, default None
+        Time zone of the dates it is compared with.
+
+    Returns
+    -------
+    end : pandas Timestamp
+        Last training date, in the time zone of the dates.
+    """
+    end = pd.Timestamp(end_train)
+    if tz is not None and end.tz is None:
+        end = end.tz_localize(tz)
+
+    return end
+
+
 def date_positions(dates: pd.DatetimeIndex) -> np.ndarray:
     """
     Return the dates as integers that sort like the dates.

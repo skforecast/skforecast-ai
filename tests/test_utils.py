@@ -34,7 +34,7 @@ from tests.fixtures_assistant import (
     df_single,
     series_single,
 )
-from tests.fixtures_datasets import df_h2o_text
+from tests.fixtures_datasets import df_h2o_text, df_items_sales_wide
 
 
 # =============================================================================
@@ -760,6 +760,79 @@ def test_check_evaluated_target_ValueError_when_gap_in_test_split():
         data_profile = data_profile,
         end_train    = "2023-03-20",
         steps        = 5,
+    ) is None
+
+
+def test_check_evaluated_target_ValueError_when_level_has_missing_test_value():
+    """
+    Test that with `level` the test split of that series of wide data is
+    checked: a missing value of the level raises, one of another series does
+    not, and without `level` several series are not checked.
+    """
+    data = df_items_sales_wide.copy()
+    data.loc["2012-04-25", "item_1"] = np.nan
+    data_profile = create_data_profile(data, target=list(data.columns))
+    kwargs = {"data": data, "data_profile": data_profile,
+              "end_train": "2012-04-22", "steps": 7}
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test split "
+        "(2012-04-25 00:00:00), counting the missing timestamps that asfreq() "
+        "restores."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _check_evaluated_target(level="item_1", **kwargs)
+
+    assert _check_evaluated_target(level="item_2", **kwargs) is None
+    assert _check_evaluated_target(**kwargs) is None
+
+
+@pytest.mark.parametrize("tz", ["UTC", "Europe/Madrid"])
+def test_check_evaluated_target_ValueError_when_gap_in_test_split_with_time_zone(tz):
+    """
+    Test that the test split of a tz-aware index is found with an `end_train`
+    written without the time zone (it raised `TypeError: Invalid comparison`).
+    """
+    data, data_profile = _gapped_single_series(drop=[97])
+    data["date"] = data["date"].dt.tz_localize(tz)
+    offset = "+00:00" if tz == "UTC" else "+02:00"
+    data_profile = create_data_profile(data, target="y", date_column="date")
+
+    err_msg = re.escape(
+        f"The target has 1 missing value(s) in the test split "
+        f"(2023-04-08 00:00:00{offset})"
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _check_evaluated_target(
+            data         = data,
+            data_profile = data_profile,
+            end_train    = "2023-04-05",
+            steps        = 5,
+        )
+
+    assert _check_evaluated_target(
+        data         = data,
+        data_profile = data_profile,
+        end_train    = "2023-03-20",
+        steps        = 5,
+    ) is None
+
+
+def test_check_evaluated_target_output_when_cv_dates_lack_the_time_zone():
+    """
+    Test that a `TimeSeriesFold` whose dates have no time zone, on a tz-aware
+    index, is not checked: the generated script fails on it with its own
+    error, not a bare TypeError from the check.
+    """
+    data, _ = _gapped_single_series(drop=[85])
+    data["date"] = data["date"].dt.tz_localize("UTC")
+    data_profile = create_data_profile(data, target="y", date_column="date")
+    cv = TimeSeriesFold(
+        steps=5, initial_train_size="2023-03-12", verbose=False
+    )
+
+    assert _check_evaluated_target(
+        data=data, data_profile=data_profile, cv=cv
     ) is None
 
 
