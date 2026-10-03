@@ -284,7 +284,9 @@ class ToolResult(BaseModel):
         `n_folds`, `n_fits` (trainings of the forecaster in the shared
         strategy) and `estimator_fits` (fits of an estimator, which a
         direct forecaster multiplies by `steps`; for a comparison, the sum
-        over its candidates). None for the other kinds.
+        over its candidates). A cross-validation strategy also has
+        `compare_estimator_fits`, the fits of a comparison without
+        candidates with it. None for the other kinds.
     changeable : list of str
         Arguments of `refine_plan` (for a plan) or of `create_cv` (for a
         cross-validation strategy) that build a variant of the object.

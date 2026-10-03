@@ -88,7 +88,10 @@ trains one estimator per step; ForecasterStats is refitted in every fold
 whatever `refit` says; foundation models and the baseline count 0, but a
 foundation model downloads its weights the first time. `compare` runs every
 candidate on the same folds, so it costs about the sum of their fits (its
-response reports the total). Above 50 estimator fits a run gets a
+response reports the total). `compare_estimator_fits` of `create_cv` is
+that sum for a `compare` without `candidates`, which can be far more than
+the plan (with `refit=true`, ForecasterDirect fits one estimator per step
+and fold); a `CompareCostNotice` says so. Above 50 estimator fits a run gets a
 `LongTrainingWarning` notice and can take minutes; `compare` without
 `candidates` leaves out the candidates above 500. Before an expensive run,
 tell the user and prefer fewer folds (a larger `fold_stride` or a later

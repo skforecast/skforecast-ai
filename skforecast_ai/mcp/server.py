@@ -28,11 +28,15 @@ from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata
 from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, Field, ValidationError
 from .. import __version__
-from .._constants import FORECASTER_TASK_TYPES
+from .._constants import (
+    COMPARE_FIT_BUDGET,
+    FORECASTER_TASK_TYPES,
+    LONG_TRAINING_FITS,
+)
 from .._utils import load_exog, warn_long_training
 from ..assistant import ForecastingAssistant
 from ..exceptions import InvalidInputError, SkforecastAIError
-from ..recommendation import count_estimator_fits
+from ..recommendation import count_estimator_fits, resolve_cv_config
 from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
 from . import _inputs
 from ._errors import (
@@ -761,6 +765,34 @@ def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
     }
 
 
+def _default_compare_fits(profile: Any, cv: Any, steps: int) -> dict:
+    """
+    Estimator fits of each forecaster that a `compare` without candidates
+    runs with a strategy: the candidates of the profile, leaving out the
+    alternatives above the budget of `compare()`, which it never runs (the
+    recommended forecaster always runs). The fits are those of the strategy
+    as `compare()` shares it, not as the forecaster of the plan runs it
+    (ForecasterStats is refitted in every fold).
+    """
+
+    shared, _ = resolve_cv_config(cv, profile.data_profile)
+    fits = {}
+    for forecaster in profile.forecaster_candidates:
+        count = int(
+            count_estimator_fits(
+                n_fits     = int(shared["n_fits"]),
+                forecaster = forecaster,
+                steps      = steps,
+                n_folds    = int(shared["n_folds"]),
+            )
+        )
+        if count > COMPARE_FIT_BUDGET and forecaster != profile.forecaster:
+            continue
+        fits[forecaster] = count
+
+    return fits
+
+
 def _register(
     state: _ServerState,
     *,
@@ -1148,15 +1180,41 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 forecaster     = result.plan.forecaster,
                 steps          = result.plan.steps,
             )
+            compare_fits = _default_compare_fits(
+                plan_entry.profile, result.cv, result.plan.steps
+            )
+            cost["compare_estimator_fits"] = sum(compare_fits.values())
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
             control.wrote(summary[2], code_file)
-            return object_id, result, summary, code_file, cost
+            return object_id, result, summary, code_file, cost, compare_fits
 
         outcome = await run_call(work, report=_report(ctx), label="create_cv")
-        object_id, result, summary, code_file, cost = outcome.value
+        object_id, result, summary, code_file, cost, compare_fits = outcome.value
         links = {"profile_id": plan_entry.profile_id, "plan_id": plan_entry.id}
+        # A `compare` without candidates runs other forecasters with this
+        # strategy, which can cost far more than the plan it was built for
+        # (a direct forecaster fits one estimator per step and fold).
+        compare_notice = []
+        if cost["compare_estimator_fits"] > max(
+            LONG_TRAINING_FITS, cost["estimator_fits"]
+        ):
+            shown = ", ".join(f"{name}: {fits}" for name, fits in compare_fits.items())
+            compare_notice.append(
+                ToolNotice(
+                    source   = "runtime",
+                    category = "CompareCostNotice",
+                    message  = (
+                        f"`compare` without `candidates` on this strategy fits "
+                        f"about {cost['compare_estimator_fits']} estimators "
+                        f"({shown}), more than the {cost['estimator_fits']} of "
+                        f"this plan. Pass `candidates` to choose what runs, or "
+                        f"use `refit=false` or fewer folds."
+                    ),
+                    count    = 1,
+                )
+            )
 
         return _register(
             state,
@@ -1167,8 +1225,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             summary       = summary,
             notices       = build_notices(
                                 outcome.warnings,
-                                plan_warnings = result.plan.warnings,
-                                data_warnings = plan_entry.data_warnings,
+                                plan_warnings  = result.plan.warnings,
+                                data_warnings  = plan_entry.data_warnings,
+                                server_notices = compare_notice,
                             ),
             source        = plan_entry,
             code          = result.code,

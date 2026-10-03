@@ -72,7 +72,9 @@ def test_stdio_server_runs_the_planning_workflow(tmp_path):
     assert profile["summary"] == expected_profile.describe()
     assert plan["summary"] == script.describe()
     assert cv["summary"] == expected_cv.describe()
-    assert cv["cost"] == {"n_folds": 6, "n_fits": 1, "estimator_fits": 1}
+    assert cv["cost"] == {
+        "n_folds": 6, "n_fits": 1, "estimator_fits": 1, "compare_estimator_fits": 19,
+    }
     assert code["code"] == script.code
     assert error_of(error, "plan")["code"] == "unknown_id"
     assert output_dir.is_dir()
