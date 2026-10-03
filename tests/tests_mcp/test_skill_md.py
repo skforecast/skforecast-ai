@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from skforecast_ai._constants import COMPARE_FIT_BUDGET, LONG_TRAINING_FITS
+from skforecast_ai._constants import (
+    COMPARE_FIT_BUDGET,
+    DEFAULT_FOUNDATION_MODEL_ID,
+    LONG_TRAINING_FITS,
+)
 from skforecast_ai._future_exog import _SHOWN
 from skforecast_ai.exceptions import ERROR_CODES
 from skforecast_ai.mcp import create_server
@@ -178,3 +182,34 @@ def test_skill_md_and_guide_name_the_foundation_models_that_need_allow_model():
 
     assert [p for p in restricted if f"`{p}`" not in skill] == []
     assert [p for p in restricted + permissive if f"`{p}`" not in guide] == []
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "There is no baseline with several series",
+        "`files.best_metrics`",
+        "A `mean_absolute_scaled_error` below 1",
+        "the worst series is not in it",
+        "Never change their file",
+        "Only if they agree, write a corrected copy inside the allowed directory",
+        f"Its default model is Chronos-2 (`{DEFAULT_FOUNDATION_MODEL_ID}`)",
+        "tell the user which model, its license",
+        "A fraction only works when it gives exactly `steps` observations",
+        "Without `candidates` it runs the forecasters the profile recommends",
+        "`exog` is `exog_path`",
+        "no response holds rows of the data or of the predictions",
+        "The summaries do carry the metrics and the leaderboard",
+    ],
+    ids=lambda phrase: phrase,
+)
+def test_skill_md_covers_what_agents_get_wrong(phrase):
+    """
+    Test that SKILL.md covers the cases found in the review of phase 4: the
+    comparison without baseline, problems of the CSV file, foundation
+    models, `test_size` as a fraction, `compare` without candidates, the
+    names of the Python API in messages and what `values_included` means.
+    """
+    skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
+
+    assert phrase in skill

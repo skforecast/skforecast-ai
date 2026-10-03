@@ -92,12 +92,12 @@ A failed call returns an error whose text is `Error executing tool <name>: ` fol
 
 The data never travels whole to the agent, and the agent's language model sees what the agent reads:
 
-- **Summaries** carry statistics (minimum, maximum, mean, standard deviation, missing values), dates, column names and series ids, the decisions and their explanations, the metrics, statistics of the predictions and the leaderboard of a comparison. Never rows. The summary of a plan also names the data file its script reads; the other summaries do not name it.
+- **Summaries** carry statistics (minimum, maximum, mean, standard deviation, missing values), dates, column names and series ids, the decisions and their explanations, the metrics, statistics of the predictions and the leaderboard of a comparison. Never rows of the data or of the predictions. The summary of a plan also names the data file its script reads; the other summaries do not name it.
 - **Messages** of errors and warnings are forwarded as the library writes them. They can name columns and series ids and quote up to 5 values of the data (categories, dates). The server cuts an error message at 4,000 characters, its hint at 1,000 and each text of its `details` at 500, and sends at most 20 warnings of 1,000 characters each (`notices_omitted` counts the rest). An unexpected error (`internal_error`) carries only the type of the exception and an id: its message and traceback, which can quote a value, go to the log of the server (stderr) under that id.
-- **Scripts** (`get_code`) and **failures** (`get_failure`) name the path of the data file, and a failure holds a traceback, which can quote values.
+- **Scripts** (`get_code`) name the path of the data file they read. **Failures** (`get_failure`) do not (the code that ran reads the data in memory), but they hold a traceback, which can quote values.
 - **Files** in the output directory hold rows (predictions, metrics). The agent reads them only if it opens them.
 
-`values_included` is always false in the response of a tool that creates an object, as a reminder that no rows were sent.
+`values_included` is always false in the response of a tool that creates an object, as a reminder that no rows of the data or of the predictions were sent; the metrics and the leaderboard are in the summary.
 
 ---
 

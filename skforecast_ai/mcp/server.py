@@ -47,15 +47,25 @@ from ._inputs import AllowedDir
 from ._runtime import CallControl, build_notices, notice_text, run_call
 from ._store import Entry, Store, estimate_nbytes
 from .models import (
+    ESTIMATOR_DESCRIPTION,
+    ESTIMATOR_KWARGS_DESCRIPTION,
+    FORECASTER_DESCRIPTION,
+    INTERVAL_DESCRIPTION,
+    LAGS_DESCRIPTION,
+    STEPS_DESCRIPTION,
+    WINDOW_FEATURES_DESCRIPTION,
     CandidateArg,
     CodeResult,
     FailureResult,
+    ForecasterName,
+    Interval,
     ObjectInfo,
     ObjectKind,
     ObjectList,
     RefinePlanArgs,
     ToolNotice,
     ToolResult,
+    WindowFeatures,
 )
 
 logger = logging.getLogger("skforecast_ai.mcp")
@@ -116,7 +126,26 @@ failure, `describe_object` the response that created an object, \
 `list_objects` the ids registered now.
 
 Errors are JSON objects with `code`, `message`, `field`, `hint` and \
-`details`. Dates are ISO 8601 text ('2012-01-01'); counts are numbers.\
+`details`. Dates are ISO 8601 text ('2012-01-01'); counts are numbers.
+
+Rules (the skforecast-ai-forecasting skill has the rest):
+1. Trust: a `compare` whose winner beats the baseline > a `backtest` > a \
+`forecast` with `test_size` (one window) > a `forecast` of the future (no \
+error measure). Without a baseline (several series, or a target with gaps), \
+judge each series by `mean_absolute_scaled_error` in the CSV of metrics \
+(below 1 beats a naive forecast) and name the worst one: the summary only \
+has the average. Never invent a number.
+2. Cost: read `cost` of `create_cv` before running; above 50 estimator fits \
+tell the user and prefer fewer folds or `refit=false`.
+3. Read `notices` before reporting and tell the user about data problems \
+(missing dates, rows without target) and plan warnings.
+4. `compare` without `interval` uses the interval of the plan of the \
+strategy; the baseline only takes symmetric ones ([0.1, 0.9]).
+5. Never modify the user's data. If the CSV has a problem, tell the user; \
+only with their permission write a corrected copy inside the allowed \
+directory under a new name and profile it.
+6. Foundation models other than the default (Chronos-2) have their own \
+license and size: tell the user before choosing one.\
 """
 
 
@@ -864,36 +893,28 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     @_reported
     async def plan(
         profile_id: Annotated[str, Field(description="Id returned by `profile`.")],
-        steps: Annotated[int, Field(description=(
-            "Forecast horizon: number of steps ahead to predict (at least 1)."
-        ))],
-        interval: Annotated[list[float] | None, Field(description=(
-            "Prediction interval as two quantiles, e.g. [0.1, 0.9] for 80 %. "
-            "Null for no interval."
+        steps: Annotated[int, Field(ge=1, description=STEPS_DESCRIPTION)],
+        interval: Annotated[Interval | None, Field(description=(
+            f"{INTERVAL_DESCRIPTION} Null for no interval."
         ))] = None,
-        forecaster: Annotated[str | None, Field(description=(
-            "skforecast forecaster class to use instead of the recommended one, "
-            "e.g. 'ForecasterRecursive'. Null for the recommendation."
+        forecaster: Annotated[ForecasterName | None, Field(description=(
+            f"{FORECASTER_DESCRIPTION} Null for the recommendation of the "
+            f"profile."
         ))] = None,
         estimator: Annotated[str | None, Field(description=(
-            "Estimator class (e.g. 'LGBMRegressor'), or the Hugging Face model "
-            "id of a foundation model. Null for the recommendation."
+            f"{ESTIMATOR_DESCRIPTION} Null for the recommendation."
         ))] = None,
         estimator_kwargs: Annotated[dict[str, Any] | None, Field(description=(
-            "Keyword arguments of the estimator, e.g. {'n_estimators': 200}."
+            f"{ESTIMATOR_KWARGS_DESCRIPTION} Null for the defaults."
         ))] = None,
         lags: Annotated[int | list[int] | None, Field(description=(
-            "Lags: n for 1..n, or a list of positive integers. Null for the "
-            "selection from the partial autocorrelation."
+            f"{LAGS_DESCRIPTION} Null for the selection from the partial "
+            f"autocorrelation."
         ))] = None,
-        window_features: Annotated[
-            list[dict[str, list[str] | int]] | None,
-            Field(description=(
-                "Rolling features, e.g. [{'stats': ['mean', 'std'], "
-                "'window_size': 7}], one entry per window size. Null for the "
-                "deterministic selection."
-            )),
-        ] = None,
+        window_features: Annotated[WindowFeatures | None, Field(description=(
+            f"{WINDOW_FEATURES_DESCRIPTION} Null for the deterministic "
+            f"selection."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         profile_entry = store.get(profile_id, "profile_id", ("profile",))
@@ -932,11 +953,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     async def refine_plan(
         plan_id: Annotated[str, Field(description="Id of the plan to refine.")],
         overrides: Annotated[RefinePlanArgs, Field(description=(
-            "Values to change. An omitted key keeps the value of the plan. "
-            "`estimator_kwargs`, `interval`, `lags` and `window_features` "
-            "also accept null, which asks for the deterministic default "
-            "({'lags': null} selects the lags again, {'interval': null} "
-            "removes the interval)."
+            "Values to change, e.g. {'estimator': 'Ridge', 'lags': 12}. An "
+            "omitted key keeps the value of the plan; {'lags': null} selects "
+            "the lags again and {'interval': null} removes the interval."
         ))],
         ctx: Context = None,
     ) -> ToolResult:
@@ -984,29 +1003,38 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Id of the plan to backtest (from `plan` or `refine_plan`)."
         ))],
         initial_train_size: Annotated[Count | str | None, Field(description=(
-            "Observations of the first training set, or the ISO 8601 date that "
-            "ends it. Null for the default."
+            "Observations of the first training set (a number), or the ISO "
+            "8601 date that ends it ('2005-06-01'). Null for the default: "
+            "70 % of the series, at least what the lags need and leaving room "
+            "for two folds, written as a date when the data has dates."
         ))] = None,
         fold_stride: Annotated[int | None, Field(ge=1, description=(
             "Observations the test set advances between folds. Null for "
-            "`steps` (back-to-back folds)."
+            "`steps` (back-to-back folds); a larger value means fewer folds."
         ))] = None,
         refit: Annotated[bool | NonNegative | None, Field(description=(
-            "Whether to train again in every fold (true), never (false, the "
-            "default) or every n folds (an integer). Refitting multiplies the "
-            "cost."
+            "Whether to train again in every fold (true), never (false) or "
+            "every n folds (an integer). Null for false: train once. "
+            "Refitting multiplies the cost; ForecasterStats is refitted in "
+            "every fold whatever it says."
         ))] = None,
         fixed_train_size: Annotated[bool | None, Field(description=(
-            "Whether the training window keeps its size when refitting."
+            "Whether the training window keeps its size when refitting "
+            "(true) or grows (false). Null for false; it only matters with "
+            "`refit`."
         ))] = None,
         gap: Annotated[int | None, Field(ge=0, description=(
-            "Observations between the end of training and the test set."
+            "Observations between the end of training and the test set. Null "
+            "for 0."
         ))] = None,
-        skip_folds: Annotated[Count | list[NonNegative] | None, Field(description=(
-            "Keep every n-th fold (an integer), or skip the listed folds."
+        skip_folds: Annotated[Count | list[Count] | None, Field(description=(
+            "Folds are numbered from 0, and fold 0 always runs. An integer n "
+            "keeps folds 0, n, 2n, ...; a list skips the folds at those "
+            "numbers (each at least 1). Null for every fold."
         ))] = None,
         allow_incomplete_fold: Annotated[bool | None, Field(description=(
-            "Whether the last fold may have fewer than `steps` observations."
+            "Whether the last fold may have fewer than `steps` observations. "
+            "Null for true."
         ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
@@ -1198,15 +1226,23 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Id returned by `create_cv`: every candidate is backtested on its "
             "folds."
         ))],
-        candidates: Annotated[list[CandidateArg] | None, Field(description=(
-            "Configurations to compare, each {'name': ..., 'config': "
-            "{'forecaster': ..., 'estimator': ..., 'estimator_kwargs': ..., "
-            "'lags': ..., 'window_features': ...}}. Null for the candidates "
-            "recommended by the profile. A candidate that fails is ranked last "
-            "with its error."
-        ))] = None,
-        interval: Annotated[list[float] | None, Field(description=(
-            "Prediction interval computed for every candidate, e.g. [0.1, 0.9]."
+        candidates: Annotated[list[CandidateArg] | None, Field(
+            min_length  = 1,
+            description = (
+                "Configurations to compare, each {'name': ..., 'config': "
+                "{...}}, e.g. [{'name': 'ridge', 'config': {'estimator': "
+                "'Ridge'}}]. Null for the candidates recommended by the "
+                "profile: the forecasters of its family (with several series, "
+                "ForecasterRecursiveMultiSeries and ForecasterFoundation), or "
+                "the estimators of the recommended forecaster when that leaves "
+                "one, without those above 500 estimator fits. A candidate that "
+                "fails is ranked last with its error."
+            ),
+        )] = None,
+        interval: Annotated[Interval | None, Field(description=(
+            f"Prediction interval computed for every candidate. "
+            f"{INTERVAL_DESCRIPTION} Null for the interval of the plan the "
+            f"strategy was built for."
         ))] = None,
         baseline: Annotated[bool, Field(description=(
             "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) "
@@ -1393,8 +1429,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ))],
         test_size: Annotated[int | float | str | None, Field(description=(
             "Null to forecast the future. To evaluate instead, the test set: "
-            "the last n observations (an integer, which must equal `steps`), "
-            "a fraction in (0, 1), or the ISO 8601 date it starts at."
+            "the last n observations (an integer, which must equal `steps`) "
+            "or the ISO 8601 date it starts at. A fraction in (0, 1) only "
+            "works when it gives exactly `steps` observations."
         ))] = None,
         exog_path: Annotated[str | None, Field(description=(
             "Absolute path of a CSV file with the future values of the "
@@ -1632,7 +1669,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _StrictTool.build(get_failure, "get_failure", (
             "Return the traceback and the code of a failed run or of a failed "
             "candidate of a comparison."
-        )),
+        ), read_only=True),
         _StrictTool.build(list_objects, "list_objects", (
             "List the ids of the objects the server keeps."
         ), read_only=True),

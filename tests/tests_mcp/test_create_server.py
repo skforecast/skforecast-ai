@@ -4,13 +4,31 @@ import json
 import os
 import re
 import tempfile
+from typing import get_args
 import pytest
 
 from skforecast_ai import __version__
+from skforecast_ai._constants import FORECASTER_TASK_TYPES, LONG_TRAINING_FITS
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.mcp import create_server
+from skforecast_ai.mcp.models import (
+    ESTIMATOR_KWARGS_DESCRIPTION,
+    CandidateArgs,
+    ForecasterName,
+    RefinePlanArgs,
+)
+from skforecast_ai.mcp.server import FOUNDATION_KWARGS
+from skforecast_ai.schemas.plans import CANDIDATE_CONFIG_KEYS, REFINE_PLAN_OVERRIDE_KEYS
 
-from .fixtures_mcp import GOLDEN_SCHEMAS, call, run_session, tool_schemas
+from .fixtures_mcp import (
+    GOLDEN_SCHEMAS,
+    call,
+    error_of,
+    h2o_server,
+    profile_and_plan,
+    run_session,
+    tool_schemas,
+)
 
 
 def test_create_server_tool_schemas_match_golden(tmp_path):
@@ -159,3 +177,99 @@ def test_create_server_unknown_tool(tmp_path):
 
     assert result.is_error
     assert result.content[0].text == "Unknown tool: ask"
+
+
+def test_create_server_argument_models_match_the_core():
+    """
+    Test that the keys of `refine_plan.overrides` and of a candidate are
+    those of the core, that the forecasters of the schema are those the
+    core knows, and that the description of `estimator_kwargs` names every
+    argument a foundation model takes through the server.
+    """
+    assert set(RefinePlanArgs.__annotations__) == REFINE_PLAN_OVERRIDE_KEYS
+    assert set(CandidateArgs.__annotations__) == CANDIDATE_CONFIG_KEYS
+    assert set(get_args(ForecasterName)) == set(FORECASTER_TASK_TYPES)
+    assert [k for k in FOUNDATION_KWARGS if k not in ESTIMATOR_KWARGS_DESCRIPTION] == []
+
+
+def test_create_server_schemas_describe_arguments_for_the_agent(tmp_path):
+    """
+    Test what the schemas tell the agent: `refine_plan.overrides` and the
+    candidates describe each key without the text of a Python docstring,
+    `forecaster` lists its valid values, `steps` is at least 1, `interval`
+    has two elements, the arguments of `create_cv` give their defaults,
+    `skip_folds` lists folds from 1, and `get_failure` is read-only.
+    """
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    schemas = {tool["name"]: tool for tool in tool_schemas(server)}
+    refine = schemas["refine_plan"]["input_schema"]
+    compare = schemas["compare"]["input_schema"]
+    plan = schemas["plan"]["input_schema"]["properties"]
+    create_cv = schemas["create_cv"]["input_schema"]["properties"]
+
+    for schema in (refine, compare):
+        text = json.dumps(schema)
+        assert "Attributes" not in text
+        assert "ForecastingAssistant" not in text
+        assert "RefinePlanOverrides" not in text and "CandidateConfig" not in text
+        for model in schema["$defs"].values():
+            assert all("description" in p for p in model["properties"].values())
+    overrides = refine["$defs"]["RefinePlanArgs"]["properties"]
+    assert overrides["forecaster"]["enum"] == list(get_args(ForecasterName))
+    assert overrides["steps"]["minimum"] == 1
+    assert plan["steps"]["minimum"] == 1
+    assert plan["interval"]["anyOf"][0]["minItems"] == 2
+    assert plan["interval"]["anyOf"][0]["maxItems"] == 2
+    assert all(
+        "Null for" in create_cv[name]["description"]
+        for name in (
+            "initial_train_size", "fold_stride", "refit", "fixed_train_size",
+            "gap", "skip_folds", "allow_incomplete_fold",
+        )
+    )
+    assert create_cv["skip_folds"]["anyOf"][1]["items"]["minimum"] == 1
+    assert "numbered from 0" in create_cv["skip_folds"]["description"]
+    assert schemas["get_failure"]["annotations"]["readOnlyHint"] is True
+
+
+def test_create_server_skip_folds_zero_is_invalid_argument(tmp_path):
+    """
+    Test that skipping fold 0, which skforecast rejects, is an
+    `invalid_argument` of the schema instead of an `internal_error`.
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path)
+
+    error = error_of(
+        call(server, "create_cv", {"plan_id": plan_id, "skip_folds": [0, 2]}),
+        "create_cv",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "skip_folds")
+
+
+def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
+    """
+    Test that the instructions of the server, which reach the agent without
+    the skill, carry the scale of trust (with the case without baseline),
+    the cost threshold, the notices, the interval of `compare`, the rule on
+    the data of the user and the one on foundation models.
+    """
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def steps(client):
+        return client.instructions
+
+    instructions = " ".join(run_session(server, steps).split())
+
+    for phrase in (
+        "Without a baseline",
+        "`mean_absolute_scaled_error`",
+        f"above {LONG_TRAINING_FITS} estimator fits",
+        "Read `notices` before reporting",
+        "`compare` without `interval` uses the interval of the plan",
+        "Never modify the user's data",
+        "only with their permission write a corrected copy",
+        "Foundation models other than the default",
+    ):
+        assert phrase in instructions, phrase
