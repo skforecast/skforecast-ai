@@ -744,6 +744,197 @@ def resolve_cv_config(
     return cv_config, explanation
 
 
+def plan_window_size(plan: ForecastPlan) -> int | None:
+    """
+    Return the window size of the forecaster of a plan, as skforecast
+    computes it: the observations it reads before its first prediction.
+
+    For the machine learning forecasters, the largest lag or window feature
+    plus the differentiation order; for the baseline, `offset * n_offsets`.
+    None for the forecasters whose window is not checked here
+    (`ForecasterStats`, `ForecasterFoundation`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Detailed forecasting plan.
+
+    Returns
+    -------
+    window_size : int, None
+        Window size of the forecaster, or None.
+    """
+    kwargs = plan.forecaster_kwargs
+    if plan.task_type in ("single_series", "multi_series", "multivariate"):
+        lags = kwargs.get("lags")
+        if isinstance(lags, int):
+            max_lag = lags
+        elif isinstance(lags, list):
+            max_lag = max(lags, default=0)
+        else:
+            max_lag = 0
+        max_window = 0
+        for entry in kwargs.get("window_features") or []:
+            sizes = entry.get("window_size")
+            sizes = sizes if isinstance(sizes, list) else [sizes]
+            max_window = max(
+                [max_window, *(size for size in sizes if isinstance(size, int))]
+            )
+        return max(max_lag, max_window) + (kwargs.get("differentiation") or 0)
+    if plan.task_type == "baseline":
+        offset = kwargs.get("offset", 1)
+        if isinstance(offset, int):
+            return offset * kwargs.get("n_offsets", 1)
+
+    return None
+
+
+def first_window_issue(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> str | None:
+    """
+    Say why the first training window of a strategy is too short for the
+    forecaster of a plan, or return None when it is not.
+
+    skforecast needs more observations in the first training window than
+    the window size of the forecaster (`plan_window_size`), and a direct
+    forecaster, which trains one estimator per step, at least the window
+    size plus `steps`. A strategy whose horizon leaves fewer, such as
+    `steps=100` on 204 observations (2 folds take 200), is valid for
+    `TimeSeriesFold` and fails when the forecaster is backtested.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+    data_profile : DataProfile
+        Profile of the data, to place a date `initial_train_size`.
+
+    Returns
+    -------
+    issue : str, None
+        What fails, or None.
+    """
+    window_size = plan_window_size(plan)
+    if window_size is None:
+        return None
+    # In long format skforecast splits the dates of every series, from the
+    # earliest first date, while `start_date` is the latest one.
+    start_date = data_profile.start_date
+    if data_profile.data_format == "long":
+        starts = [
+            pd.Timestamp(info.start)
+            for info in data_profile.series_lengths.values()
+            if info.start is not None
+        ]
+        if starts:
+            start_date = str(min(starts))
+    folds = _split_folds(
+        cv             = cv_as_executed(cv, plan.forecaster),
+        n_observations = data_profile.span_index_length,
+        start_date     = start_date,
+        frequency      = data_profile.frequency,
+    )
+    if not folds:
+        return None
+    train_start, train_end = folds[0][1]
+    n_train = train_end - train_start
+    if plan.forecaster in DIRECT_FORECASTERS:
+        needed = window_size + plan.steps
+        reason = (
+            f"its window size, {window_size}, plus the {plan.steps} steps it "
+            f"is trained to predict"
+        )
+    else:
+        needed = window_size + 1
+        reason = f"more than its window size, {window_size}"
+    if n_train >= needed:
+        return None
+
+    return (
+        f"The first training window of the strategy has {n_train} "
+        f"observations, and {plan.forecaster} needs at least {needed} "
+        f"({reason}), so skforecast would fail"
+    )
+
+
+def check_first_window(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Raise when the first training window of a strategy is too short for the
+    forecaster of a plan (see `first_window_issue`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    None
+    """
+    issue = first_window_issue(plan, cv, data_profile)
+    if issue is not None:
+        raise InvalidInputError(
+            f"{issue}. Use a later `initial_train_size`, or a shorter "
+            f"horizon (`steps`), fewer lags or smaller window features.",
+            field = "cv",
+            code  = "insufficient_data",
+        )
+
+
+def warn_first_window(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Warn when a strategy is built whose first training window is too short
+    for the forecaster of its plan: its backtest raises (see
+    `check_first_window`), but the strategy can still serve forecasters
+    with a smaller window in `compare()`.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy is built for.
+    cv : TimeSeriesFold
+        Strategy built.
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    None
+    """
+    try:
+        issue = first_window_issue(plan, cv, data_profile)
+    except ValueError:
+        # A strategy that cannot be split is reported where it runs; here
+        # (`backtest_code()`) the script is returned as before.
+        return
+    if issue is not None:
+        warnings.warn(
+            f"{issue}: `backtest()` of this plan with this strategy raises. "
+            f"The strategy can still serve the candidates of `compare()` "
+            f"with a smaller window; use a later `initial_train_size`, or a "
+            f"shorter horizon, to backtest this plan.",
+            UserWarning,
+            stacklevel = 3,
+        )
+
+
 def _compute_min_train_size(plan: ForecastPlan) -> int:
     """
     Compute the minimum initial training size based on task type.

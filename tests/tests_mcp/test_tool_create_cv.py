@@ -208,6 +208,31 @@ def test_tool_create_cv_notice_when_direct_forecaster_with_gap(tmp_path):
     assert (error["code"], error["field"]) == ("invalid_argument", "cv_id")
 
 
+def test_tool_create_cv_notice_when_first_window_shorter_than_forecaster(tmp_path):
+    """
+    Test that the default strategy of `steps=100` on h2o (204 observations),
+    whose first training window of 4 observations is shorter than the 36
+    the plan reads, is created with a notice (source 'runtime') that its
+    backtest raises, and that `backtest` of it is `insufficient_data`.
+    """
+    server, _, _, plan_id = _planned(tmp_path, steps=100)
+
+    result = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+    error = error_of(call(server, "backtest", {"cv_id": result["id"]}), "backtest")
+
+    assert [
+        n["message"] for n in result["notices"] if n["category"] == "UserWarning"
+    ] == [
+        "The first training window of the strategy has 4 observations, and "
+        "ForecasterRecursive needs at least 37 (more than its window size, "
+        "36), so skforecast would fail: `backtest()` of this plan with this "
+        "strategy raises. The strategy can still serve the candidates of "
+        "`compare()` with a smaller window; use a later `initial_train_size`, "
+        "or a shorter horizon, to backtest this plan."
+    ]
+    assert error["code"] == "insufficient_data"
+
+
 @pytest.mark.parametrize(
     "arguments, field",
     [

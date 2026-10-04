@@ -93,6 +93,7 @@ from .recommendation import (
     build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
+    check_first_window,
     compute_series_pacf,
     count_estimator_fits,
     cv_as_executed,
@@ -112,6 +113,7 @@ from .recommendation import (
     select_transformer_exog,
     select_transformer_series,
     select_window_features,
+    warn_first_window,
 )
 from .schemas import (
     OVERRIDE_NAMES,
@@ -2242,6 +2244,14 @@ class ForecastingAssistant:
             Timestamp, it is the last date included in the initial training set. 
             Requires a datetime index with a known frequency; a `ValueError` is 
             raised otherwise, or when the date cannot be parsed.
+
+            When the first training window is shorter than the forecaster
+            of `plan` needs (more than its window: its largest lag or window
+            feature plus the differentiation order, or the offsets of the
+            baseline; plus `steps` for a direct forecaster), for example
+            with a horizon that leaves no room for it, a `UserWarning` says
+            that `backtest()` of this plan raises; the strategy can still
+            serve forecasters with a smaller window in `compare()`.
         fold_stride : int, default None
             Number of observations that the start of the test set advances between
             consecutive folds.
@@ -2386,6 +2396,7 @@ class ForecastingAssistant:
         # one against the dataset index and requires at least 2 folds.
         cv = build_cv(cv_params=defaults, data_profile=profile.data_profile)
         _warn_direct_gap(plan, cv.gap)
+        warn_first_window(plan, cv, profile.data_profile)
         cv_config, cv_explanation = resolve_cv_config(
             cv,
             profile.data_profile,
@@ -2628,6 +2639,8 @@ class ForecastingAssistant:
         profile = _with_data_path(profile, data)
         # The script would fail, as `backtest()` says before running it.
         _check_direct_gap(plan, cv)
+        # Returned as before, with the warning of `create_cv()`.
+        warn_first_window(plan, cv, profile.data_profile)
 
         code = render_backtesting_script(
             profile=profile.data_profile, plan=plan, cv=cv
@@ -2866,6 +2879,7 @@ class ForecastingAssistant:
             whole_data = True,
         )
         _check_direct_gap(plan, cv)
+        check_first_window(plan, cv, profile.data_profile)
 
         # Resolved CV parameters (with the fold and training counts) and their
         # explanation, which states the cost of the backtest.

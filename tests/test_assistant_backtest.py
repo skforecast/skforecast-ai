@@ -444,6 +444,86 @@ def test_backtest_InvalidInputError_when_target_has_infinite_value(
 # =============================================================================
 # Tests: plans that cannot run
 # =============================================================================
+@pytest.mark.parametrize(
+    "initial_train_size, n_train",
+    [(None, 4), (36, 36)],
+    ids=["default strategy of a long horizon", "explicit window"],
+)
+def test_backtest_InvalidInputError_when_first_window_shorter_than_forecaster(
+    initial_train_size, n_train
+):
+    """
+    Test that backtest() rejects, before running, a strategy whose first
+    training window is not longer than the window of the forecaster, with
+    code 'insufficient_data' and field 'cv': on h2o (204 observations), the
+    default strategy of `steps=100` leaves 4 observations, and the default
+    plan reads 36 (its largest window feature).
+    """
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=100)
+    with pytest.warns(UserWarning, match="The first training window"):
+        cv = assistant.create_cv(
+            profile, plan, initial_train_size=initial_train_size
+        )
+
+    err_msg = re.escape(
+        f"The first training window of the strategy has {n_train} "
+        f"observations, and ForecasterRecursive needs at least 37 (more than "
+        f"its window size, 36), so skforecast would fail. Use a later "
+        f"`initial_train_size`, or a shorter horizon (`steps`), fewer lags or "
+        f"smaller window features."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data          = df_h2o,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "cv"
+
+
+def test_backtest_output_when_long_series_start_on_different_dates_and_date_split():
+    """
+    Test that a date `initial_train_size` on long data whose series start on
+    different dates is placed from the earliest first date, as skforecast
+    splits them: '2020-01-13' leaves 13 observations, more than the 5 of
+    the window of the plan, so the backtest runs without a warning.
+    """
+    dates = pd.date_range("2020-01-01", periods=80, freq="D")
+    values = np.arange(80, dtype=float) % 7
+    data = pd.concat([
+        pd.DataFrame({"date": dates, "sid": "a", "y": values}),
+        pd.DataFrame({"date": dates[10:], "sid": "b", "y": values[10:] + 1.0}),
+    ], ignore_index=True)
+    profile = assistant.profile(
+        data             = data,
+        target           = "y",
+        date_column      = "date",
+        series_id_column = "sid",
+    )
+    plan = assistant.plan(
+        profile,
+        steps           = 3,
+        lags            = 5,
+        window_features = [{"stats": ["mean"], "window_size": 2}],
+    )
+    cv = assistant.create_cv(profile, plan, initial_train_size="2020-01-13")
+
+    result = assistant.backtest(
+        data          = data,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert result.predictions.index.min() == pd.Timestamp("2020-01-14")
+
+
 def test_backtest_InvalidInputError_when_direct_forecaster_with_gap():
     """
     Test that backtest() rejects, before running, a ForecasterDirect plan

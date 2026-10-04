@@ -10,12 +10,14 @@ from .baseline import baseline_missing_values_note, select_baseline_config
 from .backtesting import (
     build_cv,
     build_cv_explanation,
+    check_first_window,
     count_cv_fits,
     count_cv_folds,
     count_estimator_fits,
     cv_as_executed,
     derive_cv_defaults,
     resolve_cv_config,
+    warn_first_window,
 )
 from .calendar import (
     drop_colliding_calendar_features,
@@ -53,6 +55,7 @@ __all__ = [
     "build_plan_explanation",
     "build_forecaster_kwargs",
     "check_exog_usage",
+    "check_first_window",
     "compute_series_pacf",
     "count_cv_fits",
     "count_cv_folds",
@@ -75,4 +78,5 @@ __all__ = [
     "select_transformer_exog",
     "select_transformer_series",
     "select_window_features",
+    "warn_first_window",
 ]

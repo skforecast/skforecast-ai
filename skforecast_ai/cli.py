@@ -604,19 +604,31 @@ def _collect_plan_overrides(
     return overrides
 
 
+# Warnings of `create_cv()` about a strategy whose backtest raises: the
+# direct forecaster with a gap and the first training window shorter than
+# the forecaster needs. `backtest` raises right after with the same reason,
+# `backtest-code` raises (direct gap) or warns (first window) itself, and a
+# candidate of `compare` that cannot run fails with its own reason.
+_STRATEGY_WARNINGS = (
+    r".*`backtest\(\)` and `backtest_code\(\)` of this plan",
+    r".*`backtest\(\)` of this plan with this strategy raises",
+)
+
+
 def _create_cv_to_backtest(assistant: ForecastingAssistant, **kwargs):
     """
-    Build the strategy that `backtest` and `backtest-code` run with the plan
-    it is built for. The warning of `create_cv()` about a direct forecaster
-    with a gap is not shown: the backtest that follows raises with the same
-    reason, and the strategy serves no other forecaster here.
+    Build the strategy that `backtest`, `backtest-code` or `compare` runs,
+    without the warnings of `create_cv()` about a strategy whose backtest of
+    its plan raises: the command says it right after (a failed candidate,
+    for `compare`).
     """
     with warnings.catch_warnings():
-        warnings.filterwarnings(
-            action   = "ignore",
-            message  = r".*`backtest\(\)` and `backtest_code\(\)` of this plan",
-            category = UserWarning,
-        )
+        for pattern in _STRATEGY_WARNINGS:
+            warnings.filterwarnings(
+                action   = "ignore",
+                message  = pattern,
+                category = UserWarning,
+            )
         return assistant.create_cv(**kwargs)
 
 
@@ -2008,7 +2020,10 @@ def compare(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
-            cv = assistant.create_cv(
+            # The default plan only sizes the strategy: each candidate that
+            # cannot run with it fails with its own reason.
+            cv = _create_cv_to_backtest(
+                assistant,
                 profile=prof,
                 plan=default_plan,
                 **cv_kwargs,

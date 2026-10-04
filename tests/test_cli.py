@@ -1087,6 +1087,47 @@ class TestBacktestCodeCVOptions:
             "each fold needs steps + gap = 7 steps ahead"
         ) in " ".join(result.output.split())
 
+    def test_backtest_exit_code_1_when_first_window_shorter_than_forecaster(
+        self, tmp_path
+    ):
+        """
+        `backtest` with a horizon that leaves the first training window
+        shorter than the window of the forecaster exits with code 1 and the
+        message of backtest(), without the warning of create_cv().
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--lags", "30", "--initial-train-size", "30",
+             "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "The first training window of the strategy has 30 observations, "
+            "and ForecasterRecursive needs at least 31 (more than its window "
+            "size, 30)"
+        ) in " ".join(result.output.split())
+
+    def test_backtest_code_warns_when_first_window_shorter_than_forecaster(
+        self, tmp_path
+    ):
+        """
+        `backtest-code` writes the script with the warning of backtest_code()
+        that a backtest of it fails (the one of create_cv() is not repeated).
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with pytest.warns(UserWarning, match="The first training window"):
+            result = runner.invoke(
+                app,
+                ["backtest-code", csv_path, "--target", "sales", "--date-column",
+                 "date", "--steps", "5", "--lags", "30",
+                 "--initial-train-size", "30", "--quiet"],
+            )
+
+        assert result.exit_code == 0, result.output
+
     def test_backtest_code_forwards_no_refit(self, tmp_path):
         """
         --no-refit reaches create_cv() and the generated script disables

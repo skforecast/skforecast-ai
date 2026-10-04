@@ -539,3 +539,48 @@ def test_backtest_code_output_when_gap_can_run(
         assert "gap " not in result.code
     else:
         assert expected_gap in result.code
+
+
+def test_backtest_code_UserWarning_when_first_window_shorter_than_forecaster():
+    """
+    Test that backtest_code() returns the script of a strategy whose first
+    training window is not longer than the window of the forecaster, with
+    the warning that its backtest raises.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, lags=30)
+    cv = TimeSeriesFold(steps=5, initial_train_size=30, verbose=False)
+
+    warn_msg = re.escape(
+        "The first training window of the strategy has 30 observations, and "
+        "ForecasterRecursive needs at least 31 (more than its window size, 30)"
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.backtest_code(
+            data    = df_no_exog,
+            cv      = cv,
+            profile = profile,
+            plan    = plan,
+        )
+
+    assert "initial_train_size = 30," in result.code
+
+
+def test_backtest_code_output_when_strategy_cannot_be_split():
+    """
+    Test that backtest_code() returns the script of a strategy that
+    skforecast cannot split (an `initial_train_size` as long as the data),
+    without the check of the first training window failing first.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=100, verbose=False)
+
+    result = assistant.backtest_code(
+        data    = df_no_exog,
+        cv      = cv,
+        profile = profile,
+        plan    = plan,
+    )
+
+    assert "initial_train_size = 100," in result.code

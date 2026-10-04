@@ -1443,3 +1443,28 @@ def test_create_cv_UserWarning_when_llm_sets_gap_for_direct_forecaster(monkeypat
         result = assistant.create_cv(profile, plan, prompt="Two days of delay")
 
     assert result.cv.gap == 2
+
+
+def test_create_cv_UserWarning_when_first_window_shorter_than_forecaster():
+    """
+    Test that create_cv() builds the default strategy of a horizon that
+    leaves no room for the window of the forecaster (h2o, 204 observations,
+    `steps=100`: 2 folds take 200 and leave 4, and the default plan reads
+    36), with a UserWarning that its backtest raises.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=100)
+
+    warn_msg = re.escape(
+        "The first training window of the strategy has 4 observations, and "
+        "ForecasterRecursive needs at least 37 (more than its window size, "
+        "36), so skforecast would fail: `backtest()` of this plan with this "
+        "strategy raises. The strategy can still serve the candidates of "
+        "`compare()` with a smaller window; use a later `initial_train_size`, "
+        "or a shorter horizon, to backtest this plan."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan)
+
+    assert result.cv_config["n_folds"] == 2
