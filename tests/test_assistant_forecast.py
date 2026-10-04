@@ -2605,6 +2605,46 @@ def test_forecast_output_when_profile_built_with_exog_columns():
     assert result.profile.data_profile.warnings == [_NOTE_LEFT_OUT]
 
 
+def test_forecast_output_when_plan_of_exog_columns_given_without_its_profile():
+    """
+    Test that a plan built from a profile with `exog_columns` records them,
+    and that forecast() given the plan without its profile profiles the data
+    with those columns: same script and predictions as with the profile,
+    instead of using the column left out.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+    plan = assistant.plan(profile, steps=3)
+    default_plan = assistant.plan(
+        assistant.profile(data=df_single, target="sales", date_column="date"),
+        steps=3,
+    )
+    expected = assistant.forecast(
+        data=df_categorical_exog, profile=profile, plan=plan, test_size=3
+    )
+
+    result = assistant.forecast(
+        data        = df_categorical_exog,
+        target      = "sales",
+        date_column = "date",
+        plan        = plan,
+        test_size   = 3,
+    )
+
+    assert plan.exog_columns == ["promo"]
+    assert default_plan.exog_columns is None
+    assert type(plan).model_validate_json(plan.model_dump_json()) == plan
+    assert result.code == expected.code
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.profile.data_profile.exog_columns == ["promo"]
+    assert result.profile.data_profile.unused_columns == ["weekday"]
+
+
 def test_forecast_output_when_profile_built_with_exog_columns_and_values_differ():
     """
     Test that forecast() with a profile built with `exog_columns` and data

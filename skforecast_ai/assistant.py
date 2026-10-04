@@ -524,10 +524,9 @@ class ForecastingAssistant:
             of them, kept in the order of the data (an empty list for none):
             the other columns are listed in `DataProfile.unused_columns`,
             with a note in `DataProfile.warnings`, and neither the plan nor
-            the generated script uses them. Pass this profile with the plan
-            to `forecast()` or `backtest()`: a plan given without its
-            profile runs with a new profile of the data, which uses every
-            column.
+            the generated script uses them. A plan built from this profile
+            records the selection (`ForecastPlan.exog_columns`), so it runs
+            on the same columns when it is given without its profile.
 
         Returns
         -------
@@ -1289,6 +1288,12 @@ class ForecastingAssistant:
             preprocessing_steps = preprocessing_steps,
             warnings            = plan_warnings,
             overridden_fields   = overridden_fields,
+            # Recorded only when the profile left columns out: without its
+            # profile, the plan would run on every column of the data.
+            exog_columns        = (
+                list(data_profile.exog_columns)
+                if data_profile.unused_columns else None
+            ),
             explanation         = explanation,
         )
 
@@ -3931,6 +3936,9 @@ class ForecastingAssistant:
                 target           = target,
                 date_column      = date_column,
                 series_id_column = series_id_column,
+                # The columns the plan was built for, when its profile left
+                # some out.
+                exog_columns     = plan.exog_columns if plan is not None else None,
             )
 
         # A supplied plan fixes the horizon: the script predicts
@@ -4181,6 +4189,9 @@ class ForecastingAssistant:
                 target           = target,
                 date_column      = date_column,
                 series_id_column = series_id_column,
+                # The columns the plan was built for, when its profile left
+                # some out.
+                exog_columns     = plan.exog_columns if plan is not None else None,
             )
         elif data is not None:
             profile = self._refresh_profile(data_df, profile)

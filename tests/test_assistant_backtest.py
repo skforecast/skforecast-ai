@@ -21,7 +21,12 @@ from skforecast_ai.exceptions import (
     InvalidInputTypeError,
 )
 
-from tests.fixtures_assistant import df_single, df_multi_wide, df_no_exog
+from tests.fixtures_assistant import (
+    df_categorical_exog,
+    df_multi_wide,
+    df_no_exog,
+    df_single,
+)
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
@@ -1144,3 +1149,44 @@ def test_backtest_output_when_stats_ignores_cv_differentiation():
     )
 
     assert result.plan.forecaster == "ForecasterStats"
+
+
+def test_backtest_output_when_plan_of_exog_columns_given_without_its_profile():
+    """
+    Test that backtest() and backtest_code() given a plan built from a
+    profile with `exog_columns`, without that profile, profile the data with
+    the columns the plan records: same script and metrics as with the
+    profile.
+    """
+    cv = TimeSeriesFold(steps=3, initial_train_size=70, verbose=False)
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+    plan = assistant.plan(profile, steps=3)
+    expected = assistant.backtest(
+        data=df_categorical_exog, cv=cv, profile=profile, plan=plan,
+        show_progress=False,
+    )
+
+    result = assistant.backtest(
+        data          = df_categorical_exog,
+        cv            = cv,
+        target        = "sales",
+        date_column   = "date",
+        plan          = plan,
+        show_progress = False,
+    )
+    code = assistant.backtest_code(
+        data        = df_categorical_exog,
+        cv          = cv,
+        target      = "sales",
+        date_column = "date",
+        plan        = plan,
+    )
+
+    assert result.code == expected.code == code.code
+    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
+    assert result.profile.data_profile.unused_columns == ["weekday"]

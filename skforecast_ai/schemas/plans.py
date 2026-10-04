@@ -517,6 +517,13 @@ class ForecastPlan(DisplayMixin, BaseModel):
         It holds names only; the values are those of the plan. `refine_plan()`
         keeps a name while the refined plan keeps its value. Empty for a
         plan of an earlier version.
+    exog_columns : list, default None
+        Exogenous columns of the profile the plan was built from, when that
+        profile left columns of the data out (`exog_columns` of `profile()`,
+        `DataProfile.unused_columns`). A method that receives the plan
+        without its profile profiles the data with these columns, so the
+        plan runs on the columns it was built for. None when the profile
+        left no column out: the data are then profiled with every column.
     explanation : str
         Explanation of the plan-level decisions.
     """
@@ -549,6 +556,7 @@ class ForecastPlan(DisplayMixin, BaseModel):
     warnings: list[str] = Field(default_factory=list)
     llm_refined_fields: list[str] = Field(default_factory=list)
     overridden_fields: list[OverrideName] = Field(default_factory=list)
+    exog_columns: list[str] | None = None
     explanation: str
 
     @field_validator("estimator_kwargs", mode="before")
