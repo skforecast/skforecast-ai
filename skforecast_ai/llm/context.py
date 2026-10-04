@@ -694,10 +694,11 @@ def render_plan_section(
     # After the preprocessing steps, which are written as sub-items of the
     # line before them, so they are never read as items of these lists.
     if plan.overridden_fields:
-        # Names from a closed set (`OverrideName`), safe as they are.
+        # Names from a closed set (`OverrideName`) when the plan is
+        # validated; a plan changed with `model_copy()` is not.
         parts.append(
             f"- Chosen by the user instead of the rules: "
-            f"{', '.join(plan.overridden_fields)}"
+            f"{', '.join(_one_line(name) for name in plan.overridden_fields)}"
         )
     if plan.warnings:
         shown, suffix = _first_items(plan.warnings, for_describe)

@@ -2527,6 +2527,45 @@ def test_compare_candidate_use_exog():
     ]
 
 
+def test_compare_overridden_fields_of_automatic_candidates_and_baseline():
+    """
+    Test that the plans of the automatic candidates and of the baseline,
+    whose forecaster and estimator the rules chose, name no decision of the
+    user but the metric passed to compare(), and that describe() does not
+    say the user chose the forecaster.
+    """
+    automatic = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        show_progress=False,
+    )
+    with_metric = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        metric="mean_squared_error",
+        show_progress=False,
+    )
+
+    assert {
+        tuple(candidate.plan.overridden_fields)
+        for candidate in automatic.candidates.values()
+    } == {()}
+    assert "Chosen by the user" not in automatic.describe()
+    baseline_plan = with_metric.candidates[with_metric.baseline_name].plan
+    assert baseline_plan.overridden_fields == ["metric"]
+    explicit = [
+        candidate.plan.overridden_fields
+        for name, candidate in with_metric.candidates.items()
+        if name != with_metric.baseline_name
+    ]
+    assert all("forecaster" in fields for fields in explicit)
+
+
 def test_compare_candidate_differentiation_runs_on_a_copy_of_the_strategy():
     """
     Test that a candidate with its own differentiation order runs on a copy

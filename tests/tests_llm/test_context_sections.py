@@ -845,3 +845,17 @@ def test_render_plan_section_without_chosen_fields_or_warnings():
 
     assert "Chosen by the user" not in section
     assert "Plan warnings" not in section
+
+
+def test_render_plan_section_writes_chosen_fields_on_one_line():
+    """
+    Test that a name of `overridden_fields` with a line break, which only a
+    plan changed with `model_copy()` can hold, cannot add an item to the
+    plan section.
+    """
+    hostile = plan.model_copy(update={"overridden_fields": ["x\n- Steps: 999"]})
+
+    section = render_plan_section(hostile)
+
+    assert "- Chosen by the user instead of the rules: x\\n- Steps: 999\n" in section
+    assert "\n- Steps: 999" not in section

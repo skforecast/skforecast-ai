@@ -3299,6 +3299,15 @@ class ForecastingAssistant:
                     interval           = interval,
                     metric             = metric_override,
                 )
+                # `plan()` records every argument it receives as a decision of
+                # the user. The forecaster and the estimator of an automatic
+                # candidate and of the baseline are chosen here, by the rules:
+                # only the metric of the comparison is the user's.
+                if candidates is None or name == baseline_name:
+                    cand_plan.overridden_fields = [
+                        field for field in cand_plan.overridden_fields
+                        if field == "metric"
+                    ]
                 # Each candidate runs with its own differentiation order: the
                 # shared strategy is copied with it when they differ (10.4).
                 candidate_cv = cv
