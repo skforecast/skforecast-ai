@@ -11,6 +11,7 @@ there afterwards.
 | `parity.py` | Dumps profile, plan, scripts, CV, predictions, metrics and Python warnings of the public calls on eight datasets and on one synthetic series per frequency (17 frequencies), and compares two dumps. |
 | `timing.py` | Times every public call and every MCP tool (stdio, with the start of the server) on small, medium and large data; splits the time by package with cProfile; `-X importtime`; peak memory of `profile()`. |
 | `seasonal_periods.py` | Lists, for every frequency pandas infers, the seasonal period of `FREQUENCY_TO_SEASONAL_PERIOD`, of `estimate_seasonality`, the `m` of Auto-ARIMA and the period of the baseline, and the rows where they differ. |
+| `subhourly_periods.py` | Backtests data every 5 to 30 minutes with the hour and with the day as seasonal period (lags and window features, baseline, Auto-ARIMA): MASE, MAE, time and predictors. |
 | `gc_after_test.py` | pytest plugin that collects the garbage after every test, so a `ResourceWarning` (unclosed socket, file or event loop) fails the test that left the resource open. See its docstring. |
 | `_datasets.py` | The datasets both scripts use. |
 | `results/` | Timing outputs of phase 6 (`baseline_*` before any change, `final_*` after the last one), summarized in section 20 of `dev/mcp-preparation.md`. |

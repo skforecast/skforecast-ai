@@ -81,7 +81,13 @@ FORECASTER_TASK_TYPES: dict[str, str] = {
     "ForecasterEquivalentDate": "baseline",
 }
 
-# Mapping from pandas frequency strings to seasonal period (m)
+# Mapping from pandas frequency strings to seasonal period (m), read first
+# by Auto-ARIMA, the rule that leaves ForecasterStats out of the candidates
+# and the baseline (`arima_seasonal_period`, `select_baseline_seasonal_period`).
+# For data every 5 to 30 minutes it keeps the day, while the lags and window
+# features (`estimate_seasonality`) put the hour first. Measured with
+# `tools/perf/subhourly_periods.py` on three real and two synthetic sets,
+# neither period won on every dataset and horizon, so both stay.
 FREQUENCY_TO_SEASONAL_PERIOD: dict[str, int] = {
     "min": 60,
     "5min": 288,
