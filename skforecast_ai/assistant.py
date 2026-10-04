@@ -2654,8 +2654,7 @@ class ForecastingAssistant:
         profile = _with_data_path(profile, data)
         # The script would fail, as `backtest()` says before running it.
         _check_direct_gap(plan, cv)
-        # Returned as before, with the warning of `create_cv()`.
-        warn_first_window(plan, cv, profile.data_profile)
+        check_first_window(plan, cv, profile.data_profile, strict=False)
 
         code = render_backtesting_script(
             profile = profile.data_profile,

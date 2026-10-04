@@ -185,10 +185,10 @@ def configure_cv_with_llm(
     # locate a date-based initial_train_size, so only then is the date
     # range offered to the model.
     start_date = end_date = None
-    if dp.frequency is not None and dp.start_date is not None:
+    if dp.frequency is not None and dp.span_start_date is not None:
         end_dates = [info.end for info in dp.series_lengths.values() if info.end]
         if end_dates:
-            start_date = dp.start_date
+            start_date = dp.span_start_date
             end_date = max(end_dates)
 
     deps = CVDeps(

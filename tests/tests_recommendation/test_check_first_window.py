@@ -45,3 +45,21 @@ def test_check_first_window_output_when_window_long_enough():
     assert check_first_window(
         plan_single_differentiation, cv, profile_single_no_exog
     ) is None
+
+
+def test_check_first_window_InvalidInputError_when_strategy_cannot_be_split():
+    """
+    Test that a strategy skforecast cannot split on the dates of the profile
+    (a date `initial_train_size` after the data) raises InvalidInputError
+    with the message of skforecast, and returns None when `strict` is False.
+    """
+    cv = TimeSeriesFold(steps=5, initial_train_size="2030-01-01", verbose=False)
+
+    err_msg = re.escape("The cross-validation strategy cannot be built: ")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        check_first_window(plan_single_differentiation, cv, profile_single_no_exog)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert check_first_window(
+        plan_single_differentiation, cv, profile_single_no_exog, strict=False
+    ) is None

@@ -1110,23 +1110,24 @@ class TestBacktestCodeCVOptions:
             "size, 30)"
         ) in " ".join(result.output.split())
 
-    def test_backtest_code_warns_when_first_window_shorter_than_forecaster(
+    def test_backtest_code_fails_when_first_window_shorter_than_forecaster(
         self, tmp_path
     ):
         """
-        `backtest-code` writes the script with the warning of backtest_code()
-        that a backtest of it fails (the one of create_cv() is not repeated).
+        `backtest-code` exits with code 1, as `backtest` does, for a strategy
+        whose first training window is shorter than the forecaster needs:
+        the script would fail.
         """
         csv_path = _write_csv(tmp_path, df_single)
-        with pytest.warns(UserWarning, match="The first training window"):
-            result = runner.invoke(
-                app,
-                ["backtest-code", csv_path, "--target", "sales", "--date-column",
-                 "date", "--steps", "5", "--lags", "30",
-                 "--initial-train-size", "30", "--quiet"],
-            )
+        result = runner.invoke(
+            app,
+            ["backtest-code", csv_path, "--target", "sales", "--date-column",
+             "date", "--steps", "5", "--lags", "30",
+             "--initial-train-size", "30", "--quiet"],
+        )
 
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 1
+        assert "The first training window of the strategy has 30" in result.stderr
 
     def test_backtest_code_forwards_no_refit(self, tmp_path):
         """

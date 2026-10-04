@@ -12,7 +12,7 @@ import warnings
 import pandas as pd
 from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
-from .._constants import DIRECT_FORECASTERS
+from .._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
@@ -54,7 +54,7 @@ def derive_cv_defaults(
     # Convert to a date string when datetime info is available
     initial_train_size = _position_to_date(
         position=initial_train_size,
-        start_date=profile.data_profile.start_date,
+        start_date=profile.data_profile.span_start_date,
         frequency=profile.data_profile.frequency,
     )
 
@@ -498,7 +498,7 @@ def build_cv(
         n_folds = count_cv_folds(
                       cv             = cv,
                       n_observations = data_profile.span_index_length,
-                      start_date     = data_profile.start_date,
+                      start_date     = data_profile.span_start_date,
                       frequency      = data_profile.frequency,
                   )
     except InvalidInputError:
@@ -580,7 +580,7 @@ def _check_skip_folds(cv: TimeSeriesFold, data_profile: DataProfile) -> None:
     n_folds = count_cv_folds(
                   cv             = unskipped,
                   n_observations = data_profile.span_index_length,
-                  start_date     = data_profile.start_date,
+                  start_date     = data_profile.span_start_date,
                   frequency      = data_profile.frequency,
               )
     beyond = [index for index in skip_folds if index >= n_folds]
@@ -714,7 +714,7 @@ def resolve_cv_config(
     folds = _split_folds(
                 cv             = cv,
                 n_observations = span_index_length,
-                start_date     = data_profile.start_date,
+                start_date     = data_profile.span_start_date,
                 frequency      = data_profile.frequency,
             )
     n_folds = len(folds)
@@ -857,6 +857,7 @@ def check_first_window(
     plan: ForecastPlan,
     cv: TimeSeriesFold,
     data_profile: DataProfile,
+    strict: bool = True,
 ) -> None:
     """
     Raise when the first training window of a strategy is too short for the
@@ -870,16 +871,31 @@ def check_first_window(
         Strategy of the backtest.
     data_profile : DataProfile
         Profile of the data.
+    strict : bool, default True
+        Whether a strategy that skforecast cannot split on the dates of the
+        profile (a date `initial_train_size` outside the data) raises an
+        `InvalidInputError` with the message of skforecast. When False it
+        is left to where the strategy runs (`backtest_code()` returns its
+        script).
 
     Returns
     -------
     None
     """
-    issue = first_window_issue(plan, cv, data_profile)
+    try:
+        issue = first_window_issue(plan, cv, data_profile)
+    except (ValueError, TypeError) as exc:
+        if strict:
+            raise _strategy_error(exc) from exc
+        return
     if issue is not None:
+        features = (
+            ", fewer lags or smaller window features"
+            if plan.forecaster in AUTOREG_FORECASTERS else ""
+        )
         raise InvalidInputError(
             f"{issue}. Use a later `initial_train_size`, or a shorter "
-            f"horizon (`steps`), fewer lags or smaller window features.",
+            f"horizon (`steps`){features}.",
             field = "cv",
             code  = "insufficient_data",
         )
@@ -912,8 +928,7 @@ def warn_first_window(
     try:
         issue = first_window_issue(plan, cv, data_profile)
     except ValueError:
-        # A strategy that cannot be split is reported where it runs; here
-        # (`backtest_code()`) the script is returned as before.
+        # A strategy that cannot be split is reported by `build_cv()`.
         return
     if issue is not None:
         warnings.warn(

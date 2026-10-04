@@ -606,9 +606,9 @@ def _collect_plan_overrides(
 
 # Warnings of `create_cv()` about a strategy whose backtest raises: the
 # direct forecaster with a gap and the first training window shorter than
-# the forecaster needs. `backtest` raises right after with the same reason,
-# `backtest-code` raises (direct gap) or warns (first window) itself, and a
-# candidate of `compare` that cannot run fails with its own reason.
+# the forecaster needs. `backtest` and `backtest-code` raise right after
+# with the same reason, and a candidate of `compare` that cannot run fails
+# with its own reason.
 _STRATEGY_WARNINGS = (
     r".*`backtest\(\)` and `backtest_code\(\)` of this plan",
     r".*`backtest\(\)` of this plan with this strategy raises",

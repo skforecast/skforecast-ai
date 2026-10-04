@@ -17,6 +17,7 @@ from skforecast_ai.schemas import CVParams, CVResult
 from tests.fixtures_assistant import (
     df_single,
     df_multi_long,
+    df_multi_long_staggered,
     df_range_index,
     df_short,
 )
@@ -1468,3 +1469,35 @@ def test_create_cv_UserWarning_when_first_window_shorter_than_forecaster():
         result = assistant.create_cv(profile, plan)
 
     assert result.cv_config["n_folds"] == 2
+
+
+def test_create_cv_output_when_long_series_start_on_different_dates():
+    """
+    Test that the default strategy of long data whose series start on
+    different dates counts from the first date of the span, not from the
+    latest first date of the series: the first training set ends inside the
+    data, and backtest() runs the folds that `cv_config` states.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data             = df_multi_long_staggered,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(profile, plan)
+    backtest = assistant.backtest(
+        data          = df_multi_long_staggered,
+        cv            = result,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert profile.data_profile.start_date == "2023-03-02"
+    assert profile.data_profile.span_start_date == "2023-01-01"
+    assert result.cv_config["initial_train_size"] == "2023-03-11"
+    assert result.cv_config["n_folds"] == 6
+    assert backtest.predictions["fold"].nunique() == 6
