@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import copy
 import numbers
 import re
 import warnings
@@ -37,7 +38,7 @@ from ._validation import (
     validate_calendar_override,
     validate_interval,
 )
-from ._dates import is_text, parse_text_dates, training_end
+from ._dates import is_text, parse_text_dates, row_dates, training_end
 from .profiling.data_profile import (
     _read_date_column,
     _try_parse_first_date_column,
@@ -1661,6 +1662,77 @@ def _warn_direct_gap(plan: ForecastPlan, gap: int) -> None:
             UserWarning,
             stacklevel = 3,
         )
+
+
+def _cv_in_time_zone(
+    cv: TimeSeriesFold,
+    data: pd.DataFrame | None,
+    data_profile: DataProfile,
+) -> TimeSeriesFold:
+    """
+    Return the strategy the backtesting script runs, with a date
+    `initial_train_size` turned into its number of observations when the
+    dates of the data have a time zone.
+
+    `create_cv()` writes the date without time zone (the profile keeps
+    none), and skforecast compares it with the index of the data, which
+    fails for dates with a time zone ("Cannot compare tz-naive and tz-aware
+    timestamps"). The date is read as the local time of the data, as the
+    profile placed it, and the script gets the observations of the data
+    from the first date to it at the frequency of the profile, which is the
+    training window skforecast takes from that date. Writing the date with
+    a UTC offset instead would not do: '+02:00' does not match a named zone
+    such as 'Europe/Madrid'. The strategy passed is not changed:
+    `cv_config` and the explanation describe it as given.
+
+    The strategy is returned as it is without data (`backtest_code()`
+    rendered from a profile, whose time zone is unknown), for a date that
+    has its own time zone, and for a date that does not parse or is outside
+    the dates of the data, which skforecast reports as before.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+    data : pandas DataFrame, None
+        Data of the backtest; None when the script is rendered without data.
+    data_profile : DataProfile
+        Profile of the data: date column and frequency.
+
+    Returns
+    -------
+    cv : TimeSeriesFold
+        `cv`, or a copy with the number of observations of its date.
+    """
+    initial_train_size = cv.initial_train_size
+    if (
+        data is None
+        or data_profile.frequency is None
+        or not isinstance(initial_train_size, (str, pd.Timestamp))
+    ):
+        return cv
+    dates = row_dates(data, data_profile.date_column)
+    if getattr(dates, "tz", None) is None:
+        return cv
+    try:
+        date = pd.Timestamp(initial_train_size)
+    except (ValueError, TypeError):
+        return cv
+    if date.tz is not None:
+        return cv
+    # Counted on the local times of the grid, so a date in the hour that a
+    # daylight saving change skips or repeats is placed as the profile did.
+    grid = pd.date_range(
+        start = dates.min(),
+        end   = dates.max(),
+        freq  = data_profile.frequency,
+    ).tz_localize(None)
+    if date < grid[0] or date > grid[-1]:
+        return cv
+    localized = copy.deepcopy(cv)
+    localized.set_params({"initial_train_size": int((grid <= date).sum())})
+
+    return localized
 
 
 def _unwrap_cv(cv: TimeSeriesFold | CVResult) -> TimeSeriesFold:

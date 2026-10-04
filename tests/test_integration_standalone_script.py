@@ -831,3 +831,36 @@ def test_standalone_scripts_match_forecast_and_backtest_when_exog_columns(
         backtest.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+def test_standalone_backtesting_script_matches_backtest_when_csv_dates_in_utc(
+    tmp_path,
+):
+    """
+    Test that the backtesting script of a CSV whose dates are in UTC, with
+    the default strategy of create_cv() (a date without time zone, which
+    the script gets as its number of observations), runs as a file and
+    gives the predictions of backtest().
+    """
+    csv_path = tmp_path / "utc.csv"
+    df_h2o.set_axis(df_h2o.index.tz_localize("UTC")).rename_axis(
+        "date"
+    ).reset_index().to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="x")
+    plan = assistant.plan(profile, steps=12)
+    cv = assistant.create_cv(profile, plan)
+
+    backtest = assistant.backtest(
+        data          = csv_path,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )

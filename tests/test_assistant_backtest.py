@@ -25,6 +25,7 @@ from tests.fixtures_assistant import df_single, df_multi_wide, df_no_exog
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
+    df_h2o_madrid,
     df_items_sales_long,
 )
 
@@ -522,6 +523,50 @@ def test_backtest_output_when_long_series_start_on_different_dates_and_date_spli
     )
 
     assert result.predictions.index.min() == pd.Timestamp("2020-01-14")
+
+
+def test_backtest_output_when_dates_have_a_time_zone():
+    """
+    Test that backtest() of data whose dates have a time zone, with the
+    default strategy of create_cv() (a date without time zone), runs: the
+    date is read in the time zone of the data, the script gets its number
+    of observations, `cv_config` keeps the date, backtest_code() returns
+    the same script, and the predictions are those of the same data
+    without time zone.
+    """
+    data = df_h2o_madrid
+    profile = assistant.profile(data=data, target="x")
+    plan = assistant.plan(profile, steps=12)
+    cv = assistant.create_cv(profile, plan)
+    naive_profile = assistant.profile(data=df_h2o, target="x")
+    naive_plan = assistant.plan(naive_profile, steps=12)
+    expected = assistant.backtest(
+        data          = df_h2o,
+        cv            = assistant.create_cv(naive_profile, naive_plan),
+        profile       = naive_profile,
+        plan          = naive_plan,
+        show_progress = False,
+    )
+
+    result = assistant.backtest(
+        data          = data,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+    code = assistant.backtest_code(data=data, cv=cv, profile=profile, plan=plan)
+
+    assert result.cv_config["initial_train_size"] == "2003-04-01"
+    assert "    initial_train_size = 142,\n" in result.code
+    assert code.code == result.code
+    np.testing.assert_allclose(
+        result.predictions["pred"].to_numpy(),
+        expected.predictions["pred"].to_numpy(),
+    )
+    assert result.predictions.index[0] == pd.Timestamp(
+        "2003-05-01", tz="Europe/Madrid"
+    )
 
 
 def test_backtest_InvalidInputError_when_direct_forecaster_with_gap():

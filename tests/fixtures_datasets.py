@@ -172,6 +172,18 @@ df_h2o_changed_value.iloc[100, 0] = 5.0
 # h2o with a new exogenous column `z`.
 df_h2o_with_exog = df_h2o.assign(z=1.0)
 
+# h2o indexed in the time zone of Madrid.
+df_h2o_madrid = df_h2o.set_axis(df_h2o.index.tz_localize("Europe/Madrid"))
+
+# Hourly data in Madrid across the spring change (2023-03-26 02:00 does not
+# exist): 210 observations from 2023-03-20 00:00.
+df_hourly_madrid_spring = pd.DataFrame(
+    {"y": np.arange(210, dtype=float) % 24},
+    index=pd.date_range(
+        "2023-03-20 00:00", periods=210, freq="h", tz="Europe/Madrid"
+    ),
+)
+
 # A daily series named like the target of h2o, to meet a monthly profile.
 df_h2o_daily = pd.DataFrame(
     {"x": np.arange(100, dtype=float)},

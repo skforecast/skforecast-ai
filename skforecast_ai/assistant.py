@@ -148,6 +148,7 @@ from ._utils import (
     _check_evaluated_target,
     _check_plan_matches_profile,
     _check_feature_name_collisions,
+    _cv_in_time_zone,
     _warn_direct_gap,
     _warn_window_without_refit,
     _resolve_data_and_target,
@@ -2611,9 +2612,18 @@ class ForecastingAssistant:
 
         cv_result = cv if isinstance(cv, CVResult) else None
         cv = _unwrap_cv(cv)
+        # Read once, as `backtest()` does: the dates give the time zone of
+        # the strategy the script runs.
+        data_df = data
+        if data is not None:
+            data_df, target, date_column, series_id_column = (
+                _resolve_inputs_with_profile(
+                    data, target, date_column, series_id_column, profile
+                )
+            )
 
         profile, plan = self._prepare_backtest(
-            data             = data,
+            data             = data_df,
             target           = target,
             cv               = cv,
             date_column      = date_column,
@@ -2643,7 +2653,9 @@ class ForecastingAssistant:
         warn_first_window(plan, cv, profile.data_profile)
 
         code = render_backtesting_script(
-            profile=profile.data_profile, plan=plan, cv=cv
+            profile = profile.data_profile,
+            plan    = plan,
+            cv      = _cv_in_time_zone(cv, data_df, profile.data_profile),
         ).full_script
 
         return CodeGenerationResult(
@@ -2906,7 +2918,9 @@ class ForecastingAssistant:
             data           = data_df,
             profile        = profile.data_profile,
             plan           = plan,
-            cv             = cv,
+            cv             = _cv_in_time_zone(
+                                 cv, data_df, profile.data_profile
+                             ),
             cv_explanation = cv_explanation,
             show_progress  = show_progress,
         )
