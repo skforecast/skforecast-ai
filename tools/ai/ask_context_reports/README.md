@@ -39,9 +39,12 @@ Before a release, run the four datasets: some scenarios need objects that
 only some datasets produce (ForecasterStats and the default comparison
 with ForecasterStats and ForecasterFoundation on `h2o`; more than 15
 candidates and more than 15 categorical variables on the single series)
-and are skipped on the others.
+and are skipped on the others. The plan with decisions of the user and a
+plan warning (`overrides_plan`) and the backtest script of the same data
+with dates in Europe/Madrid (`time_zone_backtest_code`) run on all four
+(the first on single and multi-series data, as the four are).
 
-A full run makes about 15 to 20 calls per dataset. With `google:gemini-3.8-flash`
+A full run makes about 25 to 30 calls per dataset. With `google:gemini-3.8-flash`
 that is a few cents. Ad hoc reports land in this folder with a timestamped
 name and are ignored by git.
 

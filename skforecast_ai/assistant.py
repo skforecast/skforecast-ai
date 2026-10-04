@@ -5,14 +5,18 @@
 ################################################################################
 
 from __future__ import annotations
+import contextlib
 import copy
+import hashlib
 import json
 import numbers
 import sys
 import warnings
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+import numpy as np
 import pandas as pd
 
 if sys.version_info >= (3, 12):
@@ -24,6 +28,7 @@ from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
     AUTOREG_FORECASTERS,
     BASELINE_FORECASTERS,
+    DIRECT_FORECASTERS,
     FORECASTER_TASK_TYPES,
     MAX_FEATURE_FRACTION,
     OLLAMA_MAX_CONTEXT_TOKENS,
@@ -99,6 +104,7 @@ from .recommendation import (
     cv_as_executed,
     derive_cv_defaults,
     derive_preprocessing_steps,
+    constant_calendar_features,
     drop_colliding_calendar_features,
     finalize_lags,
     resolve_cv_config,
@@ -373,6 +379,92 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     }
 
 
+# Data profiles kept by `_refresh_profile`, at most (a few datasets in turn).
+_MAX_FRESH_PROFILES = 8
+
+
+def _frame_fingerprint(frame: pd.DataFrame) -> str | None:
+    """
+    Return a digest that changes whenever the values, labels, dtypes or
+    index of a frame change, or None when it cannot be told reliably.
+
+    It is the hash of every row (`pandas.util.hash_pandas_object`, index
+    included) with the shape, labels, dtypes, index type, names and
+    frequency, the categories of categorical columns, the local times of
+    dates with a time zone, and which missing marker (`None`, `NaN`,
+    `pd.NA`) each missing object value is, since pandas hashes them alike. pandas also hashes an object value through
+    its text, so `1` and `'1'` would hash alike: frames with object values
+    (or categories) that are not all text get None, as do a MultiIndex and
+    values that cannot be hashed.
+
+    Parameters
+    ----------
+    frame : pandas DataFrame
+        Data to fingerprint.
+
+    Returns
+    -------
+    fingerprint : str, None
+        Hexadecimal SHA-256, or None.
+    """
+
+    if isinstance(frame.columns, pd.MultiIndex) or isinstance(
+        frame.index, pd.MultiIndex
+    ):
+        return None
+    texts = ("string", "empty")
+    try:
+        digest = hashlib.sha256(repr((
+            frame.shape,
+            list(frame.columns),
+            [repr(dtype) for dtype in frame.dtypes],
+            type(frame.index).__name__,
+            repr(frame.index.dtype),
+            frame.index.name,
+            getattr(frame.index, "freqstr", None),
+        )).encode())
+        arrays = [frame.index, *(frame.iloc[:, i] for i in range(frame.shape[1]))]
+        for values in arrays:
+            if isinstance(values.dtype, pd.CategoricalDtype):
+                # The repr of a categorical dtype is cut after a few
+                # categories: they are hashed in full, with their order.
+                categories = values.dtype.categories
+                if pd.api.types.is_object_dtype(categories.dtype) and (
+                    pd.api.types.infer_dtype(categories) not in texts
+                ):
+                    return None
+                digest.update(repr(values.dtype.ordered).encode())
+                digest.update(
+                    pd.util.hash_pandas_object(categories, index=False)
+                    .to_numpy().tobytes()
+                )
+            elif isinstance(values.dtype, pd.DatetimeTZDtype):
+                # pandas hashes the instants, and the repr of the dtype
+                # names the zone: two zones of the same name with other
+                # rules ('CET' and a fixed offset called 'CET') differ in
+                # their local times, which are hashed too.
+                local = pd.DatetimeIndex(values).tz_localize(None)
+                digest.update(local.asi8.tobytes())
+            elif pd.api.types.is_object_dtype(values.dtype):
+                if pd.api.types.infer_dtype(values) not in texts:
+                    return None
+                array = np.asarray(values, dtype=object)
+                missing = np.flatnonzero(pd.isna(array))
+                digest.update(missing.tobytes())
+                digest.update(
+                    repr([type(array[i]).__name__ for i in missing]).encode()
+                )
+        digest.update(
+            pd.util.hash_pandas_object(frame, index=True).to_numpy().tobytes()
+        )
+    except (TypeError, ValueError):
+        # Values pandas cannot hash, or text it cannot encode (a lone
+        # surrogate): the data are profiled every time, as before.
+        return None
+
+    return digest.hexdigest()
+
+
 class ForecastingAssistant:
     """
     Time series forecasting assistant built on skforecast.
@@ -486,6 +578,10 @@ class ForecastingAssistant:
         self._agent           = None
         self._cv_agent        = None
         self._plan_refinement_agent = None
+        # Data profiles that `_refresh_profile` computed, by the fingerprint
+        # of the data and the columns of the saved profile: a workflow
+        # passes the same data with the same profile to every method.
+        self._fresh_profiles: OrderedDict[tuple, DataProfile] = OrderedDict()
 
     def profile(
         self,
@@ -707,9 +803,12 @@ class ForecastingAssistant:
             and `'quarter'`; an empty list for none. Only the machine
             learning forecasters take them, and only with a datetime index.
             A feature whose column is already an exogenous column used by
-            the plan raises `ValueError` (the rule leaves those out). The
-            encoding follows the estimator. If None, they are selected from
-            the frequency.
+            the plan raises `ValueError` (the rule leaves those out). A
+            feature finer than the frequency whose column takes a single
+            value on the data (`'hour'` on daily data, `'day_of_week'` on
+            weekly data) is kept, with a `UserWarning` whose text also goes
+            to `plan.warnings`. The encoding follows the estimator. If None,
+            they are selected from the frequency.
         target_transformer : str, default None
             Scaler of the target series of the machine learning
             forecasters: `'StandardScaler'`, or `'none'` for no scaling.
@@ -1014,7 +1113,7 @@ class ForecastingAssistant:
                 # `window_size` (the last-step regressor needs the target at
                 # t + steps), so reserve them from the lag budget. Recursive
                 # forecasters reserve nothing.
-                n_reserved_rows = steps - 1 if "Direct" in fc else 0
+                n_reserved_rows = steps - 1 if fc in DIRECT_FORECASTERS else 0
                 # The differentiation order adds to the window as well.
                 n_reserved_rows += differentiation or 0
                 final_lags = finalize_lags(
@@ -1252,6 +1351,22 @@ class ForecastingAssistant:
             )
             plan_warnings.append(unrecommended_message)
 
+        # A chosen calendar feature finer than the frequency (`hour` on daily
+        # data) gives a constant column: skforecast accepts it, so it is a
+        # warning and not an error (decision 5 of 19.1).
+        constant_calendar_message = None
+        constant = constant_calendar_features(
+            calendar_override or [], data_profile
+        )
+        if constant:
+            constant_calendar_message = (
+                f"Calendar features {constant} are finer than the frequency "
+                f"of the data ('{data_profile.frequency}'): each one gives a "
+                f"column with a single value, from which the model learns "
+                f"nothing. Leave them out of `calendar_features`."
+            )
+            plan_warnings.append(constant_calendar_message)
+
         # The decisions the caller made instead of the rules: None asks for
         # the rule, and empty keyword arguments are the defaults.
         overridden_fields = [
@@ -1306,6 +1421,8 @@ class ForecastingAssistant:
         # warning never hides that error.
         if unrecommended_message is not None:
             warnings.warn(unrecommended_message, UnrecommendedForecasterWarning)
+        if constant_calendar_message is not None:
+            warnings.warn(constant_calendar_message, UserWarning, stacklevel=2)
 
         return plan
 
@@ -1413,8 +1530,9 @@ class ForecastingAssistant:
             is carried over (values edited by hand, such as a key of
             `forecaster_kwargs`, or a metric that is not passed as `metric`):
             the refined plan does not keep them.
-            The split boundary, the explanation, the warnings and the marks
-            are not compared, nor the fields overridden in the call.
+            The split boundary, the explanation, the warnings, the marks
+            and the exogenous columns (recorded from the profile) are not
+            compared, nor the fields overridden in the call.
         """
 
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
@@ -2268,8 +2386,9 @@ class ForecastingAssistant:
             feature plus the differentiation order, or the offsets of the
             baseline; plus `steps` for a direct forecaster), for example
             with a horizon that leaves no room for it, a `UserWarning` says
-            that `backtest()` of this plan raises; the strategy can still
-            serve forecasters with a smaller window in `compare()`.
+            that `backtest()` of this plan raises (`backtest_code()` raises
+            too); the strategy can still serve forecasters with a smaller
+            window in `compare()`.
         fold_stride : int, default None
             Number of observations that the start of the test set advances between
             consecutive folds.
@@ -2516,7 +2635,10 @@ class ForecastingAssistant:
             describe data of the same structure (format, target, series,
             frequency, exogenous columns), or `ValueError` is raised. A
             direct forecaster with a `gap` raises `ValueError`: each fold
-            would ask it for `steps + gap` steps.
+            would ask it for `steps + gap` steps. So does a first training
+            window with fewer observations than the forecaster needs: more
+            than its window size, or at least its window size plus `steps`
+            for a direct forecaster.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -2615,10 +2737,14 @@ class ForecastingAssistant:
 
         Notes
         -----
-        To customize `lags` or `window_features`, build the plan with
-        `plan()` (or `refine_plan()`) and pass it via `plan`, then build a
-        matching `cv` with `create_cv()`. This keeps the plan and the
-        cross-validation configuration consistent.
+        `lags` and `window_features` can be passed here, but the strategy of
+        `create_cv()` was sized for the window of the plan it was built
+        from, and a first training window too short for the window of the
+        forecaster raises (see `cv`).
+
+        To keep both consistent, build the plan with `plan()` (or
+        `refine_plan()`), pass it via `plan`, and build a matching `cv` with
+        `create_cv()`.
 
         References
         ----------
@@ -2731,7 +2857,10 @@ class ForecastingAssistant:
             describe data of the same structure (format, target, series,
             frequency, exogenous columns), or `ValueError` is raised. A
             direct forecaster with a `gap` raises `ValueError`: each fold
-            would ask it for `steps + gap` steps.
+            would ask it for `steps + gap` steps. So does a first training
+            window with fewer observations than the forecaster needs: more
+            than its window size, or at least its window size plus `steps`
+            for a direct forecaster.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -2842,10 +2971,14 @@ class ForecastingAssistant:
         uses them. Exogenous variables are extracted automatically from
         `profile.data_profile.exog_columns`.
 
-        To customize `lags` or `window_features`, build the plan with
-        `plan()` (or `refine_plan()`) and pass it via `plan`, then build a
-        matching `cv` with `create_cv()`. This keeps the plan and the
-        cross-validation configuration consistent.
+        `lags` and `window_features` can be passed here, but the strategy of
+        `create_cv()` was sized for the window of the plan it was built
+        from, and a first training window too short for the window of the
+        forecaster raises (see `cv`).
+
+        To keep both consistent, build the plan with `plan()` (or
+        `refine_plan()`), pass it via `plan`, and build a matching `cv` with
+        `create_cv()`.
 
         References
         ----------
@@ -3908,8 +4041,10 @@ class ForecastingAssistant:
             with `end_train` also needs `test_size` (`forecast()` does not
             evaluate a split it was not asked for).
         overrides : dict, default None
-            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`),
-            passed to `plan()`, or checked against a supplied `plan`.
+            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`,
+            `use_exog`, `differentiation`, `calendar_features`,
+            `target_transformer`, `dropna_from_series`), passed to `plan()`,
+            or checked against a supplied `plan`.
 
         Returns
         -------
@@ -4136,8 +4271,10 @@ class ForecastingAssistant:
         window_features : list of dict, default None
             Explicit window features configuration.
         overrides : dict, default None
-            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`),
-            passed to `plan()`, or checked against a supplied `plan`.
+            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`,
+            `use_exog`, `differentiation`, `calendar_features`,
+            `target_transformer`, `dropna_from_series`), passed to `plan()`,
+            or checked against a supplied `plan`.
 
         Returns
         -------
@@ -4284,6 +4421,12 @@ class ForecastingAssistant:
           returned with a note in `DataProfile.warnings` naming the fields
           that changed.
 
+        The data profile of the same data (same fingerprint, see
+        `_frame_fingerprint`) with the same columns is computed once per
+        assistant and kept (the `_MAX_FRESH_PROFILES` used last), so a workflow
+        that passes the data and the profile to every method profiles the
+        data once.
+
         Columns of `data` the profile does not name are left out of both
         profiles and listed in `DataProfile.unused_columns`: the plan and the
         script read the columns of the profile, so the workflow runs as
@@ -4314,16 +4457,39 @@ class ForecastingAssistant:
         frame, target = _resolve_data_and_target(
             data, saved.target, saved.date_column
         )
-        # Not shown: the caller saw them when the saved profile was built,
-        # and `profile()` shows them below when the values differ.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            fresh = create_data_profile(
-                data             = frame,
-                target           = target,
-                date_column      = saved.date_column,
-                series_id_column = saved.series_id_column,
-            )
+        # The same data profiled with the same columns give the same data
+        # profile: it is kept, so a workflow profiles its data once.
+        fingerprint = _frame_fingerprint(frame)
+        key = (
+            fingerprint, repr(target), saved.date_column, saved.series_id_column
+        )
+        fresh = None
+        # Created here when `__init__` did not: a subclass that does not
+        # call it, or an assistant pickled by an earlier version.
+        kept = self.__dict__.setdefault("_fresh_profiles", OrderedDict())
+        if fingerprint is not None:
+            # Without a lock (the assistant stays picklable): a lookup that
+            # loses a race with another thread profiles the data again.
+            fresh = kept.get(key)
+            if fresh is not None:
+                with contextlib.suppress(KeyError):
+                    kept.move_to_end(key)
+        if fresh is None:
+            # Not shown: the caller saw them when the saved profile was built,
+            # and `profile()` shows them below when the values differ.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                fresh = create_data_profile(
+                    data             = frame,
+                    target           = target,
+                    date_column      = saved.date_column,
+                    series_id_column = saved.series_id_column,
+                )
+            if fingerprint is not None:
+                kept[key] = fresh
+                while len(kept) > _MAX_FRESH_PROFILES:
+                    with contextlib.suppress(KeyError):
+                        kept.popitem(last=False)
 
         differences = structure_differences(saved, fresh)
         if differences:

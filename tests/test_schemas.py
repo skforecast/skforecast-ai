@@ -495,6 +495,35 @@ def test_data_profile_span_start_date(
     assert profile.span_start_date == expected
 
 
+def test_data_profile_span_start_date_falls_back_to_start_date_when_span_does_not_fit():
+    """
+    Test that in long format the span starts at the earliest first date
+    only when the dates at `frequency` give exactly `span_index_length`
+    observations; with a `span_index_length` that does not match, shorter
+    or longer (here the value is replaced after validation), it is
+    `start_date`.
+    """
+    profile = DataProfile(
+        data_format    = "long",
+        n_series       = 2,
+        series_lengths = {
+            "a": {"length": 100, "start": "2023-01-01", "end": "2023-04-10"},
+            "b": {"length": 40, "start": "2023-03-02", "end": "2023-04-10"},
+        },
+        target         = "y",
+        index_type     = "datetime",
+        frequency      = "D",
+        start_date     = "2023-03-02",
+    )
+    shorter = profile.model_copy(update={"span_index_length": 99})
+    longer = profile.model_copy(update={"span_index_length": 101})
+
+    assert profile.span_index_length == 100
+    assert profile.span_start_date == "2023-01-01"
+    assert shorter.span_start_date == "2023-03-02"
+    assert longer.span_start_date == "2023-03-02"
+
+
 def test_data_profile_full():
     """
     Test DataProfile with all fields populated.

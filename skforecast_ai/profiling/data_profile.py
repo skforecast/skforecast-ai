@@ -30,11 +30,6 @@ from .._dates import (
 from ..schemas import DataProfile
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
-# TODO: Performance & Data Integrity - Lookahead Sampling
-# Refactor `_try_parse_first_date_column` to test a small sample (e.g., 50 rows)
-# before parsing the whole column. `pd.to_datetime` with `format="mixed"` is
-# computationally expensive and can accidentally parse categorical text IDs as dates.
-
 # TODO: Memory Optimization - Mask Filtering
 # Optimize `_extract_datetime_index` to avoid creating heavy boolean masks 
 # (e.g., `data[data[series_id] == id]`) on the entire DataFrame. Consider using
@@ -83,8 +78,8 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     inferred on windows of consecutive timestamps (the stretches between
     gaps), and the most frequent answer is accepted when every timestamp
     lies on its regular grid and at least half of that grid is observed.
-    The missing timestamps are then reported by `detect_gaps()` and
-    become NaN rows after `asfreq()`.
+    The missing timestamps are then counted by `count_missing_timestamps()`
+    and become NaN rows after `asfreq()`.
 
     Parameters
     ----------
@@ -215,8 +210,11 @@ def create_data_profile(
     index carried (negative for descending dates) is not the one of the
     data.
 
-    A CSV date column with empty cells, or whose dates mix UTC offsets,
-    raises a `ValueError` that says so (see `_try_parse_first_date_column`).
+    A CSV date column with empty cells raises a `ValueError` that says so,
+    as does one whose dates mix UTC offsets, are written in more than one
+    format, or are day-first dates whose first date also reads month-first
+    while a later one does not (see `_try_parse_first_date_column` and
+    `_read_date_column`).
 
     In long format, the frequency of every series is read: series of
     different frequencies, or with timestamps off the grid of the others,
@@ -408,12 +406,14 @@ def create_data_profile(
     if unused_columns:
         warnings.append(unused_columns_note(unused_columns))
 
-    # Compute start_date: the reference start for position-to-date
-    # conversion.  For long format with multiple series that may have
-    # different start dates, use the latest (max) start date so that
-    # n_observations positions from start_date gives a date that
-    # guarantees enough training data for the most constrained series.
+    # Compute start_date: the first date of the data, and in long format
+    # the latest first date of the series (the one every series has
+    # reached). Positions are converted to dates from
+    # `DataProfile.span_start_date`, which in long format is the earliest
+    # first date, where `span_index_length` starts (when the span can be
+    # rebuilt from it).
     start_date: str | None = None
+    time_zone = _time_zone_name(datetime_index)
     if datetime_index is not None and len(datetime_index) > 0:
         ts = _resolve_start_date(
             data=data,
@@ -422,6 +422,13 @@ def create_data_profile(
             series_id_column=series_id_column,
             date_col=date_col,
         )
+        # With a time zone the profile names (`time_zone`), the date is
+        # written as local time without its UTC offset, as the date alone
+        # at midnight already is: the offset of the first date does not
+        # hold across a daylight saving change, and a strategy placed from
+        # it failed in the script.
+        if ts.tzinfo is not None and time_zone is not None:
+            ts = ts.tz_localize(None)
         if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
             start_date = str(ts)
         else:
@@ -455,7 +462,7 @@ def create_data_profile(
         data_path=data_path,
         # Train/test split
         start_date=start_date,
-        time_zone=_time_zone_name(datetime_index),
+        time_zone=time_zone,
         # Diagnostics
         warnings=warnings,
     )
@@ -1445,7 +1452,11 @@ def _frame_index_bounds(
     if not datetime_available:
         return None, None
     if date_col is not None and date_col in frame.columns:
-        col = pd.to_datetime(frame[date_col])
+        col = frame[date_col]
+        # Converting a column of dates again gives the same values, and per
+        # series of long data it cost more than the rest of the profile.
+        if not pd.api.types.is_datetime64_any_dtype(col):
+            col = pd.to_datetime(col)
         return col.min(), col.max()
     if isinstance(frame.index, pd.DatetimeIndex):
         return frame.index.min(), frame.index.max()
@@ -2489,13 +2500,15 @@ def _resolve_start_date(
     date_col: str | None,
 ) -> pd.Timestamp:
     """
-    Determine the reference start date for position-to-date conversion.
+    Determine `DataProfile.start_date`.
 
     For single and wide formats, returns the first element of the
     datetime index. For long format with multiple series that may have
     different start dates, returns the **latest** first date across all
-    series so that position calculations align with the most
-    constrained (latest-starting) series.
+    series, the first date every series has reached. Positions are
+    converted to dates from `DataProfile.span_start_date` instead, which
+    in long format is the earliest first date when the span can be rebuilt
+    from it.
 
     Parameters
     ----------
@@ -3271,36 +3284,6 @@ def count_missing_timestamps(
         return 0
 
     return int((~expected.isin(datetime_index)).sum())
-
-
-def detect_gaps(
-    datetime_index: pd.DatetimeIndex | None,
-    frequency: str | None,
-) -> bool:
-    """
-    Detect whether the datetime index has missing timestamps.
-
-    Parameters
-    ----------
-    datetime_index : pandas DatetimeIndex, None
-        The datetime index to check.
-    frequency : str, None
-        Inferred frequency string.
-
-    Returns
-    -------
-    has_gaps : bool
-        True if there are missing timestamps within the date range.
-
-    Notes
-    -----
-    This function requires a known `frequency` to compare actual vs
-    expected timestamps. `infer_frequency()` tolerates gaps, so it is
-    None only for irregular spacing; this function then returns False,
-    meaning "gaps not detected", not "no gaps exist", and the profiler
-    warns that the frequency could not be inferred.
-    """
-    return count_missing_timestamps(datetime_index, frequency) > 0
 
 
 def _check_duplicate_timestamps(

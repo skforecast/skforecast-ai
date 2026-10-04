@@ -12,7 +12,7 @@ import warnings
 import pandas as pd
 from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
-from .._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS
+from .._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS, ML_TASK_TYPES
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
@@ -823,7 +823,7 @@ def plan_window_size(plan: ForecastPlan) -> int | None:
         Window size of the forecaster, or None.
     """
     kwargs = plan.forecaster_kwargs
-    if plan.task_type in ("single_series", "multi_series", "multivariate"):
+    if plan.task_type in ML_TASK_TYPES:
         lags = kwargs.get("lags")
         if isinstance(lags, int):
             max_lag = lags
@@ -1004,11 +1004,13 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
     """
     Compute the minimum initial training size based on task type.
 
-    The effective window size of a forecaster is
-    `max(max_lag, max_window_from_window_features)`, plus its
-    differentiation order.
-    `initial_train_size` must exceed this value for skforecast to
-    accept the CV configuration.
+    The window size of the forecaster is the one skforecast computes
+    (`plan_window_size`: the largest lag or window feature plus the
+    differentiation order, or `offset * n_offsets` for the baseline).
+    `initial_train_size` must exceed it for skforecast to accept the CV
+    configuration, so the minimum is the window plus `steps`; without lags
+    or window features, and for the forecasters without a window, it is
+    twice `steps`.
 
     Parameters
     ----------
@@ -1021,46 +1023,19 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
         Minimum number of observations for the initial training set.
     """
 
-    task_type = plan.task_type
     steps = plan.steps
+    window_size = plan_window_size(plan)
 
-    if task_type in ("single_series", "multi_series", "multivariate"):
-        lags = plan.forecaster_kwargs.get("lags")
-        if isinstance(lags, int):
-            max_lag = lags
-        elif isinstance(lags, list):
-            max_lag = max(lags, default=0)
-        else:
-            max_lag = 0
-
-        # Account for window_features which also contribute to window_size
-        max_window = 0
-        wf = plan.forecaster_kwargs.get("window_features")
-        if isinstance(wf, list):
-            for entry in wf:
-                ws = entry.get("window_size")
-                if isinstance(ws, int):
-                    max_window = max(max_window, ws)
-                elif isinstance(ws, list):
-                    max_window = max(max_window, max(ws, default=0))
-
-        effective_window = max(max_lag, max_window)
-        if effective_window == 0:
+    if plan.task_type in ML_TASK_TYPES:
+        differentiation = plan.forecaster_kwargs.get("differentiation") or 0
+        if window_size == differentiation:
+            # No lags nor window features: the order alone is no window.
             return 2 * steps
+        return window_size + steps
 
-        # The differentiation order adds to the window of skforecast.
-        effective_window += plan.forecaster_kwargs.get("differentiation") or 0
-
-        # Need initial_train_size > window_size, so floor at window + steps
-        return effective_window + steps
-
-    if task_type == "baseline":
+    if plan.task_type == "baseline" and window_size is not None:
         # ForecasterEquivalentDate needs more observations than
         # `offset * n_offsets` to find every equivalent date.
-        window_size = (
-            plan.forecaster_kwargs.get("offset", 1)
-            * plan.forecaster_kwargs.get("n_offsets", 1)
-        )
         return max(window_size + steps, 2 * steps)
 
     # statistical, foundation

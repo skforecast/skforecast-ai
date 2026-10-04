@@ -556,7 +556,9 @@ def test_profile_output_when_csv_dates_in_utc(tmp_path):
 
     assert profile.data_profile.date_column == "date"
     assert profile.data_profile.frequency == "h"
-    assert profile.data_profile.start_date == "2012-03-23 23:00:00+00:00"
+    # Local time of the zone the profile names, without the UTC offset.
+    assert profile.data_profile.start_date == "2012-03-23 23:00:00"
+    assert profile.data_profile.time_zone == "UTC"
 
 
 def test_profile_UserWarning_points_at_the_call_when_later_column_used(tmp_path):

@@ -1,0 +1,3503 @@
+{
+ "environment": {
+  "revision": "9cecadb",
+  "python": "3.11.15",
+  "machine": "x86_64",
+  "cpus": 4,
+  "skforecast_ai": "0.4.0",
+  "skforecast": "0.26.0",
+  "pandas": "2.3.3"
+ },
+ "api": {
+  "small": {
+   "dataset": "h2o",
+   "rows": 204,
+   "notes": [],
+   "calls": {
+    "profile": {
+     "median": 0.005372,
+     "runs": 5,
+     "times": [
+      0.005991,
+      0.005419,
+      0.005372,
+      0.005079,
+      0.004999
+     ],
+     "profiled_seconds": 0.0078,
+     "split": {
+      "pandas": 0.0058,
+      "skforecast_ai": 0.0007,
+      "builtins": 0.0006,
+      "skforecast": 0.0002,
+      "numpy": 0.0002,
+      "estimator": 0.0002,
+      "other": 0.0,
+      "pydantic": 0.0
+     },
+     "own_share": 0.086,
+     "own_functions": [
+      {
+       "function": "assistant.py:490:profile",
+       "calls": 1,
+       "cumtime": 0.0078,
+       "share": 0.999,
+       "tottime": 0.0001
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 0.0054,
+       "share": 0.689,
+       "tottime": 0.0001
+      },
+      {
+       "function": "schemas/profiles.py:37:_resolve_observation_counts",
+       "calls": 2,
+       "cumtime": 0.0022,
+       "share": 0.285,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:245:_populate_observation_counts",
+       "calls": 2,
+       "cumtime": 0.0022,
+       "share": 0.288,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3237:count_missing_timestamps",
+       "calls": 1,
+       "cumtime": 0.0013,
+       "share": 0.167,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:202:compute_series_pacf",
+       "calls": 1,
+       "cumtime": 0.0011,
+       "share": 0.141,
+       "tottime": 0.0001
+      },
+      {
+       "function": "profiling/data_profile.py:3306:_check_duplicate_timestamps",
+       "calls": 1,
+       "cumtime": 0.001,
+       "share": 0.128,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3094:_validate_target_has_values",
+       "calls": 1,
+       "cumtime": 0.0004,
+       "share": 0.047,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3628:_check_target_is_constant",
+       "calls": 1,
+       "cumtime": 0.0004,
+       "share": 0.052,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:78:infer_frequency",
+       "calls": 1,
+       "cumtime": 0.0004,
+       "share": 0.057,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:194:_ordered",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.043,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:2723:count_missing_values",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.025,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:2785:compute_target_stats",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.02,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:1455:_compute_series_metrics",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.008,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:2323:_sort_rows_by_date",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.008,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "plan": {
+     "median": 7e-05,
+     "runs": 5,
+     "times": [
+      0.000165,
+      7e-05,
+      9.6e-05,
+      6e-05,
+      5.1e-05
+     ],
+     "profiled_seconds": 0.0003,
+     "split": {
+      "skforecast_ai": 0.0002,
+      "builtins": 0.0,
+      "other": 0.0,
+      "pydantic": 0.0
+     },
+     "own_share": 0.711,
+     "own_functions": [
+      {
+       "function": "assistant.py:593:plan",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.872,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.206,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.264,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.054,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:300:validate_estimator_kwargs",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.02,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:535:resolve_metric_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:585:validate_calendar_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:945:_validate_window_features",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.062,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:534:select_lags",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.031,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:781:finalize_lags",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.1,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:169:_validate_task_input",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.008,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:21:estimate_seasonality",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.048,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/explanation.py:17:build_plan_explanation",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.046,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "refine_plan": {
+     "median": 0.000156,
+     "runs": 5,
+     "times": [
+      0.000267,
+      0.000139,
+      0.000122,
+      0.000182,
+      0.000156
+     ],
+     "profiled_seconds": 0.0004,
+     "split": {
+      "skforecast_ai": 0.0003,
+      "builtins": 0.0001,
+      "other": 0.0,
+      "pydantic": 0.0
+     },
+     "own_share": 0.714,
+     "own_functions": [
+      {
+       "function": "assistant.py:1312:refine_plan",
+       "calls": 1,
+       "cumtime": 0.0004,
+       "share": 0.95,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:593:plan",
+       "calls": 2,
+       "cumtime": 0.0003,
+       "share": 0.749,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:3795:_discarded_edits",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.442,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:945:_validate_window_features",
+       "calls": 4,
+       "cumtime": 0.0001,
+       "share": 0.136,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.171,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.206,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:194:_carried_plan_arguments",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.026,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 4,
+       "cumtime": 0.0,
+       "share": 0.112,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:300:validate_estimator_kwargs",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.019,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:535:resolve_metric_override",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:585:validate_calendar_override",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 4,
+       "cumtime": 0.0,
+       "share": 0.002,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:92:_validate_max_window_size",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.045,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:55:_max_window_size",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.033,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "create_cv": {
+     "median": 0.010189,
+     "runs": 5,
+     "times": [
+      0.010139,
+      0.010553,
+      0.010189,
+      0.010571,
+      0.010044
+     ],
+     "profiled_seconds": 0.0121,
+     "split": {
+      "pandas": 0.0102,
+      "other": 0.0006,
+      "builtins": 0.0005,
+      "skforecast_ai": 0.0004,
+      "skforecast": 0.0002,
+      "numpy": 0.0001,
+      "pydantic": 0.0
+     },
+     "own_share": 0.031,
+     "own_functions": [
+      {
+       "function": "assistant.py:2223:create_cv",
+       "calls": 1,
+       "cumtime": 0.0121,
+       "share": 0.999,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:222:_split_folds",
+       "calls": 3,
+       "cumtime": 0.0109,
+       "share": 0.903,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:491:build_cv",
+       "calls": 1,
+       "cumtime": 0.0039,
+       "share": 0.322,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:192:_local_index",
+       "calls": 4,
+       "cumtime": 0.0039,
+       "share": 0.326,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:328:count_cv_folds",
+       "calls": 1,
+       "cumtime": 0.0038,
+       "share": 0.318,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:850:first_window_issue",
+       "calls": 1,
+       "cumtime": 0.0036,
+       "share": 0.3,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:963:warn_first_window",
+       "calls": 1,
+       "cumtime": 0.0036,
+       "share": 0.3,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:724:resolve_cv_config",
+       "calls": 1,
+       "cumtime": 0.0035,
+       "share": 0.293,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:20:derive_cv_defaults",
+       "calls": 1,
+       "cumtime": 0.0008,
+       "share": 0.069,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:1070:_position_to_date",
+       "calls": 1,
+       "cumtime": 0.0008,
+       "share": 0.065,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.005,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.007,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "forecast_code": {
+     "median": 0.000152,
+     "runs": 5,
+     "times": [
+      0.000379,
+      0.000205,
+      0.000152,
+      0.00014,
+      0.000129
+     ],
+     "profiled_seconds": 0.0006,
+     "split": {
+      "skforecast_ai": 0.0004,
+      "builtins": 0.0001,
+      "pydantic": 0.0,
+      "other": 0.0
+     },
+     "own_share": 0.721,
+     "own_functions": [
+      {
+       "function": "assistant.py:1661:forecast_code",
+       "calls": 1,
+       "cumtime": 0.0006,
+       "share": 0.992,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:3837:_prepare_forecast",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.584,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:591:_revalidate_plan",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.477,
+       "tottime": 0.0
+      },
+      {
+       "function": "rendering/single_series.py:91:render_forecast_single_series",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.226,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.186,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.214,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:553:_same_values",
+       "calls": 54,
+       "cumtime": 0.0001,
+       "share": 0.206,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_utils.py:580:<genexpr>",
+       "calls": 40,
+       "cumtime": 0.0001,
+       "share": 0.191,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/forecast_runner.py:34:render_forecast_script",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.251,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.048,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.049,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:535:resolve_metric_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:585:validate_calendar_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "rendering/single_series.py:33:_emit_forecaster_creation_single",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.063,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "backtest_code": {
+     "median": 0.006967,
+     "runs": 5,
+     "times": [
+      0.007612,
+      0.007096,
+      0.006967,
+      0.006806,
+      0.006448
+     ],
+     "profiled_seconds": 0.0097,
+     "split": {
+      "pandas": 0.0073,
+      "skforecast_ai": 0.0008,
+      "builtins": 0.0008,
+      "other": 0.0005,
+      "numpy": 0.0001,
+      "skforecast": 0.0001,
+      "pydantic": 0.0
+     },
+     "own_share": 0.085,
+     "own_functions": [
+      {
+       "function": "assistant.py:2469:backtest_code",
+       "calls": 1,
+       "cumtime": 0.0097,
+       "share": 0.999,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4076:_prepare_backtest",
+       "calls": 1,
+       "cumtime": 0.0056,
+       "share": 0.582,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 1,
+       "cumtime": 0.0053,
+       "share": 0.543,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 0.0048,
+       "share": 0.497,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:222:_split_folds",
+       "calls": 1,
+       "cumtime": 0.0037,
+       "share": 0.383,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:850:first_window_issue",
+       "calls": 1,
+       "cumtime": 0.0037,
+       "share": 0.386,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:915:check_first_window",
+       "calls": 1,
+       "cumtime": 0.0037,
+       "share": 0.386,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:37:_resolve_observation_counts",
+       "calls": 1,
+       "cumtime": 0.0013,
+       "share": 0.137,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3237:count_missing_timestamps",
+       "calls": 1,
+       "cumtime": 0.0013,
+       "share": 0.134,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:245:_populate_observation_counts",
+       "calls": 1,
+       "cumtime": 0.0013,
+       "share": 0.138,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:192:_local_index",
+       "calls": 1,
+       "cumtime": 0.0011,
+       "share": 0.11,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3306:_check_duplicate_timestamps",
+       "calls": 1,
+       "cumtime": 0.0007,
+       "share": 0.075,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:338:_profile_values",
+       "calls": 2,
+       "cumtime": 0.0004,
+       "share": 0.039,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3628:_check_target_is_constant",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.036,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:591:_revalidate_plan",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.03,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "forecast": {
+     "median": 0.022389,
+     "runs": 5,
+     "times": [
+      0.043794,
+      0.02184,
+      0.021202,
+      0.022389,
+      0.023267
+     ],
+     "profiled_seconds": 0.0427,
+     "split": {
+      "pandas": 0.0248,
+      "builtins": 0.0063,
+      "other": 0.0031,
+      "numpy": 0.0028,
+      "estimator": 0.0026,
+      "skforecast": 0.0018,
+      "skforecast_ai": 0.0011,
+      "pydantic": 0.0
+     },
+     "own_share": 0.027,
+     "own_functions": [
+      {
+       "function": "assistant.py:1903:forecast",
+       "calls": 1,
+       "cumtime": 0.0426,
+       "share": 1.001,
+       "tottime": 0.0001
+      },
+      {
+       "function": "execution/forecast_runner.py:65:run_forecast",
+       "calls": 1,
+       "cumtime": 0.0334,
+       "share": 0.784,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/forecast_runner.py:189:_exec_rendered_code",
+       "calls": 1,
+       "cumtime": 0.0331,
+       "share": 0.777,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 1,
+       "cumtime": 0.033,
+       "share": 0.775,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:3837:_prepare_forecast",
+       "calls": 1,
+       "cumtime": 0.0083,
+       "share": 0.195,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 1,
+       "cumtime": 0.0051,
+       "share": 0.119,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 0.0047,
+       "share": 0.111,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_last_window.py:100:_check_wide",
+       "calls": 1,
+       "cumtime": 0.0029,
+       "share": 0.067,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_last_window.py:30:validate_last_window",
+       "calls": 1,
+       "cumtime": 0.0029,
+       "share": 0.068,
+       "tottime": 0.0
+      },
+      {
+       "function": "_last_window.py:170:_target_frame",
+       "calls": 1,
+       "cumtime": 0.0025,
+       "share": 0.059,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3237:count_missing_timestamps",
+       "calls": 1,
+       "cumtime": 0.0013,
+       "share": 0.03,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:37:_resolve_observation_counts",
+       "calls": 1,
+       "cumtime": 0.0011,
+       "share": 0.025,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:245:_populate_observation_counts",
+       "calls": 1,
+       "cumtime": 0.0011,
+       "share": 0.026,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3306:_check_duplicate_timestamps",
+       "calls": 1,
+       "cumtime": 0.0007,
+       "share": 0.017,
+       "tottime": 0.0
+      },
+      {
+       "function": "_last_window.py:655:validate_infinite_target",
+       "calls": 1,
+       "cumtime": 0.0007,
+       "share": 0.017,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "backtest": {
+     "median": 0.059616,
+     "runs": 5,
+     "times": [
+      0.05885,
+      0.059893,
+      0.100731,
+      0.05451,
+      0.059616
+     ],
+     "profiled_seconds": 0.1168,
+     "split": {
+      "pandas": 0.0692,
+      "builtins": 0.0173,
+      "other": 0.0104,
+      "numpy": 0.0079,
+      "skforecast": 0.0055,
+      "estimator": 0.0049,
+      "skforecast_ai": 0.0015,
+      "pydantic": 0.0001
+     },
+     "own_share": 0.013,
+     "own_functions": [
+      {
+       "function": "assistant.py:2683:backtest",
+       "calls": 1,
+       "cumtime": 0.1167,
+       "share": 1.0,
+       "tottime": 0.0001
+      },
+      {
+       "function": "execution/backtesting_runner.py:40:run_backtest",
+       "calls": 1,
+       "cumtime": 0.0993,
+       "share": 0.852,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/backtesting_runner.py:135:_exec_rendered_code",
+       "calls": 1,
+       "cumtime": 0.0989,
+       "share": 0.848,
+       "tottime": 0.0001
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 1,
+       "cumtime": 0.0987,
+       "share": 0.846,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4076:_prepare_backtest",
+       "calls": 1,
+       "cumtime": 0.0084,
+       "share": 0.072,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 1,
+       "cumtime": 0.0078,
+       "share": 0.067,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:222:_split_folds",
+       "calls": 2,
+       "cumtime": 0.0078,
+       "share": 0.067,
+       "tottime": 0.0001
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 0.0074,
+       "share": 0.064,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:850:first_window_issue",
+       "calls": 1,
+       "cumtime": 0.004,
+       "share": 0.034,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:915:check_first_window",
+       "calls": 1,
+       "cumtime": 0.004,
+       "share": 0.034,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:724:resolve_cv_config",
+       "calls": 1,
+       "cumtime": 0.0039,
+       "share": 0.033,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3237:count_missing_timestamps",
+       "calls": 1,
+       "cumtime": 0.0022,
+       "share": 0.019,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:192:_local_index",
+       "calls": 2,
+       "cumtime": 0.0022,
+       "share": 0.019,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:37:_resolve_observation_counts",
+       "calls": 1,
+       "cumtime": 0.0018,
+       "share": 0.015,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:245:_populate_observation_counts",
+       "calls": 1,
+       "cumtime": 0.0018,
+       "share": 0.016,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "compare": {
+     "median": 34.659255,
+     "runs": 5,
+     "times": [
+      35.602286,
+      34.161795,
+      33.686015,
+      34.659255,
+      35.240003
+     ],
+     "profiled_seconds": 38.2069,
+     "split": {
+      "skforecast": 31.4701,
+      "estimator": 3.1038,
+      "numpy": 1.6685,
+      "builtins": 1.311,
+      "pandas": 0.3332,
+      "other": 0.3098,
+      "skforecast_ai": 0.0072,
+      "pydantic": 0.0003
+     },
+     "own_share": 0.0,
+     "own_functions": [
+      {
+       "function": "assistant.py:2954:compare",
+       "calls": 1,
+       "cumtime": 38.2068,
+       "share": 1.0,
+       "tottime": 0.0003
+      },
+      {
+       "function": "assistant.py:2683:backtest",
+       "calls": 4,
+       "cumtime": 38.183,
+       "share": 0.999,
+       "tottime": 0.0003
+      },
+      {
+       "function": "execution/backtesting_runner.py:40:run_backtest",
+       "calls": 4,
+       "cumtime": 38.1195,
+       "share": 0.998,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/backtesting_runner.py:135:_exec_rendered_code",
+       "calls": 4,
+       "cumtime": 38.1179,
+       "share": 0.998,
+       "tottime": 0.0002
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 4,
+       "cumtime": 38.117,
+       "share": 0.998,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:222:_split_folds",
+       "calls": 8,
+       "cumtime": 0.0404,
+       "share": 0.001,
+       "tottime": 0.0003
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 5,
+       "cumtime": 0.0337,
+       "share": 0.001,
+       "tottime": 0.0002
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 5,
+       "cumtime": 0.0313,
+       "share": 0.001,
+       "tottime": 0.0005
+      },
+      {
+       "function": "assistant.py:4076:_prepare_backtest",
+       "calls": 4,
+       "cumtime": 0.0259,
+       "share": 0.001,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:724:resolve_cv_config",
+       "calls": 5,
+       "cumtime": 0.0259,
+       "share": 0.001,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:850:first_window_issue",
+       "calls": 4,
+       "cumtime": 0.0149,
+       "share": 0.0,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:915:check_first_window",
+       "calls": 4,
+       "cumtime": 0.0149,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:192:_local_index",
+       "calls": 8,
+       "cumtime": 0.0118,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3237:count_missing_timestamps",
+       "calls": 5,
+       "cumtime": 0.0086,
+       "share": 0.0,
+       "tottime": 0.0001
+      },
+      {
+       "function": "schemas/profiles.py:37:_resolve_observation_counts",
+       "calls": 5,
+       "cumtime": 0.0074,
+       "share": 0.0,
+       "tottime": 0.0001
+      }
+     ]
+    }
+   }
+  },
+  "medium": {
+   "dataset": "bike_sharing",
+   "rows": 17520,
+   "notes": [],
+   "calls": {
+    "profile": {
+     "median": 0.008696,
+     "runs": 5,
+     "times": [
+      0.008416,
+      0.010122,
+      0.008844,
+      0.008696,
+      0.008183
+     ],
+     "profiled_seconds": 0.0109,
+     "split": {
+      "pandas": 0.0049,
+      "skforecast": 0.0027,
+      "builtins": 0.0018,
+      "skforecast_ai": 0.0008,
+      "numpy": 0.0004,
+      "estimator": 0.0002,
+      "other": 0.0001,
+      "pydantic": 0.0
+     },
+     "own_share": 0.073,
+     "own_functions": [
+      {
+       "function": "assistant.py:490:profile",
+       "calls": 1,
+       "cumtime": 0.0109,
+       "share": 0.999,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 0.0058,
+       "share": 0.536,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/autoregressive.py:202:compute_series_pacf",
+       "calls": 1,
+       "cumtime": 0.0046,
+       "share": 0.418,
+       "tottime": 0.0001
+      },
+      {
+       "function": "profiling/data_profile.py:2723:count_missing_values",
+       "calls": 1,
+       "cumtime": 0.0016,
+       "share": 0.145,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3306:_check_duplicate_timestamps",
+       "calls": 1,
+       "cumtime": 0.0013,
+       "share": 0.115,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3237:count_missing_timestamps",
+       "calls": 1,
+       "cumtime": 0.0009,
+       "share": 0.085,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3628:_check_target_is_constant",
+       "calls": 1,
+       "cumtime": 0.0005,
+       "share": 0.05,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:37:_resolve_observation_counts",
+       "calls": 2,
+       "cumtime": 0.0004,
+       "share": 0.036,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:245:_populate_observation_counts",
+       "calls": 2,
+       "cumtime": 0.0004,
+       "share": 0.038,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:21:estimate_seasonality",
+       "calls": 2,
+       "cumtime": 0.0003,
+       "share": 0.024,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/autoregressive.py:194:_ordered",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.028,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3094:_validate_target_has_values",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.026,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:632:select_window_features",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.016,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:2692:detect_categorical_exog",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.02,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:2785:compute_target_stats",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.02,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "plan": {
+     "median": 0.000191,
+     "runs": 5,
+     "times": [
+      0.00038,
+      0.000195,
+      0.000181,
+      0.000191,
+      0.000151
+     ],
+     "profiled_seconds": 0.0005,
+     "split": {
+      "skforecast_ai": 0.0002,
+      "builtins": 0.0001,
+      "numpy": 0.0,
+      "skforecast": 0.0,
+      "other": 0.0,
+      "pydantic": 0.0
+     },
+     "own_share": 0.601,
+     "own_functions": [
+      {
+       "function": "assistant.py:593:plan",
+       "calls": 1,
+       "cumtime": 0.0004,
+       "share": 0.994,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.165,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.192,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:781:finalize_lags",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.322,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:21:estimate_seasonality",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.278,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:1289:_check_feature_name_collisions",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.168,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.086,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:300:validate_estimator_kwargs",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.015,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:535:resolve_metric_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:585:validate_calendar_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:945:_validate_window_features",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.045,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:534:select_lags",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.034,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:169:_validate_task_input",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.008,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "refine_plan": {
+     "median": 0.000251,
+     "runs": 5,
+     "times": [
+      0.000368,
+      0.000255,
+      0.00023,
+      0.000251,
+      0.000213
+     ],
+     "profiled_seconds": 0.0006,
+     "split": {
+      "skforecast_ai": 0.0004,
+      "builtins": 0.0002,
+      "skforecast": 0.0,
+      "pydantic": 0.0,
+      "other": 0.0
+     },
+     "own_share": 0.664,
+     "own_functions": [
+      {
+       "function": "assistant.py:593:plan",
+       "calls": 2,
+       "cumtime": 0.0006,
+       "share": 0.869,
+       "tottime": 0.0001
+      },
+      {
+       "function": "assistant.py:1312:refine_plan",
+       "calls": 1,
+       "cumtime": 0.0006,
+       "share": 0.995,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:3795:_discarded_edits",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.493,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 4,
+       "cumtime": 0.0001,
+       "share": 0.204,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:945:_validate_window_features",
+       "calls": 4,
+       "cumtime": 0.0001,
+       "share": 0.095,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.188,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.215,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:1289:_check_feature_name_collisions",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.179,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:926:<genexpr>",
+       "calls": 132,
+       "cumtime": 0.0001,
+       "share": 0.11,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:194:_carried_plan_arguments",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.017,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:300:validate_estimator_kwargs",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.016,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:535:resolve_metric_override",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:585:validate_calendar_override",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 4,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "create_cv": {
+     "median": 0.003674,
+     "runs": 5,
+     "times": [
+      0.004099,
+      0.003654,
+      0.003748,
+      0.003674,
+      0.003645
+     ],
+     "profiled_seconds": 0.0077,
+     "split": {
+      "skforecast": 0.0025,
+      "pandas": 0.0021,
+      "builtins": 0.0014,
+      "other": 0.0009,
+      "numpy": 0.0004,
+      "skforecast_ai": 0.0004,
+      "pydantic": 0.0
+     },
+     "own_share": 0.051,
+     "own_functions": [
+      {
+       "function": "assistant.py:2223:create_cv",
+       "calls": 1,
+       "cumtime": 0.0077,
+       "share": 1.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:222:_split_folds",
+       "calls": 3,
+       "cumtime": 0.007,
+       "share": 0.909,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:491:build_cv",
+       "calls": 1,
+       "cumtime": 0.0024,
+       "share": 0.314,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:850:first_window_issue",
+       "calls": 1,
+       "cumtime": 0.0024,
+       "share": 0.308,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:724:resolve_cv_config",
+       "calls": 1,
+       "cumtime": 0.0024,
+       "share": 0.307,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:328:count_cv_folds",
+       "calls": 1,
+       "cumtime": 0.0024,
+       "share": 0.311,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:963:warn_first_window",
+       "calls": 1,
+       "cumtime": 0.0024,
+       "share": 0.311,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:192:_local_index",
+       "calls": 4,
+       "cumtime": 0.0006,
+       "share": 0.084,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:20:derive_cv_defaults",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.043,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:1070:_position_to_date",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.038,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.01,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.012,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.005,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "forecast_code": {
+     "median": 0.000242,
+     "runs": 5,
+     "times": [
+      0.000408,
+      0.000365,
+      0.000242,
+      0.000204,
+      0.000194
+     ],
+     "profiled_seconds": 0.0007,
+     "split": {
+      "skforecast_ai": 0.0004,
+      "builtins": 0.0002,
+      "pydantic": 0.0,
+      "skforecast": 0.0,
+      "other": 0.0
+     },
+     "own_share": 0.63,
+     "own_functions": [
+      {
+       "function": "assistant.py:1661:forecast_code",
+       "calls": 1,
+       "cumtime": 0.0007,
+       "share": 0.997,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:3837:_prepare_forecast",
+       "calls": 1,
+       "cumtime": 0.0005,
+       "share": 0.732,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:591:_revalidate_plan",
+       "calls": 1,
+       "cumtime": 0.0004,
+       "share": 0.563,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:553:_same_values",
+       "calls": 86,
+       "cumtime": 0.0002,
+       "share": 0.305,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_utils.py:580:<genexpr>",
+       "calls": 44,
+       "cumtime": 0.0002,
+       "share": 0.294,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.098,
+       "tottime": 0.0
+      },
+      {
+       "function": "rendering/single_series.py:91:render_forecast_single_series",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.15,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.184,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.21,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:1289:_check_feature_name_collisions",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.089,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/forecast_runner.py:34:render_forecast_script",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.153,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.017,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:535:resolve_metric_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:585:validate_calendar_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "backtest_code": {
+     "median": 0.00589,
+     "runs": 5,
+     "times": [
+      0.006422,
+      0.005793,
+      0.006321,
+      0.00589,
+      0.005728
+     ],
+     "profiled_seconds": 0.0104,
+     "split": {
+      "pandas": 0.0055,
+      "builtins": 0.0016,
+      "skforecast_ai": 0.0012,
+      "skforecast": 0.001,
+      "other": 0.0006,
+      "numpy": 0.0004,
+      "pydantic": 0.0001
+     },
+     "own_share": 0.112,
+     "own_functions": [
+      {
+       "function": "assistant.py:2469:backtest_code",
+       "calls": 1,
+       "cumtime": 0.0104,
+       "share": 1.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4076:_prepare_backtest",
+       "calls": 1,
+       "cumtime": 0.0073,
+       "share": 0.701,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 1,
+       "cumtime": 0.0067,
+       "share": 0.641,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 0.0063,
+       "share": 0.609,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:915:check_first_window",
+       "calls": 1,
+       "cumtime": 0.0028,
+       "share": 0.265,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:222:_split_folds",
+       "calls": 1,
+       "cumtime": 0.0027,
+       "share": 0.261,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:850:first_window_issue",
+       "calls": 1,
+       "cumtime": 0.0027,
+       "share": 0.263,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:2723:count_missing_values",
+       "calls": 1,
+       "cumtime": 0.0018,
+       "share": 0.17,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3306:_check_duplicate_timestamps",
+       "calls": 1,
+       "cumtime": 0.0013,
+       "share": 0.127,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3237:count_missing_timestamps",
+       "calls": 1,
+       "cumtime": 0.001,
+       "share": 0.093,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3628:_check_target_is_constant",
+       "calls": 1,
+       "cumtime": 0.0005,
+       "share": 0.049,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:591:_revalidate_plan",
+       "calls": 1,
+       "cumtime": 0.0004,
+       "share": 0.04,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3094:_validate_target_has_values",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.025,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:78:infer_frequency",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.031,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:338:_profile_values",
+       "calls": 2,
+       "cumtime": 0.0003,
+       "share": 0.026,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "forecast": {
+     "median": 0.335877,
+     "runs": 5,
+     "times": [
+      0.345623,
+      0.297321,
+      0.310615,
+      0.347789,
+      0.335877
+     ],
+     "profiled_seconds": 0.3509,
+     "split": {
+      "estimator": 0.2844,
+      "pandas": 0.0369,
+      "builtins": 0.0126,
+      "other": 0.0065,
+      "skforecast": 0.0038,
+      "numpy": 0.0038,
+      "skforecast_ai": 0.0026,
+      "pydantic": 0.0001
+     },
+     "own_share": 0.007,
+     "own_functions": [
+      {
+       "function": "assistant.py:1903:forecast",
+       "calls": 1,
+       "cumtime": 0.3509,
+       "share": 1.0,
+       "tottime": 0.0002
+      },
+      {
+       "function": "execution/forecast_runner.py:65:run_forecast",
+       "calls": 1,
+       "cumtime": 0.3254,
+       "share": 0.928,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/forecast_runner.py:189:_exec_rendered_code",
+       "calls": 1,
+       "cumtime": 0.325,
+       "share": 0.927,
+       "tottime": 0.0001
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 1,
+       "cumtime": 0.3246,
+       "share": 0.925,
+       "tottime": 0.0
+      },
+      {
+       "function": "_future_exog.py:103:validate_future_exog",
+       "calls": 1,
+       "cumtime": 0.0142,
+       "share": 0.041,
+       "tottime": 0.0002
+      },
+      {
+       "function": "_future_exog.py:778:_check_values",
+       "calls": 1,
+       "cumtime": 0.0123,
+       "share": 0.035,
+       "tottime": 0.0003
+      },
+      {
+       "function": "assistant.py:3837:_prepare_forecast",
+       "calls": 1,
+       "cumtime": 0.0101,
+       "share": 0.029,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 1,
+       "cumtime": 0.0071,
+       "share": 0.02,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 0.0068,
+       "share": 0.019,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_last_window.py:100:_check_wide",
+       "calls": 1,
+       "cumtime": 0.0022,
+       "share": 0.006,
+       "tottime": 0.0
+      },
+      {
+       "function": "_last_window.py:30:validate_last_window",
+       "calls": 1,
+       "cumtime": 0.0022,
+       "share": 0.006,
+       "tottime": 0.0
+      },
+      {
+       "function": "_future_exog.py:1039:_learned_rows",
+       "calls": 1,
+       "cumtime": 0.0021,
+       "share": 0.006,
+       "tottime": 0.0
+      },
+      {
+       "function": "_last_window.py:170:_target_frame",
+       "calls": 1,
+       "cumtime": 0.0018,
+       "share": 0.005,
+       "tottime": 0.0
+      },
+      {
+       "function": "_future_exog.py:1108:_categories",
+       "calls": 3,
+       "cumtime": 0.0018,
+       "share": 0.005,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:2723:count_missing_values",
+       "calls": 1,
+       "cumtime": 0.0017,
+       "share": 0.005,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "backtest": {
+     "median": 1.666892,
+     "runs": 5,
+     "times": [
+      1.666892,
+      1.6906,
+      1.671629,
+      1.492394,
+      1.56458
+     ],
+     "profiled_seconds": 2.9014,
+     "split": {
+      "pandas": 0.8727,
+      "estimator": 0.7536,
+      "builtins": 0.3942,
+      "numpy": 0.3595,
+      "skforecast": 0.2871,
+      "other": 0.229,
+      "skforecast_ai": 0.0018,
+      "pydantic": 0.0001
+     },
+     "own_share": 0.001,
+     "own_functions": [
+      {
+       "function": "assistant.py:2683:backtest",
+       "calls": 1,
+       "cumtime": 2.9014,
+       "share": 1.001,
+       "tottime": 0.0002
+      },
+      {
+       "function": "execution/backtesting_runner.py:40:run_backtest",
+       "calls": 1,
+       "cumtime": 2.8863,
+       "share": 0.996,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/backtesting_runner.py:135:_exec_rendered_code",
+       "calls": 1,
+       "cumtime": 2.8859,
+       "share": 0.996,
+       "tottime": 0.0001
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 1,
+       "cumtime": 2.8855,
+       "share": 0.996,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4076:_prepare_backtest",
+       "calls": 1,
+       "cumtime": 0.0078,
+       "share": 0.003,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 1,
+       "cumtime": 0.007,
+       "share": 0.002,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 0.0066,
+       "share": 0.002,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:222:_split_folds",
+       "calls": 2,
+       "cumtime": 0.0061,
+       "share": 0.002,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:724:resolve_cv_config",
+       "calls": 1,
+       "cumtime": 0.0033,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:915:check_first_window",
+       "calls": 1,
+       "cumtime": 0.003,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:850:first_window_issue",
+       "calls": 1,
+       "cumtime": 0.0029,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:2723:count_missing_values",
+       "calls": 1,
+       "cumtime": 0.0016,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3306:_check_duplicate_timestamps",
+       "calls": 1,
+       "cumtime": 0.0015,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "profiling/data_profile.py:3237:count_missing_timestamps",
+       "calls": 1,
+       "cumtime": 0.001,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_last_window.py:655:validate_infinite_target",
+       "calls": 1,
+       "cumtime": 0.0007,
+       "share": 0.0,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "compare": {
+     "median": 8.031959,
+     "runs": 5,
+     "times": [
+      7.508111,
+      8.263148,
+      8.107448,
+      8.031959,
+      7.851816
+     ],
+     "profiled_seconds": 10.219,
+     "split": {
+      "estimator": 5.946,
+      "pandas": 2.0064,
+      "builtins": 0.7717,
+      "other": 0.5517,
+      "numpy": 0.4784,
+      "skforecast": 0.448,
+      "skforecast_ai": 0.0078,
+      "pydantic": 0.0003
+     },
+     "own_share": 0.001,
+     "own_functions": [
+      {
+       "function": "assistant.py:2954:compare",
+       "calls": 1,
+       "cumtime": 10.2189,
+       "share": 1.001,
+       "tottime": 0.0003
+      },
+      {
+       "function": "assistant.py:2683:backtest",
+       "calls": 3,
+       "cumtime": 10.2006,
+       "share": 0.999,
+       "tottime": 0.0006
+      },
+      {
+       "function": "execution/backtesting_runner.py:40:run_backtest",
+       "calls": 3,
+       "cumtime": 10.1517,
+       "share": 0.994,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/backtesting_runner.py:135:_exec_rendered_code",
+       "calls": 3,
+       "cumtime": 10.1505,
+       "share": 0.994,
+       "tottime": 0.0002
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 3,
+       "cumtime": 10.1492,
+       "share": 0.994,
+       "tottime": 0.0001
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 4,
+       "cumtime": 0.0331,
+       "share": 0.003,
+       "tottime": 0.0001
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 4,
+       "cumtime": 0.0315,
+       "share": 0.003,
+       "tottime": 0.0004
+      },
+      {
+       "function": "assistant.py:4076:_prepare_backtest",
+       "calls": 3,
+       "cumtime": 0.0266,
+       "share": 0.003,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:222:_split_folds",
+       "calls": 7,
+       "cumtime": 0.0212,
+       "share": 0.002,
+       "tottime": 0.0002
+      },
+      {
+       "function": "recommendation/backtesting.py:724:resolve_cv_config",
+       "calls": 4,
+       "cumtime": 0.0122,
+       "share": 0.001,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:915:check_first_window",
+       "calls": 3,
+       "cumtime": 0.0095,
+       "share": 0.001,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:850:first_window_issue",
+       "calls": 3,
+       "cumtime": 0.0094,
+       "share": 0.001,
+       "tottime": 0.0001
+      },
+      {
+       "function": "profiling/data_profile.py:2723:count_missing_values",
+       "calls": 4,
+       "cumtime": 0.0081,
+       "share": 0.001,
+       "tottime": 0.0002
+      },
+      {
+       "function": "profiling/data_profile.py:3306:_check_duplicate_timestamps",
+       "calls": 4,
+       "cumtime": 0.0074,
+       "share": 0.001,
+       "tottime": 0.0001
+      },
+      {
+       "function": "profiling/data_profile.py:3237:count_missing_timestamps",
+       "calls": 4,
+       "cumtime": 0.0045,
+       "share": 0.0,
+       "tottime": 0.0001
+      }
+     ]
+    }
+   }
+  },
+  "large": {
+   "dataset": "store_sales",
+   "rows": 913000,
+   "notes": [],
+   "calls": {
+    "profile": {
+     "median": 3.53049,
+     "runs": 5,
+     "times": [
+      3.484269,
+      3.510589,
+      3.53049,
+      3.748651,
+      3.622783
+     ],
+     "profiled_seconds": 3.9993,
+     "split": {
+      "pandas": 1.8717,
+      "skforecast": 1.4614,
+      "builtins": 0.274,
+      "skforecast_ai": 0.2502,
+      "estimator": 0.0695,
+      "numpy": 0.0662,
+      "other": 0.0052,
+      "pydantic": 0.0007
+     },
+     "own_share": 0.063,
+     "own_functions": [
+      {
+       "function": "assistant.py:490:profile",
+       "calls": 1,
+       "cumtime": 3.9988,
+       "share": 1.0,
+       "tottime": 0.0031
+      },
+      {
+       "function": "recommendation/autoregressive.py:202:compute_series_pacf",
+       "calls": 1,
+       "cumtime": 2.008,
+       "share": 0.502,
+       "tottime": 0.0329
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 1.9854,
+       "share": 0.497,
+       "tottime": 0.0282
+      },
+      {
+       "function": "profiling/data_profile.py:1455:_compute_series_metrics",
+       "calls": 1,
+       "cumtime": 1.0556,
+       "share": 0.264,
+       "tottime": 0.0118
+      },
+      {
+       "function": "profiling/data_profile.py:1512:<dictcomp>",
+       "calls": 1,
+       "cumtime": 1.0435,
+       "share": 0.261,
+       "tottime": 0.0034
+      },
+      {
+       "function": "profiling/data_profile.py:1493:_range",
+       "calls": 500,
+       "cumtime": 0.9059,
+       "share": 0.227,
+       "tottime": 0.002
+      },
+      {
+       "function": "profiling/data_profile.py:1421:_frame_index_bounds",
+       "calls": 500,
+       "cumtime": 0.8991,
+       "share": 0.225,
+       "tottime": 0.0032
+      },
+      {
+       "function": "profiling/data_profile.py:2785:compute_target_stats",
+       "calls": 1,
+       "cumtime": 0.1792,
+       "share": 0.045,
+       "tottime": 0.0023
+      },
+      {
+       "function": "profiling/data_profile.py:3306:_check_duplicate_timestamps",
+       "calls": 1,
+       "cumtime": 0.1676,
+       "share": 0.042,
+       "tottime": 0.0015
+      },
+      {
+       "function": "profiling/data_profile.py:1524:_long_series_dates",
+       "calls": 1,
+       "cumtime": 0.1564,
+       "share": 0.039,
+       "tottime": 0.1054
+      },
+      {
+       "function": "profiling/data_profile.py:2323:_sort_rows_by_date",
+       "calls": 1,
+       "cumtime": 0.1015,
+       "share": 0.025,
+       "tottime": 0.0072
+      },
+      {
+       "function": "profiling/data_profile.py:2403:_extract_datetime_index",
+       "calls": 1,
+       "cumtime": 0.0824,
+       "share": 0.021,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_dates.py:111:row_dates",
+       "calls": 4,
+       "cumtime": 0.079,
+       "share": 0.02,
+       "tottime": 0.0
+      },
+      {
+       "function": "_dates.py:101:_as_dates",
+       "calls": 4,
+       "cumtime": 0.0788,
+       "share": 0.02,
+       "tottime": 0.0001
+      },
+      {
+       "function": "profiling/data_profile.py:1576:_series_ending_early",
+       "calls": 1,
+       "cumtime": 0.0577,
+       "share": 0.014,
+       "tottime": 0.0039
+      }
+     ]
+    },
+    "plan": {
+     "median": 0.001233,
+     "runs": 5,
+     "times": [
+      0.001511,
+      0.00126,
+      0.001233,
+      0.001117,
+      0.00119
+     ],
+     "profiled_seconds": 0.004,
+     "split": {
+      "skforecast_ai": 0.0029,
+      "builtins": 0.001,
+      "numpy": 0.0001,
+      "other": 0.0,
+      "pydantic": 0.0
+     },
+     "own_share": 0.736,
+     "own_functions": [
+      {
+       "function": "assistant.py:593:plan",
+       "calls": 1,
+       "cumtime": 0.004,
+       "share": 0.999,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:781:finalize_lags",
+       "calls": 1,
+       "cumtime": 0.0036,
+       "share": 0.902,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/autoregressive.py:403:_aggregate_lags_multiseries",
+       "calls": 1,
+       "cumtime": 0.0034,
+       "share": 0.849,
+       "tottime": 0.0025
+      },
+      {
+       "function": "recommendation/autoregressive.py:21:estimate_seasonality",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.048,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/metric_selection.py:12:select_metric",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.041,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/metric_selection.py:66:_target_has_zeros_or_near_zero",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.041,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.016,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.019,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.005,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:300:validate_estimator_kwargs",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.002,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:535:resolve_metric_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:585:validate_calendar_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:945:_validate_window_features",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.006,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "refine_plan": {
+     "median": 0.000186,
+     "runs": 5,
+     "times": [
+      0.000321,
+      0.000186,
+      0.000179,
+      0.000165,
+      0.000461
+     ],
+     "profiled_seconds": 0.0008,
+     "split": {
+      "skforecast_ai": 0.0006,
+      "builtins": 0.0002,
+      "other": 0.0,
+      "pydantic": 0.0
+     },
+     "own_share": 0.724,
+     "own_functions": [
+      {
+       "function": "assistant.py:1312:refine_plan",
+       "calls": 1,
+       "cumtime": 0.0008,
+       "share": 0.994,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:593:plan",
+       "calls": 2,
+       "cumtime": 0.0007,
+       "share": 0.895,
+       "tottime": 0.0001
+      },
+      {
+       "function": "assistant.py:3795:_discarded_edits",
+       "calls": 1,
+       "cumtime": 0.0004,
+       "share": 0.465,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/metric_selection.py:12:select_metric",
+       "calls": 2,
+       "cumtime": 0.0003,
+       "share": 0.404,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/metric_selection.py:66:_target_has_zeros_or_near_zero",
+       "calls": 2,
+       "cumtime": 0.0003,
+       "share": 0.401,
+       "tottime": 0.0002
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 4,
+       "cumtime": 0.0001,
+       "share": 0.076,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:945:_validate_window_features",
+       "calls": 4,
+       "cumtime": 0.0001,
+       "share": 0.078,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.111,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.13,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:194:_carried_plan_arguments",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.014,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:300:validate_estimator_kwargs",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.012,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:535:resolve_metric_override",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:585:validate_calendar_override",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 4,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "create_cv": {
+     "median": 0.007987,
+     "runs": 5,
+     "times": [
+      0.00874,
+      0.007987,
+      0.007748,
+      0.007983,
+      0.008195
+     ],
+     "profiled_seconds": 0.0118,
+     "split": {
+      "skforecast_ai": 0.0054,
+      "pandas": 0.0027,
+      "builtins": 0.0013,
+      "skforecast": 0.0011,
+      "numpy": 0.0007,
+      "other": 0.0006,
+      "pydantic": 0.0
+     },
+     "own_share": 0.459,
+     "own_functions": [
+      {
+       "function": "assistant.py:2223:create_cv",
+       "calls": 1,
+       "cumtime": 0.0117,
+       "share": 1.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:256:span_start_date",
+       "calls": 4,
+       "cumtime": 0.0061,
+       "share": 0.521,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:222:_split_folds",
+       "calls": 3,
+       "cumtime": 0.005,
+       "share": 0.424,
+       "tottime": 0.0001
+      },
+      {
+       "function": "recommendation/backtesting.py:724:resolve_cv_config",
+       "calls": 1,
+       "cumtime": 0.0035,
+       "share": 0.297,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:850:first_window_issue",
+       "calls": 1,
+       "cumtime": 0.0032,
+       "share": 0.271,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:963:warn_first_window",
+       "calls": 1,
+       "cumtime": 0.0032,
+       "share": 0.272,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:491:build_cv",
+       "calls": 1,
+       "cumtime": 0.003,
+       "share": 0.257,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/profiles.py:279:<listcomp>",
+       "calls": 4,
+       "cumtime": 0.0025,
+       "share": 0.21,
+       "tottime": 0.0025
+      },
+      {
+       "function": "schemas/profiles.py:280:<listcomp>",
+       "calls": 4,
+       "cumtime": 0.0024,
+       "share": 0.201,
+       "tottime": 0.0024
+      },
+      {
+       "function": "recommendation/backtesting.py:20:derive_cv_defaults",
+       "calls": 1,
+       "cumtime": 0.0019,
+       "share": 0.158,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:328:count_cv_folds",
+       "calls": 1,
+       "cumtime": 0.0016,
+       "share": 0.134,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:192:_local_index",
+       "calls": 4,
+       "cumtime": 0.0006,
+       "share": 0.054,
+       "tottime": 0.0
+      },
+      {
+       "function": "recommendation/backtesting.py:1070:_position_to_date",
+       "calls": 1,
+       "cumtime": 0.0002,
+       "share": 0.016,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.006,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.007,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "forecast_code": {
+     "median": 0.000172,
+     "runs": 5,
+     "times": [
+      0.000376,
+      0.000172,
+      0.00019,
+      0.000165,
+      0.000145
+     ],
+     "profiled_seconds": 0.0005,
+     "split": {
+      "skforecast_ai": 0.0004,
+      "builtins": 0.0001,
+      "pydantic": 0.0,
+      "other": 0.0
+     },
+     "own_share": 0.68,
+     "own_functions": [
+      {
+       "function": "assistant.py:1661:forecast_code",
+       "calls": 1,
+       "cumtime": 0.0005,
+       "share": 0.994,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:3837:_prepare_forecast",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.619,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:591:_revalidate_plan",
+       "calls": 1,
+       "cumtime": 0.0003,
+       "share": 0.524,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:757:validate_forecaster_kwargs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.194,
+       "tottime": 0.0
+      },
+      {
+       "function": "schemas/plans.py:594:_check_plan_inputs",
+       "calls": 2,
+       "cumtime": 0.0001,
+       "share": 0.226,
+       "tottime": 0.0
+      },
+      {
+       "function": "rendering/multi_series.py:99:render_forecast_multi_series",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.219,
+       "tottime": 0.0
+      },
+      {
+       "function": "_utils.py:553:_same_values",
+       "calls": 58,
+       "cumtime": 0.0001,
+       "share": 0.219,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_utils.py:580:<genexpr>",
+       "calls": 40,
+       "cumtime": 0.0001,
+       "share": 0.203,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/forecast_runner.py:34:render_forecast_script",
+       "calls": 1,
+       "cumtime": 0.0001,
+       "share": 0.253,
+       "tottime": 0.0
+      },
+      {
+       "function": "rendering/_helpers.py:1383:_emit_reshape_series_long_to_dict",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.011,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:877:_validate_lags",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.069,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:716:_validate_calendar_features",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.021,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:535:resolve_metric_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:585:validate_calendar_override",
+       "calls": 1,
+       "cumtime": 0.0,
+       "share": 0.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "_validation.py:445:validate_interval",
+       "calls": 2,
+       "cumtime": 0.0,
+       "share": 0.001,
+       "tottime": 0.0
+      }
+     ]
+    },
+    "backtest_code": {
+     "median": 1.699839,
+     "runs": 5,
+     "times": [
+      1.835983,
+      1.700052,
+      1.699839,
+      1.643389,
+      1.614342
+     ],
+     "profiled_seconds": 1.9874,
+     "split": {
+      "pandas": 1.6419,
+      "skforecast_ai": 0.1905,
+      "builtins": 0.1184,
+      "numpy": 0.0278,
+      "other": 0.0084,
+      "skforecast": 0.0004,
+      "pydantic": 0.0001
+     },
+     "own_share": 0.096,
+     "own_functions": [
+      {
+       "function": "assistant.py:2469:backtest_code",
+       "calls": 1,
+       "cumtime": 1.9874,
+       "share": 1.0,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4076:_prepare_backtest",
+       "calls": 1,
+       "cumtime": 1.9632,
+       "share": 0.988,
+       "tottime": 0.0001
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 1,
+       "cumtime": 1.9626,
+       "share": 0.988,
+       "tottime": 0.002
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 1.9559,
+       "share": 0.984,
+       "tottime": 0.0238
+      },
+      {
+       "function": "profiling/data_profile.py:1455:_compute_series_metrics",
+       "calls": 1,
+       "cumtime": 0.9902,
+       "share": 0.498,
+       "tottime": 0.0116
+      },
+      {
+       "function": "profiling/data_profile.py:1512:<dictcomp>",
+       "calls": 1,
+       "cumtime": 0.9783,
+       "share": 0.492,
+       "tottime": 0.0036
+      },
+      {
+       "function": "profiling/data_profile.py:1493:_range",
+       "calls": 500,
+       "cumtime": 0.8403,
+       "share": 0.423,
+       "tottime": 0.002
+      },
+      {
+       "function": "profiling/data_profile.py:1421:_frame_index_bounds",
+       "calls": 500,
+       "cumtime": 0.8332,
+       "share": 0.419,
+       "tottime": 0.0036
+      },
+      {
+       "function": "profiling/data_profile.py:2323:_sort_rows_by_date",
+       "calls": 1,
+       "cumtime": 0.1928,
+       "share": 0.097,
+       "tottime": 0.0054
+      },
+      {
+       "function": "profiling/data_profile.py:2785:compute_target_stats",
+       "calls": 1,
+       "cumtime": 0.1762,
+       "share": 0.089,
+       "tottime": 0.0019
+      },
+      {
+       "function": "_dates.py:111:row_dates",
+       "calls": 4,
+       "cumtime": 0.1712,
+       "share": 0.086,
+       "tottime": 0.0
+      },
+      {
+       "function": "_dates.py:101:_as_dates",
+       "calls": 4,
+       "cumtime": 0.1711,
+       "share": 0.086,
+       "tottime": 0.0001
+      },
+      {
+       "function": "profiling/data_profile.py:1524:_long_series_dates",
+       "calls": 1,
+       "cumtime": 0.1496,
+       "share": 0.075,
+       "tottime": 0.0984
+      },
+      {
+       "function": "profiling/data_profile.py:3306:_check_duplicate_timestamps",
+       "calls": 1,
+       "cumtime": 0.135,
+       "share": 0.068,
+       "tottime": 0.0013
+      },
+      {
+       "function": "profiling/data_profile.py:2403:_extract_datetime_index",
+       "calls": 1,
+       "cumtime": 0.0806,
+       "share": 0.041,
+       "tottime": 0.0001
+      }
+     ]
+    },
+    "forecast": {
+     "median": 8.52602,
+     "runs": 5,
+     "times": [
+      8.517893,
+      8.552361,
+      8.52602,
+      8.685809,
+      8.246215
+     ],
+     "profiled_seconds": 10.5222,
+     "split": {
+      "pandas": 5.0986,
+      "estimator": 3.0242,
+      "builtins": 0.7668,
+      "numpy": 0.7105,
+      "skforecast": 0.6389,
+      "skforecast_ai": 0.2583,
+      "other": 0.0245,
+      "pydantic": 0.0001
+     },
+     "own_share": 0.025,
+     "own_functions": [
+      {
+       "function": "assistant.py:1903:forecast",
+       "calls": 1,
+       "cumtime": 10.522,
+       "share": 1.0,
+       "tottime": 0.0126
+      },
+      {
+       "function": "execution/forecast_runner.py:65:run_forecast",
+       "calls": 1,
+       "cumtime": 7.4623,
+       "share": 0.709,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/forecast_runner.py:189:_exec_rendered_code",
+       "calls": 1,
+       "cumtime": 7.4621,
+       "share": 0.709,
+       "tottime": 0.0001
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 1,
+       "cumtime": 7.4507,
+       "share": 0.708,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:3837:_prepare_forecast",
+       "calls": 1,
+       "cumtime": 2.1188,
+       "share": 0.201,
+       "tottime": 0.0002
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 1,
+       "cumtime": 1.9017,
+       "share": 0.181,
+       "tottime": 0.0003
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 1.8968,
+       "share": 0.18,
+       "tottime": 0.0236
+      },
+      {
+       "function": "profiling/data_profile.py:1455:_compute_series_metrics",
+       "calls": 1,
+       "cumtime": 1.0808,
+       "share": 0.103,
+       "tottime": 0.012
+      },
+      {
+       "function": "profiling/data_profile.py:1512:<dictcomp>",
+       "calls": 1,
+       "cumtime": 1.0685,
+       "share": 0.102,
+       "tottime": 0.0035
+      },
+      {
+       "function": "profiling/data_profile.py:1493:_range",
+       "calls": 500,
+       "cumtime": 0.9388,
+       "share": 0.089,
+       "tottime": 0.0021
+      },
+      {
+       "function": "profiling/data_profile.py:1421:_frame_index_bounds",
+       "calls": 500,
+       "cumtime": 0.9317,
+       "share": 0.089,
+       "tottime": 0.0036
+      },
+      {
+       "function": "_last_window.py:758:validate_series_lengths",
+       "calls": 1,
+       "cumtime": 0.9234,
+       "share": 0.088,
+       "tottime": 0.0197
+      },
+      {
+       "function": "_last_window.py:848:_series_spans",
+       "calls": 1,
+       "cumtime": 0.8996,
+       "share": 0.085,
+       "tottime": 0.0441
+      },
+      {
+       "function": "_last_window.py:30:validate_last_window",
+       "calls": 1,
+       "cumtime": 0.2165,
+       "share": 0.021,
+       "tottime": 0.0001
+      },
+      {
+       "function": "_last_window.py:219:_check_long",
+       "calls": 1,
+       "cumtime": 0.2163,
+       "share": 0.021,
+       "tottime": 0.0047
+      }
+     ]
+    },
+    "backtest": {
+     "median": 26.170237,
+     "runs": 5,
+     "times": [
+      27.000594,
+      25.414914,
+      26.34057,
+      26.170237,
+      26.067533
+     ],
+     "profiled_seconds": 53.3162,
+     "split": {
+      "pandas": 40.5274,
+      "builtins": 6.8813,
+      "estimator": 2.4022,
+      "skforecast": 1.3327,
+      "numpy": 1.1067,
+      "other": 0.8039,
+      "skforecast_ai": 0.2613,
+      "pydantic": 0.0001
+     },
+     "own_share": 0.005,
+     "own_functions": [
+      {
+       "function": "assistant.py:2683:backtest",
+       "calls": 1,
+       "cumtime": 53.3155,
+       "share": 1.0,
+       "tottime": 0.0226
+      },
+      {
+       "function": "execution/backtesting_runner.py:40:run_backtest",
+       "calls": 1,
+       "cumtime": 50.7439,
+       "share": 0.952,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/backtesting_runner.py:135:_exec_rendered_code",
+       "calls": 1,
+       "cumtime": 50.7429,
+       "share": 0.952,
+       "tottime": 0.0001
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 1,
+       "cumtime": 50.7318,
+       "share": 0.952,
+       "tottime": 0.0001
+      },
+      {
+       "function": "assistant.py:4076:_prepare_backtest",
+       "calls": 1,
+       "cumtime": 1.6109,
+       "share": 0.03,
+       "tottime": 0.0002
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 1,
+       "cumtime": 1.6102,
+       "share": 0.03,
+       "tottime": 0.0003
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 1,
+       "cumtime": 1.6048,
+       "share": 0.03,
+       "tottime": 0.0228
+      },
+      {
+       "function": "_last_window.py:758:validate_series_lengths",
+       "calls": 1,
+       "cumtime": 0.9091,
+       "share": 0.017,
+       "tottime": 0.0228
+      },
+      {
+       "function": "_last_window.py:848:_series_spans",
+       "calls": 1,
+       "cumtime": 0.8804,
+       "share": 0.017,
+       "tottime": 0.0424
+      },
+      {
+       "function": "profiling/data_profile.py:1455:_compute_series_metrics",
+       "calls": 1,
+       "cumtime": 0.8154,
+       "share": 0.015,
+       "tottime": 0.0114
+      },
+      {
+       "function": "profiling/data_profile.py:1512:<dictcomp>",
+       "calls": 1,
+       "cumtime": 0.8038,
+       "share": 0.015,
+       "tottime": 0.0029
+      },
+      {
+       "function": "profiling/data_profile.py:1493:_range",
+       "calls": 500,
+       "cumtime": 0.6665,
+       "share": 0.013,
+       "tottime": 0.0017
+      },
+      {
+       "function": "profiling/data_profile.py:1421:_frame_index_bounds",
+       "calls": 500,
+       "cumtime": 0.6606,
+       "share": 0.012,
+       "tottime": 0.0029
+      },
+      {
+       "function": "profiling/data_profile.py:2785:compute_target_stats",
+       "calls": 1,
+       "cumtime": 0.1744,
+       "share": 0.003,
+       "tottime": 0.0019
+      },
+      {
+       "function": "profiling/data_profile.py:1524:_long_series_dates",
+       "calls": 1,
+       "cumtime": 0.1295,
+       "share": 0.002,
+       "tottime": 0.0852
+      }
+     ]
+    },
+    "compare": {
+     "median": 65.442014,
+     "runs": 1,
+     "times": [
+      65.442014
+     ],
+     "profiled_seconds": 119.6743,
+     "split": {
+      "pandas": 85.1199,
+      "builtins": 24.0282,
+      "estimator": 3.0897,
+      "skforecast": 2.4321,
+      "numpy": 2.1572,
+      "other": 1.8969,
+      "skforecast_ai": 0.9261,
+      "pydantic": 0.0003
+     },
+     "own_share": 0.008,
+     "own_functions": [
+      {
+       "function": "assistant.py:2954:compare",
+       "calls": 1,
+       "cumtime": 119.6731,
+       "share": 1.0,
+       "tottime": 0.0004
+      },
+      {
+       "function": "assistant.py:2683:backtest",
+       "calls": 3,
+       "cumtime": 117.7369,
+       "share": 0.984,
+       "tottime": 0.0455
+      },
+      {
+       "function": "execution/backtesting_runner.py:40:run_backtest",
+       "calls": 2,
+       "cumtime": 109.3978,
+       "share": 0.914,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/backtesting_runner.py:135:_exec_rendered_code",
+       "calls": 2,
+       "cumtime": 109.3958,
+       "share": 0.914,
+       "tottime": 0.0002
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 2,
+       "cumtime": 109.3762,
+       "share": 0.914,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:4261:_refresh_profile",
+       "calls": 4,
+       "cumtime": 7.4695,
+       "share": 0.062,
+       "tottime": 0.0012
+      },
+      {
+       "function": "profiling/data_profile.py:161:create_data_profile",
+       "calls": 4,
+       "cumtime": 7.4491,
+       "share": 0.062,
+       "tottime": 0.0889
+      },
+      {
+       "function": "assistant.py:4076:_prepare_backtest",
+       "calls": 3,
+       "cumtime": 5.5598,
+       "share": 0.046,
+       "tottime": 0.0004
+      },
+      {
+       "function": "profiling/data_profile.py:1455:_compute_series_metrics",
+       "calls": 4,
+       "cumtime": 4.1391,
+       "share": 0.035,
+       "tottime": 0.0477
+      },
+      {
+       "function": "profiling/data_profile.py:1512:<dictcomp>",
+       "calls": 4,
+       "cumtime": 4.0904,
+       "share": 0.034,
+       "tottime": 0.0141
+      },
+      {
+       "function": "profiling/data_profile.py:1493:_range",
+       "calls": 2000,
+       "cumtime": 3.5294,
+       "share": 0.029,
+       "tottime": 0.0081
+      },
+      {
+       "function": "profiling/data_profile.py:1421:_frame_index_bounds",
+       "calls": 2000,
+       "cumtime": 3.5016,
+       "share": 0.029,
+       "tottime": 0.0142
+      },
+      {
+       "function": "_last_window.py:758:validate_series_lengths",
+       "calls": 3,
+       "cumtime": 2.6673,
+       "share": 0.022,
+       "tottime": 0.0603
+      },
+      {
+       "function": "_last_window.py:848:_series_spans",
+       "calls": 3,
+       "cumtime": 2.5953,
+       "share": 0.022,
+       "tottime": 0.1164
+      },
+      {
+       "function": "profiling/data_profile.py:2785:compute_target_stats",
+       "calls": 4,
+       "cumtime": 0.7256,
+       "share": 0.006,
+       "tottime": 0.0078
+      }
+     ]
+    }
+   }
+  }
+ }
+}

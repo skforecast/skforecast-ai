@@ -8,6 +8,23 @@ from skforecast_ai.llm.context import build_context_message
 from skforecast_ai.llm.skills import load_llms_reference, load_skill
 
 
+@pytest.fixture(autouse=True)
+def event_loop_of_the_test():
+    """
+    Give each test an event loop and close it afterwards. `run_sync` of an
+    agent asks for the current loop and, when there is none, creates one
+    that nobody closes: collected later, it warns ("unclosed event loop")
+    inside whichever test is running, and warnings are errors here.
+    """
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    yield
+    loop.close()
+    asyncio.set_event_loop(None)
+
+
 def test_load_skill_FileNotFoundError_when_skill_does_not_exist():
     """
     Test that load_skill raises FileNotFoundError when the skill directory

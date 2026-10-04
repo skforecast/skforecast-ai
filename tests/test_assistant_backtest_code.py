@@ -2,6 +2,8 @@
 
 import re
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from skforecast.model_selection import TimeSeriesFold
@@ -399,6 +401,95 @@ def test_backtest_code_output_when_data_have_more_rows_than_profile():
     ]
 
 
+def test_backtest_code_profiles_the_same_data_once(monkeypatch):
+    """
+    Test that backtest_code() called again with the same data and saved
+    profile reuses the data profile it computed, with the same result, and
+    that data with another value are profiled again and get the new profile
+    with the note.
+    """
+    from skforecast_ai import assistant as assistant_module
+
+    calls = []
+    create_data_profile = assistant_module.create_data_profile
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return create_data_profile(*args, **kwargs)
+
+    monkeypatch.setattr(assistant_module, "create_data_profile", counting)
+    fresh_assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+    profile = fresh_assistant.profile(data=df_h2o, target="x")
+    n_profile = len(calls)
+
+    first = fresh_assistant.backtest_code(data=df_h2o, cv=cv, profile=profile)
+    second = fresh_assistant.backtest_code(data=df_h2o.copy(), cv=cv, profile=profile)
+    changed = df_h2o.copy()
+    changed.iloc[10, 0] = 0.5
+    third = fresh_assistant.backtest_code(data=changed, cv=cv, profile=profile)
+
+    assert len(calls) - n_profile == 3
+    assert second == first
+    assert first.profile is profile
+    assert third.profile.data_profile.warnings == [
+        "The data differ in their values from the profile passed (changed: "
+        "target_stats): the profile was computed again from these data."
+    ]
+
+
+def test_backtest_code_profiles_again_data_left_out_of_the_kept_profiles(
+    monkeypatch,
+):
+    """
+    Test that the data profiles kept by the assistant are the 8 used last
+    (data used 9 calls ago are profiled again) and that data without a
+    fingerprint (an object column with numbers and text) are profiled on
+    every call, and that a saved profile still pickles and deep-copies the
+    assistant.
+    """
+    import copy
+    import pickle
+
+    from skforecast_ai import assistant as assistant_module
+
+    calls = []
+    create_data_profile = assistant_module.create_data_profile
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return create_data_profile(*args, **kwargs)
+
+    monkeypatch.setattr(assistant_module, "create_data_profile", counting)
+    fresh_assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+    profile = fresh_assistant.profile(data=df_h2o, target="x")
+    frames = [df_h2o.iloc[i:] for i in range(10)]
+
+    # Data that differ from the saved profile are profiled twice (the data
+    # profile and `profile()`); the same data as the profile, once.
+    for frame in frames:
+        fresh_assistant.backtest_code(data=frame, cv=cv, profile=profile)
+    calls.clear()
+    fresh_assistant.backtest_code(data=frames[9], cv=cv, profile=profile)
+    kept = len(calls)
+    fresh_assistant.backtest_code(data=frames[0], cv=cv, profile=profile)
+    evicted = len(calls) - kept
+
+    mixed = df_h2o.assign(label=["a", 1] * 102)
+    mixed_profile = fresh_assistant.profile(data=mixed, target="x")
+    calls.clear()
+    for _ in range(2):
+        fresh_assistant.backtest_code(data=mixed, cv=cv, profile=mixed_profile)
+
+    assert kept == 1
+    assert evicted == 1
+    assert len(calls) == 2
+    restored = pickle.loads(pickle.dumps(fresh_assistant))
+    assert isinstance(restored, ForecastingAssistant)
+    assert isinstance(copy.deepcopy(fresh_assistant), ForecastingAssistant)
+
+
 @pytest.mark.parametrize(
     "data, differences",
     [
@@ -587,3 +678,62 @@ def test_backtest_code_output_when_strategy_cannot_be_split():
     )
 
     assert "initial_train_size = 100," in result.code
+
+
+def test_backtest_code_kept_profile_is_of_the_columns_of_the_saved_profile():
+    """
+    Test that the data profile kept for some data is only reused for a saved
+    profile of the same target, date column and series id column: the same
+    frame with a profile of another target, or with another of its columns
+    as the series id, gives the script of its own profile, as a new
+    assistant does.
+    """
+    index = pd.date_range("2022-01-01", periods=120, freq="D")
+    wide = pd.DataFrame({
+        "date": index,
+        "a": np.arange(120, dtype=float) % 7,
+        "b": np.arange(120, dtype=float) % 5,
+    })
+    long = pd.DataFrame({
+        "date": np.tile(index, 2),
+        "shop": np.repeat(["s1", "s2"], 120),
+        "region": np.repeat(["r2", "r1"], 120),
+        "value": np.arange(240, dtype=float) % 7,
+    })
+    cv = TimeSeriesFold(steps=3, initial_train_size=80, verbose=False)
+    warm = ForecastingAssistant()
+
+    cases = [
+        (wide, {"target": "a", "date_column": "date"}),
+        (wide, {"target": "b", "date_column": "date"}),
+        (long, {"target": "value", "date_column": "date", "series_id_column": "shop"}),
+        (long, {"target": "value", "date_column": "date", "series_id_column": "region"}),
+    ]
+    for data, arguments in cases:
+        profile = warm.profile(data=data, **arguments)
+        expected = ForecastingAssistant().backtest_code(
+            data=data, cv=cv, profile=profile
+        )
+
+        result = warm.backtest_code(data=data, cv=cv, profile=profile)
+
+        assert result.code == expected.code
+        assert result.profile == expected.profile
+
+
+def test_backtest_code_output_when_the_assistant_has_no_kept_profiles():
+    """
+    Test that an assistant without the attribute that keeps the data
+    profiles (a subclass whose `__init__` does not call the one of the
+    class, or an assistant pickled by an earlier version) still runs with a
+    saved profile.
+    """
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+    plain = ForecastingAssistant()
+    profile = plain.profile(data=df_h2o, target="x")
+    del plain.__dict__["_fresh_profiles"]
+
+    result = plain.backtest_code(data=df_h2o, cv=cv, profile=profile)
+
+    assert result.profile is profile
+    assert len(plain._fresh_profiles) == 1

@@ -57,19 +57,6 @@ MAX_SKILL_TOKENS = 20_000
 # trimmable, so it must not grow into the budget reserved for skills.
 MAX_STATIC_PROMPT_TOKENS = 1250
 
-MULTI_SERIES_FORECASTERS: set[str] = {
-    "ForecasterRecursiveMultiSeries",
-}
-
-MULTIVARIATE_FORECASTERS: set[str] = {
-    "ForecasterDirectMultiVariate",
-}
-
-SINGLE_ML_FORECASTERS: set[str] = {
-    "ForecasterRecursive",
-    "ForecasterDirect",
-}
-
 FOUNDATION_FORECASTERS: set[str] = {
     "ForecasterFoundation",
 }
@@ -78,10 +65,6 @@ FOUNDATION_FORECASTERS: set[str] = {
 # capabilities (covariates, categorical covariates, any quantile level) and a
 # license with no registered restriction make it the safest default.
 DEFAULT_FOUNDATION_MODEL_ID = "autogluon/chronos-2-small"
-
-STATS_FORECASTERS: set[str] = {
-    "ForecasterStats",
-}
 
 BASELINE_FORECASTERS: set[str] = {
     "ForecasterEquivalentDate",
@@ -138,6 +121,13 @@ MAX_STATS_SEASONAL_PERIOD = 24
 LONG_TRAINING_FITS = 50
 COMPARE_FIT_BUDGET = 500
 
+# Task types of the machine learning forecasters (lags, window features and
+# a scikit-learn compatible estimator).
+ML_TASK_TYPES: tuple[str, ...] = ("single_series", "multi_series", "multivariate")
+
+# Forecasters whose predictors are lags, window features and the
+# differentiation: they are trained on rows built from them, so the first
+# `window_size` values of each series only feed the lags of later rows.
 AUTOREG_FORECASTERS: set[str] = {
     "ForecasterRecursive",
     "ForecasterDirect",
@@ -145,6 +135,8 @@ AUTOREG_FORECASTERS: set[str] = {
     "ForecasterDirectMultiVariate",
 }
 
+# Forecasters with one model per step, all reading the same last window:
+# their lags never read a prediction.
 DIRECT_FORECASTERS: set[str] = {
     "ForecasterDirect",
     "ForecasterDirectMultiVariate",

@@ -22,6 +22,8 @@ from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 
+from ._constants import ML_TASK_TYPES
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -38,10 +40,6 @@ _PREVIEW_ROWS = 5
 _TABLE_KWARGS = {"show_lines": True}
 _SPACER = ""
 MAX_WIDTH = 90
-
-# Task types whose forecasters take lags, window features and calendar
-# features. Statistical and foundation models have none of them.
-_AUTOREG_TASK_TYPES = ("single_series", "multi_series", "multivariate")
 
 
 def _default_console() -> Console:
@@ -601,7 +599,9 @@ def render_plan(
         else "[bold yellow]not detected[/]",
     )
 
-    if plan.task_type in _AUTOREG_TASK_TYPES:
+    # Statistical and foundation models have no lags, window features or
+    # calendar features.
+    if plan.task_type in ML_TASK_TYPES:
         refined = set(plan.llm_refined_fields)
         llm_tag = "  [magenta](LLM-suggested)[/]"
 

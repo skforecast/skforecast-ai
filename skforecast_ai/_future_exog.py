@@ -10,7 +10,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from ._constants import NAN_TOLERANT_ESTIMATORS
+from ._constants import AUTOREG_FORECASTERS, NAN_TOLERANT_ESTIMATORS
 from ._dates import is_text, parse_text_dates, row_dates
 from .exceptions import InvalidInputError, InvalidInputTypeError
 from .execution.forecast_runner import exog_as_injected
@@ -21,15 +21,6 @@ from .schemas import DataProfile, ForecastPlan
 
 # Values listed in a message, at most.
 _SHOWN = 5
-
-# Forecasters trained on rows built from lags and window features: the first
-# `window_size` values of each series only feed the lags of later rows.
-_LAG_FORECASTERS = {
-    "ForecasterRecursive",
-    "ForecasterDirect",
-    "ForecasterRecursiveMultiSeries",
-    "ForecasterDirectMultiVariate",
-}
 
 
 def as_exog_frame(exog: object) -> pd.DataFrame | None:
@@ -1085,7 +1076,7 @@ def _window_size(plan: ForecastPlan) -> int:
     the largest lag or window feature, plus the order of the
     differentiation. 0 for the other forecasters.
     """
-    if plan.forecaster not in _LAG_FORECASTERS:
+    if plan.forecaster not in AUTOREG_FORECASTERS:
         return 0
     kwargs = plan.forecaster_kwargs
     lags = kwargs.get("lags")

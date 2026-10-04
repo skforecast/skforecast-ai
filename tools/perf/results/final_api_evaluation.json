@@ -1,0 +1,150 @@
+{
+ "environment": {
+  "revision": "788aeb6",
+  "python": "3.11.15",
+  "machine": "x86_64",
+  "cpus": 4,
+  "skforecast_ai": "0.4.0",
+  "skforecast": "0.26.0",
+  "pandas": "2.3.3"
+ },
+ "api": {
+  "large": {
+   "dataset": "store_sales",
+   "rows": 913000,
+   "notes": [],
+   "calls": {
+    "forecast_test_size": {
+     "median": 12.497583,
+     "runs": 5,
+     "times": [
+      13.022617,
+      12.281577,
+      12.497583,
+      13.312736,
+      12.293666
+     ],
+     "profiled_seconds": 15.7551,
+     "split": {
+      "pandas": 6.2941,
+      "estimator": 3.8375,
+      "skforecast": 2.1222,
+      "builtins": 1.3998,
+      "numpy": 1.1984,
+      "other": 0.5272,
+      "skforecast_ai": 0.3743,
+      "pydantic": 0.001
+     },
+     "own_share": 0.024,
+     "own_functions": [
+      {
+       "function": "assistant.py:2014:forecast",
+       "calls": 1,
+       "cumtime": 15.7545,
+       "share": 1.0,
+       "tottime": 0.0265
+      },
+      {
+       "function": "execution/forecast_runner.py:65:run_forecast",
+       "calls": 1,
+       "cumtime": 10.7538,
+       "share": 0.683,
+       "tottime": 0.0
+      },
+      {
+       "function": "execution/forecast_runner.py:189:_exec_rendered_code",
+       "calls": 1,
+       "cumtime": 10.7534,
+       "share": 0.683,
+       "tottime": 0.0001
+      },
+      {
+       "function": "execution/_exec.py:32:exec_rendered",
+       "calls": 1,
+       "cumtime": 10.7404,
+       "share": 0.682,
+       "tottime": 0.0
+      },
+      {
+       "function": "assistant.py:3963:_prepare_forecast",
+       "calls": 1,
+       "cumtime": 3.0305,
+       "share": 0.192,
+       "tottime": 0.0002
+      },
+      {
+       "function": "assistant.py:579:profile",
+       "calls": 1,
+       "cumtime": 3.0218,
+       "share": 0.192,
+       "tottime": 0.0017
+      },
+      {
+       "function": "recommendation/autoregressive.py:202:compute_series_pacf",
+       "calls": 1,
+       "cumtime": 1.9049,
+       "share": 0.121,
+       "tottime": 0.0326
+      },
+      {
+       "function": "_last_window.py:900:validate_evaluation_partition",
+       "calls": 1,
+       "cumtime": 1.2766,
+       "share": 0.081,
+       "tottime": 0.0019
+      },
+      {
+       "function": "_last_window.py:839:_series_spans",
+       "calls": 2,
+       "cumtime": 1.1934,
+       "share": 0.076,
+       "tottime": 0.0742
+      },
+      {
+       "function": "profiling/data_profile.py:156:create_data_profile",
+       "calls": 1,
+       "cumtime": 1.1126,
+       "share": 0.071,
+       "tottime": 0.0265
+      },
+      {
+       "function": "_last_window.py:985:_check_multiseries_evaluation",
+       "calls": 1,
+       "cumtime": 0.9514,
+       "share": 0.06,
+       "tottime": 0.015
+      },
+      {
+       "function": "_last_window.py:749:validate_series_lengths",
+       "calls": 1,
+       "cumtime": 0.6628,
+       "share": 0.042,
+       "tottime": 0.0148
+      },
+      {
+       "function": "profiling/data_profile.py:1458:_compute_series_metrics",
+       "calls": 1,
+       "cumtime": 0.2666,
+       "share": 0.017,
+       "tottime": 0.0119
+      },
+      {
+       "function": "_last_window.py:21:validate_last_window",
+       "calls": 1,
+       "cumtime": 0.2599,
+       "share": 0.016,
+       "tottime": 0.0017
+      },
+      {
+       "function": "_last_window.py:210:_check_long",
+       "calls": 1,
+       "cumtime": 0.2581,
+       "share": 0.016,
+       "tottime": 0.005
+      }
+     ]
+    }
+   }
+  }
+ }
+}

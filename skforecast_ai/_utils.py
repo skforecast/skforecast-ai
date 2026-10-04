@@ -25,6 +25,7 @@ from ._constants import (
     DIRECT_FORECASTERS,
     LONG_TRAINING_FITS,
     MAX_FEATURE_FRACTION,
+    ML_TASK_TYPES,
     PLACEHOLDER_DATA_PATH,
 )
 from ._foundation import resolve_foundation_model, validate_foundation_interval
@@ -450,7 +451,8 @@ _FORECASTER_KWARG_OVERRIDES: dict[str, str] = {
     "dropna_from_series": "dropna_from_series",
 }
 # Fields compared by `discarded_plan_edits`: everything a plan decides, not
-# the split boundary, the explanation, the warnings or the marks.
+# the split boundary, the explanation, the warnings, the marks or the
+# exogenous columns, which the plan records from its profile.
 _COMPARED_PLAN_FIELDS = (
     "task_type",
     "forecaster",
@@ -463,6 +465,7 @@ _COMPARED_PLAN_FIELDS = (
     "metric",
     "metrics_to_compute",
     "use_exog",
+    "exog_columns",
     "preprocessing_steps",
 )
 
@@ -476,9 +479,10 @@ def discarded_plan_edits(
     Fields of a plan that differ from the plan `plan()` builds from the
     decisions `refine_plan()` carries over, so `refine_plan()` loses them.
 
-    `end_train`, `explanation`, `warnings`, `llm_refined_fields` and
-    `overridden_fields` are not compared, nor the fields that an explicit
-    override of the call replaces anyway.
+    `end_train`, `explanation`, `warnings`, `llm_refined_fields`,
+    `overridden_fields` and `exog_columns` (recorded from the profile) are
+    not compared, nor the fields that an explicit override of the call
+    replaces anyway.
 
     Parameters
     ----------
@@ -1064,8 +1068,9 @@ def load_exog(
                 # as the index before.
                 exog = exog.drop(columns=first)
     if found is not None and is_text(text[found]):
-        # The generated script reads the dates with `pd.to_datetime`, which
-        # fails on mixed formats that the loader of the data reads.
+        # The generated script reads the dates with `pd.to_datetime`: the
+        # check shared with the data rejects most dates it cannot read, and
+        # this one catches what that check lets through.
         try:
             with warnings.catch_warnings():
                 # The dates were read already: pandas only repeats that it
@@ -1312,7 +1317,7 @@ def _check_feature_name_collisions(
     """
     from skforecast.preprocessing import RollingFeatures
 
-    if plan.task_type not in ("single_series", "multi_series", "multivariate"):
+    if plan.task_type not in ML_TASK_TYPES:
         return
     if not plan.use_exog or not data_profile.exog_columns:
         return
@@ -1690,8 +1695,9 @@ def _cv_in_time_zone(
     `initial_train_size` turned into its number of observations when the
     dates of the data have a time zone.
 
-    `create_cv()` writes the date without time zone (the profile keeps
-    none), and skforecast compares it with the index of the data, which
+    `create_cv()` writes the date without time zone (in the local time of
+    data that start at midnight), and skforecast compares it with the index
+    of the data, which
     fails for dates with a time zone ("Cannot compare tz-naive and tz-aware
     timestamps"). The date is read as the local time of the data, as the
     profile placed it, and the script gets the observations of the data
@@ -1702,9 +1708,9 @@ def _cv_in_time_zone(
     `cv_config` and the explanation describe it as given.
 
     The strategy is returned as it is without data (`backtest_code()`
-    rendered from a profile, whose time zone is unknown), for a date that
-    has its own time zone, and for a date that does not parse or is outside
-    the dates of the data, which skforecast reports as before.
+    rendered from a profile alone: the count needs the dates), for a date
+    that has its own time zone, and for a date that does not parse or is
+    outside the dates of the data, which skforecast reports as before.
 
     Parameters
     ----------

@@ -1,0 +1,157 @@
+{
+ "environment": {
+  "revision": "788aeb6",
+  "python": "3.11.15",
+  "machine": "x86_64",
+  "cpus": 4,
+  "skforecast_ai": "0.4.0",
+  "skforecast": "0.26.0",
+  "pandas": "2.3.3"
+ },
+ "imports": {
+  "skforecast_ai": {
+   "median": 1.7936,
+   "times": [
+    1.7936,
+    1.7294,
+    1.8519,
+    1.8419,
+    1.7767
+   ],
+   "slowest_cumulative": [
+    [
+     "skforecast_ai",
+     1.7767
+    ],
+    [
+     "skforecast_ai.assistant",
+     1.7765
+    ],
+    [
+     "skforecast.model_selection",
+     1.0906
+    ],
+    [
+     "skforecast.model_selection._split",
+     1.0465
+    ],
+    [
+     "skforecast.utils",
+     1.0461
+    ],
+    [
+     "skforecast.utils.utils",
+     1.046
+    ],
+    [
+     "sklearn.base",
+     0.7818
+    ],
+    [
+     "sklearn",
+     0.7818
+    ],
+    [
+     "sklearn.base",
+     0.78
+    ],
+    [
+     "sklearn.utils._metadata_requests",
+     0.777
+    ],
+    [
+     "sklearn.utils",
+     0.777
+    ],
+    [
+     "sklearn.utils._chunking",
+     0.7696
+    ],
+    [
+     "sklearn.utils._param_validation",
+     0.7694
+    ],
+    [
+     "sklearn.utils.validation",
+     0.7545
+    ],
+    [
+     "sklearn.utils._array_api",
+     0.7102
+    ]
+   ]
+  },
+  "skforecast_ai.mcp": {
+   "median": 2.6048,
+   "times": [
+    2.6902,
+    2.6586,
+    2.4483,
+    2.6048,
+    2.5745
+   ],
+   "slowest_cumulative": [
+    [
+     "skforecast_ai.mcp",
+     2.5745
+    ],
+    [
+     "skforecast_ai",
+     1.8606
+    ],
+    [
+     "skforecast_ai.assistant",
+     1.8604
+    ],
+    [
+     "skforecast.model_selection",
+     1.1669
+    ],
+    [
+     "skforecast.model_selection._split",
+     1.1123
+    ],
+    [
+     "skforecast.utils",
+     1.1119
+    ],
+    [
+     "skforecast.utils.utils",
+     1.1117
+    ],
+    [
+     "skforecast_ai.mcp.server",
+     0.7041
+    ],
+    [
+     "mcp.server.mcpserver",
+     0.6765
+    ],
+    [
+     "mcp.server",
+     0.6765
+    ],
+    [
+     "mcp",
+     0.6765
+    ],
+    [
+     "sklearn.base",
+     0.6746
+    ],
+    [
+     "sklearn",
+     0.6746
+    ],
+    [
+     "sklearn.base",
+     0.6725
+    ],
+    [
+     "sklearn.utils._metadata_requests",
+     0.6691
+    ]
+   ]
+  }
+ }
+}

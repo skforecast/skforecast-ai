@@ -111,7 +111,7 @@ def check_llm_config(
 
     result = LLMCheckResult(llm=llm, provider=provider, model_name=model_name)
     result = _check_credentials(result, provider, api_key)
-    result = _check_base_url(result, provider, base_url, api_key)
+    result = _check_base_url(result, provider, base_url)
 
     missing = _missing_dependencies(provider)
     result = result.model_copy(
@@ -200,7 +200,6 @@ def _check_base_url(
     result: LLMCheckResult,
     provider: str,
     base_url: str | None,
-    api_key: str | None,
 ) -> LLMCheckResult:
     """
     Fill the endpoint fields of a check result.
@@ -213,8 +212,6 @@ def _check_base_url(
         Provider prefix.
     base_url : str, None
         Endpoint as given.
-    api_key : str, None
-        Explicit API key, if any.
 
     Returns
     -------

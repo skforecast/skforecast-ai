@@ -1,0 +1,157 @@
+{
+ "environment": {
+  "revision": "9cecadb-dirty",
+  "python": "3.11.15",
+  "machine": "x86_64",
+  "cpus": 4,
+  "skforecast_ai": "0.4.0",
+  "skforecast": "0.26.0",
+  "pandas": "2.3.3"
+ },
+ "imports": {
+  "skforecast_ai": {
+   "median": 1.7122,
+   "times": [
+    1.8044,
+    1.7122,
+    1.6751,
+    1.8092,
+    1.6322
+   ],
+   "slowest_cumulative": [
+    [
+     "skforecast_ai",
+     1.6322
+    ],
+    [
+     "skforecast_ai.assistant",
+     1.632
+    ],
+    [
+     "skforecast.model_selection",
+     1.0023
+    ],
+    [
+     "skforecast.model_selection._split",
+     0.9614
+    ],
+    [
+     "skforecast.utils",
+     0.961
+    ],
+    [
+     "skforecast.utils.utils",
+     0.9608
+    ],
+    [
+     "sklearn.base",
+     0.704
+    ],
+    [
+     "sklearn",
+     0.7039
+    ],
+    [
+     "sklearn.base",
+     0.7023
+    ],
+    [
+     "sklearn.utils._metadata_requests",
+     0.6997
+    ],
+    [
+     "sklearn.utils",
+     0.6997
+    ],
+    [
+     "sklearn.utils._chunking",
+     0.6934
+    ],
+    [
+     "sklearn.utils._param_validation",
+     0.6932
+    ],
+    [
+     "sklearn.utils.validation",
+     0.6804
+    ],
+    [
+     "sklearn.utils._array_api",
+     0.6455
+    ]
+   ]
+  },
+  "skforecast_ai.mcp": {
+   "median": 2.405,
+   "times": [
+    2.3739,
+    2.4664,
+    2.5295,
+    2.308,
+    2.405
+   ],
+   "slowest_cumulative": [
+    [
+     "skforecast_ai.mcp",
+     2.405
+    ],
+    [
+     "skforecast_ai",
+     1.7721
+    ],
+    [
+     "skforecast_ai.assistant",
+     1.7719
+    ],
+    [
+     "skforecast.model_selection",
+     1.0819
+    ],
+    [
+     "skforecast.model_selection._split",
+     1.0403
+    ],
+    [
+     "skforecast.utils",
+     1.0399
+    ],
+    [
+     "skforecast.utils.utils",
+     1.0398
+    ],
+    [
+     "sklearn.base",
+     0.6897
+    ],
+    [
+     "sklearn",
+     0.6896
+    ],
+    [
+     "sklearn.base",
+     0.6873
+    ],
+    [
+     "sklearn.utils._metadata_requests",
+     0.6844
+    ],
+    [
+     "sklearn.utils",
+     0.6843
+    ],
+    [
+     "sklearn.utils._chunking",
+     0.678
+    ],
+    [
+     "sklearn.utils._param_validation",
+     0.6778
+    ],
+    [
+     "sklearn.utils.validation",
+     0.6649
+    ]
+   ]
+  }
+ }
+}
