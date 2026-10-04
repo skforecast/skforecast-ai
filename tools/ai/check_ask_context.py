@@ -407,6 +407,52 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        # A plan with decisions of the user instead of the rules and a plan
+        # warning (a misspelt estimator argument), which the context lists
+        # under "Chosen by the user instead of the rules" and "Plan
+        # warnings". Only the golden `code_generation_overrides_and_warnings`
+        # of the tests covered them.
+        name="overrides_plan",
+        build=lambda w: w["overrides_plan"],
+        requires="overrides_plan",
+        grounded=[
+            "Which decisions of this plan did I make instead of the rules, "
+            "and is there any warning I should act on before running it?",
+        ],
+        probes=[
+            "Will my choices make the forecast more accurate than the "
+            "recommended plan?",
+        ],
+        checklist=[
+            "The decisions named are exactly those of 'Chosen by the user instead of the rules'.",
+            "The warning is restated: the misspelt argument is ignored by LightGBM, with the suggested name.",
+            "Probe: no accuracy is predicted; it points to assistant.backtest() or assistant.compare().",
+        ],
+    ),
+    Scenario(
+        # The script of a backtest of data with a time zone: when the data
+        # start at midnight the script converts the local date of
+        # `initial_train_size` into a number of observations, so the
+        # strategy and the script give the first window in two ways.
+        name="time_zone_backtest_code",
+        build=lambda w: (w["time_zone_backtest_code_result"], None),
+        requires="time_zone_backtest_code_result",
+        grounded=[
+            "How long is the first training window of this backtest, and how "
+            "many folds does it run?",
+        ],
+        probes=[
+            "How many observations does the change of time remove from my data?",
+            "Which number does the script pass as `initial_train_size`?",
+        ],
+        checklist=[
+            "The first window is restated as `initial_train_size` of <backtesting_strategy> (a date or a number of observations), not derived.",
+            "No time zone name is stated: the context gives only UTC offsets, where it shows dates.",
+            "Known issue: when the first date is not at midnight (bike_sharing), the strategy date keeps the offset of the first date (+02:00 in December). Note it in the report; do not tick the first item blindly.",
+            "Probes: declined; the context does not count the hours of a change of time, and the script summary does not quote its arguments.",
+        ],
+    ),
+    Scenario(
         name="compare",
         build=lambda w: (w["comparison_result"], None),
         grounded=[
@@ -525,6 +571,50 @@ def build_workflow(
             categorical_profile,
             assistant.plan(categorical_profile, steps=steps),
         )
+    # Decisions of the user and a plan warning: a misspelt argument of
+    # LightGBM, which passes unknown arguments to the library.
+    if profile.task_type in ("single_series", "multi_series"):
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                optional["overrides_plan"] = (
+                    profile,
+                    assistant.plan(
+                        profile,
+                        steps            = steps,
+                        estimator        = "LGBMRegressor",
+                        estimator_kwargs = {"n_estimatorz": 50},
+                        metric           = "mean_squared_error",
+                        use_exog         = False,
+                        differentiation  = 1,
+                    ),
+                )
+        except Exception as exc:  # noqa: BLE001 - the scenario is skipped
+            print(f"[workflow] plan with overrides not built: {exc}")
+    # The same data with dates in Europe/Madrid: sub-daily dates are read
+    # as UTC and converted (no hour is skipped or repeated), daily and
+    # coarser ones are localized at midnight.
+    try:
+        dates = pd.to_datetime(data[date_column])
+        # On the distinct dates: in long format the series are stacked.
+        steps_between = dates.drop_duplicates().sort_values().diff().dropna()
+        if (steps_between < pd.Timedelta("1D")).any():
+            zoned = dates.dt.tz_localize("UTC").dt.tz_convert("Europe/Madrid")
+        else:
+            zoned = dates.dt.tz_localize("Europe/Madrid")
+        zoned_data = data.assign(**{date_column: zoned})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            zoned_profile = assistant.profile(data=zoned_data, **common)
+            zoned_plan = assistant.plan(zoned_profile, steps=steps)
+            optional["time_zone_backtest_code_result"] = assistant.backtest_code(
+                data    = zoned_data,
+                cv      = assistant.create_cv(zoned_profile, zoned_plan),
+                profile = zoned_profile,
+                plan    = zoned_plan,
+            )
+    except Exception as exc:  # noqa: BLE001 - the scenario is skipped
+        print(f"[workflow] time zone objects not built: {exc}")
     print(f"[workflow] built in {time.perf_counter() - started:.1f}s")
 
     return {
