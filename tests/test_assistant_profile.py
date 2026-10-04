@@ -1093,3 +1093,28 @@ def test_profile_output_when_exog_columns_leave_out_column_not_named_by_text():
 
     assert profile.data_profile.exog_columns == ["promo"]
     assert profile.data_profile.unused_columns == ["5"]
+
+
+def test_profile_output_when_target_almost_all_infinite():
+    """
+    Test that profile() of a target with only 2 finite values (the rest
+    infinite) returns a profile without PACF instead of failing inside the
+    PACF, and that forecast() then rejects the infinite values.
+    """
+    data = pd.DataFrame({
+        "date": pd.date_range("2020-01-01", periods=60, freq="D"),
+        "y": np.r_[np.full(58, np.inf), [1.0, 2.0]],
+    })
+    assistant = ForecastingAssistant()
+
+    with pytest.warns(RuntimeWarning, match="invalid value encountered"):
+        profile = assistant.profile(data=data, target="y", date_column="date")
+    err_msg = re.escape(
+        "The target has infinite values (58 value(s), such as '2020-01-01', "
+        "'2020-01-02', '2020-01-03', '2020-01-04', '2020-01-05' and 53 more). "
+        "ForecasterRecursive cannot be trained on them: replace them."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        assistant.forecast(data=data, profile=profile, steps=3)
+
+    assert profile.series_pacf == []

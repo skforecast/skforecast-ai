@@ -145,6 +145,15 @@ def test_tool_plan_notices_of_the_plan(tmp_path):
             "lags",
         ),
         ({"steps": 12, "estimator": "os.system"}, "invalid_argument", "estimator"),
+        (
+            {
+                "steps": 12,
+                "forecaster": "ForecasterFoundation",
+                "estimator_kwargs": {"context_length": "100"},
+            },
+            "invalid_argument",
+            "estimator_kwargs",
+        ),
     ],
     ids=lambda dt: f"{dt}",
 )

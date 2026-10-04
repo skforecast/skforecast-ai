@@ -318,7 +318,12 @@ def compute_series_pacf(
         # PACF requires nlags < n_valid // 2; clamp without mutating the
         # outer cap so subsequent series still use the full horizon.
         effective_n_lags = max(min(n_lags, n_valid // 2 - 1), 1)
-        pacf_values = pacf(values, nlags=effective_n_lags)
+        try:
+            pacf_values = pacf(values, nlags=effective_n_lags)
+        except ValueError:
+            if _pacf_not_computable(values, effective_n_lags):
+                continue
+            raise
         lags_arr = np.arange(1, effective_n_lags + 1)
         pacf_abs = np.abs(pacf_values[1:])
 
@@ -361,6 +366,38 @@ def compute_series_pacf(
         )
 
     return results
+
+
+def _pacf_not_computable(values: pd.Series, n_lags: int) -> bool:
+    """
+    Tell whether the PACF of a series failed because its infinite values
+    leave too few finite values for `n_lags`.
+
+    `pacf` leaves infinite values out, so a target that is almost all
+    infinite (or written with values beyond the range of a float, which are
+    read as infinite) has too few values left for the lags counted with
+    them. That series has no PACF: `forecast()` and `backtest()` reject the
+    infinite values of a target the forecaster reads
+    (`validate_infinite_target`), and a foundation model reads no lags.
+
+    Parameters
+    ----------
+    values : pandas Series
+        Values of the series.
+    n_lags : int
+        Number of lags the PACF was asked for.
+
+    Returns
+    -------
+    not_computable : bool
+        True when the series holds infinite values and its finite values
+        are too few for `n_lags` (`pacf` needs `n_lags < n // 2`); False
+        when the error of `pacf` has another cause, to be raised as it is.
+    """
+    numbers = values.dropna().to_numpy(dtype=float)
+    n_finite = int(np.isfinite(numbers).sum())
+
+    return n_finite < len(numbers) and (n_finite < 2 or n_lags >= n_finite // 2)
 
 
 def _aggregate_lags_multiseries(

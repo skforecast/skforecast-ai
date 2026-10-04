@@ -957,3 +957,27 @@ def test_finalize_lags_multivariate_end_to_end():
     assert all(isinstance(lag, int) and lag > 0 for lag in lags)
     # Union of {1, 2, 10} and {2, 3}; all fit within max_lag = 300 // 3.
     assert lags == [1, 2, 3, 10]
+
+
+def test_compute_series_pacf_output_when_target_almost_all_infinite():
+    """
+    Test that a series with too few finite values left for its PACF,
+    because the others are infinite, has no PACF instead of raising: the
+    infinite values are rejected by `forecast()` and `backtest()` when the
+    forecaster reads them.
+    """
+    df = pd.DataFrame(
+        {"target": np.r_[np.full(58, np.inf), [1.0, 2.0]]},
+        index=pd.date_range("2020-01-01", periods=60, freq="D"),
+    )
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"target": 60},
+        target         = "target",
+        index_type     = "datetime",
+        frequency      = "D",
+    )
+
+    series_pacf = compute_series_pacf(df, profile)
+
+    assert series_pacf == []

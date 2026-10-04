@@ -7,6 +7,7 @@
 ################################################################################
 
 from __future__ import annotations
+import numbers
 import re
 from importlib.metadata import PackageNotFoundError, distribution
 from skforecast.foundation import FoundationModelInfo, get_model_info, list_adapters
@@ -180,11 +181,14 @@ def check_foundation_backend(model_id: str | None) -> None:
 
 def validate_foundation_estimator_kwargs(estimator_kwargs: dict | None) -> None:
     """
-    Reject a model ID given in the estimator keyword arguments.
+    Reject a model ID given in the estimator keyword arguments, and a
+    `context_length` that `FoundationModel` does not accept.
 
     The model ID is the `estimator` of a foundation plan. Accepting it in
     `estimator_kwargs` as well would let the plan name one model and the
-    script load another.
+    script load another. `context_length` must be a positive integer, as
+    skforecast requires: another value failed when the plan was explained
+    (a text) or inside the script.
 
     Parameters
     ----------
@@ -197,8 +201,11 @@ def validate_foundation_estimator_kwargs(estimator_kwargs: dict | None) -> None:
 
     Raises
     ------
+    TypeError
+        When `context_length` is not an integer.
     ValueError
-        When `estimator_kwargs` contains `'model_id'`.
+        When `estimator_kwargs` contains `'model_id'`, or when
+        `context_length` is lower than 1.
     """
     if estimator_kwargs and "model_id" in estimator_kwargs:
         raise InvalidInputError(
@@ -207,6 +214,19 @@ def validate_foundation_estimator_kwargs(estimator_kwargs: dict | None) -> None:
             f"instead, e.g. estimator='{estimator_kwargs['model_id']}'.",
             field = "estimator_kwargs",
         )
+    if estimator_kwargs and "context_length" in estimator_kwargs:
+        context_length = estimator_kwargs["context_length"]
+        message = (
+            f"`context_length` in `estimator_kwargs` must be a positive "
+            f"integer (the number of past observations the model reads), "
+            f"got {context_length!r}."
+        )
+        # A numpy integer is accepted: the plan stores it as a Python int,
+        # which is what skforecast takes.
+        if not isinstance(context_length, numbers.Integral):
+            raise InvalidInputTypeError(message, field="estimator_kwargs")
+        if context_length < 1:
+            raise InvalidInputError(message, field="estimator_kwargs")
 
 
 def validate_foundation_interval(
@@ -314,10 +334,12 @@ def validate_foundation_plan(
 
     Raises
     ------
+    TypeError
+        When `context_length` in `estimator_kwargs` is not an integer.
     ValueError
         When `estimator` is missing or unsupported, when `estimator_kwargs`
-        contains `'model_id'`, or when the backend cannot predict
-        `interval`.
+        contains `'model_id'` or a `context_length` lower than 1, or when
+        the backend cannot predict `interval`.
     """
     if estimator is None:
         raise InvalidInputError(

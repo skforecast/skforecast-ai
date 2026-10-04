@@ -189,7 +189,9 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-danger">Fix</span> For data recorded within the day, an evaluation whose training set ended at midnight trained on that whole day and scored the predictions of the following hours against the test set, without an error: `plan.end_train` (and the script) now keep the time, such as `'2023-06-02 00:00:00'`.
 
-+ <span class="badge text-bg-danger">Fix</span> Infinite values of the target, an `estimator_kwargs` name that the ARIMA model of `ForecasterStats` does not accept, and a foundation model whose backend package is not installed now raise before the generated script runs, where it failed inside it or, for `ForecasterStats` with infinite values, predicted missing values.
++ <span class="badge text-bg-danger">Fix</span> Infinite values of the target, an `estimator_kwargs` name that the ARIMA model of `ForecasterStats` does not accept, a foundation model whose backend package is not installed, and a `context_length` in `estimator_kwargs` that is not a positive integer now raise before the generated script runs, where it failed inside it or, for `ForecasterStats` with infinite values, predicted missing values.
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.profile()</code>][assistant] of a target that is almost all infinite returns a profile, and `forecast()` or `backtest()` then says which values are infinite, where `profile()` raised a `ValueError` that did not say why. `plan()` with a `context_length` written as text raises `InvalidInputTypeError` naming it, instead of a bare `TypeError`.
 
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant] did not show the warnings that skforecast emits while the generated script runs (such as `MissingValuesWarning` when the estimator is trained with missing values): skforecast prints them on standard output, which is discarded while the script runs. They are now shown once it ends, and your warning filters still decide which ones.
 
