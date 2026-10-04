@@ -10,22 +10,13 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from ._constants import NAN_TOLERANT_ESTIMATORS
+from ._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS, NAN_TOLERANT_ESTIMATORS
 from ._dates import row_dates, training_end
 from ._future_exog import _SHOWN, _per_series, _shown
 from .exceptions import InvalidInputError
 from .profiling.data_profile import _caller_stacklevel, _fmt_timestamp
 from .schemas import DataProfile, ForecastPlan
 
-# Forecasters whose model of each step reads the same last window: the lags
-# never read a prediction.
-_DIRECT_FORECASTERS = {"ForecasterDirect", "ForecasterDirectMultiVariate"}
-
-# Forecasters whose predictors are lags, window features and differentiation.
-_LAG_FORECASTERS = _DIRECT_FORECASTERS | {
-    "ForecasterRecursive",
-    "ForecasterRecursiveMultiSeries",
-}
 
 def validate_last_window(
     data: pd.DataFrame,
@@ -401,7 +392,7 @@ def _read_positions(
         })
         positions = [position for position in positions if position <= size]
         return np.array(positions, dtype=int), 0, size
-    if plan.forecaster not in _LAG_FORECASTERS:
+    if plan.forecaster not in AUTOREG_FORECASTERS:
         return none, 0, 0
 
     lags = kwargs.get("lags")
@@ -420,7 +411,7 @@ def _read_positions(
     # Differenced positions read by the lags (1 is the last one).
     read = np.zeros(size + 1, dtype=bool)
     for lag in lags:
-        if plan.forecaster in _DIRECT_FORECASTERS:
+        if plan.forecaster in DIRECT_FORECASTERS:
             if lag <= size:
                 read[lag] = True
         else:
@@ -479,7 +470,7 @@ def _missing_read(
         by_differentiation = bool(len(last))
         read.update(int(position) for position in last)
     windows = _window_sizes(plan.forecaster_kwargs.get("window_features"))
-    if plan.forecaster in _LAG_FORECASTERS and windows and length:
+    if plan.forecaster in AUTOREG_FORECASTERS and windows and length:
         # Differenced value q is missing when one of the values q to
         # q + order is; a window of size w is all missing when the first w
         # differenced values are.

@@ -28,6 +28,7 @@ from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
     AUTOREG_FORECASTERS,
     BASELINE_FORECASTERS,
+    DIRECT_FORECASTERS,
     FORECASTER_TASK_TYPES,
     MAX_FEATURE_FRACTION,
     OLLAMA_MAX_CONTEXT_TOKENS,
@@ -1101,7 +1102,7 @@ class ForecastingAssistant:
                 # `window_size` (the last-step regressor needs the target at
                 # t + steps), so reserve them from the lag budget. Recursive
                 # forecasters reserve nothing.
-                n_reserved_rows = steps - 1 if "Direct" in fc else 0
+                n_reserved_rows = steps - 1 if fc in DIRECT_FORECASTERS else 0
                 # The differentiation order adds to the window as well.
                 n_reserved_rows += differentiation or 0
                 final_lags = finalize_lags(

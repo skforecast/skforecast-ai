@@ -121,6 +121,13 @@ MAX_STATS_SEASONAL_PERIOD = 24
 LONG_TRAINING_FITS = 50
 COMPARE_FIT_BUDGET = 500
 
+# Task types of the machine learning forecasters (lags, window features and
+# a scikit-learn compatible estimator).
+ML_TASK_TYPES: tuple[str, ...] = ("single_series", "multi_series", "multivariate")
+
+# Forecasters whose predictors are lags, window features and the
+# differentiation: they are trained on rows built from them, so the first
+# `window_size` values of each series only feed the lags of later rows.
 AUTOREG_FORECASTERS: set[str] = {
     "ForecasterRecursive",
     "ForecasterDirect",
@@ -128,6 +135,8 @@ AUTOREG_FORECASTERS: set[str] = {
     "ForecasterDirectMultiVariate",
 }
 
+# Forecasters with one model per step, all reading the same last window:
+# their lags never read a prediction.
 DIRECT_FORECASTERS: set[str] = {
     "ForecasterDirect",
     "ForecasterDirectMultiVariate",

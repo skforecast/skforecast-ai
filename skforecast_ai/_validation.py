@@ -23,14 +23,12 @@ from ._constants import (
     ALLOWED_WINDOW_STATS,
     BLOCKING_PREPROCESSING_TEMPLATES,
     FORECASTER_TASK_TYPES,
+    ML_TASK_TYPES,
     PASSTHROUGH_KWARGS_ESTIMATORS,
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
 )
 from .exceptions import InvalidInputError, InvalidInputTypeError
-
-# Task types whose estimator is a scikit-learn compatible regressor.
-_ML_TASK_TYPES = ("single_series", "multi_series", "multivariate")
 
 # Task types whose interval method (native ARIMA intervals, conformal
 # intervals of the baseline) only predicts symmetric intervals.
@@ -207,7 +205,7 @@ def validate_estimator(
     # None reaches here only from a plan built by hand, never from `plan()`;
     # rendering such a plan raises instead of writing a name into the script.
     if (
-        task_type in _ML_TASK_TYPES
+        task_type in ML_TASK_TYPES
         and estimator is not None
         and estimator not in SUPPORTED_ESTIMATORS
     ):
@@ -411,7 +409,7 @@ def check_estimator_installed(
 
         check_foundation_backend(estimator)
         return
-    if task_type not in _ML_TASK_TYPES or estimator not in SUPPORTED_ESTIMATORS:
+    if task_type not in ML_TASK_TYPES or estimator not in SUPPORTED_ESTIMATORS:
         return
     package = SUPPORTED_ESTIMATORS[estimator].split(".")[0]
     if importlib.util.find_spec(package) is None:

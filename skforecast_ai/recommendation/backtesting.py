@@ -12,7 +12,7 @@ import warnings
 import pandas as pd
 from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
-from .._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS
+from .._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS, ML_TASK_TYPES
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
@@ -823,7 +823,7 @@ def plan_window_size(plan: ForecastPlan) -> int | None:
         Window size of the forecaster, or None.
     """
     kwargs = plan.forecaster_kwargs
-    if plan.task_type in ("single_series", "multi_series", "multivariate"):
+    if plan.task_type in ML_TASK_TYPES:
         lags = kwargs.get("lags")
         if isinstance(lags, int):
             max_lag = lags
@@ -1024,7 +1024,7 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
     task_type = plan.task_type
     steps = plan.steps
 
-    if task_type in ("single_series", "multi_series", "multivariate"):
+    if task_type in ML_TASK_TYPES:
         lags = plan.forecaster_kwargs.get("lags")
         if isinstance(lags, int):
             max_lag = lags

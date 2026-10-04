@@ -25,6 +25,7 @@ from ._constants import (
     DIRECT_FORECASTERS,
     LONG_TRAINING_FITS,
     MAX_FEATURE_FRACTION,
+    ML_TASK_TYPES,
     PLACEHOLDER_DATA_PATH,
 )
 from ._foundation import resolve_foundation_model, validate_foundation_interval
@@ -1312,7 +1313,7 @@ def _check_feature_name_collisions(
     """
     from skforecast.preprocessing import RollingFeatures
 
-    if plan.task_type not in ("single_series", "multi_series", "multivariate"):
+    if plan.task_type not in ML_TASK_TYPES:
         return
     if not plan.use_exog or not data_profile.exog_columns:
         return
