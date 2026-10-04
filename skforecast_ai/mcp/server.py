@@ -1853,8 +1853,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         )),
         _StrictTool.build(compare, "compare", (
             "Backtest several configurations on the same folds and rank them by "
-            "the metric of the profile. Reports progress per candidate and can "
-            "be cancelled between candidates. Returns a comparison id and the "
+            "`metric`. Reports progress per candidate and can be cancelled "
+            "between candidates. Returns a comparison id and the "
             "plan of the winner in `links.best_plan_id`."
         )),
         _StrictTool.build(forecast, "forecast", (

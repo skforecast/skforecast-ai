@@ -42,7 +42,10 @@ files.
    default.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
    running anything; above 50 estimator fits it already carries the
-   `LongTrainingWarning` the backtest would emit.
+   `LongTrainingWarning` the backtest would emit. A notice says when a
+   `backtest` of its plan would fail (a direct forecaster with `gap`, or
+   a first training window shorter than the forecaster needs): change
+   the strategy as the notice says before running it.
 5. `backtest(cv_id, plan_id?)`: the accuracy of the plan of the strategy
    over its folds. `plan_id` backtests another plan of the same profile on
    the same folds.
@@ -57,6 +60,8 @@ files.
    fits. Without `interval` it uses the interval of the plan of the
    strategy, so the winner keeps it (with an asymmetric interval there
    is no baseline: it only takes symmetric ones, such as `[0.1, 0.9]`).
+   The candidates do not take `use_exog` from that plan: to compare
+   without exogenous variables, `profile` with `exog_columns: []`.
 7. `forecast(plan_id, test_size?, exog_path?)`: the future. `exog_path` is
    required when the plan uses exogenous variables. With `test_size` it is
    a single hold-out evaluation instead, without `exog_path`: pass the
@@ -201,7 +206,7 @@ and follow `hint` when there is one:
 | code | What to do |
 |---|---|
 | `invalid_argument` | Fix the argument named in `field`, as the message says. |
-| `insufficient_data` | Ask for less: a shorter horizon, fewer lags, a smaller first training set. A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
+| `insufficient_data` | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later `initial_train_size`). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
 | `data_not_found`, `invalid_path`, `path_not_allowed`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
 | `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header). Tell the user, as for the data problems above. |
 | `file_too_large` | The file is larger than the server reads (`--max-file-mb`, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |

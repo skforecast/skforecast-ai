@@ -1445,7 +1445,7 @@
   },
   {
     "name": "compare",
-    "description": "Backtest several configurations on the same folds and rank them by the metric of the profile. Reports progress per candidate and can be cancelled between candidates. Returns a comparison id and the plan of the winner in `links.best_plan_id`.",
+    "description": "Backtest several configurations on the same folds and rank them by `metric`. Reports progress per candidate and can be cancelled between candidates. Returns a comparison id and the plan of the winner in `links.best_plan_id`.",
     "annotations": {
       "title": null,
       "readOnlyHint": false,
