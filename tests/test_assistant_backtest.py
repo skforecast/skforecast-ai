@@ -405,6 +405,41 @@ def test_backtest_InvalidInputError_when_foundation_backend_not_installed(
     )
 
 
+def test_backtest_LongTrainingWarning_when_foundation_inference_windows_exceed_threshold(
+    monkeypatch,
+):
+    """
+    Test that backtest() of a ForecasterFoundation plan, which fits no
+    estimator, warns before running when its inference windows (series
+    times folds) exceed the threshold (lowered to 3 here, 2000 by default),
+    and states them in `cv_config`. The warning comes before the check of
+    the backend, which then fails here because it is not installed.
+    """
+    monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 3)
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+    )
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    warn_msg = re.escape(
+        "ForecasterFoundation will forecast 6 inference windows (1 series x 6 "
+        "folds), more than 3. This can take minutes on a CPU."
+    )
+    with pytest.warns(LongTrainingWarning, match=warn_msg):
+        with pytest.raises(
+            InvalidInputError, match=re.escape("chronos-forecasting")
+        ):
+            assistant.backtest(
+                data          = df_no_exog,
+                cv            = cv,
+                profile       = profile,
+                plan          = plan,
+                show_progress = False,
+            )
+
+
 @pytest.mark.parametrize(
     "forecaster, estimator",
     [("ForecasterRecursive", "Ridge"), ("ForecasterStats", None)],

@@ -82,6 +82,7 @@ def build_cv_explanation(
     trains: bool = True,
     n_fits: int | None = None,
     forecaster: str | None = None,
+    inference_windows: int | None = None,
 ) -> str:
     """
     Build a human-readable explanation of the cross-validation strategy.
@@ -108,6 +109,10 @@ def build_cv_explanation(
         estimator fits is also stated, and for `ForecasterStats` that it is
         refitted in every fold (see `cv_as_executed`). None when the
         strategy is shared by several forecasters.
+    inference_windows : int, default None
+        Number of inference windows of a foundation model (one per series
+        and fold, see `count_inference_windows`), stated when `trains` is
+        False. None when unknown.
 
     Returns
     -------
@@ -139,7 +144,13 @@ def build_cv_explanation(
             parts.append(f"{n_folds} folds")
         if gap > 0:
             parts.append(f"gap of {gap} observations")
-        return ", ".join(parts) + "."
+        explanation = ", ".join(parts) + "."
+        if inference_windows is not None:
+            explanation += (
+                f" The model forecasts each series in each fold "
+                f"({inference_windows} inference windows in all)."
+            )
+        return explanation
 
     if isinstance(initial_train_size, str):
         train_desc = f"Initial training up to {initial_train_size}"
@@ -443,6 +454,44 @@ def count_estimator_fits(
         return n_folds
 
     return n_fits
+
+
+def count_inference_windows(
+    n_folds: int,
+    n_series: int,
+    forecaster: str,
+) -> int:
+    """
+    Count the inference windows of a backtest, the measure of the cost of a
+    foundation model.
+
+    A foundation model is never trained: it loads its weights once and
+    forecasts each series in each fold, so its time grows with the number
+    of series times the number of folds.
+
+    Parameters
+    ----------
+    n_folds : int
+        Number of folds of the strategy, see `count_cv_folds`.
+    n_series : int
+        Number of series of the data.
+    forecaster : str
+        Name of the skforecast forecaster class.
+
+    Returns
+    -------
+    inference_windows : int
+        `n_folds * n_series` for `ForecasterFoundation`, 0 for any other
+        forecaster (their cost is counted in estimator fits, see
+        `count_estimator_fits`). With long data whose series start on
+        different dates, a series absent from a fold is counted all the
+        same, so it is an upper bound.
+    """
+
+    if forecaster != "ForecasterFoundation":
+        return 0
+
+    return n_folds * n_series
 
 
 def cv_as_executed(
@@ -760,7 +809,9 @@ def resolve_cv_config(
         `initial_train_size`, `refit`, `fixed_train_size`, `gap`,
         `fold_stride`, `skip_folds`, `allow_incomplete_fold`,
         `differentiation`) plus `n_folds` and `n_fits` (folds in which the
-        forecaster is trained, 0 when it is not trained).
+        forecaster is trained, 0 when it is not trained), and for
+        `ForecasterFoundation` `inference_windows` (one per series and
+        fold, see `count_inference_windows`).
     explanation : str
         Multi-sentence description of the strategy, see
         `build_cv_explanation`.
@@ -790,13 +841,22 @@ def resolve_cv_config(
         "n_folds": n_folds,
         "n_fits": n_fits,
     }
+    inference_windows = None
+    if forecaster == "ForecasterFoundation":
+        inference_windows = count_inference_windows(
+                                n_folds    = n_folds,
+                                n_series   = data_profile.n_series,
+                                forecaster = forecaster,
+                            )
+        cv_config["inference_windows"] = inference_windows
     explanation = build_cv_explanation(
-                      cv_params      = cv_config,
-                      n_observations = span_index_length,
-                      n_folds        = n_folds,
-                      trains         = trains,
-                      n_fits         = n_fits,
-                      forecaster     = forecaster,
+                      cv_params         = cv_config,
+                      n_observations    = span_index_length,
+                      n_folds           = n_folds,
+                      trains            = trains,
+                      n_fits            = n_fits,
+                      forecaster        = forecaster,
+                      inference_windows = inference_windows,
                   )
 
     return cv_config, explanation

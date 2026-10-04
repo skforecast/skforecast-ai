@@ -378,8 +378,10 @@ class BacktestResult(SingleRunResult):
     plan : ForecastPlan
         Detailed forecasting plan that was executed.
     cv_config : dict
-        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`,
-        for traceability.
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
+        and `n_fits` (trainings), for traceability. For a
+        `ForecasterFoundation` plan, also `inference_windows`, its cost:
+        one forecast per series and fold.
     metrics : pandas DataFrame
         Backtesting metric values returned by skforecast.
     predictions : pandas DataFrame
@@ -427,7 +429,9 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
     cv : TimeSeriesFold
         Configured cross-validation fold splitter.
     cv_config : dict
-        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`.
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
+        and `n_fits` (trainings). For a `ForecasterFoundation` plan, also
+        `inference_windows`, its cost: one forecast per series and fold.
         For a `ForecasterStats` plan, the strategy skforecast runs:
         `refit=True` (it refits ARIMA in every fold) and, when `cv` does
         not refit, `fixed_train_size=True`.

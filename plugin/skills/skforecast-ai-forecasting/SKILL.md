@@ -41,8 +41,9 @@ files.
    `forecaster`, `estimator` and `steps` set to null goes back to the
    default.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
-   running anything; above 50 estimator fits it already carries the
-   `LongTrainingWarning` the backtest would emit. A notice says when a
+   running anything; above 50 estimator fits (2000 inference windows for a
+   foundation model) it already carries the `LongTrainingWarning` the
+   backtest would emit. A notice says when a
    `backtest` of its plan would fail (a direct forecaster with `gap`, or
    a first training window shorter than the forecaster needs): change
    the strategy as the notice says before running it.
@@ -102,20 +103,24 @@ about it.
 ## Cost
 
 `create_cv` returns the `cost` of backtesting its plan: `n_folds`, `n_fits`
-(trainings of the forecaster) and `estimator_fits`. A direct forecaster
-trains one estimator per step; ForecasterStats is refitted in every fold
-whatever `refit` says; foundation models and the baseline count 0, but a
-foundation model downloads its weights the first time. `compare` runs every
-candidate on the same folds, so it costs about the sum of their fits (its
-response reports the total). `compare_estimator_fits` of `create_cv` is
-that sum for a `compare` without `candidates`, which can be far more than
-the plan (with `refit=true`, ForecasterDirect fits one estimator per step
-and fold); a `CompareCostNotice` says so. Above 50 estimator fits a run gets a
-`LongTrainingWarning` notice and can take minutes; `compare` without
-`candidates` leaves out the candidates above 500. Before an expensive run,
-tell the user and prefer fewer folds (a larger `fold_stride` or a later
-`initial_train_size`) or `refit=false` (train once, no help for
-ForecasterStats).
+(trainings of the forecaster), `estimator_fits` and `inference_windows`. A
+direct forecaster trains one estimator per step; ForecasterStats is
+refitted in every fold whatever `refit` says; foundation models and the
+baseline count 0 estimator fits. A foundation model is never trained: its
+cost is `inference_windows`, one per series and fold (and it downloads its
+weights the first time). `compare` runs every candidate on the same folds,
+so it costs about the sum of theirs (its response reports the totals).
+`compare_estimator_fits` and `compare_inference_windows` of `create_cv`
+are those sums for a `compare` without `candidates`, which can be far more
+than the plan (with `refit=true`, ForecasterDirect fits one estimator per
+step and fold; with many series, the foundation model forecasts each one in
+each fold); a `CompareCostNotice` says so. Above 50 estimator fits, or
+2000 inference windows, a run gets a `LongTrainingWarning` notice and can
+take minutes; `compare` without `candidates` leaves out the candidates above
+500 estimator fits. Before an expensive run, tell the user and prefer fewer
+folds (a larger `fold_stride` or a later `initial_train_size`) or
+`refit=false` (train once, no help for ForecasterStats nor for a foundation
+model).
 
 Progress and cancellation: `compare` reports when each candidate starts
 and ends, and any long call (a backtest, a forecast, a candidate) sends a

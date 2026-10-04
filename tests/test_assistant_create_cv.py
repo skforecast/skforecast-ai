@@ -1190,7 +1190,8 @@ def test_create_cv_explanation_when_foundation_plan():
     """
     Test that the explanation of the strategy for a foundation plan does
     not describe a training window or refits, which do not apply to a model
-    that is not trained.
+    that is not trained, and states its cost in inference windows instead
+    (one per series and fold).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -1202,7 +1203,14 @@ def test_create_cv_explanation_when_foundation_plan():
         result.explanation
     )
     assert "refit" not in result.explanation
-    assert "window" not in result.explanation
+    assert "training window" not in result.explanation
+    assert "expanding window" not in result.explanation
+    assert "fixed window" not in result.explanation
+    assert result.explanation.endswith(
+        "The model forecasts each series in each fold (6 inference windows in "
+        "all)."
+    )
+    assert result.cv_config["inference_windows"] == 6
 
 
 # =============================================================================

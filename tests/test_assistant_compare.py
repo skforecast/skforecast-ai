@@ -2322,6 +2322,53 @@ def test_compare_CandidateFailedWarning_when_foundation_backend_not_installed(
     assert result.best_name == "ridge"
 
 
+def test_compare_LongTrainingWarning_when_foundation_candidate_inference_windows_exceed_threshold(
+    monkeypatch,
+):
+    """
+    Test that compare() warns once, before running, about a
+    ForecasterFoundation candidate whose inference windows (series times
+    folds of the shared strategy) exceed the threshold (lowered to 3 here),
+    and not about the other candidates, which fit their estimator once.
+    """
+    monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 3)
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+    )
+    candidates = [
+        ("ridge", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
+        ("foundation", {"forecaster": "ForecasterFoundation"}),
+    ]
+
+    # The foundation candidate then fails: its backend is not installed.
+    with pytest.warns(
+        CandidateFailedWarning, match=re.escape("Candidate 'foundation' failed")
+    ):
+        with pytest.warns(LongTrainingWarning) as caught:
+            assistant.compare(
+                data          = df_single,
+                cv            = _single_cv(),
+                target        = "sales",
+                date_column   = "date",
+                candidates    = candidates,
+                show_progress = False,
+                baseline      = False,
+            )
+
+    # skforecast's warnings append a line on how to silence them.
+    long_training = [
+        str(w.message).split("\n")[0]
+        for w in caught if issubclass(w.category, LongTrainingWarning)
+    ]
+    assert long_training == [
+        "ForecasterFoundation will forecast 6 inference windows (1 series x 6 "
+        "folds), more than 3. This can take minutes on a CPU. If not feasible, "
+        "use a cross-validation strategy with fewer folds (a later "
+        "`initial_train_size` or a larger `fold_stride`) or forecast fewer "
+        "series."
+    ]
+
+
 def test_compare_CandidateFailedWarning_when_direct_candidate_and_cv_with_gap():
     """
     Test that compare() with a cv that has a gap fails a ForecasterDirect

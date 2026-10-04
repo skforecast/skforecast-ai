@@ -689,11 +689,14 @@ GOLDEN_SCENARIOS = {
         metrics     = metrics_multi,
     ),
     "backtest_single_series": lambda: make_backtest_result(),
+    # A foundation plan states its cost in inference windows (2 series x 6
+    # folds), as `resolve_cv_config` gives it.
     "backtest_foundation_multi_series_quantiles": lambda: make_backtest_result(
         profile     = profile_multi,
         plan        = plan_foundation_multi,
         predictions = predictions_quantiles_multi,
         metrics     = metrics_multi,
+        cv_config   = {**cv_config, "inference_windows": 12},
     ),
     "backtest_multi_series": lambda: make_backtest_result(
         profile     = profile_multi,

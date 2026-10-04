@@ -49,7 +49,9 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
         "cv_id": cv_id,
     }
     assert result["summary"] == expected.describe()
-    assert result["cost"] == {"n_folds": 6, "n_fits": 6, "estimator_fits": 6}
+    assert result["cost"] == {
+        "n_folds": 6, "n_fits": 6, "estimator_fits": 6, "inference_windows": 0
+    }
     assert result["values_included"] is False
     assert sorted(result["files"]) == ["metrics", "predictions"]
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()

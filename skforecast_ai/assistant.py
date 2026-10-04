@@ -101,6 +101,7 @@ from .recommendation import (
     check_first_window,
     compute_series_pacf,
     count_estimator_fits,
+    count_inference_windows,
     cv_as_executed,
     derive_cv_defaults,
     derive_preprocessing_steps,
@@ -177,6 +178,7 @@ from ._utils import (
     plan_override_value,
     recorded_data_path,
     structure_differences,
+    warn_long_inference,
     warn_long_training,
 )
 
@@ -3060,6 +3062,17 @@ class ForecastingAssistant:
             forecaster     = plan.forecaster,
             steps          = plan.steps,
         )
+        # A foundation model fits nothing: its cost is the inference of
+        # each series in each fold.
+        warn_long_inference(
+            inference_windows = count_inference_windows(
+                                    n_folds    = cv_config["n_folds"],
+                                    n_series   = profile.data_profile.n_series,
+                                    forecaster = plan.forecaster,
+                                ),
+            n_series          = profile.data_profile.n_series,
+            n_folds           = cv_config["n_folds"],
+        )
 
         check_estimator_installed(plan.estimator, plan.task_type)
 
@@ -3382,6 +3395,15 @@ class ForecastingAssistant:
                 n_fits         = n_fits,
                 forecaster     = forecaster,
                 steps          = steps,
+            )
+            warn_long_inference(
+                inference_windows = count_inference_windows(
+                                        n_folds    = cv_config["n_folds"],
+                                        n_series   = profile.data_profile.n_series,
+                                        forecaster = forecaster,
+                                    ),
+                n_series          = profile.data_profile.n_series,
+                n_folds           = cv_config["n_folds"],
             )
 
         iterator: Any = candidate_configs

@@ -84,8 +84,10 @@ def test_tool_compare_output_matches_python_api(tmp_path):
     assert text_of(result["files"]["best_predictions"]) == best.predictions.to_csv()
     assert text_of(result["files"]["best_metrics"]) == best.metrics.to_csv()
     # Ridge 1, the direct forecaster one per step (12) and the baseline 0;
-    # the candidate that failed trained nothing.
-    assert result["cost"] == {"n_folds": 6, "n_fits": 1, "estimator_fits": 13}
+    # the candidate that failed trained nothing, and no foundation model ran.
+    assert result["cost"] == {
+        "n_folds": 6, "n_fits": 1, "estimator_fits": 13, "inference_windows": 0
+    }
     assert result["notices"] == []
     assert best_plan["kind"] == "plan"
     assert best_plan["links"] == {

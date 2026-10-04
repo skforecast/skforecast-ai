@@ -31,12 +31,26 @@ from .. import __version__
 from .._constants import (
     COMPARE_FIT_BUDGET,
     FORECASTER_TASK_TYPES,
+    LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
 )
-from .._utils import load_exog, plan_override_value, warn_long_training
+from .._utils import (
+    load_exog,
+    plan_override_value,
+    warn_long_inference,
+    warn_long_training,
+)
 from ..assistant import ForecastingAssistant
 from ..exceptions import InvalidInputError, SkforecastAIError
-from ..recommendation import count_estimator_fits, resolve_cv_config
+from ..execution.comparison import (
+    missing_foundation_backend,
+    resolve_compare_candidates,
+)
+from ..recommendation import (
+    count_estimator_fits,
+    count_inference_windows,
+    resolve_cv_config,
+)
 from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
 from . import _inputs
 from ._errors import (
@@ -732,7 +746,9 @@ def _check_test_size_date(test_size: object) -> None:
 
 def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
     """
-    Cost of a backtest with a cross-validation strategy and a forecaster.
+    Cost of a backtest with a cross-validation strategy and a forecaster:
+    estimator fits, and the inference windows of a foundation model, which
+    its `cv_config` carries (0 for the other forecasters).
     """
 
     n_folds = int(cv_config["n_folds"])
@@ -749,6 +765,7 @@ def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
                 n_folds    = n_folds,
             )
         ),
+        "inference_windows": int(cv_config.get("inference_windows", 0)),
     }
 
 
@@ -778,6 +795,27 @@ def _default_compare_fits(profile: Any, cv: Any, steps: int) -> dict:
         fits[forecaster] = count
 
     return fits
+
+
+def _default_compare_windows(profile: Any, cv: Any) -> int:
+    """
+    Inference windows of the foundation candidate that a `compare` without
+    candidates runs with a strategy (one per series and fold), 0 when the
+    profile has no such candidate or `compare()` leaves it out because its
+    backend is not installed.
+    """
+
+    excluded, _ = missing_foundation_backend(profile)
+    shared, _ = resolve_cv_config(cv, profile.data_profile)
+
+    return sum(
+        count_inference_windows(
+            n_folds    = int(shared["n_folds"]),
+            n_series   = profile.data_profile.n_series,
+            forecaster = config.get("forecaster") or profile.forecaster,
+        )
+        for _, config in resolve_compare_candidates(None, profile, exclude=excluded)
+    )
 
 
 def _register(
@@ -1204,10 +1242,18 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 forecaster     = result.plan.forecaster,
                 steps          = result.plan.steps,
             )
+            warn_long_inference(
+                inference_windows = cost["inference_windows"],
+                n_series          = plan_entry.profile.data_profile.n_series,
+                n_folds           = cost["n_folds"],
+            )
             compare_fits = _default_compare_fits(
                 plan_entry.profile, result.cv, result.plan.steps
             )
             cost["compare_estimator_fits"] = sum(compare_fits.values())
+            cost["compare_inference_windows"] = _default_compare_windows(
+                plan_entry.profile, result.cv
+            )
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
@@ -1235,6 +1281,29 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                         f"({shown}), more than the {cost['estimator_fits']} of "
                         f"this plan. Pass `candidates` to choose what runs, or "
                         f"use `refit=false` or fewer folds."
+                    ),
+                    count    = 1,
+                )
+            )
+        # The foundation candidate fits nothing, so its cost is not in the
+        # estimator fits: it is said apart, unless the plan is the foundation
+        # model, whose own LongTrainingWarning already says it.
+        if (
+            cost["compare_inference_windows"] > LONG_INFERENCE_WINDOWS
+            and cost["inference_windows"] == 0
+        ):
+            n_series = plan_entry.profile.data_profile.n_series
+            compare_notice.append(
+                ToolNotice(
+                    source   = "runtime",
+                    category = "CompareCostNotice",
+                    message  = (
+                        f"`compare` without `candidates` on this strategy runs "
+                        f"ForecasterFoundation on "
+                        f"{cost['compare_inference_windows']} inference windows "
+                        f"({n_series} series x {cost['n_folds']} folds), which "
+                        f"can take minutes on a CPU. Pass `candidates` to "
+                        f"choose what runs, or use fewer folds."
                     ),
                     count    = 1,
                 )
@@ -1566,12 +1635,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             best_code,
         )
         # The cost of the candidates that ran, each with the strategy it ran.
-        estimator_fits = sum(
-            _cost(candidate.cv_config, candidate.plan.forecaster, candidate.plan.steps)[
-                "estimator_fits"
-            ]
+        candidate_costs = [
+            _cost(candidate.cv_config, candidate.plan.forecaster, candidate.plan.steps)
             for candidate in result.candidates.values()
-        )
+        ]
+        estimator_fits = sum(cost["estimator_fits"] for cost in candidate_costs)
+        inference_windows = sum(cost["inference_windows"] for cost in candidate_costs)
         # Only the candidates whose script ran (also those that failed while
         # running) can have downloaded weights.
         ran_models = {
@@ -1585,6 +1654,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "n_folds": int(result.cv_config["n_folds"]),
             "n_fits": int(result.cv_config["n_fits"]),
             "estimator_fits": estimator_fits,
+            "inference_windows": inference_windows,
         }
 
         return _register(

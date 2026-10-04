@@ -127,6 +127,13 @@ MAX_STATS_SEASONAL_PERIOD = 24
 LONG_TRAINING_FITS = 50
 COMPARE_FIT_BUDGET = 500
 
+# Backtesting cost of a foundation model, counted in inference windows: it
+# is never trained, so it loads its weights once and forecasts each series
+# in each fold. Above `LONG_INFERENCE_WINDOWS` the assistant warns with
+# LongTrainingWarning: about a minute of inference with Chronos-2 small on
+# a 4-core CPU (about 27 ms per window, `tools/perf/foundation_cost.py`).
+LONG_INFERENCE_WINDOWS = 2000
+
 # Task types of the machine learning forecasters (lags, window features and
 # a scikit-learn compatible estimator).
 ML_TASK_TYPES: tuple[str, ...] = ("single_series", "multi_series", "multivariate")

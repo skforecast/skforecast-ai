@@ -12,9 +12,10 @@ there afterwards.
 | `timing.py` | Times every public call and every MCP tool (stdio, with the start of the server) on small, medium and large data; splits the time by package with cProfile; `-X importtime`; peak memory of `profile()`. |
 | `seasonal_periods.py` | Lists, for every frequency pandas infers, the seasonal period of `FREQUENCY_TO_SEASONAL_PERIOD`, of `estimate_seasonality`, the `m` of Auto-ARIMA and the period of the baseline, and the rows where they differ. |
 | `subhourly_periods.py` | Backtests data every 5 to 30 minutes with the hour and with the day as seasonal period (lags and window features, baseline, Auto-ARIMA): MASE, MAE, time and predictors. |
+| `foundation_cost.py` | Times the backtest of a foundation model by number of inference windows (series times folds) and fits the fixed cost and the cost per window. Needs the backend of the model. |
 | `gc_after_test.py` | pytest plugin that collects the garbage after every test, so a `ResourceWarning` (unclosed socket, file or event loop) fails the test that left the resource open. See its docstring. |
 | `_datasets.py` | The datasets both scripts use. |
-| `results/` | Timing outputs of phase 6 (`baseline_*` before any change, `final_*` after the last one), summarized in section 20 of `dev/mcp-preparation.md`. |
+| `results/` | Timing outputs of phase 6 (`baseline_*` before any change, `final_*` after the last one), summarized in section 20 of `dev/mcp-preparation.md`, and the measurements of phase 7 (`phase7_*`: 5 to 30 minute data and the cost of foundation models). |
 
 ```bash
 python tools/perf/parity.py dump before.json        # a few minutes
