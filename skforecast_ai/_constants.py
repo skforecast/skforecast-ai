@@ -57,19 +57,6 @@ MAX_SKILL_TOKENS = 20_000
 # trimmable, so it must not grow into the budget reserved for skills.
 MAX_STATIC_PROMPT_TOKENS = 1250
 
-MULTI_SERIES_FORECASTERS: set[str] = {
-    "ForecasterRecursiveMultiSeries",
-}
-
-MULTIVARIATE_FORECASTERS: set[str] = {
-    "ForecasterDirectMultiVariate",
-}
-
-SINGLE_ML_FORECASTERS: set[str] = {
-    "ForecasterRecursive",
-    "ForecasterDirect",
-}
-
 FOUNDATION_FORECASTERS: set[str] = {
     "ForecasterFoundation",
 }
@@ -78,10 +65,6 @@ FOUNDATION_FORECASTERS: set[str] = {
 # capabilities (covariates, categorical covariates, any quantile level) and a
 # license with no registered restriction make it the safest default.
 DEFAULT_FOUNDATION_MODEL_ID = "autogluon/chronos-2-small"
-
-STATS_FORECASTERS: set[str] = {
-    "ForecasterStats",
-}
 
 BASELINE_FORECASTERS: set[str] = {
     "ForecasterEquivalentDate",

@@ -83,8 +83,8 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     inferred on windows of consecutive timestamps (the stretches between
     gaps), and the most frequent answer is accepted when every timestamp
     lies on its regular grid and at least half of that grid is observed.
-    The missing timestamps are then reported by `detect_gaps()` and
-    become NaN rows after `asfreq()`.
+    The missing timestamps are then counted by `count_missing_timestamps()`
+    and become NaN rows after `asfreq()`.
 
     Parameters
     ----------
@@ -3275,36 +3275,6 @@ def count_missing_timestamps(
         return 0
 
     return int((~expected.isin(datetime_index)).sum())
-
-
-def detect_gaps(
-    datetime_index: pd.DatetimeIndex | None,
-    frequency: str | None,
-) -> bool:
-    """
-    Detect whether the datetime index has missing timestamps.
-
-    Parameters
-    ----------
-    datetime_index : pandas DatetimeIndex, None
-        The datetime index to check.
-    frequency : str, None
-        Inferred frequency string.
-
-    Returns
-    -------
-    has_gaps : bool
-        True if there are missing timestamps within the date range.
-
-    Notes
-    -----
-    This function requires a known `frequency` to compare actual vs
-    expected timestamps. `infer_frequency()` tolerates gaps, so it is
-    None only for irregular spacing; this function then returns False,
-    meaning "gaps not detected", not "no gaps exist", and the profiler
-    warns that the frequency could not be inferred.
-    """
-    return count_missing_timestamps(datetime_index, frequency) > 0
 
 
 def _check_duplicate_timestamps(
