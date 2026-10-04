@@ -1046,6 +1046,47 @@ class TestBacktestCodeCVOptions:
         assert result.exit_code == 0, result.output
         return out.read_text()
 
+    def test_backtest_code_exit_code_1_when_direct_forecaster_with_gap(
+        self, tmp_path
+    ):
+        """
+        A direct forecaster with --gap exits with code 1 and the message of
+        backtest_code(): the script would fail. The warning of create_cv()
+        about the same problem is not shown (warnings are errors here).
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest-code", csv_path, "--target", "sales", "--date-column",
+             "date", "--steps", "5", "--forecaster", "ForecasterDirect",
+             "--gap", "2", "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+            "each fold needs steps + gap = 7 steps ahead"
+        ) in " ".join(result.output.split())
+
+    def test_backtest_exit_code_1_when_direct_forecaster_with_gap(self, tmp_path):
+        """
+        `backtest` with a direct forecaster and --gap exits with code 1 and
+        the message of backtest(), without the warning of create_cv().
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--forecaster", "ForecasterDirect", "--gap", "2",
+             "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+            "each fold needs steps + gap = 7 steps ahead"
+        ) in " ".join(result.output.split())
+
     def test_backtest_code_forwards_no_refit(self, tmp_path):
         """
         --no-refit reaches create_cv() and the generated script disables

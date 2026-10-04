@@ -1580,6 +1580,89 @@ def _warn_window_without_refit(
         )
 
 
+def _direct_gap_issue(plan: ForecastPlan, gap: int) -> str | None:
+    """
+    Say why a direct forecaster cannot be backtested with a strategy that
+    has a gap, or return None when it can.
+
+    A direct forecaster predicts the `steps` it was built for, and a fold
+    with a gap asks it for `steps + gap`, which skforecast rejects.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    gap : int
+        `gap` of the strategy.
+
+    Returns
+    -------
+    issue : str, None
+        What fails, or None when the plan is not direct or there is no gap.
+    """
+    if plan.forecaster not in DIRECT_FORECASTERS or not gap:
+        return None
+
+    return (
+        f"{plan.forecaster} is trained to predict {plan.steps} steps, and "
+        f"with `gap={gap}` each fold needs steps + gap = {plan.steps + gap} "
+        f"steps ahead, so skforecast would fail"
+    )
+
+
+def _check_direct_gap(plan: ForecastPlan, cv: TimeSeriesFold) -> None:
+    """
+    Raise when a direct forecaster is backtested with a strategy that has a
+    gap (see `_direct_gap_issue`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+
+    Returns
+    -------
+    None
+    """
+    issue = _direct_gap_issue(plan, cv.gap)
+    if issue is not None:
+        raise InvalidInputError(
+            f"{issue}. Use a strategy without gap, or a recursive forecaster.",
+            field = "cv",
+        )
+
+
+def _warn_direct_gap(plan: ForecastPlan, gap: int) -> None:
+    """
+    Warn when a strategy with a gap is built for a direct forecaster: its
+    backtest raises (see `_check_direct_gap`), but the strategy can still
+    serve the candidates of `compare()` that are not direct.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy is built for.
+    gap : int
+        `gap` of the strategy.
+
+    Returns
+    -------
+    None
+    """
+    issue = _direct_gap_issue(plan, gap)
+    if issue is not None:
+        warnings.warn(
+            f"{issue}: `backtest()` and `backtest_code()` of this plan with "
+            f"this strategy raise. The strategy can still serve the "
+            f"candidates of `compare()` that are not direct; use a strategy "
+            f"without gap to backtest this plan.",
+            UserWarning,
+            stacklevel = 3,
+        )
+
+
 def _unwrap_cv(cv: TimeSeriesFold | CVResult) -> TimeSeriesFold:
     """
     Return the `TimeSeriesFold` behind a `cv` argument.

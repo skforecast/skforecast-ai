@@ -24,7 +24,6 @@ from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
     AUTOREG_FORECASTERS,
     BASELINE_FORECASTERS,
-    DIRECT_FORECASTERS,
     FORECASTER_TASK_TYPES,
     MAX_FEATURE_FRACTION,
     OLLAMA_MAX_CONTEXT_TOKENS,
@@ -142,10 +141,12 @@ from ._last_window import (
     validate_series_lengths,
 )
 from ._utils import (
+    _check_direct_gap,
     _check_cv_matches_profile,
     _check_evaluated_target,
     _check_plan_matches_profile,
     _check_feature_name_collisions,
+    _warn_direct_gap,
     _warn_window_without_refit,
     _resolve_data_and_target,
     _resolve_inputs_with_profile,
@@ -2270,7 +2271,11 @@ class ForecastingAssistant:
             which is always refitted.
         gap : int, default None
             Number of observations between the end of the training set and the start of the
-            test set.
+            test set. A direct forecaster cannot be backtested with a gap
+            (each fold would ask it for `steps + gap` steps): for a direct
+            plan, a `UserWarning` says that its `backtest()` and
+            `backtest_code()` raise, while the strategy can still serve the
+            candidates of `compare()` that are not direct.
         skip_folds : int, list, default None
             Number of folds to skip.
 
@@ -2380,6 +2385,7 @@ class ForecastingAssistant:
         # fractional or Timestamp initial_train_size, checks a date-based
         # one against the dataset index and requires at least 2 folds.
         cv = build_cv(cv_params=defaults, data_profile=profile.data_profile)
+        _warn_direct_gap(plan, cv.gap)
         cv_config, cv_explanation = resolve_cv_config(
             cv,
             profile.data_profile,
@@ -2479,7 +2485,9 @@ class ForecastingAssistant:
             `estimator`, `estimator_kwargs`, `interval` and the
             keyword-only overrides), its plan is the one run. Its profile must
             describe data of the same structure (format, target, series,
-            frequency, exogenous columns), or `ValueError` is raised.
+            frequency, exogenous columns), or `ValueError` is raised. A
+            direct forecaster with a `gap` raises `ValueError`: each fold
+            would ask it for `steps + gap` steps.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -2618,6 +2626,8 @@ class ForecastingAssistant:
             },
         )
         profile = _with_data_path(profile, data)
+        # The script would fail, as `backtest()` says before running it.
+        _check_direct_gap(plan, cv)
 
         code = render_backtesting_script(
             profile=profile.data_profile, plan=plan, cv=cv
@@ -2678,7 +2688,9 @@ class ForecastingAssistant:
             `estimator`, `estimator_kwargs`, `interval` and the
             keyword-only overrides), its plan is the one run. Its profile must
             describe data of the same structure (format, target, series,
-            frequency, exogenous columns), or `ValueError` is raised.
+            frequency, exogenous columns), or `ValueError` is raised. A
+            direct forecaster with a `gap` raises `ValueError`: each fold
+            would ask it for `steps + gap` steps.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -2853,16 +2865,7 @@ class ForecastingAssistant:
             plan       = plan,
             whole_data = True,
         )
-        # A direct forecaster predicts the `steps` it was built for, and a
-        # fold with a gap asks it for `steps + gap`.
-        if plan.forecaster in DIRECT_FORECASTERS and cv.gap > 0:
-            raise InvalidInputError(
-                f"{plan.forecaster} is trained to predict {plan.steps} steps, "
-                f"and with `gap={cv.gap}` each fold needs steps + gap = "
-                f"{plan.steps + cv.gap} steps ahead, so skforecast would "
-                f"fail. Use a strategy without gap, or a recursive forecaster.",
-                field = "cv",
-            )
+        _check_direct_gap(plan, cv)
 
         # Resolved CV parameters (with the fold and training counts) and their
         # explanation, which states the cost of the backtest.

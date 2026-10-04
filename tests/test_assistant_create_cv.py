@@ -1359,3 +1359,87 @@ def test_create_cv_output_when_plan_has_differentiation():
     assert result.cv_config["differentiation"] == 2
     assert result.explanation.endswith("differentiation order 2.")
     assert _compute_min_train_size(plan) == _compute_min_train_size(plain) + 2
+
+
+def test_create_cv_UserWarning_when_direct_forecaster_with_gap():
+    """
+    Test that create_cv() builds a strategy with a gap for a ForecasterDirect
+    plan, whose backtest raises, with a UserWarning that says so: the
+    strategy can still serve the candidates of compare() that are not
+    direct.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=6, forecaster="ForecasterDirect")
+
+    warn_msg = re.escape(
+        "ForecasterDirect is trained to predict 6 steps, and with `gap=2` "
+        "each fold needs steps + gap = 8 steps ahead, so skforecast would "
+        "fail: `backtest()` and `backtest_code()` of this plan with this "
+        "strategy raise. The strategy can still serve the candidates of "
+        "`compare()` that are not direct; use a strategy without gap to "
+        "backtest this plan."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, gap=2)
+
+    assert result.cv.gap == 2
+
+
+@pytest.mark.parametrize(
+    "forecaster, gap",
+    [("ForecasterRecursive", 2), ("ForecasterDirect", 0)],
+    ids=["recursive_with_gap", "direct_without_gap"],
+)
+def test_create_cv_no_warning_when_gap_can_run(forecaster, gap):
+    """
+    Test that create_cv() gives no warning for a recursive forecaster with a
+    gap or a direct forecaster without one.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=6, forecaster=forecaster)
+
+    # Warnings are errors in this suite.
+    result = assistant.create_cv(profile, plan, gap=gap)
+
+    assert result.cv.gap == gap
+
+
+def test_create_cv_UserWarning_when_llm_sets_gap_for_direct_forecaster(monkeypatch):
+    """
+    Test that create_cv() warns about a direct forecaster with a gap also
+    when the LLM chose the gap.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterDirect")
+    cv_params = CVParams(
+        initial_train_size    = 50,
+        refit                 = False,
+        fixed_train_size      = False,
+        gap                   = 2,
+        fold_stride           = None,
+        skip_folds            = None,
+        allow_incomplete_fold = True,
+        reasoning             = "Two days of delay before each forecast.",
+    )
+
+    class _FakeResult:
+        output = cv_params
+
+    class _FakeAgent:
+        async def run(self, msg, **kw):
+            return _FakeResult()
+
+    monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
+    monkeypatch.setattr(assistant, "_resolve_model", lambda self_=None: "fake")
+
+    warn_msg = re.escape(
+        "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+        "each fold needs steps + gap = 7 steps ahead"
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, prompt="Two days of delay")
+
+    assert result.cv.gap == 2

@@ -470,3 +470,72 @@ def test_backtest_code_output_when_use_exog_false():
         assistant.backtest_code(
             **inputs, plan=assistant.plan(result.profile, steps=5), use_exog=False
         )
+
+
+def test_backtest_code_InvalidInputError_when_direct_forecaster_with_gap():
+    """
+    Test that backtest_code() rejects, as backtest() does, a ForecasterDirect
+    plan with a cv whose gap is greater than 0, with `cv` as field: the
+    script would fail, since each fold asks the forecaster for steps + gap
+    steps.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterDirect")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, gap=2, verbose=False)
+
+    err_msg = re.escape(
+        "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+        "each fold needs steps + gap = 7 steps ahead, so skforecast would "
+        "fail. Use a strategy without gap, or a recursive forecaster."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest_code(
+            data    = df_no_exog,
+            cv      = cv,
+            profile = profile,
+            plan    = plan,
+        )
+
+    assert exc_info.value.field == "cv"
+
+
+@pytest.mark.parametrize(
+    "forecaster, gap, expected_import, expected_gap",
+    [
+        (
+            "ForecasterRecursive", 2,
+            "from skforecast.recursive import ForecasterRecursive",
+            "    gap                = 2,\n",
+        ),
+        (
+            "ForecasterDirect", 0,
+            "from skforecast.direct import ForecasterDirect",
+            None,
+        ),
+    ],
+    ids=["recursive_with_gap", "direct_without_gap"],
+)
+def test_backtest_code_output_when_gap_can_run(
+    forecaster, gap, expected_import, expected_gap
+):
+    """
+    Test that backtest_code() returns the script of a recursive forecaster
+    with a gap, which the strategy of the script carries, and of a direct
+    forecaster without one.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster=forecaster)
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, gap=gap, verbose=False)
+
+    result = assistant.backtest_code(
+        data    = df_no_exog,
+        cv      = cv,
+        profile = profile,
+        plan    = plan,
+    )
+
+    assert expected_import in result.code
+    if expected_gap is None:
+        assert "gap " not in result.code
+    else:
+        assert expected_gap in result.code

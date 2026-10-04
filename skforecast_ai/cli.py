@@ -604,6 +604,22 @@ def _collect_plan_overrides(
     return overrides
 
 
+def _create_cv_to_backtest(assistant: ForecastingAssistant, **kwargs):
+    """
+    Build the strategy that `backtest` and `backtest-code` run with the plan
+    it is built for. The warning of `create_cv()` about a direct forecaster
+    with a gap is not shown: the backtest that follows raises with the same
+    reason, and the strategy serves no other forecaster here.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            action   = "ignore",
+            message  = r".*`backtest\(\)` and `backtest_code\(\)` of this plan",
+            category = UserWarning,
+        )
+        return assistant.create_cv(**kwargs)
+
+
 def _parse_exog_columns(value: str | None) -> list[str] | None:
     """
     Read `--exog-columns`: `'auto'` (or the option left out) maps to None,
@@ -1469,7 +1485,8 @@ def backtest_code(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
-            cv = assistant.create_cv(
+            cv = _create_cv_to_backtest(
+                assistant,
                 profile=prof,
                 plan=plan_obj,
                 **cv_kwargs,
@@ -1815,7 +1832,8 @@ def backtest(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
-            cv = assistant.create_cv(
+            cv = _create_cv_to_backtest(
+                assistant,
                 profile=prof,
                 plan=plan_obj,
                 prompt=prompt,
