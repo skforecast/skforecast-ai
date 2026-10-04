@@ -205,20 +205,24 @@ def test_render_forecast_statistical_output_when_categorical_exog():
         ("W-WED", "Arima(order=None, seasonal_order=None, m=52)"),
         ("YE-DEC", "Arima(order=None, seasonal_order=None, m=1)"),
         ("Q-DEC", "Arima(order=None, seasonal_order=None, m=4)"),
-        ("2W", "Arima(order=None, seasonal_order=None)"),
+        ("2W", "Arima(order=None, seasonal_order=None, m=26)"),
+        ("3h", "Arima(order=None, seasonal_order=None, m=8)"),
+        ("3D", "Arima(order=None, seasonal_order=None)"),
+        ("7MS", "Arima(order=None, seasonal_order=None)"),
     ],
     ids=lambda dt: f"frequency, expected_estimator: {dt}",
 )
-def test_render_forecast_statistical_output_seasonal_period_when_anchored_frequency(
+def test_render_forecast_statistical_output_seasonal_period_when_anchored_or_multiplied_frequency(
     frequency, expected_estimator
 ):
     """
     Test that render_forecast_statistical gives Auto-ARIMA the seasonal
     period of the base alias of an anchored frequency (quarters starting in
     October, weeks ending on Wednesday, years ending in December, and the
-    quarter alias of pandas 2.1), as the
-    lags and the baseline read it, and none for a multiplied frequency
-    outside the table.
+    quarter alias of pandas 2.1), as the lags and the baseline read it. A
+    multiplied frequency outside the table gets the first period of
+    estimate_seasonality when it is a whole cycle ('2W': 26, '3h': 8) and
+    none otherwise ('3D': 2 steps are not a week; '7MS': a period of 1).
     """
     profile = profile_single_no_exog.model_copy(update={"frequency": frequency})
 

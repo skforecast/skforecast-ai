@@ -40,7 +40,10 @@ from skforecast_ai.schemas import DataProfile, ForecastPlan, PreprocessingStep
         ("QS", 4),
         ("YE", 1),
         ("15min", 96),
-        ("3h", None),
+        ("3h", 8),
+        ("2W-SUN", 26),
+        ("s", 3600),
+        ("3D", None),
         ("unknown", None),
         (None, None),
     ],
@@ -49,7 +52,9 @@ from skforecast_ai.schemas import DataProfile, ForecastPlan, PreprocessingStep
 def test_get_seasonal_period_output_when_different_frequencies(frequency, expected):
     """
     Test that _get_seasonal_period returns the correct seasonal period
-    for known frequencies, and None for unknown or None inputs.
+    for known frequencies, the first whole cycle of estimate_seasonality
+    for multiplied ones ('3h', '2W-SUN'), and None when there is no whole
+    cycle ('3D') or for unknown or None inputs.
     """
     assert _get_seasonal_period(frequency) == expected
 

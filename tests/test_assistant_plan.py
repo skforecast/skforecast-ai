@@ -19,6 +19,7 @@ from skforecast_ai.schemas import ForecastPlan
 
 from tests.fixtures_assistant import (
     df_all_calendar_named_exog,
+    df_biweekly,
     df_calendar_named_exog,
     df_categorical_exog,
     df_hourly,
@@ -69,6 +70,29 @@ def test_plan_UnrecommendedForecasterWarning_when_forecaster_not_recommended():
         plan = assistant.plan(profile, steps=10, forecaster="ForecasterStats")
 
     assert plan.forecaster == "ForecasterStats"
+
+
+def test_plan_UnrecommendedForecasterWarning_when_multiplied_frequency_with_long_period():
+    """
+    Test that biweekly data ('2W-SUN', not in FREQUENCY_TO_SEASONAL_PERIOD)
+    leaves ForecasterStats out of the candidates, as weekly data does: its
+    seasonal period is the first one of estimate_seasonality (26), which
+    the Auto-ARIMA script receives when ForecasterStats is asked for.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_biweekly, target="sales", date_column="date")
+
+    assert profile.data_profile.frequency == "2W-SUN"
+    assert "ForecasterStats" not in profile.forecaster_candidates
+
+    warn_msg = re.escape(
+        "Forecaster 'ForecasterStats' is not among the recommended candidates"
+    )
+    with pytest.warns(UnrecommendedForecasterWarning, match=warn_msg):
+        plan = assistant.plan(profile, steps=4, forecaster="ForecasterStats")
+    code = assistant.forecast_code(profile=profile, plan=plan).code
+
+    assert "    estimator = Arima(order=None, seasonal_order=None, m=26),\n" in code
 
 
 @pytest.mark.parametrize(

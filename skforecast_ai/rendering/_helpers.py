@@ -17,7 +17,7 @@ from .._constants import (
     SUPPORTED_TRANSFORMERS,
 )
 from .._validation import validate_kwarg_names
-from ..recommendation.autoregressive import tabulated_seasonal_period
+from ..recommendation.autoregressive import arima_seasonal_period
 from ..exceptions import InvalidInputError
 
 # Render boundary: a value from a plan, a profile or a cross-validation
@@ -378,10 +378,10 @@ def _get_interval_method_literal(interval_method: str) -> str:
 
 def _get_seasonal_period(frequency: str | None) -> int | None:
     """
-    Return the seasonal period m of Auto-ARIMA for a pandas frequency, an
-    anchored one read as its base alias (`tabulated_seasonal_period`).
+    Return the seasonal period m of Auto-ARIMA for a pandas frequency
+    (`arima_seasonal_period`).
     """
-    return tabulated_seasonal_period(frequency)
+    return arima_seasonal_period(frequency)
 
 
 def _get_interval_repr(plan: ForecastPlan) -> str:

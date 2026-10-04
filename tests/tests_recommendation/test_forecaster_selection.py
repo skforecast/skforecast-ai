@@ -151,6 +151,15 @@ def test_select_forecaster_and_candidates_output_when_multi_series_format(
         ("QS", True),
         (None, True),
         ("unknown", True),
+        ("2MS", True),
+        ("3h", True),
+        ("3D", True),
+        ("7h", True),
+        ("2W-SUN", False),
+        ("5D", False),
+        ("2min", False),
+        ("s", False),
+        ("10s", False),
     ],
     ids = lambda v: f"frequency: {v}",
 )
@@ -159,8 +168,10 @@ def test_select_forecaster_and_candidates_stats_gated_by_frequency(
 ):
     """
     Test that ForecasterStats is only offered as automatic candidate when
-    the seasonal period implied by the frequency keeps Auto-ARIMA
-    practical (seasonal period below 24).
+    the seasonal period of Auto-ARIMA keeps it practical (below 24), also
+    for multiplied frequencies, read from estimate_seasonality: '2W-SUN'
+    (26), '5D' (73), '2min' (30) and seconds leave it out; '3D' and '7h',
+    without a whole cycle, keep it.
     """
     profile = DataProfile(
         n_series       = 1,
