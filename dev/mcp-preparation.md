@@ -2266,3 +2266,54 @@ Además de la lista de 19 y 19.1:
 - El plan de release de 17.1: skforecast 0.26.0, después skforecast-ai 0.4.0 en PyPI y solo entonces el merge de `0.4.x` a `main`.
 
 **Siguiente:** el check de pago.
+
+### 20.12 Revisión del autor y correcciones
+
+Antes de mergear la fase 6, una verificación independiente comparó la base (`8deb000`) con la rama (`d65fcf1`) en macOS, con numpy 2.5.3 y `chronos-forecasting` instalado: la paridad y la memoria de perfiles, los tiempos con el test inestable, y el aviso nuevo con los tests y la documentación. Las correcciones van como commits nuevos al final de `chore/performance-cleanup`; ninguno subido se reescribió.
+
+**Verificación.**
+- Paridad: 17 escenarios y 258 llamadas por lado sin ninguna diferencia en perfiles, planes, scripts, predicciones, métricas, `describe()` ni avisos; tampoco en store_sales real (913 000 filas, 500 series). Ningún golden cambió. Los nombres públicos y las firmas son los mismos, salvo `constant_calendar_features`, que se añade.
+- Tiempos, medidos de forma intercalada en esta máquina (unas tres veces más rápida que la de la sesión): `profile` 1,11 a 0,94 s, `backtest_code` con perfil guardado repetido 0,52 a 0,05 s, `forecast` repetido 2,72 a 2,19 s. Ninguna llamada es más lenta más allá del ruido. La huella de los datos cuesta 0,04 s en store_sales y se paga en cada llamada, no solo en la primera. Importación, memoria y servidor por stdio, sin cambios; el salto de `create_cv` de 19 a 129 ms que anota 20.2 no aparece aquí.
+- La memoria de perfiles resistió más de cien ataques (valores, columnas, tipos, filas reordenadas, marcadores de ausencia, categóricas, 8 hilos, copias del asistente): guarda 8 perfiles y ningún dato, y los resultados no comparten objetos con ella.
+- De 46 mutaciones hechas a mano, los tests detectaron 34.
+
+**Fallos encontrados y corregidos.**
+
+| Qué fallaba | Corrección | Commit |
+|---|---|---|
+| Con numpy 2.5, la comprobación de calendario emitía un `DeprecationWarning` propio en `plan(calendar_features=[...])` y su test fallaba (1 fallo en 6 de 6 ejecuciones en macOS; la sesión, en Linux, no lo veía). `weekend` en días laborables, columna constante, solo se avisaba si la primera fecha era viernes | Los intervalos son `datetime.timedelta`; `weekend` se avisa cuando la rejilla no llega a un fin de semana | `cf690ac` |
+| Datos con zona horaria cuya primera fecha no es medianoche: el perfil la escribía con su desfase, la estrategia por defecto lo arrastraba y `backtest()` fallaba ("Start and end cannot both be tz-aware with different timezones"). La pregunta 2 de 20.9 lo daba por una fecha mal mostrada; ya pasaba en la base | Con una zona que el perfil nombra, `start_date` se escribe como hora local, igual que a medianoche; las estrategias y `end_train` son horas locales y el backtest corre | `19468e6` |
+| La huella nombraba la zona horaria sin sus reglas: los mismos instantes en `CET` y en un desfase fijo llamado `CET` la compartían, y un asistente con la memoria cargada devolvía el perfil del otro | Se incluyen las horas locales de las fechas con zona | `1860c0c` |
+| Una subclase cuyo `__init__` no llama al de la clase, y un asistente guardado con pickle en una versión anterior, daban `AttributeError` | El atributo de la memoria se crea al usarlo | `1860c0c` |
+| `refine_plan()` reemplazaba un `exog_columns` editado a mano sin `PlanEditsDiscardedWarning` (pregunta 4) | Se compara, como el resto de campos | `3e27e92` |
+
+**Otros commits.**
+- `1860c0c` añade además los tests que las mutaciones no cubrían: la clave de la memoria (target, columna de fecha y de serie) y `_series_spans` con filas desordenadas.
+- `901650d`: una fixture cierra el bucle de eventos que crea `run_sync` de un agente en `tests/tests_llm/test_llm_agent.py`. Es la causa probable, no probada, del `ResourceWarning` de 19.1: el bucle queda sin cerrar y avisa al recogerse, dentro del test que esté corriendo. No se reprodujo en 6 ejecuciones completas de la rama ni en 3 de la base (pregunta 5). El plugin `gc_after_test.py` culpaba al test siguiente; ahora recoge dentro de la llamada del test.
+- `3e27e92`: la nota de rendimiento dice "about 15 %" (lo que dan los tiempos guardados y esta revisión) en lugar de "about 20 %"; el escenario `overrides_plan` de `check_ask_context.py` lleva el aviso de calendario, que ningún escenario enviaba.
+
+**Decisiones del autor sobre las preguntas de 20.9.**
+
+| Pregunta | Decisión | Estado |
+|---|---|---|
+| 1 | Tablas de periodos: se decide al terminar esta revisión | Abierta |
+| 2 | Zona horaria con inicio que no es medianoche: en 0.4.0 | Hecho (`19468e6`) |
+| 3 | Perfilar dos veces los datos que difieren del perfil guardado: se acepta | Sin cambios |
+| 4 | `refine_plan()` compara `exog_columns` | Hecho (`3e27e92`) |
+| 5 | El test inestable en macOS | No reproducido; fixture en `901650d` |
+| 6 | Coste de la huella: se acepta | Sin cambios |
+
+**Correcciones a esta sección.**
+- 20 dice que ningún commit necesitó una corrección posterior: dos la necesitaron, de docstring (`4f147f4` corrige `ad1cc83` y `be45f88` corrige `4f147f4`).
+- "4087 pasados" es de la sesión en Linux. En macOS con numpy 2.5 la rama daba 1 fallo y 4089 pasados antes de `cf690ac`.
+- 20.2 da por ruido el `compare` de bike_sharing (+12,7 %) y el `forecast` del servidor (0,43 a 0,53 s) sin medición intercalada; en esta máquina, intercalado, no hay diferencia.
+
+**Pendiente.**
+- En skforecast: con datos diarios sellados a medianoche UTC y leídos en `Europe/Madrid` (01:00 en invierno, 02:00 en verano), `backtest()` falla dentro de `ForecasterRecursive.predict` con `AmbiguousTimeError` al cruzar la hora repetida de octubre. `forecast()` funciona. Antes fallaba por el motivo de `19468e6`.
+- Siguen abiertos de 19.1: la build de skforecast anterior a su PR #1332, los cuatro puntos de "Mensajes" y la página de usuario de los overrides.
+- `compare()` sin candidatos incluye ForecasterFoundation cuando su backend está instalado, y los modelos foundation cuentan 0 ajustes en el presupuesto de coste: con 500 series en CPU o MPS, la comparación de store_sales no terminó en 25 minutos. Queda por decidir un límite para ese candidato, como el de 500 ajustes de los demás.
+- Mutaciones que siguen sin test: el orden de desalojo de la memoria, el límite exacto (`<`) del aviso de calendario y la reserva de lags del forecaster directo.
+
+**Para el check de pago.** `overrides_plan` lleva ahora dos avisos del plan (el argumento mal escrito y la variable de calendario). En `time_zone_backtest_code`, las fechas de la estrategia son horas locales sin desfase; solo el rango de fechas de `<dataset>` muestra los desfases de la primera y la última fecha.
+
+**Tests.** De 4090 (1 fallado) a 4101 pasados, más 1 omitido, en macOS con el entorno conda local.
