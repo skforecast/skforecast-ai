@@ -14,7 +14,13 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant
 
-from tests.fixtures_assistant import df_multi_long, df_multi_wide, df_no_exog, df_single
+from tests.fixtures_assistant import (
+    df_multi_long,
+    df_multi_long_staggered,
+    df_multi_wide,
+    df_no_exog,
+    df_single,
+)
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
 
 
@@ -862,5 +868,32 @@ def test_standalone_backtesting_script_matches_backtest_when_csv_dates_in_utc(
     np.testing.assert_allclose(
         _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
         backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+def test_standalone_script_matches_forecast_when_long_series_start_on_different_dates(
+    tmp_path,
+):
+    """
+    Test that the evaluation script of long data whose series start on
+    different dates, with `test_size`, runs as a file and gives the
+    predictions of forecast(), with the training set ending inside the data.
+    """
+    csv_path = tmp_path / "staggered.csv"
+    df_multi_long_staggered.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    inputs = {
+        "data": csv_path, "target": "value", "date_column": "date",
+        "series_id_column": "series_id",
+    }
+
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5)
+    standalone = _run_standalone(forecast.code, tmp_path)
+
+    assert forecast.plan.end_train == "2023-04-05"
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(),
+        forecast.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )

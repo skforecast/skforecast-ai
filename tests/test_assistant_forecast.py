@@ -39,6 +39,7 @@ from tests.fixtures_assistant import (
     df_short,
     df_multi_long,
     df_multi_long_one_series,
+    df_multi_long_staggered,
     df_multi_long_three_series,
     series_single,
     series_unnamed,
@@ -2789,3 +2790,30 @@ def test_forecast_output_when_use_exog_false():
         assistant.forecast(
             **inputs, plan=assistant.plan(result.profile, steps=5), use_exog=False
         )
+
+
+@pytest.mark.parametrize("test_size", [5, 0.05, "2023-04-06"], ids=lambda x: f"{x!r}")
+def test_forecast_output_when_long_series_start_on_different_dates(test_size):
+    """
+    Test that forecast() of long data whose series start on different dates
+    (store_b 60 days later) counts the test set back from the last date:
+    `end_train` is 2023-04-05, inside the data, where it was counted from
+    the latest first date and fell after the data.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data             = df_multi_long_staggered,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+
+    result = assistant.forecast(
+        data      = df_multi_long_staggered,
+        profile   = profile,
+        steps     = 5,
+        test_size = test_size,
+    )
+
+    assert result.plan.end_train == "2023-04-05"
+    assert result.predictions.index.min() == pd.Timestamp("2023-04-06")

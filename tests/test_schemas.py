@@ -417,6 +417,84 @@ def test_data_profile_output_when_json_has_no_unused_columns():
     ).unused_columns == ["extra"]
 
 
+@pytest.mark.parametrize(
+    "data_format, series_lengths, start_date, frequency, expected",
+    [
+        (
+            "single",
+            {"y": {"length": 10, "start": "2023-01-05", "end": "2023-01-14"}},
+            "2023-01-05", "D", "2023-01-05",
+        ),
+        (
+            "long",
+            {
+                "a": {"length": 100, "start": "2023-01-01", "end": "2023-04-10"},
+                "b": {"length": 40, "start": "2023-03-02", "end": "2023-04-10"},
+            },
+            "2023-03-02", "D", "2023-01-01",
+        ),
+        ("long", {"a": 100, "b": 40}, "2023-03-02", "D", "2023-03-02"),
+        (
+            "long",
+            {
+                "a": {
+                    "length": 48,
+                    "start": "2023-01-01 06:00:00",
+                    "end": "2023-01-03 05:00:00",
+                },
+                "b": {
+                    "length": 24,
+                    "start": "2023-01-02 06:00:00",
+                    "end": "2023-01-03 05:00:00",
+                },
+            },
+            "2023-01-02 06:00:00", "h", "2023-01-01 06:00:00",
+        ),
+        (
+            "long",
+            {
+                "a": {
+                    "length": 200,
+                    "start": "2023-01-01",
+                    "end": "2023-01-09 07:00:00+01:00",
+                },
+                "b": {
+                    "length": 200,
+                    "start": "2023-01-02",
+                    "end": "2023-01-10 07:00:00+01:00",
+                },
+            },
+            "2023-01-02", "h", "2023-01-02",
+        ),
+    ],
+    ids=["single", "long_staggered", "long_without_starts", "long_with_time",
+         "long_dates_mixing_time_zones"],
+)
+def test_data_profile_span_start_date(
+    data_format, series_lengths, start_date, frequency, expected
+):
+    """
+    Test that the span of the data starts at `start_date`, except in long
+    format, where it starts at the earliest first date of the series
+    (`start_date` is the latest), written as `start_date` is (the date
+    alone at midnight). The earliest is taken only when the span runs from
+    it to the last date: without the dates of the series, or with dates
+    that mix time zones (the span counted as the longest series), it is
+    `start_date`.
+    """
+    profile = DataProfile(
+        data_format    = data_format,
+        n_series       = len(series_lengths),
+        series_lengths = series_lengths,
+        target         = "y",
+        index_type     = "datetime",
+        frequency      = frequency,
+        start_date     = start_date,
+    )
+
+    assert profile.span_start_date == expected
+
+
 def test_data_profile_full():
     """
     Test DataProfile with all fields populated.

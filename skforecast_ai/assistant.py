@@ -4007,8 +4007,11 @@ class ForecastingAssistant:
         # resolved here rather than in the shared `plan()` method. It is
         # stamped onto the plan whether it was freshly built or supplied.
         if test_size is not None:
+            # The span of the data starts at the earliest first date of the
+            # series (`start_date` is the latest one in long format), so the
+            # test set is counted back from its last date.
             end_train = resolve_end_train(
-                start_date     = profile.data_profile.start_date,
+                start_date     = profile.data_profile.span_start_date,
                 frequency      = profile.data_profile.frequency,
                 n_observations = profile.data_profile.span_index_length,
                 test_size      = test_size,
@@ -4020,7 +4023,7 @@ class ForecastingAssistant:
         # so) and a shorter one cannot hold the forecast.
         if evaluate and plan.end_train is not None:
             n_test = count_test_observations(
-                start_date     = profile.data_profile.start_date,
+                start_date     = profile.data_profile.span_start_date,
                 frequency      = profile.data_profile.frequency,
                 n_observations = profile.data_profile.span_index_length,
                 end_train      = plan.end_train,

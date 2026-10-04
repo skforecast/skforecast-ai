@@ -822,21 +822,12 @@ def first_window_issue(
     window_size = plan_window_size(plan)
     if window_size is None:
         return None
-    # In long format skforecast splits the dates of every series, from the
-    # earliest first date, while `start_date` is the latest one.
-    start_date = data_profile.start_date
-    if data_profile.data_format == "long":
-        starts = [
-            pd.Timestamp(info.start)
-            for info in data_profile.series_lengths.values()
-            if info.start is not None
-        ]
-        if starts:
-            start_date = str(min(starts))
+    # skforecast splits the dates of every series, from the earliest first
+    # date in long format, where `start_date` is the latest one.
     folds = _split_folds(
         cv             = cv_as_executed(cv, plan.forecaster),
         n_observations = data_profile.span_index_length,
-        start_date     = start_date,
+        start_date     = data_profile.span_start_date,
         frequency      = data_profile.frequency,
     )
     if not folds:

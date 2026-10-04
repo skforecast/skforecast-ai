@@ -113,6 +113,9 @@ class DataProfile(BaseModel):
     n_observations_display : int
         Task-agnostic observation count for display and summaries: the
         series length for a single series, `span_index_length` otherwise.
+    span_start_date : str, None
+        First date of the span of `span_index_length`: `start_date`, or in
+        long format the earliest first date of the series.
     target : str, list
         Name(s) of the target column(s). A single string for single
         series and long format. A list of strings for wide format where
@@ -241,6 +244,44 @@ class DataProfile(BaseModel):
             self.span_index_length = span
             self.n_total_observations = total
         return self
+
+    @property
+    def span_start_date(self) -> str | None:
+        """
+        First date of the span of the data, where `span_index_length`
+        starts.
+
+        It is `start_date`, except in long format, where `start_date` is
+        the latest first date of the series and the span starts at the
+        earliest one (the union index of the series). The earliest is
+        taken only when `span_index_length` observations at `frequency`
+        run from it to the last date of the series; otherwise (a span
+        counted as the longest series, dates that mix time zones) it is
+        `start_date`, as before.
+
+        Returns
+        -------
+        span_start_date : str, None
+            First date of the span, or None without dates.
+        """
+        if self.data_format != "long" or self.frequency is None:
+            return self.start_date
+        infos = list(self.series_lengths.values())
+        try:
+            starts = [pd.Timestamp(info.start) for info in infos if info.start]
+            ends = [pd.Timestamp(info.end) for info in infos if info.end]
+            if not starts or not ends:
+                return self.start_date
+            start = min(starts)
+            span = pd.date_range(start=start, end=max(ends), freq=self.frequency)
+        except (ValueError, TypeError):
+            return self.start_date
+        if len(span) != self.span_index_length:
+            return self.start_date
+        # Written as `start_date` is: the date alone at midnight.
+        if start == start.normalize():
+            return str(start.date())
+        return str(start)
 
     @property
     def n_observations_display(self) -> int:
