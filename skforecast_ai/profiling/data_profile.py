@@ -413,6 +413,7 @@ def create_data_profile(
     # first date, where `span_index_length` starts (when the span can be
     # rebuilt from it).
     start_date: str | None = None
+    time_zone = _time_zone_name(datetime_index)
     if datetime_index is not None and len(datetime_index) > 0:
         ts = _resolve_start_date(
             data=data,
@@ -421,6 +422,13 @@ def create_data_profile(
             series_id_column=series_id_column,
             date_col=date_col,
         )
+        # With a time zone the profile names (`time_zone`), the date is
+        # written as local time without its UTC offset, as the date alone
+        # at midnight already is: the offset of the first date does not
+        # hold across a daylight saving change, and a strategy placed from
+        # it failed in the script.
+        if ts.tzinfo is not None and time_zone is not None:
+            ts = ts.tz_localize(None)
         if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
             start_date = str(ts)
         else:
@@ -454,7 +462,7 @@ def create_data_profile(
         data_path=data_path,
         # Train/test split
         start_date=start_date,
-        time_zone=_time_zone_name(datetime_index),
+        time_zone=time_zone,
         # Diagnostics
         warnings=warnings,
     )

@@ -4,6 +4,7 @@ import ast
 import re
 import warnings
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -1532,3 +1533,41 @@ def test_create_cv_output_when_dates_cross_a_daylight_saving_change():
     assert result.cv_config["n_folds"] == 3
     assert "    initial_train_size = 147," in backtest.code
     assert backtest.predictions.groupby("fold").size().tolist() == [24, 24, 15]
+
+
+@pytest.mark.parametrize(
+    "start, initial_train_size",
+    [
+        ("2012-11-20 18:00", "2012-11-29 11:00:00"),
+        ("2023-03-20 18:00", "2023-03-29 12:00:00"),
+    ],
+    ids=["winter", "across the spring change"],
+)
+def test_create_cv_output_when_dates_with_time_zone_do_not_start_at_midnight(
+    start, initial_train_size
+):
+    """
+    Test that hourly data in a time zone whose first date is not midnight
+    get a default strategy written in local time, and that its backtest
+    runs the folds it states. The profile wrote the first date with its UTC
+    offset, the strategy carried that offset, and the script failed with
+    "Start and end cannot both be tz-aware with different timezones".
+    """
+    assistant = ForecastingAssistant()
+    index = pd.date_range(start, periods=300, freq="h", tz="Europe/Madrid")
+    data = pd.DataFrame({"y": np.arange(300, dtype=float) % 24}, index=index)
+    profile = assistant.profile(data=data, target="y")
+    plan = assistant.plan(
+        profile, steps=24, forecaster="ForecasterRecursive", estimator="Ridge",
+        lags=24,
+    )
+
+    result = assistant.create_cv(profile, plan)
+    backtest = assistant.backtest(
+        data=data, cv=result, profile=profile, plan=plan, show_progress=False
+    )
+
+    assert profile.data_profile.start_date == f"{start}:00"
+    assert result.cv_config["initial_train_size"] == initial_train_size
+    assert "    initial_train_size = 210," in backtest.code
+    assert backtest.predictions["fold"].nunique() == result.cv_config["n_folds"]

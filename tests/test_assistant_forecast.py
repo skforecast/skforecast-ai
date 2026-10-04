@@ -1651,7 +1651,8 @@ def test_forecast_evaluation_mode_when_hourly_data_and_test_size_int(tz):
     Test that forecast() in evaluation mode on hourly data (naive and tz-aware)
     ends the training at the midnight written with its time, so the three test
     predictions are at 01:00, 02:00 and 03:00 (a date-only `end_train` trained
-    on the whole day), and that the tz-aware data does not raise TypeError.
+    on the whole day), and that the tz-aware data does not raise TypeError:
+    its `end_train` is the local time, without the UTC offset.
     """
     index = pd.date_range("2023-06-01 03:00", periods=25, freq="h", tz=tz)
     data = pd.DataFrame(
@@ -1662,8 +1663,7 @@ def test_forecast_evaluation_mode_when_hourly_data_and_test_size_int(tz):
         data=data, target="y", steps=3, test_size=3, estimator="Ridge"
     )
 
-    offset = "" if tz is None else "+02:00"
-    assert result.plan.end_train == f"2023-06-02 00:00:00{offset}"
+    assert result.plan.end_train == "2023-06-02 00:00:00"
     expected_index = pd.date_range("2023-06-02 01:00", periods=3, freq="h", tz=tz)
     pd.testing.assert_index_equal(
         result.predictions.index, expected_index, check_names=False

@@ -116,12 +116,10 @@ class DataProfile(BaseModel):
     time_zone : str, default None
         Name of the time zone of the dates (`'Europe/Madrid'`, `'UTC'`),
         or None when they have none or it cannot be rebuilt from its name.
-        When the first date is at midnight, `start_date` is its local date
-        and the positions and the dates of a cross-validation strategy are
-        counted on the local times of the data, which skip or repeat an
-        hour at a daylight saving change. A first date at another hour is
-        written with its UTC offset, and the strategy is counted on the
-        regular grid of the data.
+        `start_date` is then written as local time, without its UTC
+        offset, and the positions and the dates of a cross-validation
+        strategy are counted on the local times of the data, which skip or
+        repeat an hour at a daylight saving change.
     span_start_date : str, None
         First date of the span of `span_index_length`: `start_date`, or in
         long format the earliest first date of the series.
@@ -282,8 +280,17 @@ class DataProfile(BaseModel):
             ends = [pd.Timestamp(info.end) for info in infos if info.end]
             if not starts or not ends:
                 return self.start_date
-            start = min(starts)
-            span = pd.date_range(start=start, end=max(ends), freq=self.frequency)
+            start, end = min(starts), max(ends)
+            # The dates of the series carry the UTC offset of their day,
+            # which differs across a daylight saving change: the span is
+            # rebuilt in the zone and written as local time, as
+            # `start_date` is.
+            if self.time_zone is not None and start.tzinfo is not None:
+                start = start.tz_convert(self.time_zone)
+                end = end.tz_convert(self.time_zone)
+            span = pd.date_range(start=start, end=end, freq=self.frequency)
+            if self.time_zone is not None and start.tzinfo is not None:
+                start = start.tz_localize(None)
         except (ValueError, TypeError):
             return self.start_date
         if len(span) != self.span_index_length:

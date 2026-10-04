@@ -341,9 +341,10 @@ def constant_calendar_features(
     try:
         start = pd.Timestamp(data_profile.span_start_date)
         if data_profile.time_zone is not None:
-            # A first date that is not at midnight is written with its UTC
-            # offset: the grid is built in the zone, across its changes of
-            # time, as the dates of the data are.
+            # The first date is written as local time; a profile saved
+            # by an earlier build wrote it with its UTC offset when it was
+            # not midnight. Either way the grid is built in the zone,
+            # across its changes of time, as the dates of the data are.
             start = (
                 start.tz_localize(data_profile.time_zone)
                 if start.tzinfo is None
