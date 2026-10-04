@@ -1445,7 +1445,11 @@ def _frame_index_bounds(
     if not datetime_available:
         return None, None
     if date_col is not None and date_col in frame.columns:
-        col = pd.to_datetime(frame[date_col])
+        col = frame[date_col]
+        # Converting a column of dates again gives the same values, and per
+        # series of long data it cost more than the rest of the profile.
+        if not pd.api.types.is_datetime64_any_dtype(col):
+            col = pd.to_datetime(col)
         return col.min(), col.max()
     if isinstance(frame.index, pd.DatetimeIndex):
         return frame.index.min(), frame.index.max()
