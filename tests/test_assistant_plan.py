@@ -2096,6 +2096,39 @@ def test_plan_ValueError_when_chosen_calendar_feature_is_an_exog_column():
     assert plan.forecaster_kwargs["calendar_features"]["features"] == ["month"]
 
 
+def test_plan_UserWarning_when_chosen_calendar_feature_is_finer_than_frequency():
+    """
+    Test that chosen calendar features finer than the frequency whose column
+    is constant (`hour` and `minute` on daily data) are kept with a
+    UserWarning, whose text also goes to `plan.warnings`, and that features
+    that change on the data (`day_of_week`, `month`) give no warning.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    warn_msg = (
+        "Calendar features ['hour', 'minute'] are finer than the frequency of "
+        "the data ('D'): each one gives a column with a single value, from "
+        "which the model learns nothing. Leave them out of `calendar_features`."
+    )
+    with pytest.warns(UserWarning, match=re.escape(warn_msg)):
+        plan = assistant.plan(
+            profile, steps=5,
+            calendar_features=["hour", "day_of_week", "minute", "month"],
+        )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        other = assistant.plan(
+            profile, steps=5, calendar_features=["day_of_week", "month"]
+        )
+
+    assert plan.forecaster_kwargs["calendar_features"]["features"] == [
+        "hour", "day_of_week", "minute", "month",
+    ]
+    assert plan.warnings == [warn_msg]
+    assert other.warnings == []
+
+
 def test_plan_ValueError_when_calendar_features_without_datetime_index():
     """
     Test that chosen calendar features on data without dates are rejected.

@@ -104,6 +104,7 @@ from .recommendation import (
     cv_as_executed,
     derive_cv_defaults,
     derive_preprocessing_steps,
+    constant_calendar_features,
     drop_colliding_calendar_features,
     finalize_lags,
     resolve_cv_config,
@@ -795,9 +796,12 @@ class ForecastingAssistant:
             and `'quarter'`; an empty list for none. Only the machine
             learning forecasters take them, and only with a datetime index.
             A feature whose column is already an exogenous column used by
-            the plan raises `ValueError` (the rule leaves those out). The
-            encoding follows the estimator. If None, they are selected from
-            the frequency.
+            the plan raises `ValueError` (the rule leaves those out). A
+            feature finer than the frequency whose column takes a single
+            value on the data (`'hour'` on daily data, `'day_of_week'` on
+            weekly data) is kept, with a `UserWarning` whose text also goes
+            to `plan.warnings`. The encoding follows the estimator. If None,
+            they are selected from the frequency.
         target_transformer : str, default None
             Scaler of the target series of the machine learning
             forecasters: `'StandardScaler'`, or `'none'` for no scaling.
@@ -1340,6 +1344,22 @@ class ForecastingAssistant:
             )
             plan_warnings.append(unrecommended_message)
 
+        # A chosen calendar feature finer than the frequency (`hour` on daily
+        # data) gives a constant column: skforecast accepts it, so it is a
+        # warning and not an error (decision 5 of 19.1).
+        constant_calendar_message = None
+        constant = constant_calendar_features(
+            calendar_override or [], data_profile
+        )
+        if constant:
+            constant_calendar_message = (
+                f"Calendar features {constant} are finer than the frequency "
+                f"of the data ('{data_profile.frequency}'): each one gives a "
+                f"column with a single value, from which the model learns "
+                f"nothing. Leave them out of `calendar_features`."
+            )
+            plan_warnings.append(constant_calendar_message)
+
         # The decisions the caller made instead of the rules: None asks for
         # the rule, and empty keyword arguments are the defaults.
         overridden_fields = [
@@ -1394,6 +1414,8 @@ class ForecastingAssistant:
         # warning never hides that error.
         if unrecommended_message is not None:
             warnings.warn(unrecommended_message, UnrecommendedForecasterWarning)
+        if constant_calendar_message is not None:
+            warnings.warn(constant_calendar_message, UserWarning, stacklevel=2)
 
         return plan
 

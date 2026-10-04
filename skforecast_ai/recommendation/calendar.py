@@ -6,8 +6,11 @@
 ################################################################################
 
 from __future__ import annotations
+import pandas as pd
+from skforecast.preprocessing import CalendarFeatures
 from .._constants import TREE_BASED_ESTIMATORS
 from ..exceptions import InvalidInputError
+from ..schemas import DataProfile
 
 # Calendar feature selection. `MIN_OBS_CALENDAR` is the smallest series length
 # worth adding calendar features to. `CALENDAR_FEATURE_RELEVANCE` maps a
@@ -268,3 +271,99 @@ def drop_colliding_calendar_features(
             kept.append(feature)
 
     return kept, skipped
+
+
+# Shortest span over which each calendar feature changes value (a month is
+# at least 28 days, a quarter 90, a year 365). A feature whose span is
+# shorter than a step of the data is finer than its frequency.
+_FEATURE_SPANS = {
+    "second": "1s",
+    "minute": "1min",
+    "hour": "1h",
+    "day_of_week": "1D",
+    "day_of_month": "1D",
+    "day_of_year": "1D",
+    "weekend": "1D",
+    "week": "7D",
+    "month": "28D",
+    "quarter": "90D",
+    "year": "365D",
+}
+
+# Dates of the grid on which the calendar features are computed, at most.
+_MAX_GRID_DATES = 1000
+
+
+def constant_calendar_features(
+    features: list[str],
+    data_profile: DataProfile,
+) -> list[str]:
+    """
+    Calendar features finer than the frequency of the data whose column
+    takes a single value on the dates of the data, such as `'hour'` on
+    daily data or `'day_of_week'` on weekly data.
+
+    `CalendarFeatures` computes them without an error, and the model gets a
+    constant column it learns nothing from. The values are computed with
+    `CalendarFeatures` on the regular grid of the data (from
+    `span_start_date`, at `frequency`, in its time zone, up to 1000 dates).
+    A feature coarser than the frequency that is constant only because the
+    data are short (`'year'` on a few months) is not listed.
+
+    Parameters
+    ----------
+    features : list of str
+        Calendar features chosen for the plan.
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    constant : list of str
+        Features of `features`, in their order, that are finer than the
+        frequency and constant on the grid. Empty when the grid cannot be
+        built (no frequency, fewer than two dates, a start or a zone pandas
+        rejects).
+    """
+
+    periods = min(data_profile.span_index_length, _MAX_GRID_DATES)
+    if (
+        not features
+        or data_profile.frequency is None
+        or data_profile.span_start_date is None
+        or periods < 2
+    ):
+        return []
+    try:
+        start = pd.Timestamp(data_profile.span_start_date)
+        if data_profile.time_zone is not None:
+            # A first date that is not at midnight is written with its UTC
+            # offset: the grid is built in the zone, across its changes of
+            # time, as the dates of the data are.
+            start = (
+                start.tz_localize(data_profile.time_zone)
+                if start.tzinfo is None
+                else start.tz_convert(data_profile.time_zone)
+            )
+        grid = pd.date_range(
+            start   = start,
+            periods = periods,
+            freq    = data_profile.frequency,
+        )
+        values = CalendarFeatures(
+            features = list(features),
+            encoding = None,
+        ).fit_transform(pd.DataFrame(index=grid))
+    except Exception:
+        # The warning is advice: a grid that cannot be rebuilt (a local
+        # midnight that does not exist, a zone or dates pandas rejects)
+        # leaves it out, and the plan is built as before.
+        return []
+    step = grid[1] - grid[0]
+
+    return [
+        feature for feature in features
+        if feature in _FEATURE_SPANS
+        and pd.Timedelta(_FEATURE_SPANS[feature]) < step
+        and values[feature].nunique(dropna=False) == 1
+    ]
