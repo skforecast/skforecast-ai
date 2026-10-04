@@ -18,7 +18,8 @@ Subcommands (from the repository root):
         `skforecast-ai mcp` over stdio: the start of the server (spawn to
         the end of `initialize`) and every tool, median of `--repeats`
         sessions (one when `compare` is over the budget). Also an in-process
-        cProfile of one session, with the same split by package.
+        cProfile of one session (every thread), with the same split by
+        package.
 
     python tools/perf/timing.py imports out.json
         `python -X importtime` of `import skforecast_ai` and of
@@ -52,6 +53,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 import warnings
@@ -179,12 +181,13 @@ def own_functions(stats: pstats.Stats, total: float, limit: int = 15) -> list:
     return rows[:limit]
 
 
-def _summary(profiler: cProfile.Profile, limit: int) -> dict:
+def _summary(profilers: list[cProfile.Profile], limit: int) -> dict:
     """
-    Split by package, share of own code and slowest own functions of a run.
+    Split by package, share of own code and slowest own functions of a run
+    (the profilers of all its threads).
     """
 
-    stats = pstats.Stats(profiler)
+    stats = pstats.Stats(*profilers)
     split = split_by_package(stats)
     total = sum(split.values())
     return {
@@ -210,7 +213,7 @@ def _profiled(function: Callable[[], Any], prof_path: Path) -> dict:
         profiler.disable()
     elapsed = time.perf_counter() - start
     profiler.dump_stats(prof_path)
-    return {"profiled_seconds": round(elapsed, 4), **_summary(profiler, 15)}
+    return {"profiled_seconds": round(elapsed, 4), **_summary([profiler], 15)}
 
 
 def _timed(function: Callable[[], Any], repeats: int, budget: float) -> dict:
@@ -534,14 +537,29 @@ def _profile_mcp_in_process(
         async with Client(server) as client:
             return await _session(client, profile_arguments, steps, exog_path)
 
-    profiler = cProfile.Profile()
-    profiler.enable()
+    # The tools run in worker threads (`anyio.to_thread`). Up to Python
+    # 3.11 a profiler enabled here does not follow them, so each new thread
+    # starts its own; from 3.12 one profiler sees every thread, and a second
+    # one cannot be enabled.
+    profilers = [cProfile.Profile()]
+
+    def start_profiler(frame, event, arg):
+        profiler = cProfile.Profile()
+        profilers.append(profiler)
+        profiler.enable()
+
+    per_thread = sys.version_info < (3, 12)
+    if per_thread:
+        threading.setprofile(start_profiler)
+    profilers[0].enable()
     try:
         anyio.run(main)
     finally:
-        profiler.disable()
-    profiler.dump_stats(prof_path)
-    return _summary(profiler, 25)
+        profilers[0].disable()
+        if per_thread:
+            threading.setprofile(None)
+    pstats.Stats(*profilers).dump_stats(prof_path)
+    return _summary(profilers, 25)
 
 
 def _importtime(module: str) -> tuple[float, list[tuple[str, float]]]:
