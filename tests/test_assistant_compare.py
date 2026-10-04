@@ -2527,20 +2527,25 @@ def test_compare_candidate_use_exog():
     ]
 
 
-def test_compare_overridden_fields_of_automatic_candidates_and_baseline():
+def test_compare_overridden_fields_of_automatic_candidates_and_baseline(monkeypatch):
     """
     Test that the plans of the automatic candidates and of the baseline,
     whose forecaster and estimator the rules chose, name no decision of the
     user but the metric passed to compare(), and that describe() does not
-    say the user chose the forecaster.
+    say the user chose the forecaster. The foundation backend is reported
+    as missing, so the result does not depend on whether it is installed.
     """
-    automatic = assistant.compare(
-        data=df_single,
-        cv=_single_cv(),
-        target="sales",
-        date_column="date",
-        show_progress=False,
+    monkeypatch.setattr(
+        comparison_module, "foundation_backend_installed", lambda info: False
     )
+    with pytest.warns(MissingBackendWarning, match=re.escape(_MISSING_BACKEND_NOTE)):
+        automatic = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            show_progress=False,
+        )
     with_metric = assistant.compare(
         data=df_single,
         cv=_single_cv(),
