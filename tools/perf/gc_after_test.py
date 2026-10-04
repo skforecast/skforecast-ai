@@ -5,9 +5,9 @@ socket, a file or an event loop left open.
 Python warns about an unclosed resource (`ResourceWarning`) when the object
 is collected, which happens at an arbitrary later moment: the warning then
 fails whichever test is running (warnings are errors in this suite), a
-different one each time. Collecting after every test makes the warning fail
-the test that left the resource open, at its teardown, with the line that
-created it when `PYTHONTRACEMALLOC` is set.
+different one each time. Collecting right after the body of every test
+makes the warning fail the test that left the resource open, with the line
+that created it when `PYTHONTRACEMALLOC` is set.
 
 Usage (from the repository root):
 
@@ -24,9 +24,14 @@ import gc
 import pytest
 
 
-@pytest.hookimpl(trylast=True)
-def pytest_runtest_teardown(item, nextitem):
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
     """
-    Collect the garbage at the end of the teardown of every test.
+    Collect the garbage right after the body of every test, inside its own
+    call: collected at the teardown, the warning was reported at the setup
+    of the next test.
     """
-    gc.collect()
+    try:
+        return (yield)
+    finally:
+        gc.collect()
