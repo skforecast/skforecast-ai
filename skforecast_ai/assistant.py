@@ -5,14 +5,18 @@
 ################################################################################
 
 from __future__ import annotations
+import contextlib
 import copy
+import hashlib
 import json
 import numbers
 import sys
 import warnings
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+import numpy as np
 import pandas as pd
 
 if sys.version_info >= (3, 12):
@@ -373,6 +377,85 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     }
 
 
+# Data profiles kept by `_refresh_profile`, at most (a few datasets in turn).
+_MAX_FRESH_PROFILES = 8
+
+
+def _frame_fingerprint(frame: pd.DataFrame) -> str | None:
+    """
+    Return a digest that changes whenever the values, labels, dtypes or
+    index of a frame change, or None when it cannot be told reliably.
+
+    It is the hash of every row (`pandas.util.hash_pandas_object`, index
+    included) with the shape, labels, dtypes, index type, names and
+    frequency, the categories of categorical columns, and which missing
+    marker (`None`, `NaN`, `pd.NA`) each missing object value is, since
+    pandas hashes them alike. pandas also hashes an object value through
+    its text, so `1` and `'1'` would hash alike: frames with object values
+    (or categories) that are not all text get None, as do a MultiIndex and
+    values that cannot be hashed.
+
+    Parameters
+    ----------
+    frame : pandas DataFrame
+        Data to fingerprint.
+
+    Returns
+    -------
+    fingerprint : str, None
+        Hexadecimal SHA-256, or None.
+    """
+
+    if isinstance(frame.columns, pd.MultiIndex) or isinstance(
+        frame.index, pd.MultiIndex
+    ):
+        return None
+    texts = ("string", "empty")
+    try:
+        digest = hashlib.sha256(repr((
+            frame.shape,
+            list(frame.columns),
+            [repr(dtype) for dtype in frame.dtypes],
+            type(frame.index).__name__,
+            repr(frame.index.dtype),
+            frame.index.name,
+            getattr(frame.index, "freqstr", None),
+        )).encode())
+        arrays = [frame.index, *(frame.iloc[:, i] for i in range(frame.shape[1]))]
+        for values in arrays:
+            if isinstance(values.dtype, pd.CategoricalDtype):
+                # The repr of a categorical dtype is cut after a few
+                # categories: they are hashed in full, with their order.
+                categories = values.dtype.categories
+                if pd.api.types.is_object_dtype(categories.dtype) and (
+                    pd.api.types.infer_dtype(categories) not in texts
+                ):
+                    return None
+                digest.update(repr(values.dtype.ordered).encode())
+                digest.update(
+                    pd.util.hash_pandas_object(categories, index=False)
+                    .to_numpy().tobytes()
+                )
+            elif pd.api.types.is_object_dtype(values.dtype):
+                if pd.api.types.infer_dtype(values) not in texts:
+                    return None
+                array = np.asarray(values, dtype=object)
+                missing = np.flatnonzero(pd.isna(array))
+                digest.update(missing.tobytes())
+                digest.update(
+                    repr([type(array[i]).__name__ for i in missing]).encode()
+                )
+        digest.update(
+            pd.util.hash_pandas_object(frame, index=True).to_numpy().tobytes()
+        )
+    except (TypeError, ValueError):
+        # Values pandas cannot hash, or text it cannot encode (a lone
+        # surrogate): the data are profiled every time, as before.
+        return None
+
+    return digest.hexdigest()
+
+
 class ForecastingAssistant:
     """
     Time series forecasting assistant built on skforecast.
@@ -486,6 +569,10 @@ class ForecastingAssistant:
         self._agent           = None
         self._cv_agent        = None
         self._plan_refinement_agent = None
+        # Data profiles that `_refresh_profile` computed, by the fingerprint
+        # of the data and the columns of the saved profile: a workflow
+        # passes the same data with the same profile to every method.
+        self._fresh_profiles: OrderedDict[tuple, DataProfile] = OrderedDict()
 
     def profile(
         self,
@@ -4284,6 +4371,12 @@ class ForecastingAssistant:
           returned with a note in `DataProfile.warnings` naming the fields
           that changed.
 
+        The data profile of the same data (same fingerprint, see
+        `_frame_fingerprint`) with the same columns is computed once per
+        assistant and kept (the `_MAX_FRESH_PROFILES` used last), so a workflow
+        that passes the data and the profile to every method profiles the
+        data once.
+
         Columns of `data` the profile does not name are left out of both
         profiles and listed in `DataProfile.unused_columns`: the plan and the
         script read the columns of the profile, so the workflow runs as
@@ -4314,16 +4407,36 @@ class ForecastingAssistant:
         frame, target = _resolve_data_and_target(
             data, saved.target, saved.date_column
         )
-        # Not shown: the caller saw them when the saved profile was built,
-        # and `profile()` shows them below when the values differ.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            fresh = create_data_profile(
-                data             = frame,
-                target           = target,
-                date_column      = saved.date_column,
-                series_id_column = saved.series_id_column,
-            )
+        # The same data profiled with the same columns give the same data
+        # profile: it is kept, so a workflow profiles its data once.
+        fingerprint = _frame_fingerprint(frame)
+        key = (
+            fingerprint, repr(target), saved.date_column, saved.series_id_column
+        )
+        fresh = None
+        if fingerprint is not None:
+            # Without a lock (the assistant stays picklable): a lookup that
+            # loses a race with another thread profiles the data again.
+            fresh = self._fresh_profiles.get(key)
+            if fresh is not None:
+                with contextlib.suppress(KeyError):
+                    self._fresh_profiles.move_to_end(key)
+        if fresh is None:
+            # Not shown: the caller saw them when the saved profile was built,
+            # and `profile()` shows them below when the values differ.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                fresh = create_data_profile(
+                    data             = frame,
+                    target           = target,
+                    date_column      = saved.date_column,
+                    series_id_column = saved.series_id_column,
+                )
+            if fingerprint is not None:
+                self._fresh_profiles[key] = fresh
+                while len(self._fresh_profiles) > _MAX_FRESH_PROFILES:
+                    with contextlib.suppress(KeyError):
+                        self._fresh_profiles.popitem(last=False)
 
         differences = structure_differences(saved, fresh)
         if differences:

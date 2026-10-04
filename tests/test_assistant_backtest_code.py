@@ -399,6 +399,95 @@ def test_backtest_code_output_when_data_have_more_rows_than_profile():
     ]
 
 
+def test_backtest_code_profiles_the_same_data_once(monkeypatch):
+    """
+    Test that backtest_code() called again with the same data and saved
+    profile reuses the data profile it computed, with the same result, and
+    that data with another value are profiled again and get the new profile
+    with the note.
+    """
+    from skforecast_ai import assistant as assistant_module
+
+    calls = []
+    create_data_profile = assistant_module.create_data_profile
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return create_data_profile(*args, **kwargs)
+
+    monkeypatch.setattr(assistant_module, "create_data_profile", counting)
+    fresh_assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+    profile = fresh_assistant.profile(data=df_h2o, target="x")
+    n_profile = len(calls)
+
+    first = fresh_assistant.backtest_code(data=df_h2o, cv=cv, profile=profile)
+    second = fresh_assistant.backtest_code(data=df_h2o.copy(), cv=cv, profile=profile)
+    changed = df_h2o.copy()
+    changed.iloc[10, 0] = 0.5
+    third = fresh_assistant.backtest_code(data=changed, cv=cv, profile=profile)
+
+    assert len(calls) - n_profile == 3
+    assert second == first
+    assert first.profile is profile
+    assert third.profile.data_profile.warnings == [
+        "The data differ in their values from the profile passed (changed: "
+        "target_stats): the profile was computed again from these data."
+    ]
+
+
+def test_backtest_code_profiles_again_data_left_out_of_the_kept_profiles(
+    monkeypatch,
+):
+    """
+    Test that the data profiles kept by the assistant are the 8 used last
+    (data used 9 calls ago are profiled again) and that data without a
+    fingerprint (an object column with numbers and text) are profiled on
+    every call, and that a saved profile still pickles and deep-copies the
+    assistant.
+    """
+    import copy
+    import pickle
+
+    from skforecast_ai import assistant as assistant_module
+
+    calls = []
+    create_data_profile = assistant_module.create_data_profile
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return create_data_profile(*args, **kwargs)
+
+    monkeypatch.setattr(assistant_module, "create_data_profile", counting)
+    fresh_assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+    profile = fresh_assistant.profile(data=df_h2o, target="x")
+    frames = [df_h2o.iloc[i:] for i in range(10)]
+
+    # Data that differ from the saved profile are profiled twice (the data
+    # profile and `profile()`); the same data as the profile, once.
+    for frame in frames:
+        fresh_assistant.backtest_code(data=frame, cv=cv, profile=profile)
+    calls.clear()
+    fresh_assistant.backtest_code(data=frames[9], cv=cv, profile=profile)
+    kept = len(calls)
+    fresh_assistant.backtest_code(data=frames[0], cv=cv, profile=profile)
+    evicted = len(calls) - kept
+
+    mixed = df_h2o.assign(label=["a", 1] * 102)
+    mixed_profile = fresh_assistant.profile(data=mixed, target="x")
+    calls.clear()
+    for _ in range(2):
+        fresh_assistant.backtest_code(data=mixed, cv=cv, profile=mixed_profile)
+
+    assert kept == 1
+    assert evicted == 1
+    assert len(calls) == 2
+    restored = pickle.loads(pickle.dumps(fresh_assistant))
+    assert isinstance(restored, ForecastingAssistant)
+    assert isinstance(copy.deepcopy(fresh_assistant), ForecastingAssistant)
+
+
 @pytest.mark.parametrize(
     "data, differences",
     [
