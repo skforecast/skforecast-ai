@@ -7,6 +7,7 @@ package.
 |:-----|:--------|
 | [`ai/`](ai/) | Syncs the AI assets from skforecast and checks the context sent to the LLM. See its README. |
 | [`docs/`](docs/) | Scripts and notebooks used to build and maintain the documentation (see below). |
+| [`perf/`](perf/) | Parity and timing scripts for performance and cleanup changes. See its README. |
 
 ## docs/
 
