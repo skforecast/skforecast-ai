@@ -882,13 +882,23 @@ def _series_spans(
             "value": pd.notna(data[profile.target].to_numpy()),
         }).dropna(subset=["series", "date"])
         rows = rows.drop_duplicates(["series", "date"], keep="first")
+        # Positions of the rows of each series instead of a frame per
+        # series: the dates of a series are unique here, so placing its
+        # values on the grid by position is what `reindex` did, at a
+        # fraction of the cost with hundreds of series.
+        row_dates_index = pd.DatetimeIndex(rows["date"])
+        row_values = rows["value"].to_numpy(dtype=bool)
         spans = {}
-        for name, group in rows.groupby("series", sort=False):
+        for name, positions in rows.groupby("series", sort=False).indices.items():
+            dates_of_series = row_dates_index[positions]
             grid = pd.date_range(
-                group["date"].min(), group["date"].max(), freq=profile.frequency
+                dates_of_series.min(), dates_of_series.max(), freq=profile.frequency
             )
-            present = group.set_index("date")["value"].reindex(grid, fill_value=False)
-            spans[name] = (grid, present.to_numpy(dtype=bool))
+            on_grid = grid.get_indexer(dates_of_series)
+            found = on_grid >= 0
+            present = np.zeros(len(grid), dtype=bool)
+            present[on_grid[found]] = row_values[positions][found]
+            spans[name] = (grid, present)
     except (ValueError, TypeError):
         # The generated code fails on these dates with its own error.
         return None

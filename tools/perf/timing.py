@@ -246,7 +246,7 @@ def api_calls(scenario: Scenario) -> dict[str, Callable[[], Any]]:
     Returns
     -------
     calls : dict
-        Closure of each call of `API_CALLS`.
+        Closure of each call of `API_CALLS`, and `forecast_test_size`.
     """
 
     from skforecast_ai import ForecastingAssistant
@@ -271,6 +271,11 @@ def api_calls(scenario: Scenario) -> dict[str, Callable[[], Any]]:
         ),
         "forecast": lambda: assistant.forecast(
             data, profile=profile, plan=plan, exog=scenario.future_exog
+        ),
+        # Evaluation mode, outside the default list (`--calls`): its checks
+        # read the training partition and the test dates.
+        "forecast_test_size": lambda: assistant.forecast(
+            data, steps=steps, test_size=steps, **arguments
         ),
         "backtest": lambda: assistant.backtest(
             data, cv=cv, profile=profile, plan=plan, show_progress=False
