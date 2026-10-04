@@ -1515,6 +1515,18 @@ class ForecastingAssistant:
                             llm_applied_fields.append(field)
 
         carried = _carried_plan_arguments(plan, target_forecaster)
+        # A differentiation order passed here takes room from the lags and
+        # the window features. Those the rules chose are chosen again with
+        # that order, as `plan()` does, instead of being carried over as
+        # explicit values that no longer fit.
+        if overrides.get("differentiation") is not None:
+            for field in ("lags", "window_features"):
+                if (
+                    field not in overrides
+                    and field not in plan.overridden_fields
+                    and field not in plan.llm_refined_fields
+                ):
+                    carried[field] = None
         inherited_estimator = carried["estimator"]
         inherited_lags = carried["lags"]
         inherited_window_features = carried["window_features"]

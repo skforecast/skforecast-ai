@@ -3,6 +3,8 @@
 import re
 import warnings
 
+import numpy as np
+import pandas as pd
 import pytest
 from skforecast.exceptions import MissingValuesWarning
 
@@ -814,3 +816,28 @@ def test_refine_plan_ValueError_names_a_carried_decision_that_no_longer_applies(
 
     assert info.value.field == "dropna_from_series"
     assert refined.forecaster_kwargs["dropna_from_series"] is True
+
+
+def test_refine_plan_output_differentiation_chooses_default_windows_again():
+    """
+    Test that a differentiation order passed to refine_plan() gives the plan
+    that plan() builds with it: the lags and window features the rules chose
+    are chosen again with room for the order (on 100 weekly observations the
+    default window of 33 takes the whole budget), instead of being carried
+    over and rejected. Lags the user chose are kept.
+    """
+    assistant = ForecastingAssistant()
+    data = pd.DataFrame({
+        "date": pd.date_range("2020-01-05", periods=100, freq="W"),
+        "y": np.arange(100, dtype=float),
+    })
+    profile = assistant.profile(data=data, target="y", date_column="date")
+    default_plan = assistant.plan(profile, steps=4)
+    chosen_lags = assistant.plan(profile, steps=4, lags=5)
+
+    refined = assistant.refine_plan(profile, default_plan, differentiation=1)
+    refined_lags = assistant.refine_plan(profile, chosen_lags, differentiation=1)
+
+    assert refined == assistant.plan(profile, steps=4, differentiation=1)
+    assert refined_lags.forecaster_kwargs["lags"] == 5
+    assert refined_lags.overridden_fields == ["lags", "differentiation"]

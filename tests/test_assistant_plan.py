@@ -1878,6 +1878,27 @@ def test_plan_ValueError_when_explicit_lags_and_differentiation_exceed_budget():
         assistant.plan(profile, steps=10, lags=33, differentiation=1)
 
 
+def test_plan_InvalidInputError_names_differentiation_when_the_order_does_not_fit():
+    """
+    Test that an order larger than the lags and the windows, which fit on
+    their own, raises with the field 'differentiation' instead of blaming
+    lags the user did not pass.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "`differentiation=40` plus the largest lag or window size (1) exceeds "
+        "the maximum of 33 (33% of 100 observations). Use a smaller order (1 "
+        "or 2 remove a trend), or fewer lags and smaller window sizes."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.plan(profile, steps=10, differentiation=40)
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "differentiation"
+
+
 def test_plan_output_when_differentiation_drops_default_windows_without_room():
     """
     Test that the default window features that leave no room for the

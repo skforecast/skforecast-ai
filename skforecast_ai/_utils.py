@@ -126,6 +126,22 @@ def _validate_max_window_size(
     """
     max_span = _max_window_size(lags, window_features)
     max_allowed = int(span_index_length * MAX_FEATURE_FRACTION)
+    # Lags and windows that fit on their own, with an order larger than
+    # them: the order is what does not fit.
+    if (
+        differentiation
+        and differentiation > max_span
+        and max_span <= max_allowed < max_span + differentiation
+    ):
+        raise InvalidInputError(
+            f"`differentiation={differentiation}` plus the largest lag or "
+            f"window size ({max_span}) exceeds the maximum of {max_allowed} "
+            f"({int(MAX_FEATURE_FRACTION * 100)}% of {span_index_length} "
+            f"observations). Use a smaller order (1 or 2 remove a trend), or "
+            f"fewer lags and smaller window sizes.",
+            code  = "insufficient_data",
+            field = "differentiation",
+        )
     if max_span + (differentiation or 0) > max_allowed:
         with_differentiation = (
             f" plus {differentiation} for the differentiation"
