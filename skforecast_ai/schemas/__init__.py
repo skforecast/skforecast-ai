@@ -3,6 +3,7 @@
 from .errors import ErrorInfo
 from .plans import (
     CANDIDATE_CONFIG_KEYS,
+    OVERRIDE_NAMES,
     REFINE_PLAN_OVERRIDE_KEYS,
     CandidateConfig,
     CVParams,
@@ -30,6 +31,7 @@ from .results import (
 
 __all__ = [
     "CANDIDATE_CONFIG_KEYS",
+    "OVERRIDE_NAMES",
     "REFINE_PLAN_OVERRIDE_KEYS",
     "AskResult",
     "BacktestResult",

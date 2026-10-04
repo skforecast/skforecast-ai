@@ -12,14 +12,16 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
 from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.recommendation.backtesting import _compute_min_train_size
 from skforecast_ai.schemas import CVParams, CVResult
 from tests.fixtures_assistant import (
     df_single,
     df_multi_long,
+    df_multi_long_staggered,
     df_range_index,
     df_short,
 )
-from tests.fixtures_datasets import df_h2o
+from tests.fixtures_datasets import df_h2o, df_hourly_madrid_spring
 
 
 # =============================================================================
@@ -1339,3 +1341,194 @@ def test_create_cv_output_when_skip_folds_in_range():
     cv = assistant.create_cv(profile, plan, skip_folds=[1, 2]).cv
 
     assert cv.skip_folds == [1, 2]
+
+
+def test_create_cv_output_when_plan_has_differentiation():
+    """
+    Test that the strategy of a plan with a differentiation order carries
+    it and says so, and that the order adds to the minimum size of the
+    first training window.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plain = assistant.plan(profile, steps=12, lags=12)
+    plan = assistant.plan(profile, steps=12, lags=12, differentiation=2)
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.cv.differentiation == 2
+    assert result.cv_config["differentiation"] == 2
+    assert result.explanation.endswith("differentiation order 2.")
+    assert _compute_min_train_size(plan) == _compute_min_train_size(plain) + 2
+
+
+def test_create_cv_UserWarning_when_direct_forecaster_with_gap():
+    """
+    Test that create_cv() builds a strategy with a gap for a ForecasterDirect
+    plan, whose backtest raises, with a UserWarning that says so: the
+    strategy can still serve the candidates of compare() that are not
+    direct.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=6, forecaster="ForecasterDirect")
+
+    warn_msg = re.escape(
+        "ForecasterDirect is trained to predict 6 steps, and with `gap=2` "
+        "each fold needs steps + gap = 8 steps ahead, so skforecast would "
+        "fail: `backtest()` and `backtest_code()` of this plan with this "
+        "strategy raise. The strategy can still serve the candidates of "
+        "`compare()` that are not direct; use a strategy without gap to "
+        "backtest this plan."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, gap=2)
+
+    assert result.cv.gap == 2
+
+
+@pytest.mark.parametrize(
+    "forecaster, gap",
+    [("ForecasterRecursive", 2), ("ForecasterDirect", 0)],
+    ids=["recursive_with_gap", "direct_without_gap"],
+)
+def test_create_cv_no_warning_when_gap_can_run(forecaster, gap):
+    """
+    Test that create_cv() gives no warning for a recursive forecaster with a
+    gap or a direct forecaster without one.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=6, forecaster=forecaster)
+
+    # Warnings are errors in this suite.
+    result = assistant.create_cv(profile, plan, gap=gap)
+
+    assert result.cv.gap == gap
+
+
+def test_create_cv_UserWarning_when_llm_sets_gap_for_direct_forecaster(monkeypatch):
+    """
+    Test that create_cv() warns about a direct forecaster with a gap also
+    when the LLM chose the gap.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterDirect")
+    cv_params = CVParams(
+        initial_train_size    = 50,
+        refit                 = False,
+        fixed_train_size      = False,
+        gap                   = 2,
+        fold_stride           = None,
+        skip_folds            = None,
+        allow_incomplete_fold = True,
+        reasoning             = "Two days of delay before each forecast.",
+    )
+
+    class _FakeResult:
+        output = cv_params
+
+    class _FakeAgent:
+        async def run(self, msg, **kw):
+            return _FakeResult()
+
+    monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
+    monkeypatch.setattr(assistant, "_resolve_model", lambda self_=None: "fake")
+
+    warn_msg = re.escape(
+        "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+        "each fold needs steps + gap = 7 steps ahead"
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, prompt="Two days of delay")
+
+    assert result.cv.gap == 2
+
+
+def test_create_cv_UserWarning_when_first_window_shorter_than_forecaster():
+    """
+    Test that create_cv() builds the default strategy of a horizon that
+    leaves no room for the window of the forecaster (h2o, 204 observations,
+    `steps=100`: 2 folds take 200 and leave 4, and the default plan reads
+    36), with a UserWarning that its backtest raises.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=100)
+
+    warn_msg = re.escape(
+        "The first training window of the strategy has 4 observations, and "
+        "ForecasterRecursive needs at least 37 (more than its window size, "
+        "36), so skforecast would fail: `backtest()` of this plan with this "
+        "strategy raises. The strategy can still serve the candidates of "
+        "`compare()` with a smaller window; use a later `initial_train_size`, "
+        "or a shorter horizon, to backtest this plan."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan)
+
+    assert result.cv_config["n_folds"] == 2
+
+
+def test_create_cv_output_when_long_series_start_on_different_dates():
+    """
+    Test that the default strategy of long data whose series start on
+    different dates counts from the first date of the span, not from the
+    latest first date of the series: the first training set ends inside the
+    data, and backtest() runs the folds that `cv_config` states.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data             = df_multi_long_staggered,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(profile, plan)
+    backtest = assistant.backtest(
+        data          = df_multi_long_staggered,
+        cv            = result,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert profile.data_profile.start_date == "2023-03-02"
+    assert profile.data_profile.span_start_date == "2023-01-01"
+    assert result.cv_config["initial_train_size"] == "2023-03-11"
+    assert result.cv_config["n_folds"] == 6
+    assert backtest.predictions["fold"].nunique() == 6
+
+
+def test_create_cv_output_when_dates_cross_a_daylight_saving_change():
+    """
+    Test that the default strategy of hourly data in a time zone with a
+    daylight saving change is counted on the local times of the data: its
+    date is an hour that exists (03:00, since 02:00 is skipped on
+    2023-03-26), and backtest() runs the folds and the training size that
+    `cv_config` states.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly_madrid_spring, target="y")
+    plan = assistant.plan(
+        profile, steps=24, forecaster="ForecasterRecursive", estimator="Ridge",
+        lags=24,
+    )
+
+    result = assistant.create_cv(profile, plan)
+    backtest = assistant.backtest(
+        data          = df_hourly_madrid_spring,
+        cv            = result,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert profile.data_profile.time_zone == "Europe/Madrid"
+    assert result.cv_config["initial_train_size"] == "2023-03-26 03:00:00"
+    assert result.cv_config["n_folds"] == 3
+    assert "    initial_train_size = 147," in backtest.code
+    assert backtest.predictions.groupby("fold").size().tolist() == [24, 24, 15]

@@ -12,7 +12,7 @@ import warnings
 import pandas as pd
 from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
-from .._constants import DIRECT_FORECASTERS
+from .._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
@@ -54,8 +54,9 @@ def derive_cv_defaults(
     # Convert to a date string when datetime info is available
     initial_train_size = _position_to_date(
         position=initial_train_size,
-        start_date=profile.data_profile.start_date,
+        start_date=profile.data_profile.span_start_date,
         frequency=profile.data_profile.frequency,
+        time_zone=profile.data_profile.time_zone,
     )
 
     return {
@@ -188,11 +189,42 @@ def build_cv_explanation(
     return explanation
 
 
+def _local_index(
+    start_date: str,
+    n_observations: int,
+    frequency: str,
+    time_zone: str | None,
+) -> pd.DatetimeIndex:
+    """
+    Rebuild the dates of the data, as local times without time zone.
+
+    Without a time zone it is the regular grid from `start_date`. With one,
+    the grid is built in that zone and its local times are returned: they
+    skip an hour at the spring daylight saving change and repeat one in
+    autumn, as the dates of the data do, so the position of a date is the
+    one it has in the data. A zone pandas cannot use gives the regular grid.
+    """
+    index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
+    if time_zone is None:
+        return index
+    try:
+        aware = pd.date_range(
+            start   = pd.Timestamp(start_date).tz_localize(time_zone),
+            periods = n_observations,
+            freq    = frequency,
+        )
+    except Exception:
+        return index
+
+    return aware.tz_localize(None)
+
+
 def _split_folds(
     cv: TimeSeriesFold,
     n_observations: int,
     start_date: str | None = None,
     frequency: str | None = None,
+    time_zone: str | None = None,
 ) -> list:
     """
     Split a throwaway index the way a cross-validation splitter would.
@@ -226,6 +258,9 @@ def _split_folds(
         without it the split date cannot be located on the real index, so
         a `ValueError` is raised rather than counting folds on a guessed
         index.
+    time_zone : str, default None
+        Time zone of the dates of the dataset (`DataProfile.time_zone`),
+        to place a date on their local times (see `_local_index`).
 
     Returns
     -------
@@ -257,6 +292,20 @@ def _split_folds(
                     periods = n_observations,
                     freq    = frequency,
                 )
+        # skforecast places a date by the frequency of the index, which the
+        # local times of a zone with daylight saving changes do not keep:
+        # the date is counted on them here, as the backtesting script
+        # counts it on the data (`_cv_in_time_zone`).
+        local = _local_index(start_date, n_observations, frequency, time_zone)
+        date = pd.Timestamp(its)
+        if (
+            not local.equals(index)
+            and date.tz is None
+            and local[0] <= date <= local[-1]
+        ):
+            cv = copy.deepcopy(cv)
+            cv.set_params({"initial_train_size": int((local <= date).sum())})
+            index = pd.RangeIndex(n_observations)
     else:
         index = pd.RangeIndex(n_observations)
 
@@ -281,6 +330,7 @@ def count_cv_folds(
     n_observations: int,
     start_date: str | None = None,
     frequency: str | None = None,
+    time_zone: str | None = None,
 ) -> int:
     """
     Count the folds a cross-validation splitter produces over a dataset.
@@ -300,6 +350,8 @@ def count_cv_folds(
         is a date string or a pandas Timestamp.
     frequency : str, default None
         Index frequency. Required when `cv.initial_train_size` is a date.
+    time_zone : str, default None
+        Time zone of the dates (`DataProfile.time_zone`).
 
     Returns
     -------
@@ -307,7 +359,7 @@ def count_cv_folds(
         Number of folds produced by the configuration.
     """
 
-    return len(_split_folds(cv, n_observations, start_date, frequency))
+    return len(_split_folds(cv, n_observations, start_date, frequency, time_zone))
 
 
 def count_cv_fits(
@@ -315,6 +367,7 @@ def count_cv_fits(
     n_observations: int,
     start_date: str | None = None,
     frequency: str | None = None,
+    time_zone: str | None = None,
 ) -> int:
     """
     Count how many folds train the forecaster under a splitter.
@@ -334,6 +387,8 @@ def count_cv_fits(
         is a date string or a pandas Timestamp.
     frequency : str, default None
         Index frequency. Required when `cv.initial_train_size` is a date.
+    time_zone : str, default None
+        Time zone of the dates (`DataProfile.time_zone`).
 
     Returns
     -------
@@ -341,7 +396,7 @@ def count_cv_fits(
         Number of folds in which the forecaster is trained.
     """
 
-    folds = _split_folds(cv, n_observations, start_date, frequency)
+    folds = _split_folds(cv, n_observations, start_date, frequency, time_zone)
 
     return sum(bool(fold[-1]) for fold in folds)
 
@@ -498,8 +553,9 @@ def build_cv(
         n_folds = count_cv_folds(
                       cv             = cv,
                       n_observations = data_profile.span_index_length,
-                      start_date     = data_profile.start_date,
+                      start_date     = data_profile.span_start_date,
                       frequency      = data_profile.frequency,
+                      time_zone      = data_profile.time_zone,
                   )
     except InvalidInputError:
         raise
@@ -580,8 +636,9 @@ def _check_skip_folds(cv: TimeSeriesFold, data_profile: DataProfile) -> None:
     n_folds = count_cv_folds(
                   cv             = unskipped,
                   n_observations = data_profile.span_index_length,
-                  start_date     = data_profile.start_date,
+                  start_date     = data_profile.span_start_date,
                   frequency      = data_profile.frequency,
+                  time_zone      = data_profile.time_zone,
               )
     beyond = [index for index in skip_folds if index >= n_folds]
     if beyond:
@@ -714,8 +771,9 @@ def resolve_cv_config(
     folds = _split_folds(
                 cv             = cv,
                 n_observations = span_index_length,
-                start_date     = data_profile.start_date,
+                start_date     = data_profile.span_start_date,
                 frequency      = data_profile.frequency,
+                time_zone      = data_profile.time_zone,
             )
     n_folds = len(folds)
     n_fits = sum(bool(fold[-1]) for fold in folds) if trains else 0
@@ -744,12 +802,211 @@ def resolve_cv_config(
     return cv_config, explanation
 
 
+def plan_window_size(plan: ForecastPlan) -> int | None:
+    """
+    Return the window size of the forecaster of a plan, as skforecast
+    computes it: the observations it reads before its first prediction.
+
+    For the machine learning forecasters, the largest lag or window feature
+    plus the differentiation order; for the baseline, `offset * n_offsets`.
+    None for the forecasters whose window is not checked here
+    (`ForecasterStats`, `ForecasterFoundation`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Detailed forecasting plan.
+
+    Returns
+    -------
+    window_size : int, None
+        Window size of the forecaster, or None.
+    """
+    kwargs = plan.forecaster_kwargs
+    if plan.task_type in ("single_series", "multi_series", "multivariate"):
+        lags = kwargs.get("lags")
+        if isinstance(lags, int):
+            max_lag = lags
+        elif isinstance(lags, list):
+            max_lag = max(lags, default=0)
+        else:
+            max_lag = 0
+        max_window = 0
+        for entry in kwargs.get("window_features") or []:
+            sizes = entry.get("window_size")
+            sizes = sizes if isinstance(sizes, list) else [sizes]
+            max_window = max(
+                [max_window, *(size for size in sizes if isinstance(size, int))]
+            )
+        return max(max_lag, max_window) + (kwargs.get("differentiation") or 0)
+    if plan.task_type == "baseline":
+        offset = kwargs.get("offset", 1)
+        if isinstance(offset, int):
+            return offset * kwargs.get("n_offsets", 1)
+
+    return None
+
+
+def first_window_issue(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> str | None:
+    """
+    Say why the first training window of a strategy is too short for the
+    forecaster of a plan, or return None when it is not.
+
+    skforecast needs more observations in the first training window than
+    the window size of the forecaster (`plan_window_size`), and a direct
+    forecaster, which trains one estimator per step, at least the window
+    size plus `steps`. A strategy whose horizon leaves fewer, such as
+    `steps=100` on 204 observations (2 folds take 200), is valid for
+    `TimeSeriesFold` and fails when the forecaster is backtested.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+    data_profile : DataProfile
+        Profile of the data, to place a date `initial_train_size`.
+
+    Returns
+    -------
+    issue : str, None
+        What fails, or None.
+    """
+    window_size = plan_window_size(plan)
+    if window_size is None:
+        return None
+    # skforecast splits the dates of every series, from the earliest first
+    # date in long format, where `start_date` is the latest one.
+    folds = _split_folds(
+        cv             = cv_as_executed(cv, plan.forecaster),
+        n_observations = data_profile.span_index_length,
+        start_date     = data_profile.span_start_date,
+        frequency      = data_profile.frequency,
+        time_zone      = data_profile.time_zone,
+    )
+    if not folds:
+        return None
+    train_start, train_end = folds[0][1]
+    n_train = train_end - train_start
+    if plan.forecaster in DIRECT_FORECASTERS:
+        needed = window_size + plan.steps
+        reason = (
+            f"its window size, {window_size}, plus the {plan.steps} steps it "
+            f"is trained to predict"
+        )
+    else:
+        needed = window_size + 1
+        reason = f"more than its window size, {window_size}"
+    if n_train >= needed:
+        return None
+
+    return (
+        f"The first training window of the strategy has {n_train} "
+        f"observations, and {plan.forecaster} needs at least {needed} "
+        f"({reason}), so skforecast would fail"
+    )
+
+
+def check_first_window(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+    strict: bool = True,
+) -> None:
+    """
+    Raise when the first training window of a strategy is too short for the
+    forecaster of a plan (see `first_window_issue`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+    data_profile : DataProfile
+        Profile of the data.
+    strict : bool, default True
+        Whether a strategy that skforecast cannot split on the dates of the
+        profile (a date `initial_train_size` outside the data) raises an
+        `InvalidInputError` with the message of skforecast. When False it
+        is left to where the strategy runs (`backtest_code()` returns its
+        script).
+
+    Returns
+    -------
+    None
+    """
+    try:
+        issue = first_window_issue(plan, cv, data_profile)
+    except (ValueError, TypeError) as exc:
+        if strict:
+            raise _strategy_error(exc) from exc
+        return
+    if issue is not None:
+        features = (
+            ", fewer lags or smaller window features"
+            if plan.forecaster in AUTOREG_FORECASTERS else ""
+        )
+        raise InvalidInputError(
+            f"{issue}. Use a later `initial_train_size`, or a shorter "
+            f"horizon (`steps`){features}.",
+            field = "cv",
+            code  = "insufficient_data",
+        )
+
+
+def warn_first_window(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Warn when a strategy is built whose first training window is too short
+    for the forecaster of its plan: its backtest raises (see
+    `check_first_window`), but the strategy can still serve forecasters
+    with a smaller window in `compare()`.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy is built for.
+    cv : TimeSeriesFold
+        Strategy built.
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    None
+    """
+    try:
+        issue = first_window_issue(plan, cv, data_profile)
+    except ValueError:
+        # A strategy that cannot be split is reported by `build_cv()`.
+        return
+    if issue is not None:
+        warnings.warn(
+            f"{issue}: `backtest()` of this plan with this strategy raises. "
+            f"The strategy can still serve the candidates of `compare()` "
+            f"with a smaller window; use a later `initial_train_size`, or a "
+            f"shorter horizon, to backtest this plan.",
+            UserWarning,
+            stacklevel = 3,
+        )
+
+
 def _compute_min_train_size(plan: ForecastPlan) -> int:
     """
     Compute the minimum initial training size based on task type.
 
     The effective window size of a forecaster is
-    `max(max_lag, max_window_from_window_features)`.
+    `max(max_lag, max_window_from_window_features)`, plus its
+    differentiation order.
     `initial_train_size` must exceed this value for skforecast to
     accept the CV configuration.
 
@@ -791,6 +1048,9 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
         if effective_window == 0:
             return 2 * steps
 
+        # The differentiation order adds to the window of skforecast.
+        effective_window += plan.forecaster_kwargs.get("differentiation") or 0
+
         # Need initial_train_size > window_size, so floor at window + steps
         return effective_window + steps
 
@@ -811,6 +1071,7 @@ def _position_to_date(
     position: int,
     start_date: str | None,
     frequency: str | None,
+    time_zone: str | None = None,
 ) -> int | str:
     """
     Convert an integer position to a date string.
@@ -827,6 +1088,9 @@ def _position_to_date(
         Start date of the datetime index.
     frequency : str, None
         Pandas frequency string.
+    time_zone : str, default None
+        Time zone of the dates (`DataProfile.time_zone`): the date is then
+        the local time at that position (see `_local_index`).
 
     Returns
     -------
@@ -838,7 +1102,7 @@ def _position_to_date(
         return position
 
     try:
-        idx = pd.date_range(start=start_date, periods=position, freq=frequency)
+        idx = _local_index(start_date, position, frequency, time_zone)
         return _timestamp_to_str(idx[-1])
     except Exception:
         return position

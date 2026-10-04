@@ -232,7 +232,8 @@ def test_tool_compare_cancelled_between_candidates(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "arguments, field",
     [
-        ({"metric": "mean_squared_error"}, "metric"),
+        ({"metric": "accuracy"}, "metric"),
+        ({"metric": []}, "metric"),
         ({"candidates": [{"name": "a\nb", "config": {}}]}, "candidates[0].name"),
         (
             {"candidates": [{"name": "a", "config": {"steps": 3}}]},
@@ -245,9 +246,10 @@ def test_tool_compare_cancelled_between_candidates(tmp_path, monkeypatch):
 )
 def test_tool_compare_invalid_argument(tmp_path, arguments, field):
     """
-    Test that `compare` takes no `metric` in this version, rejects a
-    candidate name with a control character, an unknown key of a candidate,
-    repeated names and an invalid interval, before any candidate runs.
+    Test that `compare` rejects a metric outside the regression metrics or
+    an empty list of them, a candidate name with a control character, an
+    unknown key of a candidate, repeated names and an invalid interval,
+    before any candidate runs.
     """
     server, path = h2o_server(tmp_path)
     _, _, cv_id = cv_of(server, path)
@@ -461,3 +463,74 @@ def test_tool_compare_without_interval_uses_the_interval_of_the_plan_of_the_cv(
     assert expected.best_candidate.plan.interval == [0.1, 0.9]
     assert result["summary"] == expected.describe()
     assert explicit["summary"] != result["summary"]
+
+
+def test_tool_compare_metric_of_the_call_or_of_the_plan(tmp_path):
+    """
+    Test that `compare` ranks by its `metric`, and without one by the metric
+    chosen for the plan of the strategy, whose plan of the winner keeps it.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    _, chosen_plan_id, chosen_cv_id = cv_of(
+        server, path, metric=["mean_squared_error", "mean_absolute_error"]
+    )
+    candidates = [{"name": "ridge", "config": {"estimator": "Ridge"}}]
+
+    given = content_of(call(server, "compare", {
+        "cv_id": cv_id, "candidates": candidates, "baseline": False,
+        "metric": "median_absolute_error",
+    }))
+    of_plan = content_of(call(server, "compare", {
+        "cv_id": chosen_cv_id, "candidates": candidates, "baseline": False,
+    }))
+    best = content_of(call(
+        server, "describe_object", {"object_id": of_plan["links"]["best_plan_id"]}
+    ))
+
+    assert text_of(given["files"]["leaderboard"]).splitlines()[0].endswith(
+        "median_absolute_error"
+    )
+    assert "- Ranking metric: mean_squared_error" in of_plan["summary"]
+    assert "Primary metric: mean_squared_error, as requested" in best["summary"]
+
+
+def test_tool_compare_candidates_with_the_overrides_of_a_plan(tmp_path):
+    """
+    Test that the candidates of `compare` take the overrides of a plan
+    (`differentiation`, `calendar_features`, `target_transformer`,
+    `dropna_from_series`, `use_exog`) and rank as the Python API does.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    candidates = [
+        {"name": "plain", "config": {"estimator": "Ridge"}},
+        {
+            "name": "variant",
+            "config": {
+                "estimator": "Ridge", "differentiation": 1,
+                "calendar_features": ["month"], "target_transformer": "none",
+                "dropna_from_series": True, "use_exog": False,
+            },
+        },
+    ]
+
+    result = content_of(call(server, "compare", {
+        "cv_id": cv_id, "candidates": candidates, "baseline": False,
+    }))
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="x")
+    expected = assistant.compare(
+        data=path,
+        cv=assistant.create_cv(
+            profile=profile, plan=assistant.plan(profile=profile, steps=12)
+        ),
+        profile=profile,
+        candidates=[(c["name"], dict(c["config"])) for c in candidates],
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()
+    assert result["summary"] == expected.describe()

@@ -76,6 +76,22 @@ profile_multi_wide = DataProfile(
     data_path="data.csv",
 )
 
+# Wide data with a column the profile leaves out (`exog_columns=[]` of
+# `profile()`, or data passed with a saved profile that does not name it).
+profile_multi_wide_unused_columns = profile_multi_wide.model_copy(
+    update={"unused_columns": ["temp"]}
+)
+
+# Single series whose profile leaves the categorical column out
+# (`exog_columns=['temp']` of `profile()`).
+profile_single_unused_columns = profile_single_mixed_exog.model_copy(
+    update={
+        "exog_columns": ["temp"],
+        "categorical_exog": [],
+        "unused_columns": ["holiday"],
+    }
+)
+
 profile_multi_long = DataProfile(
     data_format="long",
     n_series=2,
@@ -170,6 +186,48 @@ plan_single_recursive_no_exog = ForecastPlan(
     use_exog=False,
     end_train="2023-03-12",
     explanation="Single series recursive forecasting without exogenous.",
+)
+
+# The metrics chosen with `plan(metric=[...])`: only those are computed.
+plan_single_metric_override = plan_single_recursive_no_exog.model_copy(
+    update={
+        "metric": "mean_squared_error",
+        "metrics_to_compute": ["mean_squared_error", "median_absolute_error"],
+        "overridden_fields": ["metric"],
+    }
+)
+
+# `plan(use_exog=False)` on data with exogenous columns.
+plan_single_without_exog = plan_single_recursive.model_copy(
+    update={"use_exog": False, "overridden_fields": ["use_exog"]}
+)
+
+# `plan(differentiation=1)`: the target is differenced before training.
+plan_single_differentiation = plan_single_recursive_no_exog.model_copy(
+    update={
+        "forecaster_kwargs": {"lags": 7, "differentiation": 1},
+        "overridden_fields": ["differentiation"],
+    }
+)
+
+# `plan(estimator='Ridge', calendar_features=['month', 'day_of_week'],
+# target_transformer='none', dropna_from_series=True)`.
+plan_single_feature_overrides = plan_single_recursive_no_exog.model_copy(
+    update={
+        "estimator": "Ridge",
+        "forecaster_kwargs": {
+            "lags": 7,
+            "calendar_features": {
+                "features": ["month", "day_of_week"],
+                "encoding": "cyclical",
+            },
+            "dropna_from_series": True,
+        },
+        "overridden_fields": [
+            "estimator", "calendar_features", "target_transformer",
+            "dropna_from_series",
+        ],
+    }
 )
 
 plan_single_direct = ForecastPlan(
@@ -544,4 +602,12 @@ cv_basic = SimpleNamespace(
     skip_folds=None,
     allow_incomplete_fold=True,
     differentiation=None,
+)
+
+# The strategy `create_cv()` builds for a plan with `differentiation=1`.
+cv_differentiation = SimpleNamespace(**{**vars(cv_basic), "differentiation": 1})
+
+# Foundation plan in prediction mode with exogenous variables.
+plan_foundation_exog_no_end_train = plan_foundation.model_copy(
+    update={"end_train": None, "use_exog": True}
 )

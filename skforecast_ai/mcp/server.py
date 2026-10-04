@@ -33,7 +33,7 @@ from .._constants import (
     FORECASTER_TASK_TYPES,
     LONG_TRAINING_FITS,
 )
-from .._utils import load_exog, warn_long_training
+from .._utils import load_exog, plan_override_value, warn_long_training
 from ..assistant import ForecastingAssistant
 from ..exceptions import InvalidInputError, SkforecastAIError
 from ..recommendation import count_estimator_fits, resolve_cv_config
@@ -53,22 +53,31 @@ from ._inputs import AllowedDir
 from ._runtime import CallControl, build_notices, notice_text, run_call
 from ._store import Entry, Store, estimate_nbytes
 from .models import (
+    CALENDAR_FEATURES_DESCRIPTION,
+    DIFFERENTIATION_DESCRIPTION,
+    DROPNA_DESCRIPTION,
     ESTIMATOR_DESCRIPTION,
     ESTIMATOR_KWARGS_DESCRIPTION,
     FORECASTER_DESCRIPTION,
     INTERVAL_DESCRIPTION,
     LAGS_DESCRIPTION,
+    METRIC_DESCRIPTION,
     STEPS_DESCRIPTION,
+    TARGET_TRANSFORMER_DESCRIPTION,
+    USE_EXOG_DESCRIPTION,
     WINDOW_FEATURES_DESCRIPTION,
+    CalendarFeatureName,
     CandidateArg,
     CodeResult,
     FailureResult,
     ForecasterName,
     Interval,
+    Metric,
     ObjectInfo,
     ObjectKind,
     ObjectList,
     RefinePlanArgs,
+    TargetTransformer,
     ToolNotice,
     ToolResult,
     WindowFeatures,
@@ -874,11 +883,17 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         series_id_column: Annotated[str | None, Field(description=(
             "Column with the series ids of long multi-series data."
         ))] = None,
+        exog_columns: Annotated[list[str] | None, Field(description=(
+            "Columns to use as exogenous variables, an empty list for none. "
+            "When null, every column that is not the target, the date or the "
+            "series ids. The other columns are not used."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
         _inputs.check_text_argument(date_column, "date_column")
         _inputs.check_text_argument(series_id_column, "series_id_column")
+        _inputs.check_text_argument(exog_columns, "exog_columns")
 
         def work(control: CallControl):
             path = _inputs.resolve_csv_path(data_path, state.allowed, "data_path")
@@ -889,6 +904,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 target           = target,
                 date_column      = date_column,
                 series_id_column = series_id_column,
+                exog_columns     = exog_columns,
             )
             _inputs.check_profile_names(result)
             _inputs.check_unchanged(path, digest, "data_path")
@@ -1006,6 +1022,29 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             f"{WINDOW_FEATURES_DESCRIPTION} Null for the deterministic "
             f"selection."
         ))] = None,
+        metric: Annotated[Metric | None, Field(description=(
+            f"{METRIC_DESCRIPTION} Null for the metric selected from the data "
+            f"(MAE for one series, MASE for several) and its default panel."
+        ))] = None,
+        use_exog: Annotated[bool | None, Field(description=(
+            f"{USE_EXOG_DESCRIPTION} Null uses them whenever the forecaster "
+            f"can."
+        ))] = None,
+        differentiation: Annotated[int | None, Field(ge=1, description=(
+            f"{DIFFERENTIATION_DESCRIPTION} Null for none."
+        ))] = None,
+        calendar_features: Annotated[list[CalendarFeatureName] | None, Field(
+            description=(
+                f"{CALENDAR_FEATURES_DESCRIPTION} Null for those selected "
+                f"from the frequency."
+            ),
+        )] = None,
+        target_transformer: Annotated[TargetTransformer | None, Field(
+            description=f"{TARGET_TRANSFORMER_DESCRIPTION} Null for the rule.",
+        )] = None,
+        dropna_from_series: Annotated[bool | None, Field(
+            description=f"{DROPNA_DESCRIPTION} Null for the rule.",
+        )] = None,
         ctx: Context = None,
     ) -> ToolResult:
         profile_entry = store.get(profile_id, "profile_id", ("profile",))
@@ -1013,14 +1052,20 @@ def _build_tools(state: _ServerState) -> list[Tool]:
 
         def work(control: CallControl):
             new_plan = assistant.plan(
-                profile          = _copy(profile_entry.obj),
-                steps            = steps,
-                interval         = interval,
-                forecaster       = forecaster,
-                estimator        = estimator,
-                estimator_kwargs = estimator_kwargs,
-                lags             = lags,
-                window_features  = window_features,
+                profile            = _copy(profile_entry.obj),
+                steps              = steps,
+                interval           = interval,
+                forecaster         = forecaster,
+                estimator          = estimator,
+                estimator_kwargs   = estimator_kwargs,
+                lags               = lags,
+                window_features    = window_features,
+                metric             = metric,
+                use_exog           = use_exog,
+                differentiation    = differentiation,
+                calendar_features  = calendar_features,
+                target_transformer = target_transformer,
+                dropna_from_series = dropna_from_series,
             )
             _check_foundation_kwargs(
                 new_plan.forecaster, new_plan.estimator_kwargs, "estimator_kwargs"
@@ -1368,6 +1413,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             f"{INTERVAL_DESCRIPTION} Null for the interval of the plan the "
             f"strategy was built for."
         ))] = None,
+        metric: Annotated[Metric | None, Field(description=(
+            f"Metric of every candidate. {METRIC_DESCRIPTION} Null for the "
+            f"metric chosen for the plan the strategy was built for, if one "
+            f"was chosen, else the one selected from the data."
+        ))] = None,
         baseline: Annotated[bool, Field(description=(
             "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) "
             "to the ranking."
@@ -1381,6 +1431,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         shared_interval = interval
         if shared_interval is None and cv_entry.obj.plan.interval is not None:
             shared_interval = list(cv_entry.obj.plan.interval)
+        # Likewise the metric, when one was chosen for that plan.
+        shared_metric = metric
+        if shared_metric is None and "metric" in cv_entry.obj.plan.overridden_fields:
+            shared_metric = plan_override_value(cv_entry.obj.plan, "metric")
         configs = None
         if candidates is None:
             # The default candidates are named by their forecaster and run
@@ -1431,6 +1485,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     profile           = _copy(profile_obj),
                     candidates        = copy.deepcopy(configs),
                     interval          = shared_interval,
+                    metric            = shared_metric,
                     show_progress     = False,
                     baseline          = baseline,
                     progress_callback = on_progress,
@@ -1580,7 +1635,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         exog_path: Annotated[str | None, Field(description=(
             "Absolute path of a CSV file with the future values of the "
             "exogenous variables, one row per date (and series) of the "
-            "horizon. Required to forecast the future when the data has "
+            "horizon. Required to forecast the future when the plan uses "
             "exogenous variables. The script of `get_code` reads them from "
             "'exog_future.csv' in its working directory."
         ))] = None,
@@ -1798,8 +1853,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         )),
         _StrictTool.build(compare, "compare", (
             "Backtest several configurations on the same folds and rank them by "
-            "the metric of the profile. Reports progress per candidate and can "
-            "be cancelled between candidates. Returns a comparison id and the "
+            "`metric`. Reports progress per candidate and can be cancelled "
+            "between candidates. Returns a comparison id and the "
             "plan of the winner in `links.best_plan_id`."
         )),
         _StrictTool.build(forecast, "forecast", (
@@ -1981,10 +2036,12 @@ def create_server(
         Memory, in MB, the objects may take (an estimate); the least
         recently used ones are removed beyond it.
     allow_models : iterable of str, default ()
-        Model ID prefixes of foundation models with a license restriction
-        or gated weights that the server may run (`'google/timesfm-3.0'`).
-        Each must start with the prefix of an adapter of skforecast. Models
-        without either run without it.
+        Model ID prefixes of foundation models that the server may run
+        although their license restricts commercial use, their weights are
+        gated, their provider requires an account or skforecast gives no
+        license information (`'google/timesfm-3.0'`).
+        Each must start with the prefix of an adapter of skforecast. Other
+        models run without it.
     max_file_mb : int, default 256
         Largest CSV file (data or future exogenous values) the server reads,
         in MB, checked on the size of the file before reading it. 0 for no
@@ -2039,8 +2096,10 @@ def run_server(
     max_memory_mb : int, default 1024
         Memory, in MB, the objects may take (an estimate).
     allow_models : iterable of str, default ()
-        Model ID prefixes of foundation models with a license restriction
-        or gated weights that the server may run.
+        Model ID prefixes of foundation models that the server may run
+        although their license restricts commercial use, their weights are
+        gated, their provider requires an account or skforecast gives no
+        license information.
     max_file_mb : int, default 256
         Largest CSV file the server reads, in MB; 0 for no limit.
 

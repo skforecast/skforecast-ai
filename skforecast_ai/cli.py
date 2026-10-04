@@ -71,6 +71,13 @@ EstimatorKwargsOption = Annotated[str | None, typer.Option("--estimator-kwargs",
 IntervalOption = Annotated[str | None, typer.Option("--interval", help="Prediction interval as two quantiles between 0 and 1, e.g. '0.1,0.9' for an 80% interval.")]
 LagsOption = Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3', or 'auto' to re-run the deterministic selection when refining a saved plan.")]
 WindowFeaturesOption = Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]', or 'auto' to re-run the deterministic selection when refining a saved plan.")]
+MetricOption = Annotated[str | None, typer.Option("--metric", help="Metric, or comma-separated metrics whose first one is the primary metric; only those are computed. 'auto' selects them from the data again when refining a saved plan.")]
+UseExogOption = Annotated[str | None, typer.Option("--use-exog", help="Use the exogenous columns: 'true', 'false' (forecast then takes no --exog) or 'auto' for the rule.")]
+DifferentiationOption = Annotated[str | None, typer.Option("--differentiation", help="Order of differencing of the target before training (an integer of at least 1), or 'auto' for the rule (no differencing). Machine learning forecasters only.")]
+CalendarFeaturesOption = Annotated[str | None, typer.Option("--calendar-features", help="Comma-separated calendar features (e.g. 'month,day_of_week'), 'none' for none, or 'auto' for those selected from the frequency. Machine learning forecasters only.")]
+TargetTransformerOption = Annotated[str | None, typer.Option("--target-transformer", help="Scaler of the target: 'StandardScaler', 'none', or 'auto' for the rule. Machine learning forecasters only.")]
+DropnaOption = Annotated[str | None, typer.Option("--dropna-from-series", help="Drop the training rows with missing values: 'true', 'false' or 'auto' for the rule. Machine learning forecasters only.")]
+ExogColumnsOption = Annotated[str | None, typer.Option("--exog-columns", help="Comma-separated columns to use as exogenous variables, 'none' for none, or 'auto' for every column that is not the target, the date or the series id. The other columns are not used.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
 FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
 # CV options default to None so that only the flags actually passed reach
@@ -531,6 +538,7 @@ def _collect_plan_overrides(
     steps: int | None = None,
     reset_lags: bool = False,
     reset_window_features: bool = False,
+    decisions: dict | None = None,
 ) -> dict:
     """
     Build a dict of plan overrides for `refine_plan`.
@@ -564,6 +572,9 @@ def _collect_plan_overrides(
     reset_window_features : bool, default False
         Ask for the deterministic window feature selection
         (`window_features=None`).
+    decisions : dict, default None
+        Decisions read by `_parse_decisions`, added as they are (a None
+        value asks for the rule).
 
     Returns
     -------
@@ -589,7 +600,128 @@ def _collect_plan_overrides(
         overrides["window_features"] = None
     elif window_features is not None:
         overrides["window_features"] = window_features
+    overrides.update(decisions or {})
     return overrides
+
+
+# Warnings of `create_cv()` about a strategy whose backtest raises: the
+# direct forecaster with a gap and the first training window shorter than
+# the forecaster needs. `backtest` and `backtest-code` raise right after
+# with the same reason, and a candidate of `compare` that cannot run fails
+# with its own reason.
+_STRATEGY_WARNINGS = (
+    r".*`backtest\(\)` and `backtest_code\(\)` of this plan",
+    r".*`backtest\(\)` of this plan with this strategy raises",
+)
+
+
+def _create_cv_to_backtest(assistant: ForecastingAssistant, **kwargs):
+    """
+    Build the strategy that `backtest`, `backtest-code` or `compare` runs,
+    without the warnings of `create_cv()` about a strategy whose backtest of
+    its plan raises: the command says it right after (a failed candidate,
+    for `compare`).
+    """
+    with warnings.catch_warnings():
+        for pattern in _STRATEGY_WARNINGS:
+            warnings.filterwarnings(
+                action   = "ignore",
+                message  = pattern,
+                category = UserWarning,
+            )
+        return assistant.create_cv(**kwargs)
+
+
+def _parse_exog_columns(value: str | None) -> list[str] | None:
+    """
+    Read `--exog-columns`: `'auto'` (or the option left out) maps to None,
+    every column; `'none'` to an empty list. The names are checked by
+    `profile()`.
+    """
+    if value is None or _is_auto(value):
+        return None
+    if value.strip().lower() == "none":
+        return []
+    return [name.strip() for name in value.split(",")]
+
+
+def _parse_bool_option(value: str, option: str) -> bool:
+    """
+    Read 'true' or 'false' (any case) given to a three-state option.
+    """
+    text = value.strip().lower()
+    if text not in ("true", "false"):
+        raise typer.BadParameter(
+            f"{option} takes 'true', 'false' or 'auto', got {value!r}."
+        )
+    return text == "true"
+
+
+def _parse_decisions(
+    metric: str | None = None,
+    use_exog: str | None = None,
+    differentiation: str | None = None,
+    calendar_features: str | None = None,
+    target_transformer: str | None = None,
+    dropna_from_series: str | None = None,
+) -> dict:
+    """
+    Read the options of the decisions added in 0.4.0 (`--metric`,
+    `--use-exog`, `--differentiation`, `--calendar-features`,
+    `--target-transformer`, `--dropna-from-series`).
+
+    Each option given is a key of the result: `'auto'` maps to None, which
+    asks `plan()` for the rule (and `refine_plan()` to decide again), so
+    the dict can be passed to `plan()` and merged into the overrides of
+    `refine_plan()` as it is. The values are checked by the core.
+
+    Returns
+    -------
+    decisions : dict
+        Keyword arguments of `plan()` for the options given.
+    """
+    decisions: dict = {}
+    if metric is not None:
+        metrics = [name.strip() for name in metric.split(",")]
+        decisions["metric"] = (
+            None if _is_auto(metric)
+            else metrics[0] if len(metrics) == 1 else metrics
+        )
+    if use_exog is not None:
+        decisions["use_exog"] = (
+            None if _is_auto(use_exog)
+            else _parse_bool_option(use_exog, "--use-exog")
+        )
+    if differentiation is not None:
+        if _is_auto(differentiation):
+            decisions["differentiation"] = None
+        else:
+            try:
+                decisions["differentiation"] = int(differentiation.strip())
+            except ValueError as e:
+                raise typer.BadParameter(
+                    f"--differentiation takes an integer or 'auto', got "
+                    f"{differentiation!r}."
+                ) from e
+    if calendar_features is not None:
+        if _is_auto(calendar_features):
+            decisions["calendar_features"] = None
+        elif calendar_features.strip().lower() == "none":
+            decisions["calendar_features"] = []
+        else:
+            decisions["calendar_features"] = [
+                name.strip() for name in calendar_features.split(",")
+            ]
+    if target_transformer is not None:
+        decisions["target_transformer"] = (
+            None if _is_auto(target_transformer) else target_transformer.strip()
+        )
+    if dropna_from_series is not None:
+        decisions["dropna_from_series"] = (
+            None if _is_auto(dropna_from_series)
+            else _parse_bool_option(dropna_from_series, "--dropna-from-series")
+        )
+    return decisions
 
 
 def _collect_cv_overrides(
@@ -838,6 +970,7 @@ def profile(
     target: Annotated[str, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")],
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
+    exog_columns: ExogColumnsOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
     quiet: QuietOption = False,
@@ -846,11 +979,13 @@ def profile(
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_target = _parse_target(target)
+        parsed_exog_columns = _parse_exog_columns(exog_columns)
 
         with _spinner("Profiling dataset...", quiet):
             result = assistant.profile(
                 data=data, target=parsed_target, date_column=date_column,
                 series_id_column=series_id_column,
+                exog_columns=parsed_exog_columns,
             )
 
         if format == "json":
@@ -984,6 +1119,13 @@ def plan(
     interval: IntervalOption = None,
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
+    exog_columns: ExogColumnsOption = None,
     from_profile: FromProfileOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
@@ -1002,8 +1144,27 @@ def plan(
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_lags = _parse_lags(lags)
         parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
+
+        parsed_exog_columns = _parse_exog_columns(exog_columns)
 
         if from_profile is not None:
+            if parsed_exog_columns is not None:
+                # The columns are chosen when the data is profiled: the
+                # profile loaded already decided them.
+                raise InvalidInputError(
+                    "--exog-columns applies when the data is profiled, not "
+                    "with --from-profile: run `skforecast-ai profile` with "
+                    "--exog-columns instead.",
+                    field = "exog_columns",
+                )
             profile_data = _read_json_input(from_profile)
             prof = ForecastingProfile.model_validate(profile_data)
         else:
@@ -1017,6 +1178,7 @@ def plan(
                 prof = assistant.profile(
                     data=data, target=parsed_target, date_column=date_column,
                     series_id_column=series_id_column,
+                    exog_columns=parsed_exog_columns,
                 )
 
         with _spinner("Planning...", quiet):
@@ -1024,7 +1186,7 @@ def plan(
                 profile=prof, steps=steps, forecaster=forecaster,
                 estimator=estimator, estimator_kwargs=parsed_estimator_kwargs,
                 interval=parsed_interval, lags=parsed_lags,
-                window_features=parsed_window_features,
+                window_features=parsed_window_features, **decisions,
             )
 
         if format == "json":
@@ -1048,6 +1210,12 @@ def refine_plan(
     interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval as two quantiles between 0 and 1, e.g. '0.1,0.9'.")] = None,
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
     prompt: Annotated[str | None, typer.Option("--prompt", help="Domain knowledge in natural language; the LLM proposes lags and window features from it.")] = None,
     llm: Annotated[str | None, typer.Option("--llm", help="LLM provider and model, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
@@ -1087,6 +1255,14 @@ def refine_plan(
             steps=steps,
             reset_lags=_is_auto(lags),
             reset_window_features=_is_auto(window_features),
+            decisions=_parse_decisions(
+                metric             = metric,
+                use_exog           = use_exog,
+                differentiation    = differentiation,
+                calendar_features  = calendar_features,
+                target_transformer = target_transformer,
+                dropna_from_series = dropna_from_series,
+            ),
         )
 
         with _spinner("Refining plan...", quiet):
@@ -1118,6 +1294,12 @@ def forecast_code(
     interval: IntervalOption = None,
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
     from_plan: FromPlanOption = None,
     format: CodeFormatOption = "code",
     output: OutputOption = None,
@@ -1130,6 +1312,14 @@ def forecast_code(
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_lags = _parse_lags(lags)
         parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
 
         if from_plan is not None:
             prof, plan_obj = _read_plan_bundle(from_plan)
@@ -1147,6 +1337,7 @@ def forecast_code(
                 window_features=parsed_window_features,
                 reset_lags=_is_auto(lags),
                 reset_window_features=_is_auto(window_features),
+                decisions=decisions,
             )
             if plan_overrides:
                 plan_obj = assistant.refine_plan(
@@ -1173,7 +1364,7 @@ def forecast_code(
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval, lags=parsed_lags,
-                    window_features=parsed_window_features,
+                    window_features=parsed_window_features, **decisions,
                 )
 
         if format == "json":
@@ -1200,6 +1391,12 @@ def backtest_code(
     interval: IntervalOption = None,
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
     initial_train_size: InitialTrainSizeOption = None,
     fold_stride: FoldStrideOption = None,
     refit: RefitOption = None,
@@ -1239,6 +1436,14 @@ def backtest_code(
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_lags = _parse_lags(lags)
         parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
 
         with _spinner("Generating backtesting code...", quiet):
             # Profile (if needed)
@@ -1261,6 +1466,7 @@ def backtest_code(
                     interval=parsed_interval,
                     lags=parsed_lags,
                     window_features=parsed_window_features,
+                    **decisions,
                 )
             else:
                 # Overrides supplied alongside --from-plan are applied on top
@@ -1274,6 +1480,7 @@ def backtest_code(
                     window_features=parsed_window_features,
                     reset_lags=_is_auto(lags),
                     reset_window_features=_is_auto(window_features),
+                    decisions=decisions,
                 )
                 if plan_overrides:
                     plan_obj = assistant.refine_plan(
@@ -1290,7 +1497,8 @@ def backtest_code(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
-            cv = assistant.create_cv(
+            cv = _create_cv_to_backtest(
+                assistant,
                 profile=prof,
                 plan=plan_obj,
                 **cv_kwargs,
@@ -1370,6 +1578,14 @@ def forecast(
     estimator: EstimatorOption = None,
     estimator_kwargs: EstimatorKwargsOption = None,
     interval: IntervalOption = None,
+    lags: LagsOption = None,
+    window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
     test_size: Annotated[str | None, typer.Option("--test-size", help="Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). The test set must hold exactly --steps observations. When omitted, forecasts the future.")] = None,
     exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous values covering the forecast horizon (prediction mode only).")] = None,
     from_plan: FromPlanOption = None,
@@ -1384,6 +1600,16 @@ def forecast(
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_test_size = _parse_test_size(test_size)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
 
         if from_plan is not None:
             prof, plan_obj = _read_plan_bundle(from_plan)
@@ -1398,6 +1624,11 @@ def forecast(
                 estimator=estimator,
                 estimator_kwargs=parsed_estimator_kwargs,
                 interval=parsed_interval,
+                lags=parsed_lags,
+                window_features=parsed_window_features,
+                reset_lags=_is_auto(lags),
+                reset_window_features=_is_auto(window_features),
+                decisions=decisions,
             )
             if plan_overrides:
                 plan_obj = assistant.refine_plan(
@@ -1442,7 +1673,8 @@ def forecast(
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
-                    test_size=parsed_test_size, exog=exog_df,
+                    lags=parsed_lags, window_features=parsed_window_features,
+                    test_size=parsed_test_size, exog=exog_df, **decisions,
                 )
 
         if output_predictions is not None:
@@ -1491,6 +1723,14 @@ def backtest(
     estimator: EstimatorOption = None,
     estimator_kwargs: EstimatorKwargsOption = None,
     interval: IntervalOption = None,
+    lags: LagsOption = None,
+    window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
     initial_train_size: InitialTrainSizeOption = None,
     fold_stride: FoldStrideOption = None,
     refit: RefitOption = None,
@@ -1514,6 +1754,16 @@ def backtest(
         api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_interval = _parse_interval(interval)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
 
         assistant = ForecastingAssistant(
             llm=llm_value,
@@ -1560,6 +1810,9 @@ def backtest(
                     estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
+                    lags=parsed_lags,
+                    window_features=parsed_window_features,
+                    **decisions,
                 )
             else:
                 # Apply any override supplied alongside --from-plan on top of
@@ -1570,6 +1823,11 @@ def backtest(
                     estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
+                    lags=parsed_lags,
+                    window_features=parsed_window_features,
+                    reset_lags=_is_auto(lags),
+                    reset_window_features=_is_auto(window_features),
+                    decisions=decisions,
                 )
                 if plan_overrides:
                     plan_obj = assistant.refine_plan(
@@ -1586,7 +1844,8 @@ def backtest(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
-            cv = assistant.create_cv(
+            cv = _create_cv_to_backtest(
+                assistant,
                 profile=prof,
                 plan=plan_obj,
                 prompt=prompt,
@@ -1689,7 +1948,7 @@ def compare(
     steps: StepsOption = None,
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
-    candidates: Annotated[str | None, typer.Option("--candidates", help="Candidate configs as JSON array of [name, config] pairs; config keys: forecaster, estimator, estimator_kwargs, lags, window_features. When omitted, candidates are built from the profile.")] = None,
+    candidates: Annotated[str | None, typer.Option("--candidates", help="Candidate configs as JSON array of [name, config] pairs; config keys: forecaster, estimator, estimator_kwargs, lags, window_features, use_exog, differentiation, calendar_features, target_transformer, dropna_from_series. When omitted, candidates are built from the profile.")] = None,
     metric: Annotated[str | None, typer.Option("--metric", help="Metric(s) to compute, comma-separated. The first ranks the table.")] = None,
     interval: IntervalOption = None,
     baseline: Annotated[bool, typer.Option("--baseline/--no-baseline", help="Add a seasonal naive baseline (ForecasterEquivalentDate) to the leaderboard. Single series only.")] = True,
@@ -1761,7 +2020,10 @@ def compare(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
-            cv = assistant.create_cv(
+            # The default plan only sizes the strategy: each candidate that
+            # cannot run with it fails with its own reason.
+            cv = _create_cv_to_backtest(
+                assistant,
                 profile=prof,
                 plan=default_plan,
                 **cv_kwargs,
@@ -1913,7 +2175,7 @@ def mcp_server(
     max_objects: Annotated[int, typer.Option("--max-objects", min=1, help="Most objects the server keeps; the least recently used ones are removed beyond it.")] = 256,
     max_memory_mb: Annotated[int, typer.Option("--max-memory-mb", min=1, help="Memory, in MB, the objects may take; the least recently used ones are removed beyond it.")] = 1024,
     max_file_mb: Annotated[int, typer.Option("--max-file-mb", min=0, help="Largest CSV file the server reads, in MB, checked before reading it; 0 for no limit.")] = 256,
-    allow_model: Annotated[list[str] | None, typer.Option("--allow-model", help="Model ID prefix of a foundation model with a license restriction or gated weights that the server may run, e.g. google/timesfm-3.0 (repeatable). Models without either run without it.")] = None,
+    allow_model: Annotated[list[str] | None, typer.Option("--allow-model", help="Model ID prefix of a foundation model that the server may run although its license restricts commercial use, its weights are gated, its provider requires an account or skforecast gives no license information, e.g. google/timesfm-3.0 (repeatable). Other models run without it.")] = None,
 ) -> None:
     """Serve the deterministic workflow to MCP clients (coding agents) over stdio."""
     try:

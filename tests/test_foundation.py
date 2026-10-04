@@ -3,10 +3,12 @@
 import dataclasses
 import re
 
+import numpy as np
 import pytest
 
 from skforecast.foundation import get_model_info
 
+from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 from skforecast_ai._foundation import (
     foundation_backend_installed,
     foundation_exog_columns,
@@ -132,16 +134,93 @@ def test_foundation_backend_installed_output(backend_package, expected):
 # =============================================================================
 @pytest.mark.parametrize(
     "estimator_kwargs",
-    [None, {}, {"context_length": 1024}],
+    [
+        None,
+        {},
+        {"context_length": 1024},
+        {"context_length": np.int64(64)},
+        {"context_length": True},
+    ],
     ids=lambda dt: f"estimator_kwargs: {dt}",
 )
 def test_validate_foundation_estimator_kwargs_no_error_when_no_model_id(
     estimator_kwargs,
 ):
     """
-    Test that estimator kwargs without a model ID are accepted.
+    Test that estimator kwargs without a model ID are accepted, with a
+    `context_length` that `FoundationModel` accepts once the plan stores it
+    as a Python int (a numpy integer, and True, an int for skforecast).
     """
     validate_foundation_estimator_kwargs(estimator_kwargs)
+
+
+@pytest.mark.parametrize(
+    "context_length, err_msg",
+    [
+        (
+            "100",
+            "`context_length` in `estimator_kwargs` must be a positive integer "
+            "(the number of past observations the model reads), got '100'.",
+        ),
+        (
+            100.5,
+            "`context_length` in `estimator_kwargs` must be a positive integer "
+            "(the number of past observations the model reads), got 100.5.",
+        ),
+        (
+            512.0,
+            "`context_length` in `estimator_kwargs` must be a positive integer "
+            "(the number of past observations the model reads), got 512.0.",
+        ),
+        (
+            None,
+            "`context_length` in `estimator_kwargs` must be a positive integer "
+            "(the number of past observations the model reads), got None.",
+        ),
+    ],
+    ids=["text", "float", "integral float", "None"],
+)
+def test_validate_foundation_estimator_kwargs_InvalidInputTypeError_when_context_length_not_int(
+    context_length, err_msg
+):
+    """
+    Test that a `context_length` that is not an int, which `FoundationModel`
+    rejects, raises InvalidInputTypeError (a TypeError) with the field
+    'estimator_kwargs'.
+    """
+    with pytest.raises(InvalidInputTypeError, match=re.escape(err_msg)) as exc_info:
+        validate_foundation_estimator_kwargs({"context_length": context_length})
+
+    assert exc_info.value.field == "estimator_kwargs"
+
+
+@pytest.mark.parametrize(
+    "context_length, err_msg",
+    [
+        (
+            0,
+            "`context_length` in `estimator_kwargs` must be a positive integer "
+            "(the number of past observations the model reads), got 0.",
+        ),
+        (
+            -5,
+            "`context_length` in `estimator_kwargs` must be a positive integer "
+            "(the number of past observations the model reads), got -5.",
+        ),
+    ],
+    ids=["zero", "negative"],
+)
+def test_validate_foundation_estimator_kwargs_InvalidInputError_when_context_length_below_1(
+    context_length, err_msg
+):
+    """
+    Test that a `context_length` lower than 1 raises InvalidInputError (a
+    ValueError) with the field 'estimator_kwargs'.
+    """
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        validate_foundation_estimator_kwargs({"context_length": context_length})
+
+    assert exc_info.value.field == "estimator_kwargs"
 
 
 def test_validate_foundation_estimator_kwargs_ValueError_when_model_id():

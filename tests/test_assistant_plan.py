@@ -4,6 +4,7 @@ import re
 import warnings
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from skforecast.exceptions import MissingValuesWarning
@@ -392,7 +393,7 @@ def test_plan_output_when_foundation_model_id_given():
     )
     assert (
         "The weights of 'google/timesfm-3.0-pytorch' are released under "
-        "TimesFM Non-Commercial License v1.0, which restricts commercial use "
+        "timesfm-non-commercial-license-v1.0, which restricts commercial use "
         "(https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE)."
     ) in plan.explanation
 
@@ -449,10 +450,11 @@ def test_plan_output_when_foundation_model_requires_numeric_covariates():
     )
 
 
-def test_plan_output_when_foundation_model_is_gated():
+def test_plan_output_when_foundation_provider_requires_account():
     """
-    Test that the explanation warns that the weights of a gated foundation
-    model need an authenticated Hugging Face account.
+    Test that the explanation of a TabPFN plan says that its provider
+    requires its own account, and that t0, no longer gated, gets no
+    sentence about its weights.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -460,14 +462,22 @@ def test_plan_output_when_foundation_model_is_gated():
         profile    = profile,
         steps      = 10,
         forecaster = "ForecasterFoundation",
+        estimator  = "priorlabs/tabpfn-ts",
+    )
+    plan_t0 = assistant.plan(
+        profile    = profile,
+        steps      = 10,
+        forecaster = "ForecasterFoundation",
         estimator  = "theforecastingcompany/t0-alpha",
     )
 
     assert (
-        "The weights of 'theforecastingcompany/t0-alpha' are gated on the "
-        "Hugging Face Hub: log in with an account that has accepted the model "
-        "license before running the script."
+        "The provider of 'priorlabs/tabpfn-ts' requires its own account and "
+        "accepting its license, outside the Hugging Face Hub, before running "
+        "the script."
     ) in plan.explanation
+    assert "The weights of" not in plan_t0.explanation
+    assert "provider" not in plan_t0.explanation
 
 
 def test_plan_ValueError_when_foundation_model_not_supported():
@@ -881,18 +891,15 @@ def test_plan_ValueError_when_interval_invalid(forecaster, interval, match):
         assistant.plan(profile, steps=10, forecaster=forecaster, interval=interval)
 
 
-def test_plan_ValueError_when_datetime_index_has_no_frequency(tmp_path):
+def test_plan_ValueError_when_datetime_index_has_no_frequency():
     """
-    Test that plan() raises, pointing at day-first dates, when the datetime
-    index has no inferable frequency: dd/mm/yyyy strings read month-first
-    give irregular timestamps, and the script would fail inside skforecast.
+    Test that plan() raises, also pointing at day-first dates, when the
+    datetime index has no inferable frequency (irregular timestamps), since
+    the script would fail inside skforecast. Day-first dates that a later
+    date proves wrong are rejected earlier, by profile().
     """
-    csv_path = tmp_path / "dayfirst.csv"
-    df_single.assign(
-        date=df_single["date"].dt.strftime("%d/%m/%Y")
-    ).to_csv(csv_path, index=False)
     assistant = ForecastingAssistant()
-    profile = assistant.profile(data=csv_path, target="sales", date_column="date")
+    profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
         "The frequency of the datetime index could not be inferred (the "
@@ -1193,20 +1200,14 @@ def test_plan_InvalidInputError_code_and_field(kwargs, expected_field, err_msg):
     assert exc_info.value.field == expected_field
 
 
-def test_plan_InvalidInputError_field_when_datetime_index_has_no_frequency(
-    tmp_path,
-):
+def test_plan_InvalidInputError_field_when_datetime_index_has_no_frequency():
     """
     Test that a profile without an inferable frequency raises
     InvalidInputError with `profile` as field, the argument plan() received
     the dates through.
     """
-    csv_path = tmp_path / "dayfirst.csv"
-    df_single.assign(
-        date=df_single["date"].dt.strftime("%d/%m/%Y")
-    ).to_csv(csv_path, index=False)
     assistant = ForecastingAssistant()
-    profile = assistant.profile(data=csv_path, target="sales", date_column="date")
+    profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
         "The frequency of the datetime index could not be inferred (the "
@@ -1518,3 +1519,579 @@ def test_plan_warnings_kept_when_plan_reloaded_from_json():
 
     assert reloaded.warnings == plan.warnings
     assert len(reloaded.warnings) == 1
+
+
+def test_plan_output_overridden_fields_record_the_arguments_given():
+    """
+    Test that `overridden_fields` names the arguments passed with a value,
+    in the canonical order, and not those left to the rules: None and an
+    empty `estimator_kwargs`, and `steps` and `interval`, which have no
+    rule.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    default = assistant.plan(profile, steps=10, interval=[0.1, 0.9])
+    chosen = assistant.plan(
+        profile,
+        steps            = 10,
+        window_features  = [{"stats": ["mean"], "window_size": 7}],
+        lags             = 3,
+        estimator        = "Ridge",
+        estimator_kwargs = {},
+        forecaster       = "ForecasterRecursive",
+    )
+
+    assert default.overridden_fields == []
+    assert chosen.overridden_fields == [
+        "forecaster", "estimator", "lags", "window_features"
+    ]
+
+
+@pytest.mark.parametrize(
+    "metric, expected_metric, expected_metrics, sentence",
+    [
+        (
+            "mean_squared_error",
+            "mean_squared_error",
+            ["mean_squared_error"],
+            "Metric: mean_squared_error, as requested.",
+        ),
+        (
+            ["median_absolute_error", "mean_absolute_error"],
+            "median_absolute_error",
+            ["median_absolute_error", "mean_absolute_error"],
+            "Primary metric: median_absolute_error, as requested; also "
+            "computed: mean_absolute_error.",
+        ),
+    ],
+    ids=["one metric", "list"],
+)
+def test_plan_output_when_metric_given(
+    metric, expected_metric, expected_metrics, sentence
+):
+    """
+    Test that `metric` sets the primary metric (the first one) and the only
+    metrics computed, records the decision and replaces the sentence that
+    explains the selected metric.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan = assistant.plan(profile, steps=10, metric=metric)
+
+    assert plan.metric == expected_metric
+    assert plan.metrics_to_compute == expected_metrics
+    assert plan.overridden_fields == ["metric"]
+    assert plan.explanation.endswith(sentence)
+    assert "MAE is interpretable" not in plan.explanation
+
+
+@pytest.mark.parametrize(
+    "metric, error, message",
+    [
+        ([], ValueError, "`metric` must not be an empty list."),
+        (
+            ["mean_squared_error", "mean_squared_error"],
+            ValueError,
+            "`metric` repeats ['mean_squared_error']: list each metric once.",
+        ),
+        ("accuracy", ValueError, "Unknown metric 'accuracy'."),
+        (3, TypeError, "`metric` must be a metric name or a list of metric names"),
+        ([1], TypeError, "`metric` must be a metric name or a list of metric names"),
+    ],
+    ids=["empty", "repeated", "unknown", "int", "list of int"],
+)
+def test_plan_error_when_metric_invalid(metric, error, message):
+    """
+    Test that an empty, repeated, unknown or non-text metric is rejected
+    with `field='metric'`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(error, match=re.escape(message)) as info:
+        assistant.plan(profile, steps=10, metric=metric)
+
+    assert info.value.field == "metric"
+
+
+def test_plan_TypeError_when_metric_given_positionally():
+    """
+    Test that `metric` is keyword-only, so the positional order of the
+    arguments of 0.3 does not change.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(TypeError):
+        assistant.plan(profile, 10, None, None, None, None, None, None, "mae")
+
+
+def test_plan_output_when_use_exog_false():
+    """
+    Test that `use_exog=False` leaves out the exogenous columns of the
+    data (no transformer for them), records the decision and says so in
+    the explanation, and that True keeps the rule's choice without that
+    sentence.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    without = assistant.plan(profile, steps=10, estimator="Ridge", use_exog=False)
+    with_exog = assistant.plan(profile, steps=10, estimator="Ridge", use_exog=True)
+
+    assert without.use_exog is False
+    assert "transformer_exog" not in without.forecaster_kwargs
+    assert without.overridden_fields == ["estimator", "use_exog"]
+    assert without.explanation.endswith(
+        "Exogenous variables ['promo'] are not used, as requested."
+    )
+    assert with_exog.use_exog is True
+    assert with_exog.forecaster_kwargs["transformer_exog"] == "StandardScaler"
+    assert "as requested" not in with_exog.explanation
+
+
+@pytest.mark.parametrize(
+    "data, forecaster, estimator, reason",
+    [
+        (df_no_exog, None, None, "the data has no exogenous columns"),
+        (
+            df_single,
+            "ForecasterEquivalentDate",
+            None,
+            "'ForecasterEquivalentDate' only repeats past values of the target",
+        ),
+        (
+            df_single,
+            "ForecasterFoundation",
+            "Salesforce/moirai-2.0-R-small",
+            "'Salesforce/moirai-2.0-R-small' does not accept the exogenous "
+            "columns of the data as covariates",
+        ),
+    ],
+    ids=["no exog", "baseline", "foundation without covariates"],
+)
+def test_plan_ValueError_when_use_exog_true_cannot_apply(
+    data, forecaster, estimator, reason
+):
+    """
+    Test that `use_exog=True` is rejected with `field='use_exog'` when the
+    data has no exogenous columns or the forecaster cannot use them.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+
+    err_msg = re.escape(f"`use_exog=True` cannot be applied: {reason}.")
+    with pytest.raises(ValueError, match=err_msg) as info:
+        assistant.plan(
+            profile, steps=10, forecaster=forecaster, estimator=estimator,
+            use_exog=True,
+        )
+
+    assert info.value.field == "use_exog"
+
+
+def test_plan_ValueError_when_use_exog_true_and_profile_leaves_exog_out():
+    """
+    Test that `use_exog=True` with a profile whose `exog_columns` left every
+    exogenous column out says that the profile left them out.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_single,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = [],
+    )
+
+    err_msg = re.escape(
+        "`use_exog=True` cannot be applied: the profile has no exogenous "
+        "columns (`exog_columns` of profile() left them out)."
+    )
+    with pytest.raises(ValueError, match=err_msg) as info:
+        assistant.plan(profile, steps=10, use_exog=True)
+
+    assert info.value.field == "use_exog"
+
+
+def test_plan_TypeError_when_use_exog_not_bool():
+    """
+    Test that a `use_exog` that is not True, False or None is rejected.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(TypeError, match=re.escape("`use_exog` must be True, False")):
+        assistant.plan(profile, steps=10, use_exog="no")
+
+
+def test_plan_explanation_names_the_series_multivariate_predicts():
+    """
+    Test that the explanation of a ForecasterDirectMultiVariate plan names
+    the series it predicts, the first of the target.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterDirectMultiVariate")
+
+    assert plan.explanation.endswith(
+        "It predicts 'series_a', the first series of the target, from the lags "
+        "of all the series."
+    )
+
+
+def test_plan_output_when_use_exog_false_ignores_the_exog_left_out():
+    """
+    Test that the exogenous columns left out with `use_exog=False` do not
+    shape the plan: their missing values neither set `dropna_from_series`
+    nor add a preprocessing step, and categorical columns need no step.
+    """
+    assistant = ForecastingAssistant()
+    data = df_categorical_exog.assign(
+        promo=df_categorical_exog["promo"].where(
+            df_categorical_exog.index != 20
+        )
+    )
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+
+    default = assistant.plan(profile, steps=10, estimator="Ridge")
+    without = assistant.plan(profile, steps=10, estimator="Ridge", use_exog=False)
+
+    assert default.forecaster_kwargs["dropna_from_series"] is True
+    assert {step.action for step in default.preprocessing_steps} >= {
+        "handle_missing_values", "handle_categorical_exog"
+    }
+    assert without.forecaster_kwargs["dropna_from_series"] is False
+    assert without.preprocessing_steps == []
+    assert "NaN" not in without.explanation
+
+
+def test_plan_ValueError_when_use_exog_true_and_stats_has_only_categorical_exog():
+    """
+    Test that `use_exog=True` is rejected for ForecasterStats when every
+    exogenous column is categorical, which its script leaves out, while
+    the rule keeps its choice and `use_exog=False` is accepted.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_categorical_exog.drop(columns="promo"),
+        target="sales",
+        date_column="date",
+    )
+
+    err_msg = re.escape(
+        "`use_exog=True` cannot be applied: 'ForecasterStats' only uses numeric "
+        "exogenous columns, and ['weekday'] are categorical."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=10, forecaster="ForecasterStats", use_exog=True)
+    plan = assistant.plan(
+        profile, steps=10, forecaster="ForecasterStats", use_exog=False
+    )
+
+    assert plan.use_exog is False
+
+
+def test_plan_output_when_differentiation_given():
+    """
+    Test that `differentiation` is written into the forecaster arguments,
+    recorded, explained, and reserved from the lag budget: the lags
+    selected leave room for the order.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan = assistant.plan(profile, steps=10, differentiation=2)
+
+    assert plan.forecaster_kwargs["differentiation"] == 2
+    assert plan.overridden_fields == ["differentiation"]
+    assert plan.forecaster_kwargs["lags"] == [1, 2, 3, 4, 5, 7]
+    assert plan.explanation.endswith(
+        "The target is differenced (order 2) before training, as requested, "
+        "and the predictions are integrated back."
+    )
+
+
+@pytest.mark.parametrize(
+    "differentiation, error",
+    [(0, ValueError), (-1, ValueError), (1.5, TypeError), (True, TypeError), ("1", TypeError)],
+    ids=lambda dt: f"{dt!r}",
+)
+def test_plan_ValueError_or_TypeError_when_differentiation_invalid(differentiation, error):
+    """
+    Test that a differentiation order that is not an integer of at least 1
+    is rejected with `field='differentiation'`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"`differentiation` must be an integer greater than or equal to 1, got "
+        f"{differentiation!r}."
+    )
+    with pytest.raises(error, match=err_msg) as info:
+        assistant.plan(profile, steps=10, differentiation=differentiation)
+
+    assert info.value.field == "differentiation"
+
+
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterStats", "ForecasterEquivalentDate", "ForecasterFoundation"],
+)
+def test_plan_ValueError_when_differentiation_for_forecaster_without_it(forecaster):
+    """
+    Test that a forecaster that is not a machine learning one rejects
+    `differentiation`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        f"['differentiation'] only apply to the machine learning forecasters "
+        f"(['ForecasterDirect', 'ForecasterDirectMultiVariate', "
+        f"'ForecasterRecursive', 'ForecasterRecursiveMultiSeries']), not to "
+        f"'{forecaster}'. Omit them."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=10, forecaster=forecaster, differentiation=1)
+
+
+def test_plan_ValueError_when_explicit_lags_and_differentiation_exceed_budget():
+    """
+    Test that the differentiation order counts in the window budget of
+    explicit lags: 33 lags fit 100 observations, not with an order of 1.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    assistant.plan(profile, steps=10, lags=33)
+    err_msg = re.escape(
+        "Explicit lags/window_features span up to 33 observations plus 1 for "
+        "the differentiation, exceeding the maximum of 33"
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=10, lags=33, differentiation=1)
+
+
+def test_plan_InvalidInputError_names_differentiation_when_the_order_does_not_fit():
+    """
+    Test that an order larger than the lags and the windows, which fit on
+    their own, raises with the field 'differentiation' instead of blaming
+    lags the user did not pass.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "`differentiation=40` plus the largest lag or window size (1) exceeds "
+        "the maximum of 33 (33% of 100 observations). Use a smaller order (1 "
+        "or 2 remove a trend), or fewer lags and smaller window sizes."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.plan(profile, steps=10, differentiation=40)
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "differentiation"
+
+
+def test_plan_output_when_differentiation_drops_default_windows_without_room():
+    """
+    Test that the default window features that leave no room for the
+    differentiation order are dropped instead of rejected: on 100 weekly
+    observations the rule picks a window of 33, the whole budget.
+    """
+    assistant = ForecastingAssistant()
+    data = pd.DataFrame({
+        "date": pd.date_range("2020-01-05", periods=100, freq="W"),
+        "y": np.arange(100, dtype=float),
+    })
+    profile = assistant.profile(data=data, target="y", date_column="date")
+
+    plan = assistant.plan(profile, steps=5, differentiation=1)
+
+    assert profile.window_features == [
+        {"stats": ["mean", "std"], "window_size": 3},
+        {"stats": ["mean"], "window_size": 33},
+    ]
+    assert plan.forecaster_kwargs["window_features"] == [
+        {"stats": ["mean", "std"], "window_size": 3}
+    ]
+    assert plan.explanation.endswith(
+        "Window features of size [33] are left out: with the differentiation "
+        "they exceed the data budget."
+    )
+
+
+def test_plan_output_when_feature_overrides_given():
+    """
+    Test that `calendar_features`, `target_transformer` and
+    `dropna_from_series` replace the rules, are recorded and explained;
+    the calendar encoding follows the estimator.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    plan = assistant.plan(
+        profile, steps=10, estimator="Ridge",
+        calendar_features=["month", "day_of_week"], target_transformer="none",
+        dropna_from_series=True,
+    )
+    none = assistant.plan(profile, steps=10, calendar_features=[])
+
+    assert plan.forecaster_kwargs["calendar_features"] == {
+        "features": ["month", "day_of_week"], "encoding": "cyclical"
+    }
+    assert "transformer_y" not in plan.forecaster_kwargs
+    assert plan.forecaster_kwargs["dropna_from_series"] is True
+    assert plan.overridden_fields == [
+        "estimator", "calendar_features", "target_transformer",
+        "dropna_from_series",
+    ]
+    assert plan.explanation.endswith(
+        "Calendar features as requested. Target not scaled, as requested. "
+        "Training rows with missing values are dropped, as requested."
+    )
+    assert none.forecaster_kwargs["calendar_features"] is None
+    assert none.explanation.endswith("No calendar features, as requested.")
+
+
+def test_plan_output_when_target_transformer_on_multi_series():
+    """
+    Test that `target_transformer` is written as `transformer_series` for a
+    multi-series forecaster, also with a tree-based estimator, which the
+    rule leaves unscaled.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor",
+        target_transformer="StandardScaler",
+    )
+
+    assert plan.forecaster_kwargs["transformer_series"] == "StandardScaler"
+
+
+@pytest.mark.parametrize(
+    "arguments, error, message",
+    [
+        (
+            {"calendar_features": "month"},
+            TypeError,
+            "`calendar_features` must be a list of calendar feature names",
+        ),
+        (
+            {"calendar_features": ["month", "holiday"]},
+            ValueError,
+            "Unknown calendar features ['holiday'].",
+        ),
+        (
+            {"calendar_features": ["month", "month"]},
+            ValueError,
+            "`calendar_features` repeats ['month']: list each feature once.",
+        ),
+        (
+            {"target_transformer": "MinMaxScaler"},
+            ValueError,
+            "`target_transformer` must be one of ['StandardScaler', 'none'], "
+            "got 'MinMaxScaler'.",
+        ),
+        (
+            {"dropna_from_series": "yes"},
+            TypeError,
+            "`dropna_from_series` must be True, False or None, got 'yes'.",
+        ),
+        (
+            {"forecaster": "ForecasterStats", "calendar_features": []},
+            ValueError,
+            "['calendar_features'] only apply to the machine learning forecasters",
+        ),
+    ],
+    ids=["str", "unknown", "repeated", "transformer", "dropna", "stats"],
+)
+def test_plan_ValueError_or_TypeError_when_feature_override_invalid(
+    arguments, error, message
+):
+    """
+    Test that an invalid calendar feature list, scaler or NaN flag, or one
+    given to a forecaster that is not a machine learning one, is rejected
+    with the name of the argument in `field`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    with pytest.raises(error, match=re.escape(message)) as info:
+        assistant.plan(profile, steps=10, **arguments)
+
+    assert info.value.field == [k for k in arguments if k != "forecaster"][0]
+
+
+def test_plan_ValueError_when_chosen_calendar_feature_is_an_exog_column():
+    """
+    Test that a chosen calendar feature whose column is an exogenous column
+    is rejected (the rule leaves it out), and accepted when the plan does
+    not use the exogenous columns.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_calendar_named_exog, target="sales", date_column="date"
+    )
+
+    err_msg = re.escape(
+        "Calendar features ['month'] create columns already among the "
+        "exogenous columns ['promo', 'month', 'weekend']."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(
+            profile, steps=5, estimator="LGBMRegressor",
+            calendar_features=["month", "quarter"],
+        )
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor",
+        calendar_features=["month"], use_exog=False,
+    )
+
+    assert plan.forecaster_kwargs["calendar_features"]["features"] == ["month"]
+
+
+def test_plan_ValueError_when_calendar_features_without_datetime_index():
+    """
+    Test that chosen calendar features on data without dates are rejected.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_range_index, target="sales")
+
+    with pytest.raises(ValueError, match=re.escape("need a datetime index")):
+        assistant.plan(profile, steps=5, calendar_features=["month"])
+
+
+def test_plan_ValueError_when_dropna_false_cannot_run():
+    """
+    Test that `dropna_from_series=False` is rejected when the data has
+    missing values and the estimator does not accept them, and accepted
+    with one that does.
+    """
+    assistant = ForecastingAssistant()
+    with pytest.warns(MissingValuesWarning):
+        profile = assistant.profile(
+            data=df_with_missing, target="sales", date_column="date"
+        )
+
+    err_msg = re.escape(
+        "`dropna_from_series=False` cannot be applied: the data has missing "
+        "values and 'Ridge' does not accept them."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.plan(profile, steps=5, estimator="Ridge", dropna_from_series=False)
+    plan = assistant.plan(
+        profile, steps=5, estimator="LGBMRegressor", dropna_from_series=False
+    )
+
+    assert plan.forecaster_kwargs["dropna_from_series"] is False

@@ -14,29 +14,45 @@ files.
 
 ## Workflow
 
-1. `profile(data_path, target, date_column?, series_id_column?)`: the
-   absolute path of a CSV file inside the directory the server may read.
-   `target` is one column, or a list of columns for several series side by
-   side; `series_id_column` names the column of series ids when the series
-   are stacked. Read the summary and the `notices`: frequency, series,
-   gaps, exogenous columns and the recommended forecaster.
+1. `profile(data_path, target, date_column?, series_id_column?,
+   exog_columns?)`: the absolute path of a CSV file inside the directory
+   the server may read. `target` is one column, or a list of columns for
+   several series side by side; `series_id_column` names the column of
+   series ids when the series are stacked. Every other column is an
+   exogenous variable unless `exog_columns` names the ones to use (an
+   empty list for none); set it only when the user asks. Read the summary
+   and the `notices`: frequency, series, gaps, exogenous columns and the
+   recommended forecaster.
 2. `plan(profile_id, steps, ...)`: `steps` is the horizon in observations
    (12 for a year of monthly data), at most the length of the longest
    series. Leave the other arguments out to take the recommendation; set
-   them only when the user asks.
+   them only when the user asks. `metric` (one metric, or a list whose
+   first one ranks) replaces the metric selected from the data, and only
+   the metrics given are computed. `use_exog: false` leaves the
+   exogenous columns out, so `forecast` needs no `exog_path`.
+   `differentiation` (usually 1, for a series with a trend) differences
+   the target before training; build the strategy of `create_cv` from
+   that plan, since a backtest needs the same order in both.
+   `calendar_features` (an empty list for none), `target_transformer`
+   (`StandardScaler` or `none`) and `dropna_from_series` replace the
+   rules of the machine learning forecasters.
 3. Optionally `refine_plan(plan_id, overrides)` to change some decisions.
-   An omitted key keeps the value of the plan; `estimator_kwargs`,
-   `interval`, `lags` and `window_features` set to null go back to the
+   An omitted key keeps the value of the plan; every key but
+   `forecaster`, `estimator` and `steps` set to null goes back to the
    default.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
    running anything; above 50 estimator fits it already carries the
-   `LongTrainingWarning` the backtest would emit.
+   `LongTrainingWarning` the backtest would emit. A notice says when a
+   `backtest` of its plan would fail (a direct forecaster with `gap`, or
+   a first training window shorter than the forecaster needs): change
+   the strategy as the notice says before running it.
 5. `backtest(cv_id, plan_id?)`: the accuracy of the plan of the strategy
    over its folds. `plan_id` backtests another plan of the same profile on
    the same folds.
 6. Optionally `compare(cv_id, candidates?)`: several configurations on the
-   same folds, ranked by the metric of the profile, with a seasonal naive
-   baseline. `links.best_plan_id` is the plan of the winner. Without
+   same folds, ranked by its `metric`, else by the metric chosen for the
+   plan of the strategy, else by the one selected from the data, with a
+   seasonal naive baseline. `links.best_plan_id` is the plan of the winner. Without
    `candidates` it runs the forecasters the profile recommends for the
    family of the data (with several series, ForecasterRecursiveMultiSeries
    and ForecasterFoundation), or the estimators of the recommended
@@ -44,8 +60,10 @@ files.
    fits. Without `interval` it uses the interval of the plan of the
    strategy, so the winner keeps it (with an asymmetric interval there
    is no baseline: it only takes symmetric ones, such as `[0.1, 0.9]`).
+   The candidates do not take `use_exog` from that plan: to compare
+   without exogenous variables, `profile` with `exog_columns: []`.
 7. `forecast(plan_id, test_size?, exog_path?)`: the future. `exog_path` is
-   required when the data has exogenous variables. With `test_size` it is
+   required when the plan uses exogenous variables. With `test_size` it is
    a single hold-out evaluation instead, without `exog_path`: pass the
    integer `steps` (the last `steps` observations) or the ISO 8601 date the
    test set starts at. A fraction only works when it gives exactly `steps`
@@ -116,7 +134,9 @@ progress). Meanwhile only the read tools (`get_code`, `get_failure`,
   (`initial_train_size` of `create_cv`, `test_size` of `forecast`). A count
   is a number, never text: `"12"` is rejected.
 - Arguments are strict: an unknown argument or a wrong type is an error,
-  never ignored. `compare` takes no `metric` in this version.
+  never ignored. Metrics are the names of skforecast:
+  `mean_absolute_error`, `mean_squared_error`,
+  `mean_absolute_scaled_error`, and the others the schema lists.
 - Messages of the library name the arguments of its Python API: `data` is
   `data_path`, `exog` is `exog_path`, `profile`, `plan` and `cv` are the
   ids `profile_id`, `plan_id` and `cv_id`, and `forecast()` or
@@ -132,11 +152,11 @@ progress). Meanwhile only the read tools (`get_code`, `get_failure`,
 
 When the profile, a notice or an error shows a problem in the CSV file
 (missing dates, rows without a target, a wrong date column, duplicated
-dates, dates written in more than one format, a series without values, an
-exogenous column named like a lag or a window feature), tell the user what
-it is and what it changes. Never change their file. Only if they agree,
-write a corrected copy inside the allowed directory, under a new name, and
-`profile` the copy; say what you changed.
+dates, dates written in more than one format or day first, a series without
+values, an exogenous column named like a lag or a window feature), tell the
+user what it is and what it changes. Never change their file. Only if they
+agree, write a corrected copy inside the allowed directory, under a new
+name, and `profile` the copy; say what you changed.
 
 ## Foundation models
 
@@ -147,11 +167,13 @@ model, its license and that it downloads its weights before you choose
 one; never switch models on your own. Through the server they only take
 the `estimator_kwargs` `context_length`, `cross_learning`,
 `point_estimate`, `max_horizon`, `add_calendar_features` and
-`n_fourier_terms`. Models with a license
-restriction or gated weights (prefixes `google/timesfm-3.0`,
-`Salesforce/moirai-2`, `priorlabs/tabpfn`, `theforecastingcompany/t0`,
-`taharnbl/TS-ICL`) only run when the user started the server with
-`--allow-model PREFIX`; without it they are `model_not_allowed`. A model
+`n_fourier_terms`. Models whose license
+restricts commercial use, whose weights are gated or whose provider
+requires an account (today the prefixes `google/timesfm-3.0`,
+`Salesforce/moirai-2`, `priorlabs/tabpfn` and `taharnbl/TS-ICL`), and any
+model for which skforecast gives no license information, only run when
+the user started the server with `--allow-model PREFIX`; without it they
+are `model_not_allowed`. A model
 without its backend package installed where the server runs is
 `missing_dependency`.
 
@@ -184,7 +206,7 @@ and follow `hint` when there is one:
 | code | What to do |
 |---|---|
 | `invalid_argument` | Fix the argument named in `field`, as the message says. |
-| `insufficient_data` | Ask for less: a shorter horizon, fewer lags, a smaller first training set. A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
+| `insufficient_data` | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later `initial_train_size`). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
 | `data_not_found`, `invalid_path`, `path_not_allowed`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
 | `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header). Tell the user, as for the data problems above. |
 | `file_too_large` | The file is larger than the server reads (`--max-file-mb`, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |

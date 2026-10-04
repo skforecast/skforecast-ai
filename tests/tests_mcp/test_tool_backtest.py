@@ -2,6 +2,8 @@
 
 import time
 
+import pandas as pd
+
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import _runtime, create_server
 
@@ -10,6 +12,7 @@ from .fixtures_mcp import (
     content_of,
     cv_of,
     df_data_warning,
+    df_h2o_csv,
     error_of,
     h2o_server,
     profile_and_plan,
@@ -250,3 +253,60 @@ def test_tool_backtest_missing_dependency_of_a_foundation_model(
         },
     }
     assert (forecast["code"], forecast["field"]) == ("missing_dependency", "plan_id")
+
+
+def test_tool_backtest_differentiation_of_the_plan_and_of_the_strategy(tmp_path):
+    """
+    Test that a plan with `differentiation` backtests on a strategy created
+    from it, as the Python API does, and that backtesting it on a strategy
+    with another order is an `invalid_argument` naming `cv_id`.
+    """
+    server, path = h2o_server(tmp_path)
+    profile_id, _, cv_id = cv_of(server, path)
+    _, _, diff_cv_id = cv_of(server, path, differentiation=1)
+    diff_plan = content_of(call(server, "plan", {
+        "profile_id": profile_id, "steps": 12, "differentiation": 1,
+    }))
+
+    result = content_of(call(server, "backtest", {"cv_id": diff_cv_id}))
+    error = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "plan_id": diff_plan["id"]}),
+        "backtest",
+    )
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="x")
+    plan = assistant.plan(profile=profile, steps=12, differentiation=1)
+    expected = assistant.backtest(
+        data=path, cv=assistant.create_cv(profile=profile, plan=plan),
+        profile=profile, show_progress=False,
+    )
+
+    assert result["summary"] == expected.describe()
+    assert (error["code"], error["field"]) == ("invalid_argument", "cv_id")
+
+
+def test_tool_backtest_output_when_csv_dates_in_utc(tmp_path):
+    """
+    Test that a CSV whose dates are written in UTC is backtested with the
+    default strategy of `create_cv`, whose date has no time zone: the
+    script gets its number of observations instead of failing on it.
+    """
+    frame = df_h2o_csv.assign(
+        fecha=pd.to_datetime(df_h2o_csv["fecha"]).dt.tz_localize("UTC")
+    )
+    path = write_csv(tmp_path, "utc.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile_id = content_of(
+        call(server, "profile", {"data_path": path, "target": "x"})
+    )["id"]
+    plan_id = content_of(
+        call(server, "plan", {"profile_id": profile_id, "steps": 12})
+    )["id"]
+    cv_id = content_of(call(server, "create_cv", {"plan_id": plan_id}))["id"]
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    code = content_of(call(server, "get_code", {"object_id": result["id"]}))
+
+    assert result["kind"] == "backtest"
+    assert "    initial_train_size = 142,\n" in code["code"]

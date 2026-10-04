@@ -164,6 +164,7 @@ def create_data_profile(
     date_column: str | None = None,
     series_id_column: str | None = None,
     data_path: str = "data.csv",
+    exog_columns: list[str] | None = None,
 ) -> DataProfile:
     """
     Generate a deterministic data profile from a dataset.
@@ -185,6 +186,12 @@ def create_data_profile(
         single series.
     data_path : str, default 'data.csv'
         Path to the source CSV file used in generated scripts.
+    exog_columns : list of str, default None
+        Columns used as exogenous variables. If None, every column that is
+        not the target, the date or the series id. Otherwise a subset of
+        them (an empty list for none), kept in the order of the data; the
+        other columns are listed in `unused_columns`, with a note in
+        `warnings`, and are not described by the profile.
 
     Returns
     -------
@@ -250,10 +257,23 @@ def create_data_profile(
     # '01/02/2012' is read month-first in a column of day-first dates.
     data = _parse_text_date_column(data, date_col)
 
+    detected_exog = detect_exog_columns(
+        data, target, date_col, series_id_column
+    )
+    exog_columns, unused_columns = _select_exog_columns(
+        detected         = detected_exog,
+        selected         = exog_columns,
+        data             = data,
+        target           = target,
+        date_column      = date_col,
+        series_id_column = series_id_column,
+    )
+
     # Repeated timestamps are resolved before anything is measured: rows
     # that differ cannot be merged without losing data, and identical rows
     # are dropped here as the generated script drops them, so the profile
-    # describes the data that is modeled.
+    # describes the data that is modeled. The script keeps the first row,
+    # so columns left out by `exog_columns` may differ.
     n_duplicate_timestamps, keep_mask = _check_duplicate_timestamps(
         data             = data,
         target           = target,
@@ -261,6 +281,7 @@ def create_data_profile(
         index_type       = index_type,
         data_format      = data_format,
         series_id_column = series_id_column,
+        ignored_columns  = unused_columns,
     )
     if keep_mask is not None:
         data = data[keep_mask]
@@ -349,9 +370,6 @@ def create_data_profile(
             field = "target",
         )
 
-    exog_columns = detect_exog_columns(
-        data, target, date_col, series_id_column
-    )
     categorical_exog = detect_categorical_exog(data, exog_columns)
     missing_target, missing_exog = count_missing_values(
         data, target, exog_columns, data_format, series_id_column
@@ -387,6 +405,8 @@ def create_data_profile(
             "and the missing timestamps were read from the first series only, "
             "so the other series were not checked."
         )
+    if unused_columns:
+        warnings.append(unused_columns_note(unused_columns))
 
     # Compute start_date: the reference start for position-to-date
     # conversion.  For long format with multiple series that may have
@@ -430,10 +450,12 @@ def create_data_profile(
         exog_columns=exog_columns,
         categorical_exog=categorical_exog,
         missing_exog=missing_exog,
+        unused_columns=unused_columns,
         # Source
         data_path=data_path,
         # Train/test split
         start_date=start_date,
+        time_zone=_time_zone_name(datetime_index),
         # Diagnostics
         warnings=warnings,
     )
@@ -621,9 +643,10 @@ def _read_dates_one_by_one(
     -------
     parsed : pandas Series, None
         The dates, read one by one, when the column is in one format the
-        script reads otherwise (day-first dates whose first date reads
-        month-first, left to the check of the frequency); None when it does
-        not parse or has an issue.
+        script reads otherwise and nothing proves that reading wrong; None
+        when it does not parse or has an issue (day-first dates whose first
+        date reads month-first and a later one does not, see
+        `_day_first_issue`).
     issue : tuple, None
         Why the column holds dates but cannot be the date column (see
         `_mixed_formats_issue`), or None.
@@ -764,8 +787,10 @@ def _mixed_formats_issue(
     not), so the message quotes the format read and an ISO 8601 example. Zone names that
     change at a daylight saving time change ('CET', then 'CEST') are
     reported as time zones. Day-first dates whose first date reads
-    month-first ('01/02/2023', then '13/02/2023') are in one format: they
-    are left to the check of the frequency, which says how to read them.
+    month-first ('01/02/2023', then '13/02/2023') are in one format, but
+    the script reads them all month-first and fails on a date that does
+    not fit that reading, which proves it wrong: the message says they are
+    day-first (see `_day_first_issue`).
 
     Parameters
     ----------
@@ -800,11 +825,21 @@ def _mixed_formats_issue(
             values, format=date_format, errors="coerce"
         ).isna()
         if day_first not in (None, date_format):
-            misfit_day_first = present & pd.to_datetime(
+            read_day_first = pd.to_datetime(
                 values, format=day_first, errors="coerce"
-            ).isna()
+            )
+            misfit_day_first = present & read_day_first.isna()
             if not misfit_day_first.any():
-                return None
+                if not misfit.any():
+                    return None
+                return _day_first_issue(
+                    name           = name,
+                    first          = first,
+                    date_format    = date_format,
+                    other          = values[misfit].iloc[0],
+                    read_day_first = read_day_first,
+                    date           = read_day_first[misfit].iloc[0],
+                )
             # The date to quote fits neither reading of the first one.
             if (misfit & misfit_day_first).any():
                 misfit = misfit & misfit_day_first
@@ -828,6 +863,54 @@ def _mixed_formats_issue(
         hint = (
             f"Write every date of the column in the same format, such as "
             f"{example!r}."
+        ),
+    )
+
+
+def _day_first_issue(
+    name: str,
+    first: str,
+    date_format: str,
+    other: str,
+    read_day_first: pd.Series,
+    date: object,
+) -> "DateIssue":
+    """
+    Say why day-first dates whose first date also reads month-first cannot
+    be the date column: the generated script reads them with the month-first
+    format of the first one, and `other` does not fit it.
+
+    Parameters
+    ----------
+    name : str
+        Name of the column, for the message.
+    first : str
+        First date of the column.
+    date_format : str
+        Month-first format pandas guesses from the first date.
+    other : str
+        A date of the column that does not fit `date_format`.
+    read_day_first : pandas Series
+        The column read day-first, for the ISO 8601 example.
+    date : object
+        `other` read day-first.
+
+    Returns
+    -------
+    issue : DateIssue
+        What was found and how to fix it.
+    """
+    example = _iso_example(read_day_first, date)
+
+    return DateIssue(
+        f"The dates of column {name!r} are written day first, but the first "
+        f"one, {_shown_date(first)!r}, also reads month first "
+        f"({date_format!r}), the format the generated script reads every "
+        f"date with, and {_shown_date(other)!r} does not fit it",
+        f": write the dates in ISO 8601, such as {example!r}, or read them "
+        f"with pandas.to_datetime(..., dayfirst=True) before passing them.",
+        hint = (
+            f"Write the dates of the column in ISO 8601, such as {example!r}."
         ),
     )
 
@@ -2380,6 +2463,24 @@ def _extract_datetime_index(
     return None
 
 
+def _time_zone_name(datetime_index: pd.DatetimeIndex | None) -> str | None:
+    """
+    Return the name of the time zone of the dates, or None when they have
+    none or pandas cannot rebuild the zone from its name (the positions of
+    a strategy are then counted without it, as for dates without zone).
+    """
+    time_zone = getattr(datetime_index, "tz", None)
+    if time_zone is None:
+        return None
+    name = str(time_zone)
+    try:
+        pd.date_range("2000-01-01", periods=1, freq="D", tz=name)
+    except Exception:
+        return None
+
+    return name
+
+
 def _resolve_start_date(
     data: pd.DataFrame,
     datetime_index: pd.DatetimeIndex,
@@ -2470,6 +2571,122 @@ def detect_exog_columns(
         excluded.add(series_id_column)
 
     return [col for col in data.columns if col not in excluded]
+
+
+def _select_exog_columns(
+    detected: list[str],
+    selected: list[str] | tuple[str, ...] | None,
+    data: pd.DataFrame,
+    target: str | list[str],
+    date_column: str | None,
+    series_id_column: str | None,
+) -> tuple[list[str], list[str]]:
+    """
+    Keep the exogenous columns the caller chose.
+
+    Parameters
+    ----------
+    detected : list of str
+        Exogenous columns detected in the data (`detect_exog_columns`).
+    selected : list of str, tuple of str, None
+        Columns the caller chose, or None for every detected column.
+    data : pandas DataFrame
+        Input dataset, to tell a column that does not exist from one that
+        is the target, the date or the series id.
+    target : str, list
+        Name(s) of the target column(s).
+    date_column : str, None
+        Resolved date column name.
+    series_id_column : str, None
+        Series identifier column.
+
+    Returns
+    -------
+    exog_columns : list of str
+        Chosen columns, in the order of the data.
+    unused_columns : list of str
+        Detected columns that were not chosen, in the order of the data.
+
+    Raises
+    ------
+    TypeError
+        When `selected` is not a list of str.
+    ValueError
+        When `selected` repeats a column, names a column that is not in the
+        data, or names the target, the date or the series id column.
+    """
+    if selected is None:
+        return detected, []
+    if not isinstance(selected, (list, tuple)) or not all(
+        isinstance(column, str) for column in selected
+    ):
+        raise InvalidInputTypeError(
+            f"`exog_columns` must be a list of column names, got "
+            f"{selected!r}.",
+            field = "exog_columns",
+        )
+    repeated = sorted({c for c in selected if list(selected).count(c) > 1})
+    if repeated:
+        raise InvalidInputError(
+            f"`exog_columns` names a column more than once: {repeated}.",
+            field = "exog_columns",
+        )
+    targets = target if isinstance(target, list) else [target]
+    reserved = [
+        column for column in selected
+        if column in targets or column in (date_column, series_id_column)
+    ]
+    if reserved:
+        raise InvalidInputError(
+            f"`exog_columns` names the target, the date or the series id "
+            f"column: {reserved}. An exogenous variable is any other column "
+            f"of the data.",
+            field = "exog_columns",
+        )
+    missing = [column for column in selected if column not in detected]
+    if missing:
+        shown = missing[:5]
+        more = f" (first 5 of {len(missing)})" if len(missing) > 5 else ""
+        raise InvalidInputError(
+            f"`exog_columns` names columns that are not in the data: "
+            f"{shown}{more}. Columns of the data: "
+            f"{[str(column) for column in data.columns[:20]]}"
+            f"{' (first 20)' if len(data.columns) > 20 else ''}.",
+            field = "exog_columns",
+        )
+
+    chosen = set(selected)
+    exog_columns = [column for column in detected if column in chosen]
+    # As text, as `_refresh_profile` records them: a column name that is not
+    # a string (an integer) can be left out too.
+    unused_columns = [str(column) for column in detected if column not in chosen]
+
+    return exog_columns, unused_columns
+
+
+def unused_columns_note(unused_columns: list[str]) -> str:
+    """
+    Note of `DataProfile.warnings` that names the columns left out.
+
+    Parameters
+    ----------
+    unused_columns : list of str
+        Columns of the data that the profile does not use.
+
+    Returns
+    -------
+    note : str
+        Note naming the first 5 columns.
+    """
+    shown = [str(column) for column in unused_columns[:5]]
+    more = (
+        f" (first 5 of {len(unused_columns)})" if len(unused_columns) > 5 else ""
+    )
+
+    return (
+        f"Columns of the data that the profile leaves out are not used: "
+        f"{shown}{more}."
+    )
 
 
 def detect_categorical_exog(
@@ -3093,6 +3310,7 @@ def _check_duplicate_timestamps(
     index_type: str,
     data_format: str,
     series_id_column: str | None,
+    ignored_columns: list[str] | None = None,
 ) -> tuple[int, np.ndarray | None]:
     """
     Check repeated timestamps and decide whether they can be dropped.
@@ -3119,6 +3337,9 @@ def _check_duplicate_timestamps(
         One of `'single'`, `'wide'`, `'long'`.
     series_id_column : str, None
         Series identifier column (only relevant for long format).
+    ignored_columns : list of str, default None
+        Columns the profile leaves out, whose values may differ between
+        repeated rows (the first row is kept).
 
     Returns
     -------
@@ -3164,8 +3385,10 @@ def _check_duplicate_timestamps(
     # The raw date and identifier columns are left out of the comparison:
     # the keys already hold them, parsed, so two spellings of the same
     # timestamp do not count as different values.
+    ignored = set(ignored_columns or [])
     value_cols = [
-        col for col in data.columns if col not in (date_col, series_id_column)
+        col for col in data.columns
+        if col not in (date_col, series_id_column) and str(col) not in ignored
     ]
     values = data[value_cols].reset_index(drop=True)
     values.columns = range(len(key_cols), len(key_cols) + len(value_cols))

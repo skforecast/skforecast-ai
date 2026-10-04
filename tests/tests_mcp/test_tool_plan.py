@@ -73,12 +73,18 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
     assert result["summary"] == script.describe()
     assert result["notices"] == []
     assert result["changeable"] == [
+        "calendar_features",
+        "differentiation",
+        "dropna_from_series",
         "estimator",
         "estimator_kwargs",
         "forecaster",
         "interval",
         "lags",
+        "metric",
         "steps",
+        "target_transformer",
+        "use_exog",
         "window_features",
     ]
     assert result["cost"] is None
@@ -125,7 +131,13 @@ def test_tool_plan_notices_of_the_plan(tmp_path):
         ({"steps": 12.0}, "invalid_argument", "steps"),
         ({"steps": True}, "invalid_argument", "steps"),
         ({"steps": 0}, "invalid_argument", "steps"),
-        ({"steps": 12, "metric": "mean_absolute_error"}, "invalid_argument", "metric"),
+        ({"steps": 12, "metric": "accuracy"}, "invalid_argument", "metric"),
+        ({"steps": 12, "metric": []}, "invalid_argument", "metric"),
+        (
+            {"steps": 12, "metric": ["mean_absolute_error", "mean_absolute_error"]},
+            "invalid_argument",
+            "metric",
+        ),
         ({"steps": 12, "lags": ["1"]}, "invalid_argument", "lags"),
         (
             {"steps": 12, "forecaster": "ForecasterStats", "lags": 3},
@@ -133,6 +145,15 @@ def test_tool_plan_notices_of_the_plan(tmp_path):
             "lags",
         ),
         ({"steps": 12, "estimator": "os.system"}, "invalid_argument", "estimator"),
+        (
+            {
+                "steps": 12,
+                "forecaster": "ForecasterFoundation",
+                "estimator_kwargs": {"context_length": "100"},
+            },
+            "invalid_argument",
+            "estimator_kwargs",
+        ),
     ],
     ids=lambda dt: f"{dt}",
 )
@@ -201,8 +222,8 @@ def test_tool_plan_announces_model_download_once(tmp_path, monkeypatch):
             message  = (
                 "The weights of 'autogluon/chronos-2-small' were not found in "
                 "the local Hugging Face cache: the first run may download "
-                "them from the Hugging Face Hub. License: skforecast "
-                "registers no license restriction for it."
+                "them from the Hugging Face Hub. License: its license is "
+                "Apache-2.0 (https://huggingface.co/autogluon/chronos-2-small)."
             ),
             count    = 1,
         ).model_dump()

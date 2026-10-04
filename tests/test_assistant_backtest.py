@@ -21,10 +21,16 @@ from skforecast_ai.exceptions import (
     InvalidInputTypeError,
 )
 
-from tests.fixtures_assistant import df_single, df_multi_wide, df_no_exog
+from tests.fixtures_assistant import (
+    df_categorical_exog,
+    df_multi_wide,
+    df_no_exog,
+    df_single,
+)
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
+    df_h2o_madrid,
     df_items_sales_long,
 )
 
@@ -444,6 +450,130 @@ def test_backtest_InvalidInputError_when_target_has_infinite_value(
 # =============================================================================
 # Tests: plans that cannot run
 # =============================================================================
+@pytest.mark.parametrize(
+    "initial_train_size, n_train",
+    [(None, 4), (36, 36)],
+    ids=["default strategy of a long horizon", "explicit window"],
+)
+def test_backtest_InvalidInputError_when_first_window_shorter_than_forecaster(
+    initial_train_size, n_train
+):
+    """
+    Test that backtest() rejects, before running, a strategy whose first
+    training window is not longer than the window of the forecaster, with
+    code 'insufficient_data' and field 'cv': on h2o (204 observations), the
+    default strategy of `steps=100` leaves 4 observations, and the default
+    plan reads 36 (its largest window feature).
+    """
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=100)
+    with pytest.warns(UserWarning, match="The first training window"):
+        cv = assistant.create_cv(
+            profile, plan, initial_train_size=initial_train_size
+        )
+
+    err_msg = re.escape(
+        f"The first training window of the strategy has {n_train} "
+        f"observations, and ForecasterRecursive needs at least 37 (more than "
+        f"its window size, 36), so skforecast would fail. Use a later "
+        f"`initial_train_size`, or a shorter horizon (`steps`), fewer lags or "
+        f"smaller window features."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data          = df_h2o,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "cv"
+
+
+def test_backtest_output_when_long_series_start_on_different_dates_and_date_split():
+    """
+    Test that a date `initial_train_size` on long data whose series start on
+    different dates is placed from the earliest first date, as skforecast
+    splits them: '2020-01-13' leaves 13 observations, more than the 5 of
+    the window of the plan, so the backtest runs without a warning.
+    """
+    dates = pd.date_range("2020-01-01", periods=80, freq="D")
+    values = np.arange(80, dtype=float) % 7
+    data = pd.concat([
+        pd.DataFrame({"date": dates, "sid": "a", "y": values}),
+        pd.DataFrame({"date": dates[10:], "sid": "b", "y": values[10:] + 1.0}),
+    ], ignore_index=True)
+    profile = assistant.profile(
+        data             = data,
+        target           = "y",
+        date_column      = "date",
+        series_id_column = "sid",
+    )
+    plan = assistant.plan(
+        profile,
+        steps           = 3,
+        lags            = 5,
+        window_features = [{"stats": ["mean"], "window_size": 2}],
+    )
+    cv = assistant.create_cv(profile, plan, initial_train_size="2020-01-13")
+
+    result = assistant.backtest(
+        data          = data,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert result.predictions.index.min() == pd.Timestamp("2020-01-14")
+
+
+def test_backtest_output_when_dates_have_a_time_zone():
+    """
+    Test that backtest() of data whose dates have a time zone, with the
+    default strategy of create_cv() (a date without time zone), runs: the
+    date is read in the time zone of the data, the script gets its number
+    of observations, `cv_config` keeps the date, backtest_code() returns
+    the same script, and the predictions are those of the same data
+    without time zone.
+    """
+    data = df_h2o_madrid
+    profile = assistant.profile(data=data, target="x")
+    plan = assistant.plan(profile, steps=12)
+    cv = assistant.create_cv(profile, plan)
+    naive_profile = assistant.profile(data=df_h2o, target="x")
+    naive_plan = assistant.plan(naive_profile, steps=12)
+    expected = assistant.backtest(
+        data          = df_h2o,
+        cv            = assistant.create_cv(naive_profile, naive_plan),
+        profile       = naive_profile,
+        plan          = naive_plan,
+        show_progress = False,
+    )
+
+    result = assistant.backtest(
+        data          = data,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+    code = assistant.backtest_code(data=data, cv=cv, profile=profile, plan=plan)
+
+    assert result.cv_config["initial_train_size"] == "2003-04-01"
+    assert "    initial_train_size = 142,\n" in result.code
+    assert code.code == result.code
+    np.testing.assert_allclose(
+        result.predictions["pred"].to_numpy(),
+        expected.predictions["pred"].to_numpy(),
+    )
+    assert result.predictions.index[0] == pd.Timestamp(
+        "2003-05-01", tz="Europe/Madrid"
+    )
+
+
 def test_backtest_InvalidInputError_when_direct_forecaster_with_gap():
     """
     Test that backtest() rejects, before running, a ForecasterDirect plan
@@ -896,3 +1026,167 @@ def test_backtest_InvalidInputError_when_data_have_other_structure_than_profile(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "profile"
+
+
+def test_backtest_output_when_lags_window_features_and_metric_given():
+    """
+    Test that backtest() takes `lags`, `window_features` and `metric` to
+    build its plan, also with the CVResult of create_cv(), whose plan is
+    then not the one run.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+    window_features = [{"stats": ["mean"], "window_size": 3}]
+
+    result = assistant.backtest(
+        data            = df_single,
+        target          = "sales",
+        date_column     = "date",
+        cv              = cv_result,
+        lags            = [1, 2],
+        window_features = window_features,
+        metric          = "mean_squared_error",
+        show_progress   = False,
+    )
+
+    assert result.plan.forecaster_kwargs["lags"] == [1, 2]
+    assert result.plan.forecaster_kwargs["window_features"] == window_features
+    assert result.plan.metrics_to_compute == ["mean_squared_error"]
+    assert result.plan.overridden_fields == ["lags", "window_features", "metric"]
+    assert list(result.metrics.columns) == ["mean_squared_error"]
+
+
+def test_backtest_ValueError_when_metric_differs_from_plan():
+    """
+    Test that a `metric` different from what a given plan computes is
+    rejected, pointing to refine_plan(), and an equal one is accepted.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, metric="mean_squared_error")
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+    inputs = {
+        "data": df_single, "target": "sales", "date_column": "date", "cv": cv,
+        "profile": profile, "plan": plan, "show_progress": False,
+    }
+
+    err_msg = re.escape(
+        "A pre-built `plan` was provided and the following argument(s) differ "
+        "from what it holds: ['metric']."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        assistant.backtest(**inputs, metric="mean_absolute_error")
+    result = assistant.backtest(**inputs, metric=["mean_squared_error"])
+
+    assert result.plan.metric == "mean_squared_error"
+
+
+def test_backtest_ValueError_when_use_exog_differs_from_plan():
+    """
+    Test that a `use_exog` different from the one of a given plan is
+    rejected, pointing to refine_plan().
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+
+    with pytest.raises(InvalidInputError, match=re.escape("['use_exog']")):
+        assistant.backtest(
+            data=df_single, target="sales", date_column="date", cv=cv,
+            profile=profile, plan=plan, use_exog=False, show_progress=False,
+        )
+
+
+def test_backtest_ValueError_when_cv_differentiation_differs_from_plan():
+    """
+    Test that a strategy whose differentiation order is not the one of the
+    plan (also None against an order) is rejected before running, where
+    skforecast rejected it inside the script.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, differentiation=1)
+    inputs = {
+        "data": df_single, "target": "sales", "date_column": "date",
+        "profile": profile, "show_progress": False,
+    }
+
+    for cv_differentiation in (2, None):
+        err_msg = re.escape(
+            f"The cross-validation strategy has `differentiation="
+            f"{cv_differentiation}` and the plan `differentiation=1`: they "
+            f"must match."
+        )
+        cv = TimeSeriesFold(
+            steps=5, initial_train_size=60, differentiation=cv_differentiation
+        )
+        with pytest.raises(InvalidInputError, match=err_msg) as info:
+            assistant.backtest(**inputs, plan=plan, cv=cv)
+        assert info.value.field == "cv"
+    result = assistant.backtest(
+        **inputs, plan=plan,
+        cv=TimeSeriesFold(steps=5, initial_train_size=60, differentiation=1),
+    )
+
+    assert result.plan.forecaster_kwargs["differentiation"] == 1
+
+
+def test_backtest_output_when_stats_ignores_cv_differentiation():
+    """
+    Test that ForecasterStats, which skforecast backtests without checking
+    the differentiation order of the strategy, still runs with a strategy
+    that has one, as it did.
+    """
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=12, initial_train_size=150, differentiation=1)
+
+    result = assistant.backtest(
+        df_h2o, target="x", cv=cv, forecaster="ForecasterStats",
+        show_progress=False,
+    )
+
+    assert result.plan.forecaster == "ForecasterStats"
+
+
+def test_backtest_output_when_plan_of_exog_columns_given_without_its_profile():
+    """
+    Test that backtest() and backtest_code() given a plan built from a
+    profile with `exog_columns`, without that profile, profile the data with
+    the columns the plan records: same script and metrics as with the
+    profile.
+    """
+    cv = TimeSeriesFold(steps=3, initial_train_size=70, verbose=False)
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+    plan = assistant.plan(profile, steps=3)
+    expected = assistant.backtest(
+        data=df_categorical_exog, cv=cv, profile=profile, plan=plan,
+        show_progress=False,
+    )
+
+    result = assistant.backtest(
+        data          = df_categorical_exog,
+        cv            = cv,
+        target        = "sales",
+        date_column   = "date",
+        plan          = plan,
+        show_progress = False,
+    )
+    code = assistant.backtest_code(
+        data        = df_categorical_exog,
+        cv          = cv,
+        target      = "sales",
+        date_column = "date",
+        plan        = plan,
+    )
+
+    assert result.code == expected.code == code.code
+    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
+    assert result.profile.data_profile.unused_columns == ["weekday"]

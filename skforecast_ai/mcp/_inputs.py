@@ -424,6 +424,8 @@ def check_profile_names(profile: ForecastingProfile) -> None:
     names = [targets] if isinstance(targets, str) else list(targets)
     names += list(data_profile.series_lengths)
     names += list(data_profile.exog_columns)
+    # Columns left out with `exog_columns` are named in a note of the profile.
+    names += list(data_profile.unused_columns)
     names += [data_profile.date_column, data_profile.series_id_column]
     bad = list(dict.fromkeys(
         str(name) for name in names

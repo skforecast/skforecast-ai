@@ -30,6 +30,13 @@ def _planned(tmp_path, **plan_arguments):
         {"lags": None, "steps": 6},
         {"forecaster": "ForecasterDirect", "estimator": "Ridge"},
         {"estimator_kwargs": None},
+        {"metric": ["mean_squared_error"], "use_exog": False},
+        {"differentiation": 1},
+        {
+            "calendar_features": [],
+            "target_transformer": "none",
+            "dropna_from_series": True,
+        },
     ],
     ids=lambda dt: f"overrides: {dt}",
 )
@@ -93,7 +100,8 @@ def test_tool_refine_plan_keeps_omitted_and_resets_null_keys(tmp_path):
 @pytest.mark.parametrize(
     "overrides, field",
     [
-        ({"metric": "mean_squared_error"}, "overrides.metric"),
+        ({"metric": "accuracy"}, "overrides.metric"),
+        ({"metric": ["mean_squared_error", "mean_squared_error"]}, "overrides.metric"),
         ({"preprocessing_steps": []}, "overrides.preprocessing_steps"),
         ({"steps": "6"}, "overrides.steps"),
         ({"lags": [0]}, "overrides.lags"),

@@ -5,7 +5,7 @@ from skforecast_ai.mcp._foundation import weights_cached
 
 def test_weights_cached_needs_a_snapshot(tmp_path, monkeypatch):
     """
-    Test that a model counts as cached only when its folder of the cache
+    Test that a repository counts as cached only when its folder of the cache
     holds a snapshot with a file in it (an interrupted download leaves an
     empty one), and that a model ID with a NUL byte is not cached rather
     than an error.

@@ -185,3 +185,34 @@ def test_tool_forecast_file_too_large_for_exog_or_grown_data(tmp_path):
     assert (exog_error["code"], exog_error["field"]) == ("file_too_large", "exog_path")
     assert (data_error["code"], data_error["field"]) == ("data_changed", "data_path")
     assert data_error["hint"] == "Call `profile` again on the file as it is now."
+
+
+def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
+    """
+    Test that a plan built with `use_exog=false` forecasts data with
+    exogenous columns without `exog_path`, as the Python API does, and
+    that passing `exog_path` to it is an `invalid_argument`.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    exog_path = write_csv(tmp_path, "future.csv", df_single_future_exog)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(
+        server, path, target="sales", steps=10, use_exog=False
+    )
+
+    result = content_of(call(server, "forecast", {"plan_id": plan_id}))
+    given = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": exog_path}),
+        "forecast",
+    )
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="sales")
+    expected = assistant.forecast(
+        data=path,
+        profile=profile,
+        plan=assistant.plan(profile=profile, steps=10, use_exog=False),
+    )
+
+    assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
+    assert (given["code"], given["field"]) == ("invalid_argument", "exog_path")

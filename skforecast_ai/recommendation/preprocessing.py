@@ -196,6 +196,7 @@ def build_forecaster_kwargs(
     transformer_series: str | None = None,
     transformer_exog: str | None = None,
     dropna_from_series: bool | None = None,
+    differentiation: int | None = None,
 ) -> dict[str, Any]:
     """
     Build the keyword arguments dict for instantiating a forecaster.
@@ -232,6 +233,9 @@ def build_forecaster_kwargs(
         `'StandardScaler'`). None when no scaling is needed.
     dropna_from_series : bool, default None
         NaN handling flag. None for statistical/foundation forecasters.
+    differentiation : int, default None
+        Differentiation order of the target, written only when given and
+        the forecaster is a machine learning one.
 
     Returns
     -------
@@ -275,6 +279,9 @@ def build_forecaster_kwargs(
 
     if forecaster in DROPNA_FORECASTERS and dropna_from_series is not None:
         kwargs["dropna_from_series"] = dropna_from_series
+
+    if forecaster in AUTOREG_FORECASTERS and differentiation is not None:
+        kwargs["differentiation"] = differentiation
 
     return kwargs
 

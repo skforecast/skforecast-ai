@@ -426,3 +426,164 @@ def test_backtest_code_InvalidInputError_when_data_have_other_structure_than_pro
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "profile"
+
+
+def test_backtest_code_output_when_lags_window_features_and_metric_given():
+    """
+    Test that backtest_code() builds its plan with `lags`,
+    `window_features` and `metric`, written into the script.
+    """
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+
+    result = assistant.backtest_code(
+        data            = df_single,
+        target          = "sales",
+        date_column     = "date",
+        cv              = cv,
+        lags            = 3,
+        window_features = [{"stats": ["mean"], "window_size": 3}],
+        metric          = ["mean_squared_error", "mean_absolute_error"],
+    )
+
+    assert result.plan.overridden_fields == ["lags", "window_features", "metric"]
+    assert re.search(r"\n    lags +=", result.code)
+    assert result.plan.forecaster_kwargs["lags"] == 3
+    assert (
+        "    metric            = ['mean_squared_error', 'mean_absolute_error'],\n"
+    ) in result.code
+
+
+def test_backtest_code_output_when_use_exog_false():
+    """
+    Test that backtest_code() builds its plan with `use_exog=False`, whose
+    script passes no exogenous variables, and rejects it against a plan
+    that uses them.
+    """
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+    inputs = {"data": df_single, "target": "sales", "date_column": "date", "cv": cv}
+
+    result = assistant.backtest_code(**inputs, use_exog=False)
+
+    assert result.plan.use_exog is False
+    assert "exog" not in result.code.split("# Run backtesting")[1]
+    with pytest.raises(InvalidInputError, match=re.escape("['use_exog']")):
+        assistant.backtest_code(
+            **inputs, plan=assistant.plan(result.profile, steps=5), use_exog=False
+        )
+
+
+def test_backtest_code_InvalidInputError_when_direct_forecaster_with_gap():
+    """
+    Test that backtest_code() rejects, as backtest() does, a ForecasterDirect
+    plan with a cv whose gap is greater than 0, with `cv` as field: the
+    script would fail, since each fold asks the forecaster for steps + gap
+    steps.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterDirect")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, gap=2, verbose=False)
+
+    err_msg = re.escape(
+        "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+        "each fold needs steps + gap = 7 steps ahead, so skforecast would "
+        "fail. Use a strategy without gap, or a recursive forecaster."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest_code(
+            data    = df_no_exog,
+            cv      = cv,
+            profile = profile,
+            plan    = plan,
+        )
+
+    assert exc_info.value.field == "cv"
+
+
+@pytest.mark.parametrize(
+    "forecaster, gap, expected_import, expected_gap",
+    [
+        (
+            "ForecasterRecursive", 2,
+            "from skforecast.recursive import ForecasterRecursive",
+            "    gap                = 2,\n",
+        ),
+        (
+            "ForecasterDirect", 0,
+            "from skforecast.direct import ForecasterDirect",
+            None,
+        ),
+    ],
+    ids=["recursive_with_gap", "direct_without_gap"],
+)
+def test_backtest_code_output_when_gap_can_run(
+    forecaster, gap, expected_import, expected_gap
+):
+    """
+    Test that backtest_code() returns the script of a recursive forecaster
+    with a gap, which the strategy of the script carries, and of a direct
+    forecaster without one.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster=forecaster)
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, gap=gap, verbose=False)
+
+    result = assistant.backtest_code(
+        data    = df_no_exog,
+        cv      = cv,
+        profile = profile,
+        plan    = plan,
+    )
+
+    assert expected_import in result.code
+    if expected_gap is None:
+        assert "gap " not in result.code
+    else:
+        assert expected_gap in result.code
+
+
+def test_backtest_code_InvalidInputError_when_first_window_shorter_than_forecaster():
+    """
+    Test that backtest_code() rejects a strategy whose first training window
+    is not longer than the window of the forecaster, as backtest() does: the
+    script would fail inside skforecast.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, lags=30)
+    cv = TimeSeriesFold(steps=5, initial_train_size=30, verbose=False)
+
+    err_msg = re.escape(
+        "The first training window of the strategy has 30 observations, and "
+        "ForecasterRecursive needs at least 31 (more than its window size, "
+        "30), so skforecast would fail. Use a later `initial_train_size`, or "
+        "a shorter horizon (`steps`), fewer lags or smaller window features."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest_code(
+            data    = df_no_exog,
+            cv      = cv,
+            profile = profile,
+            plan    = plan,
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "cv"
+
+
+def test_backtest_code_output_when_strategy_cannot_be_split():
+    """
+    Test that backtest_code() returns the script of a strategy that
+    skforecast cannot split (an `initial_train_size` as long as the data),
+    without the check of the first training window failing first.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=100, verbose=False)
+
+    result = assistant.backtest_code(
+        data    = df_no_exog,
+        cv      = cv,
+        profile = profile,
+        plan    = plan,
+    )
+
+    assert "initial_train_size = 100," in result.code

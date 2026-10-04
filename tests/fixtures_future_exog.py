@@ -67,6 +67,16 @@ plans_daily_by_forecaster = {
     ).model_copy(update={"use_exog": True}),
 }
 
+# A profile of the daily data that leaves `weekday` out (`exog_columns`), and
+# the plan of a foundation model, which takes every covariate it is given.
+_profile_daily_promo = _assistant.profile(
+    data_daily, target="sales", date_column="date", exog_columns=["promo"]
+)
+profile_daily_promo = _profile_daily_promo.data_profile
+plan_daily_promo_foundation = _assistant.plan(
+    _profile_daily_promo, steps=7, forecaster="ForecasterFoundation"
+)
+
 # --- Long data with a numeric exog (items_sales, last date 2012-04-29) ---
 data_long = df_items_sales_long.assign(
     price=np.arange(len(df_items_sales_long)) % 7 + 1.0

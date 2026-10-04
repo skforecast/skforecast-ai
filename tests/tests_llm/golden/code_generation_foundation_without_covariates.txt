@@ -20,6 +20,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Steps: 5
 - Estimator: Salesforce/moirai-2.0-R-small
 - Primary metric: mean_absolute_error
+- Chosen by the user instead of the rules: forecaster, estimator
 - Plan: ForecasterFoundation + Salesforce/moirai-2.0-R-small. No lag or window features: the foundation model forecasts directly from the raw context window. MAE is interpretable, robust to outliers, and works at any scale. The model reads up to 2048 observations of the series as context, so the whole history is used (the series has 100). Exogenous variables ['promo'] are not used: 'Salesforce/moirai-2.0-R-small' does not support covariates. The weights of 'Salesforce/moirai-2.0-R-small' are released under CC-BY-NC-4.0, which restricts commercial use (https://huggingface.co/Salesforce/moirai-2.0-R-small).
 
 Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.

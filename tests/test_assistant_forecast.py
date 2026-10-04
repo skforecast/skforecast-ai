@@ -31,6 +31,7 @@ from tests.fixtures_datasets import (
 )
 from tests.fixtures_assistant import (
     df_calendar_named_exog,
+    df_categorical_exog,
     df_multi_wide,
     df_range_index,
     df_single,
@@ -38,6 +39,7 @@ from tests.fixtures_assistant import (
     df_short,
     df_multi_long,
     df_multi_long_one_series,
+    df_multi_long_staggered,
     df_multi_long_three_series,
     series_single,
     series_unnamed,
@@ -2533,6 +2535,174 @@ def test_forecast_output_when_wide_data_have_new_column_than_profile():
     ]
 
 
+def test_forecast_output_when_wide_data_have_new_column_than_multivariate_profile():
+    """
+    Test that forecast() of ForecasterDirectMultiVariate with a saved
+    profile and data with a column the profile does not name gives the
+    predictions of the data without it: the script fits the series of the
+    profile only, not the new column as one more series.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data        = df_multi_wide,
+        target      = ["series_a", "series_b"],
+        date_column = "date",
+    )
+    plan = assistant.plan(
+        profile    = profile,
+        steps      = 3,
+        forecaster = "ForecasterDirectMultiVariate",
+    )
+    expected = assistant.forecast(data=df_multi_wide, profile=profile, plan=plan)
+
+    result = assistant.forecast(
+        data    = df_multi_wide.assign(series_c=np.arange(len(df_multi_wide)) % 5),
+        profile = profile,
+        plan    = plan,
+    )
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.profile.data_profile.unused_columns == ["series_c"]
+    assert "forecaster.fit(series=data[series_cols])" in result.code
+
+
+_NOTE_LEFT_OUT = (
+    "Columns of the data that the profile leaves out are not used: ['weekday']."
+)
+
+
+def test_forecast_output_when_profile_built_with_exog_columns():
+    """
+    Test that forecast() with a profile built with `exog_columns` and the
+    data it was built from gives the predictions of the data without the
+    column left out, with the note of the profile only once.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+    expected = assistant.forecast(
+        data        = df_single,
+        target      = "sales",
+        date_column = "date",
+        steps       = 3,
+        test_size   = 3,
+    )
+
+    result = assistant.forecast(
+        data      = df_categorical_exog,
+        profile   = profile,
+        steps     = 3,
+        test_size = 3,
+    )
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.profile.data_profile.exog_columns == ["promo"]
+    assert result.profile.data_profile.unused_columns == ["weekday"]
+    assert result.profile.data_profile.warnings == [_NOTE_LEFT_OUT]
+
+
+def test_forecast_output_when_plan_of_exog_columns_given_without_its_profile():
+    """
+    Test that a plan built from a profile with `exog_columns` records them,
+    and that forecast() given the plan without its profile profiles the data
+    with those columns: same script and predictions as with the profile,
+    instead of using the column left out.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+    plan = assistant.plan(profile, steps=3)
+    default_plan = assistant.plan(
+        assistant.profile(data=df_single, target="sales", date_column="date"),
+        steps=3,
+    )
+    expected = assistant.forecast(
+        data=df_categorical_exog, profile=profile, plan=plan, test_size=3
+    )
+
+    result = assistant.forecast(
+        data        = df_categorical_exog,
+        target      = "sales",
+        date_column = "date",
+        plan        = plan,
+        test_size   = 3,
+    )
+
+    assert plan.exog_columns == ["promo"]
+    assert default_plan.exog_columns is None
+    assert type(plan).model_validate_json(plan.model_dump_json()) == plan
+    assert result.code == expected.code
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.profile.data_profile.exog_columns == ["promo"]
+    assert result.profile.data_profile.unused_columns == ["weekday"]
+
+
+def test_forecast_output_when_profile_built_with_exog_columns_and_values_differ():
+    """
+    Test that forecast() with a profile built with `exog_columns` and data
+    whose values differ profiles the data again without the column left
+    out, and keeps the note that names it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+    changed = df_categorical_exog.copy()
+    changed.loc[0, "sales"] = 50.0
+
+    result = assistant.forecast(
+        data      = changed,
+        profile   = profile,
+        steps     = 3,
+        test_size = 3,
+    )
+
+    assert result.profile.data_profile.exog_columns == ["promo"]
+    assert result.profile.data_profile.unused_columns == ["weekday"]
+    assert result.profile.data_profile.warnings == [
+        _NOTE_LEFT_OUT,
+        "The data differ in their values from the profile passed (changed: "
+        "target_stats): the profile was computed again from these data.",
+    ]
+
+
+def test_forecast_output_when_data_lack_column_the_profile_left_out():
+    """
+    Test that forecast() with a profile built with `exog_columns` and data
+    without the column it left out runs, with no column left out and no
+    note naming that column.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_categorical_exog,
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+
+    result = assistant.forecast(
+        data      = df_single,
+        profile   = profile,
+        steps     = 3,
+        test_size = 3,
+    )
+
+    assert result.profile.data_profile.exog_columns == ["promo"]
+    assert result.profile.data_profile.unused_columns == []
+    assert result.profile.data_profile.warnings == []
+
+
 @pytest.mark.parametrize(
     "data, series, forecaster",
     [
@@ -2616,3 +2786,74 @@ def test_forecast_output_when_data_have_another_stamp_of_the_same_period():
         "series_lengths, frequency, start_date): the profile was computed "
         "again from these data."
     )
+
+
+def test_forecast_output_when_metric_given_in_evaluation_mode():
+    """
+    Test that forecast() builds its plan with `metric` and evaluates only
+    the metrics chosen, and rejects a `metric` that differs from a given
+    plan.
+    """
+    assistant = ForecastingAssistant()
+    inputs = {"data": df_no_exog, "target": "sales", "date_column": "date"}
+
+    result = assistant.forecast(
+        **inputs, steps=5, test_size=5, metric=["median_absolute_error"]
+    )
+
+    assert result.plan.metric == "median_absolute_error"
+    assert result.plan.overridden_fields == ["metric"]
+    assert list(result.metrics.columns) == ["series", "MedAE"]
+    with pytest.raises(InvalidInputError, match=re.escape("['metric']")):
+        assistant.forecast(
+            **inputs, test_size=5, plan=result.plan.model_copy(
+                update={"end_train": None}
+            ),
+            metric="mean_absolute_error",
+        )
+
+
+def test_forecast_output_when_use_exog_false():
+    """
+    Test that forecast() with `use_exog=False` forecasts data with
+    exogenous columns without `exog`, and rejects it against a plan that
+    uses them.
+    """
+    assistant = ForecastingAssistant()
+    inputs = {"data": df_single, "target": "sales", "date_column": "date"}
+
+    result = assistant.forecast(**inputs, steps=5, use_exog=False)
+
+    assert result.plan.use_exog is False
+    assert len(result.predictions) == 5
+    with pytest.raises(InvalidInputError, match=re.escape("['use_exog']")):
+        assistant.forecast(
+            **inputs, plan=assistant.plan(result.profile, steps=5), use_exog=False
+        )
+
+
+@pytest.mark.parametrize("test_size", [5, 0.05, "2023-04-06"], ids=lambda x: f"{x!r}")
+def test_forecast_output_when_long_series_start_on_different_dates(test_size):
+    """
+    Test that forecast() of long data whose series start on different dates
+    (store_b 60 days later) counts the test set back from the last date:
+    `end_train` is 2023-04-05, inside the data, where it was counted from
+    the latest first date and fell after the data.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data             = df_multi_long_staggered,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+
+    result = assistant.forecast(
+        data      = df_multi_long_staggered,
+        profile   = profile,
+        steps     = 5,
+        test_size = test_size,
+    )
+
+    assert result.plan.end_train == "2023-04-05"
+    assert result.predictions.index.min() == pd.Timestamp("2023-04-06")

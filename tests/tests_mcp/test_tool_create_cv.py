@@ -175,6 +175,64 @@ def test_tool_create_cv_notices_of_the_runtime(tmp_path):
     ]
 
 
+def test_tool_create_cv_notice_when_direct_forecaster_with_gap(tmp_path):
+    """
+    Test that a strategy with a gap for a ForecasterDirect plan is created,
+    with a notice (source 'runtime') that its backtest raises, and that
+    `backtest` of it is `invalid_argument` on `cv`.
+    """
+    server, _, _, plan_id = _planned(
+        tmp_path, steps=6, forecaster="ForecasterDirect"
+    )
+
+    result = content_of(call(server, "create_cv", {"plan_id": plan_id, "gap": 2}))
+    error = error_of(call(server, "backtest", {"cv_id": result["id"]}), "backtest")
+
+    assert [
+        ToolNotice(**n) for n in result["notices"] if n["category"] == "UserWarning"
+    ] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "UserWarning",
+            message  = (
+                "ForecasterDirect is trained to predict 6 steps, and with "
+                "`gap=2` each fold needs steps + gap = 8 steps ahead, so "
+                "skforecast would fail: `backtest()` and `backtest_code()` of "
+                "this plan with this strategy raise. The strategy can still "
+                "serve the candidates of `compare()` that are not direct; use "
+                "a strategy without gap to backtest this plan."
+            ),
+            count    = 1,
+        )
+    ]
+    assert (error["code"], error["field"]) == ("invalid_argument", "cv_id")
+
+
+def test_tool_create_cv_notice_when_first_window_shorter_than_forecaster(tmp_path):
+    """
+    Test that the default strategy of `steps=100` on h2o (204 observations),
+    whose first training window of 4 observations is shorter than the 36
+    the plan reads, is created with a notice (source 'runtime') that its
+    backtest raises, and that `backtest` of it is `insufficient_data`.
+    """
+    server, _, _, plan_id = _planned(tmp_path, steps=100)
+
+    result = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+    error = error_of(call(server, "backtest", {"cv_id": result["id"]}), "backtest")
+
+    assert [
+        n["message"] for n in result["notices"] if n["category"] == "UserWarning"
+    ] == [
+        "The first training window of the strategy has 4 observations, and "
+        "ForecasterRecursive needs at least 37 (more than its window size, "
+        "36), so skforecast would fail: `backtest()` of this plan with this "
+        "strategy raises. The strategy can still serve the candidates of "
+        "`compare()` with a smaller window; use a later `initial_train_size`, "
+        "or a shorter horizon, to backtest this plan."
+    ]
+    assert error["code"] == "insufficient_data"
+
+
 @pytest.mark.parametrize(
     "arguments, field",
     [

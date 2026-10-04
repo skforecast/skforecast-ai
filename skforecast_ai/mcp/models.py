@@ -16,10 +16,13 @@ if sys.version_info >= (3, 12):
 else:
     from typing_extensions import TypedDict
 from .._constants import (
+    ALLOWED_METRICS,
     DEFAULT_FOUNDATION_MODEL_ID,
     SUPPORTED_ESTIMATORS,
+    SUPPORTED_TRANSFORMERS,
     WindowStat,
 )
+from .._validation import _CALENDAR_FEATURES
 
 ObjectKind = Literal["profile", "plan", "cv", "backtest", "comparison", "forecast"]
 """Kinds of the objects the server registers, the first part of their id."""
@@ -78,8 +81,45 @@ WINDOW_FEATURES_DESCRIPTION = (
     f"[{{'stats': ['mean', 'std'], 'window_size': 7}}]."
 )
 
+USE_EXOG_DESCRIPTION = (
+    "Whether to use the exogenous columns of the data: false leaves them "
+    "out (forecast then takes no exog_path); true fails when the data has "
+    "none or the forecaster cannot use them."
+)
+DIFFERENTIATION_DESCRIPTION = (
+    "Order of differencing of the target before training (an integer of at "
+    "least 1, usually 1 for a trend); predictions are integrated back. "
+    "Machine learning forecasters only."
+)
+CALENDAR_FEATURES_DESCRIPTION = (
+    "Calendar features generated from the dates (an empty list for none); "
+    "the encoding follows the estimator. A feature whose column is already "
+    "an exogenous column used by the plan is rejected. Machine learning "
+    "forecasters with a datetime index only."
+)
+TARGET_TRANSFORMER_DESCRIPTION = (
+    "Scaler of the target: 'StandardScaler', or 'none' for no scaling. "
+    "Machine learning forecasters only."
+)
+DROPNA_DESCRIPTION = (
+    "Whether to drop the training rows with missing values; false fails "
+    "when the data has missing values and the estimator does not accept "
+    "them. Machine learning forecasters only."
+)
+METRIC_DESCRIPTION = (
+    "Metric, or list of metrics whose first one is the primary metric "
+    "(the one that ranks); only the ones given are computed."
+)
+
 Interval = Annotated[list[float], Field(min_length=2, max_length=2)]
 WindowFeatures = list[dict[str, list[str] | int]]
+MetricName = Literal[ALLOWED_METRICS]
+"""Regression metrics of skforecast (`ALLOWED_METRICS`)."""
+Metric = MetricName | Annotated[list[MetricName], Field(min_length=1)]
+CalendarFeatureName = Literal[_CALENDAR_FEATURES]
+"""Calendar features of skforecast's `CalendarFeatures`."""
+TargetTransformer = Literal[(*SUPPORTED_TRANSFORMERS, "none")]
+"""Values of `target_transformer`."""
 
 
 @with_config(ConfigDict(
@@ -89,8 +129,8 @@ WindowFeatures = list[dict[str, list[str] | int]]
     json_schema_extra = {
         "description": (
             "Decisions of the plan to change. An omitted key keeps the value "
-            "of the plan; estimator_kwargs, interval, lags and "
-            "window_features set to null ask for the deterministic default."
+            "of the plan; every key but forecaster, estimator and steps set to "
+            "null asks for the deterministic default."
         ),
     },
 ))
@@ -131,6 +171,48 @@ class RefinePlanArgs(TypedDict, total=False):
         Field(description=(
             f"{WINDOW_FEATURES_DESCRIPTION} Null selects them again with the "
             f"deterministic rules."
+        )),
+    ]
+    metric: Annotated[
+        Metric | None,
+        Field(description=(
+            f"{METRIC_DESCRIPTION} Null selects them again from the data. "
+            f"Omitted, a metric chosen before is kept."
+        )),
+    ]
+    use_exog: Annotated[
+        bool | None,
+        Field(description=(
+            f"{USE_EXOG_DESCRIPTION} Null lets the rule decide again. "
+            f"Omitted, a choice made before is kept."
+        )),
+    ]
+    differentiation: Annotated[
+        Annotated[int, Field(ge=1)] | None,
+        Field(description=(
+            f"{DIFFERENTIATION_DESCRIPTION} Null removes it. Omitted, an "
+            f"order chosen before is kept."
+        )),
+    ]
+    calendar_features: Annotated[
+        list[CalendarFeatureName] | None,
+        Field(description=(
+            f"{CALENDAR_FEATURES_DESCRIPTION} Null selects them again from "
+            f"the frequency. Omitted, a choice made before is kept."
+        )),
+    ]
+    target_transformer: Annotated[
+        TargetTransformer | None,
+        Field(description=(
+            f"{TARGET_TRANSFORMER_DESCRIPTION} Null lets the rule decide "
+            f"again. Omitted, a choice made before is kept."
+        )),
+    ]
+    dropna_from_series: Annotated[
+        bool | None,
+        Field(description=(
+            f"{DROPNA_DESCRIPTION} Null lets the rule decide again. Omitted, "
+            f"a choice made before is kept."
         )),
     ]
 
@@ -175,6 +257,35 @@ class CandidateArgs(TypedDict, total=False):
             f"deterministic rules."
         )),
     ]
+    use_exog: Annotated[
+        bool | None,
+        Field(description=(
+            f"{USE_EXOG_DESCRIPTION} Null uses them whenever the forecaster "
+            f"can."
+        )),
+    ]
+    differentiation: Annotated[
+        Annotated[int, Field(ge=1)] | None,
+        Field(description=(
+            f"{DIFFERENTIATION_DESCRIPTION} The candidate runs on a copy of "
+            f"the strategy with this order."
+        )),
+    ]
+    calendar_features: Annotated[
+        list[CalendarFeatureName] | None,
+        Field(description=(
+            f"{CALENDAR_FEATURES_DESCRIPTION} Null selects them from the "
+            f"frequency."
+        )),
+    ]
+    target_transformer: Annotated[
+        TargetTransformer | None,
+        Field(description=f"{TARGET_TRANSFORMER_DESCRIPTION} Null for the rule."),
+    ]
+    dropna_from_series: Annotated[
+        bool | None,
+        Field(description=f"{DROPNA_DESCRIPTION} Null for the rule."),
+    ]
 
 
 class CandidateArg(BaseModel):
@@ -187,8 +298,8 @@ class CandidateArg(BaseModel):
         Name of the candidate, unique, that labels its row of the
         leaderboard.
     config : dict
-        Its configuration: `forecaster`, `estimator`, `estimator_kwargs`,
-        `lags` and `window_features`, as in `ForecastingAssistant.compare()`.
+        Its configuration: the keys of `CandidateConfig`, as in
+        `ForecastingAssistant.compare()`.
     """
 
     model_config = ConfigDict(

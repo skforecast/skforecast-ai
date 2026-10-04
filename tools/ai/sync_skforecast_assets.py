@@ -64,7 +64,9 @@ def _resolve_branch(branch: str) -> str:
     Resolve branch name. If 'auto', derive from pyproject.toml.
 
     Parses the skforecast dependency spec (e.g. 'skforecast>=0.22,<0.23')
-    and returns the branch pattern '{major}.{minor}.x' (e.g. '0.22.x').
+    and returns the branch pattern '{major}.{minor}.x' (e.g. '0.22.x'). A
+    patch number in the pin ('skforecast>=0.26.0') is left out: release
+    branches are named after the minor version.
     """
     if branch != "auto":
         return branch
@@ -76,8 +78,9 @@ def _resolve_branch(branch: str) -> str:
         )
 
     content = PYPROJECT_PATH.read_text()
-    # Match: "skforecast>=0.22" or "skforecast>=0.22,<0.23"
-    match = re.search(r'"skforecast>=([\d.]+)', content)
+    # Match: "skforecast>=0.22", "skforecast>=0.22,<0.23" or
+    # "skforecast>=0.26.0" (major and minor only).
+    match = re.search(r'"skforecast>=(\d+\.\d+)', content)
     if not match:
         sys.exit(
             "Error: could not find skforecast version pin in pyproject.toml.\n"

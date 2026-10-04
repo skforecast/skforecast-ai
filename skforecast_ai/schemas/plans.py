@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 import sys
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal, get_args
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -273,6 +273,26 @@ def _plain(value: Any) -> Any:
     return value
 
 
+OverrideName = Literal[
+    "forecaster",
+    "estimator",
+    "estimator_kwargs",
+    "lags",
+    "window_features",
+    "metric",
+    "use_exog",
+    "differentiation",
+    "calendar_features",
+    "target_transformer",
+    "dropna_from_series",
+]
+"""Decisions of a plan that the user can make instead of the rules of
+`plan()`, as recorded in `ForecastPlan.overridden_fields`."""
+
+# Canonical order of the names, the order `overridden_fields` keeps.
+OVERRIDE_NAMES: tuple[str, ...] = get_args(OverrideName)
+
+
 class RefinePlanOverrides(TypedDict, total=False):
     """
     Keyword overrides accepted by `ForecastingAssistant.refine_plan()`.
@@ -307,6 +327,28 @@ class RefinePlanOverrides(TypedDict, total=False):
         scalar `'window_size'` per window size; the same statistic cannot
         repeat the same window size across entries. None re-runs the
         deterministic selection.
+    metric : str, list of str, None
+        Metric(s) to compute, the first one being the primary metric, as
+        in `plan()`. None selects them from the data again. When omitted,
+        a metric chosen by the user is kept and a selected one is
+        selected again.
+    use_exog : bool, None
+        Whether the plan uses the exogenous variables, as in `plan()`. None
+        lets the rule decide again. When omitted, a choice of the user is
+        kept and the rule decides otherwise.
+    differentiation : int, None
+        Order of differencing of the target, as in `plan()`. None removes
+        it. When omitted, an order chosen by the user is kept while the
+        forecaster takes one.
+    calendar_features : list of str, None
+        Calendar features to generate, as in `plan()`; an empty list for
+        none. None selects them again from the frequency.
+    target_transformer : str, None
+        `'StandardScaler'` or `'none'`, as in `plan()`. None lets the rule
+        decide again.
+    dropna_from_series : bool, None
+        Whether to drop the training rows with missing values, as in
+        `plan()`. None lets the rule decide again.
     """
 
     forecaster: str
@@ -316,6 +358,12 @@ class RefinePlanOverrides(TypedDict, total=False):
     interval: list[float] | None
     lags: int | list[int] | None
     window_features: list[dict[str, list[str] | int]] | None
+    metric: str | list[str] | None
+    use_exog: bool | None
+    differentiation: int | None
+    calendar_features: list[str] | None
+    target_transformer: str | None
+    dropna_from_series: bool | None
 
 
 class CandidateConfig(TypedDict, total=False):
@@ -344,6 +392,19 @@ class CandidateConfig(TypedDict, total=False):
         Rolling window features, one dict with `'stats'` and a positive
         scalar `'window_size'` per window size; the same statistic cannot
         repeat the same window size across entries.
+    use_exog : bool, None
+        Whether the candidate uses the exogenous variables, as in `plan()`.
+        None uses them whenever the forecaster can.
+    differentiation : int, None
+        Order of differencing of the target, as in `plan()`. The candidate
+        runs on a copy of the strategy with this order.
+    calendar_features : list of str, None
+        Calendar features to generate, as in `plan()`.
+    target_transformer : str, None
+        `'StandardScaler'` or `'none'`, as in `plan()`.
+    dropna_from_series : bool, None
+        Whether to drop the training rows with missing values, as in
+        `plan()`.
     """
 
     forecaster: str
@@ -351,6 +412,11 @@ class CandidateConfig(TypedDict, total=False):
     estimator_kwargs: dict[str, Any] | None
     lags: int | list[int] | None
     window_features: list[dict[str, list[str] | int]] | None
+    use_exog: bool | None
+    differentiation: int | None
+    calendar_features: list[str] | None
+    target_transformer: str | None
+    dropna_from_series: bool | None
 
 
 # Keys validated at run time, taken from the typed dictionaries so the two
@@ -441,6 +507,23 @@ class ForecastPlan(DisplayMixin, BaseModel):
         were suggested by the LLM during `refine_plan()`. Empty for
         deterministic plans and for fields the user overrode explicitly.
         Used to flag LLM-sourced values when the plan is displayed.
+    overridden_fields : list
+        Names of the decisions the user made instead of the rules of
+        `plan()`: the arguments passed with a value other than None among
+        `forecaster`, `estimator`, `estimator_kwargs`, `lags`,
+        `window_features`, `metric`, `use_exog`, `differentiation`,
+        `calendar_features`, `target_transformer` and `dropna_from_series`
+        (an argument passed as None asks for the rule and is not recorded).
+        It holds names only; the values are those of the plan. `refine_plan()`
+        keeps a name while the refined plan keeps its value. Empty for a
+        plan of an earlier version.
+    exog_columns : list, default None
+        Exogenous columns of the profile the plan was built from, when that
+        profile left columns of the data out (`exog_columns` of `profile()`,
+        `DataProfile.unused_columns`). A method that receives the plan
+        without its profile profiles the data with these columns, so the
+        plan runs on the columns it was built for. None when the profile
+        left no column out: the data are then profiled with every column.
     explanation : str
         Explanation of the plan-level decisions.
     """
@@ -472,6 +555,8 @@ class ForecastPlan(DisplayMixin, BaseModel):
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     llm_refined_fields: list[str] = Field(default_factory=list)
+    overridden_fields: list[OverrideName] = Field(default_factory=list)
+    exog_columns: list[str] | None = None
     explanation: str
 
     @field_validator("estimator_kwargs", mode="before")
@@ -486,6 +571,15 @@ class ForecastPlan(DisplayMixin, BaseModel):
         if isinstance(value, dict):
             return {key: _plain(item) for key, item in value.items()}
         return value
+
+    @field_validator("overridden_fields", mode="after")
+    @classmethod
+    def _order_overridden_fields(cls, value: list[str]) -> list[str]:
+        """
+        Keep each name once, in the canonical order of `OVERRIDE_NAMES`, so
+        two plans with the same decisions compare equal.
+        """
+        return [name for name in OVERRIDE_NAMES if name in value]
 
     @field_validator("steps", mode="before")
     @classmethod

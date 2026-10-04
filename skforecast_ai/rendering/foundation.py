@@ -214,8 +214,9 @@ def render_forecast_foundation(
         exog_pred_var = f"{exog_var}_test"
     elif is_long:
         exog_pred_var = "exog_future_dict"
-    elif excluded_categorical:
-        # The future exog holds every column, the excluded ones included.
+    elif excluded_categorical or profile.unused_columns:
+        # The future exog holds every column, the excluded ones (and those
+        # the profile leaves out) included.
         exog_pred_var = f"exog_future[{repr(exog_columns)}]"
     else:
         exog_pred_var = "exog_future"

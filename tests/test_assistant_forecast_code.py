@@ -720,3 +720,36 @@ def test_forecast_code_InvalidInputError_when_data_have_other_structure_than_pro
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "profile"
+
+
+def test_forecast_code_output_when_metric_given():
+    """
+    Test that forecast_code() builds its plan with `metric`, so the script
+    of an evaluation computes only the metrics chosen.
+    """
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast_code(
+        data=df_no_exog, target="sales", date_column="date", steps=5,
+        test_size=5, metric="mean_squared_error",
+    )
+
+    assert result.plan.metrics_to_compute == ["mean_squared_error"]
+    assert "from sklearn.metrics import mean_squared_error\n" in result.code
+    assert "mean_absolute_error" not in result.code
+
+
+def test_forecast_code_output_when_use_exog_false():
+    """
+    Test that forecast_code() builds its plan with `use_exog=False`, whose
+    prediction script does not load future exogenous values.
+    """
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast_code(
+        data=df_single, target="sales", date_column="date", steps=5,
+        use_exog=False,
+    )
+
+    assert result.plan.use_exog is False
+    assert "exog_future.csv" not in result.code

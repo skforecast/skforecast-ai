@@ -14,7 +14,13 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant
 
-from tests.fixtures_assistant import df_multi_long, df_multi_wide, df_no_exog, df_single
+from tests.fixtures_assistant import (
+    df_multi_long,
+    df_multi_long_staggered,
+    df_multi_wide,
+    df_no_exog,
+    df_single,
+)
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
 
 
@@ -581,3 +587,313 @@ def test_standalone_script_matches_forecast_when_in_memory_data_has_no_dates(
     # `_run_standalone` parses the index as dates; integers come back as
     # nanoseconds from the epoch.
     assert list(standalone.index.asi8) == list(executed.predictions.index)
+
+
+def test_standalone_scripts_match_forecast_and_backtest_when_metric_override(
+    tmp_path,
+):
+    """
+    Test that, with metrics chosen through `metric`, the scripts of
+    forecast_code() (evaluation mode) and backtest_code() run as files and
+    give the predictions of forecast() and backtest(), whose metrics are
+    the ones chosen.
+    """
+    csv_path = tmp_path / "sales.csv"
+    df_single.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    metric = ["mean_squared_error", "median_absolute_error"]
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    inputs = {"data": csv_path, "target": "sales", "date_column": "date"}
+
+    forecast_code = assistant.forecast_code(
+        **inputs, steps=5, test_size=5, metric=metric
+    ).code
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5, metric=metric)
+    backtest_code = assistant.backtest_code(**inputs, cv=cv, metric=metric).code
+    backtest = assistant.backtest(**inputs, cv=cv, metric=metric, show_progress=False)
+
+    assert forecast_code == forecast.code
+    assert backtest_code == backtest.code
+    assert list(forecast.metrics.columns) == ["series", "MSE", "MedAE"]
+    assert list(backtest.metrics.columns) == metric
+    _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
+    np.testing.assert_allclose(
+        _run_standalone(backtest_code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+@pytest.mark.parametrize(
+    "frame, target, forecaster",
+    [
+        (df_single, "sales", "ForecasterRecursive"),
+        (
+            df_multi_wide.assign(promo=np.arange(len(df_multi_wide)) % 7),
+            ["series_a", "series_b"],
+            "ForecasterDirectMultiVariate",
+        ),
+    ],
+    ids=["single series", "multivariate"],
+)
+def test_standalone_scripts_match_forecast_and_backtest_when_exog_not_used(
+    tmp_path, frame, target, forecaster
+):
+    """
+    Test that, with `use_exog=False` on data with exogenous columns, the
+    scripts of forecast_code() (evaluation mode) and backtest_code() run as
+    files and give the predictions of forecast() and backtest(); the
+    multivariate script fits only the target series.
+    """
+    csv_path = tmp_path / "data.csv"
+    frame.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    inputs = {
+        "data": csv_path, "target": target, "date_column": "date",
+        "forecaster": forecaster, "use_exog": False,
+    }
+
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5)
+    backtest = assistant.backtest(**inputs, cv=cv, show_progress=False)
+
+    assert forecast.code == assistant.forecast_code(**inputs, steps=5, test_size=5).code
+    assert backtest.code == assistant.backtest_code(**inputs, cv=cv).code
+    assert "promo" not in forecast.code.split("# Create forecaster")[1]
+    _assert_same_predictions(_run_standalone(forecast.code, tmp_path), forecast.predictions)
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+def test_standalone_scripts_match_forecast_and_backtest_when_differentiation(
+    tmp_path,
+):
+    """
+    Test that, with `differentiation=1`, the scripts of forecast_code()
+    and backtest_code() (with the strategy of create_cv(), which carries
+    the order) run as files and give the predictions of forecast() and
+    backtest().
+    """
+    csv_path = tmp_path / "h2o.csv"
+    df_h2o.reset_index().to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(csv_path, target="x")
+    plan = assistant.plan(profile, steps=12, differentiation=1)
+    cv = assistant.create_cv(profile, plan)
+
+    forecast = assistant.forecast(csv_path, profile=profile, plan=plan)
+    backtest = assistant.backtest(
+        csv_path, cv=cv, profile=profile, show_progress=False
+    )
+
+    assert forecast.code == assistant.forecast_code(profile=profile, plan=plan).code
+    assert backtest.code == assistant.backtest_code(
+        csv_path, cv=cv, profile=profile
+    ).code
+    assert "    differentiation    = 1,\n" in backtest.code
+    _assert_same_predictions(_run_standalone(forecast.code, tmp_path), forecast.predictions)
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+@pytest.mark.parametrize(
+    "frame, target",
+    [
+        (df_single, "sales"),
+        (df_multi_wide, ["series_a", "series_b"]),
+    ],
+    ids=["single series", "multi-series wide"],
+)
+def test_standalone_scripts_match_forecast_and_backtest_when_feature_overrides(
+    tmp_path, frame, target
+):
+    """
+    Test that, with `calendar_features`, `target_transformer` and
+    `dropna_from_series` chosen, the scripts of forecast_code() (evaluation
+    mode) and backtest_code() run as files and give the predictions of
+    forecast() and backtest().
+    """
+    csv_path = tmp_path / "data.csv"
+    frame.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    inputs = {
+        "data": csv_path, "target": target, "date_column": "date",
+        "estimator": "Ridge", "calendar_features": ["month", "day_of_week"],
+        "target_transformer": "none", "dropna_from_series": True,
+    }
+
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5)
+    backtest = assistant.backtest(**inputs, cv=cv, show_progress=False)
+
+    assert forecast.code == assistant.forecast_code(**inputs, steps=5, test_size=5).code
+    assert backtest.code == assistant.backtest_code(**inputs, cv=cv).code
+    assert "transformer_" not in forecast.code.replace("transformer_exog", "")
+    standalone = _run_standalone(forecast.code, tmp_path)
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), forecast.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+@pytest.mark.parametrize(
+    "frame, target, exog_columns, forecaster",
+    [
+        (
+            df_single.assign(noise=np.arange(len(df_single)) % 3),
+            "sales",
+            ["promo"],
+            "ForecasterRecursive",
+        ),
+        (
+            df_multi_wide.assign(promo=np.arange(len(df_multi_wide)) % 7),
+            ["series_a", "series_b"],
+            [],
+            "ForecasterDirectMultiVariate",
+        ),
+    ],
+    ids=["single series", "multivariate"],
+)
+def test_standalone_scripts_match_forecast_and_backtest_when_exog_columns(
+    tmp_path, frame, target, exog_columns, forecaster
+):
+    """
+    Test that, with a profile built with `exog_columns`, the scripts of
+    forecast_code() (evaluation mode) and backtest_code() run as files on
+    the whole CSV and give the predictions of forecast() and backtest(),
+    which are those of the data without the columns left out.
+    """
+    csv_path = tmp_path / "data.csv"
+    frame.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    profile = assistant.profile(
+        data         = csv_path,
+        target       = target,
+        date_column  = "date",
+        exog_columns = exog_columns,
+    )
+    plan = assistant.plan(profile=profile, steps=5, forecaster=forecaster)
+    unused = profile.data_profile.unused_columns
+    reference = assistant.profile(
+        data        = frame.drop(columns=unused),
+        target      = target,
+        date_column = "date",
+    )
+    reference_plan = assistant.plan(profile=reference, steps=5, forecaster=forecaster)
+
+    forecast = assistant.forecast(
+        data      = csv_path,
+        profile   = profile,
+        plan      = plan,
+        test_size = 5,
+    )
+    backtest = assistant.backtest(
+        data          = csv_path,
+        profile       = profile,
+        plan          = plan,
+        cv            = cv,
+        show_progress = False,
+    )
+    expected = assistant.forecast(
+        data      = frame.drop(columns=unused),
+        profile   = reference,
+        plan      = reference_plan,
+        test_size = 5,
+    )
+    forecast_code = assistant.forecast_code(
+        data      = csv_path,
+        profile   = profile,
+        plan      = plan,
+        test_size = 5,
+    )
+    backtest_code = assistant.backtest_code(
+        data    = csv_path,
+        profile = profile,
+        plan    = plan,
+        cv      = cv,
+    )
+
+    assert unused != []
+    assert forecast.code == forecast_code.code
+    assert backtest.code == backtest_code.code
+    pd.testing.assert_frame_equal(forecast.predictions, expected.predictions)
+    _assert_same_predictions(
+        _run_standalone(forecast.code, tmp_path), forecast.predictions
+    )
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+def test_standalone_backtesting_script_matches_backtest_when_csv_dates_in_utc(
+    tmp_path,
+):
+    """
+    Test that the backtesting script of a CSV whose dates are in UTC, with
+    the default strategy of create_cv() (a date without time zone, which
+    the script gets as its number of observations), runs as a file and
+    gives the predictions of backtest().
+    """
+    csv_path = tmp_path / "utc.csv"
+    df_h2o.set_axis(df_h2o.index.tz_localize("UTC")).rename_axis(
+        "date"
+    ).reset_index().to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="x")
+    plan = assistant.plan(profile, steps=12)
+    cv = assistant.create_cv(profile, plan)
+
+    backtest = assistant.backtest(
+        data          = csv_path,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    np.testing.assert_allclose(
+        _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+def test_standalone_script_matches_forecast_when_long_series_start_on_different_dates(
+    tmp_path,
+):
+    """
+    Test that the evaluation script of long data whose series start on
+    different dates, with `test_size`, runs as a file and gives the
+    predictions of forecast(), with the training set ending inside the data.
+    """
+    csv_path = tmp_path / "staggered.csv"
+    df_multi_long_staggered.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    inputs = {
+        "data": csv_path, "target": "value", "date_column": "date",
+        "series_id_column": "series_id",
+    }
+
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5)
+    standalone = _run_standalone(forecast.code, tmp_path)
+
+    assert forecast.plan.end_train == "2023-04-05"
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(),
+        forecast.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )

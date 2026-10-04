@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import copy
 import numbers
 import re
 import warnings
@@ -20,6 +21,7 @@ from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import (
+    AUTOREG_FORECASTERS,
     DIRECT_FORECASTERS,
     LONG_TRAINING_FITS,
     MAX_FEATURE_FRACTION,
@@ -32,9 +34,11 @@ from ._foundation import resolve_foundation_model, validate_foundation_interval
 from ._validation import (
     _validate_lags as _validate_lags,
     _validate_window_features as _validate_window_features,
+    resolve_metric_override,
+    validate_calendar_override,
     validate_interval,
 )
-from ._dates import is_text, parse_text_dates, training_end
+from ._dates import is_text, parse_text_dates, row_dates, training_end
 from .profiling.data_profile import (
     _read_date_column,
     _try_parse_first_date_column,
@@ -89,6 +93,7 @@ def _validate_max_window_size(
     lags: int | list[int] | None,
     window_features: list[dict] | None,
     span_index_length: int,
+    differentiation: int | None = None,
 ) -> None:
     """
     Ensure explicit lags/window features fit within the available data.
@@ -111,6 +116,9 @@ def _validate_max_window_size(
         as a scalar int (a list is tolerated defensively).
     span_index_length : int
         Number of observations spanned by the series index.
+    differentiation : int, default None
+        Differentiation order of the forecaster, which adds as many
+        observations to its `window_size`.
 
     Returns
     -------
@@ -118,13 +126,38 @@ def _validate_max_window_size(
     """
     max_span = _max_window_size(lags, window_features)
     max_allowed = int(span_index_length * MAX_FEATURE_FRACTION)
-    if max_span > max_allowed:
+    # Lags and windows that fit on their own, with an order larger than
+    # them: the order is what does not fit.
+    if (
+        differentiation
+        and differentiation > max_span
+        and max_span <= max_allowed < max_span + differentiation
+    ):
+        raise InvalidInputError(
+            f"`differentiation={differentiation}` plus the largest lag or "
+            f"window size ({max_span}) exceeds the maximum of {max_allowed} "
+            f"({int(MAX_FEATURE_FRACTION * 100)}% of {span_index_length} "
+            f"observations). Use a smaller order (1 or 2 remove a trend), or "
+            f"fewer lags and smaller window sizes.",
+            code  = "insufficient_data",
+            field = "differentiation",
+        )
+    if max_span + (differentiation or 0) > max_allowed:
+        with_differentiation = (
+            f" plus {differentiation} for the differentiation"
+            if differentiation else ""
+        )
         raise InvalidInputError(
             f"Explicit lags/window_features span up to {max_span} "
-            f"observations, exceeding the maximum of {max_allowed} "
-            f"({int(MAX_FEATURE_FRACTION * 100)}% of "
+            f"observations{with_differentiation}, exceeding the maximum of "
+            f"{max_allowed} ({int(MAX_FEATURE_FRACTION * 100)}% of "
             f"{span_index_length} observations). "
-            f"Reduce the largest lag or window size.",
+            f"Reduce the largest lag or window size"
+            + (
+                ", or pass `lags=None` (and smaller window sizes) so they "
+                "leave room for the differentiation."
+                if differentiation else "."
+            ),
             code  = "insufficient_data",
             field = (
                 "lags" if _max_window_size(lags, None) == max_span
@@ -262,6 +295,7 @@ def _check_plan_overrides(
     estimator_kwargs: dict | None,
     lags: int | list[int] | None = None,
     window_features: list[dict] | None = None,
+    **overrides: object,
 ) -> None:
     """
     Reject plan-shaping arguments that contradict a supplied plan.
@@ -289,6 +323,10 @@ def _check_plan_overrides(
         Lag override. An integer denotes lags 1 to `lags`.
     window_features : list of dict, default None
         Window features override.
+    **overrides : object
+        Overrides added in 0.4.0 (`metric`, `use_exog`...), compared with
+        the value the plan holds in the form `plan()` takes them
+        (`plan_override_value`).
 
     Returns
     -------
@@ -305,6 +343,14 @@ def _check_plan_overrides(
             ("estimator_kwargs", estimator_kwargs, plan.estimator_kwargs),
             ("lags", _normalize_lags(lags), _normalize_lags(kwargs.get("lags"))),
             ("window_features", window_features, kwargs.get("window_features")),
+            *(
+                (
+                    name,
+                    _normalize_override(name, value),
+                    plan_override_value(plan, name),
+                )
+                for name, value in overrides.items()
+            ),
         )
         if value is not None and value != plan_value
     ]
@@ -315,6 +361,165 @@ def _check_plan_overrides(
             f"plan as is, or refine the plan with `refine_plan()` first.",
             field = conflicts[0],
         )
+
+
+def _normalize_override(name: str, value: object) -> object:
+    """
+    An override, checked, in the form `plan_override_value` reads it from
+    a plan: a single metric as a list.
+    """
+
+    if name == "metric":
+        return resolve_metric_override(value)
+    if name == "calendar_features":
+        return validate_calendar_override(value)
+
+    return value
+
+
+def plan_override_value(plan: ForecastPlan, name: str) -> object:
+    """
+    Value a plan holds for one of the decisions in `OVERRIDE_NAMES`, in
+    the form the argument of `plan()` takes it.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to read.
+    name : str
+        Name of the decision, one of `OVERRIDE_NAMES`.
+
+    Returns
+    -------
+    value : object
+        The value; None when the plan does not hold one.
+    """
+
+    kwargs = plan.forecaster_kwargs
+    if name == "forecaster":
+        return plan.forecaster
+    if name == "estimator":
+        return plan.estimator
+    if name == "estimator_kwargs":
+        return plan.estimator_kwargs or None
+    if name == "use_exog":
+        return plan.use_exog
+    autoregressive = plan.forecaster in AUTOREG_FORECASTERS
+    if name == "calendar_features":
+        calendar = kwargs.get("calendar_features")
+        if calendar:
+            return list(calendar["features"])
+        return [] if autoregressive else None
+    if name == "target_transformer":
+        transformer = kwargs.get("transformer_y") or kwargs.get("transformer_series")
+        if transformer:
+            return transformer
+        return "none" if autoregressive else None
+    if name == "metric":
+        # The primary metric first, then the others computed.
+        return [
+            plan.metric,
+            *(other for other in plan.metrics_to_compute if other != plan.metric),
+        ]
+
+    return kwargs.get(name)
+
+
+# The argument of `refine_plan()` that sets each field of a plan, and each
+# key of its `forecaster_kwargs`. A field without one cannot be passed, so
+# an edit of it is always lost when the plan is rebuilt.
+_FIELD_OVERRIDES: dict[str, str] = {
+    "forecaster": "forecaster",
+    "estimator": "estimator",
+    "estimator_kwargs": "estimator_kwargs",
+    "steps": "steps",
+    "interval": "interval",
+    "interval_method": "interval",
+    "metric": "metric",
+    "metrics_to_compute": "metric",
+    "use_exog": "use_exog",
+}
+_FORECASTER_KWARG_OVERRIDES: dict[str, str] = {
+    "lags": "lags",
+    "window_features": "window_features",
+    "steps": "steps",
+    "differentiation": "differentiation",
+    "calendar_features": "calendar_features",
+    "transformer_y": "target_transformer",
+    "transformer_series": "target_transformer",
+    "dropna_from_series": "dropna_from_series",
+}
+# Fields compared by `discarded_plan_edits`: everything a plan decides, not
+# the split boundary, the explanation, the warnings or the marks.
+_COMPARED_PLAN_FIELDS = (
+    "task_type",
+    "forecaster",
+    "estimator",
+    "estimator_kwargs",
+    "steps",
+    "frequency",
+    "interval",
+    "interval_method",
+    "metric",
+    "metrics_to_compute",
+    "use_exog",
+    "preprocessing_steps",
+)
+
+
+def discarded_plan_edits(
+    plan: ForecastPlan,
+    rebuilt: ForecastPlan,
+    explicit_keys: set[str],
+) -> list[str]:
+    """
+    Fields of a plan that differ from the plan `plan()` builds from the
+    decisions `refine_plan()` carries over, so `refine_plan()` loses them.
+
+    `end_train`, `explanation`, `warnings`, `llm_refined_fields` and
+    `overridden_fields` are not compared, nor the fields that an explicit
+    override of the call replaces anyway.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan received by `refine_plan()`.
+    rebuilt : ForecastPlan
+        Plan that `plan()` builds from what `refine_plan()` carries over
+        from `plan`, without the overrides of the call.
+    explicit_keys : set of str
+        Keys overridden in the call.
+
+    Returns
+    -------
+    fields : list of str
+        Names of the fields that differ, `forecaster_kwargs['key']` for a
+        key of the `forecaster_kwargs` of `plan` that the rebuilt plan
+        drops or changes, in a fixed order.
+    """
+
+    fields: list[str] = []
+    for field in _COMPARED_PLAN_FIELDS:
+        if _FIELD_OVERRIDES.get(field) in explicit_keys:
+            continue
+        value, rebuilt_value = getattr(plan, field), getattr(rebuilt, field)
+        if field == "preprocessing_steps":
+            value = [step.model_dump() for step in value]
+            rebuilt_value = [step.model_dump() for step in rebuilt_value]
+        if value != rebuilt_value:
+            fields.append(field)
+
+    # Only the keys the received plan holds: a key that only the rebuilt
+    # plan has (one that `plan()` of an earlier version did not write) adds
+    # a value, it does not discard one.
+    kwargs, rebuilt_kwargs = plan.forecaster_kwargs, rebuilt.forecaster_kwargs
+    for key in kwargs:
+        if _FORECASTER_KWARG_OVERRIDES.get(key) in explicit_keys:
+            continue
+        if kwargs.get(key) != rebuilt_kwargs.get(key):
+            fields.append(f"forecaster_kwargs['{key}']")
+
+    return fields
 
 
 def resolve_interval_method(task_type: str, interval: list[float] | None) -> str | None:
@@ -1390,6 +1595,160 @@ def _warn_window_without_refit(
             IgnoredArgumentWarning,
             stacklevel = 3,
         )
+
+
+def _direct_gap_issue(plan: ForecastPlan, gap: int) -> str | None:
+    """
+    Say why a direct forecaster cannot be backtested with a strategy that
+    has a gap, or return None when it can.
+
+    A direct forecaster predicts the `steps` it was built for, and a fold
+    with a gap asks it for `steps + gap`, which skforecast rejects.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    gap : int
+        `gap` of the strategy.
+
+    Returns
+    -------
+    issue : str, None
+        What fails, or None when the plan is not direct or there is no gap.
+    """
+    if plan.forecaster not in DIRECT_FORECASTERS or not gap:
+        return None
+
+    return (
+        f"{plan.forecaster} is trained to predict {plan.steps} steps, and "
+        f"with `gap={gap}` each fold needs steps + gap = {plan.steps + gap} "
+        f"steps ahead, so skforecast would fail"
+    )
+
+
+def _check_direct_gap(plan: ForecastPlan, cv: TimeSeriesFold) -> None:
+    """
+    Raise when a direct forecaster is backtested with a strategy that has a
+    gap (see `_direct_gap_issue`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+
+    Returns
+    -------
+    None
+    """
+    issue = _direct_gap_issue(plan, cv.gap)
+    if issue is not None:
+        raise InvalidInputError(
+            f"{issue}. Use a strategy without gap, or a recursive forecaster.",
+            field = "cv",
+        )
+
+
+def _warn_direct_gap(plan: ForecastPlan, gap: int) -> None:
+    """
+    Warn when a strategy with a gap is built for a direct forecaster: its
+    backtest raises (see `_check_direct_gap`), but the strategy can still
+    serve the candidates of `compare()` that are not direct.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy is built for.
+    gap : int
+        `gap` of the strategy.
+
+    Returns
+    -------
+    None
+    """
+    issue = _direct_gap_issue(plan, gap)
+    if issue is not None:
+        warnings.warn(
+            f"{issue}: `backtest()` and `backtest_code()` of this plan with "
+            f"this strategy raise. The strategy can still serve the "
+            f"candidates of `compare()` that are not direct; use a strategy "
+            f"without gap to backtest this plan.",
+            UserWarning,
+            stacklevel = 3,
+        )
+
+
+def _cv_in_time_zone(
+    cv: TimeSeriesFold,
+    data: pd.DataFrame | None,
+    data_profile: DataProfile,
+) -> TimeSeriesFold:
+    """
+    Return the strategy the backtesting script runs, with a date
+    `initial_train_size` turned into its number of observations when the
+    dates of the data have a time zone.
+
+    `create_cv()` writes the date without time zone (the profile keeps
+    none), and skforecast compares it with the index of the data, which
+    fails for dates with a time zone ("Cannot compare tz-naive and tz-aware
+    timestamps"). The date is read as the local time of the data, as the
+    profile placed it, and the script gets the observations of the data
+    from the first date to it at the frequency of the profile, which is the
+    training window skforecast takes from that date. Writing the date with
+    a UTC offset instead would not do: '+02:00' does not match a named zone
+    such as 'Europe/Madrid'. The strategy passed is not changed:
+    `cv_config` and the explanation describe it as given.
+
+    The strategy is returned as it is without data (`backtest_code()`
+    rendered from a profile, whose time zone is unknown), for a date that
+    has its own time zone, and for a date that does not parse or is outside
+    the dates of the data, which skforecast reports as before.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+    data : pandas DataFrame, None
+        Data of the backtest; None when the script is rendered without data.
+    data_profile : DataProfile
+        Profile of the data: date column and frequency.
+
+    Returns
+    -------
+    cv : TimeSeriesFold
+        `cv`, or a copy with the number of observations of its date.
+    """
+    initial_train_size = cv.initial_train_size
+    if (
+        data is None
+        or data_profile.frequency is None
+        or not isinstance(initial_train_size, (str, pd.Timestamp))
+    ):
+        return cv
+    dates = row_dates(data, data_profile.date_column)
+    if getattr(dates, "tz", None) is None:
+        return cv
+    try:
+        date = pd.Timestamp(initial_train_size)
+    except (ValueError, TypeError):
+        return cv
+    if date.tz is not None:
+        return cv
+    # Counted on the local times of the grid, so a date in the hour that a
+    # daylight saving change skips or repeats is placed as the profile did.
+    grid = pd.date_range(
+        start = dates.min(),
+        end   = dates.max(),
+        freq  = data_profile.frequency,
+    ).tz_localize(None)
+    if date < grid[0] or date > grid[-1]:
+        return cv
+    localized = copy.deepcopy(cv)
+    localized.set_params({"initial_train_size": int((grid <= date).sum())})
+
+    return localized
 
 
 def _unwrap_cv(cv: TimeSeriesFold | CVResult) -> TimeSeriesFold:

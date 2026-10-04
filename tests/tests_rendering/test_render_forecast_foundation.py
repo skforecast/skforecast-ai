@@ -5,6 +5,7 @@ from skforecast_ai.schemas import RenderedScript
 
 from .fixtures_rendering import (
     plan_foundation,
+    plan_foundation_exog_no_end_train,
     plan_foundation_numeric_covariates,
     plan_foundation_numeric_covariates_no_end_train,
     plan_foundation_with_intervals,
@@ -14,6 +15,7 @@ from .fixtures_rendering import (
     profile_multi_wide_exog,
     profile_single_mixed_exog,
     profile_single_no_exog,
+    profile_single_unused_columns,
 )
 
 
@@ -278,6 +280,60 @@ def test_render_forecast_foundation_output_when_prediction_mode_excludes_categor
         "estimator = FoundationModel(\n"
         "    model_id       = 'google/timesfm-3.0-pytorch',\n"
         "    context_length = 2048,\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterFoundation(estimator=estimator)\n"
+        "\n"
+        "# Fit (stores context only, no training)\n"
+        "forecaster.fit(series=series, exog=exog)\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps, exog=exog_future[['temp']])\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected
+
+
+def test_render_forecast_foundation_output_when_prediction_mode_with_unused_columns():
+    """
+    Test that in prediction mode the future exog is restricted to the
+    columns of the profile when the profile leaves columns out, since the
+    loaded file can also hold them and the model takes every column it is
+    given.
+    """
+    result = render_forecast_foundation(
+        plan_foundation_exog_no_end_train, profile_single_unused_columns
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        "exog_future = pd.read_csv('exog_future.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "exog_future['date'] = pd.to_datetime(exog_future['date'])\n"
+        "exog_future = exog_future.set_index('date')\n"
+        "exog_future = exog_future.asfreq('D')\n"
+        "exog_future = exog_future.sort_index()\n"
+        "\n"
+        "series = data['sales']\n"
+        "exog = data[['temp']]\n"
+        "\n"
+        "# Create foundation model (chronos-2-small)\n"
+        "estimator = FoundationModel(\n"
+        "    model_id       = 'autogluon/chronos-2-small',\n"
+        "    context_length = 512,\n"
         ")\n"
         "\n"
         "# Create forecaster\n"

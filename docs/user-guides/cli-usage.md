@@ -106,7 +106,7 @@ skforecast-ai forecast-code "$DATA" --target y --date-column fecha --steps 12 --
 
 ## Adjust the plan
 
-`plan` shows the modeling decisions without running anything: forecaster, estimator, lags, window features, calendar features, metric and interval. The forecaster, the estimator and its hyperparameters, the lags, the window features and the interval can be overridden, and the assistant fills in the rest. The calendar features and the metric are always decided by the assistant (`compare` takes its own `--metric`).
+`plan` shows the modeling decisions without running anything: forecaster, estimator, lags, window features, calendar features, metric and interval. Each of them can be overridden, and the assistant fills in the rest: `--metric` (comma-separated, the first one ranks), `--use-exog true|false`, `--differentiation N`, `--calendar-features month,day_of_week` (or `none`), `--target-transformer StandardScaler|none` and `--dropna-from-series true|false` join the options below. `auto` asks for the rule, which is what refining a saved plan needs to undo a choice. `--exog-columns` (of `plan` and `profile`) chooses the exogenous columns when the data is profiled: comma-separated names, or `none`; the other columns are not used.
 
 ```bash
 skforecast-ai plan "$DATA" --target y --date-column fecha --steps 12
@@ -118,9 +118,13 @@ skforecast-ai plan "$DATA" --target y --date-column fecha --steps 12 \
 # Explicit lags and window features instead of the deterministic selection
 skforecast-ai plan "$DATA" --target y --date-column fecha --steps 12 \
   --lags "1,2,3,12" --window-features '[{"stats": ["mean"], "window_size": 12}]'
+
+# Difference the target, leave the exogenous columns out, rank by MSE
+skforecast-ai plan "$DATA" --target y --date-column fecha --steps 12 \
+  --differentiation 1 --use-exog false --metric mean_squared_error
 ```
 
-`forecast-code` and `backtest-code` take the same overrides. `forecast` and `backtest` take `--forecaster`, `--estimator`, `--estimator-kwargs` and `--interval`, but not `--lags` or `--window-features`: to run explicit lags or window features, save the plan with `plan --format json` and run it with `--from-plan` (see [Save, reuse and chain](#save-reuse-and-chain)). `--help` of each command lists the options it supports.
+`forecast-code`, `backtest-code`, `forecast` and `backtest` take the same overrides, also with `--from-plan`, where they are applied on top of the saved plan. `--help` of each command lists the options it supports.
 
 ---
 
@@ -150,7 +154,7 @@ skforecast-ai backtest-code "$DATA" --target y --date-column fecha --steps 12 \
   --initial-train-size 100 --no-refit --output backtest.py
 ```
 
-`compare` backtests several candidates on the same folds and ranks them by the metric. Without `--candidates`, the candidates are built from the profile. With it, each candidate is a `[name, config]` pair; the config takes `forecaster`, `estimator`, `estimator_kwargs`, `lags` and `window_features`, and all the candidates must belong to the same forecaster family.
+`compare` backtests several candidates on the same folds and ranks them by the metric. Without `--candidates`, the candidates are built from the profile. With it, each candidate is a `[name, config]` pair; the config takes `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer` and `dropna_from_series`, and all the candidates must belong to the same forecaster family.
 
 For a single series, a seasonal naive baseline (`ForecasterEquivalentDate`) is ranked as one more row, and the explanation says whether the best candidate beats it; `--no-baseline` leaves it out.
 

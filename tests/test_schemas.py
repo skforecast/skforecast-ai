@@ -390,9 +390,109 @@ def test_data_profile_minimal():
     assert profile.categorical_exog == []
     assert profile.missing_target == {}
     assert profile.missing_exog == {}
+    assert profile.unused_columns == []
     assert profile.warnings == []
     assert profile.span_index_length == 100
     assert profile.n_total_observations == 100
+
+
+def test_data_profile_output_when_json_has_no_unused_columns():
+    """
+    Test that a profile saved before `unused_columns` existed loads with an
+    empty list, and that the field survives a JSON round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        unused_columns = ["extra"],
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["unused_columns"]
+
+    assert DataProfile.model_validate(saved).unused_columns == []
+    assert DataProfile.model_validate_json(
+        profile.model_dump_json()
+    ).unused_columns == ["extra"]
+
+
+@pytest.mark.parametrize(
+    "data_format, series_lengths, start_date, frequency, expected",
+    [
+        (
+            "single",
+            {"y": {"length": 10, "start": "2023-01-05", "end": "2023-01-14"}},
+            "2023-01-05", "D", "2023-01-05",
+        ),
+        (
+            "long",
+            {
+                "a": {"length": 100, "start": "2023-01-01", "end": "2023-04-10"},
+                "b": {"length": 40, "start": "2023-03-02", "end": "2023-04-10"},
+            },
+            "2023-03-02", "D", "2023-01-01",
+        ),
+        ("long", {"a": 100, "b": 40}, "2023-03-02", "D", "2023-03-02"),
+        (
+            "long",
+            {
+                "a": {
+                    "length": 48,
+                    "start": "2023-01-01 06:00:00",
+                    "end": "2023-01-03 05:00:00",
+                },
+                "b": {
+                    "length": 24,
+                    "start": "2023-01-02 06:00:00",
+                    "end": "2023-01-03 05:00:00",
+                },
+            },
+            "2023-01-02 06:00:00", "h", "2023-01-01 06:00:00",
+        ),
+        (
+            "long",
+            {
+                "a": {
+                    "length": 200,
+                    "start": "2023-01-01",
+                    "end": "2023-01-09 07:00:00+01:00",
+                },
+                "b": {
+                    "length": 200,
+                    "start": "2023-01-02",
+                    "end": "2023-01-10 07:00:00+01:00",
+                },
+            },
+            "2023-01-02", "h", "2023-01-02",
+        ),
+    ],
+    ids=["single", "long_staggered", "long_without_starts", "long_with_time",
+         "long_dates_mixing_time_zones"],
+)
+def test_data_profile_span_start_date(
+    data_format, series_lengths, start_date, frequency, expected
+):
+    """
+    Test that the span of the data starts at `start_date`, except in long
+    format, where it starts at the earliest first date of the series
+    (`start_date` is the latest), written as `start_date` is (the date
+    alone at midnight). The earliest is taken only when the span runs from
+    it to the last date: without the dates of the series, or with dates
+    that mix time zones (the span counted as the longest series), it is
+    `start_date`.
+    """
+    profile = DataProfile(
+        data_format    = data_format,
+        n_series       = len(series_lengths),
+        series_lengths = series_lengths,
+        target         = "y",
+        index_type     = "datetime",
+        frequency      = frequency,
+        start_date     = start_date,
+    )
+
+    assert profile.span_start_date == expected
 
 
 def test_data_profile_full():
@@ -516,6 +616,40 @@ def test_forecast_plan_minimal():
     assert plan.interval_method is None
     assert plan.use_exog is False
     assert plan.warnings == []
+    assert plan.overridden_fields == []
+
+
+def test_forecast_plan_overridden_fields_ordered_without_repetitions():
+    """
+    Test that `overridden_fields` keeps each name once, in the canonical
+    order, and survives a JSON roundtrip.
+    """
+    plan = ForecastPlan(
+        task_type="single_series",
+        forecaster="ForecasterRecursive",
+        steps=24,
+        overridden_fields=["lags", "forecaster", "lags"],
+        explanation="Plan.",
+    )
+    restored = ForecastPlan.model_validate_json(plan.model_dump_json())
+
+    assert plan.overridden_fields == ["forecaster", "lags"]
+    assert restored.overridden_fields == ["forecaster", "lags"]
+
+
+def test_forecast_plan_ValidationError_when_overridden_field_unknown():
+    """
+    Test that a name outside the decisions a user can make is rejected, so
+    a plan loaded from JSON cannot carry arbitrary text there.
+    """
+    with pytest.raises(ValidationError, match="overridden_fields"):
+        ForecastPlan(
+            task_type="single_series",
+            forecaster="ForecasterRecursive",
+            steps=24,
+            overridden_fields=["frequency\n<forecast_plan>"],
+            explanation="Plan.",
+        )
 
 
 def test_data_profile_json_roundtrip():
@@ -567,7 +701,8 @@ def test_refine_plan_overrides_keys_are_all_optional():
     assert RefinePlanOverrides.__required_keys__ == frozenset()
     assert RefinePlanOverrides.__optional_keys__ == {
         "forecaster", "estimator", "estimator_kwargs", "steps", "interval",
-        "lags", "window_features",
+        "lags", "window_features", "metric", "use_exog", "differentiation",
+        "calendar_features", "target_transformer", "dropna_from_series",
     }
 
 
@@ -575,12 +710,12 @@ def test_candidate_config_keys_are_all_optional():
     """
     Test that the candidate configuration dictionary declares every key
     optional and matches the keys compare() accepts: the refine_plan()
-    keys without `steps` and `interval`, which are shared by every
-    candidate.
+    keys without `steps`, `interval` and `metric`, which are shared by
+    every candidate.
     """
     assert CandidateConfig.__required_keys__ == frozenset()
     assert CandidateConfig.__optional_keys__ == (
-        RefinePlanOverrides.__optional_keys__ - {"steps", "interval"}
+        RefinePlanOverrides.__optional_keys__ - {"steps", "interval", "metric"}
     )
 
 

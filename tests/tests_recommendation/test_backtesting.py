@@ -130,3 +130,15 @@ def test_compute_min_train_size_output_when_baseline_window_smaller_than_steps()
 
     assert _compute_min_train_size(plan) == 20
 
+
+def test_compute_min_train_size_output_when_differentiation():
+    """
+    Test that the differentiation order adds to the window: max_lag +
+    differentiation + steps.
+    """
+    plan = _make_plan(
+        "single_series", steps=10,
+        forecaster_kwargs={"lags": 24, "differentiation": 2},
+    )
+
+    assert _compute_min_train_size(plan) == 36

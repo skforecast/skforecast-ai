@@ -91,6 +91,13 @@ df_multi_long_three_series = pd.concat([
     df_multi_long_one_series.assign(series_id="store_c"),
 ])
 
+# The long data with the second series starting 60 days later (store_b from
+# 2023-03-02, 40 observations); both end on 2023-04-10.
+df_multi_long_staggered = pd.concat([
+    df_multi_long[df_multi_long["series_id"] == "store_a"],
+    df_multi_long[df_multi_long["series_id"] == "store_b"].iloc[60:],
+])
+
 # --- Multi-series wide format (2 series as columns) ---
 df_multi_wide = pd.DataFrame(
     {

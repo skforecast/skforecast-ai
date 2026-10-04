@@ -138,6 +138,30 @@ def build_plan_explanation(
     return " ".join(parts)
 
 
+def build_metric_override_explanation(metrics: list[str]) -> str:
+    """
+    Explain the metrics a plan computes when the user chose them.
+
+    Parameters
+    ----------
+    metrics : list of str
+        Metrics in the order given; the first one is the primary metric.
+
+    Returns
+    -------
+    explanation : str
+        One sentence naming the primary metric, and the other metrics
+        computed when there are several.
+    """
+    if len(metrics) == 1:
+        return f"Metric: {metrics[0]}, as requested."
+
+    return (
+        f"Primary metric: {metrics[0]}, as requested; also computed: "
+        f"{', '.join(metrics[1:])}."
+    )
+
+
 def build_foundation_explanation(
     foundation_model: FoundationModelInfo,
     exog_columns: list[str],
@@ -171,7 +195,8 @@ def build_foundation_explanation(
     -------
     explanation : str
         Sentences about the context the model reads, unused exogenous
-        variables, restricted licenses and gated weights.
+        variables, licenses that restrict commercial use, gated weights and
+        providers that require an account.
     """
     model_id = foundation_model.model_id
     parts: list[str] = []
@@ -195,10 +220,10 @@ def build_foundation_explanation(
             f"Exogenous variables {exog_columns} are not used: "
             f"'{model_id}' does not support covariates."
         )
-    if foundation_model.license_restriction is not None:
+    if foundation_model.commercial_use_restricted:
         parts.append(
             f"The weights of '{model_id}' are released under "
-            f"{foundation_model.license_restriction}, which restricts "
+            f"{foundation_model.license}, which restricts "
             f"commercial use ({foundation_model.license_url})."
         )
     if foundation_model.requires_hf_auth:
@@ -206,6 +231,12 @@ def build_foundation_explanation(
             f"The weights of '{model_id}' are gated on the Hugging Face Hub: "
             f"log in with an account that has accepted the model license "
             f"before running the script."
+        )
+    if foundation_model.requires_provider_auth:
+        parts.append(
+            f"The provider of '{model_id}' requires its own account and "
+            f"accepting its license, outside the Hugging Face Hub, before "
+            f"running the script."
         )
 
     return " ".join(parts)

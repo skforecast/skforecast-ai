@@ -41,6 +41,7 @@ from tests.fixtures_future_exog import (
     plan_business,
     plan_business_lgbm,
     plan_daily_lgbm,
+    plan_daily_promo_foundation,
     plan_daily_ridge,
     plan_dst,
     plan_long_early_foundation,
@@ -54,6 +55,7 @@ from tests.fixtures_future_exog import (
     profile_bh,
     profile_business,
     profile_daily,
+    profile_daily_promo,
     profile_dst,
     profile_long,
     profile_long_early,
@@ -1166,3 +1168,29 @@ def test_validate_future_exog_UserWarning_when_category_only_in_first_rows_long(
     )
     with pytest.warns(UserWarning, match=warn_msg):
         validate_future_exog(exog, data, profile.data_profile, plan)
+
+
+def test_validate_future_exog_output_when_foundation_profile_leaves_out_columns():
+    """
+    Test that, for a ForecasterFoundation model and a profile that leaves a
+    column out (`exog_columns` of `profile()`), future exogenous variables
+    that also hold that column are accepted, and that the generated code
+    passes the model only the columns of the profile.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        validate_future_exog(
+            exog_daily, data_daily, profile_daily_promo, plan_daily_promo_foundation
+        )
+    prepared = _prepared_by_script(
+        exog_daily, profile_daily_promo, plan_daily_promo_foundation
+    )
+    code = render_forecast_script(
+        profile=profile_daily_promo, plan=plan_daily_promo_foundation
+    ).core
+
+    assert "weekday" in prepared.columns
+    assert (
+        "predictions = forecaster.predict(steps=steps, "
+        "exog=exog_future[['promo']])"
+    ) in code

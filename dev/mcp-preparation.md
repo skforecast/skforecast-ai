@@ -1855,3 +1855,262 @@ Antes de mergear la fase 5a, una verificación independiente comparó `0.4.x` (`
 **Para la lista del check de pago.** El contexto de `ask()` cambia solo con textos de varias líneas o con etiquetas: la explicación de un plan refinado con LLM llega ahora con sus párrafos en líneas con sangría.
 
 **Tests.** De 3735 a 3763 (más 1 omitido), en macOS con el entorno conda local.
+
+## 19. Fase 5b: hecho
+
+Adaptación a skforecast 0.26, los overrides (PRs 30 a 35, 37 y 38 de la tabla 10.8) y los pendientes de 18.1, en la rama `feature/overrides`, creada desde `0.4.x` (`36babee`). Un commit por punto, en el orden pedido, cada uno con su código, sus tests, su documentación y, si se ve, su entrada en `docs/releases/releases.md` (0.4.0, escrita con `/release-note`; cuando el cambio tocaba algo nuevo de esta versión se corrigió su entrada en lugar de añadir otra), y cada uno subido al terminar. Antes de cada commit se pasaron `/verify` (lint, tests afectados, suite completa y build de la documentación), el subagente `conventions-reviewer` y `/code-review`, y en el commit 0 y los PRs 35 y 38 también `/security-review`, que no encontró nada en ninguno de los tres. Lo que encontraron `conventions-reviewer` y `/code-review` se corrigió antes de subir cada commit; los mensajes de los commits lo dicen. Ningún commit subido se reescribió y ninguno necesitó una corrección posterior. El PR 36 no se hizo, ni la fase 6. Cada mensaje de commit lleva su lista "Cambios para el usuario" y las elecciones conservadoras con su criterio de la sección 10. En el mensaje de `b363cf7` se perdió un nombre (`_read_dates_one_by_one`, en la línea de las revisiones) por una sustitución de la shell; no se reescribió.
+
+Goldens:
+- Render: los existentes no cambian en ningún commit. Los overrides añaden casos nuevos, comparados byte a byte: métrica, sin exógenas, diferenciación, calendario, escalado y NaN (PRs 31 a 34), y columnas dejadas fuera en foundation (PR 38); el caso multivariante sin exógenas se parametriza con un perfil que deja columnas fuera, con el mismo script esperado. Los scripts de los PRs 31 a 34 y 38 se ejecutan además como ficheros en `tests/test_integration_standalone_script.py`.
+- Contexto del LLM (`ask()` y `describe()`): solo cambian en el commit 0 (el nombre de la licencia de TimesFM 3.0 en `forecast_foundation_numeric_covariates`) y en el PR 35 (13 ficheros ganan la línea "Chosen by the user instead of the rules: ...", y un escenario nuevo, `code_generation_overrides_and_warnings`). Regenerados con `/llm-context-change` y revisados; `check_ask_context.py --dry-run` construye todos los contextos.
+- Esquemas de los tools del MCP: cambian a propósito en los PRs 31 a 34 y 38 (los argumentos y claves nuevos y la descripción de `RefinePlanArgs`).
+
+| Commit | Punto | Contenido |
+|---|---|---|
+| `654ea8b` | 0 | Política de licencias desde `FoundationModelInfo` de skforecast 0.26 |
+| `141d51a` | PR 30 | `overridden_fields` y `PlanEditsDiscardedWarning` |
+| `9785f16` | PR 31 | Override `metric` |
+| `ee561b0` | PR 32 | Override `use_exog` y arreglos multivariante |
+| `6669873` | PR 33 | Override `differentiation` |
+| `b854712` | PR 34 | Overrides `calendar_features`, `target_transformer`, `dropna_from_series` |
+| `e3d44d1` | PR 35 | Avisos del plan y decisiones del usuario en el contexto |
+| `a6239a5` | PR 37 | Paridad del CLI con los overrides |
+| `d553ac5` | PR 38 | `profile(exog_columns=...)` |
+| `4c7d070` | 18.1, decisión 1 | Forecaster directo con `gap` en `backtest_code()` y `create_cv()` |
+| `b363cf7` | 18.1, decisión 4 | Fechas día-primero que se leen mes-primero, en `profile()` |
+| `c99a649` | 18.1 | `internal_error` de un target casi infinito y de `context_length` de texto |
+| `6d76d0b` | 18.1 | Primera ventana de entrenamiento más corta que la del forecaster |
+| `8a0a10b` | 18.1 | `backtest` de fechas con huso horario |
+| `39570a0` | 18.1 | `end_train` de series largas que empiezan en fechas distintas |
+
+**Qué cubre cada commit.**
+- Commit 0: skforecast 0.26 cambia `FoundationModelInfo` (sin `license_restriction`; con `license`, `commercial_use_restricted`, `license_url`, `weights_repo_id`, `weights_in_hf_cache`, `requires_provider_auth`). En la base, todo `plan()` de ForecasterFoundation daba `AttributeError` y la suite paraba al recoger los tests.
+  - La explicación del plan nombra la licencia como la registra skforecast, y para TabPFN añade la frase de la cuenta del proveedor.
+  - Servidor: `--allow-model` se exige cuando `commercial_use_restricted`, `requires_hf_auth` o `requires_provider_auth` son verdaderos, o cuando skforecast no da alguno como booleano o no da licencia. Se quita `REVIEWED_ADAPTERS`.
+  - La caché se busca en `weights_repo_id`. Con `weights_in_hf_cache=False` (TabPFN), el aviso de descarga no habla de la caché de Hugging Face.
+  - Un test fija el reparto actual: sin la opción, Chronos-2, TimesFM 2.5, TabICL, Nori y T0; con ella, TimesFM 3.0, Moirai, TabPFN y TS-ICL.
+- PR 30 (10.4, procedencia):
+  - `ForecastPlan.overridden_fields` es un `Literal` cerrado, en el orden canónico de `OVERRIDE_NAMES`.
+  - `refine_plan()` mantiene un nombre mientras el plan refinado conserva su valor.
+  - `refine_plan()` reconstruye el plan recibido y avisa con `PlanEditsDiscardedWarning` de las ediciones a mano que no conserva; el texto va también a `plan.warnings`.
+- PR 31: `metric` (una o una lista, la primera ordena) en `plan()`, `refine_plan()`, `forecast*()`, `backtest*()` y `compare()`, que lo pasa por `plan()`.
+  - `backtest*()` toman también `lags` y `window_features`.
+  - `compare()` con una métrica repetida falla antes de correr.
+  - MCP: `plan`, `refine_plan` y `compare` toman `metric`. `compare` sin ella ordena por la métrica elegida en el plan de la estrategia.
+- PR 32: `use_exog`. `False` deja fuera las exógenas; `True` falla sin exógenas, con el baseline, con un foundation sin covariables y con ForecasterStats con solo categóricas.
+  - El script multivariante selecciona `series_cols` cuando hay exógenas.
+  - La explicación del multivariante nombra la serie que predice.
+- PR 33: `differentiation` (entero de al menos 1, solo forecasters de ML).
+  - Los lags y la ventana mínima de `create_cv()` reservan el orden; las window features por defecto sin sitio se dejan fuera y se explica.
+  - `backtest*()` fallan antes de correr si el CV tiene otro orden.
+  - `compare()` corre cada candidato con su orden sobre una copia del CV, y la explicación lo dice.
+- PR 34: `calendar_features` (lista de CalendarFeatures, `[]` para ninguna), `target_transformer` (`'StandardScaler'` o `'none'`) y `dropna_from_series`, solo forecasters de ML.
+  - Una variable de calendario que choca con una exógena usada falla, y también una elegida sin índice de fechas.
+  - `dropna_from_series=False` falla si el estimador no acepta NaN.
+  - Una decisión arrastrada por `refine_plan()` que ya no aplica falla diciendo su origen.
+- PR 35: `render_plan_section` añade, tras los pasos de preprocesado, "Chosen by the user instead of the rules: ..." y "Plan warnings:", cada aviso por `_free_text`. `describe()` recorta los avisos a 15.
+- PR 37: el CLI toma `--metric`, `--use-exog`, `--differentiation`, `--calendar-features`, `--target-transformer` y `--dropna-from-series` (`auto` para la regla) en `plan`, `refine-plan`, `forecast-code`, `backtest-code`, `forecast` y `backtest`, con y sin `--from-plan`; `forecast` y `backtest` toman también `--lags` y `--window-features`.
+- PR 38: `profile(exog_columns=...)` elige las exógenas (en el orden de los datos, `[]` para ninguna).
+  - Las demás columnas van al campo nuevo `DataProfile.unused_columns`, con una nota en `DataProfile.warnings`.
+  - El chequeo de fechas repetidas ignora esas columnas.
+  - Con un perfil guardado, `_refresh_profile` rellena `unused_columns`.
+  - El script multivariante selecciona las series cuando el perfil deja columnas fuera, y el de foundation selecciona las exógenas futuras del perfil.
+  - MCP: argumento `exog_columns` del tool `profile`, y `check_profile_names` revisa también las columnas dejadas fuera. CLI: `--exog-columns` en `profile` y `plan`.
+- 18.1, decisión 1: `backtest_code()` rechaza un forecaster directo con `gap` con el error de `backtest()`. `create_cv()` avisa (`UserWarning`), porque su CV puede servir a los demás candidatos de `compare()`.
+- 18.1, decisión 4: `profile()` rechaza las fechas día-primero cuya primera fecha también se lee mes-primero solo cuando una fecha posterior no encaja en la lectura mes-primero. El error da el consejo de día-primero, y su `hint` pide ISO 8601. Las que encajan en las dos lecturas se siguen leyendo mes-primero, como el script.
+- 18.1, `internal_error`:
+  - Un target casi todo infinito (o escrito fuera del rango de un float, que se lee como infinito) se queda sin PACF; `forecast()` y `backtest()` dan después el error de valores infinitos.
+  - `context_length` debe ser un entero de al menos 1, como exige `FoundationModel`.
+- 18.1, `plan(steps=100)` sobre 204 filas: `backtest()` falla antes de correr (`insufficient_data`, campo `cv`) cuando la primera ventana de entrenamiento no supera la ventana del forecaster, o no llega a ventana más `steps` en un forecaster directo. `create_cv()` y `backtest_code()` avisan. Los límites se comprobaron contra skforecast en el borde.
+- 18.1, huso horario: cuando las fechas de los datos tienen zona y `initial_train_size` es una fecha sin ella (el valor por defecto de `create_cv()`), el script que ejecuta `backtest()` y devuelve `backtest_code()` lleva el número de observaciones hasta esa fecha, contado en la hora local de los datos. `cv_config` conserva la fecha.
+- 18.1, `end_train` de series largas: la propiedad `DataProfile.span_start_date` (la primera fecha de la serie que empieza antes, si el tramo de `span_index_length` llega desde ella a la última fecha) sustituye a `start_date` al resolver `test_size` en `forecast()`.
+
+**Desviaciones respecto a la sección 10, con su motivo.**
+- Commit 0: no está en la sección 10. Lo exigía skforecast 0.26, sin el cual la suite no corría. Los datos que faltan o no son booleanos bloquean el modelo (criterio 1). El aviso de descarga mantiene "were not found" y "may download" (decisión 4 de 17.1), porque un backend puede guardar su propia copia (criterio 3).
+- PR 30:
+  - Un aviso, nunca un error, para que los bundles de 0.3 sigan funcionando (criterio 4).
+  - Solo se comparan las claves de `forecaster_kwargs` que trae el plan recibido: una clave que solo tiene el plan reconstruido añade un valor, no lo descarta.
+- PR 31: una métrica pasada con un plan debe coincidir con toda la lista que calcula (criterio 2). En el MCP, `compare` sigue la métrica del plan de la estrategia solo si se eligió (criterio 3). `compare()` en Python mantiene su valor por defecto, porque no recibe plan (criterio 4).
+- PR 32:
+  - ForecasterDirectMultiVariate en formato largo sigue rechazado: hacerlo funcionar cambia scripts y no está decidido.
+  - El `compare` del MCP no lleva el `use_exog` del plan de la estrategia a los candidatos (documentado).
+- PR 33: ForecasterStats y ForecasterFoundation siguen corriendo con un CV que tiene orden, porque skforecast no lo comprueba para ellos y corrían en la base (criterio 4). Las window features por defecto sin sitio se dejan fuera con explicación, en lugar de rechazar la llamada. El baseline que añade `compare()` corre sobre una copia sin orden, pero la nota de la explicación no lo nombra.
+- PR 34: una variable de calendario más fina que la frecuencia (`hour` en datos diarios) se acepta, como en skforecast. `target_transformer` solo acepta el conjunto cerrado del render.
+- PR 35: las dos líneas van después de los pasos de preprocesado, para que un paso no se lea como aviso.
+- PR 37: opciones de texto con `auto` en lugar de pares de flags, porque un par de flags no puede pedir a `refine-plan` que vuelva a decidir.
+- PR 38:
+  - Un campo nuevo, `DataProfile.unused_columns`, que la sección 10 no preveía: sin él, los scripts multivariante y foundation no saben que hay otras columnas. Con él se arregla también el multivariante con un perfil guardado y una columna de más (10.4: "el script multivariante deja de ajustar como series las exógenas no usadas").
+  - `--exog-columns` con `--from-profile` falla en lugar de ignorarse.
+  - Un plan ejecutado sin su perfil se perfila de nuevo con todas las columnas: documentado, sin cambiar (pregunta abajo).
+- 18.1, decisión 1: el aviso es un `UserWarning`, no una clase nueva.
+- 18.1, `context_length`: un entero de numpy se acepta, porque el plan lo guarda como `int` de Python y funcionaba. `True` se acepta como en skforecast. No hay comprobación de varianza desbordada, porque `pacf` la calcula sin error y ningún caso llegaba a `internal_error`.
+- 18.1, ventana: `backtest_code()` avisa en lugar de fallar. Fallar rompería una llamada que hoy devuelve un script, y el documento no lo decide (pregunta abajo).
+- 18.1, huso horario: el script lleva un entero en lugar de la fecha, porque una fecha con desfase (`+02:00`) falla contra una zona con nombre (`Europe/Madrid`). Sin datos (`backtest_code()` con solo el perfil) y con una fecha que ya trae zona, todo queda como antes.
+- 18.1, `end_train`: solo cambia `forecast()`. Los demás sitios que combinan `start_date` con `span_index_length` cambiarían resultados de llamadas que funcionan (pregunta abajo). Cuando el tramo no llega de la primera fecha a la última (datos horarios largos con zona cuyo tramo se cuenta como la serie más larga), se usa `start_date`, que falla como antes, en lugar de evaluar otra ventana sin error.
+
+**Cambios para el usuario.**
+- Python:
+  - Argumentos nuevos, todos opcionales y keyword-only:
+    - `metric`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer` y `dropna_from_series` en `plan()`, `refine_plan()`, `forecast*()` y `backtest*()`; todos salvo `metric` en los candidatos de `compare()`, que toma `metric` como argumento propio;
+    - `lags` y `window_features` en `backtest*()`;
+    - `exog_columns` en `profile()`.
+  - Campos nuevos: `ForecastPlan.overridden_fields` y `DataProfile.unused_columns`; ambos se guardan vacíos en el JSON de un plan o perfil por defecto.
+  - Fallan antes de ejecutar, con código y campo, llamadas que fallaban dentro del script:
+    - `backtest*()` con otro orden de diferenciación que el CV;
+    - `backtest_code()` de un forecaster directo con `gap`;
+    - `backtest()` con una primera ventana demasiado corta;
+    - `compare()` con una métrica repetida;
+    - `plan()` con un `context_length` que no es un entero positivo.
+  - `profile()` falla con fechas día-primero que se leen mes-primero cuando se puede demostrar (antes fallaba `plan()`).
+  - Funcionan llamadas que fallaban:
+    - `profile()` de un target casi infinito, que ahora llega al error de infinitos;
+    - `backtest()` de fechas con zona;
+    - `forecast(test_size=...)` de series largas que empiezan en fechas distintas.
+  - Otros resultados:
+    - el multivariante con un plan guardado con `use_exog=False`, o con un perfil guardado y una columna de más, ajusta solo las series objetivo;
+    - las explicaciones de un plan TimesFM 3.0, Moirai, TS-ICL, TabPFN o T0 nombran la licencia como skforecast;
+    - el multivariante explica qué serie predice;
+    - `compare(metric=...)` da a los planes de los candidatos la frase de la métrica elegida;
+    - el contexto de `ask()` y `describe()` lleva las decisiones del usuario y los avisos del plan.
+  - Avisos nuevos:
+    - `PlanEditsDiscardedWarning` en `refine_plan()` de un plan editado a mano;
+    - `create_cv()` con un forecaster directo y `gap`, o con una primera ventana demasiado corta;
+    - `backtest_code()` con una primera ventana demasiado corta.
+- CLI: las opciones de los overrides (`auto` para la regla) y `--exog-columns`; `backtest-code` de un directo con `--gap` y `backtest` con una ventana corta salen con 1 y su mensaje, sin repetir el aviso de `create_cv()`; `refine-plan --from-plan` de un bundle editado a mano imprime `PlanEditsDiscardedWarning` en stderr; los demás cambios de Python se ven igual.
+- Servidor MCP:
+  - Argumentos nuevos: `metric`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer` y `dropna_from_series` en `plan` y `refine_plan`; todos salvo `metric` en los candidatos de `compare`; `metric` en `compare`; `exog_columns` en `profile`. La descripción de `exog_path` dice que hace falta cuando el plan usa exógenas.
+  - Los resúmenes de planes y resultados llevan las líneas "Chosen by the user instead of the rules" y "Plan warnings" (PR 35).
+  - `backtest` con un plan de otro orden de diferenciación que su estrategia es `invalid_argument` en `cv_id`.
+  - T0 corre sin `--allow-model`; `model_not_allowed` lleva los datos nuevos de licencia; el aviso de descarga nombra el repositorio de los pesos.
+  - Dejan de ser `internal_error`: `profile` de un target casi infinito y `plan` con `context_length` de texto.
+  - `backtest` de un CSV con fechas en una zona funciona; `backtest` con una ventana corta es `insufficient_data`.
+  - `profile` de fechas día-primero demostrables es `invalid_argument`.
+  - `create_cv` lleva como notices los avisos del directo con `gap` y de la ventana corta.
+  - El SKILL.md, su copia del plugin, `docs/api/mcp.md` y la guía del servidor lo dicen.
+
+**Tests.** De 3763 pasados en `0.4.x` (`36babee`, ya con skforecast 0.26 fallaba al recoger; 3763 es la cifra de 18.1) a 4037, es decir, 274 más; en cada `/verify`, todos pasados salvo el omitido de siempre. Por commit (pasados): 3772 (commit 0), 3788 (PR 30), 3825 (31), 3846 (32), 3868 (33), 3891 (34), 3896 (35), 3904 (37), 3951 (38), 3972 (decisión 1), 3976 (decisión 4), 3987 (`internal_error`), 4014 (ventana), 4028 (huso horario) y 4037 (`end_train`).
+
+**Paridad final.** Con `36babee` como base y el último commit de la rama, los cinco escenarios sin overrides dan resultados idénticos, sin ningún aviso en ninguno de los dos lados: h2o desde CSV, h2o desde DataFrame, bike_sharing con exógenas futuras, e items_sales ancho y largo. Se compararon el perfil, el plan, el script de `forecast_code()`, las predicciones y el script de `forecast()`, el CV, el script de `backtest_code()` y las predicciones, métricas y script de `backtest()`, y en modo evaluación (`test_size` igual a `steps`) las predicciones, métricas, script y `end_train`. La única diferencia son las dos claves nuevas, vacías: `"overridden_fields": []` en el JSON del plan y `"unused_columns": []` en el del perfil (también dentro del CV).
+
+**Para el check de pago.** Lista completa, para una sola ejecución de `tools/ai/check_ask_context.py` con un modelo real antes de la release:
+- Sección 3: la regla 4 de `llm/prompts.py` (`refit=False` por defecto) y las explicaciones del plan y del CV.
+- Sección 12: las notas de `DataProfile.warnings` de los PRs 6 y 8 (filas ordenadas, series que terminan antes, huecos sumados en todas las series, fechas fuera de los años 1677 a 2262 en formato largo).
+- Sección 13:
+  - PR 9: la estrategia y las frases de ForecasterStats en `<backtesting_strategy>`, `<deterministic_summary>` y `compare()`;
+  - PR 13: las cotas de intervalo de un backtest multiserie;
+  - PRs 12 y 14: `llm/context.py`;
+  - los candidatos de datos largos.
+- Sección 14:
+  - PR 17: el fichero que lee el script en `<script>`;
+  - 4a: la razón del paso de categóricas con más de 15 columnas;
+  - 4b: `<backtesting_strategy>` y el modo backtesting de un `backtest_code()`;
+  - 4c: la nota de ForecasterStats en un `compare()` y la clasificación recortada.
+- Sección 15: la nota de ForecasterFoundation en `<backtesting_strategy>`. Ejecutar los cuatro datasets de `check_ask_context.py`.
+- Sección 18:
+  - PR 23: la nota "No baseline: ..." con un intervalo asimétrico;
+  - PR 27: la nota de `DataProfile.warnings` cuando los datos difieren del perfil;
+  - punto 12: `llm/context.py`;
+  - pregunta 7, pendiente: ForecasterStats que aconseja `dropna_from_series` (sección 12), un cambio de explicación que la tabla de 18.1 dejó para el check de pago y que esta fase no hizo.
+- 18.1: la explicación de un plan refinado con LLM llega con sus párrafos en líneas con sangría.
+- Esta fase:
+  - Commit 0: el nombre de la licencia como lo registra skforecast, la frase de la cuenta del proveedor (TabPFN) y T0 sin pesos restringidos.
+  - PR 30: el texto de `PlanEditsDiscardedWarning`, que va a `plan.warnings` y, desde el PR 35, al contexto.
+  - PR 31: las dos frases de la métrica elegida.
+  - PR 32: la frase de exógenas no usadas y la de la serie que predice el multivariante (en todo plan ForecasterDirectMultiVariate).
+  - PR 33: las frases del orden de diferenciación y de las window features dejadas fuera, y la nota de diferenciación de `compare()`.
+  - PR 34: las cuatro frases de calendario, escalado y NaN.
+  - PR 35: `llm/context.py`, con las líneas "Chosen by the user instead of the rules" y "Plan warnings".
+  - PR 38: la nota de `DataProfile.warnings` que nombra las columnas dejadas fuera, y la de un perfil guardado con columnas de más, que ahora lleva también `unused_columns`.
+  - Los puntos de 18.1 no cambian lo que recibe el LLM: son errores y avisos de Python.
+- Antes de lanzarlo: `check_ask_context.py` ya recorre ForecasterStats, `backtest_code()`, el formato largo y más de 15 candidatos o columnas categóricas (sección 15), pero ningún escenario suyo usa los overrides ni avisos del plan; solo los cubre el golden `code_generation_overrides_and_warnings` de los tests. Falta añadirle un escenario con ellos.
+
+**Preguntas nuevas para el autor.**
+1. Ventana corta (18.1): `backtest_code()` avisa y devuelve el script, mientras el directo con `gap` falla en `backtest_code()` por tu decisión. ¿Se rechaza también aquí?
+2. Series largas que empiezan en fechas distintas: siguen contando desde la primera fecha más tardía (`start_date`) con la longitud del tramo completo:
+   - el `initial_train_size` por defecto de `create_cv()` (`derive_cv_defaults`), que puede caer después de los datos (`'2023-05-10'` con datos que acaban el 2023-04-10);
+   - el recuento de folds de `build_cv`, de la comprobación de `skip_folds` y de `resolve_cv_config`;
+   - la fecha que recibe el LLM al refinar el CV.
+
+   ¿Pasan a `span_start_date`? Cambia el CV por defecto y `n_folds` de esos datos.
+3. PR 38: un plan ejecutado sin su perfil se perfila otra vez con todas las columnas, también las que `exog_columns` dejó fuera. ¿Se guarda la selección en el plan (una segunda fuente de verdad), o se avisa cuando el plan viene de un perfil con columnas dejadas fuera?
+4. Fechas día-primero que encajan en las dos lecturas (ningún día pasa de 12, como inicios de mes `01/MM/YYYY`): se leen mes-primero sin aviso, como el script. ¿Una nota en `DataProfile.warnings`? Añadiría un aviso a llamadas que funcionan.
+5. Una variable de calendario más fina que la frecuencia (`hour` en datos diarios) se acepta (PR 34). ¿Se rechaza o se avisa?
+6. ForecasterDirectMultiVariate en formato largo sigue rechazado (PR 32). ¿Se implementa?
+7. El `compare` del MCP no lleva el `use_exog` del plan de la estrategia a los candidatos (PR 32). ¿Se mantiene?
+8. Huso horario: `backtest_code()` sin datos de un perfil con zona y una fecha `initial_train_size` que ya trae zona siguen fallando dentro de skforecast (mensaje de `8a0a10b`), y la revisión encontró que el fragmento de `create_cv().code` también, si se ejecuta solo. ¿Se guarda la zona en el perfil (sería un campo nuevo)?
+
+**Pendiente o anotado.**
+- El PR 36 (opcional) y la fase 6 (10.12), fuera de esta fase por indicación.
+- Pendientes de 18.1 que esta fase no tocó:
+  - `compare()` con un intervalo asimétrico no emite aviso (solo la frase de la explicación);
+  - los mensajes de la CLI usan los nombres de Python (`refit=True`) en lugar de las opciones (`--refit`);
+  - las variantes ISO 8601 mezcladas en una columna de fechas se siguen rechazando, por decisión del autor para esta fase;
+  - unificar las dos tablas de periodos (pregunta 5 de la sección 18) queda para la fase 6.
+- Encontrado por las revisiones de esta fase, ya en la base, sin cambiar:
+  - un `initial_train_size` de tipo `pd.Timestamp` sin zona hace fallar `backtest()` con `TypeError` en `build_cv_explanation` (la sección 14 anotaba lo mismo para `describe()` de un `backtest_code()`);
+  - perfilar datos subdiarios largos con zona cuyas series empiezan unas a medianoche y otras no da `TypeError` en `_resolve_observation_counts`;
+  - un target `Float64` (nullable) con un infinito da `TypeError` en `_check_target_is_constant`;
+  - `profile()` con valores infinitos emite el `RuntimeWarning` de numpy.
+- También de las revisiones: con zona horaria y cambio de hora, `end_train` se escribe con el desfase de la primera fecha (`11:00:00+01:00` para un corte a las 12:00 locales en verano); el instante es correcto.
+- `_compute_min_train_size` (CV por defecto) y `plan_window_size` (ventana de 18.1) calculan la ventana por separado; unificarlas cambiaría el CV por defecto, así que se propone para la fase 6.
+
+**Qué queda para 0.4.0.**
+- La fase 6 (10.12): rendimiento y limpieza, antes del check de pago.
+- El check de pago, una sola vez al final, con la lista de arriba (secciones 3, 12, 13, 14, 15, 18, 18.1 y esta fase), después de añadir a `check_ask_context.py` un escenario con overrides y avisos del plan.
+- Las preguntas de arriba y las abiertas de las secciones anteriores.
+- El plan de release de 17.1: skforecast 0.26.0, después skforecast-ai 0.4.0 en PyPI y solo entonces el merge de `0.4.x` a `main`.
+
+**Siguiente:** la fase 6 y, al final, el check de pago.
+
+### 19.1 Revisión del autor y correcciones
+
+Antes de mergear la fase 5b, una verificación independiente comparó la base (`36babee`) con la rama (`17fb098`) en cuatro frentes: los overrides, `exog_columns` y los seis arreglos de 18.1, el servidor MCP con el bloqueo de modelos foundation y el contexto del LLM, y la suite con la documentación. La rama se ejecutó con skforecast instalado desde `0.26.x` (con los campos nuevos de `FoundationModelInfo`); ningún modelo foundation se ejecutó de verdad, porque no hay backend instalado. Las correcciones van como commits nuevos al final de `feature/overrides`; ninguno subido se reescribió.
+
+**Verificación.**
+- Suite: 4037 pasados y 1 omitido, como dice la sección 19; ruff limpio; la documentación construye sin avisos. De 58 mutaciones hechas a mano, los tests detectaron 54.
+- Sin overrides, perfil, plan, scripts, predicciones, métricas y avisos son idénticos a la base en 10 conjuntos; 181 backtests que corrían en la base dan lo mismo.
+- Overrides: 114 casos por familia de forecaster con el script igual al ejecutado y ejecutable como fichero; 543 valores inválidos rechazados con su campo; ningún intento de inyección de código llegó a ejecutarse (tampoco por la CLI ni el servidor).
+- Bloqueo por licencia: sin forma de saltárselo en 34 variantes del identificador. Corren sin `--allow-model` Chronos-2, TimesFM 2.5, TabICL, Nori y T0; necesitan la opción TimesFM 3.0, Moirai, TabPFN y TS-ICL.
+- Servidor: los 96 CSV y scripts de la paridad por stdio son idénticos a la base; los vectores de seguridad anteriores se comportan igual.
+
+**Fallos encontrados y corregidos.**
+
+| Qué fallaba | Corrección | Commit |
+|---|---|---|
+| `compare()` sin candidatos marcaba los planes de sus candidatos con `overridden_fields=['forecaster']`, y `describe()`, el servidor y el contexto de `ask()` decían "Chosen by the user instead of the rules: forecaster" | Los candidatos automáticos y el baseline solo conservan `metric` cuando se pasó a `compare()`. Los nombres se escriben en una línea en el contexto | `3b90f83` |
+| Un plan hecho con `exog_columns` y ejecutado sin su perfil volvía a usar todas las columnas, sin aviso (MAE 20.8 con el perfil frente a 0.98 sin él en el caso medido) | El plan guarda la selección (`ForecastPlan.exog_columns`, `None` cuando el perfil no dejó nada fuera) y los datos se perfilan con ella (pregunta 3) | `943e2f2` |
+| Con series largas que empiezan en fechas distintas, el CV por defecto podía caer después de los datos y `cv_config` anunciaba más folds de los que corrían; `backtest()` daba un `ValueError` crudo (`internal_error` en el servidor) | El CV por defecto, los recuentos de folds y las fechas que recibe el LLM cuentan desde `span_start_date` (pregunta 2). Una estrategia que skforecast no puede partir es un `InvalidInputError` | `5e9ec78` |
+| `backtest_code()` devolvía un script que falla cuando la primera ventana es más corta que la del forecaster | Lo rechaza, como `backtest()` (pregunta 1). El remedio solo nombra lags y window features para los forecasters que los tienen | `5e9ec78` |
+| Datos horarios en una zona con cambio de hora: `cv_config` decía 5 folds y el script ejecutaba 6, y podía mostrar una hora que no existe (`2023-03-26 02:00:00`) | El perfil guarda el nombre de la zona (`DataProfile.time_zone`) y las posiciones y fechas de una estrategia se cuentan sobre las horas locales (pregunta 8). Sin zona, en UTC o con desfase fijo no cambia nada | `ff8ddd5` |
+| `plan(differentiation=67)` culpaba a `lags`, que el usuario no pasó; `refine_plan(differentiation=32)` fallaba donde `plan()` funciona | El error nombra `differentiation`; `refine_plan()` vuelve a elegir los lags y ventanas que eligieron las reglas, dejando sitio al orden | `22f10eb` |
+| Notas de versión demasiado largas y tres entradas que describían mal la 0.3.1; el SKILL.md no describía los avisos nuevos de `create_cv`; la descripción del tool `compare` seguía diciendo que ordena por la métrica del perfil | Reescritas | `8a0263b` |
+
+**Decisiones del autor sobre las preguntas de la sección 19.**
+
+| Pregunta | Decisión | Estado |
+|---|---|---|
+| 1 | Ventana corta: `backtest_code()` la rechaza | Hecho (`5e9ec78`) |
+| 2 | Series que empiezan en fechas distintas: pasar a `span_start_date` | Hecho (`5e9ec78`) |
+| 3 | Plan sin su perfil tras `exog_columns`: el plan guarda la selección | Hecho (`943e2f2`) |
+| 4 | Fechas día-primero ambiguas: sin nota | Sin cambios |
+| 5 | Variable de calendario más fina que la frecuencia: avisar, no rechazar | Pendiente (impacto bajo: la columna es constante) |
+| 6 | ForecasterDirectMultiVariate en formato largo: no en 0.4.0 | Sin cambios |
+| 7 | `use_exog` en el `compare` del servidor | No se lleva a los candidatos (abajo) |
+| 8 | Zona horaria en el perfil | Hecho (`ff8ddd5`) |
+
+**No se hizo, y por qué.**
+- Pregunta 7. Llevar `use_exog=False` solo a los candidatos explícitos dejaría fuera a los automáticos, que `compare()` resuelve dentro del núcleo, y hacerlo bien pide un argumento nuevo en `compare()` (API, CLI y documentación). Con el commit `943e2f2` la vía que ya existe es completa: `profile` con `exog_columns: []` compara sin exógenas en todos los candidatos y el plan del ganador lo mantiene. El SKILL.md lo dice ahora.
+- Con la hora repetida del cambio de otoño, una fecha que cae en ella se coloca en su segunda aparición: `cv_config` y el script coinciden, con una observación más de entrenamiento que el tamaño calculado.
+
+**Pendiente.**
+- Con una build de skforecast anterior a su PR #1332 (también numerada 0.26.0), un plan foundation falla con un `AttributeError` crudo.
+- Test inestable: en 3 de 7 ejecuciones completas de la verificación falló un test distinto de `tests/tests_mcp` por un `ResourceWarning` de un socket sin cerrar. No se reprodujo en las ejecuciones locales de esta revisión; queda para la fase 6 ver si viene de la base.
+- Tests que las mutaciones no cubren: los lags que reservan el orden de diferenciación, la nota de diferenciación de `compare()` con el baseline, y el recurso de `span_start_date` cuando el tramo no cuadra.
+- Mensajes: un valor inválido en un candidato de `compare()` no se rechaza al principio (el candidato falla y queda el último); cambiar a Stats, baseline o Foundation en `refine_plan()` descarta sin aviso la diferenciación, el calendario y el transformador; `exog_columns` con nombres de columna enteros; las fechas día-primero con año de dos cifras escapan a la comprobación de 18.1.
+- Sin página de usuario para los overrides de Python: solo la referencia de la API, la guía de la CLI y las páginas del MCP.
+
+**Sincronización con skforecast.** El skill `foundation-forecasting` y `llms-base.txt` enseñaban `info.license_restriction`, que la 0.26 eliminó. Corregido en skforecast y sincronizado desde `0.26.x` (7 ficheros de skills y `llms-base.txt`; el inventario de 17 skills no cambia, las estimaciones de tokens sí).
+
+**Para la lista del check de pago.** Los skills sincronizados son parte de lo que `ask()` envía. Además de la lista de la sección 19: el escenario `compare_default` ya no lleva la línea "Chosen by the user"; con datos con zona horaria, el `<script>` lleva un `initial_train_size` entero mientras la estrategia muestra la fecha.
+
+**Tests.** De 4037 a 4055 (más 1 omitido), en macOS con el entorno conda local y skforecast instalado desde `0.26.x`.

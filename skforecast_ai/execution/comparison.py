@@ -521,6 +521,7 @@ def build_comparison_explanation(
     baseline_note: str | None = None,
     backend_note: str | None = None,
     budget_note: str | None = None,
+    differentiation_note: str | None = None,
 ) -> str:
     """
     Build the deterministic `compare()` summary explanation.
@@ -549,6 +550,9 @@ def build_comparison_explanation(
     budget_note : str, default None
         Sentence explaining which candidates were left out for exceeding
         the fit budget, appended as is.
+    differentiation_note : str, default None
+        Sentence naming the candidates that ran on a copy of the strategy
+        with their own differentiation order, appended as is.
 
     Returns
     -------
@@ -633,6 +637,8 @@ def build_comparison_explanation(
         parts.append(backend_note)
     if budget_note is not None:
         parts.append(budget_note)
+    if differentiation_note is not None:
+        parts.append(differentiation_note)
     if any_error:
         n_failed = n_candidates - len(ranked)
         if n_failed == 1:

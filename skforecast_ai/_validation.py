@@ -532,6 +532,105 @@ def validate_metrics(metrics: list[str], field: str = "metric") -> None:
             )
 
 
+def resolve_metric_override(metric: object) -> list[str] | None:
+    """
+    Check a `metric` argument and return it as the list of metrics to
+    compute, the first one being the primary metric.
+
+    Parameters
+    ----------
+    metric : str, list of str, None
+        A metric name, or a list of them whose first one ranks (as in
+        `compare()`). None asks for the deterministic selection.
+
+    Returns
+    -------
+    metrics : list of str, None
+        The metrics, in the order given; None when `metric` is None.
+
+    Notes
+    -----
+    A `TypeError` is raised when `metric` is not a str or a list of str,
+    and a `ValueError` for an empty list, a repeated metric or a name
+    outside `ALLOWED_METRICS`.
+    """
+
+    if metric is None:
+        return None
+    metrics = [metric] if isinstance(metric, str) else metric
+    if not isinstance(metrics, (list, tuple)) or not all(
+        isinstance(name, str) for name in metrics
+    ):
+        raise InvalidInputTypeError(
+            f"`metric` must be a metric name or a list of metric names, got "
+            f"{metric!r}.",
+            field = "metric",
+        )
+    if not metrics:
+        raise InvalidInputError(
+            "`metric` must not be an empty list.",
+            field = "metric",
+        )
+    repeated = sorted({name for name in metrics if metrics.count(name) > 1})
+    if repeated:
+        raise InvalidInputError(
+            f"`metric` repeats {repeated}: list each metric once.",
+            field = "metric",
+        )
+    validate_metrics(list(metrics))
+
+    return list(metrics)
+
+
+def validate_calendar_override(features: object) -> list[str] | None:
+    """
+    Check the `calendar_features` argument of `plan()`.
+
+    Parameters
+    ----------
+    features : list of str, None
+        Calendar features to generate; an empty list for none, None for
+        the deterministic selection.
+
+    Returns
+    -------
+    features : list of str, None
+        The features as a list, in the order given.
+
+    Notes
+    -----
+    A `TypeError` is raised when `features` is not a list of str (a single
+    str included), and a `ValueError` for a name outside the features of
+    skforecast's `CalendarFeatures` or a repeated one.
+    """
+
+    if features is None:
+        return None
+    if not isinstance(features, (list, tuple)) or not all(
+        isinstance(feature, str) for feature in features
+    ):
+        raise InvalidInputTypeError(
+            f"`calendar_features` must be a list of calendar feature names "
+            f"(an empty list for none), got {features!r}.",
+            field = "calendar_features",
+        )
+    unknown = [feature for feature in features if feature not in _CALENDAR_FEATURES]
+    if unknown:
+        raise InvalidInputError(
+            f"Unknown calendar features {unknown}. Supported: "
+            f"{list(_CALENDAR_FEATURES)}.",
+            field = "calendar_features",
+        )
+    repeated = sorted({f for f in features if list(features).count(f) > 1})
+    if repeated:
+        raise InvalidInputError(
+            f"`calendar_features` repeats {repeated}: list each feature once.",
+            field = "calendar_features",
+        )
+
+    return list(features)
+
+
 def validate_steps(steps: object) -> int:
     """
     Check a forecast horizon and return it as an int.

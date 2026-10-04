@@ -288,6 +288,26 @@ def test_compare_ValueError_when_metric_is_empty_list():
         )
 
 
+def test_compare_ValueError_when_metric_is_repeated():
+    """
+    Test that compare() rejects a metric listed twice before any candidate
+    runs (the backtest failed with a TypeError of pandas).
+    """
+    err_msg = re.escape(
+        "`metric` repeats ['mean_squared_error']: list each metric once."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            metric=["mean_squared_error", "mean_squared_error"],
+            show_progress=False,
+        )
+
+
 # =============================================================================
 # Tests: basic output
 # =============================================================================
@@ -492,6 +512,12 @@ def test_compare_output_when_metric_list_ranks_by_first():
     ]
     ranking_values = result.results["mean_squared_error"].to_numpy()
     assert np.all(np.diff(ranking_values) >= 0)
+    # The metric is a decision of each candidate plan, so refine_plan()
+    # keeps it in the plan of the winner.
+    assert result.best_candidate.plan.metrics_to_compute == [
+        "mean_squared_error", "mean_absolute_error"
+    ]
+    assert "metric" in result.best_candidate.plan.overridden_fields
 
 
 # =============================================================================
@@ -1833,8 +1859,9 @@ def test_compare_ValueError_when_metric_or_interval_invalid(kwargs, match):
         (
             [("lgbm", {"bogus": 1})], InvalidInputError,
             "Invalid config keys for 'lgbm': ['bogus']. Allowed keys: "
-            "['estimator', 'estimator_kwargs', 'forecaster', 'lags', "
-            "'window_features'].",
+            "['calendar_features', 'differentiation', 'dropna_from_series', "
+            "'estimator', 'estimator_kwargs', 'forecaster', 'lags', "
+            "'target_transformer', 'use_exog', 'window_features'].",
         ),
     ],
     ids=["empty", "config_not_dict", "duplicate_names", "unknown_key"],
@@ -2473,3 +2500,130 @@ def test_compare_InvalidInputError_when_data_have_other_structure_than_profile(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "profile"
+
+
+def test_compare_candidate_use_exog():
+    """
+    Test that a candidate config takes `use_exog`, so the same forecaster
+    can be compared with and without the exogenous variables.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=[
+            ("with", {"forecaster": "ForecasterRecursive"}),
+            ("without", {"forecaster": "ForecasterRecursive", "use_exog": False}),
+        ],
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert result.candidates["with"].plan.use_exog is True
+    assert result.candidates["without"].plan.use_exog is False
+    assert result.candidates["without"].plan.overridden_fields == [
+        "forecaster", "use_exog"
+    ]
+
+
+def test_compare_overridden_fields_of_automatic_candidates_and_baseline():
+    """
+    Test that the plans of the automatic candidates and of the baseline,
+    whose forecaster and estimator the rules chose, name no decision of the
+    user but the metric passed to compare(), and that describe() does not
+    say the user chose the forecaster.
+    """
+    automatic = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        show_progress=False,
+    )
+    with_metric = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        metric="mean_squared_error",
+        show_progress=False,
+    )
+
+    assert {
+        tuple(candidate.plan.overridden_fields)
+        for candidate in automatic.candidates.values()
+    } == {()}
+    assert "Chosen by the user" not in automatic.describe()
+    baseline_plan = with_metric.candidates[with_metric.baseline_name].plan
+    assert baseline_plan.overridden_fields == ["metric"]
+    explicit = [
+        candidate.plan.overridden_fields
+        for name, candidate in with_metric.candidates.items()
+        if name != with_metric.baseline_name
+    ]
+    assert all("forecaster" in fields for fields in explicit)
+
+
+def test_compare_candidate_differentiation_runs_on_a_copy_of_the_strategy():
+    """
+    Test that a candidate with its own differentiation order runs on a copy
+    of the shared strategy with that order (the strategy is not changed),
+    and that the explanation says so.
+    """
+    cv = _single_cv()
+    result = assistant.compare(
+        data=df_single,
+        cv=cv,
+        target="sales",
+        date_column="date",
+        candidates=[
+            ("plain", {"forecaster": "ForecasterRecursive"}),
+            ("diff", {"forecaster": "ForecasterRecursive", "differentiation": 1}),
+        ],
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert cv.differentiation is None
+    assert result.candidates["diff"].cv_config["differentiation"] == 1
+    assert result.candidates["plain"].cv_config["differentiation"] is None
+    assert result.explanation.endswith(
+        "These candidates ran on a copy of the strategy with their own "
+        "differentiation order (the strategy has None): {'diff': 1}."
+    )
+
+
+def test_compare_candidate_feature_overrides():
+    """
+    Test that a candidate config takes `calendar_features`,
+    `target_transformer` and `dropna_from_series`, so variants of one
+    forecaster can be compared.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=[
+            ("scaled", {"estimator": "Ridge"}),
+            (
+                "plain",
+                {
+                    "estimator": "Ridge", "target_transformer": "none",
+                    "calendar_features": [], "dropna_from_series": True,
+                },
+            ),
+        ],
+        show_progress=False,
+        baseline=False,
+    )
+    plain = result.candidates["plain"].plan
+
+    assert result.candidates["scaled"].plan.forecaster_kwargs["transformer_y"] == (
+        "StandardScaler"
+    )
+    assert "transformer_y" not in plain.forecaster_kwargs
+    assert plain.forecaster_kwargs["calendar_features"] is None
+    assert plain.forecaster_kwargs["dropna_from_series"] is True
