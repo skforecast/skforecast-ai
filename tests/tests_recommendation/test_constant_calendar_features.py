@@ -1,5 +1,7 @@
 # Unit test constant_calendar_features
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -109,3 +111,38 @@ def test_constant_calendar_features_output_empty_when_no_grid(features, update):
     data_profile = profile_daily.model_copy(update=update)
 
     assert constant_calendar_features(features, data_profile) == []
+
+
+@pytest.mark.parametrize(
+    "start",
+    ["2023-01-02", "2023-01-06"],
+    ids=["first date a Monday", "first date a Friday"],
+)
+def test_constant_calendar_features_output_weekend_on_business_days(start):
+    """
+    Test that `'weekend'` is listed for business-day data, which step by a
+    day and never reach a weekend, whatever the first date.
+    """
+    data_profile = create_data_profile(
+        pd.DataFrame(
+            {"y": np.arange(60, dtype=float)},
+            index=pd.date_range(start, periods=60, freq="B"),
+        ),
+        target="y",
+    )
+
+    result = constant_calendar_features(ALL_FEATURES, data_profile)
+
+    assert result == ["weekend", "hour", "minute", "second"]
+
+
+def test_constant_calendar_features_emits_no_warning():
+    """
+    Test that the check emits no warning of its own: numpy 2.5 deprecates
+    the unit that pandas reads a text such as '1h' with.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = constant_calendar_features(["hour", "month"], profile_daily)
+
+    assert result == ["hour"]

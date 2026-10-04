@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+from datetime import timedelta
 import pandas as pd
 from skforecast.preprocessing import CalendarFeatures
 from .._constants import TREE_BASED_ESTIMATORS
@@ -276,18 +277,20 @@ def drop_colliding_calendar_features(
 # Shortest span over which each calendar feature changes value (a month is
 # at least 28 days, a quarter 90, a year 365). A feature whose span is
 # shorter than a step of the data is finer than its frequency.
+# Written with `datetime.timedelta`: numpy 2.5 deprecates the unit pandas
+# 2.3 reads a text such as '1h' with.
 _FEATURE_SPANS = {
-    "second": "1s",
-    "minute": "1min",
-    "hour": "1h",
-    "day_of_week": "1D",
-    "day_of_month": "1D",
-    "day_of_year": "1D",
-    "weekend": "1D",
-    "week": "7D",
-    "month": "28D",
-    "quarter": "90D",
-    "year": "365D",
+    "second": timedelta(seconds=1),
+    "minute": timedelta(minutes=1),
+    "hour": timedelta(hours=1),
+    "day_of_week": timedelta(days=1),
+    "day_of_month": timedelta(days=1),
+    "day_of_year": timedelta(days=1),
+    "weekend": timedelta(days=1),
+    "week": timedelta(days=7),
+    "month": timedelta(days=28),
+    "quarter": timedelta(days=90),
+    "year": timedelta(days=365),
 }
 
 # Dates of the grid on which the calendar features are computed, at most.
@@ -301,7 +304,8 @@ def constant_calendar_features(
     """
     Calendar features finer than the frequency of the data whose column
     takes a single value on the dates of the data, such as `'hour'` on
-    daily data or `'day_of_week'` on weekly data.
+    daily data, `'day_of_week'` on weekly data or `'weekend'` on business
+    days.
 
     `CalendarFeatures` computes them without an error, and the model gets a
     constant column it learns nothing from. The values are computed with
@@ -359,11 +363,16 @@ def constant_calendar_features(
         # midnight that does not exist, a zone or dates pandas rejects)
         # leaves it out, and the plan is built as before.
         return []
-    step = grid[1] - grid[0]
+    step = (grid[1] - grid[0]).to_pytimedelta()
+    # Business days step by a day and never reach a weekend.
+    without_weekend = grid.dayofweek.max() < 5
 
     return [
         feature for feature in features
         if feature in _FEATURE_SPANS
-        and pd.Timedelta(_FEATURE_SPANS[feature]) < step
+        and (
+            _FEATURE_SPANS[feature] < step
+            or (feature == "weekend" and without_weekend)
+        )
         and values[feature].nunique(dropna=False) == 1
     ]
