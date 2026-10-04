@@ -455,6 +455,7 @@ def create_data_profile(
         data_path=data_path,
         # Train/test split
         start_date=start_date,
+        time_zone=_time_zone_name(datetime_index),
         # Diagnostics
         warnings=warnings,
     )
@@ -2460,6 +2461,24 @@ def _extract_datetime_index(
         return pd.DatetimeIndex(data[date_col])
 
     return None
+
+
+def _time_zone_name(datetime_index: pd.DatetimeIndex | None) -> str | None:
+    """
+    Return the name of the time zone of the dates, or None when they have
+    none or pandas cannot rebuild the zone from its name (the positions of
+    a strategy are then counted without it, as for dates without zone).
+    """
+    time_zone = getattr(datetime_index, "tz", None)
+    if time_zone is None:
+        return None
+    name = str(time_zone)
+    try:
+        pd.date_range("2000-01-01", periods=1, freq="D", tz=name)
+    except Exception:
+        return None
+
+    return name
 
 
 def _resolve_start_date(

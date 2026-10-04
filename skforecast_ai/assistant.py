@@ -4368,7 +4368,10 @@ class ForecastingAssistant:
             # An index that lost its `freq` attribute (after a filter or a
             # concat) holds the same data: the script needs the new profile
             # to set the frequency, and there is nothing to tell the user.
-            changed = [name for name in changed if name != "frequency_is_set"]
+            changed = [
+                name for name in changed
+                if name not in ("frequency_is_set", "time_zone")
+            ]
             if changed:
                 notes.append(
                     f"The data differ in their values from the profile "

@@ -113,6 +113,13 @@ class DataProfile(BaseModel):
     n_observations_display : int
         Task-agnostic observation count for display and summaries: the
         series length for a single series, `span_index_length` otherwise.
+    time_zone : str, default None
+        Name of the time zone of the dates (`'Europe/Madrid'`, `'UTC'`),
+        or None when they have none or it cannot be rebuilt from its name.
+        `start_date` is written without it, as local time. With it, the
+        positions and the dates of a cross-validation strategy are counted
+        on the local times of the data, which skip or repeat an hour at a
+        daylight saving change.
     span_start_date : str, None
         First date of the span of `span_index_length`: `start_date`, or in
         long format the earliest first date of the series.
@@ -209,6 +216,7 @@ class DataProfile(BaseModel):
 
     # -- Train/test split --
     start_date: str | None = None
+    time_zone: str | None = None
 
     # -- Diagnostics --
     warnings: list[str] = Field(default_factory=list)

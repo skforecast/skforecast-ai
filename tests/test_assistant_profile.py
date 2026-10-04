@@ -1118,3 +1118,28 @@ def test_profile_output_when_target_almost_all_infinite():
         assistant.forecast(data=data, profile=profile, steps=3)
 
     assert profile.series_pacf == []
+
+
+def test_profile_output_time_zone_of_the_dates():
+    """
+    Test that the profile keeps the name of the time zone of the dates, and
+    None for dates without one. A profile saved without it (an earlier
+    version) is profiled again by forecast() without a note.
+    """
+    assistant = ForecastingAssistant()
+    index = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame({"y": np.arange(100, dtype=float) % 7}, index=index)
+    madrid = data.set_axis(index.tz_localize("Europe/Madrid"))
+    utc = data.set_axis(index.tz_localize("UTC"))
+
+    profile = assistant.profile(data=madrid, target="y")
+    saved = profile.model_copy(update={
+        "data_profile": profile.data_profile.model_copy(update={"time_zone": None})
+    })
+    result = assistant.forecast(data=madrid, profile=saved, steps=3)
+
+    assert assistant.profile(data=data, target="y").data_profile.time_zone is None
+    assert assistant.profile(data=utc, target="y").data_profile.time_zone == "UTC"
+    assert profile.data_profile.time_zone == "Europe/Madrid"
+    assert result.profile.data_profile.time_zone == "Europe/Madrid"
+    assert result.profile.data_profile.warnings == []

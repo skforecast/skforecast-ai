@@ -56,6 +56,7 @@ def derive_cv_defaults(
         position=initial_train_size,
         start_date=profile.data_profile.span_start_date,
         frequency=profile.data_profile.frequency,
+        time_zone=profile.data_profile.time_zone,
     )
 
     return {
@@ -188,11 +189,42 @@ def build_cv_explanation(
     return explanation
 
 
+def _local_index(
+    start_date: str,
+    n_observations: int,
+    frequency: str,
+    time_zone: str | None,
+) -> pd.DatetimeIndex:
+    """
+    Rebuild the dates of the data, as local times without time zone.
+
+    Without a time zone it is the regular grid from `start_date`. With one,
+    the grid is built in that zone and its local times are returned: they
+    skip an hour at the spring daylight saving change and repeat one in
+    autumn, as the dates of the data do, so the position of a date is the
+    one it has in the data. A zone pandas cannot use gives the regular grid.
+    """
+    index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
+    if time_zone is None:
+        return index
+    try:
+        aware = pd.date_range(
+            start   = pd.Timestamp(start_date).tz_localize(time_zone),
+            periods = n_observations,
+            freq    = frequency,
+        )
+    except Exception:
+        return index
+
+    return aware.tz_localize(None)
+
+
 def _split_folds(
     cv: TimeSeriesFold,
     n_observations: int,
     start_date: str | None = None,
     frequency: str | None = None,
+    time_zone: str | None = None,
 ) -> list:
     """
     Split a throwaway index the way a cross-validation splitter would.
@@ -226,6 +258,9 @@ def _split_folds(
         without it the split date cannot be located on the real index, so
         a `ValueError` is raised rather than counting folds on a guessed
         index.
+    time_zone : str, default None
+        Time zone of the dates of the dataset (`DataProfile.time_zone`),
+        to place a date on their local times (see `_local_index`).
 
     Returns
     -------
@@ -257,6 +292,20 @@ def _split_folds(
                     periods = n_observations,
                     freq    = frequency,
                 )
+        # skforecast places a date by the frequency of the index, which the
+        # local times of a zone with daylight saving changes do not keep:
+        # the date is counted on them here, as the backtesting script
+        # counts it on the data (`_cv_in_time_zone`).
+        local = _local_index(start_date, n_observations, frequency, time_zone)
+        date = pd.Timestamp(its)
+        if (
+            not local.equals(index)
+            and date.tz is None
+            and local[0] <= date <= local[-1]
+        ):
+            cv = copy.deepcopy(cv)
+            cv.set_params({"initial_train_size": int((local <= date).sum())})
+            index = pd.RangeIndex(n_observations)
     else:
         index = pd.RangeIndex(n_observations)
 
@@ -281,6 +330,7 @@ def count_cv_folds(
     n_observations: int,
     start_date: str | None = None,
     frequency: str | None = None,
+    time_zone: str | None = None,
 ) -> int:
     """
     Count the folds a cross-validation splitter produces over a dataset.
@@ -300,6 +350,8 @@ def count_cv_folds(
         is a date string or a pandas Timestamp.
     frequency : str, default None
         Index frequency. Required when `cv.initial_train_size` is a date.
+    time_zone : str, default None
+        Time zone of the dates (`DataProfile.time_zone`).
 
     Returns
     -------
@@ -307,7 +359,7 @@ def count_cv_folds(
         Number of folds produced by the configuration.
     """
 
-    return len(_split_folds(cv, n_observations, start_date, frequency))
+    return len(_split_folds(cv, n_observations, start_date, frequency, time_zone))
 
 
 def count_cv_fits(
@@ -315,6 +367,7 @@ def count_cv_fits(
     n_observations: int,
     start_date: str | None = None,
     frequency: str | None = None,
+    time_zone: str | None = None,
 ) -> int:
     """
     Count how many folds train the forecaster under a splitter.
@@ -334,6 +387,8 @@ def count_cv_fits(
         is a date string or a pandas Timestamp.
     frequency : str, default None
         Index frequency. Required when `cv.initial_train_size` is a date.
+    time_zone : str, default None
+        Time zone of the dates (`DataProfile.time_zone`).
 
     Returns
     -------
@@ -341,7 +396,7 @@ def count_cv_fits(
         Number of folds in which the forecaster is trained.
     """
 
-    folds = _split_folds(cv, n_observations, start_date, frequency)
+    folds = _split_folds(cv, n_observations, start_date, frequency, time_zone)
 
     return sum(bool(fold[-1]) for fold in folds)
 
@@ -500,6 +555,7 @@ def build_cv(
                       n_observations = data_profile.span_index_length,
                       start_date     = data_profile.span_start_date,
                       frequency      = data_profile.frequency,
+                      time_zone      = data_profile.time_zone,
                   )
     except InvalidInputError:
         raise
@@ -582,6 +638,7 @@ def _check_skip_folds(cv: TimeSeriesFold, data_profile: DataProfile) -> None:
                   n_observations = data_profile.span_index_length,
                   start_date     = data_profile.span_start_date,
                   frequency      = data_profile.frequency,
+                  time_zone      = data_profile.time_zone,
               )
     beyond = [index for index in skip_folds if index >= n_folds]
     if beyond:
@@ -716,6 +773,7 @@ def resolve_cv_config(
                 n_observations = span_index_length,
                 start_date     = data_profile.span_start_date,
                 frequency      = data_profile.frequency,
+                time_zone      = data_profile.time_zone,
             )
     n_folds = len(folds)
     n_fits = sum(bool(fold[-1]) for fold in folds) if trains else 0
@@ -829,6 +887,7 @@ def first_window_issue(
         n_observations = data_profile.span_index_length,
         start_date     = data_profile.span_start_date,
         frequency      = data_profile.frequency,
+        time_zone      = data_profile.time_zone,
     )
     if not folds:
         return None
@@ -1012,6 +1071,7 @@ def _position_to_date(
     position: int,
     start_date: str | None,
     frequency: str | None,
+    time_zone: str | None = None,
 ) -> int | str:
     """
     Convert an integer position to a date string.
@@ -1028,6 +1088,9 @@ def _position_to_date(
         Start date of the datetime index.
     frequency : str, None
         Pandas frequency string.
+    time_zone : str, default None
+        Time zone of the dates (`DataProfile.time_zone`): the date is then
+        the local time at that position (see `_local_index`).
 
     Returns
     -------
@@ -1039,7 +1102,7 @@ def _position_to_date(
         return position
 
     try:
-        idx = pd.date_range(start=start_date, periods=position, freq=frequency)
+        idx = _local_index(start_date, position, frequency, time_zone)
         return _timestamp_to_str(idx[-1])
     except Exception:
         return position

@@ -21,7 +21,7 @@ from tests.fixtures_assistant import (
     df_range_index,
     df_short,
 )
-from tests.fixtures_datasets import df_h2o
+from tests.fixtures_datasets import df_h2o, df_hourly_madrid_spring
 
 
 # =============================================================================
@@ -1501,3 +1501,34 @@ def test_create_cv_output_when_long_series_start_on_different_dates():
     assert result.cv_config["initial_train_size"] == "2023-03-11"
     assert result.cv_config["n_folds"] == 6
     assert backtest.predictions["fold"].nunique() == 6
+
+
+def test_create_cv_output_when_dates_cross_a_daylight_saving_change():
+    """
+    Test that the default strategy of hourly data in a time zone with a
+    daylight saving change is counted on the local times of the data: its
+    date is an hour that exists (03:00, since 02:00 is skipped on
+    2023-03-26), and backtest() runs the folds and the training size that
+    `cv_config` states.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly_madrid_spring, target="y")
+    plan = assistant.plan(
+        profile, steps=24, forecaster="ForecasterRecursive", estimator="Ridge",
+        lags=24,
+    )
+
+    result = assistant.create_cv(profile, plan)
+    backtest = assistant.backtest(
+        data          = df_hourly_madrid_spring,
+        cv            = result,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert profile.data_profile.time_zone == "Europe/Madrid"
+    assert result.cv_config["initial_train_size"] == "2023-03-26 03:00:00"
+    assert result.cv_config["n_folds"] == 3
+    assert "    initial_train_size = 147," in backtest.code
+    assert backtest.predictions.groupby("fold").size().tolist() == [24, 24, 15]
