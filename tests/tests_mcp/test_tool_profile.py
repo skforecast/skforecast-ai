@@ -1,5 +1,6 @@
 # Unit test tool profile
 
+import pandas as pd
 import pytest
 
 from skforecast_ai import ForecastingAssistant
@@ -263,6 +264,33 @@ def test_tool_profile_rejects_column_names_with_line_breaks(tmp_path):
         "details": None,
     }
     assert content_of(call(server, "list_objects", {}))["objects"] == []
+
+
+def test_tool_profile_invalid_argument_when_dates_day_first(tmp_path):
+    """
+    Test that day-first dates whose first date also reads month-first are
+    `invalid_argument` on `data_path`, with a hint that asks for ISO 8601
+    and needs no Python.
+    """
+    frame = df_h2o_csv.assign(
+        fecha=pd.date_range("2023-01-01", periods=len(df_h2o_csv), freq="D")
+        .strftime("%d/%m/%Y")
+    )
+    path = write_csv(tmp_path, "dayfirst.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "x"}), "profile"
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
+    assert error["message"].startswith(
+        "The dates of column 'fecha' are written day first, but the first "
+        "one, '01/01/2023', also reads month first ('%m/%d/%Y')"
+    )
+    assert error["hint"] == (
+        "Write the dates of the column in ISO 8601, such as '2023-01-13'."
+    )
 
 
 def test_tool_profile_output_when_exog_columns(tmp_path):

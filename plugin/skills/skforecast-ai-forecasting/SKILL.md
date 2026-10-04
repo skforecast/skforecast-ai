@@ -147,11 +147,11 @@ progress). Meanwhile only the read tools (`get_code`, `get_failure`,
 
 When the profile, a notice or an error shows a problem in the CSV file
 (missing dates, rows without a target, a wrong date column, duplicated
-dates, dates written in more than one format, a series without values, an
-exogenous column named like a lag or a window feature), tell the user what
-it is and what it changes. Never change their file. Only if they agree,
-write a corrected copy inside the allowed directory, under a new name, and
-`profile` the copy; say what you changed.
+dates, dates written in more than one format or day first, a series without
+values, an exogenous column named like a lag or a window feature), tell the
+user what it is and what it changes. Never change their file. Only if they
+agree, write a corrected copy inside the allowed directory, under a new
+name, and `profile` the copy; say what you changed.
 
 ## Foundation models
 

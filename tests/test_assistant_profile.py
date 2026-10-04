@@ -492,23 +492,52 @@ def test_profile_InvalidInputError_when_month_names_read_as_full_names():
     )
 
 
-def test_profile_output_when_csv_day_first_dates_read_month_first(tmp_path):
+@pytest.mark.parametrize("source", ["csv", "dataframe"])
+def test_profile_InvalidInputError_when_day_first_dates_read_month_first(
+    tmp_path, source
+):
     """
-    Test that day-first dates whose first date reads month-first
-    ('01/01/2023', then '13/01/2023') are not taken for dates in more than
-    one format: they are written in one, and the profile is built as before,
-    without a frequency, which `plan()` reports with the day-first advice.
+    Test that day-first dates whose first date also reads month-first
+    ('01/01/2023', then '13/01/2023') raise with the day-first advice: the
+    script reads them all month-first, and a later date proves that reading
+    wrong. The hint asks for ISO 8601 without the pandas call.
     """
-    csv_path = tmp_path / "dayfirst.csv"
-    df_single.assign(
-        date=df_single["date"].dt.strftime("%d/%m/%Y")
-    ).to_csv(csv_path, index=False)
+    data = df_single.assign(date=df_single["date"].dt.strftime("%d/%m/%Y"))
+    if source == "csv":
+        data.to_csv(tmp_path / "dayfirst.csv", index=False)
+        data = tmp_path / "dayfirst.csv"
 
-    profile = ForecastingAssistant().profile(
-        data=csv_path, target="sales", date_column="date"
+    err_msg = re.escape(
+        "The dates of column 'date' are written day first, but the first one, "
+        "'01/01/2023', also reads month first ('%m/%d/%Y'), the format the "
+        "generated script reads every date with, and '13/01/2023' does not "
+        "fit it: write the dates in ISO 8601, such as '2023-01-13', or read "
+        "them with pandas.to_datetime(..., dayfirst=True) before passing them."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=data, target="sales", date_column="date")
+
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == (
+        "Write the dates of the column in ISO 8601, such as '2023-01-13'."
     )
 
-    assert profile.data_profile.frequency is None
+
+def test_profile_output_when_day_first_dates_also_read_month_first():
+    """
+    Test that day-first dates that all read month-first too (no day after
+    the 12th) are profiled as the script reads them, month-first: nothing
+    proves that reading wrong.
+    """
+    dates = pd.date_range("2023-01-01", periods=12, freq="MS")
+    data = pd.DataFrame({
+        "date": dates.strftime("%d/%m/%Y"),
+        "y": np.arange(12, dtype=float),
+    })
+
+    profile = ForecastingAssistant().profile(data=data, target="y", date_column="date")
+
+    assert profile.data_profile.frequency == "D"
     assert profile.data_profile.start_date == "2023-01-01"
 
 

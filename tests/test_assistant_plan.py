@@ -891,18 +891,15 @@ def test_plan_ValueError_when_interval_invalid(forecaster, interval, match):
         assistant.plan(profile, steps=10, forecaster=forecaster, interval=interval)
 
 
-def test_plan_ValueError_when_datetime_index_has_no_frequency(tmp_path):
+def test_plan_ValueError_when_datetime_index_has_no_frequency():
     """
-    Test that plan() raises, pointing at day-first dates, when the datetime
-    index has no inferable frequency: dd/mm/yyyy strings read month-first
-    give irregular timestamps, and the script would fail inside skforecast.
+    Test that plan() raises, also pointing at day-first dates, when the
+    datetime index has no inferable frequency (irregular timestamps), since
+    the script would fail inside skforecast. Day-first dates that a later
+    date proves wrong are rejected earlier, by profile().
     """
-    csv_path = tmp_path / "dayfirst.csv"
-    df_single.assign(
-        date=df_single["date"].dt.strftime("%d/%m/%Y")
-    ).to_csv(csv_path, index=False)
     assistant = ForecastingAssistant()
-    profile = assistant.profile(data=csv_path, target="sales", date_column="date")
+    profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
         "The frequency of the datetime index could not be inferred (the "
@@ -1203,20 +1200,14 @@ def test_plan_InvalidInputError_code_and_field(kwargs, expected_field, err_msg):
     assert exc_info.value.field == expected_field
 
 
-def test_plan_InvalidInputError_field_when_datetime_index_has_no_frequency(
-    tmp_path,
-):
+def test_plan_InvalidInputError_field_when_datetime_index_has_no_frequency():
     """
     Test that a profile without an inferable frequency raises
     InvalidInputError with `profile` as field, the argument plan() received
     the dates through.
     """
-    csv_path = tmp_path / "dayfirst.csv"
-    df_single.assign(
-        date=df_single["date"].dt.strftime("%d/%m/%Y")
-    ).to_csv(csv_path, index=False)
     assistant = ForecastingAssistant()
-    profile = assistant.profile(data=csv_path, target="sales", date_column="date")
+    profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
         "The frequency of the datetime index could not be inferred (the "

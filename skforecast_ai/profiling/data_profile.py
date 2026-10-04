@@ -642,9 +642,10 @@ def _read_dates_one_by_one(
     -------
     parsed : pandas Series, None
         The dates, read one by one, when the column is in one format the
-        script reads otherwise (day-first dates whose first date reads
-        month-first, left to the check of the frequency); None when it does
-        not parse or has an issue.
+        script reads otherwise and nothing proves that reading wrong; None
+        when it does not parse or has an issue (day-first dates whose first
+        date reads month-first and a later one does not, see
+        `_day_first_issue`).
     issue : tuple, None
         Why the column holds dates but cannot be the date column (see
         `_mixed_formats_issue`), or None.
@@ -785,8 +786,10 @@ def _mixed_formats_issue(
     not), so the message quotes the format read and an ISO 8601 example. Zone names that
     change at a daylight saving time change ('CET', then 'CEST') are
     reported as time zones. Day-first dates whose first date reads
-    month-first ('01/02/2023', then '13/02/2023') are in one format: they
-    are left to the check of the frequency, which says how to read them.
+    month-first ('01/02/2023', then '13/02/2023') are in one format, but
+    the script reads them all month-first and fails on a date that does
+    not fit that reading, which proves it wrong: the message says they are
+    day-first (see `_day_first_issue`).
 
     Parameters
     ----------
@@ -821,11 +824,21 @@ def _mixed_formats_issue(
             values, format=date_format, errors="coerce"
         ).isna()
         if day_first not in (None, date_format):
-            misfit_day_first = present & pd.to_datetime(
+            read_day_first = pd.to_datetime(
                 values, format=day_first, errors="coerce"
-            ).isna()
+            )
+            misfit_day_first = present & read_day_first.isna()
             if not misfit_day_first.any():
-                return None
+                if not misfit.any():
+                    return None
+                return _day_first_issue(
+                    name           = name,
+                    first          = first,
+                    date_format    = date_format,
+                    other          = values[misfit].iloc[0],
+                    read_day_first = read_day_first,
+                    date           = read_day_first[misfit].iloc[0],
+                )
             # The date to quote fits neither reading of the first one.
             if (misfit & misfit_day_first).any():
                 misfit = misfit & misfit_day_first
@@ -849,6 +862,54 @@ def _mixed_formats_issue(
         hint = (
             f"Write every date of the column in the same format, such as "
             f"{example!r}."
+        ),
+    )
+
+
+def _day_first_issue(
+    name: str,
+    first: str,
+    date_format: str,
+    other: str,
+    read_day_first: pd.Series,
+    date: object,
+) -> "DateIssue":
+    """
+    Say why day-first dates whose first date also reads month-first cannot
+    be the date column: the generated script reads them with the month-first
+    format of the first one, and `other` does not fit it.
+
+    Parameters
+    ----------
+    name : str
+        Name of the column, for the message.
+    first : str
+        First date of the column.
+    date_format : str
+        Month-first format pandas guesses from the first date.
+    other : str
+        A date of the column that does not fit `date_format`.
+    read_day_first : pandas Series
+        The column read day-first, for the ISO 8601 example.
+    date : object
+        `other` read day-first.
+
+    Returns
+    -------
+    issue : DateIssue
+        What was found and how to fix it.
+    """
+    example = _iso_example(read_day_first, date)
+
+    return DateIssue(
+        f"The dates of column {name!r} are written day first, but the first "
+        f"one, {_shown_date(first)!r}, also reads month first "
+        f"({date_format!r}), the format the generated script reads every "
+        f"date with, and {_shown_date(other)!r} does not fit it",
+        f": write the dates in ISO 8601, such as {example!r}, or read them "
+        f"with pandas.to_datetime(..., dayfirst=True) before passing them.",
+        hint = (
+            f"Write the dates of the column in ISO 8601, such as {example!r}."
         ),
     )
 
