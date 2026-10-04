@@ -106,6 +106,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-api-change">API Change</span> The `result` keyword of [<code>ForecastingAssistant.ask()</code>][assistant], deprecated in 0.3.0, is removed and raises `TypeError`: pass the object to explain as `context` (`ask(prompt, context=result)`).
 
++ <span class="badge text-bg-enhancement">Enhancement</span> Faster on large long-format data, with the same results: [<code>ForecastingAssistant.profile()</code>][assistant] takes about 20 % less on 913,000 rows of 500 series, and the methods that receive data with a saved profile (`forecast()`, `forecast_code()`, `backtest()`, `backtest_code()`, `compare()`) profile the same data once per assistant instead of on every call, so a second call with them is faster (`backtest_code()` from 1.7 s to 0.15 s, `forecast()` about 20 %).
+
 + <span class="badge text-bg-enhancement">Enhancement</span> The reason of the categorical preprocessing step of a plan names at most 15 columns, followed by "(first 15 of N)", instead of all of them, so `describe()` of a plan stays short with hundreds of categorical columns.
 
 + <span class="badge text-bg-docs">Docs</span> The Quick start section is reorganized into [Installation](../quick-start/how-to-install.md), [Your first forecast](../quick-start/first-forecast.ipynb), now a notebook with its outputs, and the new [Ask the assistant](../quick-start/ask-the-assistant.md), on what the LLM layer adds. The [API reference][assistant] opens with a table of the methods of `ForecastingAssistant`, what each one returns and whether it uses the LLM.
