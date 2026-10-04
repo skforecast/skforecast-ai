@@ -2114,3 +2114,155 @@ Antes de mergear la fase 5b, una verificación independiente comparó la base (`
 **Para la lista del check de pago.** Los skills sincronizados son parte de lo que `ask()` envía. Además de la lista de la sección 19: el escenario `compare_default` ya no lleva la línea "Chosen by the user"; con datos con zona horaria, el `<script>` lleva un `initial_train_size` entero mientras la estrategia muestra la fecha.
 
 **Tests.** De 4037 a 4055 (más 1 omitido), en macOS con el entorno conda local y skforecast instalado desde `0.26.x`.
+
+## 20. Fase 6: hecho
+
+Rendimiento y limpieza (10.12), lo último de código antes de la release 0.4.0, en la rama `chore/performance-cleanup`, creada desde `0.4.x` (`8deb000`). Un commit por punto, en el orden pedido, cada uno subido al terminar. Antes de cada commit se pasaron `/verify` (lint, tests afectados, suite completa y, si había documentación, el build), el script de paridad contra la línea base, el subagente `conventions-reviewer` y `/code-review`; lo que encontraron se corrigió antes de subir, y los mensajes de los commits lo dicen. Ningún commit subido se reescribió y ninguno necesitó una corrección posterior. GitHub no ejecuta los tests de esta rama: la única comprobación es la de la sesión (Linux, Python 3.11.15, 4 CPU, skforecast 0.26.0, pandas 2.3.3; sin `chronos-forecasting` ni `xgboost`, así que el candidato foundation queda fuera de `compare()` y el de XGBoost falla en los conjuntos multiserie, igual en la base y al final).
+
+Goldens: los de render (`tests/tests_rendering`), los del contexto del LLM (`golden` y `golden_describe`) y los de esquemas del MCP no cambian en ningún commit.
+
+| Commit | Punto | Contenido |
+|---|---|---|
+| `9cecadb` | Base | Un test de `compare()` que dependía de tener instalado el backend foundation |
+| `1aa13f1` | 1 | Scripts de paridad y de tiempos (`tools/perf/`) y la línea base |
+| `7828763` | 3 | `perf`: no reconvertir una columna que ya es de fechas |
+| `05e7ae3` | 3 | `perf`: colocar los valores de cada serie en su rejilla por posición |
+| `81d8909` | 1 | El perfil del servidor sigue los hilos de trabajo |
+| `7d0ba79` | 3 | `perf`: perfilar una vez los mismos datos con un perfil guardado |
+| `a319da7` | 4 | Código muerto |
+| `f97b8e2` | 4 | Una sola definición de los conjuntos de forecasters y de tipos de tarea |
+| `c56c4fd` | 4 | Un solo cálculo de la ventana del forecaster |
+| `ad1cc83` | 5 | Listado de los periodos estacionales de las dos tablas (no se unifican) |
+| `4912b1c` | 4 | Comentarios y docstrings que describían un comportamiento anterior |
+| `5c3908e` | 6a | Plugin para encontrar el test que deja un recurso abierto |
+| `5cedfbc` | 6b | Tests de lo que las mutaciones de 19.1 no cubrían |
+| `03c9fa1` | 6c | Aviso por una variable de calendario más fina que la frecuencia |
+| `788aeb6` | 6d | Escenarios con overrides, avisos del plan y zona horaria en `check_ask_context.py` |
+| `dc7d8a1` | 3 | Nota de versión conjunta del rendimiento |
+| `0d1483a` | 1 | Mediciones finales (`tools/perf/results/final_*.json`) |
+| `4f147f4`, `be45f88` | 5 | Docstring del listado de periodos (multiplicadores y longitud de línea) |
+
+**Commit previo a la línea base.** En la base (`8deb000`) la suite daba 4051 pasados, 1 fallado y 1 omitido en esta sesión: `test_compare_overridden_fields_of_automatic_candidates_and_baseline` dependía de tener instalado `chronos-forecasting` (sin él, `compare()` emite `MissingBackendWarning`, que la suite convierte en error). `9cecadb` lo hace independiente del backend, como el test vecino de `MissingBackendWarning`, sin tocar el paquete.
+
+### 20.1 Línea base y herramientas
+
+`tools/perf/` (README propio) tiene dos scripts que se pueden volver a ejecutar en cualquier revisión:
+- `parity.py dump` guarda, para 8 conjuntos (h2o desde CSV y desde DataFrame, h2o con exógenas, bike_sharing con exógenas futuras, items_sales ancho y largo, datos largos con series que empiezan en fechas distintas y datos horarios en Europe/Madrid que cruzan el cambio de hora de primavera), el perfil, el plan, los scripts de `forecast_code()` y `backtest_code()`, `create_cv()`, las predicciones y métricas de `forecast()` (predicción y `test_size`), `backtest()` y `compare()` por defecto, con los avisos de Python de cada llamada; `parity.py compare` lista cada diferencia. Dos volcados de la base dieron 0 diferencias (determinismo comprobado), y una alteración de 1e-12 en una predicción o un aviso de más se detectan.
+- `timing.py` mide cada llamada pública y cada tool del servidor por stdio (con el arranque) en h2o (204 filas), bike_sharing (17 520 filas horarias con 6 exógenas) y store_sales (913 000 filas en formato largo, 500 series; la descarga funcionó, no hizo falta el sintético), con la parte de cada paquete según cProfile (tiempo propio sumado por directorio de instalación), `-X importtime` y el pico de memoria de `profile()` con tracemalloc.
+
+Además: `seasonal_periods.py` (punto 5) y `gc_after_test.py` (punto 6a). Los resultados están en `tools/perf/results/` (`baseline_*` y `final_*`). El volcado de paridad de la base no se guarda en el repo (2,5 MB): se rehace con `parity.py dump` sobre `9cecadb`.
+
+Máquina: 4 CPU, Linux, sin otra carga durante las mediciones. Mediana de 5 ejecuciones (1 cuando la llamada pasa de 60 s: `compare` en store_sales). Los tiempos de llamadas por debajo de 20 ms varían de una tanda a otra tanto como entre versiones (la propia base dio `create_cv` de h2o entre 10 y 17 ms en dos tandas), así que no se comparan.
+
+### 20.2 Tiempos: línea base y final
+
+Segundos (mediana); "propio" es el tiempo de las funciones de `skforecast_ai` según cProfile, que ralentiza el código Python, así que es una cota superior (la línea base se midió con la primera versión del script, que atribuía por la ruta del fichero; la subida en `1aa13f1`, por el directorio de instalación; para el paquete coinciden). `plan`, `refine_plan` y `forecast_code` tardan menos de 1 ms, salvo `plan` en store_sales (1,2 ms en la base y 1,3 ms al final).
+
+| Llamada | h2o base | h2o final | bike_sharing base | bike_sharing final | store_sales base (propio) | store_sales final (propio) |
+|---|---|---|---|---|---|---|
+| `profile` | 0,005 | 0,009 | 0,009 | 0,008 | 3,530 (0,250) | 3,045 (0,253) |
+| `create_cv` | 0,010 | 0,018 | 0,004 | 0,004 | 0,008 (0,005) | 0,008 (0,005) |
+| `backtest_code` | 0,007 | 0,005 | 0,006 | 0,005 | 1,700 (0,191) | 0,161 (0,015) |
+| `forecast` | 0,022 | 0,020 | 0,336 | 0,335 | 8,526 (0,258) | 7,266 (0,076) |
+| `backtest` | 0,060 | 0,061 | 1,667 | 1,725 | 26,170 (0,261) | 24,799 (0,086) |
+| `compare` | 34,659 | 36,673 | 8,032 | 9,052 | 65,442 (0,926) | 62,820 (0,303) |
+
+En store_sales, `backtest_code`, `forecast`, `backtest` y `compare` se miden con el mismo asistente y el mismo perfil guardado, como en un flujo de trabajo: desde la segunda llamada, el perfil de los datos ya está calculado (`7d0ba79`). La primera llamada de un asistente nuevo paga la huella (unos 0,2 s en store_sales). Medidos intercalados con la base (`9cecadb` en un worktree, mediana de 5, dos tandas): `backtest_code` 1,728 y 1,813 s frente a 0,175 y 0,145 s; `forecast` 10,286 y 9,792 s frente a 7,941 y 7,746 s; `forecast(test_size=7)` 13,326 y 14,263 s frente a 12,863 y 12,055 s. En h2o y bike_sharing las diferencias son ruido: el código propio no pasa del 10 % en ninguna llamada de más de 20 ms, y el tiempo está en skforecast (Auto-ARIMA de `compare` en h2o), pandas y el estimador.
+
+Servidor MCP por stdio (mediana de 5 sesiones; 1 en store_sales). Arranque: 2,59, 2,62 y 2,61 s en la base; 2,69, 2,62 y 2,61 s al final. Las herramientas sin datos (`get_code`, `get_failure`, `list_objects`, `describe_object`) tardan 6 a 10 ms en las dos.
+
+| Tool | bike_sharing base | bike_sharing final | store_sales base | store_sales final |
+|---|---|---|---|---|
+| `profile` | 0,182 | 0,090 | 3,964 | 3,541 |
+| `create_cv` | 0,019 | 0,129 | 0,056 | 0,055 |
+| `backtest` | 1,817 | 1,863 | 28,014 | 27,199 |
+| `compare` | 9,303 | 8,650 | 68,343 | 63,659 |
+| `forecast` | 0,430 | 0,534 | 8,869 | 7,858 |
+
+El `create_cv` de bike_sharing no es una regresión: en un proceso nuevo, una recolección completa del recolector de basura (0,10 a 0,12 s con el montón del servidor) caía en la base dentro de `profile` y ahora dentro de `create_cv`. Con `gc` desactivado, las dos versiones dan `profile` 0,11 s y `create_cv` 0,02 s; la recolección se vio con `gc.callbacks`. En proceso, con el mismo servidor y 9 repeticiones intercaladas, `create_cv` da 8 a 10 ms en las dos. El código del propio servidor (`mcp/server.py`, envoltorios y registro) pesa menos del 0,1 % de una sesión.
+
+Importación (mediana de 5): `import skforecast_ai` 1,71 s en la base y 1,79 s al final; `import skforecast_ai.mcp` 2,41 y 2,61 s. Los módulos propios suman 0,13 s; el resto es scipy (0,71 s), mcp_types (0,67 s), numpy, pandas, sklearn y skforecast. Pico de memoria de `profile()` en store_sales: 83,2 MiB para 68,7 MiB de datos, igual en la base y al final.
+
+### 20.3 Optimizaciones
+
+Las tres, con paridad sin diferencias en los 8 conjuntos y los goldens intactos.
+
+| Commit | Qué | Medida (store_sales, misma máquina, mediana de 5) |
+|---|---|---|
+| `7828763` | `_frame_index_bounds` llamaba a `pd.to_datetime` sobre la columna de fechas de cada serie, aunque ya fuera de fechas (89 % de la función según line_profiler; 22 % de `profile()` y 42 % de `backtest_code()`). Se salta cuando la columna ya es datetime64 (con o sin zona, cualquier unidad), que devuelve los mismos valores | `profile` 3,507 a 2,801 s (-20 %); `backtest_code` 1,822 a 1,208 s (-34 %); `forecast` 9,012 a 7,888 s (-12 %); `backtest` 26,120 a 25,142 s (-4 %) |
+| `05e7ae3` | `_series_spans` construía un frame por serie y lo reindexaba sobre la rejilla. Ahora toma las posiciones de cada serie y coloca los valores con `get_indexer`; mismo resultado (comprobado en las 500 series y en 1200 casos aleatorios en la revisión) | `_series_spans` 0,681 a 0,385 s; `forecast(test_size=7)` 12,38 y 12,18 a 11,34 y 11,72 s (-4 a -8 %); en modo predicción, dentro del ruido |
+| `7d0ba79` | `_refresh_profile` volvía a perfilar los datos en cada llamada con un perfil guardado (85 % de `backtest_code`, 12 % de `forecast`). El asistente guarda los perfiles de datos que calculó (los 8 usados por última vez), por una huella de los datos (`_frame_fingerprint`) y las columnas del perfil | Llamada repetida: `backtest_code` 1,034 a 0,149 s (-86 %), `forecast` 8,132 a 7,125 s (-12 %). Primera llamada: `backtest_code` 1,054 a 1,265 s (la huella), `forecast` igual |
+
+Detalles de `7d0ba79`: la huella no se da (y se perfila como antes) para valores de objeto que no sean todo texto (pandas trata igual `1` y `'1'`), MultiIndex, valores que no se pueden hashear o texto que no se puede codificar; distingue las categorías completas, `None` de `NaN`, la frecuencia y el nombre del índice. La caché no lleva lock para que el asistente se pueda seguir copiando y serializando con `pickle` (un lock lo rompía; lo encontró `/code-review`). El perfil guardado solo se compara, nunca se devuelve.
+
+### 20.4 Medido y dejado como está
+
+| Qué | Medida | Motivo |
+|---|---|---|
+| PACF de `profile()` | 1,9 s de 2,8 s en store_sales | El 80 % es `pacf` de skforecast; el bucle propio por serie, 0,15 s |
+| Resto de `create_data_profile` | Cada parte por debajo del 10 % de `profile()` tras `7828763`: estadísticos del target 0,2 s, fechas repetidas 0,2 s, fechas por serie 0,15 s, orden 0,1 s, índice de muestra 0,09 s | Bajo el umbral. El TODO de `_extract_datetime_index` (máscaras) sigue: mide un 3 % |
+| Bucle por serie de `_compute_series_metrics` | 0,18 s (7 % de `profile()`) | Bajo el umbral; un `groupby().agg()` daría 0,05 s |
+| Segundo `_series_spans` en modo evaluación | 0,39 s (3 % de la llamada) | Bajo el umbral tras `05e7ae3` |
+| Perfil de datos que difieren del guardado | Se perfilan dos veces (datos y `profile()`) | Reusar el primero obliga a reemitir sus avisos a mano, que cambia de dónde vienen (filtros por módulo y registro de avisos ya mostrados) |
+| Huella SHA-256 del CSV en el servidor | 21 ms por cálculo en 20 MiB, dos por llamada (1 % de `profile`) | Bajo el umbral |
+| Código del servidor | Menos del 0,1 % de una sesión | Bajo el umbral |
+| Importación y arranque del servidor | 1,7 y 2,4 s; propio 0,13 s | El resto es de dependencias |
+| `plan`, `refine_plan` y `forecast_code` (1,3 ms como mucho) | El código propio es casi toda la llamada | Nada que ganar en tiempo absoluto |
+| `create_cv` (4 a 18 ms) | El tiempo está en pandas y skforecast (`TimeSeriesFold.split`); lo propio, un 3 a 6 % | Bajo el umbral |
+| `backtest` y `compare` | Más del 98 % dentro del script (skforecast, pandas, el estimador) | No es código propio |
+| v0.3.1 como caja negra (opcional de 10.12) | No se midió | Apunta a skforecast 0.25 y pediría otro entorno; 10.12 lo deja como opcional |
+
+### 20.5 Limpieza
+
+- Código muerto (`a319da7`): `MULTI_SERIES_FORECASTERS`, `MULTIVARIATE_FORECASTERS`, `SINGLE_ML_FORECASTERS` y `STATS_FORECASTERS` de `_constants.py`; `_lazy_import_cv_agent` de `llm/__init__.py`; el parámetro `api_key` de `_check_base_url`; `detect_gaps`, que solo usaba su test (los huecos los cuenta `count_missing_timestamps`; su test pasa a `test_count_missing_timestamps.py` con los dos casos que solo él cubría). Cada nombre se buscó en el paquete, los tests, `tools`, `docs`, `plugin` y `mkdocs.yml`, también como texto.
+- Duplicados (`f97b8e2`, `c56c4fd`): los `_DIRECT_FORECASTERS` y `_LAG_FORECASTERS` de `_last_window.py` y `_future_exog.py` pasan a `DIRECT_FORECASTERS` y `AUTOREG_FORECASTERS`; la tupla de tipos de tarea de ML, escrita en cinco sitios, es `ML_TASK_TYPES`; el `"Direct" in fc` del presupuesto de lags es `fc in DIRECT_FORECASTERS`; `_compute_min_train_size` usa `plan_window_size` (mismo valor en 1350 planes construidos con `plan()` y en 8640 combinaciones de `forecaster_kwargs`; solo difieren argumentos que la validación rechaza). Los conjuntos de candidatos de `forecaster_selection.py` (listas ordenadas) y el `Literal` del MCP (esquema) se quedan.
+- Comentarios y docstrings (`4912b1c`), encontrados con un barrido del paquete y comprobados contra el código: `start_date` frente a `span_start_date`, `_cv_in_time_zone`, la comprobación de fechas de `load_exog`, el parámetro `overrides`, las Notes de `backtest()` y `backtest_code()` (ya toman `lags` y `window_features`), el rechazo de la primera ventana corta también en `backtest_code()`, `DataProfile.time_zone`, las columnas de `ForecastResult.metrics`, `exog_columns` fuera de la comparación de `refine_plan()`, los errores de fechas de `create_data_profile` y el TODO de `format="mixed"`.
+- No se reorganizó `assistant.py` ni `mcp/server.py`, no se movió código entre módulos y no cambió ningún nombre público.
+
+### 20.6 Tablas de periodos estacionales (punto 5)
+
+`tools/perf/seasonal_periods.py` recorre las 218 frecuencias que infiere pandas (cada alias, anclado, sin multiplicar y multiplicado por 2, 3, 4, 5, 6, 7, 10, 12, 14, 15, 20 y 30) y los 20 alias de pandas 2.1: **104 de 238 dan un periodo distinto** en `FREQUENCY_TO_SEASONAL_PERIOD` (Auto-ARIMA, la regla de ForecasterStats y el baseline) y en `estimate_seasonality` (horizonte del PACF, window features y el baseline cuando la tabla no tiene la frecuencia). Unificar cambiaría periodos, así que no se unificaron. Muestra:
+
+| Frecuencia | Tabla | `estimate_seasonality` | Baseline |
+|---|---|---|---|
+| `5min`, `10min`, `15min`, `30min` (y `5T` a `30T`) | 288, 144, 96, 48 (un día) | [12, 288], [6, 144], [4, 96], [2, 48] (primero la hora) | el de la tabla |
+| `2D` | 7 | [3, 182] | 7 |
+| `3D`, `2MS`, `2QS-OCT`, `2W-SUN`, `3h`, `s`, `10s`, ... | ninguno: Auto-ARIMA sin `m` | 2, 6, 2, 26, 8, 3600, 360 (el primero) | el de `estimate_seasonality` |
+| `AS-JAN` | 1 | ninguno | 1 |
+
+### 20.7 Pendientes de 19.1 (punto 6)
+
+- 6a, test inestable de `tests/tests_mcp` (`5c3908e`): **no se reproduce en Linux**. 10 ejecuciones completas con `-n auto` limpias, y `tests/tests_mcp` (dos veces) y la suite completa (una) con un plugin que ejecuta `gc.collect()` tras cada test, `-X dev` y `ResourceWarning` como error, también limpias; el plugin sí detecta un socket o un bucle sin cerrar en un test de prueba. No hay recurso que cerrar y no se añadió ningún filtro. `tools/perf/gc_after_test.py` queda para repetirlo en macOS, donde se vio: hace fallar al test que deja el recurso, con la línea que lo creó si se usa `PYTHONTRACEMALLOC`. Sin entrada en la release.
+- 6b, tests de las mutaciones (`5cedfbc`): los lags que reservan el orden de diferenciación (df_single: [1, 2, 3, 4, 5, 7] sin orden y [1, 2, 3, 4] con `differentiation=29`), la nota de diferenciación de `compare()` que no nombra al baseline, el recurso de `span_start_date` con un tramo más corto o más largo, y la frase de exógenas no usadas cuando la regla no usaba ninguna. Cada test se comprobó contra su mutación; `conventions-reviewer` encontró dos mutaciones que aún pasaban y quedaron cubiertas.
+- 6c, aviso de calendario (`03c9fa1`, con entrada en la release dentro de la de los overrides, que son de esta versión): una variable elegida más fina que la frecuencia con columna constante (`hour` en datos diarios, `day_of_week` o `weekend` en semanales, `day_of_month` en `MS`) se mantiene y avisa con un `UserWarning` cuyo texto va también a `plan.warnings`. Se calcula con `CalendarFeatures` sobre la rejilla del perfil; `/code-review` encontró un falso aviso en datos con zona que no empiezan a medianoche, corregido con su test.
+- 6d, `check_ask_context.py` (`788aeb6`): escenarios `overrides_plan` y `time_zone_backtest_code`, construidos en los cuatro conjuntos con `--dry-run` (no se lanzó sin él).
+
+### 20.8 Paridad y tests
+
+**Paridad final.** `parity.py compare` entre la base y el último commit: **sin diferencias** en los 8 conjuntos (perfil, plan, scripts, CV, predicciones, métricas y avisos de cada llamada). Se pasó también antes de cada commit de código.
+
+**Tests.** De 4051 pasados, 1 fallado y 1 omitido en `8deb000` a **4087 pasados y 1 omitido**: 4052 (`9cecadb`), 4074 (`7d0ba79`, 22 de la huella y la caché), 4070 (`a319da7`, fuera los casos de `detect_gaps`), 4074 (`5cedfbc`) y 4087 (`03c9fa1`).
+
+### 20.9 Preguntas nuevas para el autor
+
+1. Tablas de periodos (20.6): ¿se unifican, y en qué sentido? Si `estimate_seasonality` manda, Auto-ARIMA recibe `m` en las frecuencias multiplicadas (26 en `2W-SUN`, 8 en `3h`) y el baseline de datos de 5 a 30 minutos repite la hora en vez del día; si manda la tabla, el PACF y las window features de esos datos cambian. Cualquiera de las dos cambia scripts y resultados.
+2. Datos con zona horaria cuya primera fecha no es medianoche: `start_date` se escribe con el desfase de esa fecha (el contexto de bike_sharing empieza en `2012-10-09 18:00:00+02:00`), `create_cv()` arrastra ese desfase a fechas de otra estación (`initial_train_size: 2012-12-07 01:00:00+02:00`, una hora antes de la hora local que parece) y las posiciones se cuentan en la rejilla regular, no en la local. Lo encontró la revisión del punto 4 y se ve en el escenario `time_zone_backtest_code` de bike_sharing. Arreglarlo (escribir `start_date` en hora local sin desfase) cambia perfiles, CV y scripts de esos datos: ¿para 0.4.0 o 0.5.0?
+3. Datos que difieren de un perfil guardado: se siguen perfilando dos veces (20.4). ¿Se acepta, o se reemiten los avisos del primer perfil?
+4. `refine_plan()` no compara `ForecastPlan.exog_columns`: una edición a mano de ese campo se pierde sin `PlanEditsDiscardedWarning`. ¿Se compara (el campo viene del perfil)?
+5. 6a: ¿se ejecuta `tools/perf/gc_after_test.py` en macOS para ver si el aviso vuelve a salir y en qué test?
+6. La primera llamada de un asistente nuevo con un perfil guardado paga la huella de los datos (0,2 s en store_sales). ¿Se acepta, o se calcula también en `profile()` (que la pagaría siempre)?
+
+### 20.10 Para el check de pago
+
+Además de la lista de 19 y 19.1:
+- El texto del aviso de calendario de 6c, que llega al contexto en "Plan warnings".
+- Los dos escenarios nuevos de `check_ask_context.py`; en `time_zone_backtest_code` de bike_sharing, la fecha con desfase de la pregunta 2 (la lista de comprobación dice que no se marque a ciegas).
+- Ningún otro cambio de esta fase toca lo que recibe el LLM: los goldens de contexto no cambiaron.
+
+### 20.11 Qué queda para 0.4.0
+
+- El check de pago, una sola vez, con la lista de las secciones 3, 12, 13, 14, 15, 18, 18.1, 19, 19.1 y 20.10, y los cuatro conjuntos de `check_ask_context.py` (`overrides_plan` y `time_zone_backtest_code` ya están).
+- Las preguntas de arriba y las abiertas de las secciones anteriores.
+- El plan de release de 17.1: skforecast 0.26.0, después skforecast-ai 0.4.0 en PyPI y solo entonces el merge de `0.4.x` a `main`.
+
+**Siguiente:** el check de pago.
