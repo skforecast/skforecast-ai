@@ -390,9 +390,9 @@ def _frame_fingerprint(frame: pd.DataFrame) -> str | None:
 
     It is the hash of every row (`pandas.util.hash_pandas_object`, index
     included) with the shape, labels, dtypes, index type, names and
-    frequency, the categories of categorical columns, and which missing
-    marker (`None`, `NaN`, `pd.NA`) each missing object value is, since
-    pandas hashes them alike. pandas also hashes an object value through
+    frequency, the categories of categorical columns, the local times of
+    dates with a time zone, and which missing marker (`None`, `NaN`,
+    `pd.NA`) each missing object value is, since pandas hashes them alike. pandas also hashes an object value through
     its text, so `1` and `'1'` would hash alike: frames with object values
     (or categories) that are not all text get None, as do a MultiIndex and
     values that cannot be hashed.
@@ -438,6 +438,13 @@ def _frame_fingerprint(frame: pd.DataFrame) -> str | None:
                     pd.util.hash_pandas_object(categories, index=False)
                     .to_numpy().tobytes()
                 )
+            elif isinstance(values.dtype, pd.DatetimeTZDtype):
+                # pandas hashes the instants, and the repr of the dtype
+                # names the zone: two zones of the same name with other
+                # rules ('CET' and a fixed offset called 'CET') differ in
+                # their local times, which are hashed too.
+                local = pd.DatetimeIndex(values).tz_localize(None)
+                digest.update(local.asi8.tobytes())
             elif pd.api.types.is_object_dtype(values.dtype):
                 if pd.api.types.infer_dtype(values) not in texts:
                     return None
@@ -4457,13 +4464,16 @@ class ForecastingAssistant:
             fingerprint, repr(target), saved.date_column, saved.series_id_column
         )
         fresh = None
+        # Created here when `__init__` did not: a subclass that does not
+        # call it, or an assistant pickled by an earlier version.
+        kept = self.__dict__.setdefault("_fresh_profiles", OrderedDict())
         if fingerprint is not None:
             # Without a lock (the assistant stays picklable): a lookup that
             # loses a race with another thread profiles the data again.
-            fresh = self._fresh_profiles.get(key)
+            fresh = kept.get(key)
             if fresh is not None:
                 with contextlib.suppress(KeyError):
-                    self._fresh_profiles.move_to_end(key)
+                    kept.move_to_end(key)
         if fresh is None:
             # Not shown: the caller saw them when the saved profile was built,
             # and `profile()` shows them below when the values differ.
@@ -4476,10 +4486,10 @@ class ForecastingAssistant:
                     series_id_column = saved.series_id_column,
                 )
             if fingerprint is not None:
-                self._fresh_profiles[key] = fresh
-                while len(self._fresh_profiles) > _MAX_FRESH_PROFILES:
+                kept[key] = fresh
+                while len(kept) > _MAX_FRESH_PROFILES:
                     with contextlib.suppress(KeyError):
-                        self._fresh_profiles.popitem(last=False)
+                        kept.popitem(last=False)
 
         differences = structure_differences(saved, fresh)
         if differences:

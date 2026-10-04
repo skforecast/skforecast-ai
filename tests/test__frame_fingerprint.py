@@ -134,3 +134,29 @@ def test_frame_fingerprint_output_changes_with_many_categories():
     assert _frame_fingerprint(base) != _frame_fingerprint(added)
     assert _frame_fingerprint(ordered) != _frame_fingerprint(reordered)
     assert _frame_fingerprint(base) != _frame_fingerprint(ordered)
+
+
+@pytest.mark.parametrize("as_index", [True, False], ids=["index", "date column"])
+def test_frame_fingerprint_output_changes_with_the_rules_of_a_time_zone(as_index):
+    """
+    Test that the same instants in two time zones of the same name and other
+    rules ('Europe/Madrid' and a fixed offset of one hour called
+    'Europe/Madrid') have different fingerprints: pandas hashes the instants
+    and the dtype only names the zone.
+    """
+    import datetime
+
+    dates = pd.date_range("2023-01-01", periods=200, freq="D", tz="Europe/Madrid")
+    fixed = dates.tz_convert(
+        datetime.timezone(datetime.timedelta(hours=1), "Europe/Madrid")
+    )
+    values = np.arange(200, dtype=float)
+    if as_index:
+        first = pd.DataFrame({"y": values}, index=dates)
+        second = pd.DataFrame({"y": values}, index=fixed)
+    else:
+        first = pd.DataFrame({"date": dates, "y": values})
+        second = pd.DataFrame({"date": fixed, "y": values})
+
+    assert repr(first.index.dtype) == repr(second.index.dtype)
+    assert _frame_fingerprint(first) != _frame_fingerprint(second)

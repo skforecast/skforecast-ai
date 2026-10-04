@@ -2,6 +2,8 @@
 
 import re
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from skforecast.model_selection import TimeSeriesFold
@@ -676,3 +678,62 @@ def test_backtest_code_output_when_strategy_cannot_be_split():
     )
 
     assert "initial_train_size = 100," in result.code
+
+
+def test_backtest_code_kept_profile_is_of_the_columns_of_the_saved_profile():
+    """
+    Test that the data profile kept for some data is only reused for a saved
+    profile of the same target, date column and series id column: the same
+    frame with a profile of another target, or with another of its columns
+    as the series id, gives the script of its own profile, as a new
+    assistant does.
+    """
+    index = pd.date_range("2022-01-01", periods=120, freq="D")
+    wide = pd.DataFrame({
+        "date": index,
+        "a": np.arange(120, dtype=float) % 7,
+        "b": np.arange(120, dtype=float) % 5,
+    })
+    long = pd.DataFrame({
+        "date": np.tile(index, 2),
+        "shop": np.repeat(["s1", "s2"], 120),
+        "region": np.repeat(["r2", "r1"], 120),
+        "value": np.arange(240, dtype=float) % 7,
+    })
+    cv = TimeSeriesFold(steps=3, initial_train_size=80, verbose=False)
+    warm = ForecastingAssistant()
+
+    cases = [
+        (wide, {"target": "a", "date_column": "date"}),
+        (wide, {"target": "b", "date_column": "date"}),
+        (long, {"target": "value", "date_column": "date", "series_id_column": "shop"}),
+        (long, {"target": "value", "date_column": "date", "series_id_column": "region"}),
+    ]
+    for data, arguments in cases:
+        profile = warm.profile(data=data, **arguments)
+        expected = ForecastingAssistant().backtest_code(
+            data=data, cv=cv, profile=profile
+        )
+
+        result = warm.backtest_code(data=data, cv=cv, profile=profile)
+
+        assert result.code == expected.code
+        assert result.profile == expected.profile
+
+
+def test_backtest_code_output_when_the_assistant_has_no_kept_profiles():
+    """
+    Test that an assistant without the attribute that keeps the data
+    profiles (a subclass whose `__init__` does not call the one of the
+    class, or an assistant pickled by an earlier version) still runs with a
+    saved profile.
+    """
+    cv = TimeSeriesFold(steps=3, initial_train_size=100, verbose=False)
+    plain = ForecastingAssistant()
+    profile = plain.profile(data=df_h2o, target="x")
+    del plain.__dict__["_fresh_profiles"]
+
+    result = plain.backtest_code(data=df_h2o, cv=cv, profile=profile)
+
+    assert result.profile is profile
+    assert len(plain._fresh_profiles) == 1
