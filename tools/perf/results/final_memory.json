@@ -1,0 +1,18 @@
+{
+ "environment": {
+  "revision": "788aeb6",
+  "python": "3.11.15",
+  "machine": "x86_64",
+  "cpus": 4,
+  "skforecast_ai": "0.4.0",
+  "skforecast": "0.26.0",
+  "pandas": "2.3.3"
+ },
+ "memory": {
+  "dataset": "store_sales",
+  "rows": 913000,
+  "data_mb": 68.7,
+  "profile_peak_mb": 83.2,
+  "notes": []
+ }
+}
