@@ -12,8 +12,8 @@ dev/mcp-preparation.md).
   period), and the baseline when the table has no entry.
 
 The frequencies are those `pd.infer_freq` returns for regular indexes of
-every alias, multiplied by 1 to 30 and anchored, plus the aliases pandas 2.1
-inferred (`M`, `Q-DEC`, `A-DEC`, `H`, `T`, `S`), which pandas 2.2 renamed.
+every alias, anchored, alone and multiplied by 2, 3, 4, 5, 6, 7, 10, 12, 14,
+15, 20 and 30, plus the aliases pandas 2.1 inferred (`M`, `Q-DEC`, `A-DEC`, `H`, `T`, `S`), which pandas 2.2 renamed.
 
 Usage (from the repository root):
 
