@@ -116,10 +116,12 @@ class DataProfile(BaseModel):
     time_zone : str, default None
         Name of the time zone of the dates (`'Europe/Madrid'`, `'UTC'`),
         or None when they have none or it cannot be rebuilt from its name.
-        `start_date` is written without it, as local time. With it, the
-        positions and the dates of a cross-validation strategy are counted
-        on the local times of the data, which skip or repeat an hour at a
-        daylight saving change.
+        When the first date is at midnight, `start_date` is its local date
+        and the positions and the dates of a cross-validation strategy are
+        counted on the local times of the data, which skip or repeat an
+        hour at a daylight saving change. A first date at another hour is
+        written with its UTC offset, and the strategy is counted on the
+        regular grid of the data.
     span_start_date : str, None
         First date of the span of `span_index_length`: `start_date`, or in
         long format the earliest first date of the series.

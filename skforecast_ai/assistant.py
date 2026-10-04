@@ -1501,8 +1501,9 @@ class ForecastingAssistant:
             is carried over (values edited by hand, such as a key of
             `forecaster_kwargs`, or a metric that is not passed as `metric`):
             the refined plan does not keep them.
-            The split boundary, the explanation, the warnings and the marks
-            are not compared, nor the fields overridden in the call.
+            The split boundary, the explanation, the warnings, the marks
+            and the exogenous columns (recorded from the profile) are not
+            compared, nor the fields overridden in the call.
         """
 
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
@@ -2356,8 +2357,9 @@ class ForecastingAssistant:
             feature plus the differentiation order, or the offsets of the
             baseline; plus `steps` for a direct forecaster), for example
             with a horizon that leaves no room for it, a `UserWarning` says
-            that `backtest()` of this plan raises; the strategy can still
-            serve forecasters with a smaller window in `compare()`.
+            that `backtest()` of this plan raises (`backtest_code()` raises
+            too); the strategy can still serve forecasters with a smaller
+            window in `compare()`.
         fold_stride : int, default None
             Number of observations that the start of the test set advances between
             consecutive folds.
@@ -2604,7 +2606,10 @@ class ForecastingAssistant:
             describe data of the same structure (format, target, series,
             frequency, exogenous columns), or `ValueError` is raised. A
             direct forecaster with a `gap` raises `ValueError`: each fold
-            would ask it for `steps + gap` steps.
+            would ask it for `steps + gap` steps. So does a first training
+            window with fewer observations than the forecaster needs: more
+            than its window size, or at least its window size plus `steps`
+            for a direct forecaster.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -2703,10 +2708,14 @@ class ForecastingAssistant:
 
         Notes
         -----
-        To customize `lags` or `window_features`, build the plan with
-        `plan()` (or `refine_plan()`) and pass it via `plan`, then build a
-        matching `cv` with `create_cv()`. This keeps the plan and the
-        cross-validation configuration consistent.
+        `lags` and `window_features` can be passed here, but the strategy of
+        `create_cv()` was sized for the window of the plan it was built
+        from, and a first training window too short for the window of the
+        forecaster raises (see `cv`).
+
+        To keep both consistent, build the plan with `plan()` (or
+        `refine_plan()`), pass it via `plan`, and build a matching `cv` with
+        `create_cv()`.
 
         References
         ----------
@@ -2819,7 +2828,10 @@ class ForecastingAssistant:
             describe data of the same structure (format, target, series,
             frequency, exogenous columns), or `ValueError` is raised. A
             direct forecaster with a `gap` raises `ValueError`: each fold
-            would ask it for `steps + gap` steps.
+            would ask it for `steps + gap` steps. So does a first training
+            window with fewer observations than the forecaster needs: more
+            than its window size, or at least its window size plus `steps`
+            for a direct forecaster.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -2930,10 +2942,14 @@ class ForecastingAssistant:
         uses them. Exogenous variables are extracted automatically from
         `profile.data_profile.exog_columns`.
 
-        To customize `lags` or `window_features`, build the plan with
-        `plan()` (or `refine_plan()`) and pass it via `plan`, then build a
-        matching `cv` with `create_cv()`. This keeps the plan and the
-        cross-validation configuration consistent.
+        `lags` and `window_features` can be passed here, but the strategy of
+        `create_cv()` was sized for the window of the plan it was built
+        from, and a first training window too short for the window of the
+        forecaster raises (see `cv`).
+
+        To keep both consistent, build the plan with `plan()` (or
+        `refine_plan()`), pass it via `plan`, and build a matching `cv` with
+        `create_cv()`.
 
         References
         ----------
@@ -3996,8 +4012,10 @@ class ForecastingAssistant:
             with `end_train` also needs `test_size` (`forecast()` does not
             evaluate a split it was not asked for).
         overrides : dict, default None
-            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`),
-            passed to `plan()`, or checked against a supplied `plan`.
+            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`,
+            `use_exog`, `differentiation`, `calendar_features`,
+            `target_transformer`, `dropna_from_series`), passed to `plan()`,
+            or checked against a supplied `plan`.
 
         Returns
         -------
@@ -4224,8 +4242,10 @@ class ForecastingAssistant:
         window_features : list of dict, default None
             Explicit window features configuration.
         overrides : dict, default None
-            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`),
-            passed to `plan()`, or checked against a supplied `plan`.
+            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`,
+            `use_exog`, `differentiation`, `calendar_features`,
+            `target_transformer`, `dropna_from_series`), passed to `plan()`,
+            or checked against a supplied `plan`.
 
         Returns
         -------

@@ -30,11 +30,6 @@ from .._dates import (
 from ..schemas import DataProfile
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
-# TODO: Performance & Data Integrity - Lookahead Sampling
-# Refactor `_try_parse_first_date_column` to test a small sample (e.g., 50 rows)
-# before parsing the whole column. `pd.to_datetime` with `format="mixed"` is
-# computationally expensive and can accidentally parse categorical text IDs as dates.
-
 # TODO: Memory Optimization - Mask Filtering
 # Optimize `_extract_datetime_index` to avoid creating heavy boolean masks 
 # (e.g., `data[data[series_id] == id]`) on the entire DataFrame. Consider using
@@ -215,8 +210,11 @@ def create_data_profile(
     index carried (negative for descending dates) is not the one of the
     data.
 
-    A CSV date column with empty cells, or whose dates mix UTC offsets,
-    raises a `ValueError` that says so (see `_try_parse_first_date_column`).
+    A CSV date column with empty cells raises a `ValueError` that says so,
+    as does one whose dates mix UTC offsets, are written in more than one
+    format, or are day-first dates whose first date also reads month-first
+    while a later one does not (see `_try_parse_first_date_column` and
+    `_read_date_column`).
 
     In long format, the frequency of every series is read: series of
     different frequencies, or with timestamps off the grid of the others,
@@ -408,11 +406,12 @@ def create_data_profile(
     if unused_columns:
         warnings.append(unused_columns_note(unused_columns))
 
-    # Compute start_date: the reference start for position-to-date
-    # conversion.  For long format with multiple series that may have
-    # different start dates, use the latest (max) start date so that
-    # n_observations positions from start_date gives a date that
-    # guarantees enough training data for the most constrained series.
+    # Compute start_date: the first date of the data, and in long format
+    # the latest first date of the series (the one every series has
+    # reached). Positions are converted to dates from
+    # `DataProfile.span_start_date`, which in long format is the earliest
+    # first date, where `span_index_length` starts (when the span can be
+    # rebuilt from it).
     start_date: str | None = None
     if datetime_index is not None and len(datetime_index) > 0:
         ts = _resolve_start_date(
@@ -2493,13 +2492,15 @@ def _resolve_start_date(
     date_col: str | None,
 ) -> pd.Timestamp:
     """
-    Determine the reference start date for position-to-date conversion.
+    Determine `DataProfile.start_date`.
 
     For single and wide formats, returns the first element of the
     datetime index. For long format with multiple series that may have
     different start dates, returns the **latest** first date across all
-    series so that position calculations align with the most
-    constrained (latest-starting) series.
+    series, the first date every series has reached. Positions are
+    converted to dates from `DataProfile.span_start_date` instead, which
+    in long format is the earliest first date when the span can be rebuilt
+    from it.
 
     Parameters
     ----------
