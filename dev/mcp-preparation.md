@@ -2061,3 +2061,55 @@ Goldens:
 - El plan de release de 17.1: skforecast 0.26.0, después skforecast-ai 0.4.0 en PyPI y solo entonces el merge de `0.4.x` a `main`.
 
 **Siguiente:** la fase 6 y, al final, el check de pago.
+
+### 19.1 Revisión del autor y correcciones
+
+Antes de mergear la fase 5b, una verificación independiente comparó la base (`36babee`) con la rama (`17fb098`) en cuatro frentes: los overrides, `exog_columns` y los seis arreglos de 18.1, el servidor MCP con el bloqueo de modelos foundation y el contexto del LLM, y la suite con la documentación. La rama se ejecutó con skforecast instalado desde `0.26.x` (con los campos nuevos de `FoundationModelInfo`); ningún modelo foundation se ejecutó de verdad, porque no hay backend instalado. Las correcciones van como commits nuevos al final de `feature/overrides`; ninguno subido se reescribió.
+
+**Verificación.**
+- Suite: 4037 pasados y 1 omitido, como dice la sección 19; ruff limpio; la documentación construye sin avisos. De 58 mutaciones hechas a mano, los tests detectaron 54.
+- Sin overrides, perfil, plan, scripts, predicciones, métricas y avisos son idénticos a la base en 10 conjuntos; 181 backtests que corrían en la base dan lo mismo.
+- Overrides: 114 casos por familia de forecaster con el script igual al ejecutado y ejecutable como fichero; 543 valores inválidos rechazados con su campo; ningún intento de inyección de código llegó a ejecutarse (tampoco por la CLI ni el servidor).
+- Bloqueo por licencia: sin forma de saltárselo en 34 variantes del identificador. Corren sin `--allow-model` Chronos-2, TimesFM 2.5, TabICL, Nori y T0; necesitan la opción TimesFM 3.0, Moirai, TabPFN y TS-ICL.
+- Servidor: los 96 CSV y scripts de la paridad por stdio son idénticos a la base; los vectores de seguridad anteriores se comportan igual.
+
+**Fallos encontrados y corregidos.**
+
+| Qué fallaba | Corrección | Commit |
+|---|---|---|
+| `compare()` sin candidatos marcaba los planes de sus candidatos con `overridden_fields=['forecaster']`, y `describe()`, el servidor y el contexto de `ask()` decían "Chosen by the user instead of the rules: forecaster" | Los candidatos automáticos y el baseline solo conservan `metric` cuando se pasó a `compare()`. Los nombres se escriben en una línea en el contexto | `3b90f83` |
+| Un plan hecho con `exog_columns` y ejecutado sin su perfil volvía a usar todas las columnas, sin aviso (MAE 20.8 con el perfil frente a 0.98 sin él en el caso medido) | El plan guarda la selección (`ForecastPlan.exog_columns`, `None` cuando el perfil no dejó nada fuera) y los datos se perfilan con ella (pregunta 3) | `943e2f2` |
+| Con series largas que empiezan en fechas distintas, el CV por defecto podía caer después de los datos y `cv_config` anunciaba más folds de los que corrían; `backtest()` daba un `ValueError` crudo (`internal_error` en el servidor) | El CV por defecto, los recuentos de folds y las fechas que recibe el LLM cuentan desde `span_start_date` (pregunta 2). Una estrategia que skforecast no puede partir es un `InvalidInputError` | `5e9ec78` |
+| `backtest_code()` devolvía un script que falla cuando la primera ventana es más corta que la del forecaster | Lo rechaza, como `backtest()` (pregunta 1). El remedio solo nombra lags y window features para los forecasters que los tienen | `5e9ec78` |
+| Datos horarios en una zona con cambio de hora: `cv_config` decía 5 folds y el script ejecutaba 6, y podía mostrar una hora que no existe (`2023-03-26 02:00:00`) | El perfil guarda el nombre de la zona (`DataProfile.time_zone`) y las posiciones y fechas de una estrategia se cuentan sobre las horas locales (pregunta 8). Sin zona, en UTC o con desfase fijo no cambia nada | `ff8ddd5` |
+| `plan(differentiation=67)` culpaba a `lags`, que el usuario no pasó; `refine_plan(differentiation=32)` fallaba donde `plan()` funciona | El error nombra `differentiation`; `refine_plan()` vuelve a elegir los lags y ventanas que eligieron las reglas, dejando sitio al orden | `22f10eb` |
+| Notas de versión demasiado largas y tres entradas que describían mal la 0.3.1; el SKILL.md no describía los avisos nuevos de `create_cv`; la descripción del tool `compare` seguía diciendo que ordena por la métrica del perfil | Reescritas | `8a0263b` |
+
+**Decisiones del autor sobre las preguntas de la sección 19.**
+
+| Pregunta | Decisión | Estado |
+|---|---|---|
+| 1 | Ventana corta: `backtest_code()` la rechaza | Hecho (`5e9ec78`) |
+| 2 | Series que empiezan en fechas distintas: pasar a `span_start_date` | Hecho (`5e9ec78`) |
+| 3 | Plan sin su perfil tras `exog_columns`: el plan guarda la selección | Hecho (`943e2f2`) |
+| 4 | Fechas día-primero ambiguas: sin nota | Sin cambios |
+| 5 | Variable de calendario más fina que la frecuencia: avisar, no rechazar | Pendiente (impacto bajo: la columna es constante) |
+| 6 | ForecasterDirectMultiVariate en formato largo: no en 0.4.0 | Sin cambios |
+| 7 | `use_exog` en el `compare` del servidor | No se lleva a los candidatos (abajo) |
+| 8 | Zona horaria en el perfil | Hecho (`ff8ddd5`) |
+
+**No se hizo, y por qué.**
+- Pregunta 7. Llevar `use_exog=False` solo a los candidatos explícitos dejaría fuera a los automáticos, que `compare()` resuelve dentro del núcleo, y hacerlo bien pide un argumento nuevo en `compare()` (API, CLI y documentación). Con el commit `943e2f2` la vía que ya existe es completa: `profile` con `exog_columns: []` compara sin exógenas en todos los candidatos y el plan del ganador lo mantiene. El SKILL.md lo dice ahora.
+- Con la hora repetida del cambio de otoño, una fecha que cae en ella se coloca en su segunda aparición: `cv_config` y el script coinciden, con una observación más de entrenamiento que el tamaño calculado.
+
+**Pendiente.**
+- En skforecast, antes de la release: el skill `foundation-forecasting` y `llms-base.txt`, que se sincronizan desde skforecast y que `ask()` envía al LLM, todavía enseñan `info.license_restriction`, que la 0.26 eliminó. Hay que corregirlo allí y sincronizar.
+- Con una build de skforecast anterior a su PR #1332 (también numerada 0.26.0), un plan foundation falla con un `AttributeError` crudo.
+- Test inestable: en 3 de 7 ejecuciones completas de la verificación falló un test distinto de `tests/tests_mcp` por un `ResourceWarning` de un socket sin cerrar. No se reprodujo en las ejecuciones locales de esta revisión; queda para la fase 6 ver si viene de la base.
+- Tests que las mutaciones no cubren: los lags que reservan el orden de diferenciación, la nota de diferenciación de `compare()` con el baseline, y el recurso de `span_start_date` cuando el tramo no cuadra.
+- Mensajes: un valor inválido en un candidato de `compare()` no se rechaza al principio (el candidato falla y queda el último); cambiar a Stats, baseline o Foundation en `refine_plan()` descarta sin aviso la diferenciación, el calendario y el transformador; `exog_columns` con nombres de columna enteros; las fechas día-primero con año de dos cifras escapan a la comprobación de 18.1.
+- Sin página de usuario para los overrides de Python: solo la referencia de la API, la guía de la CLI y las páginas del MCP.
+
+**Para la lista del check de pago.** Además de la lista de la sección 19: el escenario `compare_default` ya no lleva la línea "Chosen by the user"; con datos con zona horaria, el `<script>` lleva un `initial_train_size` entero mientras la estrategia muestra la fecha.
+
+**Tests.** De 4037 a 4055 (más 1 omitido), en macOS con el entorno conda local y skforecast instalado desde `0.26.x`.
