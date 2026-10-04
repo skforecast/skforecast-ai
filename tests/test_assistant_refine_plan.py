@@ -841,3 +841,29 @@ def test_refine_plan_output_differentiation_chooses_default_windows_again():
     assert refined == assistant.plan(profile, steps=4, differentiation=1)
     assert refined_lags.forecaster_kwargs["lags"] == 5
     assert refined_lags.overridden_fields == ["lags", "differentiation"]
+
+
+def test_refine_plan_PlanEditsDiscardedWarning_when_exog_columns_edited_by_hand():
+    """
+    Test that `exog_columns` of a plan edited by hand, which refine_plan()
+    takes again from the profile, is named in the warning of discarded
+    edits, and that a plan left as built does not warn.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data         = df_single.assign(extra=1.0),
+        target       = "sales",
+        date_column  = "date",
+        exog_columns = ["promo"],
+    )
+    plan = assistant.plan(profile, steps=5)
+    edited = plan.model_copy(update={"exog_columns": ["promo", "extra"]})
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        kept = assistant.refine_plan(profile, plan, lags=3)
+    with pytest.warns(PlanEditsDiscardedWarning, match="exog_columns"):
+        refined = assistant.refine_plan(profile, edited, lags=3)
+
+    assert kept.exog_columns == ["promo"]
+    assert refined.exog_columns == ["promo"]

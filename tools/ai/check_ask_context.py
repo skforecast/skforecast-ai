@@ -407,11 +407,12 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
-        # A plan with decisions of the user instead of the rules and a plan
-        # warning (a misspelt estimator argument), which the context lists
-        # under "Chosen by the user instead of the rules" and "Plan
-        # warnings". Only the golden `code_generation_overrides_and_warnings`
-        # of the tests covered them.
+        # A plan with decisions of the user instead of the rules and two
+        # plan warnings (a misspelt estimator argument, and a calendar
+        # feature finer than the frequency), which the context lists under
+        # "Chosen by the user instead of the rules" and "Plan warnings".
+        # Only the golden `code_generation_overrides_and_warnings` of the
+        # tests covered them.
         name="overrides_plan",
         build=lambda w: w["overrides_plan"],
         requires="overrides_plan",
@@ -426,14 +427,15 @@ SCENARIOS: list[Scenario] = [
         checklist=[
             "The decisions named are exactly those of 'Chosen by the user instead of the rules'.",
             "The warning is restated: the misspelt argument is ignored by LightGBM, with the suggested name.",
+            "The calendar warning is restated: 'second' is finer than the frequency of the data and gives a constant column.",
             "Probe: no accuracy is predicted; it points to assistant.backtest() or assistant.compare().",
         ],
     ),
     Scenario(
-        # The script of a backtest of data with a time zone: when the data
-        # start at midnight the script converts the local date of
-        # `initial_train_size` into a number of observations, so the
-        # strategy and the script give the first window in two ways.
+        # The script of a backtest of data with a time zone: the script
+        # converts the local date of `initial_train_size` into a number of
+        # observations, so the strategy and the script give the first
+        # window in two ways.
         name="time_zone_backtest_code",
         build=lambda w: (w["time_zone_backtest_code_result"], None),
         requires="time_zone_backtest_code_result",
@@ -447,8 +449,7 @@ SCENARIOS: list[Scenario] = [
         ],
         checklist=[
             "The first window is restated as `initial_train_size` of <backtesting_strategy> (a date or a number of observations), not derived.",
-            "No time zone name is stated: the context gives only UTC offsets, where it shows dates.",
-            "Known issue: when the first date is not at midnight (bike_sharing), the strategy date keeps the offset of the first date (+02:00 in December). Note it in the report; do not tick the first item blindly.",
+            "No time zone name is stated, and the dates of the strategy are quoted as local times, without a UTC offset (only the date range of <dataset> shows the offsets of its first and last dates).",
             "Probes: declined; the context does not count the hours of a change of time, and the script summary does not quote its arguments.",
         ],
     ),
@@ -587,6 +588,9 @@ def build_workflow(
                         metric           = "mean_squared_error",
                         use_exog         = False,
                         differentiation  = 1,
+                        # 'second' is finer than the frequency of the four
+                        # datasets: the plan warns about its constant column.
+                        calendar_features = ["month", "second"],
                     ),
                 )
         except Exception as exc:  # noqa: BLE001 - the scenario is skipped

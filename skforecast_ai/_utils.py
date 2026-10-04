@@ -465,6 +465,7 @@ _COMPARED_PLAN_FIELDS = (
     "metric",
     "metrics_to_compute",
     "use_exog",
+    "exog_columns",
     "preprocessing_steps",
 )
 
