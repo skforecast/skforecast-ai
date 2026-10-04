@@ -2600,6 +2600,49 @@ def test_compare_candidate_differentiation_runs_on_a_copy_of_the_strategy():
     )
 
 
+def test_compare_explanation_without_differentiation_note_when_only_baseline_differs():
+    """
+    Test that when every candidate uses the order of the strategy, the
+    baseline (which runs on a copy of the strategy without order) is not
+    named in a note about candidates with their own differentiation order.
+    """
+    cv = TimeSeriesFold(
+        steps=5, initial_train_size=70, differentiation=1, verbose=False
+    )
+    result = assistant.compare(
+        data=df_single,
+        cv=cv,
+        target="sales",
+        date_column="date",
+        candidates=[
+            (
+                "recursive_diff",
+                {"forecaster": "ForecasterRecursive", "differentiation": 1},
+            ),
+            (
+                "direct_diff",
+                {
+                    "forecaster": "ForecasterDirect",
+                    "estimator": "Ridge",
+                    "lags": [1, 2, 3],
+                    "differentiation": 1,
+                },
+            ),
+        ],
+        show_progress=False,
+        baseline=True,
+    )
+
+    assert result.baseline_name == "Baseline (seasonal naive)"
+    assert "Baseline (seasonal naive)" in list(result.results["name"])
+    assert result.candidates["Baseline (seasonal naive)"].cv_config[
+        "differentiation"
+    ] is None
+    assert result.candidates["recursive_diff"].cv_config["differentiation"] == 1
+    assert "own differentiation order" not in result.explanation
+    assert "copy of the strategy" not in result.explanation
+
+
 def test_compare_candidate_feature_overrides():
     """
     Test that a candidate config takes `calendar_features`,

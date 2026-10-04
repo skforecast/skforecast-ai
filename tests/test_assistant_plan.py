@@ -1652,6 +1652,23 @@ def test_plan_output_when_use_exog_false():
     assert "as requested" not in with_exog.explanation
 
 
+def test_plan_output_when_use_exog_false_and_data_has_no_exog():
+    """
+    Test that `use_exog=False` on data without exogenous columns is
+    recorded as a decision but adds no "are not used, as requested"
+    sentence, as the rule would not have used any exogenous variable.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+
+    plan = assistant.plan(profile, steps=10, use_exog=False)
+
+    assert plan.use_exog is False
+    assert plan.overridden_fields == ["use_exog"]
+    assert "are not used, as requested" not in plan.explanation
+    assert "Exogenous variables" not in plan.explanation
+
+
 @pytest.mark.parametrize(
     "data, forecaster, estimator, reason",
     [
@@ -1814,6 +1831,24 @@ def test_plan_output_when_differentiation_given():
         "The target is differenced (order 2) before training, as requested, "
         "and the predictions are integrated back."
     )
+
+
+def test_plan_output_when_differentiation_order_reduces_the_selected_lags():
+    """
+    Test that, without explicit lags, the differentiation order is reserved
+    from the lag budget (33 of 100 observations): the PACF selects up to
+    lag 7 without it, and with an order of 29 only 4 observations are left
+    and the lags are cut to [1, 2, 3, 4].
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    without = assistant.plan(profile, steps=10)
+    with_order = assistant.plan(profile, steps=10, differentiation=29)
+
+    assert without.forecaster_kwargs["lags"] == [1, 2, 3, 4, 5, 7]
+    assert with_order.forecaster_kwargs["lags"] == [1, 2, 3, 4]
+    assert with_order.forecaster_kwargs["differentiation"] == 29
 
 
 @pytest.mark.parametrize(
