@@ -2103,13 +2103,14 @@ Antes de mergear la fase 5b, una verificación independiente comparó la base (`
 - Con la hora repetida del cambio de otoño, una fecha que cae en ella se coloca en su segunda aparición: `cv_config` y el script coinciden, con una observación más de entrenamiento que el tamaño calculado.
 
 **Pendiente.**
-- En skforecast, antes de la release: el skill `foundation-forecasting` y `llms-base.txt`, que se sincronizan desde skforecast y que `ask()` envía al LLM, todavía enseñan `info.license_restriction`, que la 0.26 eliminó. Hay que corregirlo allí y sincronizar.
 - Con una build de skforecast anterior a su PR #1332 (también numerada 0.26.0), un plan foundation falla con un `AttributeError` crudo.
 - Test inestable: en 3 de 7 ejecuciones completas de la verificación falló un test distinto de `tests/tests_mcp` por un `ResourceWarning` de un socket sin cerrar. No se reprodujo en las ejecuciones locales de esta revisión; queda para la fase 6 ver si viene de la base.
 - Tests que las mutaciones no cubren: los lags que reservan el orden de diferenciación, la nota de diferenciación de `compare()` con el baseline, y el recurso de `span_start_date` cuando el tramo no cuadra.
 - Mensajes: un valor inválido en un candidato de `compare()` no se rechaza al principio (el candidato falla y queda el último); cambiar a Stats, baseline o Foundation en `refine_plan()` descarta sin aviso la diferenciación, el calendario y el transformador; `exog_columns` con nombres de columna enteros; las fechas día-primero con año de dos cifras escapan a la comprobación de 18.1.
 - Sin página de usuario para los overrides de Python: solo la referencia de la API, la guía de la CLI y las páginas del MCP.
 
-**Para la lista del check de pago.** Además de la lista de la sección 19: el escenario `compare_default` ya no lleva la línea "Chosen by the user"; con datos con zona horaria, el `<script>` lleva un `initial_train_size` entero mientras la estrategia muestra la fecha.
+**Sincronización con skforecast.** El skill `foundation-forecasting` y `llms-base.txt` enseñaban `info.license_restriction`, que la 0.26 eliminó. Corregido en skforecast y sincronizado desde `0.26.x` (7 ficheros de skills y `llms-base.txt`; el inventario de 17 skills no cambia, las estimaciones de tokens sí).
+
+**Para la lista del check de pago.** Los skills sincronizados son parte de lo que `ask()` envía. Además de la lista de la sección 19: el escenario `compare_default` ya no lleva la línea "Chosen by the user"; con datos con zona horaria, el `<script>` lleva un `initial_train_size` entero mientras la estrategia muestra la fecha.
 
 **Tests.** De 4037 a 4055 (más 1 omitido), en macOS con el entorno conda local y skforecast instalado desde `0.26.x`.
