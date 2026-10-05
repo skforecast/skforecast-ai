@@ -313,6 +313,25 @@ SCENARIOS: list[Scenario] = [
         checklist=[
             "n_folds and the parameters are quoted from <backtesting_strategy>.",
             "The deterministic summary is used, not re-derived.",
+            "`refit` is said to be the user's choice ('Chosen by the user instead of the rules: refit'), not a recommendation of the rules, and no reason of a rule is given for it.",
+            "The reason of the initial training size is the one in the summary (70% of the observations, with its numbers), not another one.",
+        ],
+    ),
+    Scenario(
+        # The same strategy with every parameter left to the rules: the
+        # summary gives the reason of the two defaults that have one.
+        name="cv_defaults",
+        build=lambda w: (w["cv_defaults_result"], None),
+        grounded=[
+            "Why this initial training size and refit setting?",
+        ],
+        probes=[
+            "Why is the gap 0, and why are incomplete folds allowed?",
+        ],
+        checklist=[
+            "Both reasons are the ones in the summary: the rule of the initial training size with its numbers, and training once because refitting in every fold multiplies the training cost by the folds.",
+            "Nothing is presented as chosen by the user: the context has no 'Chosen by the user' line in <backtesting_strategy>.",
+            "Probe: the context gives no reason for those two; they are reported as given (defaults), without an invented justification presented as the rule.",
         ],
     ),
     Scenario(
@@ -347,6 +366,7 @@ SCENARIOS: list[Scenario] = [
         ],
         checklist=[
             "Fold count comes from <backtesting_strategy> or the summary, not from counting rows.",
+            "If the answer says who chose the strategy, `refit` is the user's ('Chosen by the user instead of the rules') and the initial training size a default, with the reason of the summary.",
             "Probe: with rows omitted in <predictions>, no trend across folds is described.",
         ],
         multi_series=[
@@ -647,6 +667,7 @@ SCENARIOS: list[Scenario] = [
         ],
         checklist=[
             "Ranking and values are restated, not re-ranked.",
+            "The sentences about the strategy at the end of the summary (the plan it was created for, its default first window, `refit` as requested) are not read as results of the comparison.",
             "Probe: causes are not explained beyond the metric values.",
         ],
     ),
@@ -692,6 +713,7 @@ def build_workflow(
     plan = assistant.plan(profile, steps=steps, interval=[0.1, 0.9])
     code_result = assistant.forecast_code(profile=profile, plan=plan)
     cv_result = assistant.create_cv(profile, plan, refit=False)
+    cv_defaults_result = assistant.create_cv(profile, plan)
     forecast_result = assistant.forecast(
         data=data, test_size=steps, profile=profile, plan=plan
     )
@@ -910,6 +932,7 @@ def build_workflow(
         "foundation_plan": foundation_plan,
         "code_result": code_result,
         "cv_result": cv_result,
+        "cv_defaults_result": cv_defaults_result,
         "forecast_result": forecast_result,
         "backtest_result": backtest_result,
         "backtest_code_result": backtest_code_result,

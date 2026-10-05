@@ -52,7 +52,10 @@ on one kind of data: a multivariate plan on the wide dataset
 (`multivariate_plan`), a comparison without a baseline because of an
 asymmetric interval on the single series (`compare_no_baseline`), and a
 foundation backtest with a series that ends early on the long dataset
-(`foundation_incomplete`, which needs the backend too).
+(`foundation_incomplete`, which needs the backend too). The strategy is
+asked about twice: with `refit` passed by the user (`cv`, the one the
+backtest and the comparisons run) and with every parameter left to the
+rules (`cv_defaults`), whose summary gives the reason of the defaults.
 
 The backtest of a foundation model (`foundation_backtest`), the only
 scenario with the `inference_windows` of a strategy, loads the weights of
@@ -61,7 +64,7 @@ in the Hugging Face cache or network access to download them. Without
 them the script says so and skips the scenario, and the default comparison
 of `h2o` runs without ForecasterFoundation.
 
-A full run makes 41 to 43 calls per dataset. With `google:gemini-3.8-flash`
+A full run makes 43 to 45 calls per dataset. With `google:gemini-3.8-flash`
 that is a few cents. Ad hoc reports land in this folder with a timestamped
 name and are ignored by git.
 
