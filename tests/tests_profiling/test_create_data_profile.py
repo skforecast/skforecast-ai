@@ -1346,3 +1346,33 @@ def test_create_data_profile_InvalidInputError_when_exog_columns_not_in_data():
         )
 
     assert exc_info.value.field == "exog_columns"
+
+
+@pytest.mark.parametrize(
+    "freq, tz",
+    [("D", None), ("h", "Europe/Madrid"), ("W-MON", None), ("MS", None), ("15min", None)],
+    ids=["daily", "hourly with time zone", "weekly", "monthly", "15 minutes"],
+)
+def test_create_data_profile_emits_no_warning_for_long_data_with_gaps(freq, tz):
+    """
+    Test that profiling long format data with missing dates emits no warning
+    of its own: with numpy 2.5, `pd.Timedelta(days=1)` and the like emit a
+    DeprecationWarning (the generic timedelta unit) that a user running with
+    warnings as errors would get from `profile()`.
+    """
+    index = pd.date_range("2022-01-03", periods=120, freq=freq, tz=tz)
+    data = pd.concat([
+        pd.DataFrame({
+            "date": index, "series": name, "value": np.arange(120) % 7 + 0.5
+        })
+        for name in ("a", "b")
+    ]).reset_index(drop=True).drop([5, 6])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        profile = create_data_profile(
+            data, target="value", date_column="date", series_id_column="series"
+        )
+
+    assert profile.frequency == freq
+    assert profile.n_series == 2

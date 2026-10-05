@@ -41,6 +41,14 @@ from ..exceptions import InvalidInputError, InvalidInputTypeError
 # or return a dictionary mapping each target to its dtype.
 
 
+# Durations in nanoseconds, the unit of `DateOffset.nanos`. Written out:
+# `pd.Timedelta(days=1)` emits a DeprecationWarning with numpy 2.5 (the
+# generic timedelta unit), which a user running with warnings as errors
+# would get from `profile()`. A year is 365.2425 days.
+_HOUR_NANOS = 3_600 * 10**9
+_DAY_NANOS = 24 * _HOUR_NANOS
+_YEAR_NANOS = 31_556_952 * 10**9
+
 # Consecutive timestamps per window when the frequency is inferred from the
 # stretches between gaps. Long enough to tell a business day from a calendar
 # day (a window must cross a weekend) and capped in number so the cost does
@@ -1694,7 +1702,7 @@ def _finer_than_a_day(frequency: str | None) -> bool:
 
     return (
         isinstance(offset, pd.offsets.Tick)
-        and offset.nanos < pd.Timedelta(days=1).value
+        and offset.nanos < _DAY_NANOS
     )
 
 
@@ -1706,7 +1714,7 @@ def _periods_per_year(frequency: str) -> float:
     """
     offset = pd.tseries.frequencies.to_offset(frequency)
     if isinstance(offset, pd.offsets.Tick):
-        return pd.Timedelta(days=365).value / offset.nanos
+        return 365 * _DAY_NANOS / offset.nanos
 
     # Forty years, so that steps of several years are counted too.
     return len(pd.date_range("2001-01-01", "2040-12-31", freq=offset)) / 40
@@ -1729,8 +1737,8 @@ def _own_frequencies(series_dates: dict[object, np.ndarray]) -> dict[object, str
     own. The other dates are checked against the grid of the frequency of
     the data.
     """
-    day = pd.Timedelta(days=1).value
-    year = pd.Timedelta(days=365.2425).value
+    day = _DAY_NANOS
+    year = _YEAR_NANOS
     cache: dict[tuple, str | None] = {}
     own = {}
     for name, dates in series_dates.items():
@@ -1789,12 +1797,12 @@ def _grid(
         phases, counts = np.unique(dates % offset.nanos, return_counts=True)
         return offset, int(phases[np.argmax(counts)])
 
-    day = pd.Timedelta(days=1).value
+    day = _DAY_NANOS
     times, counts = np.unique(dates % day, return_counts=True)
     first, last = pd.Timestamp(dates.min()), pd.Timestamp(dates.max())
     start = first.normalize() + pd.Timedelta(int(times[np.argmax(counts)]))
     if start > first:
-        start -= pd.Timedelta(days=1)
+        start -= pd.Timedelta(1, "D")
     grid = pd.date_range(start, last, freq=offset.base).asi8
     if offset.n > 1:
         positions, on_grid = _grid_positions(dates, grid)
@@ -1894,7 +1902,7 @@ def _coarser_frequency(
     if steps.min() == 1:
         return None
 
-    day = pd.Timedelta(days=1).value
+    day = _DAY_NANOS
     timestamps = pd.DatetimeIndex(dates)
     coarser = None
     if (dates % day == dates[0] % day).all():
@@ -2070,11 +2078,11 @@ def _in_hours(frequency: str | None) -> str | None:
     if frequency is None:
         return None
     offset = pd.tseries.frequencies.to_offset(frequency)
-    hour = pd.Timedelta(hours=1).value
+    hour = _HOUR_NANOS
     if isinstance(offset, pd.offsets.Tick):
         nanos = offset.nanos
     elif isinstance(offset, pd.offsets.Week):
-        nanos = offset.n * pd.Timedelta(weeks=1).value
+        nanos = offset.n * 7 * _DAY_NANOS
     else:
         return None
     if nanos % hour:
