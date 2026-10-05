@@ -7,6 +7,7 @@ from skforecast_ai._utils import load_exog
 from skforecast_ai.mcp import create_server
 
 from ..fixtures_assistant import df_single
+from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     call,
     df_single_future_exog,
@@ -216,3 +217,65 @@ def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
 
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
     assert (given["code"], given["field"]) == ("invalid_argument", "exog_path")
+
+
+def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(
+    tmp_path, monkeypatch
+):
+    """
+    Test that evaluating a ForecasterFoundation plan on long data where one
+    series ends before the test split is `invalid_argument` before any
+    script runs (it was `execution_failed` after the metrics of the script
+    failed), naming the series and its dates.
+    """
+
+    def _not_called(*args, **kwargs):
+        raise AssertionError("run_forecast must not be called")
+
+    monkeypatch.setattr("skforecast_ai.assistant.run_forecast", _not_called)
+    data = df_items_sales_long.loc[
+        (df_items_sales_long["series"] != "item_2")
+        | (df_items_sales_long["date"] <= "2012-04-19")
+    ]
+    path = write_csv(tmp_path, "items.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile = content_of(
+        call(
+            server,
+            "profile",
+            {
+                "data_path": path,
+                "target": "value",
+                "date_column": "date",
+                "series_id_column": "series",
+            },
+        )
+    )
+    plan = content_of(
+        call(
+            server,
+            "plan",
+            {
+                "profile_id": profile["id"],
+                "steps": 7,
+                "forecaster": "ForecasterFoundation",
+            },
+        )
+    )
+
+    error = error_of(
+        call(server, "forecast", {"plan_id": plan["id"], "test_size": 7}),
+        "forecast",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["message"] == (
+        "The target has missing values in the test split ('item_2': 7 value(s), "
+        "such as '2012-04-23', '2012-04-24', '2012-04-25', '2012-04-26', "
+        "'2012-04-27' and 2 more). skforecast cannot compute the metrics on "
+        "them, whatever the estimator. Impute the target, or evaluate on dates "
+        "without missing values. Series without any value in the test split "
+        "('item_2') end before it: remove them from the data, or evaluate on "
+        "dates they reach."
+    )
+    assert error["field"] == "data_path"
