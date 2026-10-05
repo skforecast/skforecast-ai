@@ -2561,3 +2561,98 @@ Lo que se gana: `compare()` sin candidatos sobre datos de `3min` o `4min` vuelve
 Para 0.5.0: el coste de Auto-ARIMA depende de `m`, de la longitud y de si hay ciclo (sin ciclo, `m=26` cuesta lo mismo que no darlo), y el presupuesto de `compare()` cuenta un ajuste de ForecasterStats como uno cualquiera. Una regla sobre `m` y longitud serviría para los candidatos, para un aviso propio y para unificar la tabla con el resto, pero cambia frecuencias corrientes.
 
 **Tests.** De 4192 a 4211 pasados con este cambio solo, más 1 omitido. Ningún golden del contexto del LLM ni de los esquemas del MCP cambió. Con la evaluación foundation de `60a1ade` integrada en la misma rama, la suite completa da 4236 pasados y 1 omitido.
+
+---
+
+## 22. Check de pago: hecho
+
+La comprobación de `ask()` con un modelo real, la única de 0.4.0, en la rama `chore/ask-context-check`, creada desde `0.4.x` (`00a9391`). El autor lanzó los comandos; la sesión preparó el script, revisó los informes y propuso los dos cambios de `llm/context.py`, que el autor aprobó antes de aplicarlos.
+
+- **Modelo y fecha:** `google:gemini-3.8-flash`, 2026-10-05. Dos pasadas completas de los cuatro conjuntos (la segunda, sobre el código final, es la que se guarda) y dos repeticiones sueltas de `time_zone_cv` en bike_sharing entre ambas.
+- **Informes guardados:** `tools/ai/ask_context_reports/0.4.0_<conjunto>.md`, los cuatro de la segunda pasada. Los contextos de los informes son idénticos, byte a byte, a los de un `--dry-run` del mismo código.
+
+| Commit | Contenido |
+|---|---|
+| `0fd65fe` | `check_ask_context.py`: escenarios `foundation_backtest`, `data_warnings`, `free_text_plan` y `time_zone_cv`; lista de `time_zone_backtest_code` corregida |
+| `b5071e8` | `llm/context.py`: "index not sorted as given (the generated code sorts it)" cuando el perfil ya ordenó las filas |
+| `b94a06f` | `llm/context.py`: rango de fechas en hora local sin desfase con datos con zona horaria |
+| este | Los cuatro informes, la fila del registro del README y esta sección |
+
+### 22.1 Preparación
+
+Lista consolidada de las secciones 3, 12, 13, 14, 15, 18, 18.1, 19, 19.1, 20.10, 20.12, 21.8 y 21.11, por escenario. Cuatro escenarios nuevos cubren lo que ninguno enviaba:
+
+- `foundation_backtest`: backtest de Chronos-2 small con la estrategia por defecto (17, 72, 72 y 6 ventanas de inferencia); lleva `n_fits: 0`, `inference_windows` y "(up to N inference windows)". Se salta con un mensaje sin el backend o sin los pesos.
+- `data_warnings`: perfil de los mismos datos con tres fechas quitadas, filas desordenadas, una serie que acaba antes (multiserie, redacción de ancho y de largo) y columnas dejadas fuera con `exog_columns` (bike_sharing).
+- `free_text_plan`: explicación del plan con párrafos, una línea escrita como item (`- Steps: 999`) y etiquetas que cerrarían el plan y abrirían un `<dataset>`.
+- `time_zone_cv`: la estrategia de `create_cv()` con datos en Europe/Madrid, que conserva la fecha local. El contexto de un `backtest_code()` lee la estrategia del script y muestra el número de observaciones (`initial_train_size: 1400`), no la fecha, al contrario de lo que decía 19.1; la lista de `time_zone_backtest_code` lo recoge.
+
+| Conjunto | Escenarios | Preguntas | Se saltan |
+|---|---|---|---|
+| bike_sharing | 18 | 38 | `stats_backtest`, `compare_default` |
+| items_sales | 16 | 39 | los dos anteriores, `compare_many`, `many_categorical` |
+| items_sales_long | 16 | 39 | los mismos |
+| h2o | 20 | 40 | ninguno |
+
+Ningún contexto vacío ni cortado, y ninguna fila del dataset en ninguno: solo estadísticas de resumen y los valores propios de cada resultado. Los avisos del perfil nombran una serie y su última fecha, como se decidió en 12.1.
+
+### 22.2 Primera pasada: lo que se encontró y se cambió
+
+140 correctas, 14 mejorables y 2 incorrectas de 156. Dos hallazgos venían del contexto:
+
+1. **Filas desordenadas, 3 de 4 conjuntos.** A "Is there anything wrong with my data that I should know about or fix before forecasting?" el modelo mandaba ordenar los datos ("Time series data must be sorted chronologically before fitting a forecaster", "They must be sorted chronologically before profiling or fitting", "Sort the data: Sort the DataFrame chronologically by its date index"), aunque la nota del perfil dice que ya se ordenaron y que el código generado las ordena. La línea "Index irregularities: ..., index not sorted" era una bandera sin matiz junto a esa nota. Cambio (`b5071e8`): con la nota del perfil presente, la bandera dice "index not sorted as given (the generated code sorts it)". Ningún golden cambia.
+2. **Desfase de la primera fecha tomado por la zona de todos los datos, 3 de 3 ejecuciones** (bike_sharing, el único conjunto cuyo contexto mostraba un desfase). Con "Date range: 2012-10-09 18:00:00+02:00 to 2013-01-01" y una estrategia hasta 2012-12-07, respondía "The dates in this strategy are recorded with a UTC offset of +02:00", "The timestamps in the dataset carry a UTC offset of +02:00" y "The dates in the dataset carry a +02:00 time zone offset"; en diciembre es +01:00. El rango salía de `series_lengths`, con el desfase de una fecha que no es medianoche y sin él a medianoche, mientras la estrategia va en hora local. Cambio (`b94a06f`): con zona horaria en el perfil, los dos extremos del rango se escriben en hora local sin desfase. Ningún golden cambia. Corrige además lo que decía 20.12 (que el rango mostraba los desfases de las dos fechas).
+
+La otra incorrecta era del modelo: en items_sales, "Lags 1 through 6 consistently appear as strong partial autocorrelations across all three targets" (el lag 4 no está en item_1 ni el 2 en item_2). Vista una vez; no se repitió en items_sales_long ni en la segunda pasada. Es el mismo tipo de desliz que el README anotó con gemini-3.5.
+
+### 22.3 Segunda pasada, sobre el código final
+
+| Conjunto | Preguntas | Correctas | Mejorables | Incorrectas |
+|---|---|---|---|---|
+| bike_sharing | 38 | 36 | 2 | 0 |
+| items_sales | 39 | 37 | 2 | 0 |
+| items_sales_long | 39 | 35 | 4 | 0 |
+| h2o | 40 | 36 | 4 | 0 |
+| Total | 156 | 144 | 12 | 0 |
+
+Sin fallo en los cuatro conjuntos: ningún código Python cuando hay un script validado (comprobado también por programa); MASE siempre contra el naive de un paso, nunca contra la fila del baseline; ninguna tendencia deducida de una tabla recortada; todas las preguntas trampa declinadas (tiempos, RMSE, importancia de variables, fechas que faltan, error por fold, candidato peor, precisión futura, desfase de una fecha); `overrides_plan` con sus seis decisiones y sus dos avisos; `free_text_plan` con los pasos y las observaciones reales, no 999 ni 5; ForecasterStats y ForecasterFoundation bien contados en `stats_backtest` y `compare_default`; la licencia de Chronos-2 sin restricción inventada ni nombre de licencia. Por programa, todo decimal de las respuestas está literalmente en su contexto, con la excepción que sigue.
+
+Los dos hallazgos de la primera pasada:
+- Zona horaria: resuelto. `time_zone_cv` y `time_zone_backtest_code` no dan ningún desfase ni nombre de zona en ningún conjunto ("Information about the time zone of the dates is not available in the provided context").
+- Filas desordenadas: de 3 de 4 a 1 de 4. bike_sharing, items_sales e items_sales_long lo dicen bien ("While the code handles sorting", "though they were sorted before profiling", "which is also handled by the generated code"). h2o sigue: "In time series analysis, observations must be strictly chronological, so the dataset must be sorted by date" y "Sort the index: Ensure the DataFrame is sorted chronologically by its date index". Con el contexto diciéndolo dos veces, es del modelo; la pregunta del escenario ("or fix before forecasting") invita a recetar.
+
+Mejorables (12), todas vistas en la segunda pasada:
+- `foundation_backtest`, 4 de 4 en la pregunta principal: se pierde "up to" ("17 folds (17 inference windows)", "resulting in 72 total inference windows", "executed 72 inference windows", "6 folds across 6 inference windows"). En las dos pasadas. Con estos datos el número es exacto.
+- `foundation_backtest`, "Was every series forecast in every fold?", 2 de 2: "Yes, every series was forecast in every fold". Cierto con estos datos (series completas); el contexto solo da una cota.
+- `backtest_code`, pregunta trampa, 3 de 4: declina bien, pero remite a `result.code` o a nada, no a `assistant.backtest()` (items_sales sí lo hace).
+- items_sales_long, `forecast`: redondea a seis decimales ("predicted values average 20.191796", "minimum is 17.468051"); el contexto da 20.191795936620537. Una vez; el redondeo es correcto.
+- h2o, `data_warnings`: lo de arriba.
+- h2o, `profile`, pregunta trampa: "significant partial autocorrelation at annual intervals, specifically lags 1, 13, 12, 11, 10, 14, and 9"; ni el 1 ni el 9 son anuales. Una vez.
+
+Mediocres aunque pasan la lista: en `cv`, a "Why this initial training size and refit setting" responde con los parámetros, sin razones, en los cuatro conjuntos y en las dos pasadas; en `compare`, items_sales e items_sales_long no citan el "17.1% ahead" del resumen (bike_sharing y h2o sí citan el suyo).
+
+### 22.4 Frente a 0.3.0
+
+Las 38 preguntas comunes de bike_sharing e items_sales, contra `0.3.0_*.md` (gemini-3.5-flash). Ninguna es peor en exactitud. Mejoran: ya no dice "the model is good enough to deploy" ni "partially ready for deployment", no redondea ("approximately 17.47 to 24.27"), no adivina tiempos ("a fraction of a second"), y no dice "naive baseline" a secas. Más pobres en información: `cv` (0.3.0 daba razones, algunas sin apoyo en el contexto) y `compare` en items_sales (0.3.0 citaba el porcentaje del resumen). El desliz de los lags de items_sales ya estaba en 0.3.0 con otras cifras.
+
+### 22.5 Puntos de la lista sin comprobar
+
+Ningún escenario los envía; quedan cubiertos solo por los tests:
+- fechas fuera de los años 1677 a 2262 en formato largo (12);
+- `<script>` con la ruta de un perfil guardado de un CSV (14): solo se ve `data.csv`;
+- "No baseline" con un intervalo asimétrico (18) y la nota de datos distintos del perfil (18);
+- licencia restringida, cuenta del proveedor de TabPFN y T0 (19): el escenario usa Chronos-2 a propósito, como dejó anotado el README; la pregunta trampa de licencia lo cubre en parte;
+- `PlanEditsDiscardedWarning` (19), que necesita un `refine_plan()` con ediciones a mano;
+- la frase de la serie que predice ForecasterDirectMultiVariate, las window features dejadas fuera, la nota de diferenciación de `compare()` y las frases de escalado y de NaN (19);
+- los candidatos del perfil con frecuencias multiplicadas o por segundos (21.8): ningún conjunto tiene esa frecuencia;
+- "up to N inference windows" con una serie que acaba antes, el único caso en que la cota no es exacta: ningún conjunto lo tiene con un backtest foundation.
+
+ForecasterStats que aconseja `dropna_from_series` (18) no llegó a implementarse: no hay nada que comprobar. Los cambios que tocan `llm/context.py` sin cambiar un byte de lo enviado (13) no se comprueban por respuesta.
+
+### 22.6 Conclusión
+
+El check pasa. Los dos fallos que venían del contexto están corregidos y repetidos sobre el código final; los que quedan son aislados o no dan ninguna afirmación falsa con estos datos. Para 0.5.0, si se quiere: que la línea `inference_windows` de `<backtesting_strategy>` diga que es una cota, y un escenario con una serie incompleta y un backtest foundation.
+
+El aviso `DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated` que imprime el script no es del proyecto: lo emite pandas 2.3 con numpy 2.5 al construir cualquier `pd.Timedelta`, y `pyproject.toml` ya lo ignora en la suite.
+
+**Tests.** De 4236 a 4239 pasados, más 1 omitido, en macOS con el entorno conda local. Ningún golden del contexto del LLM cambió.
