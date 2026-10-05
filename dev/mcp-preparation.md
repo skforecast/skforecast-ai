@@ -2524,3 +2524,40 @@ Antes de mergear la fase 7, una verificación independiente comparó la base (`c
 | NaN o fila ausente en la última fecha de entrenamiento | Correcto (predice las fechas del test) | Igual | `invalid_argument`, campo `test_size` |
 
 `test_size` como entero, fracción o fecha da lo mismo en todos. El modo predicción y `backtest()` con un plan foundation funcionan en todos los casos y no cambian (el backtesting de skforecast omite los valores ausentes por serie); solo una serie sin ningún valor en formato largo fallaba dentro del script en los tres modos ("All values of series ... are NaN") y ahora da `insufficient_data`. Arreglo: una comprobación previa, sin tocar el script ni los goldens. `validate_evaluation_partition` exige a un plan foundation con varias series un valor en cada fecha de test, con el mensaje de ForecasterRecursiveMultiSeries más una frase que nombra las series sin ningún valor en el test y aconseja quitarlas; no le exige valor en la última fecha de entrenamiento, que el modelo tolera. `validate_series_lengths` rechaza las series sin valores también para foundation. Por el servidor llega como `invalid_argument` con campo `data_path`. Las predicciones y métricas de los casos que funcionaban son idénticas. Sin tocar: en modo predicción con datos largos, la serie que acaba antes se predice desde su propia última fecha (otras fechas que las demás), como hace skforecast, y solo lo dice la nota "Series ending early" del perfil, sin aviso; evaluar la serie corta solo donde tiene valores cambiaría el script y lo que hacen los demás forecasters, y no se ha hecho. Suite: de 4192 a 4217 pasados, más 1 omitido.
+
+**Decisión sobre el `m` de las frecuencias fuera de la tabla (`3d4dce2`).** Cierra el primer pendiente de arriba, con un corte más bajo que la alternativa que proponía: fuera de la tabla, `arima_seasonal_period` da `m` solo cuando el primer periodo es un ciclo entero de 2 a 12 pasos (`MAX_UNTABULATED_ARIMA_PERIOD`, constante nueva). Por encima no hay `m` y ForecasterStats sigue entre los candidatos, como en la base (`c70e62b`). El motivo del 12 y no del 24: la tabla no tiene ningún periodo entre 13 y 23 (el mayor de un candidato automático es 12: `2h`, `MS`, `ME`), así que `MAX_STATS_SEASONAL_PERIOD` nunca se había medido en ese hueco, y `84ed17a` fue lo primero que puso frecuencias en él, como candidatas automáticas con `m`. Medido, `3min` (20) cuesta lo que los datos horarios. Las frecuencias de la tabla no se tocan, y quien quiera el periodo largo lo pide con `estimator_kwargs={'m': 26}` (lo dice la nota de la release y lo fija un test).
+
+Sobre 275 frecuencias (las 238 de `tools/perf/seasonal_periods.py` más 37 añadidas alrededor del corte), `estimate_seasonality` y el periodo del baseline son idénticos en la base, la rama y el código nuevo, y ninguna frecuencia de la tabla ni corriente cambia:
+
+| Frecuencias fuera de la tabla | Periodo | `m` en la base | `m` en la rama (`84ed17a`) | `m` ahora | ForecasterStats candidato (base, rama, ahora) |
+|---|---|---|---|---|---|
+| `2MS`, `2ME`, `2M`, `3MS`, `4MS`, `4ME`, `6MS`, `2QS`, `2QE`, `13W`, `26W`, `3h`, `8h`, `12h`, `14h`, `21h`, `6min`, `12min`, `20min` | 2 a 12 | ninguno | el periodo | el periodo (igual que la rama) | sí, sí, sí |
+| `4W`, `4min`, `240s`, `96min`, `90min`, `225s`, `80min`, `200s`, `3min`, `180s`, `72min` | 13 a 20 | ninguno | el periodo | ninguno (igual que la base) | sí, sí, sí |
+| `60min`, `150s`, `144s`, `2W`, `2min`, `48min`, `45min`, `40min`, `100s`, `36min`, `90s`, `5D`, `s` y de `2s` a `30s`, `us`, `250L`, `365h`, `292h` | 24 o más | ninguno | el periodo | ninguno (igual que la base) | sí, **no**, sí |
+
+Medidas en macOS, un caso cada vez, con la serie sintética de la revisión (nivel, paseo aleatorio, ruido y, con ciclo, dos senos del periodo): `forecast()` de un plan ForecasterStats con `test_size=12` y `compare()` sin candidatos (con el modelo foundation en caché). La máquina tenía otra carga, así que vale el orden de magnitud. "Antes" es la rama (`f6086ef`), "después" `3d4dce2`.
+
+| Datos | Observaciones | `m` antes | `forecast()` antes | `forecast()` después | MAE antes | MAE después | `compare()` antes | `compare()` después |
+|---|---|---|---|---|---|---|---|---|
+| `2W-SUN`, ciclo de 26 | 130 | 26 | 2,2 s | 0,4 s | 1,08 | 5,60 | 5 s, sin Stats | 5 s, Stats 3,68 |
+| `2W-SUN`, ciclo de 26 | 260 | 26 | 16,6 s | 0,6 s | 1,19 | 6,07 | 6 s, sin Stats | 20 s, Stats 3,88 |
+| `2W-SUN`, ciclo de 26 | 1000 | 26 | 54,5 s | 0,8 s | 1,17 | 4,89 | 8 s, sin Stats | 15 s, Stats 3,64 |
+| `5D`, ciclo de 73 | 1000 | 73 | más de 300 s | 0,9 s | sin terminar | 1,79 | 7 s, sin Stats | 18 s, Stats 2,04 |
+| `2min`, ciclo de 30 | 1000 | 30 | 99,2 s | 0,6 s | 1,02 | 3,26 | 8 s, sin Stats | 17 s, Stats 4,67 |
+| `10s`, ciclo de 360 | 1000 | 360 | 128,1 s | 0,6 s | 1,48 | 1,37 | 7 s, sin Stats | 9 s, Stats 1,24 |
+| `4W-SUN`, ciclo de 13 | 260 | 13 | 6,8 s | 0,7 s | 1,52 | 4,87 | 28 s, gana Stats (1,19) | 6 s, gana Foundation (Stats 3,68) |
+| `4min`, ciclo de 15 | 1000 | 15 | 18,9 s | 0,8 s | 1,15 | 2,87 | 135 s | 16 s |
+| `4min`, ciclo de 15 | 5000 | 15 | 67,4 s | 1,0 s | 1,10 | 4,02 | más de 400 s | 63 s |
+| `3min`, ciclo de 20 | 1000 | 20 | 40,0 s | 0,8 s | 1,20 | 8,21 | 336 s | 15 s |
+| `3min`, ciclo de 20 | 5000 | 20 | 63,1 s | 1,8 s | 1,02 | 3,20 | más de 400 s | 95 s |
+| `3min`, ciclo de 20 | 20000 | 20 | 230,4 s | 4,7 s | 0,91 | 5,43 | no medido | no medido |
+| `2MS`, `3h`, `14h`, `6min`, con ciclo | 1000 | 6, 8, 12, 10 | 2,2 a 3,8 s | igual | 1,86 a 2,74 | igual | 68 a 83 s | igual |
+| `3h` y `6min`, con ciclo | 20000 | 8, 10 | 34 y 12 s | igual | 1,03 y 1,62 | igual | no medido | no medido |
+
+Sin ciclo real (`2W-SUN`, `5D`, `2min`, `10s`, `3min`, `2MS`, `3h` y `14h` con 1000 observaciones, `4W-SUN` con 260), `forecast()` tarda menos de 1 s antes y después con el mismo MAE (salvo `5D`, 5,7 s antes), y `compare()` de 5 a 12 s; en los cuatro primeros ForecasterStats vuelve a competir (MAE 1,05).
+
+Lo que se gana: `compare()` sin candidatos sobre datos de `3min` o `4min` vuelve de minutos a segundos, nadie pierde ForecasterStats, y pedirlo a mano no dispara el ajuste. Lo que se pierde, sabido y aceptado: con un ciclo real de más de 12 pasos, ForecasterStats corre sin estacionalidad, como en 0.3, y su error es de 3 a 7 veces mayor que con `m`; `4W` (13) es el único caso medido donde además cambia el ganador de `compare()`, y subir el corte a 13 es cambiar la constante y dos tests. Los datos de la tabla tienen el mismo coste de siempre (`h` con 5000 observaciones no termina un ajuste en 4 minutos) y no se han tocado.
+
+Para 0.5.0: el coste de Auto-ARIMA depende de `m`, de la longitud y de si hay ciclo (sin ciclo, `m=26` cuesta lo mismo que no darlo), y el presupuesto de `compare()` cuenta un ajuste de ForecasterStats como uno cualquiera. Una regla sobre `m` y longitud serviría para los candidatos, para un aviso propio y para unificar la tabla con el resto, pero cambia frecuencias corrientes.
+
+**Tests.** De 4192 a 4211 pasados con este cambio solo, más 1 omitido. Ningún golden del contexto del LLM ni de los esquemas del MCP cambió. Con la evaluación foundation de `60a1ade` integrada en la misma rama, la suite completa da 4236 pasados y 1 omitido.
