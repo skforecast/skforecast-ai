@@ -178,6 +178,11 @@ class CVDeps:
         datetime index with a known frequency.
     end_date : str, default None
         Last date of the series, see `start_date`.
+    min_train_size : int, default None
+        Minimum initial training size the forecaster of the plan needs, as
+        the rules compute it (its window, which includes the window
+        features and the differentiation order, plus `steps`). None falls
+        back to an estimate from `lags` and `steps`.
     """
 
     n_observations: int
@@ -187,6 +192,7 @@ class CVDeps:
     lags: int | list | None = None
     start_date: str | None = None
     end_date: str | None = None
+    min_train_size: int | None = None
 
 
 def create_cv_agent(
@@ -243,18 +249,22 @@ def create_cv_agent(
             )
         parts.append(f"- Forecast horizon (steps): {deps.steps}")
         parts.append(f"- Task type: {deps.task_type}")
+        max_lag = None
         if deps.lags is not None:
             max_lag = (
                 deps.lags if isinstance(deps.lags, int) else max(deps.lags)
             )
             parts.append(f"- Lags: {deps.lags} (max_lag={max_lag})")
-            parts.append(
-                f"- Minimum viable initial_train_size: {2 * max_lag}"
-            )
+        # The minimum the rules compute for the plan, which counts the
+        # window features and the differentiation order that the lags
+        # alone do not show. Without it, an estimate from the lags.
+        if deps.min_train_size is not None:
+            minimum = deps.min_train_size
+        elif max_lag is not None:
+            minimum = 2 * max_lag
         else:
-            parts.append(
-                f"- Minimum viable initial_train_size: {2 * deps.steps}"
-            )
+            minimum = 2 * deps.steps
+        parts.append(f"- Minimum viable initial_train_size: {minimum}")
         parts.append(
             f"- Maximum initial_train_size for ≥2 folds: "
             f"{deps.n_observations - 2 * deps.steps}"

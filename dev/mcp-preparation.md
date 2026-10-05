@@ -2714,6 +2714,18 @@ Escenarios nuevos:
 
 **Puntos de 22.5 que la tercera pasada sí cubre:** la licencia restringida, la frase de la serie que predice ForecasterDirectMultiVariate, "No baseline" con un intervalo asimétrico y la cota de las ventanas con una serie que acaba antes. Siguen sin escenario: las fechas fuera de 1677 a 2262, la ruta de un perfil guardado en `<script>`, la nota de datos distintos del perfil, `PlanEditsDiscardedWarning`, las window features dejadas fuera, la nota de diferenciación de `compare()`, las frases de escalado y de NaN, y los candidatos con frecuencias multiplicadas.
 
-**Conclusión.** El check pasa sobre el código final: ninguna respuesta incorrecta en 178. Las 7 mejorables son del modelo (ordenar datos que el código ya ordena, endurecer una licencia, dar por motivo la función de un parámetro) y ninguna inventa una cifra. Fuera de alcance, anotado: la regla 2 del prompt de `create_cv()` dice "2 * max_lag" y el código usa la ventana más los pasos; los notebooks de la documentación tienen salidas anteriores a esta versión.
+**Conclusión.** El check pasa sobre el código final: ninguna respuesta incorrecta en 178. Las 7 mejorables son del modelo (ordenar datos que el código ya ordena, endurecer una licencia, dar por motivo la función de un parámetro) y ninguna inventa una cifra. Fuera de alcance, anotado: los notebooks de la documentación tienen salidas anteriores a esta versión.
 
 **Tests.** De 4239 a 4401 pasados, más 1 omitido, en macOS con el entorno conda local.
+
+### 22.8 Mínimo de la primera ventana en `create_cv(prompt=...)`
+
+Encontrado al revisar el prompt, no en el check (que solo ejercita `ask()`). La regla 2 de `_CV_ROLE_PROMPT` daba como mínimo "2 * max_lag", y el contexto del agente lo calculaba así desde los lags, mientras las reglas usan la ventana del forecaster (que cuenta también las window features y el orden de diferenciación) más los pasos. Además el bucle de reintentos solo validaba con `build_cv` (dos folds, fecha localizable): una primera ventana demasiado corta pasaba, `create_cv()` avisaba y `backtest()` fallaba.
+
+Cambios (`llm/refinement.py`, `llm/agent.py`, `llm/prompts.py`):
+- el agente recibe el mínimo que calculan las reglas (`_compute_min_train_size`) y la regla 2 remite a esa línea del contexto;
+- una sugerencia cuya primera ventana no alcanza lo que el forecaster necesita (`first_window_issue`, lo mismo que haría fallar el backtest) se reintenta con el motivo y el mínimo, y tras tres intentos se cae a los valores deterministas con el aviso de siempre.
+
+Queda sin cambiar, porque se sincroniza desde skforecast: el skill `backtesting-configuration`, que el agente recibe como referencia, sigue dando "2 * max_lag" como regla general. El contexto da el número concreto y la validación lo respalda. Este camino no tiene comprobación con modelo real en el repositorio; el autor lo prueba a mano.
+
+**Tests.** De 4401 a 4404 pasados, más 1 omitido.

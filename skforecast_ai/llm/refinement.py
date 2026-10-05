@@ -12,7 +12,13 @@ from .._utils import (
     _validate_max_window_size,
     _validate_window_features,
 )
-from ..recommendation.backtesting import build_cv, derive_cv_defaults
+from ..exceptions import InvalidInputError
+from ..recommendation.backtesting import (
+    _compute_min_train_size,
+    build_cv,
+    derive_cv_defaults,
+    first_window_issue,
+)
 from ..schemas import ForecastingProfile, ForecastPlan
 from .runtime import run_agent_sync
 
@@ -154,9 +160,11 @@ def configure_cv_with_llm(
     Every suggestion is built and validated with `build_cv`, the same path
     `create_cv` uses afterwards, so a date-based `initial_train_size` that
     cannot be parsed or located on the dataset index, or a configuration
-    with fewer than 2 folds, is retried with the concrete error. Retries up
-    to 2 times on validation failure, then falls back to deterministic
-    defaults with a warning.
+    with fewer than 2 folds, is retried with the concrete error. So is one
+    whose first training window is too short for the forecaster of the
+    plan (`first_window_issue`), which skforecast would only reject when
+    the plan is backtested. Retries up to 2 times on validation failure,
+    then falls back to deterministic defaults with a warning.
 
     Parameters
     ----------
@@ -199,6 +207,7 @@ def configure_cv_with_llm(
                lags           = lags,
                start_date     = start_date,
                end_date       = end_date,
+               min_train_size = _compute_min_train_size(plan),
            )
 
     max_retries = 2
@@ -238,7 +247,18 @@ def configure_cv_with_llm(
 
             # Build and validate through the same path create_cv() uses;
             # the splitter itself is rebuilt there from the returned dict.
-            build_cv(cv_params=defaults, data_profile=dp)
+            cv = build_cv(cv_params=defaults, data_profile=dp)
+            # A first window too short for the forecaster is valid for
+            # `TimeSeriesFold` and fails when the plan is backtested: it
+            # is retried like any other invalid configuration, instead of
+            # reaching `create_cv()` as a warning.
+            issue = first_window_issue(plan, cv, dp)
+            if issue is not None:
+                raise InvalidInputError(
+                    f"{issue}. Use an initial_train_size of at least "
+                    f"{deps.min_train_size} observations",
+                    field = "initial_train_size",
+                )
 
             return defaults
 

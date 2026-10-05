@@ -1037,6 +1037,67 @@ def test_create_cv_llm_retry_then_success_when_date_out_of_range(monkeypatch):
     assert call_count["n"] == 2
 
 
+def test_create_cv_llm_retry_then_success_when_first_window_too_short(monkeypatch):
+    """
+    Test that an initial_train_size shorter than the window of the
+    forecaster, which TimeSeriesFold accepts and skforecast rejects when
+    the plan is backtested, is caught inside the LLM retry loop and the
+    second suggestion is used, without the warning of a strategy that
+    cannot be backtested.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    call_count = _install_fake_cv_agent(
+        monkeypatch,
+        assistant,
+        [
+            _make_cv_params(6, "A very short first window."),
+            _make_cv_params(50, "Fixed after retry."),
+        ],
+    )
+
+    result = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+
+    assert result.cv.initial_train_size == 50
+    assert result.llm_configured is True
+    assert call_count["n"] == 2
+
+
+def test_create_cv_llm_deterministic_fallback_when_first_window_too_short(
+    monkeypatch,
+):
+    """
+    Test that an initial_train_size too short for the forecaster in every
+    attempt exhausts the LLM retries and create_cv() degrades to the
+    deterministic defaults with a UserWarning that says what failed and
+    the minimum to use.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    expected = assistant.create_cv(profile, plan)
+
+    call_count = _install_fake_cv_agent(
+        monkeypatch,
+        assistant,
+        [_make_cv_params(6, "A very short first window.")],
+    )
+
+    warn_msg = re.escape(
+        f"Use an initial_train_size of at least "
+        f"{_compute_min_train_size(plan)} observations). Falling back to "
+        f"deterministic defaults."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+
+    assert call_count["n"] == 3
+    assert result.cv.initial_train_size == expected.cv.initial_train_size
+    assert result.llm_configured is False
+
+
 def test_create_cv_llm_deterministic_fallback_when_date_unparseable(monkeypatch):
     """
     Test that an unparseable date-based initial_train_size exhausts the

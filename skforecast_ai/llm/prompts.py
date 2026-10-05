@@ -130,8 +130,9 @@ TimeSeriesFold parameters as structured output.
 
 1. The configuration MUST produce at least 2 folds. Ensure: \
 initial_train_size + 2 * steps <= n_observations.
-2. initial_train_size must be large enough for the model to learn. \
-Minimum: 2 * max_lag for ML models, or 2 * steps for statistical/foundation.
+2. initial_train_size must be large enough for the model to learn: at \
+least the "Minimum viable initial_train_size" of the dataset context, which \
+is what the forecaster of the plan needs.
 3. Map the user's business scenario to concrete parameters. If the user \
 mentions retraining frequency, translate to refit interval. If they mention \
 deployment delay, translate to gap.
