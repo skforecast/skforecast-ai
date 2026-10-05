@@ -42,9 +42,19 @@ candidates and more than 15 categorical variables on the single series)
 and are skipped on the others. The plan with decisions of the user and a
 plan warning (`overrides_plan`) and the backtest script of the same data
 with dates in Europe/Madrid (`time_zone_backtest_code`) run on all four
-(the first on single and multi-series data, as the four are).
+(the first on single and multi-series data, as the four are). So do the
+strategy of those dates (`time_zone_cv`), the profile of the same data
+with flaws the profiler warns about (`data_warnings`) and a plan whose
+explanation has paragraphs and tags (`free_text_plan`).
 
-A full run makes about 25 to 30 calls per dataset. With `google:gemini-3.8-flash`
+The backtest of a foundation model (`foundation_backtest`), the only
+scenario with the `inference_windows` of a strategy, loads the weights of
+Chronos-2 small: it needs `chronos-forecasting` installed and the weights
+in the Hugging Face cache or network access to download them. Without
+them the script says so and skips the scenario, and the default comparison
+of `h2o` runs without ForecasterFoundation.
+
+A full run makes about 40 calls per dataset. With `google:gemini-3.8-flash`
 that is a few cents. Ad hoc reports land in this folder with a timestamped
 name and are ignored by git.
 
