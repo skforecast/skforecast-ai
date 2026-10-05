@@ -44,6 +44,10 @@ SCRIPT_NOTE = (
     "The script is available to the user as `result.code`; describe it "
     "from this summary and the plan, do not reproduce it."
 )
+BACKTEST_SCRIPT_NOTE = (
+    "It has not been run: for its metrics, the user runs it or calls "
+    "`assistant.backtest()`."
+)
 RANKING_NOTE = (
     "Do not re-rank the candidates or recompute the table, and do not "
     "suggest reasons for the ranking beyond the metric values: the "
@@ -898,7 +902,13 @@ def render_script_section(
         f"- Length: {len(code.splitlines())} lines",
     ]
     if not for_describe:
-        parts.append(SCRIPT_NOTE)
+        # Asked which metric a backtesting script will give, the model
+        # declined without saying how to get it.
+        in_backtest_mode = is_backtest or cv_config is not None
+        parts.append(
+            f"{SCRIPT_NOTE} {BACKTEST_SCRIPT_NOTE}"
+            if in_backtest_mode else SCRIPT_NOTE
+        )
 
     return _tag("script", "\n".join(parts))
 
@@ -941,7 +951,12 @@ def render_cv_section(
 
     parts = [note] if note else []
     parts += [
-        f"- {key}: {value}" for key, value in cv_config.items()
+        # `inference_windows` is a bound, one per series and fold: a series
+        # is not forecast in a fold where it has no data. Without "up to"
+        # a model read it as the number of forecasts that ran.
+        f"- {key}: up to {value}" if key == "inference_windows"
+        else f"- {key}: {value}"
+        for key, value in cv_config.items()
         if trains or key not in _TRAINING_CV_PARAMS
     ]
 

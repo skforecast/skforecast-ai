@@ -304,6 +304,32 @@ def test_render_script_section_describes_backtesting_script(
     ) in section
     assert "prediction: trains on all the data" not in section
 
+
+def test_render_script_section_backtesting_script_says_how_to_get_its_metrics():
+    """
+    Test that the section of a backtesting script tells the LLM of `ask()`
+    that the script has not been run and how its metrics are obtained, that
+    `describe()` leaves the sentence out, and that a prediction script does
+    not carry it.
+    """
+    cv_config = {"steps": 5, "n_folds": 3, "n_fits": 1}
+    note = (
+        "It has not been run: for its metrics, the user runs it or calls "
+        "`assistant.backtest()`."
+    )
+
+    section = render_script_section(plan, _BACKTEST_CODE, cv_config=cv_config)
+    described = render_script_section(
+        plan, _BACKTEST_CODE, cv_config=cv_config, for_describe=True
+    )
+    prediction = render_script_section(plan, "predictions = None\n")
+
+    assert section.endswith(
+        "do not reproduce it. " + note + "\n</script>"
+    )
+    assert note not in described
+    assert note not in prediction
+
 def test_render_cv_section_prepends_note_when_provided():
     """
     Test that the shared-strategy note used by a comparison is rendered
@@ -700,6 +726,26 @@ def test_build_context_message_matches_the_composed_sections():
     )
 
     assert result == composed
+
+
+def test_render_cv_section_writes_inference_windows_as_a_bound():
+    """
+    Test that the inference windows of a foundation model are written as
+    'up to N': a series is not forecast in a fold where it has no data, so
+    the count is a bound and not the number of forecasts that ran.
+    """
+    cv_config = {"steps": 5, "n_folds": 6, "n_fits": 0, "inference_windows": 12}
+
+    section = render_cv_section(cv_config, trains=False)
+
+    assert section == (
+        "<backtesting_strategy>\n"
+        "- steps: 5\n"
+        "- n_folds: 6\n"
+        "- n_fits: 0\n"
+        "- inference_windows: up to 12\n"
+        "</backtesting_strategy>"
+    )
 
 
 def test_render_cv_section_omits_training_parameters_when_not_trained():

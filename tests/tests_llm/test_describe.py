@@ -11,6 +11,7 @@ from skforecast.model_selection import TimeSeriesFold
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._constants import MAX_LEADERBOARD_ROWS
 from skforecast_ai.llm.context import (
+    BACKTEST_SCRIPT_NOTE,
     LEADERBOARD_NOTE,
     PLAN_CODE_NOTE,
     RANKING_NOTE,
@@ -38,6 +39,7 @@ GOLDEN_DESCRIBE_DIR = Path(__file__).parent / "golden_describe"
 # precedes it in the context, so removing both gives `describe()`.
 ASK_INSTRUCTIONS = (
     ("\n\n", PLAN_CODE_NOTE),
+    (" ", BACKTEST_SCRIPT_NOTE),
     ("\n", SCRIPT_NOTE),
     (" ", RANKING_NOTE),
     (" ", LEADERBOARD_NOTE),
