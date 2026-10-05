@@ -156,6 +156,9 @@ filterwarnings = [
     # Upstream package, nothing to fix here.
     "ignore:'_UnionGenericAlias' is deprecated:DeprecationWarning",
     # numpy 2.5 deprecates the generic timedelta unit, which pandas 2.3 still
-    # uses inside `pd.Timedelta(...)`; upstream, nothing to fix here.
+    # uses in `pd.Timedelta('1D')`, `pd.Timedelta(days=1)` and when it
+    # concatenates timedeltas. The package does not build timedeltas that
+    # way (`tests/tests_profiling/test_create_data_profile.py` checks that
+    # profiling emits no warning); the tests and pandas itself still do.
     "ignore:The 'generic' unit for NumPy timedelta is deprecated:DeprecationWarning",
 ]

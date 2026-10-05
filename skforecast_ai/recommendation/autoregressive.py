@@ -13,7 +13,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from skforecast.stats import pacf
-from .._constants import FREQUENCY_TO_SEASONAL_PERIOD
+from .._constants import (
+    FREQUENCY_TO_SEASONAL_PERIOD,
+    MAX_UNTABULATED_ARIMA_PERIOD,
+)
 from .._dates import date_positions, row_dates
 from ..schemas import DataProfile, SeriesPacf
 
@@ -54,6 +57,29 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
     week, 365-day year). The two shortest qualifying cycles (periods
     >= 2) are returned.
     """
+    return [period for period, _ in _seasonal_cycles(frequency)]
+
+
+def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
+    """
+    Periods of `estimate_seasonality`, each with whether it is a whole
+    cycle: whether the cycle lasts an exact number of steps of the
+    frequency (`'3h'`: 8 steps are a day; `'3D'`: 2 steps are 6 days, not a
+    week).
+
+    Parameters
+    ----------
+    frequency : str, None
+        Pandas frequency string.
+
+    Returns
+    -------
+    cycles : list of tuple of (int, bool)
+        `(period, whole)` for each period of `estimate_seasonality`, in its
+        order. A tabulated period of a variable-length offset is whole when
+        the multiplier divides it (`'2MS'`: 6 of 12; `'5MS'`: 2 of 12 is
+        not), as it is with no multiplier.
+    """
     if frequency is None:
         return []
 
@@ -78,13 +104,16 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
         return []
     multiplier = int(match.group(1)) if match.group(1) else 1
     base = match.group(2).upper().split("-")[0]
+    # The lookup ignores the case, so the millisecond alias "ms" reads as
+    # "MS" here; its periods are kept for the lags, never as whole cycles.
+    exact_case = match.group(2).split("-")[0] == base
 
     # Variable-length / non-fixed offsets: read periods-per-cycle from the
     # table and divide by the multiplier. The >= 1 floor (not >= 2) keeps
     # the degenerate yearly period (e.g. "YE" -> [1]).
     if base in non_fixed_seasonality:
         return [
-            p // multiplier
+            (p // multiplier, exact_case and p % multiplier == 0)
             for p in non_fixed_seasonality[base]
             if p // multiplier >= 1
         ]
@@ -107,11 +136,16 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
     if interval_seconds <= 0:
         return []
 
-    seasons = [
-        int(c // interval_seconds)
-        for c in cycle_seconds
-        if c // interval_seconds >= 2
-    ]
+    # Whether a cycle is whole is decided on integer nanoseconds, which the
+    # division of float seconds cannot tell exactly; a period that the float
+    # division made one step short (3599999 for the millisecond alias "L")
+    # is not whole either.
+    seasons = []
+    for c in cycle_seconds:
+        period = int(c // interval_seconds)
+        if period >= 2:
+            steps, remainder = divmod(c * 1_000_000_000, offset.nanos)
+            seasons.append((period, remainder == 0 and steps == period))
     return seasons[:2]
 
 
@@ -131,12 +165,13 @@ def tabulated_seasonal_period(frequency: str | None) -> int | None:
     An anchor only says on which day a week, quarter or year starts or
     ends (`'W-WED'`, `'QS-OCT'`, `'QE-DEC'`), not how long it is, so it has
     the period of its base alias (`'W'`, `'QS'`, `'QE'`), as the lags and
-    the baseline read it (`estimate_seasonality`). The Auto-ARIMA script
-    and the rule that leaves Auto-ARIMA out of the candidates both read
-    this period. Multiplied frequencies (`'2W'`) are not in the table: the
-    baseline falls back to `estimate_seasonality` for them, and Auto-ARIMA
-    gets no seasonal period. The aliases pandas 2.1 infers (`'M'`,
-    `'Q-DEC'`, `'A-DEC'`, `'H'`, `'15T'`) are read as their current names.
+    the baseline read it (`estimate_seasonality`). The Auto-ARIMA script,
+    the rule that leaves Auto-ARIMA out of the candidates and the baseline
+    read this period first. Multiplied frequencies (`'2W'`) are not in the
+    table: they fall back to `estimate_seasonality` (see
+    `arima_seasonal_period` and `select_baseline_seasonal_period`). The
+    aliases pandas 2.1 infers (`'M'`, `'Q-DEC'`, `'A-DEC'`, `'H'`,
+    `'15T'`) are read as their current names.
 
     Parameters
     ----------
@@ -160,6 +195,48 @@ def tabulated_seasonal_period(frequency: str | None) -> int | None:
         period = FREQUENCY_TO_SEASONAL_PERIOD.get(base)
 
     return period
+
+
+def arima_seasonal_period(frequency: str | None) -> int | None:
+    """
+    Return the seasonal period `m` of Auto-ARIMA for a frequency, which
+    also decides whether `ForecasterStats` is among the recommended
+    candidates.
+
+    The period of `FREQUENCY_TO_SEASONAL_PERIOD` when the frequency is in
+    it (`tabulated_seasonal_period`). Otherwise the primary period of
+    `estimate_seasonality`, the one the lags always include and the
+    baseline repeats, when it is a whole cycle of 2 to
+    `MAX_UNTABULATED_ARIMA_PERIOD` steps: `'2MS'` gives 6, `'3h'` 8 and
+    `'14h'` 12. A period that is not a whole cycle (`'3D'`: 2 steps are 6
+    days, not a week) would make the seasonal terms model a cycle the data
+    does not have, and a period of 1 is the non-seasonal model Auto-ARIMA
+    fits without `m`: both give None. So does a longer period (`'4W'`: 13,
+    `'2W'`: 26, `'s'`: 3600), whose search is too costly to run without
+    being asked for: `ForecasterStats` stays among the candidates with a
+    non-seasonal model, and `estimator_kwargs={'m': 26}` in `plan()` asks
+    for the seasonal one.
+
+    Parameters
+    ----------
+    frequency : str, None
+        Pandas frequency string.
+
+    Returns
+    -------
+    m : int, None
+        Seasonal period in steps, or None when Auto-ARIMA gets no seasonal
+        period.
+    """
+    period = tabulated_seasonal_period(frequency)
+    if period is not None:
+        return period
+    cycles = _seasonal_cycles(frequency)
+    if cycles and cycles[0][1]:
+        if 2 <= cycles[0][0] <= MAX_UNTABULATED_ARIMA_PERIOD:
+            return cycles[0][0]
+
+    return None
 
 
 def _date_order(dates: pd.DatetimeIndex | None) -> np.ndarray | None:

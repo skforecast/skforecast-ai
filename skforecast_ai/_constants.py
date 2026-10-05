@@ -81,7 +81,13 @@ FORECASTER_TASK_TYPES: dict[str, str] = {
     "ForecasterEquivalentDate": "baseline",
 }
 
-# Mapping from pandas frequency strings to seasonal period (m)
+# Mapping from pandas frequency strings to seasonal period (m), read first
+# by Auto-ARIMA, the rule that leaves ForecasterStats out of the candidates
+# and the baseline (`arima_seasonal_period`, `select_baseline_seasonal_period`).
+# For data every 5 to 30 minutes it keeps the day, while the lags and window
+# features (`estimate_seasonality`) put the hour first. Measured with
+# `tools/perf/subhourly_periods.py` on three real and two synthetic sets,
+# neither period won on every dataset and horizon, so both stay.
 FREQUENCY_TO_SEASONAL_PERIOD: dict[str, int] = {
     "min": 60,
     "5min": 288,
@@ -111,6 +117,13 @@ FREQUENCY_TO_SEASONAL_PERIOD: dict[str, int] = {
 # ForecasterStats is not recommended automatically at or above this value.
 MAX_STATS_SEASONAL_PERIOD = 24
 
+# Longest seasonal period Auto-ARIMA gets for a frequency that is not in
+# `FREQUENCY_TO_SEASONAL_PERIOD` (`arima_seasonal_period`). It is the longest
+# period the table gives to a frequency whose ForecasterStats is a recommended
+# candidate (`'2h'`, `'MS'`): the table has none between 13 and 23, and
+# measured there (`'3min'`, 20) one fit costs what hourly data cost.
+MAX_UNTABULATED_ARIMA_PERIOD = 12
+
 # Backtesting cost, counted in estimator fits (a ForecasterDirect training
 # fits one estimator per step). Counting fits instead of timing a trial fold
 # keeps the decision exact, known before running and reproducible.
@@ -120,6 +133,15 @@ MAX_STATS_SEASONAL_PERIOD = 24
 # candidate chosen automatically by `compare()` may cost.
 LONG_TRAINING_FITS = 50
 COMPARE_FIT_BUDGET = 500
+
+# Backtesting cost of a foundation model, counted in inference windows: it
+# is never trained, so it loads its weights once and forecasts each series
+# in each fold. Above `LONG_INFERENCE_WINDOWS` the assistant warns with
+# LongTrainingWarning: about a minute of inference with Chronos-2 small on
+# a 4-core CPU (about 27 ms per window, `tools/perf/foundation_cost.py`),
+# and about 7 s on a laptop GPU. Kept low on purpose: it protects the
+# machine without a GPU, and `amazon/chronos-2` takes 3.5 times longer.
+LONG_INFERENCE_WINDOWS = 2000
 
 # Task types of the machine learning forecasters (lags, window features and
 # a scikit-learn compatible estimator).

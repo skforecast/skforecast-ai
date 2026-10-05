@@ -207,3 +207,22 @@ plan_wide_seven_eval = in_evaluation(
     _assistant.plan(_profile_wide_seven, estimator="Ridge", **_multiseries_kwargs),
     "2023-02-22",
 )
+
+# ForecasterFoundation on the three items_sales series, 7 test dates.
+plan_wide_foundation_eval = in_evaluation(
+    _assistant.plan(_profile_wide, steps=7, forecaster="ForecasterFoundation"),
+    "2012-04-22",
+)
+plan_long_foundation_eval = in_evaluation(
+    _assistant.plan(_profile_long, steps=7, forecaster="ForecasterFoundation"),
+    "2012-04-22",
+)
+
+
+def long_ending_early(data: pd.DataFrame, series: str, n_rows: int):
+    """
+    Return a copy of long-format `data` without the last `n_rows` rows of
+    `series`, which ends before the others.
+    """
+    drop = data.index[data["series"] == series][-n_rows:]
+    return data.drop(index=drop)

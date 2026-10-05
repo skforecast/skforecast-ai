@@ -222,7 +222,7 @@ def test_tool_plan_announces_model_download_once(tmp_path, monkeypatch):
             message  = (
                 "The weights of 'autogluon/chronos-2-small' were not found in "
                 "the local Hugging Face cache: the first run may download "
-                "them from the Hugging Face Hub. License: its license is "
+                "them from the Hugging Face Hub. License (by the name of the model, as skforecast registers it): its license is "
                 "Apache-2.0 (https://huggingface.co/autogluon/chronos-2-small)."
             ),
             count    = 1,

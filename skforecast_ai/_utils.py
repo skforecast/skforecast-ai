@@ -23,6 +23,7 @@ from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
     AUTOREG_FORECASTERS,
     DIRECT_FORECASTERS,
+    LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
     MAX_FEATURE_FRACTION,
     ML_TASK_TYPES,
@@ -1988,6 +1989,96 @@ def warn_long_training(
         f"{long_training_message(estimator_fits, n_fits, forecaster, steps)}. "
         f"This can take substantial amounts of time. If not feasible, "
         f"{remedy}.",
+        LongTrainingWarning,
+        stacklevel=3,
+    )
+
+
+def long_inference_message(
+    inference_windows: int,
+    n_series: int,
+    n_folds: int,
+    n_candidates: int = 1,
+) -> str:
+    """
+    Describe the cost of a backtest of a foundation model in inference
+    windows.
+
+    Parameters
+    ----------
+    inference_windows : int
+        Number of inference windows of the backtest, or of all the
+        candidates of a comparison.
+    n_series : int
+        Number of series of the data.
+    n_folds : int
+        Number of folds of the strategy.
+    n_candidates : int, default 1
+        Number of `ForecasterFoundation` candidates of a comparison that
+        the windows add up.
+
+    Returns
+    -------
+    message : str
+        Sentence with the number of windows, broken down into series, folds
+        and candidates. The number is an upper bound ("up to"): a series
+        without data in a fold is not forecast in it.
+    """
+
+    candidates = f" x {n_candidates} candidates" if n_candidates > 1 else ""
+
+    return (
+        f"ForecasterFoundation will forecast up to {inference_windows} "
+        f"inference windows ({n_series} series x {n_folds} folds{candidates})"
+    )
+
+
+def warn_long_inference(
+    inference_windows: int,
+    n_series: int,
+    n_folds: int,
+    n_candidates: int = 1,
+) -> None:
+    """
+    Warn before a backtest of a foundation model that forecasts many
+    windows.
+
+    A foundation model is not trained, so its estimator fits are 0 and
+    `warn_long_training` never fires for it; its time is the inference of
+    each series in each fold. Above `LONG_INFERENCE_WINDOWS` windows the
+    backtest can take a minute or more on a CPU with few cores (seconds on
+    a GPU, and a larger model takes several times longer per window).
+
+    Parameters
+    ----------
+    inference_windows : int
+        Number of inference windows of the backtest, see
+        `count_inference_windows`.
+    n_series : int
+        Number of series of the data.
+    n_folds : int
+        Number of folds of the strategy.
+    n_candidates : int, default 1
+        Number of `ForecasterFoundation` candidates of a comparison that
+        `inference_windows` adds up.
+
+    Returns
+    -------
+    None
+    """
+
+    if inference_windows <= LONG_INFERENCE_WINDOWS:
+        return
+
+    message = long_inference_message(
+        inference_windows, n_series, n_folds, n_candidates
+    )
+    warnings.warn(
+        f"{message}, "
+        f"more than {LONG_INFERENCE_WINDOWS}. This can take minutes on a CPU. "
+        f"If not feasible, use a cross-validation strategy with fewer folds "
+        f"(a later `initial_train_size` or a larger `fold_stride`) or "
+        f"forecast fewer series.",
         LongTrainingWarning,
         stacklevel=3,
     )

@@ -19,6 +19,7 @@ from skforecast_ai.schemas import ForecastPlan
 
 from tests.fixtures_assistant import (
     df_all_calendar_named_exog,
+    df_biweekly,
     df_calendar_named_exog,
     df_categorical_exog,
     df_hourly,
@@ -69,6 +70,36 @@ def test_plan_UnrecommendedForecasterWarning_when_forecaster_not_recommended():
         plan = assistant.plan(profile, steps=10, forecaster="ForecasterStats")
 
     assert plan.forecaster == "ForecasterStats"
+
+
+def test_plan_output_when_multiplied_frequency_with_long_period():
+    """
+    Test that biweekly data ('2W-SUN', not in FREQUENCY_TO_SEASONAL_PERIOD)
+    keeps ForecasterStats among the candidates, so asking for it does not
+    warn: its seasonal period (26) is longer than the 12 steps a frequency
+    outside the table gets, and the Auto-ARIMA script has no `m`. Asking
+    for the period with `estimator_kwargs` writes it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_biweekly, target="sales", date_column="date")
+
+    assert profile.data_profile.frequency == "2W-SUN"
+    assert "ForecasterStats" in profile.forecaster_candidates
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnrecommendedForecasterWarning)
+        plan = assistant.plan(profile, steps=4, forecaster="ForecasterStats")
+        plan_seasonal = assistant.plan(
+            profile, steps=4, forecaster="ForecasterStats", estimator_kwargs={"m": 26}
+        )
+    code = assistant.forecast_code(profile=profile, plan=plan).code
+    code_seasonal = assistant.forecast_code(profile=profile, plan=plan_seasonal).code
+
+    assert "    estimator = Arima(order=None, seasonal_order=None),\n" in code
+    assert (
+        "    estimator = Arima(order=None, seasonal_order=None, m=26),\n"
+        in code_seasonal
+    )
 
 
 @pytest.mark.parametrize(

@@ -56,11 +56,17 @@ def _planned(tmp_path, **plan_arguments):
             {"n_folds": 6, "n_fits": 6, "estimator_fits": 6},
             19,
         ),
+        (
+            {"steps": 12, "forecaster": "ForecasterFoundation"},
+            {},
+            {"n_folds": 6, "n_fits": 0, "estimator_fits": 0, "inference_windows": 6},
+            19,
+        ),
     ],
     ids=lambda dt: f"{dt}",
 )
 def test_tool_create_cv_output_matches_python_api(
-    tmp_path, plan_arguments, cv_arguments, cost, compare_fits
+    tmp_path, monkeypatch, plan_arguments, cv_arguments, cost, compare_fits
 ):
     """
     Test that `create_cv` registers the strategy the Python API builds for
@@ -70,8 +76,14 @@ def test_tool_create_cv_output_matches_python_api(
     code of its `TimeSeriesFold`. The cost also gives the estimator fits of
     a `compare` without candidates with that strategy (the candidates of the
     profile, each with the fits of the shared strategy), with a notice when
-    they exceed both 50 and the fits of the plan.
+    they exceed both 50 and the fits of the plan. A foundation model costs
+    its inference windows (one per series and fold); without its backend,
+    `compare` leaves it out, so it adds no windows to the comparison.
     """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
     server, path, profile_id, plan_id = _planned(tmp_path, **plan_arguments)
 
     result = content_of(call(server, "create_cv", {"plan_id": plan_id, **cv_arguments}))
@@ -85,7 +97,12 @@ def test_tool_create_cv_output_matches_python_api(
     assert result["kind"] == "cv"
     assert result["links"] == {"profile_id": profile_id, "plan_id": plan_id}
     assert result["summary"] == cv.describe()
-    assert result["cost"] == {**cost, "compare_estimator_fits": compare_fits}
+    assert result["cost"] == {
+        "inference_windows": 0,
+        **cost,
+        "compare_estimator_fits": compare_fits,
+        "compare_inference_windows": 0,
+    }
     assert result["changeable"] == CV_ARGUMENTS
     expected = ["LongTrainingWarning"] if cost["estimator_fits"] > 50 else []
     if compare_fits > max(50, cost["estimator_fits"]):
@@ -148,6 +165,67 @@ def test_tool_create_cv_notice_of_the_cost_of_a_default_compare(tmp_path):
                 "`refit=false` or fewer folds."
             ),
             count    = 1,
+        )
+    ]
+
+
+def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypatch):
+    """
+    Test that a `compare` without candidates counts the inference windows
+    of its foundation candidate when its backend is installed (one per
+    series and fold), and that above the threshold (lowered to 3 here, 2000
+    by default) a strategy says so when it is built: a `CompareCostNotice`
+    for the plan of another forecaster, and for a foundation plan the
+    `LongTrainingWarning` its backtest will emit.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: True,
+    )
+    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_INFERENCE_WINDOWS", 3)
+    monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 3)
+    server, path, profile_id, plan_id = _planned(tmp_path, steps=12)
+    foundation = content_of(
+        call(
+            server, "plan",
+            {"profile_id": profile_id, "steps": 12, "forecaster": "ForecasterFoundation"},
+        )
+    )
+
+    result = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+    result_foundation = content_of(
+        call(server, "create_cv", {"plan_id": foundation["id"]})
+    )
+
+    assert result["cost"]["inference_windows"] == 0
+    assert result["cost"]["compare_inference_windows"] == 6
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "CompareCostNotice",
+            message  = (
+                "`compare` without `candidates` on this strategy runs "
+                "ForecasterFoundation on up to 6 inference windows (1 series x 6 "
+                "folds), which can take minutes on a CPU. Pass `candidates` to "
+                "choose what runs, or use fewer folds."
+            ),
+            count    = 1,
+        )
+    ]
+    assert result_foundation["cost"]["inference_windows"] == 6
+    assert result_foundation["cost"]["compare_inference_windows"] == 6
+    assert [
+        (n["category"], n["source"], n["message"].split("\n")[0])
+        for n in result_foundation["notices"]
+    ] == [
+        (
+            "LongTrainingWarning",
+            "runtime",
+            "ForecasterFoundation will forecast up to 6 inference windows (1 series x "
+            "6 folds), more than 3. This can take minutes on a CPU. If not "
+            "feasible, use a cross-validation strategy with fewer folds (a "
+            "later `initial_train_size` or a larger `fold_stride`) or forecast "
+            "fewer series.",
         )
     ]
 
@@ -323,4 +401,41 @@ def test_tool_create_cv_invalid_argument_message_when_train_size_beyond_data(tmp
         "have more than `initial_train_size + gap` observations to create at "
         "least one fold. Time series length: 204 Required > 500 "
         "initial_train_size: 500 gap: 0"
+    )
+
+
+def test_tool_create_cv_inference_windows_with_several_series_and_at_the_threshold(
+    tmp_path, monkeypatch
+):
+    """
+    Test that the inference windows of a `compare` without candidates count
+    every series (2 series over the 6 folds of the strategy are 12), and
+    that the `CompareCostNotice` is given above the threshold, not at it.
+    """
+    from skforecast_ai.mcp import create_server
+
+    from ..fixtures_assistant import df_multi_wide
+    from .fixtures_mcp import write_csv
+
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: True,
+    )
+    path = write_csv(tmp_path, "wide.csv", df_multi_wide)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(
+        server, path, target=["series_a", "series_b"], steps=5
+    )
+
+    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_INFERENCE_WINDOWS", 12)
+    at_threshold = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_INFERENCE_WINDOWS", 11)
+    above = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+
+    assert at_threshold["cost"]["n_folds"] == 6
+    assert at_threshold["cost"]["compare_inference_windows"] == 12
+    assert [n["category"] for n in at_threshold["notices"]] == []
+    assert [n["category"] for n in above["notices"]] == ["CompareCostNotice"]
+    assert "on up to 12 inference windows (2 series x 6 folds)" in (
+        above["notices"][0]["message"]
     )

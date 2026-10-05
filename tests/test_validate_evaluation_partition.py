@@ -14,12 +14,16 @@ from tests.fixtures_last_window import (
     data_wide,
     data_wide_seven,
     in_evaluation,
+    long_ending_early,
+    plan_long_foundation_eval,
     plan_long_multiseries_eval,
     plan_single_lgbm_eval,
     plan_single_ridge,
     plan_single_ridge_eval,
+    plan_wide_foundation_eval,
     plan_wide_multiseries_eval,
     plan_wide_seven_eval,
+    plans_single_without_lags,
     profile_long,
     profile_single,
     profile_wide,
@@ -455,5 +459,162 @@ def test_validate_evaluation_partition_InvalidInputError_when_dates_have_time_zo
         validate_evaluation_partition(
             data    = data,
             profile = profile,
+            plan    = plan_wide_multiseries_eval,
+        )
+
+
+# =============================================================================
+# Tests: ForecasterFoundation on several series
+# =============================================================================
+@pytest.mark.parametrize(
+    "data, profile, plan",
+    [
+        (
+            with_missing(data_wide, list(range(1, 11)), "item_2"),
+            profile_wide, plan_wide_foundation_eval,
+        ),
+        (
+            long_ending_early(data_long, "item_2", 10),
+            profile_long, plan_long_foundation_eval,
+        ),
+    ],
+    ids=["wide", "long"],
+)
+def test_validate_evaluation_partition_InvalidInputError_when_foundation_series_ends_early(
+    data, profile, plan
+):
+    """
+    Test that a series that ends before the test split (its last value is
+    on 2012-04-19, the test dates go from 2012-04-23 to 2012-04-29) is
+    rejected for a ForecasterFoundation plan with the dates and the advice
+    to remove it, in wide format (missing values) and in long format (no
+    rows), where the script failed on the metrics ("inconsistent numbers of
+    samples: [0, 7]").
+    """
+    err_msg = re.escape(
+        "The target has missing values in the test split ('item_2': 7 value(s), "
+        "such as '2012-04-23', '2012-04-24', '2012-04-25', '2012-04-26', "
+        f"'2012-04-27' and 2 more). {_TEST_MESSAGE} Series without any value in "
+        "the test split ('item_2') end before it: remove them from the data, "
+        "or evaluate on dates they reach."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_evaluation_partition(data=data, profile=profile, plan=plan)
+
+    assert exc_info.value.field == "data"
+    assert exc_info.value.code == "invalid_argument"
+
+
+@pytest.mark.parametrize(
+    "data, profile, plan",
+    [
+        (
+            with_missing(data_wide, [1, 2, 3], "item_2"),
+            profile_wide, plan_wide_foundation_eval,
+        ),
+        (
+            with_missing_long(data_long, "item_2", [1, 2, 3]),
+            profile_long, plan_long_foundation_eval,
+        ),
+        (
+            long_ending_early(data_long, "item_2", 3),
+            profile_long, plan_long_foundation_eval,
+        ),
+    ],
+    ids=["wide", "long_missing", "long_absent"],
+)
+def test_validate_evaluation_partition_InvalidInputError_when_foundation_test_split_missing(
+    data, profile, plan
+):
+    """
+    Test that a series of a ForecasterFoundation plan without a value on
+    some test dates (the last 3) is rejected with the message of
+    ForecasterRecursiveMultiSeries, whether the values are missing or the
+    series ends inside the test split.
+    """
+    err_msg = re.escape(
+        "The target has missing values in the test split ('item_2': 3 value(s), "
+        f"such as '2012-04-27', '2012-04-28', '2012-04-29'). {_TEST_MESSAGE}"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        validate_evaluation_partition(data=data, profile=profile, plan=plan)
+
+    assert exc_info.value.field == "data"
+
+
+@pytest.mark.parametrize(
+    "data, profile, plan",
+    [
+        (data_wide, profile_wide, plan_wide_foundation_eval),
+        (data_long, profile_long, plan_long_foundation_eval),
+        (
+            with_missing(data_wide, [8, 9], "item_1"),
+            profile_wide, plan_wide_foundation_eval,
+        ),
+        (
+            with_missing_long(data_long, "item_1", [8, 9]),
+            profile_long, plan_long_foundation_eval,
+        ),
+        (
+            data_long.drop(
+                index=data_long.index[
+                    (data_long["series"] == "item_1")
+                    & (data_long["date"] == "2012-04-22")
+                ]
+            ),
+            profile_long, plan_long_foundation_eval,
+        ),
+    ],
+    ids=[
+        "wide_complete", "long_complete", "wide_missing", "long_missing",
+        "long_absent",
+    ],
+)
+def test_validate_evaluation_partition_no_error_when_foundation_training_has_missing(
+    data, profile, plan
+):
+    """
+    Test that a ForecasterFoundation plan is accepted with complete series
+    and with a series without a value on the last training date
+    (2012-04-22), which ForecasterRecursiveMultiSeries rejects: the model
+    takes the missing values of the training partition as they are and
+    predicts the test dates.
+    """
+    result = validate_evaluation_partition(data=data, profile=profile, plan=plan)
+
+    assert result is None
+
+
+def test_validate_evaluation_partition_no_check_when_foundation_single_series():
+    """
+    Test that a ForecasterFoundation plan on a single series is not checked
+    here (forecast() checks its test dates with `_check_evaluated_target`).
+    """
+    plan = in_evaluation(plans_single_without_lags["foundation"], "2023-02-26")
+
+    result = validate_evaluation_partition(
+        data    = with_missing(data_single, [2]),
+        profile = profile_single,
+        plan    = plan,
+    )
+
+    assert result is None
+
+
+def test_validate_evaluation_partition_InvalidInputError_names_series_without_test_values():
+    """
+    Test that a series of ForecasterRecursiveMultiSeries with a value on the
+    last training date and none on the 7 test dates gets the advice to
+    remove it, after the message about the test split.
+    """
+    err_msg = re.escape(
+        f"'2012-04-27' and 2 more). {_TEST_MESSAGE} Series without any value in "
+        "the test split ('item_2') end before it: remove them from the data, "
+        "or evaluate on dates they reach."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        validate_evaluation_partition(
+            data    = with_missing(data_wide, list(range(1, 8)), "item_2"),
+            profile = profile_wide,
             plan    = plan_wide_multiseries_eval,
         )

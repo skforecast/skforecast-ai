@@ -13,7 +13,7 @@ from .._constants import (
 )
 from ..schemas import DataProfile
 from ..exceptions import InvalidInputError
-from .autoregressive import tabulated_seasonal_period
+from .autoregressive import arima_seasonal_period
 
 
 def _auto_arima_is_practical(frequency: str | None) -> bool:
@@ -21,8 +21,10 @@ def _auto_arima_is_practical(frequency: str | None) -> bool:
     Check whether an Auto-ARIMA search is affordable for a frequency.
 
     The search fits many seasonal state-space models, and its cost grows
-    with the seasonal period, so high-frequency data (hourly or finer,
-    weekly) makes it impractical.
+    with the seasonal period, so data with a long one (hourly or finer,
+    weekly) makes it impractical. A frequency that is not in
+    `FREQUENCY_TO_SEASONAL_PERIOD` never has a long one
+    (`MAX_UNTABULATED_ARIMA_PERIOD`).
 
     Parameters
     ----------
@@ -32,11 +34,11 @@ def _auto_arima_is_practical(frequency: str | None) -> bool:
     Returns
     -------
     is_practical : bool
-        `False` when the seasonal period implied by `frequency` reaches
-        `MAX_STATS_SEASONAL_PERIOD`, `True` otherwise (including unknown
-        frequencies).
+        `False` when the seasonal period of Auto-ARIMA for `frequency`
+        (`arima_seasonal_period`) reaches `MAX_STATS_SEASONAL_PERIOD`,
+        `True` otherwise (including frequencies without one).
     """
-    m = tabulated_seasonal_period(frequency)
+    m = arima_seasonal_period(frequency)
 
     return m is None or m < MAX_STATS_SEASONAL_PERIOD
 

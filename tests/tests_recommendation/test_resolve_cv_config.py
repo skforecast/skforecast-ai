@@ -6,6 +6,7 @@ from skforecast.model_selection import TimeSeriesFold
 from skforecast_ai.recommendation.backtesting import resolve_cv_config
 
 from tests.tests_recommendation.fixtures_recommendation import (
+    profile_multi_long,
     profile_single_daily_100,
 )
 
@@ -83,6 +84,39 @@ def test_resolve_cv_config_output_when_forecaster_is_not_trained():
     assert explanation_date.startswith(
         "First fold forecasts from the data up to 2023-03-01, no training"
     )
+
+
+@pytest.mark.parametrize(
+    "profile, expected_windows",
+    [(profile_single_daily_100, 8), (profile_multi_long, 84)],
+    ids=["single series", "3 series"],
+)
+def test_resolve_cv_config_output_inference_windows_when_forecaster_is_foundation(
+    profile, expected_windows
+):
+    """
+    Test that for ForecasterFoundation the strategy carries its inference
+    windows (series times folds), which the explanation states, and that no
+    other forecaster, nor a strategy shared by several, carries them.
+    """
+    cv = TimeSeriesFold(steps=10, initial_train_size=20, refit=False)
+
+    cv_config, explanation = resolve_cv_config(
+        cv, profile, trains=False, forecaster="ForecasterFoundation"
+    )
+    cv_config_recursive, _ = resolve_cv_config(
+        cv, profile, forecaster="ForecasterRecursive"
+    )
+    cv_config_shared, _ = resolve_cv_config(cv, profile)
+
+    assert cv_config["inference_windows"] == expected_windows
+    assert cv_config["n_fits"] == 0
+    assert explanation.endswith(
+        f"The model forecasts each series in each fold where it has data (up "
+        f"to {expected_windows} inference windows)."
+    )
+    assert "inference_windows" not in cv_config_recursive
+    assert "inference_windows" not in cv_config_shared
 
 
 @pytest.mark.parametrize(

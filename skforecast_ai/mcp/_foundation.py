@@ -131,6 +131,12 @@ def check_allow_models(prefixes: Iterable[str]) -> tuple[str, ...]:
     return tuple(checked)
 
 
+# skforecast registers a license for each family of models, found by the
+# start of the model id: the notice of a model says so, since the server
+# does not check that a repository of that name exists nor read its card.
+_LICENSE_LEAD = "License (by the name of the model, as skforecast registers it):"
+
+
 def _license_text(info: FoundationModelInfo) -> str:
     """
     The license of a model as skforecast registers it, and what else a user
@@ -484,7 +490,7 @@ class ModelPolicy:
                 message = (
                     f"The weights of '{model_id}'{repository} were not found "
                     f"in the local Hugging Face cache: {when} from the Hugging "
-                    f"Face Hub. License: {_license_text(info)}."
+                    f"Face Hub. {_LICENSE_LEAD} {_license_text(info)}."
                 )
             else:
                 where = (
@@ -495,7 +501,7 @@ class ModelPolicy:
                 message = (
                     f"The server cannot tell whether the weights of "
                     f"'{model_id}' are already downloaded: {where}, so "
-                    f"{when}. License: {_license_text(info)}."
+                    f"{when}. {_LICENSE_LEAD} {_license_text(info)}."
                 )
             if offline and not ran and in_hf_cache:
                 message += (

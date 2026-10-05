@@ -146,6 +146,49 @@ def _madrid_hourly() -> pd.DataFrame:
     return pd.DataFrame({"date": index, "load": values})
 
 
+# Synthetic single series of the frequency check: frequency, rows and the
+# cycles (in steps) of the seasonal signal. The first block holds
+# frequencies pandas infers for ordinary data, whose seasonal periods must
+# not change; the second, frequencies whose periods phase 7 of
+# dev/mcp-preparation.md unifies.
+FREQUENCY_SCENARIOS: list[tuple[str, int, tuple[int, ...]]] = [
+    ("ME", 120, (12,)),
+    ("W-SUN", 260, (52,)),
+    ("QS", 60, (4,)),
+    ("YS", 40, ()),
+    ("B", 500, (5,)),
+    ("min", 600, (60,)),
+    ("2W-SUN", 200, (26,)),
+    ("3D", 300, ()),
+    ("5D", 300, (73,)),
+    ("2MS", 120, (6,)),
+    ("3h", 600, (8,)),
+    ("7h", 400, (24,)),
+    ("14h", 300, (12,)),
+    ("10s", 600, (6,)),
+    ("5min", 3000, (12, 288)),
+    ("15min", 2000, (4, 96)),
+    ("30min", 1500, (2, 48)),
+]
+
+
+def _synthetic_frequency(
+    frequency: str, n_rows: int, cycles: tuple[int, ...]
+) -> pd.DataFrame:
+    """
+    Single series of `n_rows` values at `frequency`: a level, a slow trend,
+    one sine per cycle and seeded noise, with the dates in a column.
+    """
+
+    rng = np.random.default_rng(n_rows + len(frequency))
+    index = pd.date_range("2020-01-06", periods=n_rows, freq=frequency)
+    steps = np.arange(n_rows)
+    values = 100 + 0.02 * steps + rng.normal(0, 1, n_rows)
+    for k, cycle in enumerate(cycles):
+        values = values + (10 / (k + 1)) * np.sin(2 * np.pi * steps / cycle)
+    return pd.DataFrame({"date": index, "y": values})
+
+
 def _bike_sharing(data_dir: Path) -> pd.DataFrame:
     """
     bike_sharing with the target `users` and six exogenous columns, on its
@@ -224,7 +267,8 @@ def parity_scenarios(data_dir: Path = DEFAULT_DATA_DIR) -> list[Scenario]:
     Returns
     -------
     scenarios : list of Scenario
-        Eight datasets, in the order they run.
+        Eight datasets, then one synthetic series per frequency of
+        `FREQUENCY_SCENARIOS`, in the order they run.
     """
 
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -278,4 +322,12 @@ def parity_scenarios(data_dir: Path = DEFAULT_DATA_DIR) -> list[Scenario]:
     scenarios.append(Scenario(
         "hourly_madrid_dst", _madrid_hourly(), 24, "load", date_column="date",
     ))
+    for frequency, n_rows, cycles in FREQUENCY_SCENARIOS:
+        scenarios.append(Scenario(
+            f"frequency_{frequency}",
+            _synthetic_frequency(frequency, n_rows, cycles),
+            12,
+            "y",
+            date_column="date",
+        ))
     return scenarios

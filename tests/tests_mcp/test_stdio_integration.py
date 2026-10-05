@@ -11,6 +11,11 @@ import pytest
 from mcp import Client, StdioServerParameters
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai._constants import DEFAULT_FOUNDATION_MODEL_ID
+from skforecast_ai._foundation import (
+    foundation_backend_installed,
+    resolve_foundation_model,
+)
 
 from .fixtures_mcp import content_of, df_h2o_csv, error_of, write_csv
 
@@ -72,8 +77,14 @@ def test_stdio_server_runs_the_planning_workflow(tmp_path):
     assert profile["summary"] == expected_profile.describe()
     assert plan["summary"] == script.describe()
     assert cv["summary"] == expected_cv.describe()
+    # A `compare` without candidates runs the foundation model, one window
+    # per fold of the single series, only when its backend is installed.
+    backend = foundation_backend_installed(
+        resolve_foundation_model(DEFAULT_FOUNDATION_MODEL_ID)
+    )
     assert cv["cost"] == {
-        "n_folds": 6, "n_fits": 1, "estimator_fits": 1, "compare_estimator_fits": 19,
+        "n_folds": 6, "n_fits": 1, "estimator_fits": 1, "inference_windows": 0,
+        "compare_estimator_fits": 19, "compare_inference_windows": 6 if backend else 0,
     }
     assert code["code"] == script.code
     assert error_of(error, "plan")["code"] == "unknown_id"

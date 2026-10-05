@@ -2317,3 +2317,247 @@ Antes de mergear la fase 6, una verificación independiente comparó la base (`8
 **Para el check de pago.** `overrides_plan` lleva ahora dos avisos del plan (el argumento mal escrito y la variable de calendario). En `time_zone_backtest_code`, las fechas de la estrategia son horas locales sin desfase; solo el rango de fechas de `<dataset>` muestra los desfases de la primera y la última fecha.
 
 **Tests.** De 4090 (1 fallado) a 4101 pasados, más 1 omitido, en macOS con el entorno conda local.
+
+## 21. Fase 7: hecho
+
+Periodos estacionales y coste de los modelos foundation, lo último de código antes de la release 0.4.0, en la rama `feature/periods-and-foundation-cost`, creada desde `0.4.x` (`c70e62b`). Un commit por punto, en el orden pedido, cada uno subido al terminar. Antes de cada commit se pasaron `/verify` (lint, tests afectados, suite completa, goldens y build de la documentación), la paridad contra la línea base, el subagente `conventions-reviewer` y `/code-review`; lo que encontraron se corrigió antes de subir y cada mensaje lo dice. Ningún commit subido se reescribió ni necesitó una corrección posterior.
+
+GitHub no ejecuta los tests de esta rama: la única comprobación es la de la sesión (Linux, Python 3.11.15, 4 CPU, skforecast 0.26.0, pandas 2.3.3, numpy 2.4.6). numpy 2.5 no está en el índice de paquetes de la sesión, así que la suite no corrió con él: el código nuevo no usa `pd.Timedelta`, y `_seasonal_cycles` conserva el `pd.Timedelta(offset)` que ya tenía `estimate_seasonality` (pregunta 7). `chronos-forecasting` se instaló solo en un entorno aparte para las medidas; el entorno de la suite y de la paridad no lo tiene, como en la fase 6.
+
+| Commit | Punto | Contenido |
+|---|---|---|
+| `84ed17a` | 1a | `m` de Auto-ARIMA y regla de ForecasterStats desde `estimate_seasonality` para las frecuencias que la tabla no tiene; 17 escenarios de frecuencia en la paridad |
+| `c44a727` | 1b | Medida de la hora frente al día en datos de 5 a 30 minutos (`tools/perf/subhourly_periods.py`); sin cambios de comportamiento |
+| `6cbd194` | 2 | Coste de los modelos foundation en ventanas de inferencia, con su `LongTrainingWarning`, en Python y en el servidor |
+| este | | Esta sección |
+
+### 21.1 Línea base y paridad
+
+La línea base se tomó antes de tocar código, con `tools/perf/parity.py` y 25 escenarios: los 8 de la fase 6 (que cubren `D`, `h` y `MS`) más una serie sintética por frecuencia (`FREQUENCY_SCENARIOS` de `tools/perf/_datasets.py`): `ME`, `W-SUN`, `QS-OCT`, `YS-JAN`, `B` y `min`, que no debían cambiar, y `2W-SUN`, `3D`, `5D`, `2MS`, `3h`, `7h`, `14h`, `10s`, `5min`, `15min` y `30min`.
+
+| Comparación | Resultado |
+|---|---|
+| Base frente a `84ed17a` (1a) | Sin diferencias en los 8 conjuntos ni en `ME`, `W-SUN`, `QS-OCT`, `YS-JAN`, `B`, `min`, `3D`, `7h`, `5min`, `15min` y `30min`. Diferencias, todas explicadas: `2W-SUN`, `5D` y `10s` pierden ForecasterStats de los candidatos (la explicación y la lista de candidatos del perfil, y `compare()` sin él; en `10s` ForecasterStats era el ganador y ahora lo es ForecasterRecursive); en `2MS`, `3h` y `14h` el candidato ForecasterStats de `compare()` corre con `m` (6, 8 y 12): otras métricas y, en `3h`, otro ganador (MAE de 2,34 a 0,97) |
+| `84ed17a` frente a `c44a727` (1b) | Sin diferencias |
+| `c44a727` frente a `6cbd194` (2) | Sin diferencias: ningún escenario ejecuta un modelo foundation (sin backend, `compare()` lo deja fuera, como antes) |
+
+Con el backend instalado se comprobó a mano el punto 2: un backtest de 50 series y 41 folds de store_sales (2050 ventanas) tardó 62 s, emitió el aviso nuevo, y su `cv_config` y su explicación llevan las ventanas.
+
+### 21.2 Punto 1a: frecuencias que la tabla no tiene
+
+**Regla.** `arima_seasonal_period` (nuevo, en `recommendation/autoregressive.py`) da el periodo de `FREQUENCY_TO_SEASONAL_PERIOD` si la frecuencia está en la tabla; si no, el primer periodo de `estimate_seasonality` (el que los lags incluyen siempre y el baseline repite) cuando es un ciclo entero de al menos 2 pasos. Lo leen el script de Auto-ARIMA y la regla que deja a ForecasterStats fuera de los candidatos (24 o más). Motivo:
+- Un periodo que no es un ciclo entero (`3D`: 2 pasos son 6 días, no una semana; el 121 del año tampoco es exacto) haría que los términos estacionales modelen un ciclo que los datos no tienen, y encarece la búsqueda.
+- Un periodo de 1 es el modelo sin estacionalidad que Auto-ARIMA ajusta sin `m` (su valor por defecto): escribirlo no cambia nada.
+- Solo se lee el primer periodo, así que `m`, cuando existe, es siempre el periodo del baseline: una sola fuente. En `7h` el segundo periodo (24, la semana) es entero pero el primero (3) no: sin `m`, como antes.
+- "Entero" se decide con nanosegundos enteros (`_seasonal_cycles`); para un alias de longitud variable, cuando el multiplicador divide el periodo de la tabla (`2MS`: 6 de 12; `5MS` no). `/code-review` encontró dos casos, corregidos antes del commit: `ms` (milisegundos) se leía como `MS` y daba `m=12`, y el periodo de `L` que la división en coma flotante deja un paso corto (3599999) se marcaba entero. Los dos dan ahora ningún `m`.
+
+`estimate_seasonality`, la tabla y el periodo del baseline dan lo mismo que antes en las 238 frecuencias de `tools/perf/seasonal_periods.py` (y en 975 en la revisión de convenciones). El `m` cambia en 38 de las 238, ninguna de las que pandas infiere para datos corrientes:
+
+| Frecuencias | `estimate_seasonality` | `m` antes | `m` después | ForecasterStats entre los candidatos | Baseline |
+|---|---|---|---|---|---|
+| `2MS`, `2ME`, `2M` | [6] | ninguno | 6 | sí (sigue) | 6 (igual) |
+| `4MS`, `4ME` | [3] | ninguno | 3 | sí (sigue) | 3 (igual) |
+| `2QS-OCT`, `2QS-NOV`, `2QE-DEC`, `2QE-OCT` | [2] | ninguno | 2 | sí (sigue) | 2 (igual) |
+| `4W-SUN`, `4W-MON`, `4W-WED` | [13] | ninguno | 13 | sí (sigue) | 13 (igual) |
+| `3h`, `3H` | [8, 56] | ninguno | 8 | sí (sigue) | 8 (igual) |
+| `12h` | [2, 14] | ninguno | 2 | sí (sigue) | 2 (igual) |
+| `14h` | [12, 625] | ninguno | 12 | sí (sigue) | 12 (igual) |
+| `3min`, `4min`, `6min`, `12min`, `20min` | [20, 480] a [3, 72] | ninguno | 20, 15, 10, 5 y 3 | sí (sigue) | igual |
+| `2W-SUN`, `2W-MON`, `2W-WED` | [26] | ninguno | 26 | **no** (antes sí) | 26 (igual) |
+| `5D` | [73] | ninguno | 73 | **no** (antes sí) | 73 (igual) |
+| `2min` | [30, 720] | ninguno | 30 | **no** (antes sí) | 30 (igual) |
+| `s`, `S`, de `2s` a `30s` | [3600, 86400] a [120, 2880] | ninguno | de 3600 a 120 | **no** (antes sí) | igual |
+
+Siguen sin `m`, con ForecasterStats entre los candidatos y el mismo baseline, las de primer periodo no entero o de 1: `3D`, `4D`, `6D`, de `10D` a `30D`, `3W` y de `5W` a `30W`, `5MS`, `7MS`, `10MS` (y sus `ME`), `3QS`, `3QE`, `5h`, `7h`, `10h`, `15h`, `20h`, `30h`, `7min`, `14min`, `7s` y `14s`. Las de la tabla (`D`, `h`, `MS`, `ME`, `W-SUN`, `QS`, `YS`, `B`, `min`, `2D`, `2h`, `4h`, `6h` y de 5 a 30 minutos) no cambian.
+
+Con ForecasterStats pedido a mano en datos por segundos, el script lleva ahora `m=3600`, como `5min` ya llevaba `m=288`. Medido: con menos de dos periodos de datos, Auto-ARIMA ajusta un modelo sin estacionalidad en menos de 1 s y sin error.
+
+Diferencias que quedan entre las fuentes (10 de 238 en `seasonal_periods.py`): las ocho de 5 a 30 minutos (21.3), `2D` (la tabla dice 7, los lags [3, 182]) y `AS-JAN` (`estimate_seasonality` no conoce el alias `AS` de pandas 2.1; la tabla le da 1, como a `YS`). Las dos últimas son frecuencias de la tabla y no entraban en 1a (preguntas 2 y 3).
+
+### 21.3 Punto 1b: datos de 5 a 30 minutos
+
+`tools/perf/subhourly_periods.py`, con los resultados en `tools/perf/results/phase7_subhourly.json`. Conjuntos reales de `skforecast.datasets` (la descarga funcionó): `vic_electricity` (30 minutos, `Demand`), `ett_m1` (15 minutos, `OT` y `HUFL`) y `ett_m2` (15 minutos, `OT`), los últimos 60 días de cada uno. No hay ninguno de 5 o 10 minutos, así que se añadieron dos sintéticos: 5 minutos con ciclo diario y horario, y 10 minutos solo con ciclo diario. Test: los últimos 14 días, entrenando una vez, con horizontes de una hora y de un día.
+
+"Día solo" es lo que daría la tabla: `estimate_seasonality` devolviendo [288], [96] o [48]; el horizonte del PACF es el mismo, y cambian el lag que se incluye siempre y las ventanas. Auto-ARIMA corre en su propia estrategia: 14 días de entrenamiento y los 2 últimos días como test, reajustado en cada fold (skforecast lo hace con ARIMA), solo con el horizonte de un día (con el de una hora, 48 reajustes no terminaron en 15 minutos) y parado a los 600 s.
+
+MASE / MAE (media de los folds), tiempo del backtest y número de predictores (lags más ventanas, hora / día). Los backtests del baseline tardan menos de 0,2 s con los dos periodos.
+
+| Conjunto | Horizonte | Lags y ventanas: hora primero (hoy) | día solo | Predictores | Baseline: día (hoy) | hora |
+|---|---|---|---|---|---|---|
+| vic_electricity, 30min, Demand | una hora | 0.920 / 88.045 (1.04 s) | 0.920 / 88.045 (1.1 s) | 27 / 27 | 3.176 / 303.235 | 1.607 / 153.061 |
+| vic_electricity, 30min, Demand | un día | 4.574 / 437.859 (0.25 s) | 4.574 / 437.859 (0.27 s) | 27 / 27 | 3.176 / 303.235 | 4.543 / 432.604 |
+| ett_m1, 15min, OT | una hora | 1.304 / 0.289 (1.16 s) | 1.363 / 0.304 (1.05 s) | 9 / 10 | 6.658 / 1.475 | 1.746 / 0.385 |
+| ett_m1, 15min, OT | un día | 4.849 / 1.074 (0.26 s) | 5.221 / 1.164 (0.38 s) | 9 / 10 | 6.658 / 1.475 | 5.377 / 1.184 |
+| ett_m2, 15min, OT | una hora | 1.551 / 0.359 (1.03 s) | 1.619 / 0.372 (0.96 s) | 8 / 9 | 15.434 / 3.573 | 4.110 / 0.961 |
+| ett_m2, 15min, OT | un día | 15.596 / 3.610 (0.27 s) | 17.088 / 3.931 (0.3 s) | 8 / 9 | 15.434 / 3.573 | 19.665 / 4.597 |
+| ett_m1, 15min, HUFL | una hora | 1.326 / 1.724 (1.17 s) | 1.354 / 1.730 (1.27 s) | 10 / 10 | 2.259 / 2.935 | 2.147 / 2.781 |
+| ett_m1, 15min, HUFL | un día | 2.071 / 2.692 (0.32 s) | 2.301 / 2.941 (0.32 s) | 10 / 10 | 2.259 / 2.935 | 5.581 / 7.230 |
+| sintético, 5min, día y hora | una hora | 0.698 / 1.158 (1.55 s) | 0.655 / 1.087 (1.49 s) | 24 / 25 | 0.687 / 1.139 | 1.166 / 1.932 |
+| sintético, 5min, día y hora | un día | 0.968 / 1.606 (0.63 s) | 0.660 / 1.096 (0.59 s) | 24 / 25 | 0.687 / 1.139 | 3.873 / 6.419 |
+| sintético, 10min, solo día | una hora | 0.913 / 1.045 (0.99 s) | 0.911 / 1.042 (1.2 s) | 18 / 19 | 0.973 / 1.113 | 1.684 / 1.934 |
+| sintético, 10min, solo día | un día | 1.255 / 1.436 (0.35 s) | 1.061 / 1.213 (0.39 s) | 18 / 19 | 0.973 / 1.113 | 5.661 / 6.500 |
+
+| Conjunto | Auto-ARIMA `m` = día | `m` = hora |
+|---|---|---|
+| vic_electricity, 30min, Demand | parado a 600 s | 3.998 / 337.357 (3.13 s) |
+| ett_m1, 15min, OT | 5.299 / 0.992 (445.75 s) | 5.270 / 0.986 (0.88 s) |
+| ett_m2, 15min, OT | parado a 600 s | 20.999 / 5.528 (4.98 s) |
+| ett_m1, 15min, HUFL | parado a 600 s | 5.837 / 7.993 (5.8 s) |
+| sintético, 5min, día y hora | parado a 600 s | 6.891 / 11.390 (103.34 s) |
+
+**Lectura.**
+- Lags y ventanas: con datos reales gana la hora primero (lo de hoy) en los 6 casos de ETT y empata en `vic_electricity` (a 30 minutos la hora, 2, es más corta que la ventana mínima y los lags salen iguales); con datos sintéticos gana el día en los 4. Mismo tiempo; el día da los mismos predictores o uno más.
+- Baseline: con horizonte de una hora gana la hora en los 4 conjuntos reales y el día en los 2 sintéticos; con horizonte de un día gana el día en 5 de 6 (en `ett_m1` OT, la hora).
+- Auto-ARIMA: con `m` el día no es practicable (4 de 5 pasan de 10 minutos para 2 folds; `ett_m1` OT, 446 s); con `m` la hora tarda de 1 a 6 s (103 s con 5 minutos) y en el único caso comparable da lo mismo (MASE 5,27 frente a 5,30).
+
+**Decisión: todo queda como está para esas frecuencias.** Ninguna opción gana en todos los conjuntos ni empata sin coste: los lags prefieren la hora con datos reales y el día con sintéticos, y el baseline depende del horizonte. Pasar `m` a la hora sería practicable, pero metería a ForecasterStats entre los candidatos automáticos de estos datos (12, 6, 4 y 2 están por debajo de 24) y cambiaría el baseline, que con horizonte de un día pierde. Un comentario sobre `FREQUENCY_TO_SEASONAL_PERIOD` lo deja escrito; la tabla va como pregunta 1.
+
+### 21.4 Punto 2: coste de los modelos foundation
+
+**Medidas** (`tools/perf/foundation_cost.py`, resultados en `tools/perf/results/phase7_foundation_*.json`). En la CPU de la sesión (4 núcleos, torch 2.14.1 sin GPU, `chronos-forecasting` 2.3.2; los pesos se descargaron sin problema), backtest de series diarias de store_sales con horizonte 7, ajustando segundos = fijo + coste por ventana:
+
+| Modelo | Fijo | Por ventana | Ventanas por minuto | Casos (series x folds) |
+|---|---|---|---|---|
+| `autogluon/chronos-2-small` (por defecto) | 1 a 4 s | 27 ms | unas 2100 | 1x1: 3,9 s; 1x10: 1,1 s; 10x10: 2,8 s; 50x10: 15,2 s; 100x10: 30,7 s; 500x2: 40,9 s; 100x50: 134,9 s |
+| `autogluon/chronos-2-small`, store_sales con la estrategia por defecto | | 29 ms | | 500x79 (39 500 ventanas): **1157 s, 19 minutos** |
+| `amazon/chronos-2` | 1 a 4 s | 116 ms | unas 500 | 10x10: 8,6 s; 50x10: 52,6 s; 100x10: 119 s |
+
+El coste es lineal en las ventanas, también al cambiar series por folds (500x2 y 100x10 dan 41 y 31 s para 1000 ventanas). Frente a las cifras del autor en un Mac con GPU (4 s fijos y 3 ms por ventana; store_sales en 121 s), esta CPU es unas 10 veces más lenta por ventana, y el modelo grande es 4 veces más lento que el pequeño (2 veces en GPU). Unas primeras medidas se descartaron: corrieron a la vez que otros procesos y torch, con sus 4 hilos compitiendo por la CPU, llegó a dar 30 veces más tiempo por ventana.
+
+**Medida y aviso.** `count_inference_windows` cuenta series por folds (0 para cualquier otro forecaster). Un plan `ForecasterFoundation` lleva `inference_windows` en `cv_config` (`create_cv()`, `backtest()` y su candidato en `compare()`), y la explicación de su estrategia termina con "The model forecasts each series in each fold (N inference windows in all)." Por encima de `LONG_INFERENCE_WINDOWS` = **2000** ventanas, `backtest()` y `compare()` (una vez por candidato, antes de ejecutar) emiten `LongTrainingWarning` con su propio texto, que propone menos folds o menos series. El umbral es un minuto, más o menos, con el modelo por defecto en CPU (2050 ventanas, 62 s de punta a punta); en GPU son unos 10 s y con `amazon/chronos-2` en CPU unos 4 minutos (pregunta 5).
+
+**No se excluye el candidato foundation de `compare()`.** Con tamaños corrientes cuesta segundos (una serie con 50 folds, 2,8 s; 10 series con 10 folds, 2,8 s) o un par de minutos (100 series con 50 folds, 2,3 minutos); los muchos minutos llegan con cientos de series y muchos folds (store_sales con la estrategia por defecto, 19 minutos en CPU). El aviso llega antes de ejecutar, así que se puede cancelar o pasar `candidates`. Queda como pregunta 4.
+
+**Servidor MCP.** `cost` gana `inference_windows` (en la estrategia, el backtest y, sumado, los candidatos de una comparación; 0 salvo un modelo foundation) y, en `create_cv`, `compare_inference_windows` (el candidato foundation de un `compare` sin candidatos; 0 si su backend no está instalado, porque `compare()` lo deja fuera). `create_cv` de un plan foundation por encima del umbral lleva la notice `LongTrainingWarning` que emitirá el backtest, y una `CompareCostNotice` cuando un `compare` sin candidatos correría el modelo foundation por encima del umbral. Lo describen el SKILL.md (y su copia de `plugin/`, idéntica), `docs/api/mcp.md`, la guía y el docstring de `ToolResult`.
+
+### 21.5 Cambios para el usuario
+
+**Python.**
+- Frecuencias multiplicadas y por segundos fuera de la tabla (21.2): el script de Auto-ARIMA lleva `m`; las de periodo 24 o más (`2W`, `5D`, `2min`, segundos) dejan a ForecasterStats fuera de los candidatos, así que `compare()` sin candidatos ya no lo ejecuta y `plan(forecaster="ForecasterStats")` avisa con `UnrecommendedForecasterWarning`. Las predicciones, las métricas y el ganador de `compare()` pueden cambiar en esos datos.
+- Planes `ForecasterFoundation`: `inference_windows` en `cv_config`, una frase más en la explicación de la estrategia y `LongTrainingWarning` por encima de 2000 ventanas en `backtest()` y `compare()`.
+- Nada más: las frecuencias de datos corrientes (`D`, `h`, `MS`, `ME`, `W-SUN`, `QS`, `YS`, `B`, `min`) y los datos de 5 a 30 minutos no cambian (paridad, 21.1). En la release 0.4.0, una entrada nueva (Enhancement, Auto-ARIMA) y una frase añadida a la existente sobre el coste de los backtests.
+
+**Servidor MCP.** Lo mismo, a través de los mismos planes y candidatos, más los campos nuevos de `cost` y las notices de 21.4.
+
+### 21.6 Goldens
+
+- Render (`tests/tests_rendering`): ningún golden cambió. Cambió la expectativa de un caso de un test parametrizado: `'2W'` escribe ahora `m=26` en `test_render_forecast_statistical_output_seasonal_period_when_anchored_or_multiplied_frequency` (más los casos nuevos `3h`, `3D` y `7MS`).
+- Contexto del LLM: `backtest_foundation_multi_series_quantiles` (en `golden` y `golden_describe`), una línea añadida, `- inference_windows: 12`; su fixture lleva ahora la clave como la da `resolve_cv_config`. Regenerados con `/llm-context-change`; ningún valor de los datos.
+- Esquemas del MCP (`tool_schemas.json`): solo el docstring de `ToolResult`, que describe los campos nuevos de `cost` (8 apariciones, una por tool).
+
+### 21.7 Tests
+
+De 4097 pasados y 1 omitido en la base a **4178 pasados y 1 omitido**: 4162 tras 1a (`arima_seasonal_period`, los candidatos, el render y `plan()` con datos quincenales), 4162 tras 1b y 4178 tras 2 (`count_inference_windows`, `warn_long_inference`, `cv_config` y la explicación, `backtest()`, `compare()` y `create_cv` del servidor). En Linux, con numpy 2.4.6.
+
+### 21.8 Para el check de pago
+
+Además de la lista de 20.10 y 20.12:
+- El contexto de un backtest foundation: la línea `- inference_windows` en `<backtesting_strategy>`, y la frase nueva de la explicación de la estrategia en los resultados foundation. Ningún escenario de `check_ask_context.py` ejecuta un modelo foundation (la sesión no tenía el backend en el entorno principal): conviene uno donde esté instalado.
+- La explicación del perfil de datos multiplicados o por segundos lista otros candidatos (sin ForecasterStats en `2W`, `5D`, `2min` y segundos).
+- `--dry-run` construyó los contextos de los cuatro conjuntos sin problemas; no se lanzó sin él.
+
+### 21.9 Preguntas nuevas para el autor
+
+1. Datos de 5 a 30 minutos (21.3): ¿se quedan como están, o se elige una fuente? Opciones: `m` de la hora para Auto-ARIMA (practicable, pero ForecasterStats entra en los candidatos automáticos), un baseline que repita la hora cuando el horizonte no pasa de una hora, o el día para los lags.
+2. `2D`: la tabla le da `m=7` (14 días, que no es un ciclo) y los lags [3, 182]. ¿Se quita de la tabla para que lea `estimate_seasonality` (3 no es entero: sin `m`)?
+3. `estimate_seasonality('ms')` lee los milisegundos como `MS` y da [12] a los lags, y `AS-JAN` da []. ¿Se corrige en 0.5.0? Cambia los lags de esos datos.
+4. Candidato foundation en `compare()` sin candidatos: ¿un presupuesto de ventanas, como el de 500 ajustes (por ejemplo 20 000, unos 10 minutos en CPU), con el mismo mecanismo de `exclude_costly_candidates`? store_sales con la estrategia por defecto tarda 19 minutos en CPU con el modelo pequeño.
+5. Umbral del aviso por modelo: 2000 ventanas son un minuto con `chronos-2-small` en CPU, 4 minutos con `amazon/chronos-2` y unos 10 s en GPU. ¿Fijo, o escalado por modelo (skforecast no da su tamaño)?
+6. Baseline de frecuencias con primer periodo no entero (`3D` repite el valor de 6 días antes y dice "one seasonal period"): ¿se deja, o pasa a naive como el `m` de Auto-ARIMA?
+7. numpy 2.5: ¿se pasa la suite en macOS para confirmar que `_seasonal_cycles` (que conserva el `pd.Timedelta(offset)` de antes) no avisa?
+
+### 21.10 Qué queda para 0.4.0
+
+- El check de pago, una sola vez, con la lista de las secciones 3, 12, 13, 14, 15, 18, 18.1, 19, 19.1, 20.10, 20.12 y 21.8, y los cuatro conjuntos de `check_ask_context.py`.
+- Las preguntas de arriba y las abiertas de las secciones anteriores.
+- El plan de release de 17.1: skforecast 0.26.0, después skforecast-ai 0.4.0 en PyPI y solo entonces el merge de `0.4.x` a `main`.
+
+**Siguiente:** el check de pago.
+
+### 21.11 Revisión del autor y correcciones
+
+Antes de mergear la fase 7, una verificación independiente comparó la base (`c70e62b`) con la rama (`aea0dce`) en macOS, con numpy 2.5.3 y `chronos-forecasting` instalado: los periodos estacionales, el coste de los modelos foundation con el servidor MCP, y la suite con los tests y la documentación. Es la primera revisión en la que un modelo foundation se ejecuta de verdad. Las correcciones van como commits nuevos al final de `feature/periods-and-foundation-cost`; ninguno subido se reescribió.
+
+**Verificación.**
+- Suite: 4181 pasados y 1 omitido en tres ejecuciones con numpy 2.5 (4 tests más que en la sesión, los de integración foundation). Ningún aviso nuevo de numpy 2.5 en esta fase: la pregunta 7 queda cerrada, `_seasonal_cycles` no avisa.
+- Periodos: las frecuencias corrientes no cambian en 34 escenarios; 38 de 238 cambian, y 61 de las 693 distintas de un barrido más amplio. Ningún ciclo no entero se redondea a un `m`. Donde hay un ciclo real el MAE de backtest de Auto-ARIMA baja de 1,61 a 0,95 (`2MS`), de 2,95 a 0,87 (`3h`) y de 9,91 a 0,93 (`14h`).
+- Coste foundation: en 61 backtests reales, `inference_windows` coincide con los pares (fold, serie) ejecutados, salvo cuando una serie no está en un fold (28 contadas frente a 23). Los planes que no son foundation quedan idénticos byte a byte en 40 casos. El aviso sale a partir de 2001 ventanas, una vez.
+- Con un modelo real por el servidor: ninguna línea ajena al protocolo en la salida estándar en 9 procesos que cargaron pesos; el script de `get_code` reproduce el backtest (180 predicciones idénticas); sin fugas de memoria tras cinco backtests (de 330 a 370 MB; el modelo se recarga en cada llamada); latido de progreso cada 5 s; los modelos restringidos dan `model_not_allowed`.
+- Tiempos en esta máquina (GPU de portátil): 1,1 s fijos y 2,9 ms por ventana con Chronos-2 small, 10,4 ms con `amazon/chronos-2`. 2000 ventanas son 7 s (unos 14 s forzando CPU), no un minuto.
+- De 37 mutaciones, los tests detectaron 32.
+
+**Corregido.**
+
+| Qué | Corrección | Commit |
+|---|---|---|
+| `compare()` avisaba una vez por candidato foundation con el mismo texto, y tres candidatos de 700 ventanas (2100) no avisaban. El recuento se daba por exacto. La nota y la guía prometían "about a minute on a CPU" | Las ventanas de los candidatos foundation se suman en un solo aviso, que dice cuántos son. La explicación, el aviso y los notices dicen "up to". La nota y la guía dicen un minuto o más en CPU y segundos en GPU; el coste foundation es una entrada propia de la release, y la de Auto-ARIMA dice que solo `compare()` sin candidatos deja fuera a ForecasterStats y que el ganador puede cambiar | `f6b0a36` |
+| Con numpy 2.5, `profile()` de datos en formato largo emitía un `DeprecationWarning` atribuido al paquete (`pd.Timedelta(days=1)`); ya pasaba en la base. Lo ve quien ejecuta con avisos como errores | Las duraciones son constantes en nanosegundos. El filtro de `pyproject.toml` se queda para los tests y para pandas, con un comentario exacto | `961afae` |
+| El aviso de descarga afirmaba "its license is Apache-2.0" de un identificador de un prefijo permitido cuyo repositorio no existe | Dice que la licencia es la que skforecast registra para el nombre del modelo. La guía y el SKILL.md dicen además que, con los pesos en caché, el backend sigue contactando con el Hub en cada ejecución salvo con `HF_HUB_OFFLINE=1` | `23ef78a` |
+| Cinco mutaciones sin test | Tests: un ciclo entero de un solo paso (`12MS`) sin `m`; las ventanas con varias series y con el último fold incompleto; el `cost` del servidor con varias series; el notice justo en el umbral | `575c38a` |
+
+**Correcciones a esta sección.**
+- 21.3: Auto-ARIMA con el día como `m` en vic_electricity terminó aquí en 197 s con MASE 1,858, frente a 3,998 con la hora y 3,176 del baseline; la sesión lo dio por impracticable porque no terminaba en 10 minutos en su máquina. Respalda lo que la tabla hace hoy, y la decisión de no tocar esos datos.
+- 21.5 no dice que un plan o un candidato ForecasterStats pedido explícitamente con datos de `2W`, `5D`, `2min` o segundos se ejecuta ahora con `m` de 26, 73, 30 o 3600 (solo está en 21.2).
+- 21.8 dice que ningún escenario de `check_ask_context.py` incluye un modelo foundation. Con el backend instalado existe `foundation_plan` y `compare` ejecuta ForecasterFoundation; lo que no hay es un backtest foundation, así que `inference_windows` no aparece en ningún contexto.
+- Pregunta 3: además, `250L` recibe `m=14400` mientras `250ms` y `L` no reciben ninguno, y `14D`, `7D` y `168h` no reciben el que sí tienen `2W` y `W`.
+
+**Pendiente de decidir por el autor.**
+- Frecuencias fuera de la tabla con periodo de 24 o más (`2W`, `5D`, `2min`, `40min`, `45min`, segundos): ForecasterStats sale de los candidatos automáticos (en datos sin ciclo era el ganador de `compare()` en cuatro de cinco casos medidos, y ni `compare()` ni la explicación dicen por qué falta), y pedido explícitamente recibe un `m` grande: el ajuste de `5D` con 5000 observaciones pasa de 3,4 a 253 s, el de `10s` con 1000 de 1,3 a 285 s, y el de `s` con 8000 no termina en 7 minutos y ocupa 1,6 GB. Solo avisa el `UnrecommendedForecasterWarning` genérico. Alternativa: fuera de la tabla, dar `m` solo por debajo de 24 y dejar el resto como estaba.
+- `forecast()` con `test_size` y un plan foundation sobre datos largos donde una serie acaba antes falla dentro del script ("Found input variables with inconsistent numbers of samples: [0, 7]"); el plan por defecto da un `invalid_argument` claro con los mismos datos. Ya pasaba en la base.
+
+**Cerrado.**
+- El pendiente de 20.12 en skforecast (`AmbiguousTimeError` en `backtest()` de datos diarios a medianoche UTC leídos en `Europe/Madrid`): corregido en skforecast (PR #1343, en `0.26.x`). El backtest corre con las siete familias de forecaster.
+
+**Para el check de pago.** La explicación del CV de un plan foundation dice ahora "(up to N inference windows)". Sigue faltando un escenario con un backtest foundation, que necesita el backend instalado.
+
+**Tests.** De 4181 a 4192 pasados, más 1 omitido, en macOS con el entorno conda local.
+
+**Evaluación foundation con series incompletas (pendiente cerrado, `60a1ade`).** Rama `fix/foundation-evaluation-partition`, que sale de la punta de esta. Causa: el fallo no está en skforecast sino en las métricas del script generado. `ForecasterFoundation` predice cada serie desde su propia última fecha, y el script compara `series_dict_test[level].iloc[:steps]` con las predicciones por posición: una serie en formato largo que acaba antes del test llega vacía a `mean_absolute_error` ("inconsistent numbers of samples: [0, 7]"; [4, 7] si acaba dentro del test), y en formato ancho llega con NaN ("Input contains NaN"). Casos ejecutados con Chronos-2 y con el plan por defecto, en largo y ancho, 3 series diarias y `test_size=7`:
+
+| Caso (una serie de tres) | Foundation antes | Foundation ahora | Plan por defecto |
+|---|---|---|---|
+| Completa | Correcto (MAE igual al calculado a mano) | Igual | Correcto |
+| Acaba antes del fin de entrenamiento | `execution_failed`: [0, 7] en largo, "Input contains NaN" en ancho | `invalid_argument`, campo `data` | `invalid_argument`, campo `test_size` |
+| Acaba dentro del test, o tiene huecos o NaN en el test | `execution_failed`: [4, 7] o "Input contains NaN" | `invalid_argument`, campo `data` | `invalid_argument`, campo `data` |
+| Empieza tarde, dentro del entrenamiento | Correcto | Igual | Correcto |
+| Empieza después del fin de entrenamiento | `execution_failed`: "All values of series 'c' are NaN" | `insufficient_data` | `insufficient_data` |
+| NaN o fila ausente en la última fecha de entrenamiento | Correcto (predice las fechas del test) | Igual | `invalid_argument`, campo `test_size` |
+
+`test_size` como entero, fracción o fecha da lo mismo en todos. El modo predicción y `backtest()` con un plan foundation funcionan en todos los casos y no cambian (el backtesting de skforecast omite los valores ausentes por serie); solo una serie sin ningún valor en formato largo fallaba dentro del script en los tres modos ("All values of series ... are NaN") y ahora da `insufficient_data`. Arreglo: una comprobación previa, sin tocar el script ni los goldens. `validate_evaluation_partition` exige a un plan foundation con varias series un valor en cada fecha de test, con el mensaje de ForecasterRecursiveMultiSeries más una frase que nombra las series sin ningún valor en el test y aconseja quitarlas; no le exige valor en la última fecha de entrenamiento, que el modelo tolera. `validate_series_lengths` rechaza las series sin valores también para foundation. Por el servidor llega como `invalid_argument` con campo `data_path`. Las predicciones y métricas de los casos que funcionaban son idénticas. Sin tocar: en modo predicción con datos largos, la serie que acaba antes se predice desde su propia última fecha (otras fechas que las demás), como hace skforecast, y solo lo dice la nota "Series ending early" del perfil, sin aviso; evaluar la serie corta solo donde tiene valores cambiaría el script y lo que hacen los demás forecasters, y no se ha hecho. Suite: de 4192 a 4217 pasados, más 1 omitido.
+
+**Decisión sobre el `m` de las frecuencias fuera de la tabla (`3d4dce2`).** Cierra el primer pendiente de arriba, con un corte más bajo que la alternativa que proponía: fuera de la tabla, `arima_seasonal_period` da `m` solo cuando el primer periodo es un ciclo entero de 2 a 12 pasos (`MAX_UNTABULATED_ARIMA_PERIOD`, constante nueva). Por encima no hay `m` y ForecasterStats sigue entre los candidatos, como en la base (`c70e62b`). El motivo del 12 y no del 24: la tabla no tiene ningún periodo entre 13 y 23 (el mayor de un candidato automático es 12: `2h`, `MS`, `ME`), así que `MAX_STATS_SEASONAL_PERIOD` nunca se había medido en ese hueco, y `84ed17a` fue lo primero que puso frecuencias en él, como candidatas automáticas con `m`. Medido, `3min` (20) cuesta lo que los datos horarios. Las frecuencias de la tabla no se tocan, y quien quiera el periodo largo lo pide con `estimator_kwargs={'m': 26}` (lo dice la nota de la release y lo fija un test).
+
+Sobre 275 frecuencias (las 238 de `tools/perf/seasonal_periods.py` más 37 añadidas alrededor del corte), `estimate_seasonality` y el periodo del baseline son idénticos en la base, la rama y el código nuevo, y ninguna frecuencia de la tabla ni corriente cambia:
+
+| Frecuencias fuera de la tabla | Periodo | `m` en la base | `m` en la rama (`84ed17a`) | `m` ahora | ForecasterStats candidato (base, rama, ahora) |
+|---|---|---|---|---|---|
+| `2MS`, `2ME`, `2M`, `3MS`, `4MS`, `4ME`, `6MS`, `2QS`, `2QE`, `13W`, `26W`, `3h`, `8h`, `12h`, `14h`, `21h`, `6min`, `12min`, `20min` | 2 a 12 | ninguno | el periodo | el periodo (igual que la rama) | sí, sí, sí |
+| `4W`, `4min`, `240s`, `96min`, `90min`, `225s`, `80min`, `200s`, `3min`, `180s`, `72min` | 13 a 20 | ninguno | el periodo | ninguno (igual que la base) | sí, sí, sí |
+| `60min`, `150s`, `144s`, `2W`, `2min`, `48min`, `45min`, `40min`, `100s`, `36min`, `90s`, `5D`, `s` y de `2s` a `30s`, `us`, `250L`, `365h`, `292h` | 24 o más | ninguno | el periodo | ninguno (igual que la base) | sí, **no**, sí |
+
+Medidas en macOS, un caso cada vez, con la serie sintética de la revisión (nivel, paseo aleatorio, ruido y, con ciclo, dos senos del periodo): `forecast()` de un plan ForecasterStats con `test_size=12` y `compare()` sin candidatos (con el modelo foundation en caché). La máquina tenía otra carga, así que vale el orden de magnitud. "Antes" es la rama (`f6086ef`), "después" `3d4dce2`.
+
+| Datos | Observaciones | `m` antes | `forecast()` antes | `forecast()` después | MAE antes | MAE después | `compare()` antes | `compare()` después |
+|---|---|---|---|---|---|---|---|---|
+| `2W-SUN`, ciclo de 26 | 130 | 26 | 2,2 s | 0,4 s | 1,08 | 5,60 | 5 s, sin Stats | 5 s, Stats 3,68 |
+| `2W-SUN`, ciclo de 26 | 260 | 26 | 16,6 s | 0,6 s | 1,19 | 6,07 | 6 s, sin Stats | 20 s, Stats 3,88 |
+| `2W-SUN`, ciclo de 26 | 1000 | 26 | 54,5 s | 0,8 s | 1,17 | 4,89 | 8 s, sin Stats | 15 s, Stats 3,64 |
+| `5D`, ciclo de 73 | 1000 | 73 | más de 300 s | 0,9 s | sin terminar | 1,79 | 7 s, sin Stats | 18 s, Stats 2,04 |
+| `2min`, ciclo de 30 | 1000 | 30 | 99,2 s | 0,6 s | 1,02 | 3,26 | 8 s, sin Stats | 17 s, Stats 4,67 |
+| `10s`, ciclo de 360 | 1000 | 360 | 128,1 s | 0,6 s | 1,48 | 1,37 | 7 s, sin Stats | 9 s, Stats 1,24 |
+| `4W-SUN`, ciclo de 13 | 260 | 13 | 6,8 s | 0,7 s | 1,52 | 4,87 | 28 s, gana Stats (1,19) | 6 s, gana Foundation (Stats 3,68) |
+| `4min`, ciclo de 15 | 1000 | 15 | 18,9 s | 0,8 s | 1,15 | 2,87 | 135 s | 16 s |
+| `4min`, ciclo de 15 | 5000 | 15 | 67,4 s | 1,0 s | 1,10 | 4,02 | más de 400 s | 63 s |
+| `3min`, ciclo de 20 | 1000 | 20 | 40,0 s | 0,8 s | 1,20 | 8,21 | 336 s | 15 s |
+| `3min`, ciclo de 20 | 5000 | 20 | 63,1 s | 1,8 s | 1,02 | 3,20 | más de 400 s | 95 s |
+| `3min`, ciclo de 20 | 20000 | 20 | 230,4 s | 4,7 s | 0,91 | 5,43 | no medido | no medido |
+| `2MS`, `3h`, `14h`, `6min`, con ciclo | 1000 | 6, 8, 12, 10 | 2,2 a 3,8 s | igual | 1,86 a 2,74 | igual | 68 a 83 s | igual |
+| `3h` y `6min`, con ciclo | 20000 | 8, 10 | 34 y 12 s | igual | 1,03 y 1,62 | igual | no medido | no medido |
+
+Sin ciclo real (`2W-SUN`, `5D`, `2min`, `10s`, `3min`, `2MS`, `3h` y `14h` con 1000 observaciones, `4W-SUN` con 260), `forecast()` tarda menos de 1 s antes y después con el mismo MAE (salvo `5D`, 5,7 s antes), y `compare()` de 5 a 12 s; en los cuatro primeros ForecasterStats vuelve a competir (MAE 1,05).
+
+Lo que se gana: `compare()` sin candidatos sobre datos de `3min` o `4min` vuelve de minutos a segundos, nadie pierde ForecasterStats, y pedirlo a mano no dispara el ajuste. Lo que se pierde, sabido y aceptado: con un ciclo real de más de 12 pasos, ForecasterStats corre sin estacionalidad, como en 0.3, y su error es de 3 a 7 veces mayor que con `m`; `4W` (13) es el único caso medido donde además cambia el ganador de `compare()`, y subir el corte a 13 es cambiar la constante y dos tests. Los datos de la tabla tienen el mismo coste de siempre (`h` con 5000 observaciones no termina un ajuste en 4 minutos) y no se han tocado.
+
+Para 0.5.0: el coste de Auto-ARIMA depende de `m`, de la longitud y de si hay ciclo (sin ciclo, `m=26` cuesta lo mismo que no darlo), y el presupuesto de `compare()` cuenta un ajuste de ForecasterStats como uno cualquiera. Una regla sobre `m` y longitud serviría para los candidatos, para un aviso propio y para unificar la tabla con el resto, pero cambia frecuencias corrientes.
+
+**Tests.** De 4192 a 4211 pasados con este cambio solo, más 1 omitido. Ningún golden del contexto del LLM ni de los esquemas del MCP cambió. Con la evaluación foundation de `60a1ade` integrada en la misma rama, la suite completa da 4236 pasados y 1 omitido.

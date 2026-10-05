@@ -54,6 +54,14 @@ df_hourly = pd.DataFrame(
     }
 )
 
+# --- Biweekly series fixture (120 observations every two weeks) ---
+df_biweekly = pd.DataFrame(
+    {
+        "date": pd.date_range("2020-01-05", periods=120, freq="2W-SUN"),
+        "sales": np.arange(120, dtype=float),
+    }
+)
+
 # --- Short series fixture (25 daily observations) ---
 _n_obs_short = 25
 _dates_short = pd.date_range("2023-01-01", periods=_n_obs_short, freq="D")
