@@ -177,6 +177,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.ask()</code>][assistant] about the result of `backtest_code()` was told that the script trains on all the data and forecasts the future, without metrics. It now receives it as a backtest, with its cross-validation strategy, number of folds and trainings, like the result of `backtest()`. `describe()` gives the same text.
 
++ <span class="badge text-bg-danger">Fix</span> With rows given out of date order, [<code>ForecastingAssistant.ask()</code>][assistant] could tell you to sort the data, although the profile and the generated code already sort them. What it receives, and `describe()`, now say "index not sorted as given (the generated code sorts it)".
+
 + <span class="badge text-bg-danger">Fix</span> Two explanations were wrong, and `ask()` repeated them. The explanation of [<code>ForecastingAssistant.compare()</code>][assistant] said that multi-series candidates were ranked by the metric "pooled across series", but the ranking uses the `average` row; it now says "averaged across series". The plan explanation said "NaN rows kept (NaN-tolerant estimator)" even when no value was missing; it now appears only when the data has missing values.
 
 + <span class="badge text-bg-danger">Fix</span> The "How it works" diagram of the README and the [Agentic forecasting][agentic-guide] guides showed `create_cv()` in the fast path, where it needs a profile and a plan. It now shows a `TimeSeriesFold` passed to `backtest(data, cv)`.

@@ -133,6 +133,44 @@ def test_render_dataset_section_reports_range_scale_and_quality():
     assert "- Index irregularities: none detected" in section
 
 
+def test_render_dataset_section_unsorted_rows_are_said_to_be_sorted_by_the_code():
+    """
+    Test that rows given out of date order, which the profiler sorts as the
+    generated code does, are flagged as sorted by the code and not as an
+    irregularity left to fix, next to the note of the profiler.
+    """
+    profile_unsorted = assistant.profile(
+        data=df_single.iloc[::-1], target="sales", date_column="date"
+    )
+
+    section = render_dataset_section(profile_unsorted)
+
+    assert (
+        "- Index irregularities: index not sorted as given (the generated "
+        "code sorts it)\n"
+    ) in section
+    assert (
+        "- Data warning: Rows not in date order: they were sorted by date "
+        "before profiling, as the generated code sorts them."
+    ) in section
+
+
+def test_render_dataset_section_unsorted_index_without_the_note_of_the_profiler():
+    """
+    Test that an index flagged as not sorted in a profile without the note
+    of the profiler (a profile loaded from JSON, or an index that is not
+    of dates) keeps the plain flag: nothing says the code sorts it.
+    """
+    data_profile = profile.data_profile.model_copy(
+        update={"index_is_monotonic": False}
+    )
+    profile_flag_only = profile.model_copy(update={"data_profile": data_profile})
+
+    section = render_dataset_section(profile_flag_only)
+
+    assert "- Index irregularities: index not sorted\n" in section
+
+
 def test_render_dataset_section_reports_categorical_exog():
     """
     Test that categorical exogenous columns are named, since statistical

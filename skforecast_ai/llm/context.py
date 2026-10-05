@@ -516,7 +516,16 @@ def render_dataset_section(
     if dp.has_duplicate_timestamps:
         irregularities.append("duplicate timestamps")
     if not dp.index_is_monotonic:
-        irregularities.append("index not sorted")
+        # The profiler sorts rows out of date order, as the generated code
+        # does, and says so in a note. The flag alone reads as something
+        # still to fix: asked what to fix, a model told the user to sort.
+        rows_sorted = any(
+            warning.startswith("Rows not in date order") for warning in dp.warnings
+        )
+        irregularities.append(
+            "index not sorted as given (the generated code sorts it)"
+            if rows_sorted else "index not sorted"
+        )
     parts.append(
         f"- Index irregularities: {', '.join(irregularities) if irregularities else 'none detected'}"
     )
