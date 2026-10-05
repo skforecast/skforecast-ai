@@ -13,7 +13,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from skforecast.stats import pacf
-from .._constants import FREQUENCY_TO_SEASONAL_PERIOD
+from .._constants import (
+    FREQUENCY_TO_SEASONAL_PERIOD,
+    MAX_UNTABULATED_ARIMA_PERIOD,
+)
 from .._dates import date_positions, row_dates
 from ..schemas import DataProfile, SeriesPacf
 
@@ -203,11 +206,16 @@ def arima_seasonal_period(frequency: str | None) -> int | None:
     The period of `FREQUENCY_TO_SEASONAL_PERIOD` when the frequency is in
     it (`tabulated_seasonal_period`). Otherwise the primary period of
     `estimate_seasonality`, the one the lags always include and the
-    baseline repeats, when it is a whole cycle of at least 2 steps: `'2W'`
-    gives 26, `'3h'` 8 and `'s'` 3600. A period that is not a whole cycle
-    (`'3D'`: 2 steps are 6 days, not a week) would make the seasonal terms
-    model a cycle the data does not have, and a period of 1 is the
-    non-seasonal model Auto-ARIMA fits without `m`: both give None.
+    baseline repeats, when it is a whole cycle of 2 to
+    `MAX_UNTABULATED_ARIMA_PERIOD` steps: `'2MS'` gives 6, `'3h'` 8 and
+    `'14h'` 12. A period that is not a whole cycle (`'3D'`: 2 steps are 6
+    days, not a week) would make the seasonal terms model a cycle the data
+    does not have, and a period of 1 is the non-seasonal model Auto-ARIMA
+    fits without `m`: both give None. So does a longer period (`'4W'`: 13,
+    `'2W'`: 26, `'s'`: 3600), whose search is too costly to run without
+    being asked for: `ForecasterStats` stays among the candidates with a
+    non-seasonal model, and `estimator_kwargs={'m': 26}` in `plan()` asks
+    for the seasonal one.
 
     Parameters
     ----------
@@ -224,8 +232,9 @@ def arima_seasonal_period(frequency: str | None) -> int | None:
     if period is not None:
         return period
     cycles = _seasonal_cycles(frequency)
-    if cycles and cycles[0][1] and cycles[0][0] >= 2:
-        return cycles[0][0]
+    if cycles and cycles[0][1]:
+        if 2 <= cycles[0][0] <= MAX_UNTABULATED_ARIMA_PERIOD:
+            return cycles[0][0]
 
     return None
 

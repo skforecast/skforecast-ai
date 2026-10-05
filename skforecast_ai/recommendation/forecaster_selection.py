@@ -22,7 +22,9 @@ def _auto_arima_is_practical(frequency: str | None) -> bool:
 
     The search fits many seasonal state-space models, and its cost grows
     with the seasonal period, so data with a long one (hourly or finer,
-    weekly, biweekly, every 5 days) makes it impractical.
+    weekly) makes it impractical. A frequency that is not in
+    `FREQUENCY_TO_SEASONAL_PERIOD` never has a long one
+    (`MAX_UNTABULATED_ARIMA_PERIOD`).
 
     Parameters
     ----------

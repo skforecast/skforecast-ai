@@ -117,6 +117,13 @@ FREQUENCY_TO_SEASONAL_PERIOD: dict[str, int] = {
 # ForecasterStats is not recommended automatically at or above this value.
 MAX_STATS_SEASONAL_PERIOD = 24
 
+# Longest seasonal period Auto-ARIMA gets for a frequency that is not in
+# `FREQUENCY_TO_SEASONAL_PERIOD` (`arima_seasonal_period`). It is the longest
+# period the table gives to a frequency whose ForecasterStats is a recommended
+# candidate (`'2h'`, `'MS'`): the table has none between 13 and 23, and
+# measured there (`'3min'`, 20) one fit costs what hourly data cost.
+MAX_UNTABULATED_ARIMA_PERIOD = 12
+
 # Backtesting cost, counted in estimator fits (a ForecasterDirect training
 # fits one estimator per step). Counting fits instead of timing a trial fold
 # keeps the decision exact, known before running and reproducible.
