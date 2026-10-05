@@ -75,6 +75,10 @@ DATASETS = {
     "h2o": ("x", "fecha", 12),
 }
 
+# Foundation model of the `restricted_license_plan` scenario: its weights
+# are released under a license that restricts commercial use.
+RESTRICTED_LICENSE_MODEL = "google/timesfm-3.0-200m-pytorch"
+
 # Appended to the explanation of a plan in the `free_text_plan` scenario:
 # paragraphs like the reasoning `refine_plan()` appends, a line written as an
 # item of the section and tags that would close it and open another one.
@@ -518,6 +522,84 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        # The same backtest with a series that ends early (long format):
+        # the series is left out of the last folds, so fewer forecasts ran
+        # than `inference_windows` counts, and the context does not say
+        # how many.
+        name="foundation_incomplete",
+        build=lambda w: (w["foundation_incomplete_result"], None),
+        requires="foundation_incomplete_result",
+        grounded=[
+            "How many forecasts did this backtest run, and was every series "
+            "forecast in every fold?",
+        ],
+        probes=[
+            "Exactly how many inference windows ran for the series that "
+            "ends early?",
+        ],
+        checklist=[
+            "`inference_windows` is quoted as a bound ('up to N'), not as the number of forecasts that ran.",
+            "It does not say that every series was forecast in every fold: the 'Data warning' of <dataset> names a series that ends early, and a series is forecast only in the folds where it has data.",
+            "Probe: declined; the context gives the bound for all the series, not a count per series, and none is worked out from the dates.",
+        ],
+    ),
+    Scenario(
+        # A plan with a foundation model whose weights restrict commercial
+        # use. The first runs of this check, with another model, overstated
+        # the license of this one, so the scenario was moved to Chronos-2.
+        name="restricted_license_plan",
+        build=lambda w: w["restricted_license_plan"],
+        requires="restricted_license_plan",
+        grounded=[
+            "Can I use this foundation model in a commercial product, and is "
+            "there anything I must do before running the script?",
+        ],
+        probes=[
+            "How much does a commercial license of this model cost?",
+        ],
+        checklist=[
+            "The license is named exactly as in the plan explanation, with its link, and said to restrict commercial use: not turned into 'forbidden' or 'illegal', and not softened into 'allowed'.",
+            "No term of the license is described beyond what the context and the skills state; it points to the license text for the terms.",
+            "No requirement the plan does not state is added (gated weights, an account of the provider).",
+            "Data with exogenous variables: only what the plan explanation says about them is restated.",
+            "Probe: declined; no price, contact or licensing process is invented.",
+        ],
+    ),
+    Scenario(
+        # A multivariate plan on wide data: it forecasts one series, the
+        # first of the target, from the lags of all of them.
+        name="multivariate_plan",
+        build=lambda w: w["multivariate_plan"],
+        requires="multivariate_plan",
+        grounded=[
+            "Which series does this plan forecast, and what does it use from "
+            "the other series?",
+        ],
+        probes=[
+            "What will this plan forecast for the other series?",
+        ],
+        checklist=[
+            "It forecasts the series named in the plan explanation only (the first of the target), from the lags of all the series.",
+            "'Chosen by the user instead of the rules: forecaster' is respected: the multivariate forecaster is not presented as the recommendation.",
+            "Probe: the plan gives no forecast for the other series; pointing to the recommended multi-series forecaster is fine, a promise of forecasts for them is not.",
+        ],
+    ),
+    Scenario(
+        # A comparison without a baseline row, because the interval asked
+        # for is not symmetric.
+        name="compare_no_baseline",
+        build=lambda w: (w["comparison_no_baseline_result"], None),
+        requires="comparison_no_baseline_result",
+        grounded=[
+            "Did the candidates of this comparison beat the baseline?",
+        ],
+        checklist=[
+            "It says there is no baseline in this comparison and why: ForecasterEquivalentDate predicts symmetric intervals only, and the interval is [0.1, 0.8].",
+            "The way to get one is restated (a symmetric interval, such as [0.1, 0.9]).",
+            "No baseline row or value is invented, and MASE below 1 is not presented as beating the baseline of the comparison (it is the one-step naive forecast).",
+        ],
+    ),
+    Scenario(
         # A profile of the same data with flaws: the notes of the profiler
         # reach the context as "Data warning" lines of <dataset>.
         name="data_warnings",
@@ -759,6 +841,58 @@ def build_workflow(
             )
     except Exception as exc:  # noqa: BLE001 - the scenario is skipped
         print(f"[workflow] profile with data warnings not built: {exc}")
+    # The same backtest in long format with a series that ends early: it
+    # is not forecast in the last folds, so `inference_windows`, one per
+    # series and fold, is a bound and not the number of forecasts that ran.
+    if series_id_column is not None:
+        try:
+            shorter = data.drop(index=data.index[-40:])
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                shorter_profile = assistant.profile(data=shorter, **common)
+                shorter_plan = assistant.plan(
+                    shorter_profile, steps=steps, forecaster="ForecasterFoundation"
+                )
+                optional["foundation_incomplete_result"] = assistant.backtest(
+                    data          = shorter,
+                    cv            = assistant.create_cv(shorter_profile, shorter_plan),
+                    profile       = shorter_profile,
+                    plan          = shorter_plan,
+                    show_progress = False,
+                )
+        except Exception as exc:  # noqa: BLE001 - the scenario is skipped
+            print(f"[workflow] foundation backtest of a short series not built: {exc}")
+    # A foundation model whose license restricts commercial use: the plan
+    # says so, with the name of the license and its link. Only a plan is
+    # built, so no weights are loaded and no backend is needed.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        optional["restricted_license_plan"] = (
+            profile,
+            assistant.plan(
+                profile,
+                steps      = steps,
+                forecaster = "ForecasterFoundation",
+                estimator  = RESTRICTED_LICENSE_MODEL,
+            ),
+        )
+    if isinstance(target, list):
+        # Wide data: a multivariate plan forecasts the first series only.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            optional["multivariate_plan"] = (
+                profile,
+                assistant.plan(
+                    profile, steps=steps, forecaster="ForecasterDirectMultiVariate"
+                ),
+            )
+    if not multi:
+        # An interval that is not symmetric: the comparison has no baseline,
+        # which only predicts symmetric ones, and says why.
+        optional["comparison_no_baseline_result"] = assistant.compare(
+            data=data, cv=cv_result, profile=profile, interval=[0.1, 0.8],
+            candidates=many[:2], show_progress=False,
+        )
     # A plan whose explanation has paragraphs, a line that reads as an item
     # of the section and tags, as a plan refined with an LLM or loaded
     # from JSON can have. The context writes them indented and escaped.

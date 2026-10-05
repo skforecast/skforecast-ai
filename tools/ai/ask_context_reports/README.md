@@ -45,7 +45,14 @@ with dates in Europe/Madrid (`time_zone_backtest_code`) run on all four
 (the first on single and multi-series data, as the four are). So do the
 strategy of those dates (`time_zone_cv`), the profile of the same data
 with flaws the profiler warns about (`data_warnings`) and a plan whose
-explanation has paragraphs and tags (`free_text_plan`).
+explanation has paragraphs and tags (`free_text_plan`), and a plan with a
+foundation model whose license restricts commercial use
+(`restricted_license_plan`, plan only, no weights loaded). Three more run
+on one kind of data: a multivariate plan on the wide dataset
+(`multivariate_plan`), a comparison without a baseline because of an
+asymmetric interval on the single series (`compare_no_baseline`), and a
+foundation backtest with a series that ends early on the long dataset
+(`foundation_incomplete`, which needs the backend too).
 
 The backtest of a foundation model (`foundation_backtest`), the only
 scenario with the `inference_windows` of a strategy, loads the weights of
@@ -54,7 +61,7 @@ in the Hugging Face cache or network access to download them. Without
 them the script says so and skips the scenario, and the default comparison
 of `h2o` runs without ForecasterFoundation.
 
-A full run makes about 40 calls per dataset. With `google:gemini-3.8-flash`
+A full run makes 41 to 43 calls per dataset. With `google:gemini-3.8-flash`
 that is a few cents. Ad hoc reports land in this folder with a timestamped
 name and are ignored by git.
 
