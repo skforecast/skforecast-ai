@@ -43,11 +43,11 @@ def test_model_policy_announce_once_the_models_not_cached(tmp_path, monkeypatch)
     assert notices[0].message == (
         "The weights of 'autogluon/chronos-2-small' were not found in the "
         "local Hugging Face cache: the first run may download them from the "
-        "Hugging Face Hub. License: its license is Apache-2.0 "
+        "Hugging Face Hub. License (by the name of the model, as skforecast registers it): its license is Apache-2.0 "
         "(https://huggingface.co/autogluon/chronos-2-small)."
     )
     assert notices[1].message.endswith(
-        "License: its license is timesfm-non-commercial-license-v1.0 "
+        "License (by the name of the model, as skforecast registers it): its license is timesfm-non-commercial-license-v1.0 "
         "(https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE), "
         "which restricts commercial use."
     )
@@ -95,7 +95,7 @@ def test_model_policy_announce_weights_outside_the_hf_cache(tmp_path, monkeypatc
     assert notice.message.startswith(
         "The server cannot tell whether the weights of 'priorlabs/tabpfn-ts' "
         "are already downloaded: its backend keeps them in a cache of its "
-        "own, so the first run may download them. License: its license is "
+        "own, so the first run may download them. License (by the name of the model, as skforecast registers it): its license is "
         "tabpfn-3-5-license-v1.0"
     )
     assert notice.message.endswith(
@@ -121,7 +121,7 @@ def test_model_policy_announce_after_the_models_ran(tmp_path, monkeypatch):
     assert notices[0].message == (
         "The weights of 'autogluon/chronos-2-small' were not found in the "
         "local Hugging Face cache: this call may have downloaded them from "
-        "the Hugging Face Hub. License: its license is Apache-2.0 "
+        "the Hugging Face Hub. License (by the name of the model, as skforecast registers it): its license is Apache-2.0 "
         "(https://huggingface.co/autogluon/chronos-2-small)."
     )
 

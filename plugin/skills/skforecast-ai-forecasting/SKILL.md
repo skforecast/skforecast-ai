@@ -245,6 +245,8 @@ do not. Tell the user when they ask what you can see.
 
 Foundation models download their weights from the Hugging Face Hub the
 first time they run; a `ModelDownloadNotice` (source `plan`) says so, with
-the license, the first time a model whose weights are not in the local
-cache is used. The user can forbid downloads by starting the server with
+the license skforecast registers for models of that name, the first time a
+model whose weights are not in the local cache is used. Later runs still
+contact the Hub to check the cached weights, without sending data. The
+user can forbid any connection to it by starting the server with
 `HF_HUB_OFFLINE=1`.
