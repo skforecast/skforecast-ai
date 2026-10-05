@@ -2473,3 +2473,41 @@ Además de la lista de 20.10 y 20.12:
 - El plan de release de 17.1: skforecast 0.26.0, después skforecast-ai 0.4.0 en PyPI y solo entonces el merge de `0.4.x` a `main`.
 
 **Siguiente:** el check de pago.
+
+### 21.11 Revisión del autor y correcciones
+
+Antes de mergear la fase 7, una verificación independiente comparó la base (`c70e62b`) con la rama (`aea0dce`) en macOS, con numpy 2.5.3 y `chronos-forecasting` instalado: los periodos estacionales, el coste de los modelos foundation con el servidor MCP, y la suite con los tests y la documentación. Es la primera revisión en la que un modelo foundation se ejecuta de verdad. Las correcciones van como commits nuevos al final de `feature/periods-and-foundation-cost`; ninguno subido se reescribió.
+
+**Verificación.**
+- Suite: 4181 pasados y 1 omitido en tres ejecuciones con numpy 2.5 (4 tests más que en la sesión, los de integración foundation). Ningún aviso nuevo de numpy 2.5 en esta fase: la pregunta 7 queda cerrada, `_seasonal_cycles` no avisa.
+- Periodos: las frecuencias corrientes no cambian en 34 escenarios; 38 de 238 cambian, y 61 de las 693 distintas de un barrido más amplio. Ningún ciclo no entero se redondea a un `m`. Donde hay un ciclo real el MAE de backtest de Auto-ARIMA baja de 1,61 a 0,95 (`2MS`), de 2,95 a 0,87 (`3h`) y de 9,91 a 0,93 (`14h`).
+- Coste foundation: en 61 backtests reales, `inference_windows` coincide con los pares (fold, serie) ejecutados, salvo cuando una serie no está en un fold (28 contadas frente a 23). Los planes que no son foundation quedan idénticos byte a byte en 40 casos. El aviso sale a partir de 2001 ventanas, una vez.
+- Con un modelo real por el servidor: ninguna línea ajena al protocolo en la salida estándar en 9 procesos que cargaron pesos; el script de `get_code` reproduce el backtest (180 predicciones idénticas); sin fugas de memoria tras cinco backtests (de 330 a 370 MB; el modelo se recarga en cada llamada); latido de progreso cada 5 s; los modelos restringidos dan `model_not_allowed`.
+- Tiempos en esta máquina (GPU de portátil): 1,1 s fijos y 2,9 ms por ventana con Chronos-2 small, 10,4 ms con `amazon/chronos-2`. 2000 ventanas son 7 s (unos 14 s forzando CPU), no un minuto.
+- De 37 mutaciones, los tests detectaron 32.
+
+**Corregido.**
+
+| Qué | Corrección | Commit |
+|---|---|---|
+| `compare()` avisaba una vez por candidato foundation con el mismo texto, y tres candidatos de 700 ventanas (2100) no avisaban. El recuento se daba por exacto. La nota y la guía prometían "about a minute on a CPU" | Las ventanas de los candidatos foundation se suman en un solo aviso, que dice cuántos son. La explicación, el aviso y los notices dicen "up to". La nota y la guía dicen un minuto o más en CPU y segundos en GPU; el coste foundation es una entrada propia de la release, y la de Auto-ARIMA dice que solo `compare()` sin candidatos deja fuera a ForecasterStats y que el ganador puede cambiar | `f6b0a36` |
+| Con numpy 2.5, `profile()` de datos en formato largo emitía un `DeprecationWarning` atribuido al paquete (`pd.Timedelta(days=1)`); ya pasaba en la base. Lo ve quien ejecuta con avisos como errores | Las duraciones son constantes en nanosegundos. El filtro de `pyproject.toml` se queda para los tests y para pandas, con un comentario exacto | `961afae` |
+| El aviso de descarga afirmaba "its license is Apache-2.0" de un identificador de un prefijo permitido cuyo repositorio no existe | Dice que la licencia es la que skforecast registra para el nombre del modelo. La guía y el SKILL.md dicen además que, con los pesos en caché, el backend sigue contactando con el Hub en cada ejecución salvo con `HF_HUB_OFFLINE=1` | `23ef78a` |
+| Cinco mutaciones sin test | Tests: un ciclo entero de un solo paso (`12MS`) sin `m`; las ventanas con varias series y con el último fold incompleto; el `cost` del servidor con varias series; el notice justo en el umbral | `575c38a` |
+
+**Correcciones a esta sección.**
+- 21.3: Auto-ARIMA con el día como `m` en vic_electricity terminó aquí en 197 s con MASE 1,858, frente a 3,998 con la hora y 3,176 del baseline; la sesión lo dio por impracticable porque no terminaba en 10 minutos en su máquina. Respalda lo que la tabla hace hoy, y la decisión de no tocar esos datos.
+- 21.5 no dice que un plan o un candidato ForecasterStats pedido explícitamente con datos de `2W`, `5D`, `2min` o segundos se ejecuta ahora con `m` de 26, 73, 30 o 3600 (solo está en 21.2).
+- 21.8 dice que ningún escenario de `check_ask_context.py` incluye un modelo foundation. Con el backend instalado existe `foundation_plan` y `compare` ejecuta ForecasterFoundation; lo que no hay es un backtest foundation, así que `inference_windows` no aparece en ningún contexto.
+- Pregunta 3: además, `250L` recibe `m=14400` mientras `250ms` y `L` no reciben ninguno, y `14D`, `7D` y `168h` no reciben el que sí tienen `2W` y `W`.
+
+**Pendiente de decidir por el autor.**
+- Frecuencias fuera de la tabla con periodo de 24 o más (`2W`, `5D`, `2min`, `40min`, `45min`, segundos): ForecasterStats sale de los candidatos automáticos (en datos sin ciclo era el ganador de `compare()` en cuatro de cinco casos medidos, y ni `compare()` ni la explicación dicen por qué falta), y pedido explícitamente recibe un `m` grande: el ajuste de `5D` con 5000 observaciones pasa de 3,4 a 253 s, el de `10s` con 1000 de 1,3 a 285 s, y el de `s` con 8000 no termina en 7 minutos y ocupa 1,6 GB. Solo avisa el `UnrecommendedForecasterWarning` genérico. Alternativa: fuera de la tabla, dar `m` solo por debajo de 24 y dejar el resto como estaba.
+- `forecast()` con `test_size` y un plan foundation sobre datos largos donde una serie acaba antes falla dentro del script ("Found input variables with inconsistent numbers of samples: [0, 7]"); el plan por defecto da un `invalid_argument` claro con los mismos datos. Ya pasaba en la base.
+
+**Cerrado.**
+- El pendiente de 20.12 en skforecast (`AmbiguousTimeError` en `backtest()` de datos diarios a medianoche UTC leídos en `Europe/Madrid`): corregido en skforecast (PR #1343, en `0.26.x`). El backtest corre con las siete familias de forecaster.
+
+**Para el check de pago.** La explicación del CV de un plan foundation dice ahora "(up to N inference windows)". Sigue faltando un escenario con un backtest foundation, que necesita el backend instalado.
+
+**Tests.** De 4181 a 4192 pasados, más 1 omitido, en macOS con el entorno conda local.
