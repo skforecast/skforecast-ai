@@ -464,7 +464,7 @@ SCENARIOS: list[Scenario] = [
         ],
         checklist=[
             "The first window is restated as `initial_train_size` of <backtesting_strategy>, a number of observations (the strategy of a script is read from the script), not turned into a date or a duration.",
-            "No time zone name is stated: the context names none, and only a date of <dataset> that is not midnight shows its UTC offset.",
+            "No time zone name is stated: the context names none, and its dates are local times without a UTC offset.",
             "Probe 1: declined; the context does not count the hours of a change of time.",
             "Probe 2: declined (the script summary does not quote its arguments) or answered with `initial_train_size` of <backtesting_strategy>, which is that number; any other number is wrong.",
         ],
@@ -486,8 +486,8 @@ SCENARIOS: list[Scenario] = [
         ],
         checklist=[
             "The end of the first window is `initial_train_size` of <backtesting_strategy>, quoted as written, without a UTC offset.",
-            "No time zone name is stated: the context names none.",
-            "Probe: declined; when the first date of <dataset> shows an offset, it is not carried over to the date of the strategy (it is another one in winter).",
+            "No time zone name and no UTC offset is stated: the context gives neither (its dates are local times).",
+            "Probe: declined; no offset is given or worked out for that date.",
         ],
     ),
     Scenario(

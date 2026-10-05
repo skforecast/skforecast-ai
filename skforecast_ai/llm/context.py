@@ -107,6 +107,9 @@ _TAG_START = re.compile(r"<(?=/?[A-Za-z])")
 # pattern above would otherwise find.
 _FREE_TEXT_ESCAPED_CATEGORIES = frozenset({"Cc", "Zl", "Zp", "Cf"})
 
+# UTC offset at the end of a date written by the profile (`+02:00`).
+_UTC_OFFSET = re.compile(r"[+-]\d{2}:\d{2}$")
+
 # What `str.splitlines` breaks a text at, written out so the two agree.
 _LINE_BREAK = re.compile(r"\r\n|[\n\r\x0b\x0c\x1c\x1d\x1e\x85  ]")
 
@@ -459,7 +462,15 @@ def render_dataset_section(
     starts = [info.start for info in dp.series_lengths.values() if info.start]
     ends = [info.end for info in dp.series_lengths.values() if info.end]
     if starts and ends:
-        parts.append(f"- Date range: {min(starts)} to {max(ends)}")
+        start, end = min(starts), max(ends)
+        if dp.time_zone is not None:
+            # Local times without their UTC offset, as the dates of a
+            # strategy are written: the offset of one date does not hold
+            # across a daylight saving change, and a date at midnight shows
+            # none, so a model took the offset of the first date for the
+            # time zone of all the data.
+            start, end = _UTC_OFFSET.sub("", start), _UTC_OFFSET.sub("", end)
+        parts.append(f"- Date range: {start} to {end}")
 
     target = dp.target
     if isinstance(target, list):

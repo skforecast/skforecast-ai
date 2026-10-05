@@ -171,6 +171,26 @@ def test_render_dataset_section_unsorted_index_without_the_note_of_the_profiler(
     assert "- Index irregularities: index not sorted\n" in section
 
 
+def test_render_dataset_section_date_range_of_a_time_zone_is_local_without_offset():
+    """
+    Test that the date range of data with a time zone is written as local
+    times without UTC offsets, as the dates of a strategy are: the first
+    date is in summer time (+02:00) and the last one in winter time.
+    """
+    dates = pd.date_range(
+        "2023-10-01 18:00", periods=1200, freq="h", tz="Europe/Madrid"
+    )
+    data = pd.DataFrame({"date": dates, "sales": np.arange(1200, dtype=float)})
+    profile_zoned = assistant.profile(data=data, target="sales", date_column="date")
+    lengths = profile_zoned.data_profile.series_lengths["sales"]
+
+    section = render_dataset_section(profile_zoned)
+
+    assert lengths.start == "2023-10-01 18:00:00+02:00"
+    assert lengths.end == "2023-11-20 16:00:00+01:00"
+    assert "- Date range: 2023-10-01 18:00:00 to 2023-11-20 16:00:00\n" in section
+
+
 def test_render_dataset_section_reports_categorical_exog():
     """
     Test that categorical exogenous columns are named, since statistical
