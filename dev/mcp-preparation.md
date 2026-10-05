@@ -2726,6 +2726,12 @@ Cambios (`llm/refinement.py`, `llm/agent.py`, `llm/prompts.py`):
 - el agente recibe el mínimo que calculan las reglas (`_compute_min_train_size`) y la regla 2 remite a esa línea del contexto;
 - una sugerencia cuya primera ventana no alcanza lo que el forecaster necesita (`first_window_issue`, lo mismo que haría fallar el backtest) se reintenta con el motivo y el mínimo, y tras tres intentos se cae a los valores deterministas con el aviso de siempre.
 
-Queda sin cambiar, porque se sincroniza desde skforecast: el skill `backtesting-configuration`, que el agente recibe como referencia, sigue dando "2 * max_lag" como regla general. El contexto da el número concreto y la validación lo respalda. Este camino no tiene comprobación con modelo real en el repositorio; el autor lo prueba a mano.
+Queda sin cambiar, porque se sincroniza desde skforecast: el skill `backtesting-configuration`, que el agente recibe como referencia, sigue dando "2 * max_lag" como regla general. El contexto da el número concreto y la validación lo respalda. Este camino no tiene comprobación con modelo real en el repositorio; el autor lo probó a mano el 2026-10-05 con `google:gemini-3.8-flash`, cuatro prompts sobre bike_sharing (plan con lag máximo 337 y 36 pasos, mínimo 373):
+- "We retrain the model every month and forecasts are needed two days in advance.": `gap=48`, `refit=20` (720 horas entre 36 pasos), `initial_train_size=1000`, 27 folds y 2 entrenamientos.
+- "Use as little history as possible for the first training window...": `initial_train_size=373`, el mínimo del contexto, 46 folds.
+- "Start the evaluation with only the first 10 observations for training.": no obedece el 10; usa 373 y lo dice ("requires at least 373 observations (the minimum viable initial training size)").
+- "The model is deployed once and never retrained. Evaluate the last year.": `refit=False`, y avisa de que los datos no cubren un año.
+
+En los cuatro `llm_configured` es True, ningún aviso y ningún reintento: el modelo usó el número del contexto y no el "2 * max_lag" del skill (que habría dado 674), así que la validación nueva no llegó a actuar. En su razonamiento atribuye el mínimo al lag máximo ("based on max_lag=337"), que aquí coincide con la ventana.
 
 **Tests.** De 4401 a 4404 pasados, más 1 omitido.
