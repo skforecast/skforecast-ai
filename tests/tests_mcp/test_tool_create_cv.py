@@ -205,7 +205,7 @@ def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypa
             category = "CompareCostNotice",
             message  = (
                 "`compare` without `candidates` on this strategy runs "
-                "ForecasterFoundation on 6 inference windows (1 series x 6 "
+                "ForecasterFoundation on up to 6 inference windows (1 series x 6 "
                 "folds), which can take minutes on a CPU. Pass `candidates` to "
                 "choose what runs, or use fewer folds."
             ),
@@ -221,7 +221,7 @@ def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypa
         (
             "LongTrainingWarning",
             "runtime",
-            "ForecasterFoundation will forecast 6 inference windows (1 series x "
+            "ForecasterFoundation will forecast up to 6 inference windows (1 series x "
             "6 folds), more than 3. This can take minutes on a CPU. If not "
             "feasible, use a cross-validation strategy with fewer folds (a "
             "later `initial_train_size` or a larger `fold_stride`) or forecast "

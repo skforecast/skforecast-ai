@@ -63,8 +63,8 @@ def test_build_cv_explanation_output_when_inference_windows_of_foundation():
     assert explanation == (
         "First fold forecasts from 60% of data (60 observations), no training "
         "(each fold forecasts from the observations before it), 10-step "
-        "horizon, 4 folds. The model forecasts each series in each fold (12 "
-        "inference windows in all)."
+        "horizon, 4 folds. The model forecasts each series in each fold where "
+        "it has data (up to 12 inference windows)."
     )
     assert explanation_unknown == (
         "First fold forecasts from 60% of data (60 observations), no training "

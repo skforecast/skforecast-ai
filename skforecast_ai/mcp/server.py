@@ -1299,7 +1299,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     category = "CompareCostNotice",
                     message  = (
                         f"`compare` without `candidates` on this strategy runs "
-                        f"ForecasterFoundation on "
+                        f"ForecasterFoundation on up to "
                         f"{cost['compare_inference_windows']} inference windows "
                         f"({n_series} series x {cost['n_folds']} folds), which "
                         f"can take minutes on a CPU. Pass `candidates` to "

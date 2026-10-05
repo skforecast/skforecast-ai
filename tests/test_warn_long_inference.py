@@ -16,7 +16,7 @@ def test_warn_long_inference_message_when_windows_exceed_threshold():
     fewer series (a foundation model has no `refit` to change).
     """
     msg = re.escape(
-        "ForecasterFoundation will forecast 39500 inference windows (500 "
+        "ForecasterFoundation will forecast up to 39500 inference windows (500 "
         "series x 79 folds), more than 2000. This can take minutes on a CPU. "
         "If not feasible, use a cross-validation strategy with fewer folds "
         "(a later `initial_train_size` or a larger `fold_stride`) or "

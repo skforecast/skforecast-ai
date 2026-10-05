@@ -2361,11 +2361,57 @@ def test_compare_LongTrainingWarning_when_foundation_candidate_inference_windows
         for w in caught if issubclass(w.category, LongTrainingWarning)
     ]
     assert long_training == [
-        "ForecasterFoundation will forecast 6 inference windows (1 series x 6 "
+        "ForecasterFoundation will forecast up to 6 inference windows (1 series x 6 "
         "folds), more than 3. This can take minutes on a CPU. If not feasible, "
         "use a cross-validation strategy with fewer folds (a later "
         "`initial_train_size` or a larger `fold_stride`) or forecast fewer "
         "series."
+    ]
+
+
+def test_compare_LongTrainingWarning_adds_up_the_foundation_candidates(monkeypatch):
+    """
+    Test that the inference windows of several ForecasterFoundation
+    candidates add up into one warning that states the total: two candidates
+    of 6 windows (1 series x 6 folds) exceed a threshold of 10 that neither
+    exceeds alone.
+    """
+    monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 10)
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+    )
+    candidates = [
+        ("ridge", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
+        ("small", {"forecaster": "ForecasterFoundation"}),
+        (
+            "large",
+            {"forecaster": "ForecasterFoundation", "estimator": "amazon/chronos-2"},
+        ),
+    ]
+
+    # The foundation candidates then fail: their backend is not installed.
+    with pytest.warns(CandidateFailedWarning):
+        with pytest.warns(LongTrainingWarning) as caught:
+            assistant.compare(
+                data          = df_single,
+                cv            = _single_cv(),
+                target        = "sales",
+                date_column   = "date",
+                candidates    = candidates,
+                show_progress = False,
+                baseline      = False,
+            )
+
+    long_training = [
+        str(w.message).split("\n")[0]
+        for w in caught if issubclass(w.category, LongTrainingWarning)
+    ]
+    assert long_training == [
+        "ForecasterFoundation will forecast up to 12 inference windows (1 series "
+        "x 6 folds x 2 candidates), more than 10. This can take minutes on a "
+        "CPU. If not feasible, use a cross-validation strategy with fewer folds "
+        "(a later `initial_train_size` or a larger `fold_stride`) or forecast "
+        "fewer series."
     ]
 
 

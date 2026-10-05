@@ -112,8 +112,8 @@ def test_resolve_cv_config_output_inference_windows_when_forecaster_is_foundatio
     assert cv_config["inference_windows"] == expected_windows
     assert cv_config["n_fits"] == 0
     assert explanation.endswith(
-        f"The model forecasts each series in each fold ({expected_windows} "
-        f"inference windows in all)."
+        f"The model forecasts each series in each fold where it has data (up "
+        f"to {expected_windows} inference windows)."
     )
     assert "inference_windows" not in cv_config_recursive
     assert "inference_windows" not in cv_config_shared

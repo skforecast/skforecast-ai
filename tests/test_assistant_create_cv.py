@@ -1207,8 +1207,8 @@ def test_create_cv_explanation_when_foundation_plan():
     assert "expanding window" not in result.explanation
     assert "fixed window" not in result.explanation
     assert result.explanation.endswith(
-        "The model forecasts each series in each fold (6 inference windows in "
-        "all)."
+        "The model forecasts each series in each fold where it has data (up "
+        "to 6 inference windows)."
     )
     assert result.cv_config["inference_windows"] == 6
 

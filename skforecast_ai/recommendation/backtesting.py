@@ -147,8 +147,8 @@ def build_cv_explanation(
         explanation = ", ".join(parts) + "."
         if inference_windows is not None:
             explanation += (
-                f" The model forecasts each series in each fold "
-                f"({inference_windows} inference windows in all)."
+                f" The model forecasts each series in each fold where it "
+                f"has data (up to {inference_windows} inference windows)."
             )
         return explanation
 

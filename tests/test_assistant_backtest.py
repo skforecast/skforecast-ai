@@ -424,7 +424,7 @@ def test_backtest_LongTrainingWarning_when_foundation_inference_windows_exceed_t
     cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
 
     warn_msg = re.escape(
-        "ForecasterFoundation will forecast 6 inference windows (1 series x 6 "
+        "ForecasterFoundation will forecast up to 6 inference windows (1 series x 6 "
         "folds), more than 3. This can take minutes on a CPU."
     )
     with pytest.warns(LongTrainingWarning, match=warn_msg):

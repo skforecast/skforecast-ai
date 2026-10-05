@@ -146,7 +146,7 @@ You ask, for example, *"Forecast the next 12 months of `/path/to/data/h2o.csv` a
 
 1. `profile(data_path="/path/to/data/h2o.csv", target="x")`: the frequency, the series, the exogenous columns and the recommended forecaster, as a profile id. Every column other than the target, the date and the series ids is an exogenous variable, unless `exog_columns` names the ones to use.
 2. `plan(profile_id=..., steps=12)`: lags, window features, metric and preprocessing, as a plan id.
-3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost: estimator fits, or for a foundation model, which is never trained, its inference windows (one per series and fold). Above 2000 windows (about a minute on a CPU) a notice warns, as above 50 estimator fits.
+3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost: estimator fits, or for a foundation model, which is never trained, its inference windows (at most one per series and fold). Above 2000 windows, which can take a minute or more on a CPU (seconds on a GPU), a notice warns, as above 50 estimator fits.
 4. `backtest(cv_id=...)` and, to compare configurations, `compare(cv_id=...)`.
 5. `forecast(plan_id=...)`: the forecast of the next 12 months.
 

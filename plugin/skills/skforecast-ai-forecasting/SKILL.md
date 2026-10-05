@@ -114,10 +114,13 @@ so it costs about the sum of theirs (its response reports the totals).
 are those sums for a `compare` without `candidates`, which can be far more
 than the plan (with `refit=true`, ForecasterDirect fits one estimator per
 step and fold; with many series, the foundation model forecasts each one in
-each fold); a `CompareCostNotice` says so. Above 50 estimator fits, or
-2000 inference windows, a run gets a `LongTrainingWarning` notice and can
-take minutes; `compare` without `candidates` leaves out the candidates above
-500 estimator fits. Before an expensive run, tell the user and prefer fewer
+each fold); a `CompareCostNotice` says so (for a foundation plan, its own
+`LongTrainingWarning` notice says it instead). `inference_windows` is an
+upper bound: a series without data in a fold is not forecast in it. Above
+50 estimator fits, or 2000 inference windows (added up over the foundation
+candidates of a `compare`), a run gets a `LongTrainingWarning` notice and
+can take minutes on a CPU; `compare` without `candidates` leaves out the
+candidates above 500 estimator fits. Before an expensive run, tell the user and prefer fewer
 folds (a larger `fold_stride` or a later `initial_train_size`) or
 `refit=false` (train once, no help for ForecasterStats nor for a foundation
 model).

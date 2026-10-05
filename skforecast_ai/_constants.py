@@ -131,7 +131,9 @@ COMPARE_FIT_BUDGET = 500
 # is never trained, so it loads its weights once and forecasts each series
 # in each fold. Above `LONG_INFERENCE_WINDOWS` the assistant warns with
 # LongTrainingWarning: about a minute of inference with Chronos-2 small on
-# a 4-core CPU (about 27 ms per window, `tools/perf/foundation_cost.py`).
+# a 4-core CPU (about 27 ms per window, `tools/perf/foundation_cost.py`),
+# and about 7 s on a laptop GPU. Kept low on purpose: it protects the
+# machine without a GPU, and `amazon/chronos-2` takes 3.5 times longer.
 LONG_INFERENCE_WINDOWS = 2000
 
 # Task types of the machine learning forecasters (lags, window features and

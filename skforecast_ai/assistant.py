@@ -3396,15 +3396,24 @@ class ForecastingAssistant:
                 forecaster     = forecaster,
                 steps          = steps,
             )
-            warn_long_inference(
-                inference_windows = count_inference_windows(
-                                        n_folds    = cv_config["n_folds"],
-                                        n_series   = profile.data_profile.n_series,
-                                        forecaster = forecaster,
-                                    ),
-                n_series          = profile.data_profile.n_series,
-                n_folds           = cv_config["n_folds"],
+
+        # The foundation candidates run one after another: their inference
+        # windows add up, and one warning states the total.
+        n_series = profile.data_profile.n_series
+        foundation_windows = [
+            count_inference_windows(
+                n_folds    = cv_config["n_folds"],
+                n_series   = n_series,
+                forecaster = config.get("forecaster") or profile.forecaster,
             )
+            for _, config in candidate_configs
+        ]
+        warn_long_inference(
+            inference_windows = sum(foundation_windows),
+            n_series          = n_series,
+            n_folds           = cv_config["n_folds"],
+            n_candidates      = sum(windows > 0 for windows in foundation_windows),
+        )
 
         iterator: Any = candidate_configs
         if show_progress:
