@@ -754,14 +754,17 @@ def validate_series_lengths(
     whole_data: bool = False,
 ) -> None:
     """
-    Reject series that ForecasterRecursiveMultiSeries cannot be trained on.
+    Reject series that ForecasterRecursiveMultiSeries cannot be trained on,
+    and series without values given to a ForecasterFoundation model.
 
     skforecast trains each series from its first to its last value, and
     fails inside the script on a series without values ("All values of
     series ... are NaN") and on one whose values, from its first to its last
     one, are not more than the window the forecaster reads ("Length of ...
-    must be greater than the maximum window size"). Both are checked before
-    running (code `'insufficient_data'`):
+    must be greater than the maximum window size"). A ForecasterFoundation
+    model on several series fails the same way on a series without values,
+    and reads no window. Both are checked before running (code
+    `'insufficient_data'`):
 
     - in prediction mode, on the whole data;
     - in evaluation mode, on the training partition (up to `end_train`);
@@ -785,7 +788,8 @@ def validate_series_lengths(
     -------
     None
     """
-    if plan.forecaster != "ForecasterRecursiveMultiSeries":
+    foundation = _foundation_on_several_series(plan, profile)
+    if plan.forecaster != "ForecasterRecursiveMultiSeries" and not foundation:
         return
     spans = _series_spans(data, profile)
     if spans is None:
@@ -803,15 +807,19 @@ def validate_series_lengths(
         first = int(np.argmax(present))
         last = len(present) - 1 - int(np.argmax(present[::-1]))
         length = last - first + 1
-        if not whole_data and length <= window:
+        # A foundation model reads no window: any series with a value does.
+        if not whole_data and not foundation and length <= window:
             short[_plain(name)] = length
 
     where = f" up to the end of training ({end_train})" if end_train is not None else ""
     if empty:
+        cannot = (
+            "has no values to predict them from" if foundation
+            else "cannot be trained on them"
+        )
         raise InvalidInputError(
             f"Some series have no values{where} ({_shown(empty)}), so "
-            f"{plan.forecaster} cannot be trained on them. Remove them from "
-            f"the data.",
+            f"{plan.forecaster} {cannot}. Remove them from the data.",
             code  = "insufficient_data",
             field = "data",
             hint  = "Remove the series without values from the data.",
@@ -834,6 +842,14 @@ def validate_series_lengths(
                 f"observations, or remove the short series."
             ),
         )
+
+
+def _foundation_on_several_series(plan: ForecastPlan, profile: DataProfile) -> bool:
+    """
+    Return whether the plan runs a ForecasterFoundation model on several
+    series, which the generated code passes as a dict, one entry per series.
+    """
+    return plan.task_type == "foundation" and profile.n_series > 1
 
 
 def _series_spans(
@@ -916,6 +932,12 @@ def validate_evaluation_partition(
       from an earlier date and the metrics compare other dates, without an
       error; a missing test value makes the metrics fail with "Input
       contains NaN".
+    - ForecasterFoundation on several series: every series needs a value on
+      each of the `steps` test dates, as above. The model takes the missing
+      values of the training partition as they are, so a series without a
+      value on the last training date is evaluated; one whose rows end
+      before it (long format) is predicted from its own last date and has
+      no test dates to compare.
     - Every forecaster: the missing values of the training partition that
       the predictions read follow the rule of the prediction mode
       (`validate_last_window`): an error when the estimator does not
@@ -947,7 +969,10 @@ def validate_evaluation_partition(
         # The generated code fails on these dates with its own error.
         return
 
-    if plan.forecaster == "ForecasterRecursiveMultiSeries":
+    if (
+        plan.forecaster == "ForecasterRecursiveMultiSeries"
+        or _foundation_on_several_series(plan, profile)
+    ):
         _check_multiseries_evaluation(data, profile, plan, end)
 
     training = data.loc[in_training]
@@ -989,9 +1014,12 @@ def _check_multiseries_evaluation(
     end: pd.Timestamp,
 ) -> None:
     """
-    Reject an evaluation of ForecasterRecursiveMultiSeries whose series do
-    not all have a value on the last training date and on the test dates.
+    Reject an evaluation of several series (ForecasterRecursiveMultiSeries,
+    or a ForecasterFoundation model) whose series do not all have a value on
+    the test dates and, for ForecasterRecursiveMultiSeries, on the last
+    training date.
     """
+    needs_last_value = plan.forecaster == "ForecasterRecursiveMultiSeries"
     spans = _series_spans(data, profile)
     if spans is None or not profile.frequency:
         return
@@ -1011,7 +1039,7 @@ def _check_multiseries_evaluation(
         if not with_value[with_value.index <= end].any():
             # No value to train on: `validate_series_lengths` says so.
             continue
-        if not with_value.get(end, False):
+        if needs_last_value and not with_value.get(end, False):
             ending.append(_plain(name))
             continue
         absent = [
@@ -1039,10 +1067,18 @@ def _check_multiseries_evaluation(
         shown = "; ".join(found[:_SHOWN])
         if len(found) > _SHOWN:
             shown += f"; and {len(found) - _SHOWN} more series"
+        # A series that ends before the test split has nothing to impute.
+        ended = [name for name, dates in missing.items() if len(dates) == plan.steps]
+        without_test = (
+            f" Series without any value in the test split ({_shown(ended)}) "
+            f"end before it: remove them from the data, or evaluate on dates "
+            f"they reach."
+            if ended else ""
+        )
         raise InvalidInputError(
             f"The target has missing values in the test split ({shown}). "
             f"skforecast cannot compute the metrics on them, whatever the "
             f"estimator. Impute the target, or evaluate on dates without "
-            f"missing values.",
+            f"missing values.{without_test}",
             field = "data",
         )

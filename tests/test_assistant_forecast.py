@@ -1515,6 +1515,111 @@ def test_forecast_InvalidInputError_when_evaluation_series_without_values_up_to_
     assert exc_info.value.code == "insufficient_data"
 
 
+def _not_called(*args, **kwargs):
+    raise AssertionError("run_forecast must not be called")
+
+
+@pytest.mark.parametrize("data_format", ["wide", "long"])
+def test_forecast_InvalidInputError_when_foundation_evaluation_series_ends_early(
+    monkeypatch, data_format
+):
+    """
+    Test that forecast() in evaluation mode with a ForecasterFoundation plan
+    raises, with the field `data` and before running any script, when one
+    series ends before the test split (item_2 has no value after
+    2012-04-19). The long data, without the rows, failed inside the script
+    ("inconsistent numbers of samples: [0, 7]"), and the wide data, with
+    missing values, on "Input contains NaN".
+    """
+    monkeypatch.setattr("skforecast_ai.assistant.run_forecast", _not_called)
+    kwargs = _items_kwargs(data_format)
+    if data_format == "wide":
+        data = df_items_sales_wide.copy()
+        data.loc["2012-04-20":, "item_2"] = np.nan
+    else:
+        data = df_items_sales_long.loc[
+            (df_items_sales_long["series"] != "item_2")
+            | (df_items_sales_long["date"] <= "2012-04-19")
+        ]
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, **kwargs)
+    plan = assistant.plan(profile, steps=7, forecaster="ForecasterFoundation")
+
+    err_msg = re.escape(
+        "The target has missing values in the test split ('item_2': 7 value(s), "
+        "such as '2012-04-23', '2012-04-24', '2012-04-25', '2012-04-26', "
+        "'2012-04-27' and 2 more). skforecast cannot compute the metrics on "
+        "them, whatever the estimator. Impute the target, or evaluate on dates "
+        "without missing values. Series without any value in the test split "
+        "('item_2') end before it: remove them from the data, or evaluate on "
+        "dates they reach."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(data=data, profile=profile, plan=plan, test_size=7)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_InvalidInputError_when_foundation_evaluation_series_starts_in_test(
+    monkeypatch
+):
+    """
+    Test that forecast() in evaluation mode with a ForecasterFoundation plan
+    raises 'insufficient_data' before running any script when one series has
+    no value up to the end of training (2012-04-22), where the script failed
+    with "All values of series 'item_3' are NaN".
+    """
+    monkeypatch.setattr("skforecast_ai.assistant.run_forecast", _not_called)
+    data = df_items_sales_wide.copy()
+    data.loc[:"2012-04-22", "item_3"] = np.nan
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target=list(data.columns))
+    plan = assistant.plan(profile, steps=7, forecaster="ForecasterFoundation")
+
+    err_msg = re.escape(
+        "Some series have no values up to the end of training (2012-04-22) "
+        "('item_3'), so ForecasterFoundation has no values to predict them "
+        "from. Remove them from the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(data=data, profile=profile, plan=plan, test_size=7)
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "data"
+
+
+@pytest.mark.parametrize("data_format", ["wide", "long"])
+def test_forecast_foundation_evaluation_runs_when_last_training_value_is_missing(
+    monkeypatch, data_format
+):
+    """
+    Test that forecast() in evaluation mode with a ForecasterFoundation plan
+    still runs the script when a series has no value on the last training
+    date (2012-04-22), which ForecasterRecursiveMultiSeries rejects: the
+    model takes the missing values of its context as they are.
+    """
+    class _Reached(Exception):
+        pass
+
+    def _run_forecast(*args, **kwargs):
+        raise _Reached
+
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
+    )
+    monkeypatch.setattr("skforecast_ai.assistant.run_forecast", _run_forecast)
+    data = _items_frame(data_format, "item_1", "2012-04-22")
+    assistant = ForecastingAssistant()
+    # skforecast warns about the missing value when the data are profiled.
+    with pytest.warns(MissingValuesWarning):
+        profile = assistant.profile(data=data, **_items_kwargs(data_format))
+        plan = assistant.plan(profile, steps=7, forecaster="ForecasterFoundation")
+
+        with pytest.raises(_Reached):
+            assistant.forecast(data=data, profile=profile, plan=plan, test_size=7)
+
+
 @pytest.mark.parametrize("tz", ["UTC", "Europe/Madrid"])
 def test_forecast_evaluation_mode_with_time_zone(tz):
     """

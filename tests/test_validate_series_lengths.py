@@ -20,6 +20,7 @@ from tests.fixtures_last_window import (
     plan_single_ridge,
     plan_wide_multivariate,
     plan_wide_ridge,
+    plans_single_without_lags,
     profile_long,
     profile_single,
     profile_wide,
@@ -304,17 +305,78 @@ def test_validate_series_lengths_passes_when_whole_data_and_series_starts_late(
             profile_long, plan_long_foundation,
         ),
         (data_single.assign(y=np.nan), profile_single, plan_single_ridge),
+        (
+            data_single.assign(y=np.nan), profile_single,
+            plans_single_without_lags["foundation"],
+        ),
     ],
-    ids=["multivariate", "foundation", "recursive"],
+    ids=["multivariate", "foundation", "recursive", "foundation_single"],
 )
 def test_validate_series_lengths_passes_when_forecaster_is_not_multiseries(
     data, profile, plan
 ):
     """
     Test that the plans of other forecasters are not checked, whatever their
-    series.
+    series: a ForecasterFoundation model reads no window, so a series with
+    one value passes, and on a single series it is not checked at all.
     """
     assert validate_series_lengths(data, profile, plan) is None
+
+
+# =============================================================================
+# Tests: ForecasterFoundation on several series
+# =============================================================================
+@pytest.mark.parametrize(
+    "kwargs, where",
+    [
+        ({}, ""),
+        ({"whole_data": True}, ""),
+        ({"end_train": "2012-04-22"}, " up to the end of training (2012-04-22)"),
+    ],
+    ids=["prediction", "backtesting", "evaluation"],
+)
+def test_validate_series_lengths_InvalidInputError_when_foundation_series_has_no_values(
+    kwargs, where
+):
+    """
+    Test that a series without values is rejected for a ForecasterFoundation
+    plan on several series, in prediction, backtesting and evaluation mode,
+    where skforecast failed inside the script ("All values of series
+    'item_2' are NaN").
+    """
+    data = data_long.assign(
+        value=np.where(data_long["series"] == "item_2", np.nan, data_long["value"])
+    )
+
+    err_msg = re.escape(
+        f"Some series have no values{where} ('item_2'), so ForecasterFoundation "
+        "has no values to predict them from. Remove them from the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_series_lengths(data, profile_long, plan_long_foundation, **kwargs)
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == "Remove the series without values from the data."
+
+
+def test_validate_series_lengths_InvalidInputError_when_foundation_series_starts_in_test():
+    """
+    Test that, in evaluation mode, a series of a ForecasterFoundation plan
+    whose first value comes after the end of training (2012-04-22, 5 values
+    in the test split) is rejected, and accepted in prediction mode.
+    """
+    data = long_starting_late(data_long, "item_2", 5)
+
+    assert validate_series_lengths(data, profile_long, plan_long_foundation) is None
+    err_msg = re.escape(
+        "Some series have no values up to the end of training (2012-04-22) "
+        "('item_2'), so ForecasterFoundation has no values to predict them from."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        validate_series_lengths(
+            data, profile_long, plan_long_foundation, end_train="2012-04-22"
+        )
 
 
 def test_validate_series_lengths_passes_when_long_data_cannot_be_read():
