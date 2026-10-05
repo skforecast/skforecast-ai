@@ -106,3 +106,17 @@ def test_arima_seasonal_period_output_None_when_no_whole_cycle(frequency):
     float division leaves one step short (3599999) is not a whole cycle.
     """
     assert arima_seasonal_period(frequency) is None
+
+
+@pytest.mark.parametrize(
+    "frequency",
+    ["12MS", "4QS-OCT", "52W-SUN"],
+    ids=lambda dt: f"frequency: {dt}",
+)
+def test_arima_seasonal_period_output_None_when_whole_cycle_of_one_step(frequency):
+    """
+    Test that arima_seasonal_period returns None when the cycle is a whole
+    number of steps but a single one (12 months, 4 quarters or 52 weeks in
+    a year): `m=1` is no seasonality, and is not written.
+    """
+    assert arima_seasonal_period(frequency) is None

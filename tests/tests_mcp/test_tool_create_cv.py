@@ -402,3 +402,40 @@ def test_tool_create_cv_invalid_argument_message_when_train_size_beyond_data(tmp
         "least one fold. Time series length: 204 Required > 500 "
         "initial_train_size: 500 gap: 0"
     )
+
+
+def test_tool_create_cv_inference_windows_with_several_series_and_at_the_threshold(
+    tmp_path, monkeypatch
+):
+    """
+    Test that the inference windows of a `compare` without candidates count
+    every series (2 series over the 6 folds of the strategy are 12), and
+    that the `CompareCostNotice` is given above the threshold, not at it.
+    """
+    from skforecast_ai.mcp import create_server
+
+    from ..fixtures_assistant import df_multi_wide
+    from .fixtures_mcp import write_csv
+
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: True,
+    )
+    path = write_csv(tmp_path, "wide.csv", df_multi_wide)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(
+        server, path, target=["series_a", "series_b"], steps=5
+    )
+
+    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_INFERENCE_WINDOWS", 12)
+    at_threshold = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_INFERENCE_WINDOWS", 11)
+    above = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+
+    assert at_threshold["cost"]["n_folds"] == 6
+    assert at_threshold["cost"]["compare_inference_windows"] == 12
+    assert [n["category"] for n in at_threshold["notices"]] == []
+    assert [n["category"] for n in above["notices"]] == ["CompareCostNotice"]
+    assert "on up to 12 inference windows (2 series x 6 folds)" in (
+        above["notices"][0]["message"]
+    )

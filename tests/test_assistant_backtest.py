@@ -1225,3 +1225,43 @@ def test_backtest_output_when_plan_of_exog_columns_given_without_its_profile():
     assert result.code == expected.code == code.code
     pd.testing.assert_frame_equal(result.metrics, expected.metrics)
     assert result.profile.data_profile.unused_columns == ["weekday"]
+
+
+def test_backtest_LongTrainingWarning_counts_every_series_and_the_incomplete_fold(
+    monkeypatch,
+):
+    """
+    Test that the inference windows of a ForecasterFoundation backtest count
+    every series and the last fold when it is incomplete: 2 series over 7
+    folds (30 test observations in steps of 5 from 68, the last one of 2)
+    are 14 windows, stated in the warning and in `cv_config`. The backend
+    is not installed here, so the backtest then fails.
+    """
+    monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 13)
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+    )
+    targets = ["series_a", "series_b"]
+    profile = assistant.profile(data=df_multi_wide, target=targets, date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+    cv = TimeSeriesFold(steps=5, initial_train_size=68, verbose=False)
+
+    warn_msg = re.escape(
+        "ForecasterFoundation will forecast up to 14 inference windows (2 series "
+        "x 7 folds), more than 13."
+    )
+    with pytest.warns(LongTrainingWarning, match=warn_msg):
+        with pytest.raises(
+            InvalidInputError, match=re.escape("chronos-forecasting")
+        ):
+            assistant.backtest(
+                data          = df_multi_wide,
+                cv            = cv,
+                profile       = profile,
+                plan          = plan,
+                show_progress = False,
+            )
+
+    assert assistant.create_cv(
+        profile, plan, initial_train_size=68
+    ).cv_config["inference_windows"] == 14
