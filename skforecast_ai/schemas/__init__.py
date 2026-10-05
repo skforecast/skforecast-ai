@@ -14,6 +14,7 @@ from .plans import (
 )
 from .profiles import DataProfile, ForecastingProfile, SeriesLengthInfo, SeriesPacf
 from .results import (
+    CV_OVERRIDE_NAMES,
     AskResult,
     BacktestResult,
     CandidateFailure,
@@ -31,6 +32,7 @@ from .results import (
 
 __all__ = [
     "CANDIDATE_CONFIG_KEYS",
+    "CV_OVERRIDE_NAMES",
     "OVERRIDE_NAMES",
     "REFINE_PLAN_OVERRIDE_KEYS",
     "AskResult",

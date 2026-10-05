@@ -302,6 +302,35 @@ def test_build_context_message_predictions_without_metrics_notes_prediction_mode
     assert "<predictions>" in result
 
 
+def test_build_context_message_passes_the_provenance_of_the_strategy():
+    """
+    Test that the names the user passed, those without effect and the LLM
+    flag reach the `<backtesting_strategy>` section, and that without them
+    the section has no provenance line.
+    """
+    cv_config = {"steps": 5, "initial_train_size": 80, "n_folds": 4}
+
+    result = build_context_message(
+        cv_config         = cv_config,
+        cv_overridden     = ["refit", "fixed_train_size"],
+        cv_without_effect = ["fixed_train_size"],
+        cv_llm_configured = True,
+    )
+    without = build_context_message(cv_config=cv_config)
+
+    assert result == (
+        "<forecast_context>\n<backtesting_strategy>\n- steps: 5\n"
+        "- initial_train_size: 80\n- n_folds: 4\n"
+        "- Chosen by the user instead of the rules: refit\n"
+        "- Passed by the user without effect: fixed_train_size\n"
+        "- Parameters not chosen by the user were set by the LLM from the "
+        "prompt.\n</backtesting_strategy>\n</forecast_context>"
+    )
+    assert "Chosen by the user" not in without
+    assert "without effect" not in without
+    assert "set by the LLM" not in without
+
+
 def test_build_context_message_empty_when_no_args():
     """
     Test that an empty string is returned when no arguments are provided.

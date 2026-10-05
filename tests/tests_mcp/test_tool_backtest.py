@@ -312,3 +312,30 @@ def test_tool_backtest_output_when_csv_dates_in_utc(tmp_path):
 
     assert result["kind"] == "backtest"
     assert "    initial_train_size = 142,\n" in code["code"]
+
+
+def test_tool_backtest_summary_names_the_arguments_passed_to_the_strategy(tmp_path):
+    """
+    Test that `backtest` hands the whole strategy to the assistant: the
+    summary of a strategy created with `refit=True` says the user chose it
+    and ends with the explanation of the defaults, as in the Python API,
+    and the summary of a strategy without arguments explains the defaults.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path, cv_arguments={"refit": True})
+    _, _, default_cv_id = cv_of(server, path)
+
+    chosen = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    default = content_of(call(server, "backtest", {"cv_id": default_cv_id}))
+
+    assert "- Chosen by the user instead of the rules: refit\n" in chosen["summary"]
+    assert (
+        " Initial training size by default: 70% of the 204 observations "
+        "(142), up to 2003-04-01. `refit` as requested.\n"
+        "</deterministic_summary>"
+    ) in chosen["summary"]
+    assert "Chosen by the user instead of the rules" not in default["summary"]
+    assert (
+        "Trained once by default: refitting in every fold would multiply the "
+        "training cost by the 6 folds."
+    ) in default["summary"]

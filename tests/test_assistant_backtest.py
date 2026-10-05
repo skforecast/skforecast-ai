@@ -1265,3 +1265,217 @@ def test_backtest_LongTrainingWarning_counts_every_series_and_the_incomplete_fol
     assert assistant.create_cv(
         profile, plan, initial_train_size=68
     ).cv_config["inference_windows"] == 14
+
+
+# =============================================================================
+# Tests: provenance of the strategy
+# =============================================================================
+_INITIAL_TRAIN_SIZE_DEFAULT = (
+    "Initial training size by default: 70% of the 100 observations (70), up "
+    "to 2023-03-11."
+)
+_TRAINED_ONCE_DEFAULT = (
+    "Trained once by default: refitting in every fold would multiply the "
+    "training cost by the 6 folds."
+)
+
+
+def test_backtest_cv_provenance_when_cv_result_with_defaults_and_same_plan():
+    """
+    Test that backtest() with the CVResult of create_cv() without arguments
+    records that nothing was passed and explains the two defaults, for the
+    plan that ran.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan)
+
+    result = assistant.backtest(
+        data=df_single, cv=cv_result, profile=profile, plan=plan,
+        show_progress=False,
+    )
+
+    assert result.cv_overridden_fields == []
+    assert result.cv_fields_without_effect == []
+    assert result.cv_llm_configured is False
+    assert result.cv_defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT}"
+    )
+
+
+def test_backtest_cv_provenance_when_splitter_was_changed_after_create_cv():
+    """
+    Test that backtest() gives no reason of a default for a value that is
+    not the default any more: a CVResult whose splitter was changed after
+    create_cv() keeps its empty list of names, and the text must not say
+    that the strategy trains once or starts at 70% of the data.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan)
+    cv_result.cv.refit = True
+    cv_result.cv.initial_train_size = 50
+
+    result = assistant.backtest(
+        data=df_single, cv=cv_result, profile=profile, plan=plan,
+        show_progress=False,
+    )
+
+    assert result.cv_config["refit"] is True
+    assert result.cv_config["initial_train_size"] == 50
+    assert result.cv_overridden_fields == []
+    assert result.cv_defaults_explanation == ""
+
+
+def test_backtest_cv_provenance_when_cv_result_with_arguments_and_same_plan():
+    """
+    Test that backtest() carries the names the user passed to create_cv()
+    and says they were requested, without the sentence about refit that
+    the user decided.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan, refit=True, gap=2)
+
+    result = assistant.backtest(
+        data=df_single, cv=cv_result, profile=profile, plan=plan,
+        show_progress=False,
+    )
+
+    assert result.cv_overridden_fields == ["refit", "gap"]
+    assert result.cv_fields_without_effect == []
+    assert result.cv_llm_configured is False
+    assert result.cv_defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} `refit` and `gap` as requested."
+    )
+
+
+def test_backtest_cv_provenance_when_cv_result_llm_configured():
+    """
+    Test that backtest() carries `llm_configured` of the CVResult and, as
+    the LLM set the parameters, explains no default.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan, refit=True).model_copy(
+        update={"llm_configured": True}
+    )
+
+    result = assistant.backtest(
+        data=df_single, cv=cv_result, profile=profile, plan=plan,
+        show_progress=False,
+    )
+
+    assert result.cv_overridden_fields == ["refit"]
+    assert result.cv_llm_configured is True
+    assert result.cv_defaults_explanation == "`refit` as requested."
+
+
+def test_backtest_cv_provenance_when_cv_result_and_another_plan():
+    """
+    Test that backtest() with a CVResult created for another plan says so,
+    and explains the defaults of the plan the strategy was created for.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    direct_plan = assistant.plan(profile, steps=5, forecaster="ForecasterDirect")
+    cv_result = assistant.create_cv(profile, plan)
+
+    result = assistant.backtest(
+        data=df_single, cv=cv_result, profile=profile, plan=direct_plan,
+        show_progress=False,
+    )
+
+    assert result.plan.forecaster == "ForecasterDirect"
+    assert result.cv_overridden_fields == []
+    assert result.cv_fields_without_effect == []
+    assert result.cv_defaults_explanation == (
+        "The strategy was created for another plan (ForecasterRecursive + "
+        f"Ridge). {_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT}"
+    )
+
+
+def test_backtest_cv_provenance_when_refit_has_no_effect_on_the_plan_that_ran():
+    """
+    Test that a `refit=False` passed to create_cv() for a recursive plan is
+    reported without effect when the strategy runs for ForecasterStats,
+    which refits in every fold, while it had effect for its own plan.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    stats_plan = assistant.plan(profile, steps=5, forecaster="ForecasterStats")
+    cv_result = assistant.create_cv(profile, plan, refit=False)
+
+    result = assistant.backtest(
+        data=df_single, cv=cv_result, profile=profile, plan=stats_plan,
+        show_progress=False,
+    )
+
+    assert cv_result.fields_without_effect == []
+    assert result.cv_overridden_fields == ["refit"]
+    assert result.cv_fields_without_effect == ["refit"]
+    assert result.cv_config["refit"] is True
+    assert result.cv_defaults_explanation == (
+        "The strategy was created for another plan (ForecasterRecursive + "
+        f"Ridge). {_INITIAL_TRAIN_SIZE_DEFAULT} `refit` was passed but has no "
+        "effect on this forecaster."
+    )
+
+
+def test_backtest_cv_provenance_when_cv_is_a_time_series_fold():
+    """
+    Test that backtest() with a bare TimeSeriesFold leaves the provenance
+    unknown (`cv_overridden_fields` None, not an empty list) and without
+    text, and that `cv_config` and `explanation` are the same as with the
+    CVResult of the same strategy.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan, refit=True)
+
+    from_fold = assistant.backtest(
+        data=df_single, cv=cv_result.cv, profile=profile, plan=plan,
+        show_progress=False,
+    )
+    from_result = assistant.backtest(
+        data=df_single, cv=cv_result, profile=profile, plan=plan,
+        show_progress=False,
+    )
+
+    assert from_fold.cv_overridden_fields is None
+    assert from_fold.cv_fields_without_effect == []
+    assert from_fold.cv_llm_configured is False
+    assert from_fold.cv_defaults_explanation == ""
+    assert from_fold.cv_config == from_result.cv_config
+    assert from_fold.explanation == from_result.explanation
+    assert from_result.cv_defaults_explanation not in from_result.explanation
+
+
+def test_backtest_cv_provenance_when_plan_differs_only_in_metric():
+    """
+    Test that a plan that differs from the plan of the strategy only in the
+    metric gets no "created for another plan" sentence: the defaults of the
+    strategy do not depend on the metric.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    metric_plan = assistant.plan(profile, steps=5, metric="mean_squared_error")
+    cv_result = assistant.create_cv(profile, plan)
+
+    result = assistant.backtest(
+        data=df_single, cv=cv_result, profile=profile, plan=metric_plan,
+        show_progress=False,
+    )
+
+    assert result.plan.metric == "mean_squared_error"
+    assert result.cv_defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT}"
+    )

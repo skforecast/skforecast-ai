@@ -1,6 +1,7 @@
 # Unit test create_cv ForecastingAssistant
 
 import ast
+import contextlib
 import re
 import warnings
 
@@ -14,7 +15,7 @@ from skforecast.model_selection import TimeSeriesFold
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.recommendation.backtesting import _compute_min_train_size
-from skforecast_ai.schemas import CVParams, CVResult
+from skforecast_ai.schemas import CV_OVERRIDE_NAMES, CVParams, CVResult
 from tests.fixtures_assistant import (
     df_single,
     df_multi_long,
@@ -1579,3 +1580,323 @@ def test_create_cv_output_when_dates_with_time_zone_do_not_start_at_midnight(
     assert result.cv_config["initial_train_size"] == initial_train_size
     assert "    initial_train_size = 210," in backtest.code
     assert backtest.predictions["fold"].nunique() == result.cv_config["n_folds"]
+
+
+# =============================================================================
+# Tests: provenance of the strategy
+# =============================================================================
+_INITIAL_TRAIN_SIZE_DEFAULT = (
+    "Initial training size by default: 70% of the 100 observations (70), up "
+    "to 2023-03-11."
+)
+_TRAINED_ONCE_DEFAULT = (
+    "Trained once by default: refitting in every fold would multiply the "
+    "training cost by the 6 folds."
+)
+
+
+def test_create_cv_provenance_when_no_arguments():
+    """
+    Test that create_cv() without arguments records that nothing was
+    passed, no LLM, and explains the two defaults with a rule: the share of
+    the observations and the single training. The explanation of the
+    strategy does not contain that text.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.overridden_fields == []
+    assert result.fields_without_effect == []
+    assert result.llm_configured is False
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT}"
+    )
+    assert result.explanation == (
+        "Initial training up to 2023-03-11, trained once (no refit), 5-step "
+        "horizon, 6 folds."
+    )
+    assert result.defaults_explanation not in result.explanation
+
+
+def test_create_cv_provenance_names_in_the_same_order_as_backtest():
+    """
+    Test that the text of create_cv() names the parameters passed in the
+    canonical order of `overridden_fields` (`fold_stride` before `refit`),
+    so backtest() of the same strategy, which rebuilds the text from that
+    list, says the same.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(profile, plan, refit=True, fold_stride=5)
+    backtested = assistant.backtest(
+        data=df_single, cv=result, profile=profile, plan=plan, show_progress=False
+    )
+
+    assert result.overridden_fields == ["fold_stride", "refit"]
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} `fold_stride` and `refit` as requested."
+    )
+    assert backtested.cv_defaults_explanation == result.defaults_explanation
+
+
+def test_create_cv_provenance_when_value_equal_to_default():
+    """
+    Test that an argument whose value equals the default is recorded as
+    passed: the user decided it, whatever the rules would have said.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(
+        profile, plan, refit=False, gap=0, allow_incomplete_fold=True
+    )
+
+    assert result.overridden_fields == ["refit", "gap", "allow_incomplete_fold"]
+    assert result.fields_without_effect == []
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} `refit`, `gap` and "
+        "`allow_incomplete_fold` as requested."
+    )
+
+
+@pytest.mark.parametrize(
+    "skip_folds, expected",
+    [([], ["skip_folds"]), (1, ["skip_folds"]), ([1], ["skip_folds"])],
+    ids=["empty_list", "integer", "list"],
+)
+def test_create_cv_provenance_when_skip_folds(skip_folds, expected):
+    """
+    Test that any value of `skip_folds` other than None is recorded as
+    passed, an empty list included: it is applied to the strategy like
+    the others, also over what the LLM would set.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(profile, plan, skip_folds=skip_folds)
+
+    assert result.overridden_fields == expected
+
+
+def test_create_cv_provenance_when_all_arguments_passed():
+    """
+    Test that every argument passed is recorded, in the canonical order of
+    CV_OVERRIDE_NAMES, and that no default is explained.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(
+        profile, plan, initial_train_size=60, fold_stride=5, refit=True,
+        fixed_train_size=True, gap=0, skip_folds=1, allow_incomplete_fold=True,
+    )
+
+    assert result.overridden_fields == list(CV_OVERRIDE_NAMES)
+    assert result.fields_without_effect == []
+    assert "by default" not in result.defaults_explanation
+    assert result.defaults_explanation.endswith(" as requested.")
+
+
+def test_create_cv_provenance_when_fixed_train_size_without_refit():
+    """
+    Test that a `fixed_train_size` passed for a forecaster trained once
+    (it warns) is recorded as passed and as without effect, and the text
+    says so instead of "as requested".
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    with pytest.warns(IgnoredArgumentWarning, match="`fixed_train_size=True`"):
+        result = assistant.create_cv(profile, plan, fixed_train_size=True)
+
+    assert result.overridden_fields == ["fixed_train_size"]
+    assert result.fields_without_effect == ["fixed_train_size"]
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT} "
+        "`fixed_train_size` was passed but has no effect on this forecaster."
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, without_effect, expected",
+    [
+        (
+            {"refit": False},
+            ["refit"],
+            "`refit` was passed but has no effect on this forecaster.",
+        ),
+        (
+            {"refit": False, "fixed_train_size": False},
+            ["refit", "fixed_train_size"],
+            "`refit` and `fixed_train_size` were passed but have no effect on "
+            "this forecaster.",
+        ),
+        ({"refit": True}, [], "`refit` as requested."),
+    ],
+    ids=["refit_false", "refit_false_expanding", "refit_true"],
+)
+def test_create_cv_provenance_when_forecaster_is_stats(
+    kwargs, without_effect, expected
+):
+    """
+    Test that for ForecasterStats the arguments skforecast does not run are
+    without effect (it refits in every fold), the text has no sentence about
+    refit as a default, and an argument it runs is "as requested".
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    warns = (
+        pytest.warns(IgnoredArgumentWarning, match="do not apply to ForecasterStats")
+        if without_effect else contextlib.nullcontext()
+    )
+    with warns:
+        result = assistant.create_cv(profile, plan, **kwargs)
+
+    assert result.overridden_fields == list(kwargs)
+    assert result.fields_without_effect == without_effect
+    assert result.defaults_explanation == (
+        "Initial training size by default: 70% of the 204 observations "
+        f"(142), up to 2003-04-01. {expected}"
+    )
+
+
+def test_create_cv_provenance_when_forecaster_is_stats_without_arguments():
+    """
+    Test that ForecasterStats without arguments explains the initial
+    training size only: refit is not a default it chose.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.defaults_explanation == (
+        "Initial training size by default: 70% of the 204 observations "
+        "(142), up to 2003-04-01."
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, without_effect, expected",
+    [
+        ({}, [], ""),
+        (
+            {"refit": True, "fixed_train_size": True},
+            ["refit", "fixed_train_size"],
+            " `refit` and `fixed_train_size` were passed but have no effect on "
+            "this forecaster.",
+        ),
+        ({"gap": 1}, [], " `gap` as requested."),
+    ],
+    ids=["defaults", "refit_and_fixed_train_size", "gap"],
+)
+def test_create_cv_provenance_when_plan_is_foundation(
+    kwargs, without_effect, expected
+):
+    """
+    Test that for a foundation plan the text says "First fold start by
+    default", has no sentence about refit, and reports `refit` and
+    `fixed_train_size` as without effect because the model is not trained.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+
+    result = assistant.create_cv(profile, plan, **kwargs)
+
+    assert result.overridden_fields == list(kwargs)
+    assert result.fields_without_effect == without_effect
+    assert result.defaults_explanation == (
+        "First fold start by default: 70% of the 100 observations (70), up "
+        f"to 2023-03-11.{expected}"
+    )
+
+
+def test_create_cv_provenance_when_llm_succeeds(monkeypatch):
+    """
+    Test that when the LLM sets the parameters `llm_configured` is True and
+    no default is explained (its reasoning, in the explanation, does it);
+    the names the user passed are still said "as requested".
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    _install_fake_cv_agent(
+        monkeypatch, assistant, [_make_cv_params(50, "Retrain every fold.")]
+    )
+
+    result = assistant.create_cv(profile, plan, prompt="I retrain weekly")
+    result_with_gap = assistant.create_cv(
+        profile, plan, prompt="I retrain weekly", gap=1
+    )
+
+    assert result.llm_configured is True
+    assert result.overridden_fields == []
+    assert result.defaults_explanation == ""
+    assert result.explanation.startswith("Retrain every fold.")
+    assert result_with_gap.llm_configured is True
+    assert result_with_gap.overridden_fields == ["gap"]
+    assert result_with_gap.defaults_explanation == "`gap` as requested."
+
+
+def test_create_cv_provenance_when_llm_fails(monkeypatch):
+    """
+    Test that when the LLM fails after its retries and the deterministic
+    defaults are used, `llm_configured` is False and the defaults are
+    explained.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    n_obs = profile.data_profile.series_lengths["sales"].length
+    _install_fake_cv_agent(
+        monkeypatch, assistant, [_make_cv_params(n_obs - 3, "Always bad.")]
+    )
+
+    with pytest.warns(UserWarning, match=re.escape("LLM CV configuration failed")):
+        result = assistant.create_cv(profile, plan, prompt="Bad scenario")
+
+    assert result.llm_configured is False
+    assert result.overridden_fields == []
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT}"
+    )
+
+
+def test_create_cv_provenance_when_prompt_ignored(monkeypatch):
+    """
+    Test that when the prompt is ignored because every parameter was passed
+    the LLM did not configure anything: `llm_configured` is False and the
+    seven names are recorded as passed.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    call_count = _install_fake_cv_agent(
+        monkeypatch, assistant, [_make_cv_params(50, "Not used.")]
+    )
+
+    with pytest.warns(UserWarning, match=re.escape("Prompt ignored")):
+        result = assistant.create_cv(
+            profile, plan, prompt="I retrain weekly", initial_train_size=50,
+            fold_stride=5, refit=True, fixed_train_size=True, gap=0,
+            skip_folds=1, allow_incomplete_fold=True,
+        )
+
+    assert call_count["n"] == 0
+    assert result.llm_configured is False
+    assert result.overridden_fields == list(CV_OVERRIDE_NAMES)
+    assert "by default" not in result.defaults_explanation
+    assert result.defaults_explanation.endswith(" as requested.")

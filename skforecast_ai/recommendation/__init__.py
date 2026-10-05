@@ -18,6 +18,7 @@ from .backtesting import (
     cv_as_executed,
     derive_cv_defaults,
     resolve_cv_config,
+    resolve_cv_provenance,
     warn_first_window,
 )
 from .calendar import (
@@ -70,6 +71,7 @@ __all__ = [
     "drop_colliding_calendar_features",
     "finalize_lags",
     "resolve_cv_config",
+    "resolve_cv_provenance",
     "select_baseline_config",
     "select_calendar_encoding",
     "select_calendar_features",

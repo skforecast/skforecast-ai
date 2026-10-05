@@ -342,6 +342,125 @@ def test_render_cv_section_prepends_note_when_provided():
     assert body[2] == "- steps: 5"
 
 
+@pytest.mark.parametrize(
+    "kwargs, expected_lines",
+    [
+        (
+            {"overridden": ["refit", "gap"]},
+            ["- Chosen by the user instead of the rules: refit, gap"],
+        ),
+        (
+            {
+                "overridden": ["refit", "fixed_train_size"],
+                "without_effect": ["fixed_train_size"],
+            },
+            [
+                "- Chosen by the user instead of the rules: refit",
+                "- Passed by the user without effect: fixed_train_size",
+            ],
+        ),
+        (
+            {
+                "overridden": ["refit", "fixed_train_size"],
+                "without_effect": ["refit", "fixed_train_size"],
+            },
+            ["- Passed by the user without effect: refit, fixed_train_size"],
+        ),
+        (
+            {"overridden": ["gap"], "llm_configured": True},
+            [
+                "- Chosen by the user instead of the rules: gap",
+                "- Parameters not chosen by the user were set by the LLM from "
+                "the prompt.",
+            ],
+        ),
+        (
+            {"llm_configured": True},
+            [
+                "- Parameters not chosen by the user were set by the LLM from "
+                "the prompt."
+            ],
+        ),
+    ],
+    ids=[
+        "chosen",
+        "chosen_and_without_effect",
+        "every_name_without_effect",
+        "chosen_and_llm",
+        "llm_only",
+    ],
+)
+def test_render_cv_section_output_when_provenance_given(kwargs, expected_lines):
+    """
+    Test that the strategy section lists, after the parameters, the names
+    the user chose, those passed without effect (kept apart, never in the
+    chosen line) and the sentence about the LLM, only when each applies.
+    """
+    section = render_cv_section(cv_config, **kwargs)
+
+    expected = "\n".join(
+        [
+            "<backtesting_strategy>",
+            "- steps: 5",
+            "- initial_train_size: 80",
+            "- n_folds: 4",
+            *expected_lines,
+            "</backtesting_strategy>",
+        ]
+    )
+    assert section == expected
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"overridden": None},
+        {"overridden": []},
+        {"overridden": [], "without_effect": []},
+        {"overridden": None, "without_effect": ["refit"]},
+        {"llm_configured": False},
+    ],
+    ids=[
+        "no_arguments",
+        "overridden_none",
+        "overridden_empty",
+        "both_empty",
+        "without_effect_not_passed",
+        "llm_false",
+    ],
+)
+def test_render_cv_section_output_when_nothing_to_say_about_provenance(kwargs):
+    """
+    Test that without names passed (None, which says nothing about who
+    chose the values, or an empty list, which says all are defaults) and
+    without an LLM, the section is the parameters alone.
+    """
+    section = render_cv_section(cv_config, **kwargs)
+
+    assert section == (
+        "<backtesting_strategy>\n- steps: 5\n- initial_train_size: 80\n"
+        "- n_folds: 4\n</backtesting_strategy>"
+    )
+
+
+def test_render_cv_section_output_when_note_and_provenance_given():
+    """
+    Test that the note of a comparison stays ahead of the parameters and
+    the provenance lines come after them.
+    """
+    section = render_cv_section(
+        cv_config, note="Applied to every candidate.", overridden=["gap"]
+    )
+
+    assert section == (
+        "<backtesting_strategy>\nApplied to every candidate.\n- steps: 5\n"
+        "- initial_train_size: 80\n- n_folds: 4\n"
+        "- Chosen by the user instead of the rules: gap\n"
+        "</backtesting_strategy>"
+    )
+
+
 def test_render_metrics_section_states_that_none_were_computed():
     """
     Test that prediction mode renders an explicit no-metrics statement,

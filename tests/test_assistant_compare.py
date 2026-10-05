@@ -10,7 +10,11 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from skforecast.exceptions import LongTrainingWarning, MissingValuesWarning
+from skforecast.exceptions import (
+    IgnoredArgumentWarning,
+    LongTrainingWarning,
+    MissingValuesWarning,
+)
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai.execution import comparison as comparison_module
@@ -2768,3 +2772,177 @@ def test_compare_candidate_feature_overrides():
     assert "transformer_y" not in plain.forecaster_kwargs
     assert plain.forecaster_kwargs["calendar_features"] is None
     assert plain.forecaster_kwargs["dropna_from_series"] is True
+
+
+# =============================================================================
+# Tests: provenance of the strategy
+# =============================================================================
+_COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT = (
+    "The strategy was created for the plan (ForecasterRecursive + Ridge). "
+    "Initial training size by default: 70% of the 100 observations (70), up "
+    "to 2023-03-11."
+)
+_COMPARISON_TRAINED_ONCE_DEFAULT = (
+    "The shared strategy trains once by default: refitting in every fold would multiply the "
+    "training cost by the 6 folds."
+)
+
+
+def _compare_with(cv, profile):
+    """Compare the light candidates with `cv`, without a baseline."""
+    return assistant.compare(
+        data=df_single, cv=cv, target="sales", date_column="date",
+        profile=profile, candidates=_LIGHT_CANDIDATES, show_progress=False,
+        baseline=False,
+    )
+
+
+def test_compare_cv_provenance_when_cv_result_with_defaults():
+    """
+    Test that compare() with the CVResult of create_cv() without arguments
+    records that nothing was passed and, as a comparison has no plan of its
+    own, says the strategy was created for the plan of the CVResult.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    cv_result = assistant.create_cv(profile, assistant.plan(profile, steps=5))
+
+    result = _compare_with(cv_result, profile)
+
+    assert result.cv_overridden_fields == []
+    assert result.cv_fields_without_effect == []
+    assert result.cv_llm_configured is False
+    assert result.cv_defaults_explanation == (
+        f"{_COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT} "
+        f"{_COMPARISON_TRAINED_ONCE_DEFAULT}"
+    )
+
+
+def test_compare_cv_provenance_when_cv_result_with_arguments():
+    """
+    Test that compare() carries the names the user passed to create_cv()
+    and says they were requested.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    cv_result = assistant.create_cv(
+        profile, assistant.plan(profile, steps=5), refit=True,
+        allow_incomplete_fold=False,
+    )
+
+    result = _compare_with(cv_result, profile)
+
+    assert result.cv_overridden_fields == ["refit", "allow_incomplete_fold"]
+    assert result.cv_fields_without_effect == []
+    assert result.cv_defaults_explanation == (
+        f"{_COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT} `refit` and "
+        "`allow_incomplete_fold` as requested."
+    )
+
+
+def test_compare_cv_provenance_when_fixed_train_size_passed():
+    """
+    Test that in a comparison a passed `fixed_train_size` is listed as
+    chosen by the user and never as without effect: whether it matters
+    depends on each candidate, so the shared strategy reports nothing as
+    ineffective.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    with pytest.warns(IgnoredArgumentWarning):
+        cv_result = assistant.create_cv(profile, plan, fixed_train_size=True)
+
+    result = _compare_with(cv_result, profile)
+
+    assert result.cv_overridden_fields == ["fixed_train_size"]
+    assert result.cv_fields_without_effect == []
+    assert result.cv_defaults_explanation == (
+        f"{_COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT} "
+        f"{_COMPARISON_TRAINED_ONCE_DEFAULT} `fixed_train_size` as requested."
+    )
+
+
+def test_compare_cv_provenance_when_candidates_include_forecaster_stats():
+    """
+    Test that a comparison with a ForecasterStats candidate (refitted in
+    every fold whatever the strategy says) reports nothing as without
+    effect and never says "Trained once by default" or "no effect on this
+    forecaster": the text speaks of the shared strategy, with defaults and
+    with `refit=False, fixed_train_size=True` passed.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    candidates = [
+        ("recursive", {"forecaster": "ForecasterRecursive"}),
+        ("stats", {"forecaster": "ForecasterStats"}),
+    ]
+    default_cv = assistant.create_cv(profile, plan)
+    with pytest.warns(IgnoredArgumentWarning):
+        passed_cv = assistant.create_cv(
+            profile, plan, refit=False, fixed_train_size=True
+        )
+
+    results = [
+        assistant.compare(
+            data=df_single, cv=cv, target="sales", date_column="date",
+            profile=profile, candidates=candidates, show_progress=False,
+            baseline=False,
+        )
+        for cv in (default_cv, passed_cv)
+    ]
+
+    assert [r.cv_fields_without_effect for r in results] == [[], []]
+    assert results[0].cv_overridden_fields == []
+    assert results[1].cv_overridden_fields == ["refit", "fixed_train_size"]
+    assert results[0].cv_defaults_explanation == (
+        f"{_COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT} "
+        f"{_COMPARISON_TRAINED_ONCE_DEFAULT}"
+    )
+    assert results[1].cv_defaults_explanation == (
+        f"{_COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT} `refit` and "
+        "`fixed_train_size` as requested."
+    )
+    for result in results:
+        assert "Trained once by default" not in result.cv_defaults_explanation
+        assert "no effect on this forecaster" not in result.cv_defaults_explanation
+
+
+def test_compare_cv_provenance_when_cv_result_llm_configured():
+    """
+    Test that compare() carries `llm_configured` of the CVResult and, as
+    the LLM set the parameters, explains no default.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    cv_result = assistant.create_cv(
+        profile, assistant.plan(profile, steps=5), refit=True
+    ).model_copy(update={"llm_configured": True})
+
+    result = _compare_with(cv_result, profile)
+
+    assert result.cv_llm_configured is True
+    assert result.cv_defaults_explanation == (
+        "The strategy was created for the plan (ForecasterRecursive + "
+        "Ridge). `refit` as requested."
+    )
+
+
+def test_compare_cv_provenance_when_cv_is_a_time_series_fold():
+    """
+    Test that compare() with a bare TimeSeriesFold leaves the provenance
+    unknown (`cv_overridden_fields` None, not an empty list) and without
+    text, and that `cv_config` and `explanation` are the same as with the
+    CVResult of the same strategy.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    cv_result = assistant.create_cv(
+        profile, assistant.plan(profile, steps=5), refit=True
+    )
+
+    from_fold = _compare_with(cv_result.cv, profile)
+    from_result = _compare_with(cv_result, profile)
+
+    assert from_fold.cv_overridden_fields is None
+    assert from_fold.cv_fields_without_effect == []
+    assert from_fold.cv_llm_configured is False
+    assert from_fold.cv_defaults_explanation == ""
+    assert from_fold.cv_config == from_result.cv_config
+    assert from_fold.explanation == from_result.explanation
+    assert from_result.cv_defaults_explanation not in from_result.explanation

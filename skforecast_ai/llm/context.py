@@ -923,6 +923,9 @@ def render_cv_section(
     cv_config: dict | None,
     note: str | None = None,
     trains: bool = True,
+    overridden: list[str] | None = None,
+    without_effect: list[str] | None = None,
+    llm_configured: bool = False,
 ) -> str:
     """
     Render the `<backtesting_strategy>` section (time series cross-validation).
@@ -939,6 +942,18 @@ def render_cv_section(
         Whether the forecaster is trained. When False (a foundation
         model), `refit` and `fixed_train_size` are left out: they do not
         apply to it.
+    overridden : list of str, default None
+        Names of the parameters the user passed to `create_cv()` instead
+        of its defaults (`CVResult.overridden_fields`). None when the
+        origin of the strategy is not known (a `TimeSeriesFold` built by
+        the user): nothing is said about who chose its values.
+    without_effect : list of str, default None
+        Names in `overridden` that have no effect on the forecaster that
+        runs. They are listed apart, so a value the user passed is not
+        presented as the one that ran.
+    llm_configured : bool, default False
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass.
 
     Returns
     -------
@@ -959,6 +974,26 @@ def render_cv_section(
         for key, value in cv_config.items()
         if trains or key not in _TRAINING_CV_PARAMS
     ]
+    # Who chose each value, as the plan section says it for the plan. The
+    # names come from a closed set (`CVOverrideName`) when the result is
+    # validated; one changed with `model_copy()` is not.
+    ineffective = [name for name in without_effect or [] if name in (overridden or [])]
+    chosen = [name for name in overridden or [] if name not in ineffective]
+    if chosen:
+        parts.append(
+            f"- Chosen by the user instead of the rules: "
+            f"{', '.join(_one_line(name) for name in chosen)}"
+        )
+    if ineffective:
+        parts.append(
+            f"- Passed by the user without effect: "
+            f"{', '.join(_one_line(name) for name in ineffective)}"
+        )
+    if llm_configured:
+        parts.append(
+            "- Parameters not chosen by the user were set by the LLM from "
+            "the prompt."
+        )
 
     return _tag("backtesting_strategy", "\n".join(parts))
 
@@ -1342,6 +1377,9 @@ def build_context_message(
     explanation: str | None = None,
     send_data: bool = False,
     for_describe: bool = False,
+    cv_overridden: list[str] | None = None,
+    cv_without_effect: list[str] | None = None,
+    cv_llm_configured: bool = False,
 ) -> str:
     """
     Serialize a single forecasting run into a context block for the LLM.
@@ -1382,6 +1420,14 @@ def build_context_message(
     for_describe : bool, default False
         Whether the block is rendered for `describe()`, which leaves out
         the sentences addressed to the LLM of `ask()`.
+    cv_overridden : list of str, default None
+        Names of the strategy parameters the user passed to `create_cv()`,
+        see `render_cv_section`. None when their origin is not known.
+    cv_without_effect : list of str, default None
+        Names in `cv_overridden` without effect on the forecaster.
+    cv_llm_configured : bool, default False
+        Whether the LLM of `create_cv(prompt=...)` set the other
+        parameters.
 
     Returns
     -------
@@ -1395,7 +1441,10 @@ def build_context_message(
         render_plan_section(plan, for_describe=for_describe),
         render_cv_section(
             cv_config,
-            trains=plan is None or plan.task_type != "foundation",
+            trains         = plan is None or plan.task_type != "foundation",
+            overridden     = cv_overridden,
+            without_effect = cv_without_effect,
+            llm_configured = cv_llm_configured,
         ),
         render_deterministic_summary_section(explanation),
         render_metrics_section(
@@ -1458,9 +1507,15 @@ def build_comparison_context(
         render_failures_section(result.failures, for_describe=for_describe),
         render_cv_section(
             result.cv_config,
-            note=_shared_cv_note(result),
+            note           = _shared_cv_note(result),
+            overridden     = result.cv_overridden_fields,
+            without_effect = result.cv_fields_without_effect,
+            llm_configured = result.cv_llm_configured,
         ),
-        render_deterministic_summary_section(result.explanation),
+        render_deterministic_summary_section(
+            f"{result.explanation} {result.cv_defaults_explanation}"
+            if result.cv_defaults_explanation else result.explanation
+        ),
         render_winning_candidate_section(
             result.best_name,
             result.best_candidate.plan,

@@ -834,8 +834,16 @@ class DisplayMixin(JupyterMixin):
         None
         """
         if hasattr(self, "explanation") and self.explanation is not None:
+            # The reasons of the defaults of a cross-validation strategy
+            # are kept in their own field and shown after the explanation.
+            defaults = getattr(self, "defaults_explanation", "") or getattr(
+                self, "cv_defaults_explanation", ""
+            )
+            explanation = (
+                f"{self.explanation} {defaults}" if defaults else self.explanation
+            )
             (console or _default_console()).print(
-                render_explanation(self.explanation, title=self._explanation_title)
+                render_explanation(explanation, title=self._explanation_title)
             )
         else:
             (console or _default_console()).print("No explanation available to display.")

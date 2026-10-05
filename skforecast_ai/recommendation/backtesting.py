@@ -38,26 +38,8 @@ def derive_cv_defaults(
         recommended defaults.
     """
 
-    span_index_length = profile.data_profile.span_index_length
     steps = plan.steps
-
-    # Compute initial_train_size as an integer first (with floor/ceiling)
-    initial_train_size = int(0.7 * span_index_length)
-    min_train_size = _compute_min_train_size(plan)
-    initial_train_size = max(initial_train_size, min_train_size)
-
-    # Ensure initial_train_size leaves room for at least 2 folds
-    max_train_size = span_index_length - 2 * steps
-    if max_train_size > 0:
-        initial_train_size = min(initial_train_size, max_train_size)
-
-    # Convert to a date string when datetime info is available
-    initial_train_size = _position_to_date(
-        position=initial_train_size,
-        start_date=profile.data_profile.span_start_date,
-        frequency=profile.data_profile.frequency,
-        time_zone=profile.data_profile.time_zone,
-    )
+    initial_train_size = default_initial_train_size(profile, plan)["value"]
 
     return {
         "steps": steps,
@@ -73,6 +55,355 @@ def derive_cv_defaults(
         "allow_incomplete_fold": True,
         "differentiation": plan.forecaster_kwargs.get("differentiation"),
     }
+
+
+def default_initial_train_size(
+    profile: ForecastingProfile,
+    plan: ForecastPlan,
+) -> dict:
+    """
+    Compute the default `initial_train_size` of a strategy and the rule
+    that fixed it, so the result of `create_cv()` can say why.
+
+    The default is 70% of the observations, raised to the minimum the
+    forecaster of the plan needs (`_compute_min_train_size`) and then
+    lowered so that two folds of `steps` remain; the last bound wins. It
+    is written as a date when the data has dates and a frequency.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile
+        Profiled dataset and high-level modeling decisions.
+    plan : ForecastPlan
+        Detailed forecasting plan.
+
+    Returns
+    -------
+    default : dict
+        `value` (the default, a date string or a number of observations),
+        `position` (the same as a number of observations), `rule`
+        (`'share'`, `'minimum'` or `'two_folds'`, the last one applied),
+        and the numbers of the rules: `n_observations`, `share` (70% of
+        them), `minimum`, `window_size` (None without one) and `steps`.
+    """
+
+    span_index_length = profile.data_profile.span_index_length
+    steps = plan.steps
+
+    # Compute initial_train_size as an integer first (with floor/ceiling)
+    share = int(0.7 * span_index_length)
+    position = share
+    rule = "share"
+    min_train_size = _compute_min_train_size(plan)
+    if min_train_size > position:
+        position = min_train_size
+        rule = "minimum"
+
+    # Ensure initial_train_size leaves room for at least 2 folds
+    max_train_size = span_index_length - 2 * steps
+    if 0 < max_train_size < position:
+        position = max_train_size
+        rule = "two_folds"
+
+    # Convert to a date string when datetime info is available
+    value = _position_to_date(
+        position=position,
+        start_date=profile.data_profile.span_start_date,
+        frequency=profile.data_profile.frequency,
+        time_zone=profile.data_profile.time_zone,
+    )
+
+    return {
+        "value": value,
+        "position": position,
+        "rule": rule,
+        "n_observations": span_index_length,
+        "share": share,
+        "minimum": min_train_size,
+        "window_size": plan_window_size(plan),
+        "steps": steps,
+    }
+
+
+def cv_fields_without_effect(
+    overridden: list[str],
+    cv: TimeSeriesFold,
+    plan: ForecastPlan | None,
+) -> list[str]:
+    """
+    Return the strategy parameters the user passed that have no effect on
+    the forecaster that runs, so they are not reported as requested.
+
+    Parameters
+    ----------
+    overridden : list of str
+        Names of the parameters the user passed to `create_cv()`.
+    cv : TimeSeriesFold
+        Splitter with the parameters as they were given.
+    plan : ForecastPlan, None
+        Plan that runs the strategy. None for the strategy shared by the
+        candidates of a comparison, each with its own forecaster.
+
+    Returns
+    -------
+    without_effect : list of str
+        `refit` and `fixed_train_size` when the model is not trained
+        (`ForecasterFoundation`); those two when skforecast runs another
+        value for `ForecasterStats` (`cv_as_executed`); `fixed_train_size`
+        when any other forecaster is trained once. Empty for a comparison
+        (`plan=None`), where the effect depends on each candidate.
+    """
+
+    if plan is None:
+        # The candidates of a comparison have their own forecasters, and
+        # the effect depends on each: a window that does nothing for one
+        # trained once is the one ForecasterStats is refitted on. Nothing
+        # is reported as without effect; the comparison states how each
+        # kind of candidate runs the strategy.
+        ineffective = set()
+    elif plan.task_type == "foundation":
+        ineffective = {"refit", "fixed_train_size"}
+    elif plan.forecaster == "ForecasterStats":
+        executed = cv_as_executed(cv, plan.forecaster)
+        ineffective = {
+            name for name in ("refit", "fixed_train_size")
+            if getattr(cv, name) != getattr(executed, name)
+        }
+    elif not cv.refit:
+        # The window type only matters when the forecaster is refitted.
+        ineffective = {"fixed_train_size"}
+    else:
+        ineffective = set()
+
+    return [name for name in overridden if name in ineffective]
+
+
+def _quoted_names(names: list[str]) -> str:
+    """Write parameter names as code, joined as an English list."""
+    quoted = [f"`{name}`" for name in names]
+    if len(quoted) <= 2:
+        return " and ".join(quoted)
+
+    return ", ".join(quoted[:-1]) + f" and {quoted[-1]}"
+
+
+def build_cv_defaults_explanation(
+    default: dict,
+    cv_config: dict,
+    plan: ForecastPlan | None,
+    overridden: list[str],
+    without_effect: list[str],
+    llm_configured: bool = False,
+    created_for: ForecastPlan | None = None,
+) -> str:
+    """
+    Explain why the parameters of a strategy that the user did not pass
+    have their value, and name the ones the user passed.
+
+    The explanation of a strategy (`build_cv_explanation`) states what it
+    is; this text states where each value comes from. Only the defaults
+    with a rule get a reason: `initial_train_size` and `refit`.
+
+    Parameters
+    ----------
+    default : dict
+        Default `initial_train_size` and the rule that fixed it, as
+        returned by `default_initial_train_size` for the plan the strategy
+        was created for.
+    cv_config : dict
+        Resolved parameters of the strategy as it runs (`n_folds`).
+    plan : ForecastPlan, None
+        Plan that runs the strategy. None for the strategy shared by the
+        candidates of a comparison.
+    overridden : list of str
+        Names of the parameters the user passed to `create_cv()`.
+    without_effect : list of str
+        Names in `overridden` without effect, see
+        `cv_fields_without_effect`.
+    llm_configured : bool, default False
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass. No default is explained then: its reasoning,
+        which the explanation of the strategy starts with, does it.
+    created_for : ForecastPlan, default None
+        Plan the strategy was created for, when it is not the one that
+        runs it: the default depended on that plan.
+
+    Returns
+    -------
+    explanation : str
+        Sentences joined by a space. Empty when there is nothing to say.
+    """
+
+    parts: list[str] = []
+    trains = plan is None or plan.task_type != "foundation"
+    forecaster = plan.forecaster if plan is not None else None
+    if created_for is not None:
+        estimator = f" + {created_for.estimator}" if created_for.estimator else ""
+        # A comparison has no plan of its own: its candidates have theirs.
+        which = "another plan" if plan is not None else "the plan"
+        parts.append(
+            f"The strategy was created for {which} "
+            f"({created_for.forecaster}{estimator})."
+        )
+
+    # A reason is given only for a value that is the default: a result
+    # whose splitter was changed after `create_cv()` keeps its list of
+    # names, so each value is checked against what runs.
+    runs_default_size = (
+        "initial_train_size" not in cv_config
+        or str(cv_config["initial_train_size"])
+        in (str(default["value"]), str(default["position"]))
+    )
+    if (
+        not llm_configured
+        and "initial_train_size" not in overridden
+        and runs_default_size
+    ):
+        steps = default["steps"]
+        steps_text = f"{steps} step{'s' if steps != 1 else ''}"
+        lead = (
+            "Initial training size by default:" if trains
+            else "First fold start by default:"
+        )
+        needs = (
+            "the forecaster of that plan needs" if created_for is not None
+            else "the forecaster needs"
+        )
+        share = (
+            f"70% of the {default['n_observations']} observations "
+            f"({default['share']})"
+        )
+        date = (
+            f", up to {default['value']}"
+            if isinstance(default["value"], str) else ""
+        )
+        window_size = default["window_size"]
+        if window_size and default["minimum"] == window_size + steps:
+            minimum = f"its window of {window_size} plus the {steps_text}"
+        else:
+            minimum = f"twice the {steps_text}"
+        raised = default["minimum"] > default["share"]
+        if default["rule"] == "share":
+            parts.append(f"{lead} {share}{date}.")
+        elif default["rule"] == "minimum":
+            parts.append(
+                f"{lead} {share} is less than {needs}, so it is raised to "
+                f"{default['position']}, {minimum}{date}."
+            )
+        else:
+            start = (
+                f"the {default['minimum']} observations {needs} ({minimum})"
+                if raised else share
+            )
+            sentence = (
+                f"{lead} {start} is lowered to {default['position']} so that "
+                f"two folds of {steps_text} remain{date}."
+            )
+            if default["position"] < default["minimum"]:
+                sentence += f" That is less than {needs}."
+            parts.append(sentence)
+
+    refit_is_default = (
+        not llm_configured
+        and "refit" not in overridden
+        and trains
+        and forecaster != "ForecasterStats"
+        and not cv_config.get("refit")
+    )
+    if refit_is_default:
+        n_folds = cv_config.get("n_folds")
+        folds = (
+            f"the {n_folds} fold{'s' if n_folds != 1 else ''}" if n_folds
+            else "the number of folds"
+        )
+        # In a comparison the sentence is about the shared strategy: a
+        # ForecasterStats candidate is refitted in every fold and a
+        # foundation one is not trained, which the comparison states.
+        subject = "Trained once" if plan is not None else "The shared strategy trains once"
+        parts.append(
+            f"{subject} by default: refitting in every fold would "
+            f"multiply the training cost by {folds}."
+        )
+
+    requested = [name for name in overridden if name not in without_effect]
+    if requested:
+        parts.append(f"{_quoted_names(requested)} as requested.")
+    ineffective = [name for name in overridden if name in without_effect]
+    if ineffective:
+        verb = "was passed but has" if len(ineffective) == 1 else "were passed but have"
+        parts.append(
+            f"{_quoted_names(ineffective)} {verb} no effect on this forecaster."
+        )
+
+    return " ".join(parts)
+
+
+def resolve_cv_provenance(
+    created_profile: ForecastingProfile,
+    created_plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    cv_config: dict,
+    plan: ForecastPlan | None,
+    overridden: list[str],
+    llm_configured: bool,
+) -> tuple[list[str], str]:
+    """
+    Resolve, for the plan that runs a strategy of `create_cv()`, which of
+    the parameters the user passed have no effect and the text that
+    explains where the values come from.
+
+    `create_cv()` calls it with its own plan; `backtest()` and `compare()`
+    call it with the plan that runs the strategy, which can be another
+    one: the effect of `refit` and `fixed_train_size` depends on the
+    forecaster, while the default `initial_train_size` was computed for
+    the plan of `create_cv()`, and the text says so.
+
+    Parameters
+    ----------
+    created_profile : ForecastingProfile
+        Profile the strategy was created from (`CVResult.profile`).
+    created_plan : ForecastPlan
+        Plan the strategy was created for (`CVResult.plan`).
+    cv : TimeSeriesFold
+        Splitter with the parameters as they were given.
+    cv_config : dict
+        Resolved parameters of the strategy as it runs.
+    plan : ForecastPlan, None
+        Plan that runs the strategy. None for the strategy shared by the
+        candidates of a comparison.
+    overridden : list of str
+        Names of the parameters the user passed to `create_cv()`.
+    llm_configured : bool
+        Whether the LLM of `create_cv(prompt=...)` set the others.
+
+    Returns
+    -------
+    without_effect : list of str
+        Names in `overridden` without effect, see
+        `cv_fields_without_effect`.
+    defaults_explanation : str
+        Text of `build_cv_defaults_explanation`.
+    """
+
+    without_effect = cv_fields_without_effect(overridden, cv, plan)
+    # The default depended on these decisions of the plan and on no other:
+    # a plan that only changes the metric or the interval is the same one
+    # for the strategy.
+    same_plan = plan is not None and all(
+        getattr(plan, name) == getattr(created_plan, name)
+        for name in ("forecaster", "estimator", "task_type", "steps", "forecaster_kwargs")
+    )
+    defaults_explanation = build_cv_defaults_explanation(
+        default        = default_initial_train_size(created_profile, created_plan),
+        cv_config      = cv_config,
+        plan           = plan,
+        overridden     = overridden,
+        without_effect = without_effect,
+        llm_configured = llm_configured,
+        created_for    = None if same_plan else created_plan,
+    )
+
+    return without_effect, defaults_explanation
 
 
 def build_cv_explanation(

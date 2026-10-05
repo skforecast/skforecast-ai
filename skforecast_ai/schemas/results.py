@@ -7,8 +7,14 @@
 
 from __future__ import annotations
 import traceback
-from typing import TYPE_CHECKING, ClassVar, Literal
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from typing import TYPE_CHECKING, ClassVar, Literal, get_args
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+)
 from .._display import (
     DisplayMixin,
     render_cv_config,
@@ -27,6 +33,45 @@ from .profiles import ForecastingProfile
 
 if TYPE_CHECKING:
     from rich.console import Console, ConsoleOptions, RenderResult
+
+# Parameters of a cross-validation strategy that the user can pass to
+# `create_cv()`, in the order of its signature. `steps` and
+# `differentiation` are not among them: they always come from the plan.
+CVOverrideName = Literal[
+    "initial_train_size",
+    "fold_stride",
+    "refit",
+    "fixed_train_size",
+    "gap",
+    "skip_folds",
+    "allow_incomplete_fold",
+]
+
+# The same names as a tuple, in their canonical order.
+CV_OVERRIDE_NAMES: tuple[str, ...] = get_args(CVOverrideName)
+
+
+def _with_defaults(explanation: str, defaults_explanation: str) -> str:
+    """
+    Join the explanation of a strategy with the reasons of its defaults,
+    which the results keep apart so the first one stays the same text
+    whoever built the strategy.
+    """
+    if not defaults_explanation:
+        return explanation
+
+    return f"{explanation} {defaults_explanation}"
+
+
+def _ordered_cv_names(value: list[str] | None) -> list[str] | None:
+    """
+    Keep each name once, in the canonical order of `CV_OVERRIDE_NAMES`, so
+    two strategies with the same decisions compare equal. None stays None.
+    """
+    if value is None:
+        return None
+
+    return [name for name in CV_OVERRIDE_NAMES if name in value]
 
 
 class RenderedScript(BaseModel):
@@ -299,6 +344,10 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
         # re-derive from the truncated prediction table.
         cv_config = getattr(self, "cv_config", None)
         explanation = getattr(self, "explanation", None)
+        if explanation is not None:
+            explanation = _with_defaults(
+                explanation, getattr(self, "cv_defaults_explanation", "")
+            )
 
         return LLMContext(
             text    = join_sections([
@@ -313,7 +362,16 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
                           ),
                           render_cv_section(
                               cv_config,
-                              trains=self.plan.task_type != "foundation",
+                              trains         = self.plan.task_type != "foundation",
+                              overridden     = getattr(
+                                  self, "cv_overridden_fields", None
+                              ),
+                              without_effect = getattr(
+                                  self, "cv_fields_without_effect", None
+                              ),
+                              llm_configured = getattr(
+                                  self, "cv_llm_configured", False
+                              ),
                           ),
                           render_deterministic_summary_section(explanation),
                           render_metrics_section(
@@ -391,17 +449,44 @@ class BacktestResult(SingleRunResult):
     explanation : str
         Human-readable explanation of the backtesting configuration
         and results summary.
+    cv_overridden_fields : list, None
+        Names of the strategy parameters the user passed to `create_cv()`
+        instead of its defaults (`CVResult.overridden_fields`). None when
+        `backtest()` received a `TimeSeriesFold`, whose origin is not
+        known.
+    cv_fields_without_effect : list
+        Names in `cv_overridden_fields` that have no effect on the
+        forecaster that ran.
+    cv_llm_configured : bool
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass.
+    cv_defaults_explanation : str
+        Why the strategy parameters that the user did not pass have their
+        value, and which ones the user passed. Shown after `explanation`
+        by `describe()`, `ask()` and the rich display. Empty when
+        `cv_overridden_fields` is None.
     """
 
     cv_config: dict
     explanation: str
+    cv_overridden_fields: list[CVOverrideName] | None = None
+    cv_fields_without_effect: list[CVOverrideName] = Field(default_factory=list)
+    cv_llm_configured: bool = False
+    cv_defaults_explanation: str = ""
 
     _explanation_title: ClassVar[str] = "Backtest Explanation"
+
+    _order_cv_names = field_validator(
+        "cv_overridden_fields", "cv_fields_without_effect", mode="after"
+    )(_ordered_cv_names)
 
     def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield render_explanation(self.explanation, title="Backtest Explanation")
+        yield render_explanation(
+            _with_defaults(self.explanation, self.cv_defaults_explanation),
+            title="Backtest Explanation",
+        )
         yield render_cv_config(self.cv_config)
         yield render_metrics(self.metrics, title="Backtest Metrics")
         yield render_dataframe(self.predictions, title="Backtest Predictions")
@@ -441,6 +526,29 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
     explanation : str
         Human-readable explanation of the chosen configuration. When the
         strategy was derived from a prompt, the LLM reasoning comes first.
+    overridden_fields : list
+        Names of the parameters the user passed to `create_cv()` with a
+        value other than None, instead of its defaults: among
+        `initial_train_size`, `fold_stride`, `refit`, `fixed_train_size`,
+        `gap`, `skip_folds` and `allow_incomplete_fold`. A value equal to
+        the default counts. It holds names only; the values are those of
+        `cv`. Empty for a result built without `create_cv()`.
+    fields_without_effect : list
+        Names in `overridden_fields` that have no effect on the forecaster
+        of `plan`: `fixed_train_size` when the forecaster is trained once,
+        and `refit` or `fixed_train_size` when skforecast runs another
+        value for a `ForecasterStats` plan or when the model is not trained
+        (`ForecasterFoundation`).
+    llm_configured : bool
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass. False without a prompt and when the LLM call
+        failed and the deterministic defaults were used.
+    defaults_explanation : str
+        Why the parameters that the user did not pass have their value
+        (the rule that fixed `initial_train_size`, and why the forecaster
+        is trained once), and which ones the user passed. It is kept apart
+        from `explanation`, which only states the strategy; `describe()`,
+        `ask()` and the rich display show one after the other.
 
     Notes
     -----
@@ -457,8 +565,16 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
     cv_config: dict
     code: str
     explanation: str
+    overridden_fields: list[CVOverrideName] = Field(default_factory=list)
+    fields_without_effect: list[CVOverrideName] = Field(default_factory=list)
+    llm_configured: bool = False
+    defaults_explanation: str = ""
 
     _explanation_title: ClassVar[str] = "Cross-Validation Explanation"
+
+    _order_cv_names = field_validator(
+        "overridden_fields", "fields_without_effect", mode="after"
+    )(_ordered_cv_names)
 
     def __iter__(self):
         # Pydantic models iterate over (field, value) pairs, which would let
@@ -504,8 +620,14 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
                                       profile      = self.profile,
                                       plan         = self.plan,
                                       cv_config    = self.cv_config,
-                                      explanation  = self.explanation,
+                                      explanation  = _with_defaults(
+                                          self.explanation,
+                                          self.defaults_explanation,
+                                      ),
                                       for_describe = for_describe,
+                                      cv_overridden     = self.overridden_fields,
+                                      cv_without_effect = self.fields_without_effect,
+                                      cv_llm_configured = self.llm_configured,
                                   ),
             profile             = self.profile,
             plan                = self.plan,
@@ -516,7 +638,10 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
     def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield render_explanation(self.explanation, title=self._explanation_title)
+        yield render_explanation(
+            _with_defaults(self.explanation, self.defaults_explanation),
+            title=self._explanation_title,
+        )
         yield render_cv_config(self.cv_config)
 
 
@@ -833,6 +958,22 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
         the naive reference, ranked like any other row. None when the
         comparison has no baseline (`baseline=False`, multi-series data,
         or a target with missing values).
+    cv_overridden_fields : list, None
+        Names of the strategy parameters the user passed to `create_cv()`
+        instead of its defaults (`CVResult.overridden_fields`). None when
+        `compare()` received a `TimeSeriesFold`, whose origin is not
+        known.
+    cv_fields_without_effect : list
+        Names in `cv_overridden_fields` that have no effect on the shared
+        strategy.
+    cv_llm_configured : bool
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass.
+    cv_defaults_explanation : str
+        Why the strategy parameters that the user did not pass have their
+        value, and which ones the user passed. Shown after `explanation`
+        by `describe()`, `ask()` and the rich display. Empty when
+        `cv_overridden_fields` is None.
     best_name : str
         Name of the top-ranked candidate.
     best_candidate : BacktestResult
@@ -866,8 +1007,16 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     ranking_metric: str
     explanation: str
     baseline_name: str | None = None
+    cv_overridden_fields: list[CVOverrideName] | None = None
+    cv_fields_without_effect: list[CVOverrideName] = Field(default_factory=list)
+    cv_llm_configured: bool = False
+    cv_defaults_explanation: str = ""
 
     _explanation_title: ClassVar[str] = "Comparison Explanation"
+
+    _order_cv_names = field_validator(
+        "cv_overridden_fields", "cv_fields_without_effect", mode="after"
+    )(_ordered_cv_names)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -931,5 +1080,8 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield render_explanation(self.explanation, title="Comparison Explanation")
+        yield render_explanation(
+            _with_defaults(self.explanation, self.cv_defaults_explanation),
+            title="Comparison Explanation",
+        )
         yield render_dataframe(self.results, title="Comparison Results")

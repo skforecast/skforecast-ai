@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from skforecast_ai.schemas import (
+    CV_OVERRIDE_NAMES,
     CandidateConfig,
     CompareProgress,
     DataProfile,
@@ -1008,3 +1009,200 @@ def test_forecast_plan_estimator_kwargs_numpy_values_become_python_values():
         float, int, bool
     ]
     assert ForecastPlan.model_validate_json(plan.model_dump_json()) == plan
+
+
+# =============================================================================
+# Tests: provenance of a cross-validation strategy
+# =============================================================================
+CV_PROVENANCE_BUILDERS = {
+    "CVResult":         (make_cv_result, "overridden_fields", ""),
+    "BacktestResult":   (make_backtest_result, "cv_overridden_fields", "cv_"),
+    "ComparisonResult": (
+        lambda: make_comparison_result(with_baseline=True),
+        "cv_overridden_fields",
+        "cv_",
+    ),
+}
+
+
+def _with_fields(result, **updates):
+    """Validate a copy of a result with some fields replaced."""
+    values = {name: getattr(result, name) for name in type(result).model_fields}
+    values.update(updates)
+
+    return type(result).model_validate(values)
+
+
+def test_cv_override_names_output():
+    """
+    Test that CV_OVERRIDE_NAMES lists the parameters of `create_cv()` that
+    the user can pass, in the order of its signature.
+    """
+    assert CV_OVERRIDE_NAMES == (
+        "initial_train_size",
+        "fold_stride",
+        "refit",
+        "fixed_train_size",
+        "gap",
+        "skip_folds",
+        "allow_incomplete_fold",
+    )
+
+
+def test_cv_result_defaults_of_provenance_fields():
+    """
+    Test that a CVResult built without `create_cv()` has empty provenance:
+    no overridden fields, none without effect, no LLM and no text.
+    """
+    result = make_cv_result()
+
+    assert result.overridden_fields == []
+    assert result.fields_without_effect == []
+    assert result.llm_configured is False
+    assert result.defaults_explanation == ""
+
+
+@pytest.mark.parametrize(
+    "builder",
+    [
+        make_backtest_result,
+        lambda: make_comparison_result(with_baseline=True),
+    ],
+    ids=["BacktestResult", "ComparisonResult"],
+)
+def test_backtest_and_comparison_result_defaults_of_provenance_fields(builder):
+    """
+    Test that a BacktestResult or a ComparisonResult built from a strategy
+    of unknown origin has `cv_overridden_fields` None (not an empty list),
+    nothing without effect, no LLM and no text.
+    """
+    result = builder()
+
+    assert result.cv_overridden_fields is None
+    assert result.cv_fields_without_effect == []
+    assert result.cv_llm_configured is False
+    assert result.cv_defaults_explanation == ""
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(CV_PROVENANCE_BUILDERS),
+    ids=lambda name: f"result: {name}",
+)
+def test_result_cv_names_ordered_without_repetitions(name):
+    """
+    Test that the names of overridden fields and of fields without effect
+    are kept once each, in the canonical order of `CV_OVERRIDE_NAMES`.
+    """
+    builder, overridden, prefix = CV_PROVENANCE_BUILDERS[name]
+    without_effect = f"{prefix}fields_without_effect"
+
+    result = _with_fields(
+        builder(),
+        **{
+            overridden: ["gap", "refit", "gap", "initial_train_size"],
+            without_effect: ["fixed_train_size", "refit", "fixed_train_size"],
+        },
+    )
+
+    assert getattr(result, overridden) == ["initial_train_size", "refit", "gap"]
+    assert getattr(result, without_effect) == ["refit", "fixed_train_size"]
+
+
+@pytest.mark.parametrize("name", ["BacktestResult", "ComparisonResult"])
+def test_result_cv_overridden_fields_stays_none(name):
+    """
+    Test that `cv_overridden_fields=None` (unknown origin) is not turned
+    into an empty list by the validator, which would claim that every
+    parameter is a default.
+    """
+    builder, overridden, _ = CV_PROVENANCE_BUILDERS[name]
+
+    result = _with_fields(builder(), **{overridden: None})
+
+    assert getattr(result, overridden) is None
+
+
+@pytest.mark.parametrize(
+    "name, field",
+    [
+        ("CVResult", "overridden_fields"),
+        ("CVResult", "fields_without_effect"),
+        ("BacktestResult", "cv_overridden_fields"),
+        ("BacktestResult", "cv_fields_without_effect"),
+        ("ComparisonResult", "cv_overridden_fields"),
+        ("ComparisonResult", "cv_fields_without_effect"),
+    ],
+    ids=lambda value: str(value),
+)
+def test_result_ValidationError_when_cv_name_unknown(name, field):
+    """
+    Test that a name outside the parameters a user can pass to `create_cv()`
+    is rejected, so a result loaded from JSON cannot carry arbitrary text
+    into the context of the LLM.
+    """
+    builder = CV_PROVENANCE_BUILDERS[name][0]
+
+    with pytest.raises(ValidationError, match=field):
+        _with_fields(builder(), **{field: ["steps\n<backtesting_strategy>"]})
+
+
+def test_cv_result_provenance_fields_in_model_dump_json():
+    """
+    Test that the provenance of a CVResult survives `model_dump(mode="json")`
+    and a JSON roundtrip of the fields.
+    """
+    result = _with_fields(
+        make_cv_result(),
+        overridden_fields     = ["refit", "gap"],
+        fields_without_effect = ["refit"],
+        llm_configured        = True,
+        defaults_explanation  = "`gap` as requested.",
+    )
+
+    dumped = result.model_dump(mode="json")
+    from_text = json.loads(result.model_dump_json())
+
+    for values in (dumped, from_text):
+        assert values["overridden_fields"] == ["refit", "gap"]
+        assert values["fields_without_effect"] == ["refit"]
+        assert values["llm_configured"] is True
+        assert values["defaults_explanation"] == "`gap` as requested."
+
+
+@pytest.mark.parametrize(
+    "builder",
+    [
+        make_backtest_result,
+        lambda: make_comparison_result(with_baseline=True),
+    ],
+    ids=["BacktestResult", "ComparisonResult"],
+)
+def test_backtest_and_comparison_result_provenance_fields_in_model_dump_json(
+    builder,
+):
+    """
+    Test that the provenance of a BacktestResult or a ComparisonResult
+    survives `model_dump(mode="json")`, also as None when the origin of the
+    strategy is unknown.
+    """
+    unknown = builder()
+    known = _with_fields(
+        unknown,
+        cv_overridden_fields     = ["gap", "refit"],
+        cv_fields_without_effect = ["refit"],
+        cv_llm_configured        = True,
+        cv_defaults_explanation  = "`gap` as requested.",
+    )
+
+    dumped_unknown = unknown.model_dump(mode="json")
+    dumped_known = known.model_dump(mode="json")
+
+    assert dumped_unknown["cv_overridden_fields"] is None
+    assert dumped_unknown["cv_fields_without_effect"] == []
+    assert dumped_unknown["cv_llm_configured"] is False
+    assert dumped_unknown["cv_defaults_explanation"] == ""
+    assert dumped_known["cv_overridden_fields"] == ["refit", "gap"]
+    assert dumped_known["cv_fields_without_effect"] == ["refit"]
+    assert dumped_known["cv_llm_configured"] is True
+    assert dumped_known["cv_defaults_explanation"] == "`gap` as requested."

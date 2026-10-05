@@ -3,7 +3,9 @@
 import pytest
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.mcp import server as server_module
 from skforecast_ai.mcp.models import ToolNotice
+from skforecast_ai.schemas import CV_OVERRIDE_NAMES
 
 from .fixtures_mcp import call, content_of, error_of, h2o_server, profile_and_plan
 
@@ -439,3 +441,34 @@ def test_tool_create_cv_inference_windows_with_several_series_and_at_the_thresho
     assert "on up to 12 inference windows (2 series x 6 folds)" in (
         above["notices"][0]["message"]
     )
+
+
+def test_tool_create_cv_arguments_are_the_names_a_strategy_records():
+    """
+    Test that the arguments of `create_cv` that the server lists as
+    changeable are the names a strategy records when the user passes them
+    (`CV_OVERRIDE_NAMES`), in the same order.
+    """
+    assert server_module.CV_ARGUMENTS == CV_OVERRIDE_NAMES
+    assert list(server_module.CV_ARGUMENTS) == CV_ARGUMENTS
+
+
+def test_tool_create_cv_summary_names_the_arguments_passed(tmp_path):
+    """
+    Test that the summary of a strategy created with `refit=True` says the
+    user chose it and ends with the explanation of the defaults, and that
+    without arguments it only explains the defaults.
+    """
+    server, _, _, plan_id = _planned(tmp_path)
+
+    chosen = content_of(call(server, "create_cv", {"plan_id": plan_id, "refit": True}))
+    default = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+
+    assert "- Chosen by the user instead of the rules: refit\n" in chosen["summary"]
+    assert chosen["summary"].endswith(
+        "Initial training size by default: 70% of the 204 observations "
+        "(142), up to 2003-04-01. `refit` as requested.\n"
+        "</deterministic_summary>\n</forecast_context>"
+    )
+    assert "Chosen by the user instead of the rules" not in default["summary"]
+    assert "Trained once by default" in default["summary"]
