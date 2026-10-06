@@ -105,7 +105,7 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
 # Measured token estimates (chars / 4) for each skill (SKILL.md + references/).
 _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "autocorrelation-and-lag-selection": 2035,
-    "backtesting-configuration": 1822,
+    "backtesting-configuration": 2076,
     "baseline-forecasting": 1929,
     "choosing-a-forecaster": 2851,
     "complete-api-reference": 12674,
