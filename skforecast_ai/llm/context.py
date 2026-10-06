@@ -48,6 +48,10 @@ BACKTEST_SCRIPT_NOTE = (
     "It has not been run: for its metrics, the user runs it or calls "
     "`assistant.backtest()`."
 )
+FORECAST_SCRIPT_NOTE = (
+    "It has not been run: for its predictions, the user runs it or calls "
+    "`assistant.forecast()`."
+)
 RANKING_NOTE = (
     "Do not re-rank the candidates or recompute the table, and do not "
     "suggest reasons for the ranking beyond the metric values: the "
@@ -475,6 +479,12 @@ def render_dataset_section(
             # time zone of all the data.
             start, end = _UTC_OFFSET.sub("", start), _UTC_OFFSET.sub("", end)
         parts.append(f"- Date range: {start} to {end}")
+        if dp.time_zone is not None:
+            # Without it a model said that the dates had no time zone.
+            parts.append(
+                f"- Time zone of the dates: {_one_line(dp.time_zone)} (dates "
+                f"are written as local times)"
+            )
 
     target = dp.target
     if isinstance(target, list):
@@ -903,12 +913,12 @@ def render_script_section(
     ]
     if not for_describe:
         # Asked which metric a backtesting script will give, the model
-        # declined without saying how to get it.
+        # declined without saying how to get it; asked about a forecasting
+        # script, it said that the script had run and predicted. The
+        # section only describes a script returned as code.
         in_backtest_mode = is_backtest or cv_config is not None
-        parts.append(
-            f"{SCRIPT_NOTE} {BACKTEST_SCRIPT_NOTE}"
-            if in_backtest_mode else SCRIPT_NOTE
-        )
+        run_note = BACKTEST_SCRIPT_NOTE if in_backtest_mode else FORECAST_SCRIPT_NOTE
+        parts.append(f"{SCRIPT_NOTE} {run_note}")
 
     return _tag("script", "\n".join(parts))
 

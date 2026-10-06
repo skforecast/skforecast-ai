@@ -12,6 +12,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai._constants import MAX_LEADERBOARD_ROWS
 from skforecast_ai.llm.context import (
     BACKTEST_SCRIPT_NOTE,
+    FORECAST_SCRIPT_NOTE,
     LEADERBOARD_NOTE,
     PLAN_CODE_NOTE,
     RANKING_NOTE,
@@ -40,6 +41,7 @@ GOLDEN_DESCRIBE_DIR = Path(__file__).parent / "golden_describe"
 ASK_INSTRUCTIONS = (
     ("\n\n", PLAN_CODE_NOTE),
     (" ", BACKTEST_SCRIPT_NOTE),
+    (" ", FORECAST_SCRIPT_NOTE),
     ("\n", SCRIPT_NOTE),
     (" ", RANKING_NOTE),
     (" ", LEADERBOARD_NOTE),
@@ -127,7 +129,10 @@ def test_describe_output_equals_ask_context_without_llm_instructions(scenario):
 @pytest.mark.parametrize(
     "scenario, expected_sentences",
     [
-        ("code_generation_result", [PLAN_CODE_NOTE, SCRIPT_NOTE]),
+        (
+            "code_generation_result",
+            [PLAN_CODE_NOTE, SCRIPT_NOTE, FORECAST_SCRIPT_NOTE],
+        ),
         ("forecast_single_series_no_intervals", [PLAN_CODE_NOTE]),
         ("comparison_all_succeeded", [PLAN_CODE_NOTE, RANKING_NOTE]),
         (

@@ -1082,3 +1082,26 @@ def test_render_plan_section_writes_chosen_fields_on_one_line():
 
     assert "- Chosen by the user instead of the rules: x\\n- Steps: 999\n" in section
     assert "\n- Steps: 999" not in section
+
+
+def test_render_dataset_section_names_the_time_zone_of_the_dates():
+    """
+    Test that the dataset section of data with a time zone names it next to
+    the date range, which is written as local times: without it, a model
+    said that the dates had no time zone. Data without one get no line.
+    """
+    index = pd.date_range("2023-03-20 18:00", periods=120, freq="h", tz="Europe/Madrid")
+    zoned = assistant.profile(
+        data=pd.DataFrame({"y": np.arange(120, dtype=float)}, index=index),
+        target="y",
+    )
+
+    section = render_dataset_section(zoned)
+    section_naive = render_dataset_section(profile)
+
+    assert (
+        "- Date range: 2023-03-20 18:00:00 to 2023-03-25 17:00:00\n"
+        "- Time zone of the dates: Europe/Madrid (dates are written as local "
+        "times)\n"
+    ) in section
+    assert "Time zone of the dates" not in section_naive

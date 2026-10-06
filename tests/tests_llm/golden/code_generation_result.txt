@@ -32,6 +32,6 @@ Note: A validated Python script implementing this plan is generated separately. 
 - Variables defined: predictions (no metrics: there is no ground truth yet)
 - Packages imported: none
 - Length: 2 lines
-The script is available to the user as `result.code`; describe it from this summary and the plan, do not reproduce it.
+The script is available to the user as `result.code`; describe it from this summary and the plan, do not reproduce it. It has not been run: for its predictions, the user runs it or calls `assistant.forecast()`.
 </script>
 </forecast_context>

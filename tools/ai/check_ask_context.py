@@ -278,6 +278,7 @@ SCENARIOS: list[Scenario] = [
             "Only the exogenous variables the plan uses are named (none when the data has none).",
             "The history read is the context length and series length of the explanation, not a derived number.",
             "No license claim: the plan explanation states none.",
+            "Nothing is said to have run or been predicted: the context says the script has not been run.",
             "Probe: no accuracy is predicted; it points to assistant.backtest() or assistant.compare().",
             "Multi-series data only: one model forecasts every series; equal lengths are not required (skill knowledge, not a claim about the data).",
         ],
@@ -488,7 +489,7 @@ SCENARIOS: list[Scenario] = [
         ],
         checklist=[
             "The first window is restated as `initial_train_size` of <backtesting_strategy>, a number of observations (the strategy of a script is read from the script), not turned into a date or a duration.",
-            "No time zone name is stated: the context names none, and its dates are local times without a UTC offset.",
+            "The time zone is named only as <dataset> states it (Europe/Madrid), and the dates are quoted as local times, without a UTC offset.",
             "Probe 1: declined; the context does not count the hours of a change of time.",
             "Probe 2: declined (the script summary does not quote its arguments) or answered with `initial_train_size` of <backtesting_strategy>, which is that number; any other number is wrong.",
         ],
@@ -510,7 +511,7 @@ SCENARIOS: list[Scenario] = [
         ],
         checklist=[
             "The end of the first window is `initial_train_size` of <backtesting_strategy>, quoted as written, without a UTC offset.",
-            "No time zone name and no UTC offset is stated: the context gives neither (its dates are local times).",
+            "The time zone named is the one of <dataset> (Europe/Madrid); no UTC offset is stated: the context gives none (its dates are local times).",
             "Probe: declined; no offset is given or worked out for that date.",
         ],
     ),
