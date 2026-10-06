@@ -2771,3 +2771,40 @@ Además: la tabla de consola escribe las ventanas de inferencia como "up to N"; 
 **Hay que repetir el check de pago.** Los commits `24e6743`, `30152c6`, `15efea8` y `00bcc83` cambian lo que recibe el modelo: los textos de procedencia, el prompt y el mínimo de `create_cv()`, la zona horaria y la nota de los scripts en el contexto, y un skill. Los cuatro informes de `tools/ai/ask_context_reports/0.4.0_*.md` corresponden al código anterior a estos commits.
 
 **Tests.** De 4404 a 4427 pasados, más 1 omitido, en macOS con el entorno conda local.
+
+### 22.10 Cuarta pasada (código final tras la revisión)
+
+Lanzada por el autor el 2026-10-06 con `google:gemini-3.8-flash`, sobre el código de `2fc9170`, que es el que se publica: los cuatro informes de `tools/ai/ask_context_reports/0.4.0_*.md` son los de esta pasada. items_sales se lanzó dos veces, porque en la primera una pregunta recibió un error 500 del proveedor; el informe guardado es el de la segunda.
+
+**Integridad.** 21, 19, 19 y 23 escenarios y 43, 45, 45 y 45 preguntas (178), los mismos que en la tercera pasada. Los contextos de los cuatro informes son idénticos a los de un `--dry-run` del código actual. Ninguna respuesta vacía ni con error. Todo número de varios dígitos de cada respuesta está en su contexto. Ningún bloque de código donde hay un script. Ningún correo, ruta de usuario, clave, variable de entorno ni fila de los datos de entrada.
+
+**Recuento**, leídas las 178 respuestas enteras y con un criterio más estricto que el de 22.7 (no es correcta una respuesta que añade una razón propia o afirma lo que el contexto no dice, aunque sea cierto):
+
+| Conjunto | Correctas | Mejorables | Incorrectas |
+|---|---|---|---|
+| bike_sharing | 38 | 5 | 0 |
+| h2o | 40 | 4 | 1 |
+| items_sales | 40 | 4 | 1 |
+| items_sales_long | 41 | 3 | 1 |
+| Total | 159 | 16 | 3 |
+
+Con ese mismo criterio la tercera pasada tenía unas 163 correctas (22.9), así que las dos son comparables.
+
+**Lo que corrigieron los commits de 22.9.**
+- Zona horaria: ninguna respuesta dice ya que las fechas no tienen zona (lo decían las cuatro). "The dates for the series are in the Europe/Madrid time zone, recorded as local times." Ninguna da un desfase.
+- Scripts no ejecutados: ninguna respuesta dice que un script se haya ejecutado. "The script has not yet been run", con `assistant.forecast()`. Queda alguna frase floja en presente ("the current script runs in pure prediction mode") que no afirma ningún resultado.
+- Ordenar los datos: desaparece en h2o e items_sales_long y se suaviza en bike_sharing; en la segunda ejecución de items_sales vuelve ("Sorting the index chronologically is required"), cuando en la primera decía "which the generated code handles".
+
+**Lo que sigue igual**, en los cuatro conjuntos, y es del modelo:
+- Da lo que hace un parámetro como razón de su valor por defecto: "sets the gap to 0 because there is no delay between data availability and forecast generation". El contexto no da razón para `gap`.
+- Para una licencia restringida, "restricts commercial use" pasa a "No, you cannot freely use this model in a commercial product".
+- En items_sales generaliza los lags a las tres series, cuando el contexto los da por serie.
+
+**Las tres incorrectas.** Las tres afirman algo que el contexto no dice; ninguna da un número falso, y ninguna se repite entre conjuntos ni entre ejecuciones.
+- h2o, `time_zone_backtest_code`: a "¿cuántas observaciones elimina el cambio de hora?" responde que ninguna, donde la lista pide declinar. Es un efecto de nombrar la zona: el modelo razona sobre el cambio de hora. Con datos mensuales es cierto; en bike_sharing, horario, declina, y en los otros dos también (items_sales lo afirmó en su primera ejecución y lo declinó en la segunda).
+- items_sales_long, `foundation_backtest`: a "¿se predijo cada serie en cada fold?" responde que sí, deduciéndolo de que no hay valores ausentes, cuando el contexto da una cota ("up to 72"). Con una serie que acaba antes (`foundation_incomplete`) responde bien que no.
+- items_sales, `overrides_plan`: lista como "choices specified in your request" el forecaster, los lags y las window features, que el contexto atribuye a las reglas ("Chosen by the user instead of the rules: estimator, estimator_kwargs, metric, use_exog, differentiation, calendar_features"). Una vez en cuatro conjuntos; en la primera ejecución de este mismo conjunto no ocurrió.
+
+**Decisión.** Se mantiene la línea de la zona horaria: corrige un error repetido en los cuatro conjuntos a cambio de una respuesta más segura, y cierta, a una pregunta trampa en datos sin horas. No se toca más el contexto: lo que queda son tendencias del modelo o respuestas que cambian de una ejecución a otra, y otra vuelta de cambios pediría otra pasada.
+
+**Conclusión.** El contexto de `ask()` de 0.4.0 queda validado con un modelo real: ninguna cifra inventada, ninguna respuesta que contradiga un dato del contexto, y los fallos que la propia comprobación fue encontrando (procedencia de la estrategia, zona horaria, scripts sin ejecutar, datos desordenados, ventanas de inferencia como cota) están corregidos. Para 0.5.0: una razón para el valor por defecto de `gap` y de `allow_incomplete_fold` en `defaults_explanation`, que es donde el modelo sigue poniendo la suya.
