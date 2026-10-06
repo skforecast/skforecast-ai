@@ -382,7 +382,10 @@ def render_cv_config(cv_config: dict) -> Table:
     table.add_column("Parameter")
     table.add_column("Value", justify="right")
     for key, value in cv_config.items():
-        table.add_row(escape(str(key)), _format_value(value))
+        # A bound, as `describe()` and the context of `ask()` write it: a
+        # series without data in a fold is not forecast in it.
+        prefix = "up to " if key == "inference_windows" else ""
+        table.add_row(escape(str(key)), f"{prefix}{_format_value(value)}")
     return table
 
 

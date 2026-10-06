@@ -86,14 +86,51 @@ def test_resolve_cv_provenance_output_when_plan_has_another_forecaster():
 def test_resolve_cv_provenance_output_when_plan_has_another_number_of_steps():
     """
     Test that the steps also make a plan another one: the default
-    initial_train_size depends on them.
+    initial_train_size depends on them. With the same forecaster and
+    estimator, the text says it is another configuration of them.
     """
     other = plan.model_copy(update={"steps": 10})
 
     without_effect, text = _resolve(other, ["refit"])
 
     assert without_effect == []
-    assert text.startswith(_CREATED_FOR_ANOTHER)
+    assert text.startswith(
+        "The strategy was created for another plan (ForecasterRecursive + "
+        "Ridge with another configuration)."
+    )
+
+
+def test_resolve_cv_provenance_output_when_data_have_other_observations():
+    """
+    Test that a strategy that runs on data of another length than the ones
+    it was created on says so: its default was computed on those.
+    """
+    _, text = resolve_cv_provenance(
+        created_profile = profile,
+        created_plan    = plan,
+        cv              = cv_result.cv,
+        cv_config       = cv_result.cv_config,
+        plan            = plan,
+        overridden      = [],
+        llm_configured  = False,
+        n_observations  = 130,
+    )
+    _, text_same = resolve_cv_provenance(
+        created_profile = profile,
+        created_plan    = plan,
+        cv              = cv_result.cv,
+        cv_config       = cv_result.cv_config,
+        plan            = plan,
+        overridden      = [],
+        llm_configured  = False,
+        n_observations  = 100,
+    )
+
+    assert text.startswith(
+        f"{_INITIAL} It was computed when the strategy was created, on 100 "
+        f"observations; the data it runs on have 130."
+    )
+    assert "It was computed when" not in text_same
 
 
 def test_resolve_cv_provenance_output_when_plan_is_none():

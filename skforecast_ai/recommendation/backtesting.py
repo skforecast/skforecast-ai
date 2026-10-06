@@ -84,7 +84,9 @@ def default_initial_train_size(
         `position` (the same as a number of observations), `rule`
         (`'share'`, `'minimum'` or `'two_folds'`, the last one applied),
         and the numbers of the rules: `n_observations`, `share` (70% of
-        them), `minimum`, `window_size` (None without one) and `steps`.
+        them), `minimum` (what the rule reserves for the forecaster),
+        `needed` (the fewest observations skforecast runs it with, None
+        without a window), `window_size` (None without one) and `steps`.
     """
 
     span_index_length = profile.data_profile.span_index_length
@@ -113,6 +115,14 @@ def default_initial_train_size(
         time_zone=profile.data_profile.time_zone,
     )
 
+    # What skforecast needs to run, which is less than the minimum the rule
+    # reserves: more than the window, plus the steps for a direct
+    # forecaster (`first_window_issue`). None without a window.
+    window_size = plan_window_size(plan)
+    needed = None
+    if window_size is not None:
+        needed = window_size + (steps if plan.forecaster in DIRECT_FORECASTERS else 1)
+
     return {
         "value": value,
         "position": position,
@@ -120,7 +130,8 @@ def default_initial_train_size(
         "n_observations": span_index_length,
         "share": share,
         "minimum": min_train_size,
-        "window_size": plan_window_size(plan),
+        "needed": needed,
+        "window_size": window_size,
         "steps": steps,
     }
 
@@ -148,9 +159,11 @@ def cv_fields_without_effect(
     -------
     without_effect : list of str
         `refit` and `fixed_train_size` when the model is not trained
-        (`ForecasterFoundation`); those two when skforecast runs another
-        value for `ForecasterStats` (`cv_as_executed`); `fixed_train_size`
-        when any other forecaster is trained once. Empty for a comparison
+        (`ForecasterFoundation`); for `ForecasterStats`, which skforecast
+        always refits (`cv_as_executed`), `fixed_train_size` when `refit` is
+        falsy and `refit` when the window that runs is the fixed one with
+        or without it; `fixed_train_size` when any other forecaster is
+        trained once. Empty for a comparison
         (`plan=None`), where the effect depends on each candidate.
     """
 
@@ -164,11 +177,17 @@ def cv_fields_without_effect(
     elif plan.task_type == "foundation":
         ineffective = {"refit", "fixed_train_size"}
     elif plan.forecaster == "ForecasterStats":
+        # skforecast refits it in every fold whatever `refit` says, on a
+        # fixed window when `refit` is falsy and on the window given
+        # otherwise. A parameter has no effect when the strategy that runs
+        # is the same without it: `fixed_train_size` when `refit` is falsy,
+        # and `refit` when the window it selects is the fixed one anyway.
         executed = cv_as_executed(cv, plan.forecaster)
-        ineffective = {
-            name for name in ("refit", "fixed_train_size")
-            if getattr(cv, name) != getattr(executed, name)
-        }
+        ineffective = set()
+        if not cv.refit:
+            ineffective.add("fixed_train_size")
+        if not cv.refit or executed.fixed_train_size:
+            ineffective.add("refit")
     elif not cv.refit:
         # The window type only matters when the forecaster is refitted.
         ineffective = {"fixed_train_size"}
@@ -195,6 +214,7 @@ def build_cv_defaults_explanation(
     without_effect: list[str],
     llm_configured: bool = False,
     created_for: ForecastPlan | None = None,
+    n_observations: int | None = None,
 ) -> str:
     """
     Explain why the parameters of a strategy that the user did not pass
@@ -227,6 +247,10 @@ def build_cv_defaults_explanation(
     created_for : ForecastPlan, default None
         Plan the strategy was created for, when it is not the one that
         runs it: the default depended on that plan.
+    n_observations : int, default None
+        Observations of the data the strategy runs on. When they are not
+        the ones it was created on, the text says so: the default was
+        computed on those.
 
     Returns
     -------
@@ -241,10 +265,18 @@ def build_cv_defaults_explanation(
         estimator = f" + {created_for.estimator}" if created_for.estimator else ""
         # A comparison has no plan of its own: its candidates have theirs.
         which = "another plan" if plan is not None else "the plan"
-        parts.append(
-            f"The strategy was created for {which} "
-            f"({created_for.forecaster}{estimator})."
+        same_model = (
+            plan is not None
+            and plan.forecaster == created_for.forecaster
+            and plan.estimator == created_for.estimator
         )
+        # The same forecaster and estimator: what differs is the horizon,
+        # the lags, the window features or the differentiation order.
+        detail = (
+            f"{created_for.forecaster}{estimator} with another configuration"
+            if same_model else f"{created_for.forecaster}{estimator}"
+        )
+        parts.append(f"The strategy was created for {which} ({detail}).")
 
     # A reason is given only for a value that is the default: a result
     # whose splitter was changed after `create_cv()` keeps its list of
@@ -265,9 +297,13 @@ def build_cv_defaults_explanation(
             "Initial training size by default:" if trains
             else "First fold start by default:"
         )
-        needs = (
-            "the forecaster of that plan needs" if created_for is not None
-            else "the forecaster needs"
+        # The rule reserves more than skforecast needs: the window plus
+        # the steps (or twice the steps), where a recursive forecaster runs
+        # with one observation more than its window.
+        reserves = (
+            "the rule reserves for the forecaster of that plan"
+            if created_for is not None
+            else "the rule reserves for the forecaster"
         )
         share = (
             f"70% of the {default['n_observations']} observations "
@@ -287,21 +323,36 @@ def build_cv_defaults_explanation(
             parts.append(f"{lead} {share}{date}.")
         elif default["rule"] == "minimum":
             parts.append(
-                f"{lead} {share} is less than {needs}, so it is raised to "
-                f"{default['position']}, {minimum}{date}."
+                f"{lead} {share} is less than what {reserves}, so it is "
+                f"raised to {default['position']}, {minimum}{date}."
             )
         else:
             start = (
-                f"the {default['minimum']} observations {needs} ({minimum})"
+                f"the {default['minimum']} observations {reserves} ({minimum})"
                 if raised else share
             )
             sentence = (
                 f"{lead} {start} is lowered to {default['position']} so that "
                 f"two folds of {steps_text} remain{date}."
             )
-            if default["position"] < default["minimum"]:
-                sentence += f" That is less than {needs}."
+            # Said only when the backtest cannot run, as `create_cv()` warns.
+            needed = default.get("needed")
+            if needed is not None and default["position"] < needed:
+                whose = (
+                    "the forecaster of that plan" if created_for is not None
+                    else "the forecaster"
+                )
+                sentence += (
+                    f" That is less than the {needed} observations {whose} "
+                    f"needs to run."
+                )
             parts.append(sentence)
+        if n_observations is not None and n_observations != default["n_observations"]:
+            parts.append(
+                f"It was computed when the strategy was created, on "
+                f"{default['n_observations']} observations; the data it runs on "
+                f"have {n_observations}."
+            )
 
     refit_is_default = (
         not llm_configured
@@ -346,6 +397,7 @@ def resolve_cv_provenance(
     plan: ForecastPlan | None,
     overridden: list[str],
     llm_configured: bool,
+    n_observations: int | None = None,
 ) -> tuple[list[str], str]:
     """
     Resolve, for the plan that runs a strategy of `create_cv()`, which of
@@ -375,6 +427,9 @@ def resolve_cv_provenance(
         Names of the parameters the user passed to `create_cv()`.
     llm_configured : bool
         Whether the LLM of `create_cv(prompt=...)` set the others.
+    n_observations : int, default None
+        Observations of the data the strategy runs on, when they may not
+        be the ones it was created on (`backtest()`, `compare()`).
 
     Returns
     -------
@@ -401,6 +456,7 @@ def resolve_cv_provenance(
         without_effect = without_effect,
         llm_configured = llm_configured,
         created_for    = None if same_plan else created_plan,
+        n_observations = n_observations,
     )
 
     return without_effect, defaults_explanation

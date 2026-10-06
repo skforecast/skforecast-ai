@@ -206,6 +206,7 @@ def _cv_provenance_fields(
     cv: TimeSeriesFold,
     cv_config: dict,
     plan: ForecastPlan | None,
+    profile: ForecastingProfile,
 ) -> dict[str, object]:
     """
     Fields of a `BacktestResult` or a `ComparisonResult` that say where the
@@ -225,6 +226,9 @@ def _cv_provenance_fields(
         Resolved parameters of the strategy as it runs.
     plan : ForecastPlan, None
         Plan that ran the strategy. None for a comparison.
+    profile : ForecastingProfile
+        Profile of the data that ran, which can have more observations
+        than the ones the strategy was created on.
 
     Returns
     -------
@@ -243,6 +247,7 @@ def _cv_provenance_fields(
         plan            = plan,
         overridden      = list(cv_result.overridden_fields),
         llm_configured  = cv_result.llm_configured,
+        n_observations  = profile.data_profile.span_index_length,
     )
 
     return {
@@ -3194,7 +3199,7 @@ class ForecastingAssistant:
             predictions = result["predictions"],
             code        = result["rendered_code"].full_script,
             explanation = result["explanation"],
-            **_cv_provenance_fields(cv_result, cv, cv_config, plan),
+            **_cv_provenance_fields(cv_result, cv, cv_config, plan, profile),
         )
 
     def compare(
@@ -3709,7 +3714,7 @@ class ForecastingAssistant:
             ranking_metric = ranking_metric,
             explanation    = explanation,
             baseline_name  = baseline_name,
-            **_cv_provenance_fields(cv_result, cv, cv_config, None),
+            **_cv_provenance_fields(cv_result, cv, cv_config, None, profile),
         )
 
     def ask(

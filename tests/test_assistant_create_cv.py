@@ -1961,3 +1961,29 @@ def test_create_cv_provenance_when_prompt_ignored(monkeypatch):
     assert result.overridden_fields == list(CV_OVERRIDE_NAMES)
     assert "by default" not in result.defaults_explanation
     assert result.defaults_explanation.endswith(" as requested.")
+
+
+def test_create_cv_fields_without_effect_when_stats_refit_changes_the_window():
+    """
+    Test that for ForecasterStats a truthy `refit` is not reported as
+    without effect when it changes the window that runs: the default
+    strategy refits on a fixed window, and `refit=3` on an expanding one
+    (the script differs). With `fixed_train_size=True` as well, the window
+    is the fixed one anyway and `refit` has no effect.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+    default = assistant.create_cv(profile, plan)
+
+    with pytest.warns(IgnoredArgumentWarning):
+        expanding = assistant.create_cv(profile, plan, refit=3)
+    with pytest.warns(IgnoredArgumentWarning):
+        fixed = assistant.create_cv(profile, plan, refit=3, fixed_train_size=True)
+
+    assert "    fixed_train_size   = True,\n" in default.code
+    assert "    fixed_train_size   = False,\n" in expanding.code
+    assert expanding.fields_without_effect == []
+    assert expanding.defaults_explanation.endswith("`refit` as requested.")
+    assert fixed.code == default.code
+    assert fixed.fields_without_effect == ["refit"]

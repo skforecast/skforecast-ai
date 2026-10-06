@@ -29,6 +29,8 @@ def _make_default(
         "n_observations": n_observations,
         "share": share,
         "minimum": minimum,
+        # What a recursive forecaster needs to run: more than its window.
+        "needed": None if window_size is None else window_size + 1,
         "window_size": window_size,
         "steps": steps,
     }
@@ -98,26 +100,28 @@ def _explain(default, plan, overridden=None, without_effect=None, **kwargs):
         (
             default_minimum_window,
             "Initial training size by default: 70% of the 100 observations "
-            "(70) is less than the forecaster needs, so it is raised to 75, "
-            "its window of 65 plus the 10 steps, up to 2020-03-15.",
+            "(70) is less than what the rule reserves for the forecaster, so "
+            "it is raised to 75, its window of 65 plus the 10 steps, up to "
+            "2020-03-15.",
         ),
         (
             default_minimum_window_int,
             "Initial training size by default: 70% of the 100 observations "
-            "(70) is less than the forecaster needs, so it is raised to 75, "
-            "its window of 65 plus the 10 steps.",
+            "(70) is less than what the rule reserves for the forecaster, so "
+            "it is raised to 75, its window of 65 plus the 10 steps.",
         ),
         (
             default_minimum_twice,
             "Initial training size by default: 70% of the 60 observations "
-            "(42) is less than the forecaster needs, so it is raised to 80, "
-            "twice the 40 steps, up to 2020-03-20.",
+            "(42) is less than what the rule reserves for the forecaster, so "
+            "it is raised to 80, twice the 40 steps, up to 2020-03-20.",
         ),
         (
             default_minimum_one_step,
             "Initial training size by default: 70% of the 8 observations "
-            "(5) is less than the forecaster needs, so it is raised to 6, "
-            "its window of 5 plus the 1 step, up to 2020-01-06.",
+            "(5) is less than what the rule reserves for the forecaster, so "
+            "it is raised to 6, its window of 5 plus the 1 step, up to "
+            "2020-01-06.",
         ),
         (
             default_two_folds_share,
@@ -134,21 +138,21 @@ def _explain(default, plan, overridden=None, without_effect=None, **kwargs):
             default_two_folds_share_short,
             "Initial training size by default: 70% of the 100 observations "
             "(70) is lowered to 60 so that two folds of 20 steps remain, up "
-            "to 2020-02-29. That is less than the forecaster needs.",
+            "to 2020-02-29.",
         ),
         (
             default_two_folds_minimum_window,
-            "Initial training size by default: the 90 observations the "
-            "forecaster needs (its window of 70 plus the 20 steps) is "
-            "lowered to 60 so that two folds of 20 steps remain, up to "
-            "2020-02-29. That is less than the forecaster needs.",
+            "Initial training size by default: the 90 observations the rule "
+            "reserves for the forecaster (its window of 70 plus the 20 "
+            "steps) is lowered to 60 so that two folds of 20 steps remain, "
+            "up to 2020-02-29. That is less than the 71 observations the "
+            "forecaster needs to run.",
         ),
         (
             default_two_folds_minimum_twice,
-            "Initial training size by default: the 80 observations the "
-            "forecaster needs (twice the 40 steps) is lowered to 20 so that "
-            "two folds of 40 steps remain, up to 2020-01-20. That is less "
-            "than the forecaster needs.",
+            "Initial training size by default: the 80 observations the rule "
+            "reserves for the forecaster (twice the 40 steps) is lowered to "
+            "20 so that two folds of 40 steps remain, up to 2020-01-20.",
         ),
     ],
     ids=[
@@ -274,15 +278,17 @@ def test_build_cv_defaults_explanation_output_when_refit_is_default(
         (
             default_minimum_window,
             "First fold start by default: 70% of the 100 observations (70) "
-            "is less than the forecaster needs, so it is raised to 75, its "
-            "window of 65 plus the 10 steps, up to 2020-03-15.",
+            "is less than what the rule reserves for the forecaster, so it "
+            "is raised to 75, its window of 65 plus the 10 steps, up to "
+            "2020-03-15.",
         ),
         (
             default_two_folds_minimum_window,
-            "First fold start by default: the 90 observations the forecaster "
-            "needs (its window of 70 plus the 20 steps) is lowered to 60 so "
-            "that two folds of 20 steps remain, up to 2020-02-29. That is "
-            "less than the forecaster needs.",
+            "First fold start by default: the 90 observations the rule "
+            "reserves for the forecaster (its window of 70 plus the 20 "
+            "steps) is lowered to 60 so that two folds of 20 steps remain, "
+            "up to 2020-02-29. That is less than the 71 observations the "
+            "forecaster needs to run.",
         ),
     ],
     ids=["share", "minimum", "two_folds"],
@@ -425,21 +431,23 @@ def test_build_cv_defaults_explanation_output_when_llm_configured(
             default_minimum_window, plan_recursive, plan_stats, [], False,
             "The strategy was created for another plan (ForecasterStats + "
             "Arima). Initial training size by default: 70% of the 100 "
-            "observations (70) is less than the forecaster of that plan "
-            "needs, so it is raised to 75, its window of 65 plus the 10 "
-            "steps, up to 2020-03-15. Trained once by default: refitting in "
-            "every fold would multiply the training cost by the 6 folds.",
+            "observations (70) is less than what the rule reserves for the "
+            "forecaster of that plan, so it is raised to 75, its window of "
+            "65 plus the 10 steps, up to 2020-03-15. Trained once by "
+            "default: refitting in every fold would multiply the training "
+            "cost by the 6 folds.",
         ),
         (
             default_two_folds_minimum_window, plan_recursive, plan_stats, [],
             False,
             "The strategy was created for another plan (ForecasterStats + "
             "Arima). Initial training size by default: the 90 observations "
-            "the forecaster of that plan needs (its window of 70 plus the 20 "
-            "steps) is lowered to 60 so that two folds of 20 steps remain, "
-            "up to 2020-02-29. That is less than the forecaster of that plan "
-            "needs. Trained once by default: refitting in every fold would "
-            "multiply the training cost by the 6 folds.",
+            "the rule reserves for the forecaster of that plan (its window "
+            "of 70 plus the 20 steps) is lowered to 60 so that two folds of "
+            "20 steps remain, up to 2020-02-29. That is less than the 71 "
+            "observations the forecaster of that plan needs to run. Trained "
+            "once by default: refitting in every fold would multiply the "
+            "training cost by the 6 folds.",
         ),
         (
             default_share, plan_recursive, plan_baseline, [], False,

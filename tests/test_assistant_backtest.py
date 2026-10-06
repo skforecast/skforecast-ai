@@ -1479,3 +1479,29 @@ def test_backtest_cv_provenance_when_plan_differs_only_in_metric():
     assert result.cv_defaults_explanation == (
         f"{_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT}"
     )
+
+
+def test_backtest_cv_defaults_explanation_when_data_have_more_rows_than_the_strategy():
+    """
+    Test that backtest() of a strategy created on fewer observations than
+    the data it runs on says that its default was computed on those, next
+    to the numbers of that default.
+    """
+    short = df_no_exog.iloc[:80]
+    profile = assistant.profile(data=short, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, estimator="Ridge")
+    cv = assistant.create_cv(profile, plan)
+
+    result = assistant.backtest(
+        data=df_no_exog, cv=cv, profile=profile, plan=plan, show_progress=False
+    )
+
+    assert cv.defaults_explanation.startswith(
+        "Initial training size by default: 70% of the 80 observations (56), up "
+        "to 2023-02-25. Trained once"
+    )
+    assert result.cv_defaults_explanation.startswith(
+        "Initial training size by default: 70% of the 80 observations (56), up "
+        "to 2023-02-25. It was computed when the strategy was created, on 80 "
+        "observations; the data it runs on have 100."
+    )

@@ -63,6 +63,7 @@ def _make_plan(
                 "n_observations": 100,
                 "share": 70,
                 "minimum": 15,
+                "needed": 6,
                 "window_size": 5,
                 "steps": 10,
             },
@@ -77,6 +78,7 @@ def _make_plan(
                 "n_observations": 100,
                 "share": 70,
                 "minimum": 75,
+                "needed": 66,
                 "window_size": 65,
                 "steps": 10,
             },
@@ -91,6 +93,7 @@ def _make_plan(
                 "n_observations": 100,
                 "share": 70,
                 "minimum": 25,
+                "needed": 6,
                 "window_size": 5,
                 "steps": 20,
             },
@@ -105,6 +108,7 @@ def _make_plan(
                 "n_observations": 100,
                 "share": 70,
                 "minimum": 90,
+                "needed": 71,
                 "window_size": 70,
                 "steps": 20,
             },
@@ -147,6 +151,7 @@ def test_default_initial_train_size_output_when_minimum_equals_share():
         "n_observations": 100,
         "share": 70,
         "minimum": 70,
+        "needed": 61,
         "window_size": 60,
         "steps": 10,
     }
@@ -170,6 +175,7 @@ def test_default_initial_train_size_output_when_minimum_leaves_no_room_for_folds
         "n_observations": 60,
         "share": 42,
         "minimum": 80,
+        "needed": None,
         "window_size": None,
         "steps": 40,
     }
@@ -188,6 +194,7 @@ def test_default_initial_train_size_output_when_minimum_leaves_no_room_for_folds
                 "n_observations": 100,
                 "share": 70,
                 "minimum": 15,
+                "needed": 6,
                 "window_size": 5,
                 "steps": 10,
             },
@@ -201,6 +208,7 @@ def test_default_initial_train_size_output_when_minimum_leaves_no_room_for_folds
                 "n_observations": 100,
                 "share": 70,
                 "minimum": 75,
+                "needed": 66,
                 "window_size": 65,
                 "steps": 10,
             },
@@ -214,6 +222,7 @@ def test_default_initial_train_size_output_when_minimum_leaves_no_room_for_folds
                 "n_observations": 100,
                 "share": 70,
                 "minimum": 25,
+                "needed": 6,
                 "window_size": 5,
                 "steps": 20,
             },
@@ -234,3 +243,23 @@ def test_default_initial_train_size_output_when_data_has_no_dates(plan, expected
     assert (
         derive_cv_defaults(profile, plan)["initial_train_size"] == default["value"]
     )
+
+
+@pytest.mark.parametrize(
+    "forecaster, expected",
+    [("ForecasterRecursive", 6), ("ForecasterDirect", 15)],
+    ids=["recursive: window plus one", "direct: window plus the steps"],
+)
+def test_default_initial_train_size_output_needed_by_forecaster(forecaster, expected):
+    """
+    Test that `needed` is the fewest observations skforecast runs the
+    forecaster with: more than its window of 5, plus the 10 steps for a
+    direct forecaster, which trains one estimator per step.
+    """
+    result = default_initial_train_size(
+        _make_profile(100),
+        _make_plan("single_series", 10, {"lags": 5}, forecaster=forecaster),
+    )
+
+    assert result["needed"] == expected
+    assert result["minimum"] == 15

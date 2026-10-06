@@ -845,3 +845,21 @@ def test_result_display_shows_explanation_alone_without_defaults_explanation(
         if result.explanation in line
     ]
     assert lines == [result.explanation]
+
+
+def test_render_cv_config_writes_inference_windows_as_a_bound():
+    """
+    Test that the table of a strategy writes the inference windows of a
+    foundation model as "up to N", as describe() and the context of ask()
+    do, and the other values as they are.
+    """
+    from rich.console import Console
+
+    from skforecast_ai._display import render_cv_config
+
+    console = Console(width=80, record=True, color_system=None)
+    console.print(render_cv_config({"n_folds": 6, "inference_windows": 114}))
+    text = console.export_text()
+
+    assert "up to 114" in text
+    assert "up to 6" not in text

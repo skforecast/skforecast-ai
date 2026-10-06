@@ -80,12 +80,14 @@ def test_cv_fields_without_effect_output_when_plan_is_none(overridden):
     "refit, fixed_train_size, overridden, expected",
     [
         (False, False, ["refit", "fixed_train_size"], ["refit", "fixed_train_size"]),
-        (False, True, ["refit", "fixed_train_size"], ["refit"]),
+        (False, True, ["refit", "fixed_train_size"], ["refit", "fixed_train_size"]),
         (False, False, ["fixed_train_size", "refit"], ["fixed_train_size", "refit"]),
         (False, False, ["gap", "refit"], ["refit"]),
         (2, True, ["refit", "fixed_train_size"], ["refit"]),
+        (3, False, ["refit", "fixed_train_size"], []),
+        (3, False, ["refit"], []),
         (True, False, ["refit", "fixed_train_size"], []),
-        (1, True, ["refit", "fixed_train_size"], []),
+        (1, True, ["refit", "fixed_train_size"], ["refit"]),
         (False, False, [], []),
     ],
     ids=[
@@ -93,9 +95,11 @@ def test_cv_fields_without_effect_output_when_plan_is_none(overridden):
         "refit_false_fixed",
         "keeps_the_order_of_overridden",
         "ignores_names_not_passed",
-        "refit_integer",
-        "refit_true_runs_as_given",
-        "refit_one_runs_as_given",
+        "refit_integer_fixed_window",
+        "refit_integer_expanding_window",
+        "refit_integer_alone",
+        "refit_true_expanding_window",
+        "refit_one_fixed_window",
         "nothing_passed",
     ],
 )
@@ -103,9 +107,12 @@ def test_cv_fields_without_effect_output_when_forecaster_is_stats(
     refit, fixed_train_size, overridden, expected
 ):
     """
-    Test that for ForecasterStats the names whose value differs from the
-    strategy skforecast runs (`refit=True`, fixed window after a refit
-    other than True) are without effect, in the order they were passed.
+    Test that for ForecasterStats, which skforecast refits in every fold on
+    a fixed window unless `refit` is truthy, a name is without effect when
+    the strategy that runs is the same without it: `fixed_train_size` when
+    `refit` is falsy, and `refit` when the window that runs is the fixed one
+    anyway. A truthy `refit` with an expanding window does change what runs
+    (the default runs a fixed one), in the order the names were passed.
     """
     cv = TimeSeriesFold(
         steps=10, initial_train_size=60, refit=refit,
