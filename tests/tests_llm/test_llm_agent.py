@@ -424,6 +424,7 @@ def test_cv_agent_context_states_the_minimum_computed_for_the_plan():
     assert "- Minimum viable initial_train_size: 31" in instructions
     assert "- Minimum viable initial_train_size: 14" not in instructions
     assert 'at least the "Minimum viable initial_train_size"' in instructions
+    assert "takes precedence over" in instructions
 
 
 def test_cv_agent_context_states_integer_only_when_no_date_range():

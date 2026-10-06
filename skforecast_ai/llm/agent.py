@@ -179,10 +179,11 @@ class CVDeps:
     end_date : str, default None
         Last date of the series, see `start_date`.
     min_train_size : int, default None
-        Minimum initial training size the forecaster of the plan needs, as
-        the rules compute it (its window, which includes the window
-        features and the differentiation order, plus `steps`). None falls
-        back to an estimate from `lags` and `steps`.
+        Minimum initial training size for the forecaster of the plan, as
+        the rules compute it (`llm_min_train_size`: its window, which
+        includes the window features and the differentiation order, plus
+        `steps`, within what leaves two folds). None falls back to an
+        estimate from `lags` and `steps`.
     """
 
     n_observations: int

@@ -2562,10 +2562,22 @@ class ForecastingAssistant:
 
         if use_llm:
             defaults = configure_cv_with_llm(
-                           agent   = self._resolve_cv_agent(),
-                           profile = profile,
-                           plan    = plan,
-                           prompt  = prompt,
+                           agent    = self._resolve_cv_agent(),
+                           profile  = profile,
+                           plan     = plan,
+                           prompt   = prompt,
+                           explicit = frozenset(
+                               name for name, value in {
+                                   "initial_train_size": initial_train_size,
+                                   "refit": refit,
+                                   "fixed_train_size": fixed_train_size,
+                                   "gap": gap,
+                                   "fold_stride": fold_stride,
+                                   "skip_folds": skip_folds,
+                                   "allow_incomplete_fold": allow_incomplete_fold,
+                               }.items()
+                               if value is not None
+                           ),
                        )
         else:
             # Compute deterministic defaults

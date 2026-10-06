@@ -1086,9 +1086,11 @@ def test_create_cv_llm_deterministic_fallback_when_first_window_too_short(
     )
 
     warn_msg = re.escape(
-        f"Use an initial_train_size of at least "
-        f"{_compute_min_train_size(plan)} observations). Falling back to "
-        f"deterministic defaults."
+        "The first training window of the strategy has 6 observations, and "
+        "ForecasterRecursive needs at least 22 (more than its window size, "
+        "21), so skforecast would fail. The minimum viable initial_train_size "
+        "of the dataset context is 26 observations: use at least that). "
+        "Falling back to deterministic defaults."
     )
     with pytest.warns(UserWarning, match=warn_msg):
         result = assistant.create_cv(profile, plan, prompt="Forecast ahead")
@@ -1096,6 +1098,34 @@ def test_create_cv_llm_deterministic_fallback_when_first_window_too_short(
     assert call_count["n"] == 3
     assert result.cv.initial_train_size == expected.cv.initial_train_size
     assert result.llm_configured is False
+
+
+def test_create_cv_llm_keeps_its_suggestion_when_initial_train_size_is_explicit(
+    monkeypatch,
+):
+    """
+    Test that an explicit `initial_train_size` replaces the one of the LLM
+    without a retry: a suggestion whose own size is too short for the
+    forecaster, which never runs, is accepted in one call and its other
+    parameters (`refit=2`) are kept. It was retried three times and the
+    whole suggestion was dropped.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    params = _make_cv_params(6, "Refit every two folds.")
+    params = params.model_copy(update={"refit": 2})
+    call_count = _install_fake_cv_agent(monkeypatch, assistant, [params])
+
+    result = assistant.create_cv(
+        profile, plan, prompt="Retrain every two folds", initial_train_size=60
+    )
+
+    assert call_count["n"] == 1
+    assert result.cv.initial_train_size == 60
+    assert result.cv.refit == 2
+    assert result.llm_configured is True
+    assert result.overridden_fields == ["initial_train_size"]
 
 
 def test_create_cv_llm_deterministic_fallback_when_date_unparseable(monkeypatch):
