@@ -26,6 +26,7 @@ from .._display import (
     render_profile,
 )
 from ..exceptions import InvalidInputTypeError
+from ._compat import PickleDefaultsMixin
 from ._types import JSONFrame, JSONTimeSeriesFold, OptionalJSONFrame
 from .explainable import ExplainableResult
 from .plans import ForecastPlan
@@ -148,7 +149,9 @@ class LLMContext(BaseModel):
     sends_result_values: bool = True
 
 
-class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
+class CodeGenerationResult(
+    PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel
+):
     """
     Result of the `forecast_code` workflow.
 
@@ -263,7 +266,9 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
         yield render_plan(self.plan)
 
 
-class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
+class SingleRunResult(
+    PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel
+):
     """
     Shared base for the result of a single forecasting or backtesting run.
 
@@ -494,7 +499,7 @@ class BacktestResult(SingleRunResult):
         yield render_plan(self.plan)
 
 
-class CVResult(DisplayMixin, ExplainableResult, BaseModel):
+class CVResult(PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel):
     """
     Result of the `create_cv` workflow (a cross-validation strategy).
 
@@ -918,7 +923,9 @@ def _one_line_summary(error_type: str, message: str, max_length: int = 200) -> s
     return summary
 
 
-class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
+class ComparisonResult(
+    PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel
+):
     """
     Result of the `compare` workflow (ranks several forecasters).
 

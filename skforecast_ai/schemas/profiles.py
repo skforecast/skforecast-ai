@@ -11,6 +11,7 @@ import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .._display import DisplayMixin, render_profile
 from .._validation import validate_frequency
+from ._compat import PickleDefaultsMixin
 from .explainable import ExplainableResult
 
 class SeriesLengthInfo(BaseModel):
@@ -83,7 +84,7 @@ def _resolve_observation_counts(
     return span_index_length, n_total_observations
 
 
-class DataProfile(BaseModel):
+class DataProfile(PickleDefaultsMixin, BaseModel):
     """
     Profile of the input time series dataset.
 
@@ -346,7 +347,9 @@ class SeriesPacf(BaseModel):
     pacf_abs: list[float] = Field(default_factory=list)
 
 
-class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
+class ForecastingProfile(
+    PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel
+):
     """
     High-level profile of the forecasting problem.
 
