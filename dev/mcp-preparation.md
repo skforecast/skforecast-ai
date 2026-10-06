@@ -2735,3 +2735,39 @@ Queda sin cambiar, porque se sincroniza desde skforecast: el skill `backtesting-
 En los cuatro `llm_configured` es True, ningún aviso y ningún reintento: el modelo usó el número del contexto y no el "2 * max_lag" del skill (que habría dado 674), así que la validación nueva no llegó a actuar. En su razonamiento atribuye el mínimo al lag máximo ("based on max_lag=337"), que aquí coincide con la ventana.
 
 **Tests.** De 4401 a 4404 pasados, más 1 omitido.
+
+### 22.9 Revisión del autor y correcciones
+
+Antes de mergear, una verificación independiente comparó la base (`00a9391`) con la rama (`101df9a`) en macOS, con numpy 2.5.3 y `chronos-forecasting` instalado: la paridad y los campos de procedencia, la ruta de `create_cv(prompt=...)` con el servidor MCP, y la suite con los cuatro informes. Sin llamar a ningún LLM. Las correcciones van como commits nuevos al final de `chore/ask-context-check`; ninguno subido se reescribió.
+
+**Los informes.** Los contextos, las preguntas y las listas de los cuatro informes guardados son idénticos byte a byte a los de un `--dry-run` del código de `101df9a` (178 preguntas). Leídas unas 170 de las 178 respuestas: ninguna incorrecta, y las 7 mejorables de 22.7 están donde dice. Por programa, todo número de varios dígitos de las 178 respuestas está literal en su contexto. Ningún correo, ruta de usuario, clave ni fila de los datos en los informes. Frente a 0.3.0, ninguna respuesta peor. Con una lectura más estricta, 8 respuestas más serían mejorables (163 / 15 / 0); dos señalaban huecos del contexto, corregidos abajo.
+
+**Lo que se ejecuta no cambia.** En 14 escenarios por 21 llamadas, 226 comandos de la CLI y 302 llamadas al servidor por lado, los scripts, las predicciones, las métricas, los avisos y los códigos de error son idénticos; solo aparecen los campos nuevos y los textos anunciados. `backtest(cv_id, plan_id=otro)` sigue ejecutando el otro plan. Sin filas de datos en ningún contexto, tampoco en las peticiones de `create_cv(prompt=...)` con reintentos.
+
+**Corregido.**
+
+| Qué | Corrección | Commit |
+|---|---|---|
+| Un `CVResult` guardado con pickle antes de esta rama daba `AttributeError` en `backtest()` (después de ejecutar el backtest), `compare()`, `describe()` y su display. Lo mismo pasaba con un plan o un perfil de 0.3.1 | Los modelos públicos rellenan al restaurarse los campos añadidos después (`PickleDefaultsMixin`) | `7908210` |
+| "`refit` was passed but has no effect" con ForecasterStats y `refit=3`, cuando cambia la ventana que corre (fija por defecto, expansiva con `refit=3`: otro script, MAE de 0,0638 a 0,0663) | Un parámetro no tiene efecto cuando la estrategia que corre es la misma sin él | `24e6743` |
+| "That is less than the forecaster needs" comparaba con lo que la regla reserva (ventana más pasos, o dos veces los pasos): se decía de 13 estrategias cuyo backtest corre | El texto dice lo que la regla reserva; la frase solo aparece por debajo de lo que skforecast necesita para ejecutar, con el número | `24e6743` |
+| Una estrategia creada con 150 observaciones y ejecutada con 204 describía las 150 sin decirlo | Lo dice: "It was computed when the strategy was created, on 150 observations; the data it runs on have 204." | `24e6743` |
+| `create_cv(prompt, initial_train_size=120)` con un LLM que sugería un tamaño corto y `refit=2`: tres llamadas y vuelta a los valores por defecto, perdiendo `refit=2`, por un tamaño que nunca corre | Con un tamaño explícito no se comprueba la primera ventana de la sugerencia | `30152c6` |
+| El mínimo dado al LLM podía superar el máximo (96 frente a 84 con 60 pasos), y con un paso se aceptaba la ventana más uno, que LightGBM no entrena (una sola fila) | Se baja a lo que deja dos folds y nunca queda por debajo de dos filas de entrenamiento (`llm_min_train_size`). El prompt dice que ese número manda sobre las reglas generales del material de referencia | `30152c6` |
+| Con datos con zona horaria el modelo decía que las fechas no tenían zona; preguntado por un plan, decía que su script se había ejecutado | La sección del dataset nombra la zona; un script de predicción dice que no se ha ejecutado, como ya decía el de backtesting | `15efea8` |
+| El skill `backtesting-configuration` del paquete seguía con `2 * max_lag`; skforecast ya lo había corregido y la comprobación de sincronización fallaba | Sincronizado desde `0.26.x` | `00bcc83` |
+
+Además: la tabla de consola escribe las ventanas de inferencia como "up to N"; un plan del mismo forecaster y estimador se dice "with another configuration". Notas de versión: la entrada de `create_cv()` acortada, la de la ordenación y la zona horaria pasada a la entrada de 0.4.0 que describe lo que recibe `ask()` (ninguna versión publicada lo hacía de otro modo), y una entrada para los objetos guardados con pickle.
+
+**Correcciones a esta sección.**
+- 22.5 listaba también la cuenta de proveedor de TabPFN y T0, que falta en la lista de puntos sin escenario de 22.7; la cubren `test_build_foundation_explanation_output_when_provider_requires_account` y el test de T0.
+- "70% of the 90 observations (62)": el código trunca `0.7 * 90`, que en coma flotante da 62,99. Se deja: cambiar el cálculo movería el tamaño por defecto de las series cuya longitud es múltiplo de 10.
+
+**Pendiente.**
+- El valor por defecto de un forecaster directo con horizonte muy largo (60 pasos sobre 204 observaciones) sigue siendo demasiado corto para él; `create_cv()` avisa, y es a lo que vuelve la vía de reserva del LLM en ese caso.
+- Mutaciones sin test: `same_plan` cuando solo cambian los lags o la diferenciación, y el límite exacto de dos folds.
+- Las tablas de la CLI de `backtest` y `compare` no muestran la procedencia; solo `--format json`.
+
+**Hay que repetir el check de pago.** Los commits `24e6743`, `30152c6`, `15efea8` y `00bcc83` cambian lo que recibe el modelo: los textos de procedencia, el prompt y el mínimo de `create_cv()`, la zona horaria y la nota de los scripts en el contexto, y un skill. Los cuatro informes de `tools/ai/ask_context_reports/0.4.0_*.md` corresponden al código anterior a estos commits.
+
+**Tests.** De 4404 a 4427 pasados, más 1 omitido, en macOS con el entorno conda local.
