@@ -11,6 +11,8 @@ from skforecast.model_selection import TimeSeriesFold
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._constants import MAX_LEADERBOARD_ROWS
 from skforecast_ai.llm.context import (
+    BACKTEST_SCRIPT_NOTE,
+    FORECAST_SCRIPT_NOTE,
     LEADERBOARD_NOTE,
     PLAN_CODE_NOTE,
     RANKING_NOTE,
@@ -38,6 +40,8 @@ GOLDEN_DESCRIBE_DIR = Path(__file__).parent / "golden_describe"
 # precedes it in the context, so removing both gives `describe()`.
 ASK_INSTRUCTIONS = (
     ("\n\n", PLAN_CODE_NOTE),
+    (" ", BACKTEST_SCRIPT_NOTE),
+    (" ", FORECAST_SCRIPT_NOTE),
     ("\n", SCRIPT_NOTE),
     (" ", RANKING_NOTE),
     (" ", LEADERBOARD_NOTE),
@@ -125,7 +129,10 @@ def test_describe_output_equals_ask_context_without_llm_instructions(scenario):
 @pytest.mark.parametrize(
     "scenario, expected_sentences",
     [
-        ("code_generation_result", [PLAN_CODE_NOTE, SCRIPT_NOTE]),
+        (
+            "code_generation_result",
+            [PLAN_CODE_NOTE, SCRIPT_NOTE, FORECAST_SCRIPT_NOTE],
+        ),
         ("forecast_single_series_no_intervals", [PLAN_CODE_NOTE]),
         ("comparison_all_succeeded", [PLAN_CODE_NOTE, RANKING_NOTE]),
         (
@@ -262,6 +269,74 @@ def test_describe_output_when_backtest_code_result():
     assert description == _without_ask_instructions(
         result.to_llm_context(send_data=False).text
     )
+
+
+def test_describe_output_when_cv_result_has_arguments_passed():
+    """
+    Test that describe() of the CVResult of `create_cv(..., refit=True)`
+    names what the user chose in `<backtesting_strategy>` and ends
+    `<deterministic_summary>` with the explanation of the defaults, after the
+    explanation of the strategy; the context of ask() has the same lines.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    result = assistant.create_cv(profile, plan, refit=True)
+
+    description = result.describe()
+
+    assert description.endswith(
+        "- n_fits: 6\n"
+        "- Chosen by the user instead of the rules: refit\n"
+        "</backtesting_strategy>\n"
+        "<deterministic_summary>\n"
+        "Initial training up to 2023-03-11, expanding window, refit every "
+        "fold (6 trainings), 5-step horizon, 6 folds. Initial training size "
+        "by default: 70% of the 100 observations (70), up to 2023-03-11. "
+        "`refit` as requested.\n"
+        "</deterministic_summary>\n"
+        "</forecast_context>"
+    )
+    assert description == _without_ask_instructions(
+        result.to_llm_context(send_data=False).text
+    )
+
+
+def test_describe_output_when_backtest_of_cv_result_has_arguments_passed():
+    """
+    Test that describe() of a backtest run with the CVResult of
+    `create_cv(..., refit=True)` names what the user chose and ends the
+    deterministic summary, after the metrics sentence of the explanation,
+    with the explanation of the defaults; with a bare TimeSeriesFold it
+    has neither.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv_result = assistant.create_cv(profile, plan, refit=True)
+
+    result = assistant.backtest(
+        data=df_no_exog, cv=cv_result, profile=profile, plan=plan,
+        show_progress=False,
+    )
+    from_fold = assistant.backtest(
+        data=df_no_exog, cv=cv_result.cv, profile=profile, plan=plan,
+        show_progress=False,
+    )
+
+    description = result.describe()
+    summary = description[
+        description.index("<deterministic_summary>"):
+        description.index("</deterministic_summary>")
+    ]
+
+    assert "- Chosen by the user instead of the rules: refit\n" in description
+    assert summary.endswith(
+        " Initial training size by default: 70% of the 100 observations "
+        "(70), up to 2023-03-11. `refit` as requested.\n"
+    )
+    assert "Chosen by the user" not in from_fold.describe()
+    assert "by default" not in from_fold.describe()
 
 
 # =============================================================================

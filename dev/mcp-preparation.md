@@ -2561,3 +2561,250 @@ Lo que se gana: `compare()` sin candidatos sobre datos de `3min` o `4min` vuelve
 Para 0.5.0: el coste de Auto-ARIMA depende de `m`, de la longitud y de si hay ciclo (sin ciclo, `m=26` cuesta lo mismo que no darlo), y el presupuesto de `compare()` cuenta un ajuste de ForecasterStats como uno cualquiera. Una regla sobre `m` y longitud serviría para los candidatos, para un aviso propio y para unificar la tabla con el resto, pero cambia frecuencias corrientes.
 
 **Tests.** De 4192 a 4211 pasados con este cambio solo, más 1 omitido. Ningún golden del contexto del LLM ni de los esquemas del MCP cambió. Con la evaluación foundation de `60a1ade` integrada en la misma rama, la suite completa da 4236 pasados y 1 omitido.
+
+---
+
+## 22. Check de pago: hecho
+
+La comprobación de `ask()` con un modelo real, la única de 0.4.0, en la rama `chore/ask-context-check`, creada desde `0.4.x` (`00a9391`). El autor lanzó los comandos; la sesión preparó el script, revisó los informes y propuso los dos cambios de `llm/context.py`, que el autor aprobó antes de aplicarlos.
+
+- **Modelo y fecha:** `google:gemini-3.8-flash`, 2026-10-05. Tres pasadas completas de los cuatro conjuntos (la tercera, sobre el código final, es la que se guarda; ver 22.7) y dos repeticiones sueltas de `time_zone_cv` en bike_sharing entre las dos primeras.
+- **Informes guardados:** `tools/ai/ask_context_reports/0.4.0_<conjunto>.md`, los cuatro de la tercera pasada. Los contextos de los informes son idénticos, byte a byte, a los de un `--dry-run` del mismo código.
+
+| Commit | Contenido |
+|---|---|
+| `0fd65fe` | `check_ask_context.py`: escenarios `foundation_backtest`, `data_warnings`, `free_text_plan` y `time_zone_cv`; lista de `time_zone_backtest_code` corregida |
+| `b5071e8` | `llm/context.py`: "index not sorted as given (the generated code sorts it)" cuando el perfil ya ordenó las filas |
+| `b94a06f` | `llm/context.py`: rango de fechas en hora local sin desfase con datos con zona horaria |
+| este | Los cuatro informes, la fila del registro del README y esta sección |
+
+### 22.1 Preparación
+
+Lista consolidada de las secciones 3, 12, 13, 14, 15, 18, 18.1, 19, 19.1, 20.10, 20.12, 21.8 y 21.11, por escenario. Cuatro escenarios nuevos cubren lo que ninguno enviaba:
+
+- `foundation_backtest`: backtest de Chronos-2 small con la estrategia por defecto (17, 72, 72 y 6 ventanas de inferencia); lleva `n_fits: 0`, `inference_windows` y "(up to N inference windows)". Se salta con un mensaje sin el backend o sin los pesos.
+- `data_warnings`: perfil de los mismos datos con tres fechas quitadas, filas desordenadas, una serie que acaba antes (multiserie, redacción de ancho y de largo) y columnas dejadas fuera con `exog_columns` (bike_sharing).
+- `free_text_plan`: explicación del plan con párrafos, una línea escrita como item (`- Steps: 999`) y etiquetas que cerrarían el plan y abrirían un `<dataset>`.
+- `time_zone_cv`: la estrategia de `create_cv()` con datos en Europe/Madrid, que conserva la fecha local. El contexto de un `backtest_code()` lee la estrategia del script y muestra el número de observaciones (`initial_train_size: 1400`), no la fecha, al contrario de lo que decía 19.1; la lista de `time_zone_backtest_code` lo recoge.
+
+| Conjunto | Escenarios | Preguntas | Se saltan |
+|---|---|---|---|
+| bike_sharing | 18 | 38 | `stats_backtest`, `compare_default` |
+| items_sales | 16 | 39 | los dos anteriores, `compare_many`, `many_categorical` |
+| items_sales_long | 16 | 39 | los mismos |
+| h2o | 20 | 40 | ninguno |
+
+Ningún contexto vacío ni cortado, y ninguna fila del dataset en ninguno: solo estadísticas de resumen y los valores propios de cada resultado. Los avisos del perfil nombran una serie y su última fecha, como se decidió en 12.1.
+
+### 22.2 Primera pasada: lo que se encontró y se cambió
+
+140 correctas, 14 mejorables y 2 incorrectas de 156. Dos hallazgos venían del contexto:
+
+1. **Filas desordenadas, 3 de 4 conjuntos.** A "Is there anything wrong with my data that I should know about or fix before forecasting?" el modelo mandaba ordenar los datos ("Time series data must be sorted chronologically before fitting a forecaster", "They must be sorted chronologically before profiling or fitting", "Sort the data: Sort the DataFrame chronologically by its date index"), aunque la nota del perfil dice que ya se ordenaron y que el código generado las ordena. La línea "Index irregularities: ..., index not sorted" era una bandera sin matiz junto a esa nota. Cambio (`b5071e8`): con la nota del perfil presente, la bandera dice "index not sorted as given (the generated code sorts it)". Ningún golden cambia.
+2. **Desfase de la primera fecha tomado por la zona de todos los datos, 3 de 3 ejecuciones** (bike_sharing, el único conjunto cuyo contexto mostraba un desfase). Con "Date range: 2012-10-09 18:00:00+02:00 to 2013-01-01" y una estrategia hasta 2012-12-07, respondía "The dates in this strategy are recorded with a UTC offset of +02:00", "The timestamps in the dataset carry a UTC offset of +02:00" y "The dates in the dataset carry a +02:00 time zone offset"; en diciembre es +01:00. El rango salía de `series_lengths`, con el desfase de una fecha que no es medianoche y sin él a medianoche, mientras la estrategia va en hora local. Cambio (`b94a06f`): con zona horaria en el perfil, los dos extremos del rango se escriben en hora local sin desfase. Ningún golden cambia. Corrige además lo que decía 20.12 (que el rango mostraba los desfases de las dos fechas).
+
+La otra incorrecta era del modelo: en items_sales, "Lags 1 through 6 consistently appear as strong partial autocorrelations across all three targets" (el lag 4 no está en item_1 ni el 2 en item_2). Vista una vez; no se repitió en items_sales_long ni en la segunda pasada. Es el mismo tipo de desliz que el README anotó con gemini-3.5.
+
+### 22.3 Segunda pasada
+
+Sobre el código de `b94a06f`. Lo que dejó mejorable motivó los cambios de 22.7, que la tercera pasada comprueba.
+
+| Conjunto | Preguntas | Correctas | Mejorables | Incorrectas |
+|---|---|---|---|---|
+| bike_sharing | 38 | 36 | 2 | 0 |
+| items_sales | 39 | 37 | 2 | 0 |
+| items_sales_long | 39 | 35 | 4 | 0 |
+| h2o | 40 | 36 | 4 | 0 |
+| Total | 156 | 144 | 12 | 0 |
+
+Sin fallo en los cuatro conjuntos: ningún código Python cuando hay un script validado (comprobado también por programa); MASE siempre contra el naive de un paso, nunca contra la fila del baseline; ninguna tendencia deducida de una tabla recortada; todas las preguntas trampa declinadas (tiempos, RMSE, importancia de variables, fechas que faltan, error por fold, candidato peor, precisión futura, desfase de una fecha); `overrides_plan` con sus seis decisiones y sus dos avisos; `free_text_plan` con los pasos y las observaciones reales, no 999 ni 5; ForecasterStats y ForecasterFoundation bien contados en `stats_backtest` y `compare_default`; la licencia de Chronos-2 sin restricción inventada ni nombre de licencia. Por programa, todo decimal de las respuestas está literalmente en su contexto, con la excepción que sigue.
+
+Los dos hallazgos de la primera pasada:
+- Zona horaria: resuelto. `time_zone_cv` y `time_zone_backtest_code` no dan ningún desfase ni nombre de zona en ningún conjunto ("Information about the time zone of the dates is not available in the provided context").
+- Filas desordenadas: de 3 de 4 a 1 de 4. bike_sharing, items_sales e items_sales_long lo dicen bien ("While the code handles sorting", "though they were sorted before profiling", "which is also handled by the generated code"). h2o sigue: "In time series analysis, observations must be strictly chronological, so the dataset must be sorted by date" y "Sort the index: Ensure the DataFrame is sorted chronologically by its date index". Con el contexto diciéndolo dos veces, es del modelo; la pregunta del escenario ("or fix before forecasting") invita a recetar.
+
+Mejorables (12), todas vistas en la segunda pasada:
+- `foundation_backtest`, 4 de 4 en la pregunta principal: se pierde "up to" ("17 folds (17 inference windows)", "resulting in 72 total inference windows", "executed 72 inference windows", "6 folds across 6 inference windows"). En las dos pasadas. Con estos datos el número es exacto.
+- `foundation_backtest`, "Was every series forecast in every fold?", 2 de 2: "Yes, every series was forecast in every fold". Cierto con estos datos (series completas); el contexto solo da una cota.
+- `backtest_code`, pregunta trampa, 3 de 4: declina bien, pero remite a `result.code` o a nada, no a `assistant.backtest()` (items_sales sí lo hace).
+- items_sales_long, `forecast`: redondea a seis decimales ("predicted values average 20.191796", "minimum is 17.468051"); el contexto da 20.191795936620537. Una vez; el redondeo es correcto.
+- h2o, `data_warnings`: lo de arriba.
+- h2o, `profile`, pregunta trampa: "significant partial autocorrelation at annual intervals, specifically lags 1, 13, 12, 11, 10, 14, and 9"; ni el 1 ni el 9 son anuales. Una vez.
+
+Mediocres aunque pasan la lista: en `cv`, a "Why this initial training size and refit setting" responde con los parámetros, sin razones, en los cuatro conjuntos y en las dos pasadas; en `compare`, items_sales e items_sales_long no citan el "17.1% ahead" del resumen (bike_sharing y h2o sí citan el suyo).
+
+### 22.4 Frente a 0.3.0
+
+Las 38 preguntas comunes de bike_sharing e items_sales, contra `0.3.0_*.md` (gemini-3.5-flash). Ninguna es peor en exactitud. Mejoran: ya no dice "the model is good enough to deploy" ni "partially ready for deployment", no redondea ("approximately 17.47 to 24.27"), no adivina tiempos ("a fraction of a second"), y no dice "naive baseline" a secas. Más pobres en información: `cv` (0.3.0 daba razones, algunas sin apoyo en el contexto) y `compare` en items_sales (0.3.0 citaba el porcentaje del resumen). El desliz de los lags de items_sales ya estaba en 0.3.0 con otras cifras.
+
+### 22.5 Puntos de la lista sin comprobar
+
+Estado tras la segunda pasada; 22.7 dice cuáles cubre la tercera. Ningún escenario los enviaba; quedaban cubiertos solo por los tests:
+- fechas fuera de los años 1677 a 2262 en formato largo (12);
+- `<script>` con la ruta de un perfil guardado de un CSV (14): solo se ve `data.csv`;
+- "No baseline" con un intervalo asimétrico (18) y la nota de datos distintos del perfil (18);
+- licencia restringida, cuenta del proveedor de TabPFN y T0 (19): el escenario usa Chronos-2 a propósito, como dejó anotado el README; la pregunta trampa de licencia lo cubre en parte;
+- `PlanEditsDiscardedWarning` (19), que necesita un `refine_plan()` con ediciones a mano;
+- la frase de la serie que predice ForecasterDirectMultiVariate, las window features dejadas fuera, la nota de diferenciación de `compare()` y las frases de escalado y de NaN (19);
+- los candidatos del perfil con frecuencias multiplicadas o por segundos (21.8): ningún conjunto tiene esa frecuencia;
+- "up to N inference windows" con una serie que acaba antes, el único caso en que la cota no es exacta: ningún conjunto lo tiene con un backtest foundation.
+
+ForecasterStats que aconseja `dropna_from_series` (18) no llegó a implementarse: no hay nada que comprobar. Los cambios que tocan `llm/context.py` sin cambiar un byte de lo enviado (13) no se comprueban por respuesta.
+
+### 22.6 Conclusión tras la segunda pasada
+
+El check pasaba. Los dos fallos que venían del contexto estaban corregidos y repetidos; los que quedaban eran aislados o no daban ninguna afirmación falsa con estos datos. Lo que se anotó aquí para 0.5.0 (que `inference_windows` diga que es una cota, con un escenario de serie incompleta) se hizo en esta misma release por decisión del autor, junto con lo demás de 22.7.
+
+El aviso `DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated` que imprime el script no es del proyecto: lo emite pandas 2.3 con numpy 2.5 al construir cualquier `pd.Timedelta`, y `pyproject.toml` ya lo ignora en la suite.
+
+**Tests.** De 4236 a 4239 pasados, más 1 omitido, en macOS con el entorno conda local. Ningún golden del contexto del LLM cambió.
+
+### 22.7 Ampliación y tercera pasada (código final)
+
+Con margen antes de la release, el autor pidió corregir lo que la segunda pasada dejó mejorable en lugar de anotarlo para 0.5.0.
+
+| Commit | Contenido |
+|---|---|
+| `1fd6e2b` | `llm/context.py`: `inference_windows: up to N` en `<backtesting_strategy>` (también en `describe()`), y en el `<script>` de un `backtest_code()` la frase "It has not been run: for its metrics, the user runs it or calls `assistant.backtest()`." |
+| `4b29dfa` | `check_ask_context.py`: escenarios `foundation_incomplete`, `restricted_license_plan`, `multivariate_plan` y `compare_no_baseline` |
+| `d3c9932` | Procedencia de la estrategia (abajo) |
+| `b0baf2a` | `check_ask_context.py`: escenario `cv_defaults` y listas de `cv`, `backtest` y `compare` |
+| este | Los cuatro informes de la tercera pasada, el registro del README y esta sección |
+
+**Procedencia de la estrategia (`d3c9932`).** A "Why this initial training size and refit setting?" el modelo solo repetía los parámetros, porque el contexto no daba ninguna razón ni decía qué había elegido el usuario. Ahora el resultado de `create_cv()` lo dice, como `ForecastPlan.overridden_fields` para el plan:
+- `overridden_fields`: los argumentos pasados con valor distinto de None (uno igual al valor por defecto cuenta);
+- `fields_without_effect`: los que no cambian lo que se ejecuta (`fixed_train_size` sin refit; `refit` y `fixed_train_size` con ForecasterStats cuando skforecast ejecuta otro valor, o con un modelo foundation);
+- `llm_configured`: si el LLM de `create_cv(prompt=...)` puso el resto (False en el fallback);
+- `defaults_explanation`: la regla que fijó `initial_train_size` (70 % de las observaciones, subido a lo que necesita el forecaster, bajado para que queden dos folds) y por qué se entrena una vez. Va aparte de `explanation`, que no cambia ni un byte y sigue igual a la que reconstruye `backtest()`.
+
+`backtest()` y `compare()` llevan lo mismo cuando reciben ese resultado (`cv_overridden_fields`, que es None con un `TimeSeriesFold`, y los otros tres con el prefijo `cv_`), calculado para el plan que se ejecuta: si no es el de la estrategia, el texto lo dice. La CLI y el servidor MCP pasan ya el resultado completo. Decisiones tomadas durante la implementación:
+- un cuarto campo, `fields_without_effect`, que el plan aprobado no tenía: sin él un backtest no puede decir qué argumento no tuvo efecto, porque no guarda el splitter como se dio;
+- en una comparación nada se informa como "sin efecto" y la frase es "The shared strategy trains once by default": el efecto depende de cada candidato (ForecasterStats se reentrena en cada fold, sobre la ventana que para los demás no hace nada);
+- "otro plan" se decide por lo que afecta al valor por defecto (forecaster, estimador, tipo de tarea, pasos y argumentos del forecaster), no por igualdad completa: cambiar la métrica no es otro plan;
+- no se da la razón de un valor por defecto cuando el splitter ya no lo tiene (un `CVResult` editado después de `create_cv()`);
+- `backtest_code()` no lleva procedencia: su contexto lee la estrategia del script;
+- el aviso `IgnoredArgumentWarning` de ForecasterStats queda como estaba.
+
+Revisiones: `conventions-reviewer` (encontró las frases falsas en comparaciones con ForecasterStats o foundation) y `/code-review` (el `CVResult` editado y `skip_folds=[]`, que se aplicaba sin registrarse); el subagente de tests encontró que `create_cv()` y `backtest()` nombraban los argumentos en distinto orden. Todo corregido antes del commit. Goldens: `cv_strategy_stats`, `backtest_foundation_multi_series_quantiles`, `code_generation_backtest` y `code_generation_stats_backtest`. La portada (`home-data.json`) y los esquemas de los tools del MCP no cambian.
+
+**Tercera pasada**, 2026-10-05, `google:gemini-3.8-flash`, contextos idénticos a los de un `--dry-run` del código final.
+
+| Conjunto | Escenarios | Preguntas | Correctas | Mejorables | Incorrectas |
+|---|---|---|---|---|---|
+| bike_sharing | 21 | 43 | 41 | 2 | 0 |
+| items_sales | 19 | 45 | 43 | 2 | 0 |
+| items_sales_long | 19 | 45 | 44 | 1 | 0 |
+| h2o | 23 | 45 | 43 | 2 | 0 |
+| Total | | 178 | 171 | 7 | 0 |
+
+Alcance de la lectura: bike_sharing e items_sales, todas las respuestas; items_sales_long y h2o, enteras las de los escenarios nuevos o cambiados y el comienzo de las demás, cuyos contextos son los de la segunda pasada. Por programa, en los cuatro: ningún bloque de código fuera de `qa` y todo decimal de las respuestas está literalmente en su contexto (el redondeo de la segunda pasada no se repitió).
+
+Lo que la segunda pasada dejó mejorable:
+- El "por qué" de la estrategia: resuelto, 4 de 4 en `cv` y 4 de 4 en `cv_defaults`. "This cutoff corresponds to the default baseline of 70% of the 2000 dataset observations, which equals 1400 observations"; "This configuration was chosen by the user rather than determined by default rules"; "Training once by default avoids multiplying the computational cost by the 24 backtesting folds". `backtest` también lo recoge cuando lo menciona ("`refit` is set to False (a user-specified choice)").
+- "up to" de las ventanas de inferencia: resuelto, se conserva en 4 de 4. A "Was every series forecast in every fold?" ya no responde "Yes": "it cannot be definitively confirmed whether every series was forecast in every single fold".
+- Serie incompleta (`foundation_incomplete`, 69 ventanas reales frente a la cota de 72): "Not every series was forecast in every fold: the model only forecasts each series in folds where it has data, and item_3 ends early on 2014-11-22", y declina dar el número de ventanas de esa serie.
+- Métrica de un script de backtest: resuelto, 4 de 4 remiten a `assistant.backtest()`.
+- Filas desordenadas: sigue en 2 de 4, ahora bike_sharing y h2o ("Time series models require data to be sorted chronologically by date"; "Sorting them chronologically is required for time series forecasting"), sin decir que el código ya las ordena; los dos items_sales lo dicen bien. Es del modelo: cambia de conjunto entre pasadas con el mismo contexto.
+
+Escenarios nuevos:
+- `multivariate_plan`: correcto. Predice solo item_1 con los lags de todas, y no promete nada para las otras series.
+- `compare_no_baseline`: correcto en los dos conjuntos. Dice que no hay baseline y por qué (intervalo `[0.1, 0.8]`), cómo obtenerlo, y no confunde el MASE con el baseline.
+- `restricted_license_plan`: nombra la licencia y su enlace en 4 de 4 y declina el precio en 4 de 4. En 2 de 4 endurece "restricts commercial use" del plan: "No, you cannot use this model in a commercial product because its weights are released under a non-commercial license" (items_sales) y "which prohibits commercial deployment" (items_sales_long). bike_sharing ("cannot use this model in a commercial product without restriction") y h2o ("without reviewing its terms") se quedan en lo que dice el contexto. Es lo mismo que el README anotó con gemini-3.5; va en la dirección prudente y remite al texto de la licencia.
+- `cv_defaults`, pregunta trampa (por qué el gap es 0 y se permiten folds incompletos): en 3 de 4 presenta como motivo lo que el parámetro hace ("The parameter `gap` is set to 0 to simulate real-time forecasting"); el contexto no da ninguna razón para esos dos. items_sales_long lo describe sin atribuirlo a una regla.
+
+**Puntos de 22.5 que la tercera pasada sí cubre:** la licencia restringida, la frase de la serie que predice ForecasterDirectMultiVariate, "No baseline" con un intervalo asimétrico y la cota de las ventanas con una serie que acaba antes. Siguen sin escenario: las fechas fuera de 1677 a 2262, la ruta de un perfil guardado en `<script>`, la nota de datos distintos del perfil, `PlanEditsDiscardedWarning`, las window features dejadas fuera, la nota de diferenciación de `compare()`, las frases de escalado y de NaN, y los candidatos con frecuencias multiplicadas.
+
+**Conclusión.** El check pasa sobre el código final: ninguna respuesta incorrecta en 178. Las 7 mejorables son del modelo (ordenar datos que el código ya ordena, endurecer una licencia, dar por motivo la función de un parámetro) y ninguna inventa una cifra. Fuera de alcance, anotado: los notebooks de la documentación tienen salidas anteriores a esta versión.
+
+**Tests.** De 4239 a 4401 pasados, más 1 omitido, en macOS con el entorno conda local.
+
+### 22.8 Mínimo de la primera ventana en `create_cv(prompt=...)`
+
+Encontrado al revisar el prompt, no en el check (que solo ejercita `ask()`). La regla 2 de `_CV_ROLE_PROMPT` daba como mínimo "2 * max_lag", y el contexto del agente lo calculaba así desde los lags, mientras las reglas usan la ventana del forecaster (que cuenta también las window features y el orden de diferenciación) más los pasos. Además el bucle de reintentos solo validaba con `build_cv` (dos folds, fecha localizable): una primera ventana demasiado corta pasaba, `create_cv()` avisaba y `backtest()` fallaba.
+
+Cambios (`llm/refinement.py`, `llm/agent.py`, `llm/prompts.py`):
+- el agente recibe el mínimo que calculan las reglas (`_compute_min_train_size`) y la regla 2 remite a esa línea del contexto;
+- una sugerencia cuya primera ventana no alcanza lo que el forecaster necesita (`first_window_issue`, lo mismo que haría fallar el backtest) se reintenta con el motivo y el mínimo, y tras tres intentos se cae a los valores deterministas con el aviso de siempre.
+
+Queda sin cambiar, porque se sincroniza desde skforecast: el skill `backtesting-configuration`, que el agente recibe como referencia, sigue dando "2 * max_lag" como regla general. El contexto da el número concreto y la validación lo respalda. Este camino no tiene comprobación con modelo real en el repositorio; el autor lo probó a mano el 2026-10-05 con `google:gemini-3.8-flash`, cuatro prompts sobre bike_sharing (plan con lag máximo 337 y 36 pasos, mínimo 373):
+- "We retrain the model every month and forecasts are needed two days in advance.": `gap=48`, `refit=20` (720 horas entre 36 pasos), `initial_train_size=1000`, 27 folds y 2 entrenamientos.
+- "Use as little history as possible for the first training window...": `initial_train_size=373`, el mínimo del contexto, 46 folds.
+- "Start the evaluation with only the first 10 observations for training.": no obedece el 10; usa 373 y lo dice ("requires at least 373 observations (the minimum viable initial training size)").
+- "The model is deployed once and never retrained. Evaluate the last year.": `refit=False`, y avisa de que los datos no cubren un año.
+
+En los cuatro `llm_configured` es True, ningún aviso y ningún reintento: el modelo usó el número del contexto y no el "2 * max_lag" del skill (que habría dado 674), así que la validación nueva no llegó a actuar. En su razonamiento atribuye el mínimo al lag máximo ("based on max_lag=337"), que aquí coincide con la ventana.
+
+**Tests.** De 4401 a 4404 pasados, más 1 omitido.
+
+### 22.9 Revisión del autor y correcciones
+
+Antes de mergear, una verificación independiente comparó la base (`00a9391`) con la rama (`101df9a`) en macOS, con numpy 2.5.3 y `chronos-forecasting` instalado: la paridad y los campos de procedencia, la ruta de `create_cv(prompt=...)` con el servidor MCP, y la suite con los cuatro informes. Sin llamar a ningún LLM. Las correcciones van como commits nuevos al final de `chore/ask-context-check`; ninguno subido se reescribió.
+
+**Los informes.** Los contextos, las preguntas y las listas de los cuatro informes guardados son idénticos byte a byte a los de un `--dry-run` del código de `101df9a` (178 preguntas). Leídas unas 170 de las 178 respuestas: ninguna incorrecta, y las 7 mejorables de 22.7 están donde dice. Por programa, todo número de varios dígitos de las 178 respuestas está literal en su contexto. Ningún correo, ruta de usuario, clave ni fila de los datos en los informes. Frente a 0.3.0, ninguna respuesta peor. Con una lectura más estricta, 8 respuestas más serían mejorables (163 / 15 / 0); dos señalaban huecos del contexto, corregidos abajo.
+
+**Lo que se ejecuta no cambia.** En 14 escenarios por 21 llamadas, 226 comandos de la CLI y 302 llamadas al servidor por lado, los scripts, las predicciones, las métricas, los avisos y los códigos de error son idénticos; solo aparecen los campos nuevos y los textos anunciados. `backtest(cv_id, plan_id=otro)` sigue ejecutando el otro plan. Sin filas de datos en ningún contexto, tampoco en las peticiones de `create_cv(prompt=...)` con reintentos.
+
+**Corregido.**
+
+| Qué | Corrección | Commit |
+|---|---|---|
+| Un `CVResult` guardado con pickle antes de esta rama daba `AttributeError` en `backtest()` (después de ejecutar el backtest), `compare()`, `describe()` y su display. Lo mismo pasaba con un plan o un perfil de 0.3.1 | Los modelos públicos rellenan al restaurarse los campos añadidos después (`PickleDefaultsMixin`) | `7908210` |
+| "`refit` was passed but has no effect" con ForecasterStats y `refit=3`, cuando cambia la ventana que corre (fija por defecto, expansiva con `refit=3`: otro script, MAE de 0,0638 a 0,0663) | Un parámetro no tiene efecto cuando la estrategia que corre es la misma sin él | `24e6743` |
+| "That is less than the forecaster needs" comparaba con lo que la regla reserva (ventana más pasos, o dos veces los pasos): se decía de 13 estrategias cuyo backtest corre | El texto dice lo que la regla reserva; la frase solo aparece por debajo de lo que skforecast necesita para ejecutar, con el número | `24e6743` |
+| Una estrategia creada con 150 observaciones y ejecutada con 204 describía las 150 sin decirlo | Lo dice: "It was computed when the strategy was created, on 150 observations; the data it runs on have 204." | `24e6743` |
+| `create_cv(prompt, initial_train_size=120)` con un LLM que sugería un tamaño corto y `refit=2`: tres llamadas y vuelta a los valores por defecto, perdiendo `refit=2`, por un tamaño que nunca corre | Con un tamaño explícito no se comprueba la primera ventana de la sugerencia | `30152c6` |
+| El mínimo dado al LLM podía superar el máximo (96 frente a 84 con 60 pasos), y con un paso se aceptaba la ventana más uno, que LightGBM no entrena (una sola fila) | Se baja a lo que deja dos folds y nunca queda por debajo de dos filas de entrenamiento (`llm_min_train_size`). El prompt dice que ese número manda sobre las reglas generales del material de referencia | `30152c6` |
+| Con datos con zona horaria el modelo decía que las fechas no tenían zona; preguntado por un plan, decía que su script se había ejecutado | La sección del dataset nombra la zona; un script de predicción dice que no se ha ejecutado, como ya decía el de backtesting | `15efea8` |
+| El skill `backtesting-configuration` del paquete seguía con `2 * max_lag`; skforecast ya lo había corregido y la comprobación de sincronización fallaba | Sincronizado desde `0.26.x` | `00bcc83` |
+
+Además: la tabla de consola escribe las ventanas de inferencia como "up to N"; un plan del mismo forecaster y estimador se dice "with another configuration". Notas de versión: la entrada de `create_cv()` acortada, la de la ordenación y la zona horaria pasada a la entrada de 0.4.0 que describe lo que recibe `ask()` (ninguna versión publicada lo hacía de otro modo), y una entrada para los objetos guardados con pickle.
+
+**Correcciones a esta sección.**
+- 22.5 listaba también la cuenta de proveedor de TabPFN y T0, que falta en la lista de puntos sin escenario de 22.7; la cubren `test_build_foundation_explanation_output_when_provider_requires_account` y el test de T0.
+- "70% of the 90 observations (62)": el código trunca `0.7 * 90`, que en coma flotante da 62,99. Se deja: cambiar el cálculo movería el tamaño por defecto de las series cuya longitud es múltiplo de 10.
+
+**Pendiente.**
+- El valor por defecto de un forecaster directo con horizonte muy largo (60 pasos sobre 204 observaciones) sigue siendo demasiado corto para él; `create_cv()` avisa, y es a lo que vuelve la vía de reserva del LLM en ese caso.
+- Mutaciones sin test: `same_plan` cuando solo cambian los lags o la diferenciación, y el límite exacto de dos folds.
+- Las tablas de la CLI de `backtest` y `compare` no muestran la procedencia; solo `--format json`.
+
+**Hay que repetir el check de pago.** Los commits `24e6743`, `30152c6`, `15efea8` y `00bcc83` cambian lo que recibe el modelo: los textos de procedencia, el prompt y el mínimo de `create_cv()`, la zona horaria y la nota de los scripts en el contexto, y un skill. Los cuatro informes de `tools/ai/ask_context_reports/0.4.0_*.md` corresponden al código anterior a estos commits.
+
+**Tests.** De 4404 a 4427 pasados, más 1 omitido, en macOS con el entorno conda local.
+
+### 22.10 Cuarta pasada (código final tras la revisión)
+
+Lanzada por el autor el 2026-10-06 con `google:gemini-3.8-flash`, sobre el código de `2fc9170`, que es el que se publica: los cuatro informes de `tools/ai/ask_context_reports/0.4.0_*.md` son los de esta pasada. items_sales se lanzó dos veces, porque en la primera una pregunta recibió un error 500 del proveedor; el informe guardado es el de la segunda.
+
+**Integridad.** 21, 19, 19 y 23 escenarios y 43, 45, 45 y 45 preguntas (178), los mismos que en la tercera pasada. Los contextos de los cuatro informes son idénticos a los de un `--dry-run` del código actual. Ninguna respuesta vacía ni con error. Todo número de varios dígitos de cada respuesta está en su contexto. Ningún bloque de código donde hay un script. Ningún correo, ruta de usuario, clave, variable de entorno ni fila de los datos de entrada.
+
+**Recuento**, leídas las 178 respuestas enteras y con un criterio más estricto que el de 22.7 (no es correcta una respuesta que añade una razón propia o afirma lo que el contexto no dice, aunque sea cierto):
+
+| Conjunto | Correctas | Mejorables | Incorrectas |
+|---|---|---|---|
+| bike_sharing | 38 | 5 | 0 |
+| h2o | 40 | 4 | 1 |
+| items_sales | 40 | 4 | 1 |
+| items_sales_long | 41 | 3 | 1 |
+| Total | 159 | 16 | 3 |
+
+Con ese mismo criterio la tercera pasada tenía unas 163 correctas (22.9), así que las dos son comparables.
+
+**Lo que corrigieron los commits de 22.9.**
+- Zona horaria: ninguna respuesta dice ya que las fechas no tienen zona (lo decían las cuatro). "The dates for the series are in the Europe/Madrid time zone, recorded as local times." Ninguna da un desfase.
+- Scripts no ejecutados: ninguna respuesta dice que un script se haya ejecutado. "The script has not yet been run", con `assistant.forecast()`. Queda alguna frase floja en presente ("the current script runs in pure prediction mode") que no afirma ningún resultado.
+- Ordenar los datos: desaparece en h2o e items_sales_long y se suaviza en bike_sharing; en la segunda ejecución de items_sales vuelve ("Sorting the index chronologically is required"), cuando en la primera decía "which the generated code handles".
+
+**Lo que sigue igual**, en los cuatro conjuntos, y es del modelo:
+- Da lo que hace un parámetro como razón de su valor por defecto: "sets the gap to 0 because there is no delay between data availability and forecast generation". El contexto no da razón para `gap`.
+- Para una licencia restringida, "restricts commercial use" pasa a "No, you cannot freely use this model in a commercial product".
+- En items_sales generaliza los lags a las tres series, cuando el contexto los da por serie.
+
+**Las tres incorrectas.** Las tres afirman algo que el contexto no dice; ninguna da un número falso, y ninguna se repite entre conjuntos ni entre ejecuciones.
+- h2o, `time_zone_backtest_code`: a "¿cuántas observaciones elimina el cambio de hora?" responde que ninguna, donde la lista pide declinar. Es un efecto de nombrar la zona: el modelo razona sobre el cambio de hora. Con datos mensuales es cierto; en bike_sharing, horario, declina, y en los otros dos también (items_sales lo afirmó en su primera ejecución y lo declinó en la segunda).
+- items_sales_long, `foundation_backtest`: a "¿se predijo cada serie en cada fold?" responde que sí, deduciéndolo de que no hay valores ausentes, cuando el contexto da una cota ("up to 72"). Con una serie que acaba antes (`foundation_incomplete`) responde bien que no.
+- items_sales, `overrides_plan`: lista como "choices specified in your request" el forecaster, los lags y las window features, que el contexto atribuye a las reglas ("Chosen by the user instead of the rules: estimator, estimator_kwargs, metric, use_exog, differentiation, calendar_features"). Una vez en cuatro conjuntos; en la primera ejecución de este mismo conjunto no ocurrió.
+
+**Decisión.** Se mantiene la línea de la zona horaria: corrige un error repetido en los cuatro conjuntos a cambio de una respuesta más segura, y cierta, a una pregunta trampa en datos sin horas. No se toca más el contexto: lo que queda son tendencias del modelo o respuestas que cambian de una ejecución a otra, y otra vuelta de cambios pediría otra pasada.
+
+**Conclusión.** El contexto de `ask()` de 0.4.0 queda validado con un modelo real: ninguna cifra inventada, ninguna respuesta que contradiga un dato del contexto, y los fallos que la propia comprobación fue encontrando (procedencia de la estrategia, zona horaria, scripts sin ejecutar, datos desordenados, ventanas de inferencia como cota) están corregidos. Para 0.5.0: una razón para el valor por defecto de `gap` y de `allow_incomplete_fold` en `defaults_explanation`, que es donde el modelo sigue poniendo la suya.

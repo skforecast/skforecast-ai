@@ -231,3 +231,61 @@ def test_build_comparison_context_shared_cv_note_when_foundation_runs():
         "window (6 trainings); and ForecasterFoundation: it is not trained, "
         "so only the folds apply to it.\n"
     ) in both
+
+
+# =============================================================================
+# Tests: provenance of the strategy
+# =============================================================================
+def test_build_comparison_context_output_when_strategy_provenance_given():
+    """
+    Test that the names the user passed to `create_cv()`, those without
+    effect and the LLM flag reach the shared `<backtesting_strategy>`, and
+    that the explanation of the defaults ends `<deterministic_summary>`.
+    """
+    comparison = make_comparison_result(assistant)
+    comparison = comparison.model_copy(update={
+        "cv_overridden_fields": ["refit", "fixed_train_size"],
+        "cv_fields_without_effect": ["fixed_train_size"],
+        "cv_llm_configured": True,
+        "cv_defaults_explanation": "`refit` as requested.",
+    })
+
+    context = build_comparison_context(comparison)
+
+    strategy = context[
+        context.index("<backtesting_strategy>"):
+        context.index("</backtesting_strategy>")
+    ]
+    summary = context[
+        context.index("<deterministic_summary>"):
+        context.index("</deterministic_summary>")
+    ]
+    assert strategy.endswith(
+        "- Chosen by the user instead of the rules: refit\n"
+        "- Passed by the user without effect: fixed_train_size\n"
+        "- Parameters not chosen by the user were set by the LLM from the "
+        "prompt.\n"
+    )
+    assert summary == (
+        f"<deterministic_summary>\n{comparison.explanation} "
+        "`refit` as requested.\n"
+    )
+
+
+def test_build_comparison_context_output_when_strategy_provenance_unknown():
+    """
+    Test that a comparison run with a bare TimeSeriesFold has no provenance
+    line in the strategy and its summary is the explanation alone.
+    """
+    comparison = make_comparison_result(assistant)
+
+    context = build_comparison_context(comparison)
+
+    strategy = context[
+        context.index("<backtesting_strategy>"):
+        context.index("</backtesting_strategy>")
+    ]
+    assert "Chosen by the user" not in strategy
+    assert "without effect" not in strategy
+    assert "set by the LLM" not in strategy
+    assert f"<deterministic_summary>\n{comparison.explanation}\n" in context

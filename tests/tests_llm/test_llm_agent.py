@@ -384,6 +384,49 @@ def test_cv_agent_injects_dataset_context():
     assert "## Reference" in instructions
 
 
+def test_cv_agent_context_states_the_minimum_computed_for_the_plan():
+    """
+    Test that the CV agent's instructions state the minimum initial
+    training size computed for the plan when it is given, instead of the
+    estimate from the lags: the window of a plan also counts its window
+    features and its differentiation order, which the lags do not show.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai.llm.agent import CVDeps, create_cv_agent
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        return ModelResponse(
+            parts=[ToolCallPart(
+                tool_name=info.output_tools[0].name,
+                args={"initial_train_size": 60, "reasoning": "Enough history."},
+            )]
+        )
+
+    agent = create_cv_agent(FunctionModel(respond))
+    deps = CVDeps(
+        n_observations = 100,
+        frequency      = "D",
+        steps          = 10,
+        task_type      = "single_series",
+        lags           = [1, 2, 3, 7],
+        min_train_size = 31,
+    )
+    agent.run_sync("Retrain weekly.", deps=deps)
+
+    instructions = captured["instructions"]
+    assert "- Lags: [1, 2, 3, 7] (max_lag=7)" in instructions
+    assert "- Minimum viable initial_train_size: 31" in instructions
+    assert "- Minimum viable initial_train_size: 14" not in instructions
+    assert 'at least the "Minimum viable initial_train_size"' in instructions
+    assert "takes precedence over" in instructions
+
+
 def test_cv_agent_context_states_integer_only_when_no_date_range():
     """
     Test that, without a date range, the CV agent's instructions rule out

@@ -42,9 +42,29 @@ candidates and more than 15 categorical variables on the single series)
 and are skipped on the others. The plan with decisions of the user and a
 plan warning (`overrides_plan`) and the backtest script of the same data
 with dates in Europe/Madrid (`time_zone_backtest_code`) run on all four
-(the first on single and multi-series data, as the four are).
+(the first on single and multi-series data, as the four are). So do the
+strategy of those dates (`time_zone_cv`), the profile of the same data
+with flaws the profiler warns about (`data_warnings`) and a plan whose
+explanation has paragraphs and tags (`free_text_plan`), and a plan with a
+foundation model whose license restricts commercial use
+(`restricted_license_plan`, plan only, no weights loaded). Three more run
+on one kind of data: a multivariate plan on the wide dataset
+(`multivariate_plan`), a comparison without a baseline because of an
+asymmetric interval on the single series (`compare_no_baseline`), and a
+foundation backtest with a series that ends early on the long dataset
+(`foundation_incomplete`, which needs the backend too). The strategy is
+asked about twice: with `refit` passed by the user (`cv`, the one the
+backtest and the comparisons run) and with every parameter left to the
+rules (`cv_defaults`), whose summary gives the reason of the defaults.
 
-A full run makes about 25 to 30 calls per dataset. With `google:gemini-3.8-flash`
+The backtest of a foundation model (`foundation_backtest`), the only
+scenario with the `inference_windows` of a strategy, loads the weights of
+Chronos-2 small: it needs `chronos-forecasting` installed and the weights
+in the Hugging Face cache or network access to download them. Without
+them the script says so and skips the scenario, and the default comparison
+of `h2o` runs without ForecasterFoundation.
+
+A full run makes 43 to 45 calls per dataset. With `google:gemini-3.8-flash`
 that is a few cents. Ad hoc reports land in this folder with a timestamped
 name and are ignored by git.
 
@@ -84,3 +104,5 @@ A wrong answer whose information was missing from the context is a gap in
 | 0.3.0 | 2026-09-10 | google:gemini-3.5-flash | items_sales | All checklist items pass. Found and fixed: `compare()` ranked `ForecasterRecursiveMultiSeries` (average across series) against `ForecasterDirectMultiVariate` (one series), now rejected; the `fold` column was summarised as if it were a measurement; the `<predictions>` summary pooled all series, so a question about one series was unanswerable (per-level summary of `pred` added). Observation counts are now stated as pooled across series. Not implemented: per-fold metrics, so the evolution of the error across folds stays unanswerable. |
 | 0.4.0 | 2026-09-30 | google:gemini-3.8-flash | bike_sharing | All checklist items pass. The model changes from `gemini-3.5-flash` to `gemini-3.8-flash`: half the price, and on the same code and prompt it had none of the minor slips 3.5 made (a derived duration, "stable predictive power over time" without per-fold metrics, a runtime guess in a probe). The first 3.5 run found that, asked whether a foundation model would be more accurate, the model pointed to the skforecast functions (`backtesting_foundation`) instead of `assistant.backtest()` and `assistant.compare()`: rule 11 of the role prompt now names them as the APIs to suggest (worded as a separate instruction, it made the model add next steps nobody asked for). The `foundation_plan` scenario uses the default model, Chronos-2, instead of TimesFM 3.0, whose non-commercial license the model overstated; the license and numeric-covariate explanations stay covered by the unit tests. The new seasonal naive baseline row is never taken as the MASE reference. |
 | 0.4.0 | 2026-09-30 | google:gemini-3.8-flash | items_sales | All checklist items pass, including the new multi-series foundation checks (one model for every series, equal lengths not required) and the comparison of `ForecasterFoundation` against `ForecasterRecursiveMultiSeries`, which has no baseline row. With `gemini-3.5-flash` the plan answer said lag 2 is significant for all three items (it is not listed for item_2), and one run wrote a wrong import (`skforecast.recursive.ForecasterDirect`); `gemini-3.8-flash` quotes the lags of each series correctly. |
+| 0.4.0 | 2026-10-05 | google:gemini-3.8-flash | bike_sharing, items_sales, items_sales_long, h2o | Final run on the released code, the third of the day: 171 answers correct, 7 improvable, none wrong, out of 178, with nine scenarios added during this check. Each run found gaps that were fixed before the next one. From the context: the flag of rows given out of order now says the generated code sorts them (the model told the user to sort them in three datasets of four; two of four still get the advice, a different pair in each run); the date range of data with a time zone is written in local time without offsets (the model took the offset of the first date for the zone of every date, three runs of three; no answer states an offset now); the inference windows of a foundation backtest are written as "up to N" (kept in four of four, and with a series that ends early the model says not every series was forecast in every fold); the script of a backtest says how to get its metrics (four of four point to `assistant.backtest()`). From the library: the result of `create_cv()` now records which parameters the user passed and why the defaults have their value, and `backtest()` and `compare()` carry it, so "why this initial training size and refit setting?" gets the rule and its numbers instead of the parameters restated (four of four). Left as they are: with a restricted license (TimesFM 3.0) two of four answers turn "restricts commercial use" into "cannot" or "prohibits"; asked why the gap is 0, three of four give what the parameter does as the reason. Details in section 22 of `dev/mcp-preparation.md`. |
+| 0.4.0 | 2026-10-06 | google:gemini-3.8-flash | bike_sharing, items_sales, items_sales_long, h2o | Final run on the released code, after the review of the previous one changed what the model receives: the dataset section names the time zone of the dates, a forecasting script says it has not been run, the text about where the values of a strategy come from no longer says "the forecaster needs" of what the rule reserves, and the backtesting skill no longer states `2 * max_lag`. Read in full with a stricter rule than before (an answer that adds a reason of its own, or asserts what the context does not say, is not correct): 159 answers correct, 16 improvable, 3 wrong, out of 178; by that rule the previous run had about 163 correct. Fixed by the changes: no answer says the dates have no time zone (four of four did before), and none says a script that was not run has run. Still there, in four of four: the purpose of a parameter given as the reason of its default (`gap`), and "restricts commercial use" turned into "cannot freely" for a restricted license. The three wrong answers assert something the context does not state and are not repeated across datasets or runs: that a change of time removes no observations (h2o; the same probe was declined in the other three), that every series was forecast in every fold (items_sales_long, from an "up to N" bound), and a list of "choices specified in your request" that includes the forecaster and the lags, which the context attributes to the rules (items_sales). items_sales was run twice: the first time one question got an HTTP 500 from the provider. |

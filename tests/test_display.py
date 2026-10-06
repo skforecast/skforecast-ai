@@ -26,6 +26,11 @@ from skforecast_ai._display import (
 )
 from skforecast_ai.schemas.profiles import ForecastingProfile, DataProfile
 from skforecast_ai.schemas.plans import ForecastPlan, PreprocessingStep
+from tests.fixtures_llm import (
+    make_backtest_result,
+    make_comparison_result,
+    make_cv_result,
+)
 from skforecast_ai.schemas.results import (
     CodeGenerationResult,
     AskResult,
@@ -768,3 +773,93 @@ class TestDisplayMixin:
         err_msg = re.escape("Dummy must implement _rich_body")
         with pytest.raises(NotImplementedError, match=err_msg):
             Console(file=io.StringIO()).print(Dummy())
+
+
+# =============================================================================
+# Tests: explanation of the defaults of a cross-validation strategy
+# =============================================================================
+@pytest.mark.parametrize(
+    "result, explanation, defaults",
+    [
+        (
+            make_cv_result().model_copy(
+                update={"defaults_explanation": "Marker defaults of the CV."}
+            ),
+            "Using 60 observations for initial training, 8 folds.",
+            "Marker defaults of the CV.",
+        ),
+        (
+            make_backtest_result().model_copy(
+                update={"cv_defaults_explanation": "Marker defaults of backtest."}
+            ),
+            "Backtested with 6 folds of 5 steps each, starting from an initial "
+            "training window of 70 observations, without refitting.",
+            "Marker defaults of backtest.",
+        ),
+        (
+            make_comparison_result(with_baseline=True).model_copy(
+                update={"cv_defaults_explanation": "Marker defaults of compare."}
+            ),
+            "Compared 3 configurations, ranked ascending by MAE.",
+            "Marker defaults of compare.",
+        ),
+    ],
+    ids=["CVResult", "BacktestResult", "ComparisonResult"],
+)
+def test_result_display_shows_explanation_followed_by_defaults_explanation(
+    result, explanation, defaults
+):
+    """
+    Test that the rich display and `show_explanation()` of a strategy, a
+    backtest and a comparison show the explanation followed by the
+    explanation of the defaults, which the result keeps in another field.
+    """
+    console = Console(file=io.StringIO(), width=200, color_system=None)
+
+    result.show_explanation(console=console)
+
+    shown = " ".join(console.file.getvalue().replace("│", " ").split())
+    assert f"{explanation} " in shown
+    assert shown.index(explanation) < shown.index(defaults)
+    assert defaults in " ".join(str(result).replace("│", " ").split())
+
+
+@pytest.mark.parametrize(
+    "result",
+    [make_cv_result(), make_backtest_result(), make_comparison_result()],
+    ids=["CVResult", "BacktestResult", "ComparisonResult"],
+)
+def test_result_display_shows_explanation_alone_without_defaults_explanation(
+    result,
+):
+    """
+    Test that without an explanation of the defaults the explanation is
+    shown as it is, with no trailing text.
+    """
+    console = Console(file=io.StringIO(), width=200, color_system=None)
+
+    result.show_explanation(console=console)
+
+    lines = [
+        line.strip("│ ") for line in console.file.getvalue().splitlines()
+        if result.explanation in line
+    ]
+    assert lines == [result.explanation]
+
+
+def test_render_cv_config_writes_inference_windows_as_a_bound():
+    """
+    Test that the table of a strategy writes the inference windows of a
+    foundation model as "up to N", as describe() and the context of ask()
+    do, and the other values as they are.
+    """
+    from rich.console import Console
+
+    from skforecast_ai._display import render_cv_config
+
+    console = Console(width=80, record=True, color_system=None)
+    console.print(render_cv_config({"n_folds": 6, "inference_windows": 114}))
+    text = console.export_text()
+
+    assert "up to 114" in text
+    assert "up to 6" not in text

@@ -44,6 +44,6 @@ Note: A validated Python script implementing this plan is generated separately. 
 - Variables defined: metrics (one column per metric, one row per series when there are several), and predictions of every fold with a `fold` column
 - Packages imported: pandas, skforecast, sklearn
 - Length: 57 lines
-The script is available to the user as `result.code`; describe it from this summary and the plan, do not reproduce it.
+The script is available to the user as `result.code`; describe it from this summary and the plan, do not reproduce it. It has not been run: for its metrics, the user runs it or calls `assistant.backtest()`.
 </script>
 </forecast_context>

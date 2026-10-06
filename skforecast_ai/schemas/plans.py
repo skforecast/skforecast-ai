@@ -29,6 +29,7 @@ from .._validation import (
     validate_steps,
 )
 from .._display import DisplayMixin, render_plan
+from ._compat import PickleDefaultsMixin
 from ..exceptions import InvalidInputError
 
 
@@ -425,7 +426,7 @@ REFINE_PLAN_OVERRIDE_KEYS: frozenset[str] = frozenset(RefinePlanOverrides.__anno
 CANDIDATE_CONFIG_KEYS: frozenset[str] = frozenset(CandidateConfig.__annotations__)
 
 
-class ForecastPlan(DisplayMixin, BaseModel):
+class ForecastPlan(PickleDefaultsMixin, DisplayMixin, BaseModel):
     """
     Detailed forecasting plan produced from a `ForecastingProfile`.
 

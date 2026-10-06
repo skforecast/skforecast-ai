@@ -109,6 +109,7 @@ from .recommendation import (
     drop_colliding_calendar_features,
     finalize_lags,
     resolve_cv_config,
+    resolve_cv_provenance,
     select_baseline_config,
     select_calendar_encoding,
     select_calendar_features,
@@ -123,6 +124,7 @@ from .recommendation import (
     warn_first_window,
 )
 from .schemas import (
+    CV_OVERRIDE_NAMES,
     OVERRIDE_NAMES,
     REFINE_PLAN_OVERRIDE_KEYS,
     AskResult,
@@ -197,6 +199,63 @@ _CHOSEN_DECISIONS = (
 # Forecasters with a `differentiation` argument, whose order skforecast
 # requires to be the one of the strategy of a backtest.
 _DIFFERENTIATION_FORECASTERS = AUTOREG_FORECASTERS | BASELINE_FORECASTERS
+
+
+def _cv_provenance_fields(
+    cv_result: CVResult | None,
+    cv: TimeSeriesFold,
+    cv_config: dict,
+    plan: ForecastPlan | None,
+    profile: ForecastingProfile,
+) -> dict[str, object]:
+    """
+    Fields of a `BacktestResult` or a `ComparisonResult` that say where the
+    values of its strategy come from, for the plan that ran it.
+
+    Empty when the strategy was received as a `TimeSeriesFold`: who chose
+    its values is not known, which is not the same as all of them being
+    defaults, so the results keep `cv_overridden_fields=None`.
+
+    Parameters
+    ----------
+    cv_result : CVResult, None
+        Result of `create_cv()` the strategy came in, or None.
+    cv : TimeSeriesFold
+        Splitter of the strategy, with its parameters as given.
+    cv_config : dict
+        Resolved parameters of the strategy as it runs.
+    plan : ForecastPlan, None
+        Plan that ran the strategy. None for a comparison.
+    profile : ForecastingProfile
+        Profile of the data that ran, which can have more observations
+        than the ones the strategy was created on.
+
+    Returns
+    -------
+    fields : dict
+        Keyword arguments of the result.
+    """
+
+    if cv_result is None:
+        return {}
+
+    without_effect, defaults_explanation = resolve_cv_provenance(
+        created_profile = cv_result.profile,
+        created_plan    = cv_result.plan,
+        cv              = cv,
+        cv_config       = cv_config,
+        plan            = plan,
+        overridden      = list(cv_result.overridden_fields),
+        llm_configured  = cv_result.llm_configured,
+        n_observations  = profile.data_profile.span_index_length,
+    )
+
+    return {
+        "cv_overridden_fields": list(cv_result.overridden_fields),
+        "cv_fields_without_effect": without_effect,
+        "cv_llm_configured": cv_result.llm_configured,
+        "cv_defaults_explanation": defaults_explanation,
+    }
 
 
 def _carried_plan_arguments(
@@ -2458,6 +2517,14 @@ class ForecastingAssistant:
             `cv_config`, the one the backtesting script embeds.
             - explanation: human-readable explanation of the chosen
             configuration (LLM reasoning first when a prompt was used).
+            - overridden_fields: names of the parameters passed with a
+            value other than None, instead of the defaults.
+            - fields_without_effect: names in `overridden_fields` that have
+            no effect on the forecaster of the plan.
+            - llm_configured: whether the LLM set the parameters that were
+            not passed (False when its call failed).
+            - defaults_explanation: why the parameters that were not passed
+            have their value, and which ones were passed.
 
         References
         ----------
@@ -2495,10 +2562,22 @@ class ForecastingAssistant:
 
         if use_llm:
             defaults = configure_cv_with_llm(
-                           agent   = self._resolve_cv_agent(),
-                           profile = profile,
-                           plan    = plan,
-                           prompt  = prompt,
+                           agent    = self._resolve_cv_agent(),
+                           profile  = profile,
+                           plan     = plan,
+                           prompt   = prompt,
+                           explicit = frozenset(
+                               name for name, value in {
+                                   "initial_train_size": initial_train_size,
+                                   "refit": refit,
+                                   "fixed_train_size": fixed_train_size,
+                                   "gap": gap,
+                                   "fold_stride": fold_stride,
+                                   "skip_folds": skip_folds,
+                                   "allow_incomplete_fold": allow_incomplete_fold,
+                               }.items()
+                               if value is not None
+                           ),
                        )
         else:
             # Compute deterministic defaults
@@ -2517,6 +2596,18 @@ class ForecastingAssistant:
         for key, value in overrides.items():
             if value is not None:
                 defaults[key] = value
+
+        # The parameters the caller chose instead of the defaults: None asks
+        # for the default, any other value is applied above, an empty list
+        # of folds to skip included. In the canonical order, the one the
+        # result keeps, so the text built here names them as `backtest()`
+        # and `compare()` do.
+        overridden_fields = [
+            name for name in CV_OVERRIDE_NAMES if overrides[name] is not None
+        ]
+        # Present when the LLM configured the strategy, absent when its call
+        # failed and the deterministic defaults were used instead.
+        llm_configured = "_reasoning" in defaults
 
         # The LLM narrative is not a TimeSeriesFold parameter: keep it out
         # of the splitter and prepend it to the explanation.
@@ -2578,13 +2669,29 @@ class ForecastingAssistant:
         code_lines = ["from skforecast.model_selection import TimeSeriesFold", ""]
         _emit_cv_configuration(code_lines, executed)
 
+        # Where each value comes from, kept apart from the explanation of
+        # the strategy, which `backtest()` rebuilds from the splitter alone.
+        fields_without_effect, defaults_explanation = resolve_cv_provenance(
+            created_profile = profile,
+            created_plan    = plan,
+            cv              = cv,
+            cv_config       = cv_config,
+            plan            = plan,
+            overridden      = overridden_fields,
+            llm_configured  = llm_configured,
+        )
+
         return CVResult(
-            profile     = profile,
-            plan        = plan,
-            cv          = cv,
-            cv_config   = cv_config,
-            code        = "\n".join(code_lines).rstrip("\n") + "\n",
-            explanation = cv_explanation,
+            profile               = profile,
+            plan                  = plan,
+            cv                    = cv,
+            cv_config             = cv_config,
+            code                  = "\n".join(code_lines).rstrip("\n") + "\n",
+            explanation           = cv_explanation,
+            overridden_fields     = overridden_fields,
+            fields_without_effect = fields_without_effect,
+            llm_configured        = llm_configured,
+            defaults_explanation  = defaults_explanation,
         )
 
     def backtest_code(
@@ -2966,6 +3073,15 @@ class ForecastingAssistant:
             - code: generated Python script reproducing the workflow.
             - explanation: human-readable summary of the configuration
             and results.
+            - cv_overridden_fields: names of the strategy parameters passed
+            to `create_cv()` instead of its defaults. None when `cv` is a
+            `TimeSeriesFold`, whose origin is not known.
+            - cv_fields_without_effect: names in `cv_overridden_fields`
+            that have no effect on the forecaster that ran.
+            - cv_llm_configured: whether the LLM of `create_cv()` set the
+            parameters that were not passed.
+            - cv_defaults_explanation: why the strategy parameters that
+            were not passed have their value, and which ones were passed.
 
         Notes
         -----
@@ -3095,6 +3211,7 @@ class ForecastingAssistant:
             predictions = result["predictions"],
             code        = result["rendered_code"].full_script,
             explanation = result["explanation"],
+            **_cv_provenance_fields(cv_result, cv, cv_config, plan, profile),
         )
 
     def compare(
@@ -3237,6 +3354,15 @@ class ForecastingAssistant:
             - ranking_metric: name of the metric used to sort `results`.
             - explanation: human-readable summary of the comparison.
             - baseline_name: name of the baseline candidate, or None.
+            - cv_overridden_fields: names of the strategy parameters passed
+            to `create_cv()` instead of its defaults. None when `cv` is a
+            `TimeSeriesFold`, whose origin is not known.
+            - cv_fields_without_effect: names in `cv_overridden_fields`
+            that have no effect on the shared strategy.
+            - cv_llm_configured: whether the LLM of `create_cv()` set the
+            parameters that were not passed.
+            - cv_defaults_explanation: why the strategy parameters that
+            were not passed have their value, and which ones were passed.
             - best_name: name of the top-ranked candidate.
             - best_candidate: top-ranked candidate as a `BacktestResult`.
 
@@ -3600,6 +3726,7 @@ class ForecastingAssistant:
             ranking_metric = ranking_metric,
             explanation    = explanation,
             baseline_name  = baseline_name,
+            **_cv_provenance_fields(cv_result, cv, cv_config, None, profile),
         )
 
     def ask(

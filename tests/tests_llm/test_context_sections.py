@@ -133,6 +133,64 @@ def test_render_dataset_section_reports_range_scale_and_quality():
     assert "- Index irregularities: none detected" in section
 
 
+def test_render_dataset_section_unsorted_rows_are_said_to_be_sorted_by_the_code():
+    """
+    Test that rows given out of date order, which the profiler sorts as the
+    generated code does, are flagged as sorted by the code and not as an
+    irregularity left to fix, next to the note of the profiler.
+    """
+    profile_unsorted = assistant.profile(
+        data=df_single.iloc[::-1], target="sales", date_column="date"
+    )
+
+    section = render_dataset_section(profile_unsorted)
+
+    assert (
+        "- Index irregularities: index not sorted as given (the generated "
+        "code sorts it)\n"
+    ) in section
+    assert (
+        "- Data warning: Rows not in date order: they were sorted by date "
+        "before profiling, as the generated code sorts them."
+    ) in section
+
+
+def test_render_dataset_section_unsorted_index_without_the_note_of_the_profiler():
+    """
+    Test that an index flagged as not sorted in a profile without the note
+    of the profiler (a profile loaded from JSON, or an index that is not
+    of dates) keeps the plain flag: nothing says the code sorts it.
+    """
+    data_profile = profile.data_profile.model_copy(
+        update={"index_is_monotonic": False}
+    )
+    profile_flag_only = profile.model_copy(update={"data_profile": data_profile})
+
+    section = render_dataset_section(profile_flag_only)
+
+    assert "- Index irregularities: index not sorted\n" in section
+
+
+def test_render_dataset_section_date_range_of_a_time_zone_is_local_without_offset():
+    """
+    Test that the date range of data with a time zone is written as local
+    times without UTC offsets, as the dates of a strategy are: the first
+    date is in summer time (+02:00) and the last one in winter time.
+    """
+    dates = pd.date_range(
+        "2023-10-01 18:00", periods=1200, freq="h", tz="Europe/Madrid"
+    )
+    data = pd.DataFrame({"date": dates, "sales": np.arange(1200, dtype=float)})
+    profile_zoned = assistant.profile(data=data, target="sales", date_column="date")
+    lengths = profile_zoned.data_profile.series_lengths["sales"]
+
+    section = render_dataset_section(profile_zoned)
+
+    assert lengths.start == "2023-10-01 18:00:00+02:00"
+    assert lengths.end == "2023-11-20 16:00:00+01:00"
+    assert "- Date range: 2023-10-01 18:00:00 to 2023-11-20 16:00:00\n" in section
+
+
 def test_render_dataset_section_reports_categorical_exog():
     """
     Test that categorical exogenous columns are named, since statistical
@@ -246,6 +304,32 @@ def test_render_script_section_describes_backtesting_script(
     ) in section
     assert "prediction: trains on all the data" not in section
 
+
+def test_render_script_section_backtesting_script_says_how_to_get_its_metrics():
+    """
+    Test that the section of a backtesting script tells the LLM of `ask()`
+    that the script has not been run and how its metrics are obtained, that
+    `describe()` leaves the sentence out, and that a prediction script does
+    not carry it.
+    """
+    cv_config = {"steps": 5, "n_folds": 3, "n_fits": 1}
+    note = (
+        "It has not been run: for its metrics, the user runs it or calls "
+        "`assistant.backtest()`."
+    )
+
+    section = render_script_section(plan, _BACKTEST_CODE, cv_config=cv_config)
+    described = render_script_section(
+        plan, _BACKTEST_CODE, cv_config=cv_config, for_describe=True
+    )
+    prediction = render_script_section(plan, "predictions = None\n")
+
+    assert section.endswith(
+        "do not reproduce it. " + note + "\n</script>"
+    )
+    assert note not in described
+    assert note not in prediction
+
 def test_render_cv_section_prepends_note_when_provided():
     """
     Test that the shared-strategy note used by a comparison is rendered
@@ -256,6 +340,125 @@ def test_render_cv_section_prepends_note_when_provided():
     body = section.splitlines()
     assert body[1] == "Applied to every candidate."
     assert body[2] == "- steps: 5"
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected_lines",
+    [
+        (
+            {"overridden": ["refit", "gap"]},
+            ["- Chosen by the user instead of the rules: refit, gap"],
+        ),
+        (
+            {
+                "overridden": ["refit", "fixed_train_size"],
+                "without_effect": ["fixed_train_size"],
+            },
+            [
+                "- Chosen by the user instead of the rules: refit",
+                "- Passed by the user without effect: fixed_train_size",
+            ],
+        ),
+        (
+            {
+                "overridden": ["refit", "fixed_train_size"],
+                "without_effect": ["refit", "fixed_train_size"],
+            },
+            ["- Passed by the user without effect: refit, fixed_train_size"],
+        ),
+        (
+            {"overridden": ["gap"], "llm_configured": True},
+            [
+                "- Chosen by the user instead of the rules: gap",
+                "- Parameters not chosen by the user were set by the LLM from "
+                "the prompt.",
+            ],
+        ),
+        (
+            {"llm_configured": True},
+            [
+                "- Parameters not chosen by the user were set by the LLM from "
+                "the prompt."
+            ],
+        ),
+    ],
+    ids=[
+        "chosen",
+        "chosen_and_without_effect",
+        "every_name_without_effect",
+        "chosen_and_llm",
+        "llm_only",
+    ],
+)
+def test_render_cv_section_output_when_provenance_given(kwargs, expected_lines):
+    """
+    Test that the strategy section lists, after the parameters, the names
+    the user chose, those passed without effect (kept apart, never in the
+    chosen line) and the sentence about the LLM, only when each applies.
+    """
+    section = render_cv_section(cv_config, **kwargs)
+
+    expected = "\n".join(
+        [
+            "<backtesting_strategy>",
+            "- steps: 5",
+            "- initial_train_size: 80",
+            "- n_folds: 4",
+            *expected_lines,
+            "</backtesting_strategy>",
+        ]
+    )
+    assert section == expected
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"overridden": None},
+        {"overridden": []},
+        {"overridden": [], "without_effect": []},
+        {"overridden": None, "without_effect": ["refit"]},
+        {"llm_configured": False},
+    ],
+    ids=[
+        "no_arguments",
+        "overridden_none",
+        "overridden_empty",
+        "both_empty",
+        "without_effect_not_passed",
+        "llm_false",
+    ],
+)
+def test_render_cv_section_output_when_nothing_to_say_about_provenance(kwargs):
+    """
+    Test that without names passed (None, which says nothing about who
+    chose the values, or an empty list, which says all are defaults) and
+    without an LLM, the section is the parameters alone.
+    """
+    section = render_cv_section(cv_config, **kwargs)
+
+    assert section == (
+        "<backtesting_strategy>\n- steps: 5\n- initial_train_size: 80\n"
+        "- n_folds: 4\n</backtesting_strategy>"
+    )
+
+
+def test_render_cv_section_output_when_note_and_provenance_given():
+    """
+    Test that the note of a comparison stays ahead of the parameters and
+    the provenance lines come after them.
+    """
+    section = render_cv_section(
+        cv_config, note="Applied to every candidate.", overridden=["gap"]
+    )
+
+    assert section == (
+        "<backtesting_strategy>\nApplied to every candidate.\n- steps: 5\n"
+        "- initial_train_size: 80\n- n_folds: 4\n"
+        "- Chosen by the user instead of the rules: gap\n"
+        "</backtesting_strategy>"
+    )
 
 
 def test_render_metrics_section_states_that_none_were_computed():
@@ -644,6 +847,26 @@ def test_build_context_message_matches_the_composed_sections():
     assert result == composed
 
 
+def test_render_cv_section_writes_inference_windows_as_a_bound():
+    """
+    Test that the inference windows of a foundation model are written as
+    'up to N': a series is not forecast in a fold where it has no data, so
+    the count is a bound and not the number of forecasts that ran.
+    """
+    cv_config = {"steps": 5, "n_folds": 6, "n_fits": 0, "inference_windows": 12}
+
+    section = render_cv_section(cv_config, trains=False)
+
+    assert section == (
+        "<backtesting_strategy>\n"
+        "- steps: 5\n"
+        "- n_folds: 6\n"
+        "- n_fits: 0\n"
+        "- inference_windows: up to 12\n"
+        "</backtesting_strategy>"
+    )
+
+
 def test_render_cv_section_omits_training_parameters_when_not_trained():
     """
     Test that the section of a forecaster that is not trained (a foundation
@@ -859,3 +1082,26 @@ def test_render_plan_section_writes_chosen_fields_on_one_line():
 
     assert "- Chosen by the user instead of the rules: x\\n- Steps: 999\n" in section
     assert "\n- Steps: 999" not in section
+
+
+def test_render_dataset_section_names_the_time_zone_of_the_dates():
+    """
+    Test that the dataset section of data with a time zone names it next to
+    the date range, which is written as local times: without it, a model
+    said that the dates had no time zone. Data without one get no line.
+    """
+    index = pd.date_range("2023-03-20 18:00", periods=120, freq="h", tz="Europe/Madrid")
+    zoned = assistant.profile(
+        data=pd.DataFrame({"y": np.arange(120, dtype=float)}, index=index),
+        target="y",
+    )
+
+    section = render_dataset_section(zoned)
+    section_naive = render_dataset_section(profile)
+
+    assert (
+        "- Date range: 2023-03-20 18:00:00 to 2023-03-25 17:00:00\n"
+        "- Time zone of the dates: Europe/Madrid (dates are written as local "
+        "times)\n"
+    ) in section
+    assert "Time zone of the dates" not in section_naive

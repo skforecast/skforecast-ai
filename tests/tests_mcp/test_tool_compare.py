@@ -536,3 +536,42 @@ def test_tool_compare_candidates_with_the_overrides_of_a_plan(tmp_path):
 
     assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()
     assert result["summary"] == expected.describe()
+
+
+def test_tool_compare_summary_names_the_arguments_passed_to_the_strategy(tmp_path):
+    """
+    Test that `compare` hands the whole strategy to the assistant: the
+    summary of a strategy created with `refit=True` says the user chose it,
+    in the shared strategy and at the end of the explanation, saying the
+    strategy was created for the plan, and that the summary of a strategy
+    without arguments explains the defaults.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path, cv_arguments={"refit": True})
+    _, _, default_cv_id = cv_of(server, path)
+
+    chosen = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES})
+    )
+    default = content_of(
+        call(
+            server, "compare",
+            {"cv_id": default_cv_id, "candidates": COMPARE_CANDIDATES},
+        )
+    )
+
+    assert "- Chosen by the user instead of the rules: refit\n" in chosen["summary"]
+    assert (
+        " The strategy was created for the plan (ForecasterRecursive + Ridge). "
+        "Initial training size by default: 70% of the 204 observations (142), "
+        "up to 2003-04-01. `refit` as requested.\n</deterministic_summary>"
+    ) in chosen["summary"]
+    strategy = default["summary"][
+        default["summary"].index("<backtesting_strategy>"):
+        default["summary"].index("</backtesting_strategy>")
+    ]
+    assert "Chosen by the user instead of the rules" not in strategy
+    assert (
+        "The shared strategy trains once by default: refitting in every fold "
+        "would multiply the training cost by the 6 folds."
+    ) in default["summary"]

@@ -1272,6 +1272,39 @@ class TestBacktest:
         assert "code" in data
         assert "explanation" in data
 
+    def test_backtest_json_records_the_cv_options_passed(self, tmp_path):
+        """
+        Backtest --format json lists in `cv_overridden_fields` the strategy
+        options given on the command line, in the canonical order, and the
+        explanation of the defaults says they were requested; without
+        options the list is empty and the defaults are explained.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        base = ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--format", "json", "--quiet"]
+
+        with_options = runner.invoke(app, [*base, "--gap", "1", "--refit"])
+        without_options = runner.invoke(app, base)
+
+        assert with_options.exit_code == 0, with_options.output
+        assert without_options.exit_code == 0, without_options.output
+        data = json.loads(with_options.output)
+        assert data["cv_overridden_fields"] == ["refit", "gap"]
+        assert data["cv_fields_without_effect"] == []
+        assert data["cv_llm_configured"] is False
+        assert data["cv_defaults_explanation"] == (
+            "Initial training size by default: 70% of the 100 observations "
+            "(70), up to 2023-03-11. `refit` and `gap` as requested."
+        )
+        default = json.loads(without_options.output)
+        assert default["cv_overridden_fields"] == []
+        assert default["cv_fields_without_effect"] == []
+        assert default["cv_defaults_explanation"] == (
+            "Initial training size by default: 70% of the 100 observations "
+            "(70), up to 2023-03-11. Trained once by default: refitting in "
+            "every fold would multiply the training cost by the 6 folds."
+        )
+
     def test_backtest_interval_produces_interval_columns(self, tmp_path):
         """
         Backtest --interval produces prediction interval columns
@@ -1467,6 +1500,34 @@ class TestCompare:
         assert "explanation" in data
         assert len(data["results"]) == 2
         assert data["best_name"] in data["candidates"]
+
+    def test_compare_json_records_the_cv_options_passed(self, tmp_path):
+        """
+        Compare --format json lists in `cv_overridden_fields` the strategy
+        options given on the command line and says the strategy was created
+        for the plan; without options the list is empty.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        base = ["compare", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--candidates", self._candidates, "--no-baseline",
+                "--format", "json", "--quiet"]
+
+        with_options = runner.invoke(app, [*base, "--refit"])
+        without_options = runner.invoke(app, base)
+
+        assert with_options.exit_code == 0, with_options.output
+        assert without_options.exit_code == 0, without_options.output
+        data = json.loads(with_options.output)
+        assert data["cv_overridden_fields"] == ["refit"]
+        assert data["cv_fields_without_effect"] == []
+        assert data["cv_defaults_explanation"] == (
+            "The strategy was created for the plan (ForecasterRecursive + "
+            "Ridge). Initial training size by default: 70% of the 100 "
+            "observations (70), up to 2023-03-11. `refit` as requested."
+        )
+        default = json.loads(without_options.output)
+        assert default["cv_overridden_fields"] == []
+        assert default["cv_fields_without_effect"] == []
 
     def test_compare_output_code_writes_winning_script(self, tmp_path):
         """

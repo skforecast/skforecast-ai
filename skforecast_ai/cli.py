@@ -1850,9 +1850,10 @@ def backtest(
                 plan=plan_obj,
                 prompt=prompt,
                 **cv_kwargs,
-            ).cv
+            )
 
-            # Run backtest
+            # Run backtest, with the whole strategy result: it records the
+            # options passed, which the result states.
             result = assistant.backtest(
                 data=data,
                 target=parsed_target,
@@ -2027,7 +2028,7 @@ def compare(
                 profile=prof,
                 plan=default_plan,
                 **cv_kwargs,
-            ).cv
+            )
 
             result = assistant.compare(
                 data=data,

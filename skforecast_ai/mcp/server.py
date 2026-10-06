@@ -52,6 +52,7 @@ from ..recommendation import (
     resolve_cv_config,
 )
 from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
+from ..schemas.results import CV_OVERRIDE_NAMES
 from . import _inputs
 from ._errors import (
     ServerError,
@@ -133,15 +134,9 @@ _MAX_DESCRIPTORS = 256
 Count = Annotated[int, Field(ge=1)]
 NonNegative = Annotated[int, Field(ge=0)]
 
-CV_ARGUMENTS = (
-    "initial_train_size",
-    "fold_stride",
-    "refit",
-    "fixed_train_size",
-    "gap",
-    "skip_folds",
-    "allow_incomplete_fold",
-)
+# The arguments of `create_cv` that can be changed: the same names, in the
+# same order, a strategy records when the user passes them.
+CV_ARGUMENTS = CV_OVERRIDE_NAMES
 
 INSTRUCTIONS = """\
 Deterministic time series forecasting with skforecast. Every decision \
@@ -1415,7 +1410,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             try:
                 result = assistant.backtest(
                     data          = path,
-                    cv            = copy.deepcopy(cv_result.cv),
+                    # The whole result, not its splitter: it says which
+                    # parameters the user chose, which the summary states.
+                    cv            = _copy(cv_result),
                     profile       = _copy(cv_entry.profile),
                     plan          = _copy(backtested),
                     show_progress = False,
@@ -1550,7 +1547,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             try:
                 result = assistant.compare(
                     data              = path,
-                    cv                = copy.deepcopy(cv_entry.obj.cv),
+                    cv                = _copy(cv_entry.obj),
                     profile           = _copy(profile_obj),
                     candidates        = copy.deepcopy(configs),
                     interval          = shared_interval,
