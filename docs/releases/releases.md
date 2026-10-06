@@ -125,6 +125,8 @@ All significant changes to this project are documented in this release file.
 
 **Fixed**
 
++ <span class="badge text-bg-danger">Fix</span> Without the API key of the provider, [<code>ForecastingAssistant.ask()</code>][assistant], `refine_plan(prompt=...)` and `create_cv(prompt=...)` raised a `UserError` of pydantic-ai. `ask()` now raises `LLMCallError`, and the other two return the deterministic result with a `UserWarning`, as when the call fails.
+
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.compare()</code>][assistant] with a metric listed twice in `metric` raises `ValueError` naming it before running any candidate, instead of an error of pandas that did not.
 
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` given a CSV path returned a script that loaded `'data.csv'` instead of that file. The script now loads the CSV path or URL passed, in these methods and in `forecast_code()` and `backtest_code()` (and in the CLI, also with `--from-plan`), also when the `profile` passed was built from another file; with a DataFrame and such a profile, the script loads `'data.csv'`, where data passed in memory is saved, instead of the file of the profile.

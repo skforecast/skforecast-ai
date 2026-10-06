@@ -1100,6 +1100,34 @@ def test_create_cv_llm_deterministic_fallback_when_first_window_too_short(
     assert result.llm_configured is False
 
 
+def test_create_cv_llm_deterministic_fallback_when_api_key_is_missing(monkeypatch):
+    """
+    Test that a missing API key, which pydantic-ai reports when the agent
+    is built and not when it is called, degrades to the deterministic
+    defaults with a UserWarning, like a failed call, instead of raising a
+    pydantic-ai UserError.
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    expected = assistant.create_cv(profile, plan)
+
+    warn_msg = (
+        re.escape(
+            "LLM CV configuration failed (Set the `OPENAI_API_KEY` environment "
+            "variable"
+        )
+        + ".*"
+        + re.escape("Falling back to deterministic defaults.")
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+
+    assert result.cv_config == expected.cv_config
+    assert result.llm_configured is False
+
+
 def test_create_cv_llm_keeps_its_suggestion_when_initial_train_size_is_explicit(
     monkeypatch,
 ):

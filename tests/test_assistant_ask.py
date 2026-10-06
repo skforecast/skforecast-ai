@@ -811,3 +811,25 @@ def test_ask_ValidationError_when_received_plan_skipped_validation(monkeypatch):
     with pytest.raises(ValidationError, match=re.escape("is not a supported forecaster")):
         assistant.ask(prompt="Explain this plan.", context=profile, plan=plan)
     assert capture == {}
+
+
+def test_ask_LLMCallError_when_api_key_is_missing(monkeypatch):
+    """
+    Test that a missing API key, which pydantic-ai reports when the agent
+    is built and not when it is called, raises LLMCallError with the
+    provider exception chained instead of a bare pydantic-ai UserError.
+    """
+    from pydantic_ai.exceptions import UserError
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+
+    err_msg = re.escape(
+        "The call to the LLM 'openai:fake-model' failed.\n\n"
+        "  UserError: Set the `OPENAI_API_KEY` environment variable"
+    )
+    with pytest.raises(LLMCallError, match=err_msg) as info:
+        assistant.ask(prompt="What is a lag?")
+
+    assert isinstance(info.value.original_error, UserError)
+    assert info.value.__cause__ is info.value.original_error

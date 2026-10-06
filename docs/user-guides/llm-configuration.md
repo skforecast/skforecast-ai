@@ -263,8 +263,8 @@ If nothing may leave your machine at all, run a [local model with Ollama](#local
 | `LLMCallError` wrapping a `401` or `UserError: Set the OPENAI_API_KEY environment variable` | Missing or wrong key, or the wrong variable name | Set the variable of the provider, or pass `api_key`; run `check_llm()` |
 | `LLMCallError` wrapping a `404` | Unknown model name, or an OpenAI-compatible server without `/v1` in `base_url` | Check the model list of the provider and the URL |
 | `LLMCallError` wrapping a `429` | Rate limit of the provider | Retry later, or use a smaller model |
-| `UserWarning: LLM plan refinement failed ... Returning deterministic plan.` | The model could not produce valid lags or window features, or the call failed | The deterministic plan is valid; retry with a stronger model or give lags explicitly |
-| `UserWarning: LLM CV configuration failed after 3 attempts ... Falling back to deterministic defaults.` | Same, for `create_cv(prompt=...)` | The deterministic strategy is valid; pass the fold parameters explicitly |
+| `UserWarning: LLM plan refinement failed ... Returning deterministic plan.` | The model could not produce valid lags or window features, or the call failed (a missing API key included) | The deterministic plan is valid; retry with a stronger model or give lags explicitly |
+| `UserWarning: LLM CV configuration failed ... Falling back to deterministic defaults.` | Same, for `create_cv(prompt=...)` | The deterministic strategy is valid; pass the fold parameters explicitly |
 | `UserWarning: Estimated prompt size ... exceeds the Ollama context limit` | The prompt does not fit the 32768 token window | `skills=[]` or `include_reference=False` in `ask()` |
 
 `LLMCallError` keeps the provider exception as `original_error`, so `except LLMCallError as exc: exc.original_error` gives the full detail. Every error and warning of the package is listed in [Exceptions and warnings](../api/exceptions.md).
