@@ -293,6 +293,90 @@ def _accepts_text(annotation: Any) -> bool:
     return any(_accepts_text(arg) for arg in get_args(annotation))
 
 
+def _drop_titles(node: Any) -> Any:
+    """
+    Copy of a JSON schema without the `title` texts Pydantic generates from
+    the names of the fields (`"title": "Metric"` next to `metric`), which
+    tell an agent nothing its key does not. A property named `title` is
+    kept: its value is a schema, not a text.
+    """
+
+    if isinstance(node, dict):
+        return {
+            key: _drop_titles(value)
+            for key, value in node.items()
+            if not (key == "title" and isinstance(value, str))
+        }
+    if isinstance(node, list):
+        return [_drop_titles(item) for item in node]
+
+    return node
+
+
+def _share_enums(schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    Copy of a JSON schema in which a list of allowed values written more
+    than once (the metrics, as one value and as the items of a list) is
+    written once in `$defs` and referenced, named after the first property
+    that uses it.
+    """
+
+    found: dict[str, dict[str, Any]] = {}
+
+    def is_enum(node: Any) -> bool:
+        return isinstance(node, dict) and set(node) == {"enum", "type"}
+
+    def count(node: Any, name: str) -> None:
+        if is_enum(node):
+            entry = found.setdefault(
+                json.dumps(node, sort_keys=True), {"name": name, "uses": 0}
+            )
+            entry["uses"] += 1
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                if key == "properties" and isinstance(value, dict):
+                    for prop, prop_schema in value.items():
+                        count(prop_schema, prop)
+                else:
+                    count(value, name)
+        elif isinstance(node, list):
+            for item in node:
+                count(item, name)
+
+    count(schema, "")
+    definitions = dict(schema.get("$defs", {}))
+    references = {}
+    for text, entry in found.items():
+        if entry["uses"] < 2 or not entry["name"]:
+            continue
+        name = "".join(part.capitalize() for part in entry["name"].split("_"))
+        while name in definitions:
+            name += "Value"
+        definitions[name] = json.loads(text)
+        references[text] = {"$ref": f"#/$defs/{name}"}
+    if not references:
+        return schema
+
+    def replace(node: Any) -> Any:
+        if is_enum(node):
+            reference = references.get(json.dumps(node, sort_keys=True))
+            return dict(reference) if reference else node
+        if isinstance(node, dict):
+            return {key: replace(value) for key, value in node.items()}
+        if isinstance(node, list):
+            return [replace(item) for item in node]
+        return node
+
+    shared = replace({k: v for k, v in schema.items() if k != "$defs"})
+    shared["$defs"] = {
+        name: definition if name not in schema.get("$defs", {})
+        else replace(definition)
+        for name, definition in definitions.items()
+    }
+
+    return shared
+
+
 class _StrictFuncMetadata(FuncMetadata):
     """
     Argument metadata of the SDK that decodes JSON text only into a list or
@@ -393,7 +477,11 @@ class _StrictTool(Tool):
             output_model  = loose.output_model,
             wrap_output   = loose.wrap_output,
         )
-        tool.parameters = StrictArguments.model_json_schema(by_alias=True)
+        # Every client that loads the tools up front pays for this schema in
+        # each session, so it carries nothing the agent does not need.
+        tool.parameters = _share_enums(
+            _drop_titles(StrictArguments.model_json_schema(by_alias=True))
+        )
 
         return tool
 

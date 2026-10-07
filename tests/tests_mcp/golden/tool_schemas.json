@@ -15,7 +15,6 @@
       "properties": {
         "data_path": {
           "description": "Absolute path of a CSV file inside the directory the server may read. URLs are not accepted.",
-          "title": "Data Path",
           "type": "string"
         },
         "target": {
@@ -30,8 +29,7 @@
               "type": "array"
             }
           ],
-          "description": "Column to forecast, or a list of columns (one series each) for wide multi-series data.",
-          "title": "Target"
+          "description": "Column to forecast, or a list of columns (one series each) for wide multi-series data."
         },
         "date_column": {
           "anyOf": [
@@ -43,8 +41,7 @@
             }
           ],
           "default": null,
-          "description": "Column with the dates. When null, the first column holding dates is used.",
-          "title": "Date Column"
+          "description": "Column with the dates. When null, the first column holding dates is used."
         },
         "series_id_column": {
           "anyOf": [
@@ -56,8 +53,7 @@
             }
           ],
           "default": null,
-          "description": "Column with the series ids of long multi-series data.",
-          "title": "Series Id Column"
+          "description": "Column with the series ids of long multi-series data."
         },
         "exog_columns": {
           "anyOf": [
@@ -72,15 +68,13 @@
             }
           ],
           "default": null,
-          "description": "Columns to use as exogenous variables, an empty list for none. When null, every column that is not the target, the date or the series ids. The other columns are not used.",
-          "title": "Exog Columns"
+          "description": "Columns to use as exogenous variables, an empty list for none. When null, every column that is not the target, the date or the series ids. The other columns are not used."
         }
       },
       "required": [
         "data_path",
         "target"
-      ],
-      "title": "profileArguments"
+      ]
     },
     "output_schema": {
       "$defs": {
@@ -229,13 +223,11 @@
       "properties": {
         "profile_id": {
           "description": "Id returned by `profile`.",
-          "title": "Profile Id",
           "type": "string"
         },
         "steps": {
           "description": "Forecast horizon: number of steps ahead to predict, from 1 to the length of the longest series (12 for a year of monthly data).",
           "minimum": 1,
-          "title": "Steps",
           "type": "integer"
         },
         "interval": {
@@ -253,8 +245,7 @@
             }
           ],
           "default": null,
-          "description": "Prediction interval as two quantiles [lower, upper] with 0 < lower < upper < 1, e.g. [0.1, 0.9] for 80 %. The baseline and ForecasterStats only take symmetric ones (lower + upper = 1). Null for no interval.",
-          "title": "Interval"
+          "description": "Prediction interval as two quantiles [lower, upper] with 0 < lower < upper < 1, e.g. [0.1, 0.9] for 80 %. The baseline and ForecasterStats only take symmetric ones (lower + upper = 1). Null for no interval."
         },
         "forecaster": {
           "anyOf": [
@@ -275,8 +266,7 @@
             }
           ],
           "default": null,
-          "description": "skforecast forecaster class: ForecasterRecursive or ForecasterDirect (one series, machine learning), ForecasterRecursiveMultiSeries (several series), ForecasterDirectMultiVariate (one series predicted from several), ForecasterStats (Auto-ARIMA), ForecasterFoundation (pre-trained foundation model, no training) or ForecasterEquivalentDate (seasonal naive baseline). Null for the recommendation of the profile.",
-          "title": "Forecaster"
+          "description": "skforecast forecaster class: ForecasterRecursive or ForecasterDirect (one series, machine learning), ForecasterRecursiveMultiSeries (several series), ForecasterDirectMultiVariate (one series predicted from several), ForecasterStats (Auto-ARIMA), ForecasterFoundation (pre-trained foundation model, no training) or ForecasterEquivalentDate (seasonal naive baseline). Null for the recommendation of the profile."
         },
         "estimator": {
           "anyOf": [
@@ -288,8 +278,7 @@
             }
           ],
           "default": null,
-          "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none. Null for the recommendation.",
-          "title": "Estimator"
+          "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none. Null for the recommendation."
         },
         "estimator_kwargs": {
           "anyOf": [
@@ -302,8 +291,7 @@
             }
           ],
           "default": null,
-          "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms. Null for the defaults.",
-          "title": "Estimator Kwargs"
+          "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms. Null for the defaults."
         },
         "lags": {
           "anyOf": [
@@ -321,8 +309,7 @@
             }
           ],
           "default": null,
-          "description": "Lags: an integer n for 1..n, or a list of distinct positive integers. Null for the selection from the partial autocorrelation.",
-          "title": "Lags"
+          "description": "Lags: an integer n for 1..n, or a list of distinct positive integers. Null for the selection from the partial autocorrelation."
         },
         "window_features": {
           "anyOf": [
@@ -350,37 +337,16 @@
             }
           ],
           "default": null,
-          "description": "Rolling features, one entry per window size: {'stats': [...], 'window_size': n}, with stats among ['mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', 'coef_variation', 'ewm'], e.g. [{'stats': ['mean', 'std'], 'window_size': 7}]. Null for the deterministic selection.",
-          "title": "Window Features"
+          "description": "Rolling features, one entry per window size: {'stats': [...], 'window_size': n}, with stats among ['mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', 'coef_variation', 'ewm'], e.g. [{'stats': ['mean', 'std'], 'window_size': 7}]. Null for the deterministic selection."
         },
         "metric": {
           "anyOf": [
             {
-              "enum": [
-                "mean_squared_error",
-                "mean_absolute_error",
-                "mean_absolute_percentage_error",
-                "mean_squared_log_error",
-                "mean_absolute_scaled_error",
-                "root_mean_squared_scaled_error",
-                "median_absolute_error",
-                "symmetric_mean_absolute_percentage_error"
-              ],
-              "type": "string"
+              "$ref": "#/$defs/Metric"
             },
             {
               "items": {
-                "enum": [
-                  "mean_squared_error",
-                  "mean_absolute_error",
-                  "mean_absolute_percentage_error",
-                  "mean_squared_log_error",
-                  "mean_absolute_scaled_error",
-                  "root_mean_squared_scaled_error",
-                  "median_absolute_error",
-                  "symmetric_mean_absolute_percentage_error"
-                ],
-                "type": "string"
+                "$ref": "#/$defs/Metric"
               },
               "minItems": 1,
               "type": "array"
@@ -390,8 +356,7 @@
             }
           ],
           "default": null,
-          "description": "Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null for the metric selected from the data (MAE for one series, MASE for several) and its default panel.",
-          "title": "Metric"
+          "description": "Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null for the metric selected from the data (MAE for one series, MASE for several) and its default panel."
         },
         "use_exog": {
           "anyOf": [
@@ -403,8 +368,7 @@
             }
           ],
           "default": null,
-          "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null uses them whenever the forecaster can.",
-          "title": "Use Exog"
+          "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null uses them whenever the forecaster can."
         },
         "differentiation": {
           "anyOf": [
@@ -417,8 +381,7 @@
             }
           ],
           "default": null,
-          "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. Null for none.",
-          "title": "Differentiation"
+          "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. Null for none."
         },
         "calendar_features": {
           "anyOf": [
@@ -446,8 +409,7 @@
             }
           ],
           "default": null,
-          "description": "Calendar features generated from the dates (an empty list for none); the encoding follows the estimator. A feature whose column is already an exogenous column used by the plan is rejected. Machine learning forecasters with a datetime index only. Null for those selected from the frequency.",
-          "title": "Calendar Features"
+          "description": "Calendar features generated from the dates (an empty list for none); the encoding follows the estimator. A feature whose column is already an exogenous column used by the plan is rejected. Machine learning forecasters with a datetime index only. Null for those selected from the frequency."
         },
         "target_transformer": {
           "anyOf": [
@@ -463,8 +425,7 @@
             }
           ],
           "default": null,
-          "description": "Scaler of the target: 'StandardScaler', or 'none' for no scaling. Machine learning forecasters only. Null for the rule.",
-          "title": "Target Transformer"
+          "description": "Scaler of the target: 'StandardScaler', or 'none' for no scaling. Machine learning forecasters only. Null for the rule."
         },
         "dropna_from_series": {
           "anyOf": [
@@ -476,15 +437,28 @@
             }
           ],
           "default": null,
-          "description": "Whether to drop the training rows with missing values; false fails when the data has missing values and the estimator does not accept them. Machine learning forecasters only. Null for the rule.",
-          "title": "Dropna From Series"
+          "description": "Whether to drop the training rows with missing values; false fails when the data has missing values and the estimator does not accept them. Machine learning forecasters only. Null for the rule."
         }
       },
       "required": [
         "profile_id",
         "steps"
       ],
-      "title": "planArguments"
+      "$defs": {
+        "Metric": {
+          "enum": [
+            "mean_squared_error",
+            "mean_absolute_error",
+            "mean_absolute_percentage_error",
+            "mean_squared_log_error",
+            "mean_absolute_scaled_error",
+            "root_mean_squared_scaled_error",
+            "median_absolute_error",
+            "symmetric_mean_absolute_percentage_error"
+          ],
+          "type": "string"
+        }
+      }
     },
     "output_schema": {
       "$defs": {
@@ -629,6 +603,21 @@
     },
     "input_schema": {
       "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {
+          "description": "Id of the plan to refine.",
+          "type": "string"
+        },
+        "overrides": {
+          "$ref": "#/$defs/RefinePlanArgs",
+          "description": "Values to change, e.g. {'estimator': 'Ridge', 'lags': 12}. An omitted key keeps the value of the plan; {'lags': null} selects the lags again and {'interval': null} removes the interval."
+        }
+      },
+      "required": [
+        "plan_id",
+        "overrides"
+      ],
       "$defs": {
         "RefinePlanArgs": {
           "additionalProperties": false,
@@ -645,12 +634,10 @@
                 "ForecasterFoundation",
                 "ForecasterEquivalentDate"
               ],
-              "title": "Forecaster",
               "type": "string"
             },
             "estimator": {
               "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none.",
-              "title": "Estimator",
               "type": "string"
             },
             "estimator_kwargs": {
@@ -663,13 +650,11 @@
                   "type": "null"
                 }
               ],
-              "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms. Null for the defaults of the estimator.",
-              "title": "Estimator Kwargs"
+              "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms. Null for the defaults of the estimator."
             },
             "steps": {
               "description": "Forecast horizon: number of steps ahead to predict, from 1 to the length of the longest series (12 for a year of monthly data).",
               "minimum": 1,
-              "title": "Steps",
               "type": "integer"
             },
             "interval": {
@@ -686,8 +671,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Prediction interval as two quantiles [lower, upper] with 0 < lower < upper < 1, e.g. [0.1, 0.9] for 80 %. The baseline and ForecasterStats only take symmetric ones (lower + upper = 1). Null removes the interval.",
-              "title": "Interval"
+              "description": "Prediction interval as two quantiles [lower, upper] with 0 < lower < upper < 1, e.g. [0.1, 0.9] for 80 %. The baseline and ForecasterStats only take symmetric ones (lower + upper = 1). Null removes the interval."
             },
             "lags": {
               "anyOf": [
@@ -704,8 +688,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Lags: an integer n for 1..n, or a list of distinct positive integers. Null selects them again from the partial autocorrelation.",
-              "title": "Lags"
+              "description": "Lags: an integer n for 1..n, or a list of distinct positive integers. Null selects them again from the partial autocorrelation."
             },
             "window_features": {
               "anyOf": [
@@ -732,37 +715,16 @@
                   "type": "null"
                 }
               ],
-              "description": "Rolling features, one entry per window size: {'stats': [...], 'window_size': n}, with stats among ['mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', 'coef_variation', 'ewm'], e.g. [{'stats': ['mean', 'std'], 'window_size': 7}]. Null selects them again with the deterministic rules.",
-              "title": "Window Features"
+              "description": "Rolling features, one entry per window size: {'stats': [...], 'window_size': n}, with stats among ['mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', 'coef_variation', 'ewm'], e.g. [{'stats': ['mean', 'std'], 'window_size': 7}]. Null selects them again with the deterministic rules."
             },
             "metric": {
               "anyOf": [
                 {
-                  "enum": [
-                    "mean_squared_error",
-                    "mean_absolute_error",
-                    "mean_absolute_percentage_error",
-                    "mean_squared_log_error",
-                    "mean_absolute_scaled_error",
-                    "root_mean_squared_scaled_error",
-                    "median_absolute_error",
-                    "symmetric_mean_absolute_percentage_error"
-                  ],
-                  "type": "string"
+                  "$ref": "#/$defs/Metric"
                 },
                 {
                   "items": {
-                    "enum": [
-                      "mean_squared_error",
-                      "mean_absolute_error",
-                      "mean_absolute_percentage_error",
-                      "mean_squared_log_error",
-                      "mean_absolute_scaled_error",
-                      "root_mean_squared_scaled_error",
-                      "median_absolute_error",
-                      "symmetric_mean_absolute_percentage_error"
-                    ],
-                    "type": "string"
+                    "$ref": "#/$defs/Metric"
                   },
                   "minItems": 1,
                   "type": "array"
@@ -771,8 +733,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null selects them again from the data. Omitted, a metric chosen before is kept.",
-              "title": "Metric"
+              "description": "Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null selects them again from the data. Omitted, a metric chosen before is kept."
             },
             "use_exog": {
               "anyOf": [
@@ -783,8 +744,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null lets the rule decide again. Omitted, a choice made before is kept.",
-              "title": "Use Exog"
+              "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null lets the rule decide again. Omitted, a choice made before is kept."
             },
             "differentiation": {
               "anyOf": [
@@ -796,8 +756,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. Null removes it. Omitted, an order chosen before is kept.",
-              "title": "Differentiation"
+              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. Null removes it. Omitted, an order chosen before is kept."
             },
             "calendar_features": {
               "anyOf": [
@@ -824,8 +783,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Calendar features generated from the dates (an empty list for none); the encoding follows the estimator. A feature whose column is already an exogenous column used by the plan is rejected. Machine learning forecasters with a datetime index only. Null selects them again from the frequency. Omitted, a choice made before is kept.",
-              "title": "Calendar Features"
+              "description": "Calendar features generated from the dates (an empty list for none); the encoding follows the estimator. A feature whose column is already an exogenous column used by the plan is rejected. Machine learning forecasters with a datetime index only. Null selects them again from the frequency. Omitted, a choice made before is kept."
             },
             "target_transformer": {
               "anyOf": [
@@ -840,8 +798,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Scaler of the target: 'StandardScaler', or 'none' for no scaling. Machine learning forecasters only. Null lets the rule decide again. Omitted, a choice made before is kept.",
-              "title": "Target Transformer"
+              "description": "Scaler of the target: 'StandardScaler', or 'none' for no scaling. Machine learning forecasters only. Null lets the rule decide again. Omitted, a choice made before is kept."
             },
             "dropna_from_series": {
               "anyOf": [
@@ -852,31 +809,25 @@
                   "type": "null"
                 }
               ],
-              "description": "Whether to drop the training rows with missing values; false fails when the data has missing values and the estimator does not accept them. Machine learning forecasters only. Null lets the rule decide again. Omitted, a choice made before is kept.",
-              "title": "Dropna From Series"
+              "description": "Whether to drop the training rows with missing values; false fails when the data has missing values and the estimator does not accept them. Machine learning forecasters only. Null lets the rule decide again. Omitted, a choice made before is kept."
             }
           },
-          "title": "RefinePlanArgs",
           "type": "object"
-        }
-      },
-      "additionalProperties": false,
-      "properties": {
-        "plan_id": {
-          "description": "Id of the plan to refine.",
-          "title": "Plan Id",
-          "type": "string"
         },
-        "overrides": {
-          "$ref": "#/$defs/RefinePlanArgs",
-          "description": "Values to change, e.g. {'estimator': 'Ridge', 'lags': 12}. An omitted key keeps the value of the plan; {'lags': null} selects the lags again and {'interval': null} removes the interval."
+        "Metric": {
+          "enum": [
+            "mean_squared_error",
+            "mean_absolute_error",
+            "mean_absolute_percentage_error",
+            "mean_squared_log_error",
+            "mean_absolute_scaled_error",
+            "root_mean_squared_scaled_error",
+            "median_absolute_error",
+            "symmetric_mean_absolute_percentage_error"
+          ],
+          "type": "string"
         }
-      },
-      "required": [
-        "plan_id",
-        "overrides"
-      ],
-      "title": "refine_planArguments"
+      }
     },
     "output_schema": {
       "$defs": {
@@ -1025,7 +976,6 @@
       "properties": {
         "plan_id": {
           "description": "Id of the plan to backtest (from `plan` or `refine_plan`).",
-          "title": "Plan Id",
           "type": "string"
         },
         "initial_train_size": {
@@ -1042,8 +992,7 @@
             }
           ],
           "default": null,
-          "description": "Observations of the first training set (a number), or the ISO 8601 date that ends it ('2005-06-01'). Null for the default: 70 % of the series, at least what the lags need and leaving room for two folds, written as a date when the data has dates.",
-          "title": "Initial Train Size"
+          "description": "Observations of the first training set (a number), or the ISO 8601 date that ends it ('2005-06-01'). Null for the default: 70 % of the series, at least what the lags need and leaving room for two folds, written as a date when the data has dates."
         },
         "fold_stride": {
           "anyOf": [
@@ -1056,8 +1005,7 @@
             }
           ],
           "default": null,
-          "description": "Observations the test set advances between folds. Null for `steps` (back-to-back folds); a larger value means fewer folds.",
-          "title": "Fold Stride"
+          "description": "Observations the test set advances between folds. Null for `steps` (back-to-back folds); a larger value means fewer folds."
         },
         "refit": {
           "anyOf": [
@@ -1073,8 +1021,7 @@
             }
           ],
           "default": null,
-          "description": "Whether to train again in every fold (true), never (false) or every n folds (an integer). Null for false: train once. Refitting multiplies the cost; ForecasterStats is refitted in every fold whatever it says.",
-          "title": "Refit"
+          "description": "Whether to train again in every fold (true), never (false) or every n folds (an integer). Null for false: train once. Refitting multiplies the cost; ForecasterStats is refitted in every fold whatever it says."
         },
         "fixed_train_size": {
           "anyOf": [
@@ -1086,8 +1033,7 @@
             }
           ],
           "default": null,
-          "description": "Whether the training window keeps its size when refitting (true) or grows (false). Null for false. Only with `refit` true or an integer: with `refit` false or null it is an error, as it would not run (ForecasterStats aside).",
-          "title": "Fixed Train Size"
+          "description": "Whether the training window keeps its size when refitting (true) or grows (false). Null for false. Only with `refit` true or an integer: with `refit` false or null it is an error, as it would not run (ForecasterStats aside)."
         },
         "gap": {
           "anyOf": [
@@ -1100,8 +1046,7 @@
             }
           ],
           "default": null,
-          "description": "Observations between the end of training and the test set. Null for 0. A direct forecaster (ForecasterDirect, ForecasterDirectMultiVariate) cannot be backtested with a gap.",
-          "title": "Gap"
+          "description": "Observations between the end of training and the test set. Null for 0. A direct forecaster (ForecasterDirect, ForecasterDirectMultiVariate) cannot be backtested with a gap."
         },
         "skip_folds": {
           "anyOf": [
@@ -1121,8 +1066,7 @@
             }
           ],
           "default": null,
-          "description": "Folds are numbered from 0, and fold 0 always runs. An integer n keeps folds 0, n, 2n, ...; a list skips the folds at those numbers (each at least 1 and below the number of folds). Null for every fold.",
-          "title": "Skip Folds"
+          "description": "Folds are numbered from 0, and fold 0 always runs. An integer n keeps folds 0, n, 2n, ...; a list skips the folds at those numbers (each at least 1 and below the number of folds). Null for every fold."
         },
         "allow_incomplete_fold": {
           "anyOf": [
@@ -1134,14 +1078,12 @@
             }
           ],
           "default": null,
-          "description": "Whether the last fold may have fewer than `steps` observations. Null for true.",
-          "title": "Allow Incomplete Fold"
+          "description": "Whether the last fold may have fewer than `steps` observations. Null for true."
         }
       },
       "required": [
         "plan_id"
-      ],
-      "title": "create_cvArguments"
+      ]
     },
     "output_schema": {
       "$defs": {
@@ -1290,7 +1232,6 @@
       "properties": {
         "cv_id": {
           "description": "Id returned by `create_cv`.",
-          "title": "Cv Id",
           "type": "string"
         },
         "plan_id": {
@@ -1303,14 +1244,12 @@
             }
           ],
           "default": null,
-          "description": "Plan to backtest, built from the same profile. Null for the plan the cross-validation strategy was built for.",
-          "title": "Plan Id"
+          "description": "Plan to backtest, built from the same profile. Null for the plan the cross-validation strategy was built for."
         }
       },
       "required": [
         "cv_id"
-      ],
-      "title": "backtestArguments"
+      ]
     },
     "output_schema": {
       "$defs": {
@@ -1455,6 +1394,73 @@
     },
     "input_schema": {
       "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cv_id": {
+          "description": "Id returned by `create_cv`: every candidate is backtested on its folds.",
+          "type": "string"
+        },
+        "candidates": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/CandidateArg"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Configurations to compare, each {'name': ..., 'config': {...}}, e.g. [{'name': 'ridge', 'config': {'estimator': 'Ridge'}}]. Null for the candidates recommended by the profile: the forecasters of its family (with several series, ForecasterRecursiveMultiSeries and ForecasterFoundation), or the estimators of the recommended forecaster when that leaves one, without those above 500 estimator fits. A candidate that fails is ranked last with its error."
+        },
+        "interval": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Prediction interval computed for every candidate. Prediction interval as two quantiles [lower, upper] with 0 < lower < upper < 1, e.g. [0.1, 0.9] for 80 %. The baseline and ForecasterStats only take symmetric ones (lower + upper = 1). Null for the interval of the plan the strategy was built for."
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/Metric"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metric of every candidate. Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null for the metric chosen for the plan the strategy was built for, if one was chosen, else the one selected from the data."
+        },
+        "baseline": {
+          "default": true,
+          "description": "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) to the ranking.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cv_id"
+      ],
       "$defs": {
         "CandidateArg": {
           "additionalProperties": false,
@@ -1462,7 +1468,6 @@
           "properties": {
             "name": {
               "description": "Unique name of the candidate, which labels its row of the leaderboard. 'Baseline (seasonal naive)' and 'Baseline (naive)' are reserved for the baseline.",
-              "title": "Name",
               "type": "string"
             },
             "config": {
@@ -1473,7 +1478,6 @@
           "required": [
             "name"
           ],
-          "title": "CandidateArg",
           "type": "object"
         },
         "CandidateArgs": {
@@ -1491,12 +1495,10 @@
                 "ForecasterFoundation",
                 "ForecasterEquivalentDate"
               ],
-              "title": "Forecaster",
               "type": "string"
             },
             "estimator": {
               "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none.",
-              "title": "Estimator",
               "type": "string"
             },
             "estimator_kwargs": {
@@ -1509,8 +1511,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms.",
-              "title": "Estimator Kwargs"
+              "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms."
             },
             "lags": {
               "anyOf": [
@@ -1527,8 +1528,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Lags: an integer n for 1..n, or a list of distinct positive integers. Null selects them from the partial autocorrelation.",
-              "title": "Lags"
+              "description": "Lags: an integer n for 1..n, or a list of distinct positive integers. Null selects them from the partial autocorrelation."
             },
             "window_features": {
               "anyOf": [
@@ -1555,8 +1555,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Rolling features, one entry per window size: {'stats': [...], 'window_size': n}, with stats among ['mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', 'coef_variation', 'ewm'], e.g. [{'stats': ['mean', 'std'], 'window_size': 7}]. Null selects them with the deterministic rules.",
-              "title": "Window Features"
+              "description": "Rolling features, one entry per window size: {'stats': [...], 'window_size': n}, with stats among ['mean', 'std', 'min', 'max', 'sum', 'median', 'ratio_min_max', 'coef_variation', 'ewm'], e.g. [{'stats': ['mean', 'std'], 'window_size': 7}]. Null selects them with the deterministic rules."
             },
             "use_exog": {
               "anyOf": [
@@ -1567,8 +1566,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null uses them whenever the forecaster can.",
-              "title": "Use Exog"
+              "description": "Whether to use the exogenous columns of the data: false leaves them out (forecast then takes no exog_path); true fails when the data has none or the forecaster cannot use them. Null uses them whenever the forecaster can."
             },
             "differentiation": {
               "anyOf": [
@@ -1580,8 +1578,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. The candidate runs on a copy of the strategy with this order.",
-              "title": "Differentiation"
+              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. The candidate runs on a copy of the strategy with this order."
             },
             "calendar_features": {
               "anyOf": [
@@ -1608,8 +1605,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Calendar features generated from the dates (an empty list for none); the encoding follows the estimator. A feature whose column is already an exogenous column used by the plan is rejected. Machine learning forecasters with a datetime index only. Null selects them from the frequency.",
-              "title": "Calendar Features"
+              "description": "Calendar features generated from the dates (an empty list for none); the encoding follows the estimator. A feature whose column is already an exogenous column used by the plan is rejected. Machine learning forecasters with a datetime index only. Null selects them from the frequency."
             },
             "target_transformer": {
               "anyOf": [
@@ -1624,8 +1620,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Scaler of the target: 'StandardScaler', or 'none' for no scaling. Machine learning forecasters only. Null for the rule.",
-              "title": "Target Transformer"
+              "description": "Scaler of the target: 'StandardScaler', or 'none' for no scaling. Machine learning forecasters only. Null for the rule."
             },
             "dropna_from_series": {
               "anyOf": [
@@ -1636,107 +1631,25 @@
                   "type": "null"
                 }
               ],
-              "description": "Whether to drop the training rows with missing values; false fails when the data has missing values and the estimator does not accept them. Machine learning forecasters only. Null for the rule.",
-              "title": "Dropna From Series"
+              "description": "Whether to drop the training rows with missing values; false fails when the data has missing values and the estimator does not accept them. Machine learning forecasters only. Null for the rule."
             }
           },
-          "title": "CandidateArgs",
           "type": "object"
-        }
-      },
-      "additionalProperties": false,
-      "properties": {
-        "cv_id": {
-          "description": "Id returned by `create_cv`: every candidate is backtested on its folds.",
-          "title": "Cv Id",
+        },
+        "Metric": {
+          "enum": [
+            "mean_squared_error",
+            "mean_absolute_error",
+            "mean_absolute_percentage_error",
+            "mean_squared_log_error",
+            "mean_absolute_scaled_error",
+            "root_mean_squared_scaled_error",
+            "median_absolute_error",
+            "symmetric_mean_absolute_percentage_error"
+          ],
           "type": "string"
-        },
-        "candidates": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/CandidateArg"
-              },
-              "minItems": 1,
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Configurations to compare, each {'name': ..., 'config': {...}}, e.g. [{'name': 'ridge', 'config': {'estimator': 'Ridge'}}]. Null for the candidates recommended by the profile: the forecasters of its family (with several series, ForecasterRecursiveMultiSeries and ForecasterFoundation), or the estimators of the recommended forecaster when that leaves one, without those above 500 estimator fits. A candidate that fails is ranked last with its error.",
-          "title": "Candidates"
-        },
-        "interval": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "number"
-              },
-              "maxItems": 2,
-              "minItems": 2,
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Prediction interval computed for every candidate. Prediction interval as two quantiles [lower, upper] with 0 < lower < upper < 1, e.g. [0.1, 0.9] for 80 %. The baseline and ForecasterStats only take symmetric ones (lower + upper = 1). Null for the interval of the plan the strategy was built for.",
-          "title": "Interval"
-        },
-        "metric": {
-          "anyOf": [
-            {
-              "enum": [
-                "mean_squared_error",
-                "mean_absolute_error",
-                "mean_absolute_percentage_error",
-                "mean_squared_log_error",
-                "mean_absolute_scaled_error",
-                "root_mean_squared_scaled_error",
-                "median_absolute_error",
-                "symmetric_mean_absolute_percentage_error"
-              ],
-              "type": "string"
-            },
-            {
-              "items": {
-                "enum": [
-                  "mean_squared_error",
-                  "mean_absolute_error",
-                  "mean_absolute_percentage_error",
-                  "mean_squared_log_error",
-                  "mean_absolute_scaled_error",
-                  "root_mean_squared_scaled_error",
-                  "median_absolute_error",
-                  "symmetric_mean_absolute_percentage_error"
-                ],
-                "type": "string"
-              },
-              "minItems": 1,
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Metric of every candidate. Metric, or list of metrics whose first one is the primary metric (the one that ranks); only the ones given are computed. Null for the metric chosen for the plan the strategy was built for, if one was chosen, else the one selected from the data.",
-          "title": "Metric"
-        },
-        "baseline": {
-          "default": true,
-          "description": "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) to the ranking.",
-          "title": "Baseline",
-          "type": "boolean"
         }
-      },
-      "required": [
-        "cv_id"
-      ],
-      "title": "compareArguments"
+      }
     },
     "output_schema": {
       "$defs": {
@@ -1885,7 +1798,6 @@
       "properties": {
         "plan_id": {
           "description": "Id of the plan to run (from `plan`, `refine_plan` or `links.best_plan_id` of `compare`).",
-          "title": "Plan Id",
           "type": "string"
         },
         "test_size": {
@@ -1904,8 +1816,7 @@
             }
           ],
           "default": null,
-          "description": "Null to forecast the future. To evaluate instead, the test set: the last n observations (an integer, which must equal `steps`) or the ISO 8601 date it starts at. A fraction in (0, 1) only works when it gives exactly `steps` observations.",
-          "title": "Test Size"
+          "description": "Null to forecast the future. To evaluate instead, the test set: the last n observations (an integer, which must equal `steps`) or the ISO 8601 date it starts at. A fraction in (0, 1) only works when it gives exactly `steps` observations."
         },
         "exog_path": {
           "anyOf": [
@@ -1917,14 +1828,12 @@
             }
           ],
           "default": null,
-          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon. Required to forecast the future when the plan uses exogenous variables. The script of `get_code` reads them from 'exog_future.csv' in its working directory.",
-          "title": "Exog Path"
+          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon. Required to forecast the future when the plan uses exogenous variables. The script of `get_code` reads them from 'exog_future.csv' in its working directory."
         }
       },
       "required": [
         "plan_id"
-      ],
-      "title": "forecastArguments"
+      ]
     },
     "output_schema": {
       "$defs": {
@@ -2073,7 +1982,6 @@
       "properties": {
         "object_id": {
           "description": "Id of a plan (its forecasting script), a cross-validation strategy (the code that builds it), a backtest, a forecast or a comparison (the script that ran).",
-          "title": "Object Id",
           "type": "string"
         },
         "candidate": {
@@ -2086,14 +1994,12 @@
             }
           ],
           "default": null,
-          "description": "For a comparison, the candidate whose script to return. Null for the best one.",
-          "title": "Candidate"
+          "description": "For a comparison, the candidate whose script to return. Null for the best one."
         }
       },
       "required": [
         "object_id"
-      ],
-      "title": "get_codeArguments"
+      ]
     },
     "output_schema": {
       "additionalProperties": false,
@@ -2176,7 +2082,6 @@
       "properties": {
         "object_id": {
           "description": "`details.failure_id` of an error, or the id of a comparison whose candidate failed.",
-          "title": "Object Id",
           "type": "string"
         },
         "candidate": {
@@ -2189,14 +2094,12 @@
             }
           ],
           "default": null,
-          "description": "Name of the failed candidate of a comparison.",
-          "title": "Candidate"
+          "description": "Name of the failed candidate of a comparison."
         }
       },
       "required": [
         "object_id"
-      ],
-      "title": "get_failureArguments"
+      ]
     },
     "output_schema": {
       "additionalProperties": false,
@@ -2275,11 +2178,9 @@
             }
           ],
           "default": null,
-          "description": "Only the objects of this kind. Null for every kind.",
-          "title": "Kind"
+          "description": "Only the objects of this kind. Null for every kind."
         }
-      },
-      "title": "list_objectsArguments"
+      }
     },
     "output_schema": {
       "$defs": {
@@ -2368,14 +2269,12 @@
       "properties": {
         "object_id": {
           "description": "Id of a registered object.",
-          "title": "Object Id",
           "type": "string"
         }
       },
       "required": [
         "object_id"
-      ],
-      "title": "describe_objectArguments"
+      ]
     },
     "output_schema": {
       "$defs": {

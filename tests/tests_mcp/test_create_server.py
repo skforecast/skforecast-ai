@@ -15,6 +15,7 @@ from skforecast_ai.mcp.models import (
     ESTIMATOR_KWARGS_DESCRIPTION,
     CandidateArgs,
     ForecasterName,
+    MetricName,
     RefinePlanArgs,
 )
 from skforecast_ai.mcp.server import FOUNDATION_KWARGS
@@ -236,7 +237,10 @@ def test_create_server_schemas_describe_arguments_for_the_agent(tmp_path):
         assert "Attributes" not in text
         assert "ForecastingAssistant" not in text
         assert "RefinePlanOverrides" not in text and "CandidateConfig" not in text
-        for model in schema["$defs"].values():
+        # `Metric` is the list of metrics, shared by the places that take it
+        models = {k: v for k, v in schema["$defs"].items() if k != "Metric"}
+        assert len(models) == len(schema["$defs"]) - 1
+        for model in models.values():
             assert all("description" in p for p in model["properties"].values())
     overrides = refine["$defs"]["RefinePlanArgs"]["properties"]
     assert overrides["forecaster"]["enum"] == list(get_args(ForecasterName))
@@ -254,6 +258,27 @@ def test_create_server_schemas_describe_arguments_for_the_agent(tmp_path):
     assert create_cv["skip_folds"]["anyOf"][1]["items"]["minimum"] == 1
     assert "numbered from 0" in create_cv["skip_folds"]["description"]
     assert schemas["get_failure"]["annotations"]["readOnlyHint"] is True
+
+
+def test_create_server_input_schemas_carry_nothing_redundant(tmp_path):
+    """
+    Test that the input schemas, which a client can load whole in every
+    session, have no generated `title` and list the metrics once per tool,
+    in `$defs`, wherever an argument takes them.
+    """
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    schemas = {tool["name"]: tool["input_schema"] for tool in tool_schemas(server)}
+
+    assert all('"title": "' not in json.dumps(schema) for schema in schemas.values())
+    for name in ("plan", "refine_plan", "compare"):
+        text = json.dumps(schemas[name])
+        assert schemas[name]["$defs"]["Metric"]["enum"] == list(get_args(MetricName))
+        assert text.count("root_mean_squared_scaled_error") == 1
+    assert schemas["plan"]["properties"]["metric"]["anyOf"] == [
+        {"$ref": "#/$defs/Metric"},
+        {"items": {"$ref": "#/$defs/Metric"}, "minItems": 1, "type": "array"},
+        {"type": "null"},
+    ]
 
 
 def test_create_server_skip_folds_zero_is_invalid_argument(tmp_path):
