@@ -318,7 +318,9 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
         f"Before a run above {LONG_TRAINING_FITS} estimator fits",
         "Read `notices` before reporting",
         "`compare` without `interval` uses the interval of the plan",
-        "Never modify the user's data",
+        "Never modify the user's data, nor write data for them: future "
+        "values of exogenous variables come from the user, or the plan leaves "
+        "them out (`use_exog: false`) and you say so",
         "only with their permission write a corrected copy",
         "Foundation models other than the default",
         "Below 1 it beats the one-step naive forecast (repeat the previous "

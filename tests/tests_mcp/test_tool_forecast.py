@@ -196,8 +196,9 @@ def test_tool_forecast_file_too_large_for_exog_or_grown_data(tmp_path):
 def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
     """
     Test that a plan built with `use_exog=false` forecasts data with
-    exogenous columns without `exog_path`, as the Python API does, and
-    that passing `exog_path` to it is an `invalid_argument`.
+    exogenous columns without `exog_path`, as the Python API does, with a
+    notice that says they were left out, and that passing `exog_path` to it
+    is an `invalid_argument`.
     """
     path = write_csv(tmp_path, "sales.csv", df_single)
     exog_path = write_csv(tmp_path, "future.csv", df_single_future_exog)
@@ -221,7 +222,42 @@ def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
     )
 
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
+    assert [notice["category"] for notice in result["notices"]] == [
+        "ExogLeftOutNotice"
+    ]
     assert (given["code"], given["field"]) == ("invalid_argument", "exog_path")
+
+
+def test_tool_forecast_invalid_argument_when_future_exog_is_missing(tmp_path):
+    """
+    Test that a plan with exogenous variables carries a notice about their
+    future values, and that forecasting it without `exog_path` is
+    `invalid_argument` with a hint that leaves those values to the user:
+    the message of the library offers `test_size`, and an agent without the
+    hint writes the file itself or reports the evaluation as the forecast.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    plan = content_of(call(server, "describe_object", {"object_id": plan_id}))
+    error = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
+
+    assert [notice["category"] for notice in plan["notices"]] == ["FutureExogNotice"]
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        "`exog` is required for future prediction because the data contains "
+        "exogenous variables. Provide future exogenous values covering the "
+        "forecast horizon, or pass `test_size` to run in evaluation mode "
+        "instead."
+    )
+    assert error["hint"] == (
+        "Only the user has the future values: never write, copy or estimate "
+        "them yourself. Ask the user for a CSV file with them, or build the "
+        "plan again with `use_exog: false` and tell the user the exogenous "
+        "variables were left out. Do not pass `test_size`: it evaluates dates "
+        "already in the data, which is not the forecast the user asked for."
+    )
 
 
 def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(

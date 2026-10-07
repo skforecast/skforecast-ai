@@ -158,6 +158,18 @@ DATA_PROBLEM_HINT = (
     "writing a corrected copy; never change their file."
 )
 
+# Hint of `forecast` when the plan uses exogenous variables and no file of
+# future values was given. The message of the library offers `test_size`,
+# right in Python and wrong here: an agent runs the evaluation and reports
+# it as the forecast, or writes the file itself.
+FUTURE_EXOG_HINT = (
+    "Only the user has the future values: never write, copy or estimate them "
+    "yourself. Ask the user for a CSV file with them, or build the plan again "
+    "with `use_exog: false` and tell the user the exogenous variables were "
+    "left out. Do not pass `test_size`: it evaluates dates already in the "
+    "data, which is not the forecast the user asked for."
+)
+
 # The instructions of a server, with the directory it reads in place of
 # `{allowed_dir}`.
 INSTRUCTIONS = """\
@@ -202,7 +214,9 @@ expensive one only if they choose it. Asking to retrain is not that choice.
 4. `compare` without `interval` uses the interval of the plan of the \
 strategy; with an asymmetric one there is no baseline ([0.1, 0.9] is \
 symmetric).
-5. Never modify the user's data. If the CSV has a problem, tell the user; \
+5. Never modify the user's data, nor write data for them: future values of \
+exogenous variables come from the user, or the plan leaves them out \
+(`use_exog: false`) and you say so. If the CSV has a problem, tell the user; \
 only with their permission write a corrected copy inside the allowed \
 directory under a new name and profile it. Never copy a file of the user \
 into that directory yourself: ask them to.
@@ -252,6 +266,68 @@ def _leave_to_user(exc: SkforecastAIError, hints: dict[str, str]) -> None:
 
     if exc.hint is None and exc.field in hints:
         exc.hint = hints[exc.field]
+
+
+def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
+    """
+    Notice about the exogenous columns of the data: on a plan that uses
+    them, that `forecast` needs their future values from the user; on a
+    forecast of a plan that does not, that they were left out.
+
+    The hint of `forecast` arrives after an agent wrote the file of future
+    values itself, which it does as soon as the summary of the plan names
+    that file; and an agent that leaves the columns out seldom says so.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan built, or plan the forecast ran.
+    profile : ForecastingProfile
+        Profile the plan comes from.
+    forecast : bool
+        Whether the notice is for a forecast (True) or for a plan (False).
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice, or none: a plan without exogenous variables, a forecast
+        that uses them, or data without exogenous columns.
+    """
+
+    columns = list(profile.data_profile.exog_columns)
+    if not columns or plan.use_exog == forecast:
+        return []
+    shown = ", ".join(repr(column) for column in columns[:5])
+    if len(columns) > 5:
+        shown += f" (first 5 of {len(columns)})"
+    if forecast:
+        return [
+            ToolNotice(
+                source   = "plan",
+                category = "ExogLeftOutNotice",
+                message  = (
+                    f"Say in your answer that this forecast does not use the "
+                    f"exogenous columns of the data ({shown}): its plan has "
+                    f"`use_exog: false`."
+                ),
+                count    = 1,
+            )
+        ]
+
+    return [
+        ToolNotice(
+            source   = "plan",
+            category = "FutureExogNotice",
+            message  = (
+                f"This plan uses the exogenous columns {shown}: `forecast` "
+                f"needs their future values, which only the user has, in a "
+                f"CSV file (`exog_path`). Never write that file yourself: ask "
+                f"the user for it, or use `use_exog: false` and tell them "
+                f"those columns were left out."
+            ),
+            count    = 1,
+        )
+    ]
 
 
 def _metric_notices(metrics: Any) -> list[ToolNotice]:
@@ -1267,6 +1343,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 [state.models.model_of(new_plan.forecaster, new_plan.estimator)],
                 uncached,
             )
+            server_notices += _exog_notices(new_plan, source.profile, forecast=False)
             # The plan carries its own warnings and the problems of the data
             # it was built from, also when they were not emitted this call.
             texts = [
@@ -2024,6 +2101,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     plan      = _copy(plan_entry.obj),
                 )
             except SkforecastAIError as exc:
+                if exog_path is None:
+                    _leave_to_user(exc, {"exog": FUTURE_EXOG_HINT})
                 _keep_failure(exc)
                 raise
             _inputs.check_unchanged(path, plan_entry.data_sha256, "data_path")
@@ -2052,7 +2131,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                             outcome.warnings,
                             plan_warnings  = result.plan.warnings,
                             data_warnings  = plan_entry.data_warnings,
-                            server_notices = _metric_notices(result.metrics),
+                            server_notices = [
+                                *_metric_notices(result.metrics),
+                                *_exog_notices(
+                                    result.plan, plan_entry.profile, forecast=True
+                                ),
+                            ],
                         ),
             source    = plan_entry,
             code      = result.code,

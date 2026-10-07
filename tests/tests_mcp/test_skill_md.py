@@ -241,6 +241,8 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "Report what was measured, never why",
         "The server does not search hyperparameters",
         "Do not do any of it another way in the same answer",
+        "Never write those values yourself, nor answer with a `test_size` "
+        "evaluation instead",
     ],
     ids=lambda phrase: phrase[:40],
 )

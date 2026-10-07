@@ -72,11 +72,14 @@ candidates).
    The candidates do not take `use_exog` from that plan: to compare
    without exogenous variables, `profile` with `exog_columns: []`.
 7. `forecast(plan_id, test_size?, exog_path?)`: the future. `exog_path` is
-   required when the plan uses exogenous variables. With `test_size` it is
-   a single hold-out evaluation instead, without `exog_path`: pass the
-   integer `steps` (the last `steps` observations) or the ISO 8601 date the
-   test set starts at. A fraction only works when it gives exactly `steps`
-   observations.
+   required when the plan uses exogenous variables: without a file of
+   future values from the user, ask for it, or build the plan again with
+   `use_exog: false` and say that they were left out. Never write those
+   values yourself, nor answer with a `test_size` evaluation instead. With
+   `test_size` it is a single hold-out evaluation instead, without
+   `exog_path`: pass the integer `steps` (the last `steps` observations) or
+   the ISO 8601 date the test set starts at. A fraction only works when it
+   gives exactly `steps` observations.
 
 `get_code(object_id)` returns the Python script that ran (for a plan, the
 one that would run; a profile has none), so the user can reproduce any

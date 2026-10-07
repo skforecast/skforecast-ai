@@ -334,12 +334,9 @@ class ToolNotice(BaseModel):
         call).
     category : str
         Class name of the warning (e.g. `'LongTrainingWarning'`), or the
-        name of a notice of the server: `'ModelDownloadNotice'` (a
-        foundation model will download its weights; it carries the license),
-        `'ModelLicenseNotice'` (the license of a foundation model, when no
-        download is announced), `'MetricReferenceNotice'` (what MASE and
-        RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that
-        costs more than the plan).
+        name of a notice of the server (e.g. `'ModelDownloadNotice'`,
+        `'MetricReferenceNotice'`): the reference of the MCP server lists
+        them.
     message : str
         Text of the warning, without the suggestion of skforecast on how to
         silence it, cut to 1,000 characters.
