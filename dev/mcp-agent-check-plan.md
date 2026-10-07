@@ -56,10 +56,16 @@ Por cada escenario y repetición:
    log del servidor (ids de `internal_error`, tracebacks).
 3. **Sesión**: `claude -p "<petición>" --mcp-config <cfg> --strict-mcp-config
    --setting-sources project --output-format stream-json --verbose
-   --model <modelo> --max-budget-usd <tope> --allowedTools <lista>`, con
-   tiempo máximo. Los turnos siguientes de un escenario con varios turnos
-   usan `--resume <session_id>` con respuestas de usuario escritas de
-   antemano ("sí, adelante", "no, no toques mi fichero").
+   --model <modelo> --allowedTools <lista>`, con un tiempo máximo y un
+   máximo de turnos que vigila el runner (cuenta los turnos en el
+   `stream-json` y corta el proceso al pasarse). Los turnos siguientes de
+   un escenario con varios turnos usan `--resume <session_id>` con
+   respuestas de usuario escritas de antemano ("sí, adelante", "no, no
+   toques mi fichero"). Las sesiones usan la suscripción de Claude con la
+   que la CLI ha iniciado sesión, nunca la API: el runner quita
+   `ANTHROPIC_API_KEY` y las variables de otros proveedores del entorno de
+   cada sesión, y comprueba con `claude auth status` que el método es
+   `claude.ai` antes de empezar.
 4. **Permisos por escenario**: siempre las herramientas `mcp__skforecast-ai__*`,
    `Read`, `Glob`, `Grep` y `Skill`; `Write` y `Bash(curl:*)` solo donde el
    escenario lo necesita. Lo denegado queda en la traza (`permission_denials`)
@@ -69,7 +75,13 @@ Por cada escenario y repetición:
    (herramientas, servidores MCP, skills y plugins cargados, para demostrar
    que la sesión estaba aislada), cada `tool_use` con sus argumentos, cada
    `tool_result`, el texto del agente y el resultado final (turnos, duración,
-   tokens, coste).
+   tokens, coste equivalente).
+6. **Reanudación y límite de uso**: una ejecución se identifica por su
+   carpeta; al relanzarla, el runner se salta cada escenario y repetición
+   que ya tiene una traza terminada. Si una sesión acaba por el límite de
+   uso de la suscripción, se marca como `interrumpida` (no como fallo), no
+   se guarda como terminada, y el runner para e imprime qué queda y cómo
+   continuar. Tampoco cuenta como fallo del agente un error del proveedor.
 
 Datos: los mismos que `check_ask_context.py` (`h2o`, `bike_sharing`,
 `items_sales` ancho y largo, con `fetch_dataset`), recortados para acotar el
@@ -122,7 +134,7 @@ lo que tendrá quien añada el servidor a mano en Cursor o Claude Desktop.
    herramientas prohibidas, códigos de error esperados, ninguna llamada
    fallida repetida con los mismos argumentos, rutas absolutas, el fichero
    del usuario sin cambios (hash antes y después), el skill cargado cuando
-   existe, la sesión terminada dentro del tope de tiempo y de coste.
+   existe, la sesión terminada dentro del tope de tiempo y de turnos.
 2. **Cifras con origen**: cada número de la respuesta final se busca en las
    respuestas de las herramientas y en los ficheros que el agente leyó. Los
    que no aparecen se listan como "sin origen" para revisarlos a mano (puede
@@ -204,8 +216,11 @@ No lo cubre este check y va como lista manual en el README:
    CLI: que `--setting-sources project` deja fuera la configuración, los
    plugins y la memoria del usuario (se ve en el evento `init`), que el
    skill del proyecto se carga con `-p`, el patrón de `--allowedTools` para
-   las herramientas MCP y que `--resume` sirve para los turnos siguientes.
-   Si alguno falla, se ajusta el diseño antes de seguir.
+   las herramientas MCP, que `--resume` sirve para los turnos siguientes,
+   que la sesión anidada usa la suscripción (y no una clave de API), cómo
+   se ve en la traza una sesión cortada por el límite de uso y si
+   `--max-budget-usd` corta con suscripción. Si alguno falla, se ajusta el
+   diseño antes de seguir.
 3. Analizador de trazas, comprobaciones automáticas, cifras con origen y
    generación de `report.md` y `results.json`.
 4. Catálogo completo de escenarios, datos sucios y turnos múltiples.
@@ -235,8 +250,22 @@ No lo cubre este check y va como lista manual en el README:
 
 ## Coste
 
-Las sesiones consumen de tu cuenta de Claude. El piloto son unas 23
-sesiones; la ejecución de release, unas 80. Cada sesión lleva un tope con
-`--max-budget-usd` y un tiempo máximo, y los datos se recortan para que un
-`compare` no pase de unos minutos. El runner imprime el coste real de cada
-sesión y el total, y `--scenarios` permite relanzar solo lo que cambió.
+Las sesiones usan la suscripción de Claude (plan Max, inicio de sesión de
+`claude.ai`), no la API: no hay factura por token ni hace falta una clave
+de Anthropic. Lo que se gasta es la cuota de uso del plan, la misma del
+trabajo diario, así que el riesgo es agotarla a mitad de una ejecución. La
+clave de Google no interviene: solo la usa `check_ask_context.py`.
+
+El piloto son unas 23 sesiones; la ejecución de release, unas 80. Para
+acotarlas:
+
+- cada sesión tiene un tiempo máximo y un máximo de turnos, y los datos se
+  recortan para que un `compare` no pase de unos minutos;
+- el coste que informa cada sesión es un equivalente calculado, no un
+  cargo; el informe lo muestra como medida relativa entre escenarios y
+  releases, junto a los tokens;
+- `--max-budget-usd` solo se usa si el paso 2 confirma que corta también
+  con suscripción;
+- la ejecución de release se puede repartir en varios días: el runner
+  reanuda donde se quedó y para limpio al alcanzar el límite de uso;
+- `--scenarios` permite relanzar solo lo que cambió.
