@@ -213,3 +213,35 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
     skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
 
     assert phrase in skill
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "the directory the server may read, which its instructions name",
+        "divide the error by that of the one-step naive forecast (repeat the "
+        "previous value) on the training data",
+        "never report a value below 1 as beating either",
+        "Never copy or move a file of the user into that directory yourself",
+        "Do not copy or move it yourself: tell the user, who can copy it there "
+        "or restart the server with another `--allow-dir`",
+        "State a license only as a response gives it: a `ModelLicenseNotice` "
+        "or a `ModelDownloadNotice`",
+        "`requirements`, the packages to install for it with the versions the "
+        "server runs",
+        "Hand the script as it is; if you change anything",
+        "An error names the first problem it finds",
+    ],
+    ids=lambda phrase: phrase[:40],
+)
+def test_skill_md_states_the_rules_agents_broke_in_the_agent_check(phrase):
+    """
+    Test that SKILL.md keeps the rules added after the sessions of the MCP
+    agent check: where the allowed directory is named, what MASE is scaled
+    by, that the agent never copies a file of the user into the allowed
+    directory, that a license is quoted from a response, what `get_code`
+    says to install and that an error names one problem of a file.
+    """
+    skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
+
+    assert phrase in skill

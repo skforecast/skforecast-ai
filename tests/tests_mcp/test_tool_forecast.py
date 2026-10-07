@@ -50,10 +50,15 @@ def test_tool_forecast_output_matches_python_api(tmp_path, test_size):
     assert result["links"] == {"profile_id": profile_id, "plan_id": plan_id}
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
+    # Only an evaluation has metrics, and with them the notice that gives
+    # the reference of MASE.
+    categories = [notice["category"] for notice in result["notices"]]
     if test_size is None:
         assert sorted(result["files"]) == ["predictions"]
+        assert categories == []
     else:
         assert text_of(result["files"]["metrics"]) == expected.metrics.to_csv()
+        assert categories == ["MetricReferenceNotice"]
     assert code == expected.code
 
 

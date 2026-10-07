@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import ast
 import copy
 import functools
 import json
@@ -17,6 +18,7 @@ import threading
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
+from importlib import metadata
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args, get_origin
 import anyio
@@ -34,6 +36,7 @@ from .._constants import (
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
 )
+from .._foundation import resolve_foundation_model
 from .._utils import (
     load_exog,
     plan_override_value,
@@ -138,13 +141,30 @@ NonNegative = Annotated[int, Field(ge=0)]
 # same order, a strategy records when the user passes them.
 CV_ARGUMENTS = CV_OVERRIDE_NAMES
 
+# Metrics scaled by the error of a naive forecast, as the metrics of a
+# backtest (the names of skforecast) and of a forecast (short names) call
+# them.
+SCALED_METRICS = {
+    "mean_absolute_scaled_error": "mean_absolute_scaled_error",
+    "root_mean_squared_scaled_error": "root_mean_squared_scaled_error",
+    "MASE": "mean_absolute_scaled_error",
+    "RMSSE": "root_mean_squared_scaled_error",
+}
+
+# The instructions of a server, with the directory it reads in place of
+# `{allowed_dir}`.
 INSTRUCTIONS = """\
 Deterministic time series forecasting with skforecast. Every decision \
 (forecaster, estimator, lags, metric, cross-validation) comes from rules, \
 never from a language model, and is reproducible.
 
-Workflow: `profile` a CSV file (absolute path inside the directory the server \
-may read) -> `plan` with a horizon (`steps`) -> optionally `refine_plan` -> \
+The server reads CSV files only inside '{allowed_dir}' (subdirectories \
+included). Tools take absolute paths: a file the user names by a relative \
+path or by its name is looked for there, so build the path from that \
+directory instead of searching the file system.
+
+Workflow: `profile` a CSV file (absolute path inside that directory) -> \
+`plan` with a horizon (`steps`) -> optionally `refine_plan` -> \
 `create_cv` (check its `cost`) -> `backtest` -> optionally `compare` -> \
 `forecast`. Each tool returns an `id`; later tools take ids, never objects. \
 Every response has a plain-text `summary` and the warnings of the call in \
@@ -160,9 +180,11 @@ Rules (the skforecast-ai-forecasting skill has the rest):
 1. Trust: a `compare` whose winner beats the baseline > a `backtest` > a \
 `forecast` with `test_size` (one window) > a `forecast` of the future (no \
 error measure). Without a baseline (several series, or a target with gaps), \
-judge each series by `mean_absolute_scaled_error` in the CSV of metrics \
-(below 1 beats a naive forecast) and name the worst one: the summary only \
-has the average. Never invent a number.
+judge each series by `mean_absolute_scaled_error` in the CSV of metrics and \
+name the worst one: the summary only has the average. Below 1 it beats the \
+one-step naive forecast (repeat the previous value) on the training data, \
+which is not a seasonal naive forecast nor the baseline of `compare`. Never \
+invent a number.
 2. Cost: read `cost` of `create_cv` before running; above 50 estimator fits \
 tell the user and prefer fewer folds or `refit=false`.
 3. Read `notices` before reporting and tell the user about data problems \
@@ -172,10 +194,70 @@ strategy; with an asymmetric one there is no baseline ([0.1, 0.9] is \
 symmetric).
 5. Never modify the user's data. If the CSV has a problem, tell the user; \
 only with their permission write a corrected copy inside the allowed \
-directory under a new name and profile it.
+directory under a new name and profile it. Never copy a file of the user \
+into that directory yourself: ask them to.
 6. Foundation models other than the default (Chronos-2) have their own \
-license and size: tell the user before choosing one.\
+license and size: tell the user before choosing one. State the license of a \
+model only as a notice or an error gives it.\
 """
+
+
+def _instructions(allowed: AllowedDir) -> str:
+    """
+    Instructions of a server that reads a directory. They name it: an agent
+    that does not know it searches the file system for the files the user
+    names by a relative path.
+    """
+
+    return INSTRUCTIONS.format(allowed_dir=allowed.path)
+
+
+def _metric_notices(metrics: Any) -> list[ToolNotice]:
+    """
+    Notice with the reference of the scaled metrics (MASE, RMSSE) among the
+    metrics of a backtest or a forecast.
+
+    The summary of a comparison states it; the one of a backtest or a
+    forecast gives the value alone, which agents read as the error against
+    a seasonal naive forecast.
+
+    Parameters
+    ----------
+    metrics : pandas DataFrame, None
+        Metrics of the result, one column per metric.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`) when a scaled metric was computed,
+        else empty.
+    """
+
+    if metrics is None:
+        return []
+    names = list(dict.fromkeys(
+        SCALED_METRICS[column] for column in metrics.columns
+        if column in SCALED_METRICS
+    ))
+    if not names:
+        return []
+    shown = " and ".join(f"`{name}`" for name in names)
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricReferenceNotice",
+            message  = (
+                f"{shown} divide{'s' if len(names) == 1 else ''} the error "
+                f"by that of the one-step naive forecast (repeat the previous "
+                f"value) on the training data: below 1 the error is smaller "
+                f"than that reference. The reference is not a seasonal naive "
+                f"forecast nor the baseline of `compare`, so do not report a "
+                f"value below 1 as beating either."
+            ),
+            count    = 1,
+        )
+    ]
 
 
 def _accepts_text(annotation: Any) -> bool:
@@ -716,6 +798,68 @@ def _text_notices(
     ]
 
 
+@functools.lru_cache(maxsize=1)
+def _distributions() -> dict[str, list[str]]:
+    """
+    Installed distributions by the module they provide (`sklearn` comes
+    from `scikit-learn`), read once: it scans every installed package.
+    """
+
+    return dict(metadata.packages_distributions())
+
+
+def _pinned(package: str) -> str:
+    """
+    A package with the version installed where the server runs
+    (`'pandas==2.3.1'`), or the package alone when it is not installed.
+    """
+
+    try:
+        return f"{package}=={metadata.version(package.split('[', 1)[0])}"
+    except metadata.PackageNotFoundError:
+        return package
+
+
+def _requirements(code: str, model_id: str | None) -> list[str]:
+    """
+    Packages a script needs to run outside the server.
+
+    Parameters
+    ----------
+    code : str
+        Script, whole.
+    model_id : str, None
+        Foundation model the script runs, whose backend skforecast imports
+        when it loads the model: the script does not import it.
+
+    Returns
+    -------
+    requirements : list of str
+        The packages of the modules the script imports, sorted, then the
+        backend of the foundation model, each with the version installed
+        where the server runs.
+    """
+
+    modules = set()
+    for node in ast.walk(ast.parse(code)):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            modules.add(node.module.split(".")[0])
+    distributions = _distributions()
+    packages = sorted(
+        sorted(distributions.get(module, [module]))[0]
+        for module in modules - sys.stdlib_module_names
+    )
+    if model_id is not None:
+        try:
+            packages.append(resolve_foundation_model(model_id).backend_package)
+        except InvalidInputError:
+            pass
+
+    return [_pinned(package) for package in dict.fromkeys(packages)]
+
+
 def _check_test_size_date(test_size: object) -> None:
     """
     Reject a `test_size` given as text that is not a date before anything
@@ -980,9 +1124,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         summary: tuple[str, bool, dict[str, str]],
         code: tuple[str, str | None],
         notices: tuple[list, int] | None = None,
-        server_notices: list | None = None,
+        uncached: Iterable[str] = (),
     ) -> ToolResult:
         if notices is None:
+            # The license of its foundation model, in the announcement of
+            # the download when one is due.
+            server_notices = state.models.notices(
+                [state.models.model_of(new_plan.forecaster, new_plan.estimator)],
+                uncached,
+            )
             # The plan carries its own warnings and the problems of the data
             # it was built from, also when they were not emitted this call.
             texts = [
@@ -995,7 +1145,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 outcome_warnings,
                 plan_warnings  = new_plan.warnings,
                 data_warnings  = source.data_warnings,
-                server_notices = [*(server_notices or ()), *texts],
+                server_notices = [*server_notices, *texts],
             )
         return _register(
             state,
@@ -1115,7 +1265,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         return _plan_envelope(
             object_id, new_plan, profile_entry, outcome.warnings,
             {"profile_id": profile_entry.id}, summary, code,
-            server_notices = state.models.announce(uncached),
+            uncached = uncached,
         )
 
     @_reported
@@ -1163,7 +1313,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             object_id, new_plan, plan_entry, outcome.warnings,
             {"profile_id": plan_entry.profile_id, "parent_plan_id": plan_entry.id},
             summary, code,
-            server_notices = state.models.announce(uncached),
+            uncached = uncached,
         )
 
     @_reported
@@ -1444,8 +1594,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             summary   = summary,
             notices   = build_notices(
                             outcome.warnings,
-                            plan_warnings = result.plan.warnings,
-                            data_warnings = cv_entry.data_warnings,
+                            plan_warnings  = result.plan.warnings,
+                            data_warnings  = cv_entry.data_warnings,
+                            server_notices = _metric_notices(result.metrics),
                         ),
             source    = cv_entry,
             code      = result.code,
@@ -1639,14 +1790,20 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         estimator_fits = sum(cost["estimator_fits"] for cost in candidate_costs)
         inference_windows = sum(cost["inference_windows"] for cost in candidate_costs)
         # Only the candidates whose script ran (also those that failed while
-        # running) can have downloaded weights.
-        ran_models = {
-            state.models.model_of(candidate.plan.forecaster, candidate.plan.estimator)
-            for candidate in result.candidates.values()
-        } | {
-            models.get(name) for name, failure in result.failures.items()
-            if failure.generated_code is not None
-        }
+        # running) can have downloaded weights. Their license is given too,
+        # in the announcement of the download or alone.
+        ran_models = [
+            *(
+                state.models.model_of(
+                    candidate.plan.forecaster, candidate.plan.estimator
+                )
+                for candidate in result.candidates.values()
+            ),
+            *(
+                models.get(name) for name, failure in result.failures.items()
+                if failure.generated_code is not None
+            ),
+        ]
         cost = {
             "n_folds": int(result.cv_config["n_folds"]),
             "n_fits": int(result.cv_config["n_fits"]),
@@ -1669,12 +1826,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                        outcome.warnings,
                                        plan_warnings  = plan_warnings,
                                        data_warnings  = cv_entry.data_warnings,
-                                       server_notices = state.models.announce(
-                                           (
-                                               model for model in uncached
-                                               if model in ran_models
-                                           ),
-                                           ran = True,
+                                       server_notices = state.models.notices(
+                                           ran_models, uncached, ran=True
                                        ),
                                    ),
             source               = cv_entry,
@@ -1763,8 +1916,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             summary   = summary,
             notices   = build_notices(
                             outcome.warnings,
-                            plan_warnings = result.plan.warnings,
-                            data_warnings = plan_entry.data_warnings,
+                            plan_warnings  = result.plan.warnings,
+                            data_warnings  = plan_entry.data_warnings,
+                            server_notices = _metric_notices(result.metrics),
                         ),
             source    = plan_entry,
             code      = result.code,
@@ -1856,9 +2010,24 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 )
             code = entry.obj.candidates[candidate].code
             code_file = entry.candidate_code_files.get(candidate)
+        # The plan the script runs: of the object, or of a candidate of a
+        # comparison (the best one unless another is named).
+        obj = entry.obj
+        if entry.kind == "comparison":
+            ran = obj.best_candidate if candidate is None else obj.candidates[candidate]
+            plan_obj = ran.plan
+        else:
+            plan_obj = obj if entry.kind == "plan" else obj.plan
+        requirements = _requirements(
+            code, state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
+        )
         if code_file is None:
             return CodeResult(
-                id=entry.id, kind=entry.kind, candidate=candidate, code=code
+                id           = entry.id,
+                kind         = entry.kind,
+                candidate    = candidate,
+                code         = code,
+                requirements = requirements,
             )
 
         return CodeResult(
@@ -1867,6 +2036,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             candidate      = candidate,
             code           = code[:MAX_CODE_CHARS],
             code_truncated = True,
+            requirements   = requirements,
             files          = {"code": code_file},
         )
 
@@ -2065,7 +2235,7 @@ def _build_server(state: _ServerState) -> MCPServer:
     return MCPServer(
         name         = "skforecast-ai",
         title        = "skforecast-ai",
-        instructions = INSTRUCTIONS,
+        instructions = _instructions(state.allowed),
         version      = __version__,
         tools        = _build_tools(state),
     )

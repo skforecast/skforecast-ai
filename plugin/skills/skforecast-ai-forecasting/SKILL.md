@@ -16,7 +16,9 @@ files.
 
 1. `profile(data_path, target, date_column?, series_id_column?,
    exog_columns?)`: the absolute path of a CSV file inside the directory
-   the server may read. `target` is one column, or a list of columns for
+   the server may read, which its instructions name: build the path from
+   it when the user gives a relative one, without searching the file
+   system. `target` is one column, or a list of columns for
    several series side by side; `series_id_column` names the column of
    series ids when the series are stacked. Every other column is an
    exogenous variable unless `exog_columns` names the ones to use (an
@@ -72,7 +74,10 @@ files.
 
 `get_code(object_id)` returns the Python script that ran (for a plan, the
 one that would run; a profile has none), so the user can reproduce any
-result without the server. `describe_object(object_id)` returns a response
+result without the server, and `requirements`, the packages to install
+for it with the versions the server runs: name those, not others. Hand
+the script as it is; if you change anything (the path of the data, a
+comment), say what. `describe_object(object_id)` returns a response
 again; `list_objects()` lists the ids.
 
 ## How far to trust a result
@@ -86,14 +91,22 @@ From most to least reliable:
    when the target has missing values or dates, or with an asymmetric
    interval (the summary says why):
    then read the rows per series of `files.best_metrics` (`files.metrics`
-   of a backtest). A `mean_absolute_scaled_error` below 1 beats a naive
-   forecast of that series, above 1 does worse. The summary only gives the
-   average, so the worst series is not in it: name it.
+   of a backtest). A `mean_absolute_scaled_error` below 1 beats the
+   one-step naive forecast of that series, above 1 does worse. The summary
+   only gives the average, so the worst series is not in it: name it.
 2. A `backtest`: measured over the same folds, but without a reference.
 3. A `forecast` with `test_size`: one window of `steps` observations. It
    can be lucky or unlucky; do not present it as the accuracy of the model.
 4. A `forecast` of the future: no measure of error at all. Report it with
    the accuracy of the backtest or comparison of the same plan.
+
+`mean_absolute_scaled_error` and `root_mean_squared_scaled_error` divide
+the error by that of the one-step naive forecast (repeat the previous
+value) on the training data, in every result and every row of a
+leaderboard (a `MetricReferenceNotice` of a backtest or a forecast says
+so). That reference is not a seasonal naive forecast nor the baseline of
+`compare`: never report a value below 1 as beating either, nor turn it
+into a percentage against them.
 
 Prediction intervals are estimates: report them as such. Read `notices`
 before you report anything: any notice can change what the result means
@@ -136,8 +149,12 @@ progress). Meanwhile only the read tools (`get_code`, `get_failure`,
 
 ## Inputs
 
-- Paths: absolute paths of `.csv` files inside the allowed directory. No
-  URLs: download the file first. No relative paths and no `~`.
+- Paths: absolute paths of `.csv` files inside the allowed directory,
+  which the instructions of the server name (also `details.allowed_dir`
+  of a path error). No URLs: download the file first. No relative paths
+  and no `~`. Never copy or move a file of the user into that directory
+  yourself: tell them it is outside, and that they can copy it there or
+  restart the server with another `--allow-dir`.
 - Dates: ISO 8601 text, `"2012-01-01"`, where an argument takes one
   (`initial_train_size` of `create_cv`, `test_size` of `forecast`). A count
   is a number, never text: `"12"` is rejected.
@@ -164,7 +181,10 @@ dates, dates written in more than one format or day first, a series without
 values, an exogenous column named like a lag or a window feature), tell the
 user what it is and what it changes. Never change their file. Only if they
 agree, write a corrected copy inside the allowed directory, under a new
-name, and `profile` the copy; say what you changed.
+name, and `profile` the copy; say what you changed. An error names the
+first problem it finds, so the file can have others (missing dates only
+show once the repeated ones are solved): say so when you ask, and ask
+again before fixing a problem the user has not agreed to.
 
 ## Foundation models
 
@@ -172,7 +192,10 @@ name, and `profile` the copy; say what you changed.
 training. Its default model is Chronos-2 (`autogluon/chronos-2-small`).
 Each of the others has its own license and size, so tell the user which
 model, its license and that it downloads its weights before you choose
-one; never switch models on your own. Through the server they only take
+one; never switch models on your own. State a license only as a response
+gives it: a `ModelLicenseNotice` or a `ModelDownloadNotice` of a plan
+with a foundation model or of a comparison that ran one, or the message
+of `model_not_allowed`. Through the server they only take
 the `estimator_kwargs` `context_length`, `cross_learning`,
 `point_estimate`, `max_horizon`, `add_calendar_features` and
 `n_fourier_terms`. Models whose license
@@ -215,7 +238,8 @@ and follow `hint` when there is one:
 |---|---|
 | `invalid_argument` | Fix the argument named in `field`, as the message says. |
 | `insufficient_data` | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later `initial_train_size`). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
-| `data_not_found`, `invalid_path`, `path_not_allowed`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
+| `data_not_found`, `invalid_path`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
+| `path_not_allowed` | The file is outside the allowed directory (`details.allowed_dir`). Do not copy or move it yourself: tell the user, who can copy it there or restart the server with another `--allow-dir`. |
 | `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header). Tell the user, as for the data problems above. |
 | `file_too_large` | The file is larger than the server reads (`--max-file-mb`, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |
 | `data_changed` | The file changed: call `profile` again (or the tool again for an exogenous file). |
@@ -246,7 +270,8 @@ do not. Tell the user when they ask what you can see.
 Foundation models download their weights from the Hugging Face Hub the
 first time they run; a `ModelDownloadNotice` (source `plan`) says so, with
 the license skforecast registers for models of that name, the first time a
-model whose weights are not in the local cache is used. Later runs still
+model whose weights are not in the local cache is used. Otherwise a
+`ModelLicenseNotice` gives that license. Later runs still
 contact the Hub to check the cached weights, without sending data. The
 user can forbid any connection to it by starting the server with
 `HF_HUB_OFFLINE=1`.

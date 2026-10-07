@@ -28,7 +28,8 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     """
     Test that `backtest` runs the plan of the strategy as the Python API
     does: same summary, predictions and metrics (written to CSV files, not
-    sent), cost, links and script.
+    sent), cost, links and script. Its metrics include MASE, so a notice
+    gives the reference it is scaled by, which the summary does not.
     """
     server, path = h2o_server(tmp_path)
     profile_id, plan_id, cv_id = cv_of(server, path, cv_arguments={"refit": True})
@@ -59,6 +60,14 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
     assert text_of(result["files"]["metrics"]) == expected.metrics.to_csv()
     assert code == expected.code
+    assert [(n["source"], n["category"]) for n in result["notices"]] == [
+        ("runtime", "MetricReferenceNotice")
+    ]
+    assert result["notices"][0]["message"].startswith(
+        "`mean_absolute_scaled_error` divides the error by that of the "
+        "one-step naive forecast (repeat the previous value) on the training "
+        "data"
+    )
 
 
 def test_tool_backtest_another_plan_of_the_same_profile(tmp_path):
@@ -120,7 +129,7 @@ def test_tool_backtest_does_not_repeat_the_warnings_of_the_profile(tmp_path):
 
     result = content_of(call(server, "backtest", {"cv_id": cv_id}))
 
-    assert result["notices"] == []
+    assert [n["category"] for n in result["notices"]] == ["MetricReferenceNotice"]
 
 
 def test_tool_backtest_data_changed_since_profiled(tmp_path):

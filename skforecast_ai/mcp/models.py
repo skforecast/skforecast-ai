@@ -333,9 +333,13 @@ class ToolNotice(BaseModel):
         the model a plan uses) or `'runtime'` (any other warning of the
         call).
     category : str
-        Class name of the warning (e.g. `'LongTrainingWarning'`), or
-        `'ModelDownloadNotice'` for the notice of the server that a
-        foundation model will download its weights.
+        Class name of the warning (e.g. `'LongTrainingWarning'`), or the
+        name of a notice of the server: `'ModelDownloadNotice'` (a
+        foundation model will download its weights; it carries the license),
+        `'ModelLicenseNotice'` (the license of a foundation model, when no
+        download is announced), `'MetricReferenceNotice'` (what MASE and
+        RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that
+        costs more than the plan).
     message : str
         Text of the warning, without the suggestion of skforecast on how to
         silence it, cut to 1,000 characters.
@@ -438,6 +442,11 @@ class CodeResult(BaseModel):
         Python code, cut to 20,000 characters.
     code_truncated : bool
         Whether `code` was cut; the full code is then in `files['code']`.
+    requirements : list of str
+        Packages to install to run the script outside the server: those of
+        the modules it imports and the backend of its foundation model,
+        each with the version installed where the server runs
+        (`'skforecast==0.26.0'`).
     files : dict
         Absolute path of the file with the full code, when it was cut.
     """
@@ -449,6 +458,7 @@ class CodeResult(BaseModel):
     candidate: str | None = None
     code: str
     code_truncated: bool = False
+    requirements: list[str] = Field(default_factory=list)
     files: dict[str, str] = Field(default_factory=dict)
 
 

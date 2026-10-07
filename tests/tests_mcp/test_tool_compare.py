@@ -338,7 +338,8 @@ def test_tool_compare_announces_model_download_of_a_candidate_that_ran(
     Hugging Face cache and whose script ran (here it fails inside the script
     without its backend, which a download could precede; the backend is
     taken as installed so the check before running lets it run) gets one
-    `ModelDownloadNotice` in the comparison, and none in a second comparison.
+    `ModelDownloadNotice` in the comparison, and in a second comparison a
+    `ModelLicenseNotice` with its license instead.
     """
     monkeypatch.setattr(
         "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
@@ -375,6 +376,15 @@ def test_tool_compare_announces_model_download_of_a_candidate_that_ran(
     ] == [("plan", "ModelDownloadNotice")]
     assert "CC-BY-NC-4.0" in first["notices"][0]["message"]
     assert all(n["category"] != "ModelDownloadNotice" for n in second["notices"])
+    assert [
+        n["message"] for n in second["notices"]
+        if n["category"] == "ModelLicenseNotice"
+    ] == [
+        "Foundation model 'Salesforce/moirai-2.0-R-small'. License (by the "
+        "name of the model, as skforecast registers it): its license is "
+        "CC-BY-NC-4.0 (https://huggingface.co/Salesforce/moirai-2.0-R-small), "
+        "which restricts commercial use."
+    ]
 
 
 def test_tool_compare_heartbeat_inside_a_long_candidate(tmp_path, monkeypatch):

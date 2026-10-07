@@ -139,6 +139,21 @@ def has_control_characters(text: str) -> bool:
     return any(unicodedata.category(char) in _CONTROL_CATEGORIES for char in text)
 
 
+def _outside_hint(allowed: AllowedDir) -> str:
+    """
+    Hint of a path outside the allowed directory. It names who acts: told
+    only to use a file inside the directory, an agent copied the file of the
+    user into it without asking.
+    """
+
+    return (
+        f"Do not copy or move the file yourself. Tell the user that the "
+        f"server only reads inside {allowed.path!r}: they can copy the file "
+        f"there, or restart the server with `--allow-dir` set to the "
+        f"directory of the file."
+    )
+
+
 def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
     """
     Check a path given by the agent and return the file to read.
@@ -184,7 +199,8 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             f"file (relative paths and '~' are not expanded).",
             code    = "invalid_path",
             field   = field,
-            details = {"path": raw},
+            hint    = f"The server reads CSV files inside {allowed.path!r}.",
+            details = {"path": raw, "allowed_dir": allowed.path},
         )
     normalized = os.path.normpath(raw)
     if Path(normalized).suffix.lower() != ".csv":
@@ -199,7 +215,7 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             f"The path {raw!r} is outside the directory the server may read.",
             code    = "path_not_allowed",
             field   = field,
-            hint    = f"Use a file inside {allowed.path!r}.",
+            hint    = _outside_hint(allowed),
             details = {"path": raw, "allowed_dir": allowed.path},
         )
     real = os.path.realpath(normalized)
@@ -209,7 +225,7 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             f"server may read, or to a file that is not a CSV.",
             code    = "path_not_allowed",
             field   = field,
-            hint    = f"Use a file inside {allowed.path!r}.",
+            hint    = _outside_hint(allowed),
             details = {"path": raw, "allowed_dir": allowed.path},
         )
     if not os.path.isfile(real):

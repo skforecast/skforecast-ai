@@ -81,6 +81,30 @@ def test_create_server_name_version_and_instructions(tmp_path):
     )
 
 
+def test_create_server_instructions_name_the_allowed_dir(tmp_path):
+    """
+    Test that the instructions of the server name the directory it reads,
+    as configured, so an agent given a relative path can build the absolute
+    one without searching the file system.
+    """
+    allowed = tmp_path / "data"
+    allowed.mkdir()
+    server = create_server(allow_dir=allowed, output_dir=tmp_path / "out")
+
+    async def steps(client):
+        return client.instructions
+
+    instructions = " ".join(run_session(server, steps).split())
+
+    assert (
+        f"The server reads CSV files only inside '{allowed}' (subdirectories "
+        f"included). Tools take absolute paths: a file the user names by a "
+        f"relative path or by its name is looked for there, so build the path "
+        f"from that directory instead of searching the file system."
+    ) in instructions
+    assert "{allowed_dir}" not in instructions
+
+
 def test_create_server_output_dir_created_or_temporary(tmp_path, monkeypatch):
     """
     Test that the output directory is created when it does not exist, that
@@ -252,8 +276,9 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
     """
     Test that the instructions of the server, which reach the agent without
     the skill, carry the scale of trust (with the case without baseline),
-    the cost threshold, the notices, the interval of `compare`, the rule on
-    the data of the user and the one on foundation models.
+    the reference of MASE, the cost threshold, the notices, the interval of
+    `compare`, the rules on the data and the files of the user and the ones
+    on foundation models and their license.
     """
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 
@@ -271,5 +296,10 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
         "Never modify the user's data",
         "only with their permission write a corrected copy",
         "Foundation models other than the default",
+        "Below 1 it beats the one-step naive forecast (repeat the previous "
+        "value) on the training data, which is not a seasonal naive forecast "
+        "nor the baseline of `compare`",
+        "Never copy a file of the user into that directory yourself",
+        "State the license of a model only as a notice or an error gives it",
     ):
         assert phrase in instructions, phrase

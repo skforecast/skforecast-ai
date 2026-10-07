@@ -179,7 +179,10 @@ def test_tool_refine_plan_announces_model_download(tmp_path, monkeypatch):
         ("plan", "ModelDownloadNotice")
     ]
     assert "'soda-inria/tabicl'" in refined["notices"][0]["message"]
-    assert again["notices"] == []
+    assert [(n["source"], n["category"]) for n in again["notices"]] == [
+        ("plan", "ModelLicenseNotice")
+    ]
+    assert "its license is BSD-3-Clause" in again["notices"][0]["message"]
 
 
 def test_tool_refine_plan_invalid_argument_when_steps_longer_than_the_series(

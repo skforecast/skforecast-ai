@@ -86,7 +86,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or the\n    name of a notice of the server: `'ModelDownloadNotice'` (a\n    foundation model will download its weights; it carries the license),\n    `'ModelLicenseNotice'` (the license of a foundation model, when no\n    download is announced), `'MetricReferenceNotice'` (what MASE and\n    RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that\n    costs more than the plan).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -490,7 +490,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or the\n    name of a notice of the server: `'ModelDownloadNotice'` (a\n    foundation model will download its weights; it carries the license),\n    `'ModelLicenseNotice'` (the license of a foundation model, when no\n    download is announced), `'MetricReferenceNotice'` (what MASE and\n    RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that\n    costs more than the plan).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -882,7 +882,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or the\n    name of a notice of the server: `'ModelDownloadNotice'` (a\n    foundation model will download its weights; it carries the license),\n    `'ModelLicenseNotice'` (the license of a foundation model, when no\n    download is announced), `'MetricReferenceNotice'` (what MASE and\n    RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that\n    costs more than the plan).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -1147,7 +1147,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or the\n    name of a notice of the server: `'ModelDownloadNotice'` (a\n    foundation model will download its weights; it carries the license),\n    `'ModelLicenseNotice'` (the license of a foundation model, when no\n    download is announced), `'MetricReferenceNotice'` (what MASE and\n    RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that\n    costs more than the plan).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -1316,7 +1316,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or the\n    name of a notice of the server: `'ModelDownloadNotice'` (a\n    foundation model will download its weights; it carries the license),\n    `'ModelLicenseNotice'` (the license of a foundation model, when no\n    download is announced), `'MetricReferenceNotice'` (what MASE and\n    RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that\n    costs more than the plan).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -1742,7 +1742,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or the\n    name of a notice of the server: `'ModelDownloadNotice'` (a\n    foundation model will download its weights; it carries the license),\n    `'ModelLicenseNotice'` (the license of a foundation model, when no\n    download is announced), `'MetricReferenceNotice'` (what MASE and\n    RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that\n    costs more than the plan).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -1930,7 +1930,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or the\n    name of a notice of the server: `'ModelDownloadNotice'` (a\n    foundation model will download its weights; it carries the license),\n    `'ModelLicenseNotice'` (the license of a foundation model, when no\n    download is announced), `'MetricReferenceNotice'` (what MASE and\n    RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that\n    costs more than the plan).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [
@@ -2097,7 +2097,7 @@
     },
     "output_schema": {
       "additionalProperties": false,
-      "description": "Script of an object, returned by the `get_code` tool.\n\nAttributes\n----------\nid : str\n    Id of the object.\nkind : str\n    Kind of the object.\ncandidate : str, None\n    Candidate of a comparison whose script it is.\ncode : str\n    Python code, cut to 20,000 characters.\ncode_truncated : bool\n    Whether `code` was cut; the full code is then in `files['code']`.\nfiles : dict\n    Absolute path of the file with the full code, when it was cut.",
+      "description": "Script of an object, returned by the `get_code` tool.\n\nAttributes\n----------\nid : str\n    Id of the object.\nkind : str\n    Kind of the object.\ncandidate : str, None\n    Candidate of a comparison whose script it is.\ncode : str\n    Python code, cut to 20,000 characters.\ncode_truncated : bool\n    Whether `code` was cut; the full code is then in `files['code']`.\nrequirements : list of str\n    Packages to install to run the script outside the server: those of\n    the modules it imports and the backend of its foundation model,\n    each with the version installed where the server runs\n    (`'skforecast==0.26.0'`).\nfiles : dict\n    Absolute path of the file with the full code, when it was cut.",
       "properties": {
         "id": {
           "title": "Id",
@@ -2135,6 +2135,13 @@
           "default": false,
           "title": "Code Truncated",
           "type": "boolean"
+        },
+        "requirements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requirements",
+          "type": "array"
         },
         "files": {
           "additionalProperties": {
@@ -2374,7 +2381,7 @@
       "$defs": {
         "ToolNotice": {
           "additionalProperties": false,
-          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or\n    `'ModelDownloadNotice'` for the notice of the server that a\n    foundation model will download its weights.\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
+          "description": "A warning emitted while a tool call ran.\n\nAttributes\n----------\nsource : str\n    Where the warning comes from: `'data'` (reading or profiling the\n    data), `'plan'` (a warning the plan carries in `plan.warnings`, or\n    the model a plan uses) or `'runtime'` (any other warning of the\n    call).\ncategory : str\n    Class name of the warning (e.g. `'LongTrainingWarning'`), or the\n    name of a notice of the server: `'ModelDownloadNotice'` (a\n    foundation model will download its weights; it carries the license),\n    `'ModelLicenseNotice'` (the license of a foundation model, when no\n    download is announced), `'MetricReferenceNotice'` (what MASE and\n    RMSSE are scaled by) and `'CompareCostNotice'` (a `compare` that\n    costs more than the plan).\nmessage : str\n    Text of the warning, without the suggestion of skforecast on how to\n    silence it, cut to 1,000 characters.\ncount : int\n    Number of times the call emitted it.",
           "properties": {
             "source": {
               "enum": [

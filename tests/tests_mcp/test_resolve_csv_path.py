@@ -100,7 +100,34 @@ def test_resolve_csv_path_ServerError_when_path_outside_allowed_dir(tmp_path, re
 
     assert excinfo.value.code == "path_not_allowed"
     assert excinfo.value.field == "exog_path"
-    assert excinfo.value.hint == f"Use a file inside {str(allowed)!r}."
+    assert excinfo.value.hint == (
+        f"Do not copy or move the file yourself. Tell the user that the "
+        f"server only reads inside {str(allowed)!r}: they can copy the file "
+        f"there, or restart the server with `--allow-dir` set to the "
+        f"directory of the file."
+    )
+    assert excinfo.value.details == {"path": raw, "allowed_dir": str(allowed)}
+
+
+@pytest.mark.parametrize(
+    "raw", ["data.csv", "sub/data.csv", "~/data.csv"], ids=lambda dt: f"raw: {dt}"
+)
+def test_resolve_csv_path_relative_path_names_the_allowed_dir(tmp_path, raw):
+    """
+    Test that the error of a relative path names the directory the server
+    reads, in its hint and its details, so the agent can build the absolute
+    path without searching the file system.
+    """
+    allowed, _ = _layout(tmp_path)
+
+    with pytest.raises(ServerError) as excinfo:
+        resolve_csv_path(raw, AllowedDir.from_path(allowed), "data_path")
+
+    assert excinfo.value.code == "invalid_path"
+    assert excinfo.value.hint == (
+        f"The server reads CSV files inside {str(allowed)!r}."
+    )
+    assert excinfo.value.details == {"path": raw, "allowed_dir": str(allowed)}
 
 
 def test_resolve_csv_path_ServerError_when_symlink_points_outside(tmp_path):
