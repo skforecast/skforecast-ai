@@ -101,10 +101,11 @@ def test_resolve_csv_path_ServerError_when_path_outside_allowed_dir(tmp_path, re
     assert excinfo.value.code == "path_not_allowed"
     assert excinfo.value.field == "exog_path"
     assert excinfo.value.hint == (
-        f"Do not copy or move the file yourself. Tell the user that the "
-        f"server only reads inside {str(allowed)!r}: they can copy the file "
-        f"there, or restart the server with `--allow-dir` set to the "
-        f"directory of the file."
+        f"Stop here and answer the user, with no other tool call: the "
+        f"server only reads inside {str(allowed)!r}, and only the user can "
+        f"copy the file there or restart the server with `--allow-dir` set "
+        f"to the directory of the file. Copying or rewriting the file "
+        f"yourself is not allowed, even if you can."
     )
     assert excinfo.value.details == {"path": raw, "allowed_dir": str(allowed)}
 
@@ -150,7 +151,8 @@ def test_resolve_csv_path_ServerError_when_symlink_points_outside(tmp_path):
 def test_resolve_csv_path_ServerError_when_file_not_found(tmp_path):
     """
     Test that a missing file, or a directory, inside the allowed directory
-    is `data_not_found`.
+    is `data_not_found`, with a hint that stops the agent from copying the
+    file there when it finds it somewhere else.
     """
     allowed, _ = _layout(tmp_path)
     (allowed / "folder.csv").mkdir()
@@ -160,3 +162,9 @@ def test_resolve_csv_path_ServerError_when_file_not_found(tmp_path):
         with pytest.raises(ServerError) as excinfo:
             resolve_csv_path(str(allowed / name), allowed_dir, "data_path")
         assert excinfo.value.code == "data_not_found"
+        assert excinfo.value.hint == (
+            f"If the file is in another directory, stop here and answer the "
+            f"user: only they can copy it into {str(allowed)!r} or restart "
+            f"the server with `--allow-dir`. Copying or rewriting it yourself "
+            f"is not allowed, even if you can."
+        )

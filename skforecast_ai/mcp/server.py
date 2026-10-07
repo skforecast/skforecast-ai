@@ -202,7 +202,10 @@ never from a language model, and is reproducible.
 The server reads CSV files only inside '{allowed_dir}' (subdirectories \
 included). Tools take absolute paths: a file the user names by a relative \
 path or by its name is looked for there, so build the path from that \
-directory instead of searching the file system.
+directory instead of searching the file system. When the file is outside \
+it, stop and answer the user: only they can copy it there or restart the \
+server with another `--allow-dir`. Never copy, move or rewrite it into that \
+directory yourself (no `cp`, no reading it and writing it again).
 
 Workflow: `profile` a CSV file (absolute path inside that directory) -> \
 `plan` with a horizon (`steps`) -> optionally `refine_plan` -> \
@@ -210,6 +213,9 @@ Workflow: `profile` a CSV file (absolute path inside that directory) -> \
 `forecast`. Each tool returns an `id`; later tools take ids, never objects. \
 Every response has a plain-text `summary` and the warnings of the call in \
 `notices`; it never holds rows of data, which go to CSV files (`files`). \
+What you do see of the data: the messages of errors and warnings can name \
+columns and series and quote up to 5 values, a traceback of `get_failure` \
+can quote values, and scripts and plan summaries name the path of the file. \
 `get_code` returns the script that ran, `get_failure` the traceback of a \
 failure, `describe_object` the response that created an object, \
 `list_objects` the ids registered now.
@@ -240,8 +246,7 @@ symmetric).
 exogenous variables come from the user, or the plan leaves them out \
 (`use_exog: false`) and you say so. If the CSV has a problem, tell the user; \
 only with their permission write a corrected copy inside the allowed \
-directory under a new name and profile it. Never copy a file of the user \
-into that directory yourself: ask them to.
+directory under a new name and profile it.
 6. Foundation models other than the default (Chronos-2) have their own \
 license and size: tell the user before choosing one. State the license of a \
 model only as a notice or an error gives it.

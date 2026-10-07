@@ -147,10 +147,11 @@ def _outside_hint(allowed: AllowedDir) -> str:
     """
 
     return (
-        f"Do not copy or move the file yourself. Tell the user that the "
-        f"server only reads inside {allowed.path!r}: they can copy the file "
-        f"there, or restart the server with `--allow-dir` set to the "
-        f"directory of the file."
+        f"Stop here and answer the user, with no other tool call: the "
+        f"server only reads inside {allowed.path!r}, and only the user can "
+        f"copy the file there or restart the server with `--allow-dir` set "
+        f"to the directory of the file. Copying or rewriting the file "
+        f"yourself is not allowed, even if you can."
     )
 
 
@@ -233,6 +234,13 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             f"CSV file not found: {raw!r}.",
             code    = "data_not_found",
             field   = field,
+            # An agent that then finds the file elsewhere copies it here.
+            hint    = (
+                f"If the file is in another directory, stop here and answer "
+                f"the user: only they can copy it into {allowed.path!r} or "
+                f"restart the server with `--allow-dir`. Copying or rewriting "
+                f"it yourself is not allowed, even if you can."
+            ),
             details = {"path": raw},
         )
 

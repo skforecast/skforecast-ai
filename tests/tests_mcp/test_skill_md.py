@@ -68,6 +68,8 @@ def test_skill_md_front_matter_follows_agent_skills():
     assert len(name) <= 64
     assert re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", name)
     assert 0 < len(description) <= 1024
+    # Without it the skill is never loaded for a question about privacy.
+    assert "what the server or you can see of the user's data" in description
 
 
 def test_skill_md_names_every_tool_error_code_and_foundation_kwarg(tmp_path):

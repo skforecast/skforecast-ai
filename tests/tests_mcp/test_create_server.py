@@ -101,7 +101,11 @@ def test_create_server_instructions_name_the_allowed_dir(tmp_path):
         f"The server reads CSV files only inside '{allowed}' (subdirectories "
         f"included). Tools take absolute paths: a file the user names by a "
         f"relative path or by its name is looked for there, so build the path "
-        f"from that directory instead of searching the file system."
+        f"from that directory instead of searching the file system. When "
+        f"the file is outside it, stop and answer the user: only they can "
+        f"copy it there or restart the server with another `--allow-dir`. "
+        f"Never copy, move or rewrite it into that directory yourself (no "
+        f"`cp`, no reading it and writing it again)."
     ) in instructions
     assert "{allowed_dir}" not in instructions
 
@@ -302,8 +306,9 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
     Test that the instructions of the server, which reach the agent without
     the skill, carry the scale of trust (with the case without baseline),
     the reference of MASE, the cost threshold, the notices, the interval of
-    `compare`, the rules on the data and the files of the user and the ones
-    on foundation models and their license.
+    `compare`, the rules on the data and the files of the user, what the
+    agent can see of the data and the rules on foundation models and their
+    license.
     """
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 
@@ -326,7 +331,10 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
         "Below 1 it beats the one-step naive forecast (repeat the previous "
         "value) on the training data, which is not a seasonal naive forecast "
         "nor the baseline of `compare`",
-        "Never copy a file of the user into that directory yourself",
+        "Never copy, move or rewrite it into that directory yourself",
+        "the messages of errors and warnings can name columns and series and "
+        "quote up to 5 values, a traceback of `get_failure` can quote values, "
+        "and scripts and plan summaries name the path of the file",
         "State the license of a model only as a notice or an error gives it",
         "nor derive one: no percentage, ratio or difference that a response "
         "does not give",

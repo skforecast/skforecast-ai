@@ -1,6 +1,6 @@
 ---
 name: skforecast-ai-forecasting
-description: Forecast time series stored in CSV files with the tools of the skforecast-ai MCP server (profile, plan, create_cv, backtest, compare, forecast). Use when asked to forecast, backtest or compare forecasting models on tabular time series and the skforecast-ai server is connected.
+description: Forecast time series stored in CSV files with the tools of the skforecast-ai MCP server (profile, plan, create_cv, backtest, compare, forecast). Use when asked to forecast, backtest or compare forecasting models on tabular time series and the skforecast-ai server is connected. Also use it before answering what the server or you can see of the user's data (privacy) and what the server does not do.
 ---
 
 # Forecasting with the skforecast-ai MCP server
