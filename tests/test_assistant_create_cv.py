@@ -2085,8 +2085,8 @@ def test_create_cv_UserWarning_when_backtest_can_read_missing_values():
 def test_create_cv_UserWarning_when_intervals_have_few_residuals():
     """
     Test that create_cv() warns when the first training window leaves 4 rows
-    for the bootstrapped intervals (h2o, 40 observations for a window size of
-    36), and does not without interval or with a later window.
+    for the intervals (h2o, 40 observations for a window size of 36), and does
+    not without interval or with a window that leaves 100 rows.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_h2o, target="x")
@@ -2095,11 +2095,12 @@ def test_create_cv_UserWarning_when_intervals_have_few_residuals():
     warn_msg = re.escape(
         "The first training window of the strategy leaves 4 row(s) to train "
         "on (40 observations for a window size of 36), so the prediction "
-        "intervals are bootstrapped from 4 residual(s). skforecast spreads "
-        "them over up to 10 bins, and a bin with a single residual gives a "
-        "lower bound equal to the upper one, with the prediction outside: do "
-        "not read those intervals. Use a later `initial_train_size`, or "
-        "fewer lags or smaller window features."
+        "intervals are estimated from 4 residual(s). skforecast spreads "
+        "them over up to 10 bins, and below 10 residuals per bin (100 rows) "
+        "the intervals tend to be too narrow; with a single residual in a "
+        "bin the lower bound equals the upper one. Read them with caution, "
+        "or use a later `initial_train_size`, or fewer lags or smaller "
+        "window features."
     )
     with pytest.warns(UserWarning, match=warn_msg) as record:
         assistant.create_cv(
@@ -2110,7 +2111,7 @@ def test_create_cv_UserWarning_when_intervals_have_few_residuals():
     assert record[0].filename == __file__
 
     assistant.create_cv(
-        profile, plan, initial_train_size=100, fold_stride=1, refit=False
+        profile, plan, initial_train_size=136, fold_stride=1, refit=False
     )
     plan_no_interval = assistant.plan(profile, steps=1)
     assistant.create_cv(

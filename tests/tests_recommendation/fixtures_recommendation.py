@@ -109,3 +109,6 @@ plan_h2o_no_interval = _assistant.plan(_profile_h2o, steps=1)
 plan_h2o_interval_stats = _assistant.plan(
     _profile_h2o, steps=1, interval=_interval, forecaster="ForecasterStats"
 )
+plan_h2o_interval_baseline = _assistant.plan(
+    _profile_h2o, steps=1, interval=_interval, forecaster="ForecasterEquivalentDate"
+)
