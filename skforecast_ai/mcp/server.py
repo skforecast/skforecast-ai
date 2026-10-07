@@ -229,6 +229,31 @@ def _instructions(allowed: AllowedDir) -> str:
     return INSTRUCTIONS.format(allowed_dir=allowed.path)
 
 
+def _leave_to_user(exc: SkforecastAIError, hints: dict[str, str]) -> None:
+    """
+    Give an error of the library that has no hint the one of the server for
+    its field.
+
+    The content of a file of the user is at fault, not an argument: the
+    message says how to fix it, which an agent does on its own unless it is
+    told whose decision that is.
+
+    Parameters
+    ----------
+    exc : SkforecastAIError
+        Error raised by the core, changed in place.
+    hints : dict
+        Hint by field of the Python API (`'data'`, `'exog'`).
+
+    Returns
+    -------
+    None
+    """
+
+    if exc.hint is None and exc.field in hints:
+        exc.hint = hints[exc.field]
+
+
 def _metric_notices(metrics: Any) -> list[ToolNotice]:
     """
     Notice with the reference of the scaled metrics (MASE, RMSSE) among the
@@ -1190,11 +1215,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     exog_columns     = exog_columns,
                 )
             except SkforecastAIError as exc:
-                # The content of the file is at fault, not an argument: the
-                # message says how to fix it, which an agent does on its
-                # own unless it is told whose decision that is.
-                if exc.field == "data" and exc.hint is None:
-                    exc.hint = DATA_PROBLEM_HINT
+                _leave_to_user(exc, {"data": DATA_PROBLEM_HINT})
                 raise
             _inputs.check_profile_names(result)
             _inputs.check_unchanged(path, digest, "data_path")
