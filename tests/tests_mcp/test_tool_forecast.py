@@ -52,14 +52,17 @@ def test_tool_forecast_output_matches_python_api(tmp_path, test_size):
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
     # Only an evaluation has metrics, and with them the notice that gives
-    # the reference of MASE, after the one that says it is an evaluation.
+    # the reference of MASE and the unit of MAPE, after the one that says it
+    # is an evaluation.
     categories = [notice["category"] for notice in result["notices"]]
     if test_size is None:
         assert sorted(result["files"]) == ["predictions"]
         assert categories == []
     else:
         assert text_of(result["files"]["metrics"]) == expected.metrics.to_csv()
-        assert categories == ["HoldoutEvaluationNotice", "MetricReferenceNotice"]
+        assert categories == [
+            "HoldoutEvaluationNotice", "MetricReferenceNotice", "MetricUnitNotice",
+        ]
     assert code == expected.code
 
 
@@ -80,7 +83,7 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
 
     assert [o["id"] for o in objects] == [plan_id]
     assert [notice["category"] for notice in evaluation["notices"]] == [
-        "HoldoutEvaluationNotice", "MetricReferenceNotice",
+        "HoldoutEvaluationNotice", "MetricReferenceNotice", "MetricUnitNotice",
     ]
     assert "2007-07-01 00:00:00 to 2008-06-01 00:00:00" in (
         evaluation["notices"][0]["message"]

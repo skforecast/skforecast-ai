@@ -266,7 +266,8 @@ def test_tool_plan_invalid_argument_when_steps_longer_than_the_series(
     """
     Test that a horizon longer than the longest series of the profile (h2o
     has 204 observations) is `invalid_argument` on `steps` when the plan is
-    built, instead of failing when it runs, and that 204 is accepted.
+    built, instead of failing when it runs, with a hint that leaves the
+    choice of a shorter one to the user, and that 204 is accepted.
     """
     server, _, profile_id = _profiled(tmp_path)
 
@@ -279,6 +280,10 @@ def test_tool_plan_invalid_argument_when_steps_longer_than_the_series(
     assert error["message"] == (
         f"`steps` is {steps}, more than the 204 observations of the longest "
         f"series of the data. The horizon must not exceed the history."
+    )
+    assert error["hint"] == (
+        "Ask the user which horizon they want, of at most 204 and usually far "
+        "fewer: do not choose one for them."
     )
     assert error["details"] == {"steps": steps, "longest_series": 204}
     assert content_of(longest)["kind"] == "plan"

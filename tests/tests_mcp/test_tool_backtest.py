@@ -62,7 +62,7 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     assert text_of(result["files"]["metrics"]) == expected.metrics.to_csv()
     assert code == expected.code
     assert [(n["source"], n["category"]) for n in result["notices"]] == [
-        ("runtime", "MetricReferenceNotice")
+        ("runtime", "MetricReferenceNotice"), ("runtime", "MetricUnitNotice")
     ]
     assert result["notices"][0]["message"].startswith(
         "`mean_absolute_scaled_error` divides the error by that of the "

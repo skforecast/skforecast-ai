@@ -151,6 +151,9 @@ SCALED_METRICS = {
     "RMSSE": "root_mean_squared_scaled_error",
 }
 
+# MAPE, as the metrics of a backtest and of a forecast call it.
+MAPE_NAMES = frozenset({"mean_absolute_percentage_error", "MAPE"})
+
 # Hint of an error of `profile` about the content of the file.
 DATA_PROBLEM_HINT = (
     "This is a problem of the file of the user, and how to solve it is their "
@@ -418,7 +421,7 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
     -------
     notices : list of ToolNotice
         One notice (source `'runtime'`) when a scaled metric was computed,
-        else empty.
+        and the one of `_mape_notices` when MAPE was.
     """
 
     if metrics is None:
@@ -428,7 +431,7 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
         if column in SCALED_METRICS
     ))
     if not names:
-        return []
+        return _mape_notices(metrics)
     shown = " and ".join(f"`{name}`" for name in names)
 
     return [
@@ -442,6 +445,41 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
                 f"than that reference. The reference is not a seasonal naive "
                 f"forecast nor the baseline of `compare`, so do not report a "
                 f"value below 1 as beating either."
+            ),
+            count    = 1,
+        ),
+        *_mape_notices(metrics),
+    ]
+
+
+def _mape_notices(metrics: Any) -> list[ToolNotice]:
+    """
+    Notice with the unit of MAPE among the metrics of a result or the
+    columns of a leaderboard: a fraction, which agents report as a
+    percentage as it is (1.245 as "1.25 %", 100 times too small).
+
+    Parameters
+    ----------
+    metrics : pandas DataFrame, None
+        Metrics of the result, one column per metric.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`) when MAPE was computed, else empty.
+    """
+
+    if metrics is None or not MAPE_NAMES.intersection(metrics.columns):
+        return []
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricUnitNotice",
+            message  = (
+                "`mean_absolute_percentage_error` is a fraction, not a "
+                "percentage: 0.05 is 5 %, and 1.245 is 124.5 %. Multiply it "
+                "by 100 before you write it with a % sign."
             ),
             count    = 1,
         )
@@ -1004,7 +1042,10 @@ def _check_steps(steps: Any, profile: Any, argument: str) -> None:
             f"history.",
             code    = "invalid_argument",
             field   = argument,
-            hint    = f"Pass `steps` of at most {longest}, usually far fewer.",
+            hint    = (
+                f"Ask the user which horizon they want, of at most {longest} "
+                f"and usually far fewer: do not choose one for them."
+            ),
             details = {"steps": steps, "longest_series": longest},
         )
 
@@ -2109,9 +2150,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                        outcome.warnings,
                                        plan_warnings  = plan_warnings,
                                        data_warnings  = cv_entry.data_warnings,
-                                       server_notices = state.models.notices(
-                                           ran_models, uncached, ran=True
-                                       ),
+                                       server_notices = [
+                                           *state.models.notices(
+                                               ran_models, uncached, ran=True
+                                           ),
+                                           *_mape_notices(result.results),
+                                       ],
                                    ),
             source               = cv_entry,
             code                 = best.code,

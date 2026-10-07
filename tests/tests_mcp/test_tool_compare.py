@@ -89,7 +89,8 @@ def test_tool_compare_output_matches_python_api(tmp_path):
     assert result["cost"] == {
         "n_folds": 6, "n_fits": 1, "estimator_fits": 13, "inference_windows": 0
     }
-    assert result["notices"] == []
+    # The leaderboard has MAPE, whose unit the server states.
+    assert [n["category"] for n in result["notices"]] == ["MetricUnitNotice"]
     assert best_plan["kind"] == "plan"
     assert best_plan["links"] == {
         "profile_id": profile_id,
