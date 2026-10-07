@@ -523,8 +523,8 @@ def _report(
     )
     if plan.forecaster == "ForecasterEquivalentDate":
         raise InvalidInputError(
-            f"{message} {plan.forecaster} repeats them as missing predictions: "
-            f"fill them in.",
+            f"{message} {plan.forecaster} repeats them as missing predictions. "
+            f"Those values have to be filled in before predicting.",
             field = "data",
         )
     if any(by_differentiation for _, by_differentiation in missing.values()):
@@ -532,14 +532,16 @@ def _report(
         # predictions are missing whatever the estimator.
         raise InvalidInputError(
             f"{message} The differentiation of {plan.forecaster} reads the "
-            f"last {order} value(s), so its predictions would be missing: fill "
-            f"them in.",
+            f"last {order} value(s), so its predictions would be missing. Those "
+            f"values have to be filled in before predicting.",
             field = "data",
         )
     if plan.estimator not in NAN_TOLERANT_ESTIMATORS:
         raise InvalidInputError(
             f"{message} {plan.forecaster} with {plan.estimator} cannot use "
-            f"them, so its predictions would be missing: fill them in.",
+            f"them, so its predictions would be missing. Either they are "
+            f"filled in, or the plan uses an estimator that accepts missing "
+            f"values (for example 'LGBMRegressor').",
             field = "data",
         )
     warnings.warn(

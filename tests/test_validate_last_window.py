@@ -364,7 +364,9 @@ def test_validate_last_window_InvalidInputError_when_lag_reads_missing_value(
     err_msg = re.escape(
         f"The forecaster reads missing values of the target to predict ('y': 1 "
         f"value(s), such as '{date}'). {plan.forecaster} with Ridge cannot use "
-        f"them, so its predictions would be missing: fill them in."
+        f"them, so its predictions would be missing. "
+        f"Either they are filled in, or the plan uses an estimator that "
+        f"accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_last_window(data=data, profile=profile_single, plan=plan)
@@ -449,7 +451,8 @@ def test_validate_last_window_InvalidInputError_when_differentiation_reads_it(pl
     if plan.estimator == "LGBMRegressor":
         assert str(exc_info.value).endswith(
             "The differentiation of ForecasterRecursive reads the last 2 value(s), "
-            "so its predictions would be missing: fill them in."
+            "so its predictions would be missing. Those values have to be "
+            "filled in before predicting."
         )
 
 
@@ -488,8 +491,8 @@ def test_validate_last_window_InvalidInputError_when_equivalent_date_missing(
     data = with_missing(data_single, [position])
 
     err_msg = re.escape(
-        "ForecasterEquivalentDate repeats them as missing predictions: fill "
-        "them in."
+        "ForecasterEquivalentDate repeats them as missing predictions. Those "
+        "values have to be filled in before predicting."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_last_window(
@@ -1205,7 +1208,9 @@ def test_validate_last_window_InvalidInputError_when_final_rows_false_and_ridge_
     err_msg = re.escape(
         "The forecaster reads missing values of the target to predict ('y': 1 "
         "value(s), such as '2023-03-01'). ForecasterRecursive with Ridge cannot "
-        "use them, so its predictions would be missing: fill them in."
+        "use them, so its predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_last_window(

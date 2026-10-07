@@ -495,7 +495,9 @@ def test_validate_future_exog_InvalidInputError_when_index_not_dates():
             plan_daily_ridge,
             "`exog` has missing values in the rows to forecast ('promo': 1 "
             "value(s), such as '2023-04-11'). ForecasterRecursive with Ridge "
-            "cannot use them, so its predictions would be missing: fill them in.",
+            "cannot use them, so its predictions would be missing. "
+            "Either they are filled in, or the plan uses an estimator that "
+            "accepts missing values (for example 'LGBMRegressor').",
         ),
         (
             exog_daily.assign(weekday=np.nan),
@@ -531,7 +533,9 @@ def test_validate_future_exog_InvalidInputError_when_column_not_in_data():
     err_msg = re.escape(
         "`exog` has missing values in the rows to forecast ('promo': 1 "
         "value(s), such as '2023-04-11'). ForecasterRecursive with Ridge "
-        "cannot use them, so its predictions would be missing: fill them in."
+        "cannot use them, so its predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_future_exog(
@@ -551,7 +555,9 @@ def test_validate_future_exog_InvalidInputError_when_data_without_dates():
     err_msg = re.escape(
         "`exog` has missing values in the rows to forecast ('x': 1 value(s), "
         "at index 61). ForecasterRecursive with Ridge cannot use them, so its "
-        "predictions would be missing: fill them in."
+        "predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_future_exog(exog, data_range, profile_range, plan_range_ridge)

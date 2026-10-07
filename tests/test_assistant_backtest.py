@@ -505,7 +505,9 @@ def test_backtest_InvalidInputError_when_lag_reads_missing_timestamp():
         "The forecaster reads missing values of the target to predict 1 of "
         "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
-        "would be missing: fill them in."
+        "would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.backtest(

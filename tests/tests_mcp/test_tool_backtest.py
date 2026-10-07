@@ -398,7 +398,9 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
         "The forecaster reads missing values of the target to predict 1 of "
         "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
-        "would be missing: fill them in."
+        "would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     assert error["hint"] == DATA_VALUES_HINT
     assert not forecast.is_error

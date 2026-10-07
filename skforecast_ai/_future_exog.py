@@ -933,7 +933,9 @@ def _check_values(
         raise InvalidInputError(
             f"`exog` has missing values in the rows to forecast ({found}). "
             f"{plan.forecaster} with {plan.estimator} cannot use them, so its "
-            f"predictions would be missing: fill them in.",
+            f"predictions would be missing. Either they are filled in, or the "
+            f"plan uses an estimator that accepts missing values (for example "
+            f"'LGBMRegressor').",
             field = "exog",
         )
     if with_missing:

@@ -45,7 +45,9 @@ _TEST_MESSAGE = (
 )
 _READS_RIDGE = (
     "ForecasterRecursive with Ridge cannot use them, so its predictions would "
-    "be missing: fill them in."
+    "be missing. "
+    "Either they are filled in, or the plan uses an estimator that "
+    "accepts missing values (for example 'LGBMRegressor')."
 )
 _READS_LGBM = (
     "LGBMRegressor treats them as missing values; check that they are meant "
@@ -429,7 +431,9 @@ def test_validate_evaluation_partition_InvalidInputError_when_multiseries_reads_
         "The forecaster reads missing values of the target to predict "
         "('item_1': 1 value(s), such as '2012-04-21'). "
         "ForecasterRecursiveMultiSeries with Ridge cannot use them, so its "
-        "predictions would be missing: fill them in."
+        "predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_evaluation_partition(

@@ -37,7 +37,9 @@ def test_validate_backtest_windows_InvalidInputError_when_estimator_cannot_use_m
         "The forecaster reads missing values of the target to predict 1 of "
         "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
-        "would be missing: fill them in."
+        "would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_backtest_windows(
@@ -58,7 +60,9 @@ def test_validate_backtest_windows_InvalidInputError_when_missing_value_in_incom
         "The forecaster reads missing values of the target to predict 1 of "
         "the 3 test folds ('x': 1 value(s), such as '2007-04-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
-        "would be missing: fill them in."
+        "would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     data = without_months(data_h2o, [105])
     with pytest.raises(InvalidInputError, match=err_msg):
@@ -80,8 +84,8 @@ def test_validate_backtest_windows_InvalidInputError_when_forecaster_is_baseline
     err_msg = re.escape(
         "The forecaster reads missing values of the target to predict 1 of "
         "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
-        "ForecasterEquivalentDate repeats them as missing predictions: fill "
-        "them in."
+        "ForecasterEquivalentDate repeats them as missing predictions. Those "
+        "values have to be filled in before predicting."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_backtest_windows(
