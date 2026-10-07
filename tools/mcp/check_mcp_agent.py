@@ -742,14 +742,17 @@ def run_checks(session: Session) -> None:
     )
 
     succeeded = [call.tool for call in session.server_calls if not call.is_error]
+    def first_of(names: str) -> int | None:
+        # `backtest|compare`: any of the tools.
+        found = [succeeded.index(n) for n in names.split("|") if n in succeeded]
+        return min(found) if found else None
+
     for tool in scenario.expect_tools:
-        add(f"called `{tool}`", tool in succeeded)
+        add(f"called `{tool}`", first_of(tool) is not None)
     for first, second in scenario.expect_order:
-        if first in succeeded and second in succeeded:
-            add(
-                f"`{first}` before `{second}`",
-                succeeded.index(first) < succeeded.index(second),
-            )
+        before, after = first_of(first), first_of(second)
+        if before is not None and after is not None:
+            add(f"`{first}` before `{second}`", before < after)
     done = succeeded + [
         call.tool for call in session.calls if not call.server and not call.is_error
     ]
@@ -1080,7 +1083,11 @@ def render_timeline(session: Session) -> list[str]:
             lines += [f"**User (turn {user_turn})**", "", *_quote(item, root), ""]
             continue
         if kind == "text":
-            lines += ["**LLM (text)**", "", *_quote(item, root), ""]
+            if item in session.answers:
+                turn = session.answers.index(item) + 1
+                lines += [f"**LLM (answer of turn {turn}, under \"Final answer\")**", ""]
+            else:
+                lines += ["**LLM (text)**", "", *_quote(item, root), ""]
             continue
         call: Call = item
         number += 1

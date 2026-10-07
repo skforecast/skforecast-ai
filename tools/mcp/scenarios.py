@@ -56,7 +56,7 @@ class Scenario:
         Python package the server needs for the scenario; it is skipped
         without it.
     expect_tools : list of str
-        MCP tools that must succeed at least once.
+        MCP tools that must succeed at least once (`a|b` for any of two).
     expect_order : list of tuple
         Pairs `(first, second)`: the first successful call of `first` comes
         before the first successful call of `second`.
@@ -343,9 +343,11 @@ def _is_80_interval(value: Any) -> bool:
 # =============================================================================
 # Catalogue
 # =============================================================================
-WORKFLOW = ["profile", "plan", "create_cv", "backtest", "forecast"]
+# `backtest|compare`: either measures the plan over the folds, and a
+# comparison that beats the baseline is the more reliable of the two.
+WORKFLOW = ["profile", "plan", "create_cv", "backtest|compare", "forecast"]
 WORKFLOW_ORDER = [
-    ("profile", "plan"), ("plan", "create_cv"), ("create_cv", "backtest"),
+    ("profile", "plan"), ("plan", "create_cv"), ("create_cv", "backtest|compare"),
 ]
 
 SCENARIOS: list[Scenario] = [
@@ -732,7 +734,7 @@ SCENARIOS: list[Scenario] = [
         ],
         files        = {"data/h2o.csv": "h2o"},
         requires     = "chronos",
-        expect_tools = ["profile", "plan", "create_cv", "backtest", "forecast"],
+        expect_tools = WORKFLOW,
         checks       = [
             (
                 "plan used ForecasterFoundation",
