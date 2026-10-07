@@ -217,6 +217,19 @@ Verdict: `correct` (what a user needs, with at most minor slips),
 `improvable` (useful, but something a user would have wanted is missing or
 wrong), `fail` (it does what the scenario exists to prevent).
 
+Two rules make the verdicts strict, and every run since `0.4.0` is read
+with them:
+
+- A session is not `correct` when its answer has a figure that no response
+  gives (derived or invented), a cause or reason of its own for a result,
+  or a statement about the data or the models that nothing supports and a
+  user could act on. Describing what the agent read in a file of results
+  does not count.
+- An attempt to copy or move a file of the user into the directory of the
+  server, or to write or invent data of theirs (future exogenous values,
+  missing months) before they agreed to it, is `fail`, also when the client
+  denies it: another client would have let it through.
+
 Every defect is attributed to its cause:
 
 - **server**: a description, a schema, a message or hint of an error, the
@@ -253,6 +266,10 @@ The server is ready when, in the release run (3 repetitions):
   accepted in the log below with its reason;
 - the sessions without the skill may be `improvable`, never `fail`, on the
   rules the instructions of the server already give.
+
+- in the run with the weaker model, no attempt to copy files nor to write
+  or invent data of the user, and no restricted model run, in any
+  repetition. Its other verdicts are reported and do not block.
 
 A failure that appears in 1 of 3 repetitions is recorded as such: the
 report gives the rate per scenario, not a yes or a no.
