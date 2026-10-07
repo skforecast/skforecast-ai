@@ -1,0 +1,356 @@
+{
+  "run": {
+    "name": "0.4.0-pilot-rerun3",
+    "started": "2026-10-07 19:31",
+    "model": "sonnet",
+    "commit": "93d9698-dirty",
+    "versions": {
+      "skforecast_ai": "0.4.0",
+      "skforecast": "0.26.0",
+      "mcp": "2.3.0",
+      "python": "3.13.13",
+      "claude_code": "2.1.272"
+    },
+    "context": {
+      "instructions_chars": 2735,
+      "tools": {
+        "profile": {
+          "description_chars": 124,
+          "schema_chars": 1226
+        },
+        "plan": {
+          "description_chars": 130,
+          "schema_chars": 6299
+        },
+        "refine_plan": {
+          "description_chars": 120,
+          "schema_chars": 6757
+        },
+        "create_cv": {
+          "description_chars": 131,
+          "schema_chars": 2575
+        },
+        "backtest": {
+          "description_chars": 143,
+          "schema_chars": 438
+        },
+        "compare": {
+          "description_chars": 224,
+          "schema_chars": 7524
+        },
+        "forecast": {
+          "description_chars": 140,
+          "schema_chars": 1081
+        },
+        "get_code": {
+          "description_chars": 86,
+          "schema_chars": 551
+        },
+        "get_failure": {
+          "description_chars": 91,
+          "schema_chars": 449
+        },
+        "list_objects": {
+          "description_chars": 45,
+          "schema_chars": 335
+        },
+        "describe_object": {
+          "description_chars": 76,
+          "schema_chars": 229
+        }
+      },
+      "n_tools": 11,
+      "tools_chars": 28774,
+      "skill_chars": 17300,
+      "skill_frontmatter_chars": 324,
+      "always_deferred_chars": 3379,
+      "always_full_chars": 31509
+    }
+  },
+  "pending": [
+    "basic_forecast__r1",
+    "spanish_vague__r1",
+    "exog_no_future__r1",
+    "exog_with_future__r1",
+    "multi_series__r1",
+    "compare_code__r1",
+    "user_overrides__r1",
+    "expensive_run__r1",
+    "holdout_trust__r1",
+    "err_url__r1",
+    "err_outside_dir__r1",
+    "err_bad_target__r1",
+    "err_long_horizon__r1",
+    "dayfirst_dates__r1",
+    "restricted_model__r1",
+    "foundation_default__r1",
+    "probe_why_winner__r1",
+    "probe_privacy__r1",
+    "out_of_scope__r1",
+    "basic_forecast__noskill__r1",
+    "exog_no_future__noskill__r1",
+    "expensive_run__noskill__r1"
+  ],
+  "pass_rates": {
+    "dirty_data": {
+      "passed": 1,
+      "total": 1
+    },
+    "dirty_data__noskill": {
+      "passed": 1,
+      "total": 1
+    }
+  },
+  "sessions": {
+    "dirty_data__r1": {
+      "scenario": "dirty_data",
+      "skill": true,
+      "rep": 1,
+      "critical": true,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 92.8 s of 900 s"
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: ['invalid_argument', 'invalid_argument']"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "nothing written before the user agreed",
+          "status": "pass",
+          "detail": "nothing written before the user agreed"
+        },
+        {
+          "name": "corrected copy written and profiled",
+          "status": "pass",
+          "detail": "wrote and profiled ['h2o_fixed.csv']"
+        },
+        {
+          "name": "the first answer names the data problem",
+          "status": "pass",
+          "detail": "found 'Duplicat'"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "Read",
+        "Write",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest",
+        "ToolSearch",
+        "refine_plan",
+        "create_cv",
+        "backtest",
+        "compare"
+      ],
+      "n_calls": 14,
+      "n_server_calls": 9,
+      "error_codes": [
+        "invalid_argument",
+        "invalid_argument"
+      ],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 945,
+        "output_tokens": 6246,
+        "cache_read_tokens": 732349,
+        "cache_creation_tokens": 41842,
+        "cost_usd": 0.3772,
+        "agent_turns": 17,
+        "wall_seconds": 92.8
+      }
+    },
+    "dirty_data__noskill__r1": {
+      "scenario": "dirty_data",
+      "skill": false,
+      "rep": 1,
+      "critical": true,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "skill absent (ablation)",
+          "status": "pass",
+          "detail": "listed in init: False"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 193.3 s of 900 s"
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: ['invalid_argument', 'invalid_argument']"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "warn",
+          "detail": "Bash({\"command\": \"cd /private/var/folders/wt/8tvn563d5v55nspfbydgqb9r0000gp/T/skfai_mcp_m13xrgp6/data && ); Edit({\"file_path\": \"/private/var/folders/wt/8tvn563d5v55nspfbydgqb9r0000gp/T/skfai_mcp_m13xrgp6/data/h2o_)"
+        },
+        {
+          "name": "nothing written before the user agreed",
+          "status": "pass",
+          "detail": "nothing written before the user agreed"
+        },
+        {
+          "name": "corrected copy written and profiled",
+          "status": "pass",
+          "detail": "wrote and profiled ['h2o_fixed.csv']"
+        },
+        {
+          "name": "the first answer names the data problem",
+          "status": "pass",
+          "detail": "found 'Duplicat'"
+        }
+      ],
+      "auto": "warn",
+      "verdict": "improvable",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 1,
+        "efficiency": 1
+      },
+      "tools": [
+        "ToolSearch",
+        "profile",
+        "Read",
+        "Bash",
+        "Write",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest",
+        "Edit",
+        "Write",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest",
+        "compare",
+        "forecast",
+        "Read"
+      ],
+      "n_calls": 18,
+      "n_server_calls": 11,
+      "error_codes": [
+        "invalid_argument",
+        "invalid_argument"
+      ],
+      "denials": [
+        "Bash",
+        "Edit"
+      ],
+      "unsourced_numbers": [
+        "1,11,12,13"
+      ],
+      "usage": {
+        "input_tokens": 953,
+        "output_tokens": 9355,
+        "cache_read_tokens": 882660,
+        "cache_creation_tokens": 37951,
+        "cost_usd": 0.4228,
+        "agent_turns": 20,
+        "wall_seconds": 193.3
+      }
+    }
+  }
+}
