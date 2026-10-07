@@ -146,6 +146,8 @@ from .schemas import (
 from ._foundation import foundation_exog_columns, validate_foundation_plan
 from ._future_exog import as_exog_frame, validate_future_exog
 from ._last_window import (
+    validate_backtest_windows,
+    warn_backtest_missing_values,
     validate_evaluation_partition,
     validate_infinite_target,
     validate_last_window,
@@ -2663,6 +2665,7 @@ class ForecastingAssistant:
         cv = build_cv(cv_params=defaults, data_profile=profile.data_profile)
         _warn_direct_gap(plan, cv.gap)
         warn_first_window(plan, cv, profile.data_profile)
+        warn_backtest_missing_values(plan, profile.data_profile)
         cv_config, cv_explanation = resolve_cv_config(
             cv,
             profile.data_profile,
@@ -3195,6 +3198,12 @@ class ForecastingAssistant:
         )
         _check_direct_gap(plan, cv)
         check_first_window(plan, cv, profile.data_profile)
+        validate_backtest_windows(
+            data    = data_df,
+            profile = profile.data_profile,
+            plan    = plan,
+            cv      = cv,
+        )
 
         # Resolved CV parameters (with the fold and training counts) and their
         # explanation, which states the cost of the backtest.
