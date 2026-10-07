@@ -629,8 +629,14 @@ SCENARIOS: list[Scenario] = [
             "data/readme.txt": "note",
         },
         critical       = True,
-        expect_errors  = ["path_not_allowed"],
+        # The instructions of the server name the allowed directory, so the
+        # agent can decline before calling it.
+        allowed_errors = ["path_not_allowed"],
         checks         = [
+            (
+                "met `path_not_allowed` or declined before",
+                error_or_no_call("path_not_allowed", "profile"),
+            ),
             ("nothing ran on the file", no_successful("profile", "forecast")),
         ],
     ),
