@@ -2808,3 +2808,39 @@ Con ese mismo criterio la tercera pasada tenía unas 163 correctas (22.9), así 
 **Decisión.** Se mantiene la línea de la zona horaria: corrige un error repetido en los cuatro conjuntos a cambio de una respuesta más segura, y cierta, a una pregunta trampa en datos sin horas. No se toca más el contexto: lo que queda son tendencias del modelo o respuestas que cambian de una ejecución a otra, y otra vuelta de cambios pediría otra pasada.
 
 **Conclusión.** El contexto de `ask()` de 0.4.0 queda validado con un modelo real: ninguna cifra inventada, ninguna respuesta que contradiga un dato del contexto, y los fallos que la propia comprobación fue encontrando (procedencia de la estrategia, zona horaria, scripts sin ejecutar, datos desordenados, ventanas de inferencia como cota) están corregidos. Para 0.5.0: una razón para el valor por defecto de `gap` y de `allow_incomplete_fold` en `defaults_explanation`, que es donde el modelo sigue poniendo la suya.
+
+### 22.11 Quinta pasada (sección del plan: forecaster y pasos de preprocesado)
+
+Lanzada por el autor el 2026-10-07 con `google:gemini-3.8-flash`, sobre el código de `c6ec2c6`. Ese commit cambia lo que recibe el modelo en `<forecast_plan>`, a raíz de una revisión de los notebooks: la sección empieza con `- Forecaster: <nombre>` (antes el forecaster solo estaba en la frase "Plan: ...") y los pasos de preprocesado van bajo un elemento propio, `- Preprocessing steps:`, en lugar de colgar de `- Primary metric:`. Los cuatro informes de `tools/ai/ask_context_reports/0.4.0_*.md` son los de esta pasada. h2o se lanzó dos veces, porque en la primera dos preguntas de `forecast` recibieron un error de red (`ReadError`, `ReadTimeout`); el informe guardado es el de la segunda.
+
+**Integridad.** 21, 19, 19 y 23 escenarios y 43, 45, 45 y 45 preguntas (178), los mismos que en la cuarta pasada. Ninguna respuesta vacía ni con error en los informes guardados. Los goldens solo ganan líneas: 45 `- Forecaster: ...` y 7 `- Preprocessing steps:`.
+
+**Lo que se quería comprobar.**
+- `- Forecaster:`: ninguna respuesta nombra un forecaster distinto del de esa línea. Donde el plan difiere de la recomendación (`foundation_plan`, `multivariate_plan`, `overrides_plan`) las respuestas los separan: "The current forecast plan uses ForecasterFoundation" frente a "The profile recommendation proposed ForecasterRecursiveMultiSeries".
+- `- Preprocessing steps:`: ninguna respuesta lee un paso como propiedad de la métrica. En `many_categorical` lo cita como sección propia ("The preprocessing summary specifically lists the first 15 of 21 detected categorical columns"). Solo lo ejercitan bike_sharing y `many_categorical` de h2o: los dos items_sales no tienen ningún plan con pasos, y ningún escenario tiene un paso `[in generated code]`.
+- Queda una lectura floja que ya estaba en la cuarta pasada: en bike_sharing, `code`, el paso `[informational]` de las categóricas se cuenta como algo que hace el script ("sets categorical feature handling to auto"). Es cierto, pero el contexto no lo marca como código generado.
+
+**Recuento.** Esta vez la lectura completa la hizo un agente revisor por informe, y las incorrectas se comprobaron a mano contra el informe y contra los de la cuarta pasada. El criterio es más estricto que el de 22.10 (cuenta como mejorable un adjetivo añadido, como "continuous", un propósito añadido a una decisión o un siguiente paso no pedido), así que los totales no son comparables con los de esa tabla.
+
+| Conjunto | Correctas | Mejorables | Incorrectas | Dudosas |
+|---|---|---|---|---|
+| bike_sharing | 29 | 12 | 2 | 0 |
+| h2o | 32 | 12 | 1 | 0 |
+| items_sales | 31 | 11 | 3 | 0 |
+| items_sales_long | 23 | 15 | 4 | 3 |
+| Total | 115 | 50 | 10 | 3 |
+
+**Las incorrectas.** Son de las clases ya registradas en 22.10 y ninguna viene de las líneas nuevas.
+- `gap` y `allow_incomplete_fold`: el propósito del parámetro dado como razón de su valor, en los cuatro conjuntos; contada como incorrecta en dos (bike_sharing, items_sales_long), donde además afirma que el backtest llega hasta la última observación.
+- Cambio de hora: "No observations are removed" en items_sales e items_sales_long. La pregunta se repitió sola en los cuatro conjuntos: la declinaron dos y la afirmaron otros dos, una pareja distinta, y h2o, que la afirmó en la primera ejecución, la declina en la guardada. Cambia de una ejecución a otra con el mismo contexto.
+- Lags: una razón propia ("capturing the full weekly cycle") en los dos items_sales, cuando el contexto no da razón y el lag 7 no es significativo en todas las series. Estaba también en los informes de la cuarta pasada.
+- items_sales_long, `foundation_backtest`: "Yes" a si cada serie se predijo en cada fold, desde la cota "up to 72". Igual que en 22.10.
+- items_sales, `overrides_plan`: "your selected window features", que el contexto no atribuye al usuario. Misma clase que en 22.10, en la pregunta trampa y no en la principal, que lista bien las seis decisiones.
+- bike_sharing, licencia restringida: "would violate the terms of that license". "restricts commercial use" pasa a "cannot" en los cuatro, como antes.
+- h2o, `backtest`: dice que las métricas están "averaged across all 6 folds", que el contexto no dice, dentro de una pregunta trampa que sí declina.
+
+**Lo que sigue igual.** Las filas dadas fuera de orden se presentan como algo que ordenar en tres de cuatro conjuntos ("They must be sorted by date before training"), aunque el contexto dice que el código generado las ordena.
+
+**Observaciones sobre la lista de revisión**, no sobre las respuestas: `compare_many` pide que la respuesta apunte a `result.results`, que ni el contexto ni el prompt nombran; `profile` dice que los valores ausentes solo están en el contexto si no son cero, y el contexto escribe siempre "Missing values: none".
+
+**Conclusión.** El cambio de la sección del plan queda validado: las dos líneas nuevas se leen bien y no añaden ningún fallo. Lo que queda son las mismas tendencias del modelo de 22.10, y para 0.5.0 sigue pendiente lo mismo: una razón para el valor por defecto de `gap` y de `allow_incomplete_fold` en `defaults_explanation`.

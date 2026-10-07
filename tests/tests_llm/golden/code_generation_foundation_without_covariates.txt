@@ -17,6 +17,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Suggested calendar features: day_of_week, weekend, month
 </profile_decision>
 <forecast_plan>
+- Forecaster: ForecasterFoundation
 - Steps: 5
 - Estimator: Salesforce/moirai-2.0-R-small
 - Primary metric: mean_absolute_error

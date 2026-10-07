@@ -607,6 +607,36 @@ def test_refine_plan_prompt_transient_failure_is_not_retried(monkeypatch):
     assert len(fail_warnings) == 1
 
 
+def test_refine_plan_prompt_returns_deterministic_plan_when_api_key_is_missing(
+    monkeypatch,
+):
+    """
+    Test that a missing API key, which pydantic-ai reports when the agent
+    is built and not when it is called, keeps the plan's features with a
+    UserWarning, like a failed call, instead of raising a pydantic-ai
+    UserError.
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    warn_msg = (
+        re.escape(
+            "LLM plan refinement failed (Set the `OPENAI_API_KEY` environment "
+            "variable"
+        )
+        + ".*"
+        + re.escape("Returning deterministic plan.")
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        refined = assistant.refine_plan(profile, plan, prompt="Strong weekly cycles.")
+
+    assert refined.forecaster_kwargs == plan.forecaster_kwargs
+    assert refined.llm_refined_fields == []
+    assert "LLM Refinement Reasoning" not in refined.explanation
+
+
 def test_refine_plan_prompt_keeps_previous_values_when_plan_rejects_suggestion(
     monkeypatch,
 ):

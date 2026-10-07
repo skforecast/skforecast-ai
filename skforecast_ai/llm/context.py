@@ -686,7 +686,12 @@ def render_plan_section(
     if plan is None:
         return ""
 
-    parts = [f"- Steps: {plan.steps}"]
+    # A name from a closed set when the plan is validated; a plan changed
+    # with `model_copy()` is not.
+    parts = [
+        f"- Forecaster: {_one_line(plan.forecaster)}",
+        f"- Steps: {plan.steps}",
+    ]
     if plan.estimator:
         parts.append(f"- Estimator: {plan.estimator}")
     if plan.forecaster_kwargs:
@@ -718,6 +723,9 @@ def render_plan_section(
     if plan.metric:
         parts.append(f"- Primary metric: {plan.metric}")
     if plan.preprocessing_steps:
+        # Under their own item, so a step is not read as a detail of the
+        # line before it (the metric).
+        parts.append("- Preprocessing steps:")
         for step in plan.preprocessing_steps:
             prefix = (
                 "[in generated code]" if step.blocking else "[informational]"
@@ -725,8 +733,6 @@ def render_plan_section(
             parts.append(
                 f"  - {prefix} {_free_text(step.reason, indent='      ')}"
             )
-    # After the preprocessing steps, which are written as sub-items of the
-    # line before them, so they are never read as items of these lists.
     if plan.overridden_fields:
         # Names from a closed set (`OverrideName`) when the plan is
         # validated; a plan changed with `model_copy()` is not.

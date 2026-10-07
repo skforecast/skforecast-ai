@@ -20,6 +20,7 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 - Suggested calendar features: day_of_week, weekend, month
 </profile_decision>
 <forecast_plan>
+- Forecaster: ForecasterFoundation
 - Steps: 3
 - Estimator: autogluon/chronos-2-small
 - Prediction interval: [0.1, 0.9] (80% coverage)

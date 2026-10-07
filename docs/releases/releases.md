@@ -58,7 +58,7 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-enhancement">Enhancement</span> The result of [<code>ForecastingAssistant.create_cv()</code>][assistant] says where each value of the strategy comes from: `overridden_fields`, `fields_without_effect`, `llm_configured` and `defaults_explanation` (why the defaults have their value). `backtest()` and `compare()` carry the same under `cv_` names when they receive that result, and `ask()`, `describe()`, the display and the MCP summaries show it.
 
-+ <span class="badge text-bg-enhancement">Enhancement</span> The plan section that [<code>ForecastingAssistant.ask()</code>][assistant] sends to the LLM, and `describe()`, list the decisions you made instead of the rules (`plan.overridden_fields`) and the warnings of the plan (`plan.warnings`, the first 15 in `describe()`), so the answers no longer present a chosen value as a recommendation or miss a warning. The dataset section names the time zone of the dates, written as local times, and says when rows given out of date order are sorted by the generated code; a script returned as code is said not to have been run.
++ <span class="badge text-bg-enhancement">Enhancement</span> The plan section that [<code>ForecastingAssistant.ask()</code>][assistant] sends to the LLM, and `describe()`, name the forecaster as its first item, put the preprocessing steps under an item of their own instead of under the metric, and list the decisions you made instead of the rules (`plan.overridden_fields`) and the warnings of the plan (`plan.warnings`, the first 15 in `describe()`), so the answers no longer present a chosen value as a recommendation or miss a warning. The dataset section names the time zone of the dates, written as local times, and says when rows given out of date order are sorted by the generated code; a script returned as code is said not to have been run.
 
 + <span class="badge text-bg-feature">Feature</span> Every error of skforecast-ai derives from the new `SkforecastAIError`, with a stable `code` and the argument at fault in `field`, so a program can react to it without parsing the message, some carry a remedy in `hint`, and `ErrorInfo.from_exception()` in `skforecast_ai.schemas` turns any error into plain data. Invalid inputs raise `InvalidInputError`, `InvalidInputTypeError` or `DataNotFoundError`, still a `ValueError`, a `TypeError` (now also a `ValueError`) and a `FileNotFoundError` with the same messages (see [Exceptions and warnings][exceptions]).
 
@@ -124,6 +124,8 @@ All significant changes to this project are documented in this release file.
 
 
 **Fixed**
+
++ <span class="badge text-bg-danger">Fix</span> Without the API key of the provider, [<code>ForecastingAssistant.ask()</code>][assistant], `refine_plan(prompt=...)` and `create_cv(prompt=...)` raised a `UserError` of pydantic-ai. `ask()` now raises `LLMCallError`, and the other two return the deterministic result with a `UserWarning`, as when the call fails.
 
 + <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.compare()</code>][assistant] with a metric listed twice in `metric` raises `ValueError` naming it before running any candidate, instead of an error of pandas that did not.
 

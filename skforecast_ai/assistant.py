@@ -1658,14 +1658,31 @@ class ForecastingAssistant:
                         span_index_length = profile.data_profile.span_index_length,
                     )
 
-                llm_lags, llm_window_features, reasoning = (
-                    refine_features_with_llm(
-                        agent   = self._resolve_plan_refinement_agent(),
-                        profile = profile,
-                        plan    = plan,
-                        prompt  = prompt,
+                # pydantic-ai builds the provider with the agent, so a
+                # missing API key fails here, before any call: it degrades
+                # like a failed call. A missing package stays an
+                # ImportError, which names the extra to install.
+                try:
+                    refinement_agent = self._resolve_plan_refinement_agent()
+                except ImportError:
+                    raise
+                except Exception as exc:
+                    warnings.warn(
+                        f"LLM plan refinement failed ({exc}). Returning "
+                        f"deterministic plan.",
+                        UserWarning,
+                        stacklevel=2,
                     )
-                )
+                    llm_lags = llm_window_features = reasoning = None
+                else:
+                    llm_lags, llm_window_features, reasoning = (
+                        refine_features_with_llm(
+                            agent   = refinement_agent,
+                            profile = profile,
+                            plan    = plan,
+                            prompt  = prompt,
+                        )
+                    )
                 # Category-A precedence: an explicit lags/window_features
                 # override wins over the LLM suggestion (warn and record each
                 # shadowed field). Otherwise inject the LLM value only when the
@@ -2560,9 +2577,28 @@ class ForecastingAssistant:
             )
             use_llm = False
 
+        cv_agent = None
+        if use_llm:
+            # pydantic-ai builds the provider with the agent, so a missing
+            # API key fails here, before any call: it degrades like a
+            # failed call. A missing package stays an ImportError, which
+            # names the extra to install.
+            try:
+                cv_agent = self._resolve_cv_agent()
+            except ImportError:
+                raise
+            except Exception as exc:
+                warnings.warn(
+                    f"LLM CV configuration failed ({exc}). Falling back to "
+                    f"deterministic defaults.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                use_llm = False
+
         if use_llm:
             defaults = configure_cv_with_llm(
-                           agent    = self._resolve_cv_agent(),
+                           agent    = cv_agent,
                            profile  = profile,
                            plan     = plan,
                            prompt   = prompt,
@@ -3954,7 +3990,15 @@ class ForecastingAssistant:
         # --- LLM call ---
         from .llm import AskDeps
 
-        agent = self._resolve_agent()
+        # pydantic-ai builds the provider with the agent, so a missing API
+        # key fails here, before any call. A missing package stays an
+        # ImportError, which names the extra to install.
+        try:
+            agent = self._resolve_agent()
+        except ImportError:
+            raise
+        except Exception as exc:
+            raise LLMCallError(self.llm, exc) from exc
         deps = AskDeps(
             profile           = profile,
             plan              = plan,
