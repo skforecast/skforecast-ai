@@ -9,6 +9,7 @@ from skforecast_ai.mcp import _runtime, create_server
 from skforecast_ai.mcp.models import ToolNotice
 
 from .fixtures_mcp import (
+    DATA_VALUES_HINT,
     call,
     content_of,
     cv_of,
@@ -399,4 +400,5 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing: fill them in."
     )
+    assert error["hint"] == DATA_VALUES_HINT
     assert not forecast.is_error

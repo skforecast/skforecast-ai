@@ -170,6 +170,28 @@ FUTURE_EXOG_HINT = (
     "data, which is not the forecast the user asked for."
 )
 
+# Hint of `backtest`, `compare` and `forecast` for an error of the library
+# about the values of the data (missing values a prediction reads, final
+# rows without a target). The message says what would solve it, and an agent
+# does it without asking: it fills the values in, or changes the estimator
+# and does not tell.
+DATA_VALUES_HINT = (
+    "The values the message names are data of the user: do not fill in, drop "
+    "or write any of them yourself, and ask before a corrected copy is "
+    "written. Say in your answer that this call failed and why. When the "
+    "message blames the estimator, one that accepts missing values (such as "
+    "'LGBMRegressor') avoids the error without touching the data: if you "
+    "switch to it, say in your answer that you changed the estimator and why."
+)
+
+# Hint of `forecast` for an error of the library about the file of future
+# exogenous values.
+EXOG_FILE_HINT = (
+    "The file of future values is the user's: tell them what the message "
+    "says and let them correct it. Never write or change those values "
+    "yourself."
+)
+
 # The instructions of a server, with the directory it reads in place of
 # `{allowed_dir}`.
 INSTRUCTIONS = """\
@@ -1779,6 +1801,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     show_progress = False,
                 )
             except SkforecastAIError as exc:
+                _leave_to_user(exc, {"data": DATA_VALUES_HINT})
                 _keep_failure(exc)
                 raise
             _inputs.check_unchanged(path, cv_entry.data_sha256, "data_path")
@@ -1919,6 +1942,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     progress_callback = on_progress,
                 )
             except SkforecastAIError as exc:
+                _leave_to_user(exc, {"data": DATA_VALUES_HINT})
                 _keep_failure(exc)
                 # Every candidate failed, so no result carries the notice of
                 # the weights the candidates that ran may have downloaded:
@@ -2101,8 +2125,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     plan      = _copy(plan_entry.obj),
                 )
             except SkforecastAIError as exc:
-                if exog_path is None:
-                    _leave_to_user(exc, {"exog": FUTURE_EXOG_HINT})
+                _leave_to_user(exc, {
+                    "data": DATA_VALUES_HINT,
+                    "exog": FUTURE_EXOG_HINT if exog_path is None else EXOG_FILE_HINT,
+                })
                 _keep_failure(exc)
                 raise
             _inputs.check_unchanged(path, plan_entry.data_sha256, "data_path")

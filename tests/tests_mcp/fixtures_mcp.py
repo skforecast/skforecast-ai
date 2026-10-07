@@ -51,6 +51,17 @@ GAPS_WARNING = (
     "date range. asfreq() inserts them as rows with missing values."
 )
 
+# Hint the server adds to an error of the library about the values of the
+# data, in `backtest`, `compare` and `forecast`.
+DATA_VALUES_HINT = (
+    "The values the message names are data of the user: do not fill in, drop "
+    "or write any of them yourself, and ask before a corrected copy is "
+    "written. Say in your answer that this call failed and why. When the "
+    "message blames the estimator, one that accepts missing values (such as "
+    "'LGBMRegressor') avoids the error without touching the data: if you "
+    "switch to it, say in your answer that you changed the estimator and why."
+)
+
 # Ten future values of `promo` after the last date of `df_single`.
 df_single_future_exog = pd.DataFrame(
     {

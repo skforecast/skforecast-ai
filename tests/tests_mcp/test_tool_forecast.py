@@ -9,6 +9,7 @@ from skforecast_ai.mcp import create_server
 from ..fixtures_assistant import df_single
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
+    DATA_VALUES_HINT,
     call,
     df_single_future_exog,
     content_of,
@@ -320,3 +321,64 @@ def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(
         "dates they reach."
     )
     assert error["field"] == "data_path"
+
+
+def test_tool_forecast_invalid_argument_with_hint_when_final_rows_have_no_target(
+    tmp_path,
+):
+    """
+    Test that forecasting data whose last rows have no target value is
+    `invalid_argument` on `data_path` with the hint of the server that
+    leaves the values to the user: the message says to drop the rows, which
+    an agent does without asking.
+    """
+    data = df_single.drop(columns="promo")
+    data.loc[data.index[-3:], "sales"] = float("nan")
+    path = write_csv(tmp_path, "tail.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    error = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
+    assert error["message"] == (
+        "The data has no target value after 2023-04-07: drop its last 3 "
+        "row(s) (2023-04-08 to 2023-04-10), so that it ends with the last "
+        "value of the target."
+    )
+    assert error["hint"] == DATA_VALUES_HINT
+
+
+def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_missing_values(
+    tmp_path,
+):
+    """
+    Test that a file of future exogenous values with a missing value, for
+    an estimator that cannot use it, is `invalid_argument` on `exog_path`
+    with a hint that leaves the file to the user.
+    """
+    future = df_single_future_exog.copy()
+    future.iloc[2, 1] = float("nan")
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    exog_path = write_csv(tmp_path, "future.csv", future)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(
+        server, path, target="sales", steps=10, estimator="Ridge"
+    )
+
+    error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": exog_path}),
+        "forecast",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        "`exog` has missing values in the rows to forecast ('promo': 1 "
+        "value(s), such as '2023-04-13'). ForecasterRecursive with Ridge "
+        "cannot use them, so its predictions would be missing: fill them in."
+    )
+    assert error["hint"] == (
+        "The file of future values is the user's: tell them what the message "
+        "says and let them correct it. Never write or change those values "
+        "yourself."
+    )
