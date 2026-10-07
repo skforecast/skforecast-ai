@@ -52,29 +52,40 @@ def test_tool_forecast_output_matches_python_api(tmp_path, test_size):
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
     # Only an evaluation has metrics, and with them the notice that gives
-    # the reference of MASE.
+    # the reference of MASE, after the one that says it is an evaluation.
     categories = [notice["category"] for notice in result["notices"]]
     if test_size is None:
         assert sorted(result["files"]) == ["predictions"]
         assert categories == []
     else:
         assert text_of(result["files"]["metrics"]) == expected.metrics.to_csv()
-        assert categories == ["MetricReferenceNotice"]
+        assert categories == ["HoldoutEvaluationNotice", "MetricReferenceNotice"]
     assert code == expected.code
 
 
 def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
     """
     Test that the plan of an evaluation, which holds the split of the test
-    set, is never registered as a plan.
+    set, is never registered as a plan, and that only the evaluation carries
+    the notice that its dates are already in the data.
     """
     server, path = h2o_server(tmp_path)
     _, plan_id = profile_and_plan(server, path)
 
-    content_of(call(server, "forecast", {"plan_id": plan_id, "test_size": 12}))
+    evaluation = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 12})
+    )
+    future = content_of(call(server, "forecast", {"plan_id": plan_id}))
     objects = content_of(call(server, "list_objects", {"kind": "plan"}))["objects"]
 
     assert [o["id"] for o in objects] == [plan_id]
+    assert [notice["category"] for notice in evaluation["notices"]] == [
+        "HoldoutEvaluationNotice", "MetricReferenceNotice",
+    ]
+    assert "2007-07-01 00:00:00 to 2008-06-01 00:00:00" in (
+        evaluation["notices"][0]["message"]
+    )
+    assert future["notices"] == []
 
 
 def test_tool_forecast_with_future_exog(tmp_path):

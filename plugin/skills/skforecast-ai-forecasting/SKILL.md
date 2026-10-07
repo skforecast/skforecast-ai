@@ -105,7 +105,9 @@ From most to least reliable:
    only gives the average, so the worst series is not in it: name it.
 2. A `backtest`: measured over the same folds, but without a reference.
 3. A `forecast` with `test_size`: one window of `steps` observations. It
-   can be lucky or unlucky; do not present it as the accuracy of the model.
+   can be lucky or unlucky; do not present it as the accuracy of the model,
+   nor as the forecast of the future: its dates are already in the data (a
+   `HoldoutEvaluationNotice` names them).
 4. A `forecast` of the future: no measure of error at all. Report it with
    the accuracy of the backtest or comparison of the same plan.
 

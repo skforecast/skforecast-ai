@@ -352,6 +352,49 @@ def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
     ]
 
 
+def _holdout_notices(predictions: Any, test_size: Any) -> list[ToolNotice]:
+    """
+    Notice of a forecast run with `test_size`: its predictions are for
+    dates already in the data, so it is an evaluation and not the forecast
+    of the future, which agents present it as.
+
+    Parameters
+    ----------
+    predictions : pandas DataFrame, None
+        Predictions of the result, indexed by the dates (or positions) of
+        the test set.
+    test_size : int, float, str, None
+        Argument of the tool. None for a forecast of the future.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`) for an evaluation, else empty.
+    """
+
+    if test_size is None:
+        return []
+    where = "dates"
+    if predictions is not None and len(predictions):
+        index = predictions.index
+        where = f"{index.min()} to {index.max()}, dates"
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "HoldoutEvaluationNotice",
+            message  = (
+                f"Say in your answer that these predictions are for {where} "
+                f"already in the data: with `test_size` this is an evaluation "
+                f"of the model on its last observations, not a forecast of "
+                f"the future. Never title or describe it as the next periods; "
+                f"the future needs `forecast` without `test_size`."
+            ),
+            count    = 1,
+        )
+    ]
+
+
 def _metric_notices(metrics: Any) -> list[ToolNotice]:
     """
     Notice with the reference of the scaled metrics (MASE, RMSSE) among the
@@ -2158,6 +2201,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                             plan_warnings  = result.plan.warnings,
                             data_warnings  = plan_entry.data_warnings,
                             server_notices = [
+                                *_holdout_notices(result.predictions, test_size),
                                 *_metric_notices(result.metrics),
                                 *_exog_notices(
                                     result.plan, plan_entry.profile, forecast=True

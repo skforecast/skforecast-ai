@@ -145,9 +145,12 @@ def test_concurrent_executions_never_overlap_and_keep_their_own_notices(
     for i, (name, arguments) in enumerate(calls):
         categories = [notice["category"] for notice in results[i]["notices"]]
         # Every run with metrics computes MASE, whose reference the server
-        # states; a forecast of the future has none.
+        # states; a forecast of the future has none, and an evaluation says
+        # first that its dates are already in the data.
         future = name == "forecast" and "test_size" not in arguments
         expected = [] if future else ["MetricReferenceNotice"]
+        if name == "forecast" and not future:
+            expected.insert(0, "HoldoutEvaluationNotice")
         if arguments.get("cv_id") == long_cv:
             expected.append("LongTrainingWarning")
         assert categories == expected, (i, categories)

@@ -243,6 +243,7 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "Do not do any of it another way in the same answer",
         "Never write those values yourself, nor answer with a `test_size` "
         "evaluation instead",
+        "nor as the forecast of the future: its dates are already in the data",
     ],
     ids=lambda phrase: phrase[:40],
 )
