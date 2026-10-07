@@ -176,12 +176,12 @@ def only_plan_keys(allowed: set[str]) -> CheckFunction:
 
 def answer_matches(pattern: str, turn: int = -1) -> CheckFunction:
     """
-    The answer of a turn (the last one by default) matches a regular
-    expression, ignoring case.
+    What the agent wrote in a turn (the last one by default) matches a
+    regular expression, ignoring case.
     """
 
     def check(session: Any) -> CheckResult:
-        answers = session.answers
+        answers = session.turn_texts
         if not answers:
             return False, "no answer"
         text = answers[turn] if -len(answers) <= turn < len(answers) else ""
@@ -250,9 +250,11 @@ def read_output_file(role: str) -> CheckFunction:
 
     def check(session: Any) -> CheckResult:
         for call in session.calls:
-            path = str(call.input.get("file_path", ""))
-            if call.tool == "Read" and role in path and not call.is_error:
-                return True, f"read {path.rsplit('/', 1)[-1]}"
+            # `Read`, or a read-only command of `Bash` such as `cat`.
+            target = str(call.input.get("file_path") or call.input.get("command") or "")
+            found = re.search(rf"[\w-]*{role}[\w-]*\.csv", target)
+            if call.tool in ("Read", "Bash") and found and not call.is_error:
+                return True, f"read {found.group(0)}"
         return False, f"no file of {role} was read"
 
     return check

@@ -503,6 +503,7 @@ class Session:
     steps: list[tuple[str, Any]] = field(default_factory=list)
     calls: list[Call] = field(default_factory=list)
     answers: list[str] = field(default_factory=list)
+    turn_texts: list[str] = field(default_factory=list)
     results: list[dict[str, Any]] = field(default_factory=list)
     denials: list[dict[str, Any]] = field(default_factory=list)
     checks: list[dict[str, str]] = field(default_factory=list)
@@ -650,6 +651,9 @@ def parse_trace(key: str, scenario: Scenario, meta: dict[str, Any], path: Path) 
                 _read_result(call)
         elif kind == "result":
             session.results.append(event)
+            # Everything the agent wrote in the turn: the user reads it all,
+            # and the last message alone can be only its closing part.
+            session.turn_texts.append("\n\n".join(turn_texts))
             answer = event.get("result")
             session.answers.append(
                 answer if isinstance(answer, str) and answer.strip()
