@@ -1258,22 +1258,47 @@ def render_report(
         lines += ["## Overall evaluation", "", evaluation["overall"], ""]
 
     lines += ["## Findings", ""]
-    findings = evaluation.get("findings") or []
-    if findings:
-        lines += [
-            "| # | Finding | Cause | Sessions | Proposed action |",
-            "|--:|:--|:--|:--|:--|",
-        ]
-        for number, finding in enumerate(findings, start=1):
-            lines.append(
-                f"| {number} | **{finding['title']}** {finding.get('evidence', '')} "
-                f"| {finding['attribution']} "
-                f"| {', '.join(finding.get('sessions', []))} "
-                f"| {finding.get('action', '')} |"
-            )
+    findings = evaluation.get("findings")
+    if findings is None:
+        lines += ["Not reviewed yet.", ""]
     else:
-        lines.append("Not reviewed yet.")
-    lines.append("")
+        reviewed = len(evaluation.get("sessions") or {})
+        lines += [
+            f"Written by the reviewer after reading {reviewed} of the "
+            f"{len(sessions)} sessions, most important first. Both lists are "
+            "always present: an empty one says nothing was found.", "",
+        ]
+        groups = [
+            (
+                "Problems of the library (server or skill)",
+                "to fix in skforecast-ai, then rerun the sessions",
+                ("server", "skill"),
+            ),
+            (
+                "Problems of the model",
+                "the library gave the right information and the agent did "
+                "not use it well",
+                ("model",),
+            ),
+        ]
+        for title, meaning, causes in groups:
+            rows = [f for f in findings if f["attribution"] in causes]
+            lines += [f"### {title}", "", f"{len(rows)} found ({meaning}).", ""]
+            if not rows:
+                continue
+            lines += [
+                "| # | Finding | Cause | Sessions | Proposed action |",
+                "|--:|:--|:--|:--|:--|",
+            ]
+            for number, finding in enumerate(rows, start=1):
+                lines.append(
+                    f"| {number} | **{finding['title']}** "
+                    f"{finding.get('evidence', '')} "
+                    f"| {finding['attribution']} "
+                    f"| {', '.join(finding.get('sessions', []))} "
+                    f"| {finding.get('action', '')} |"
+                )
+            lines.append("")
 
     lines += [
         "## Summary", "",
