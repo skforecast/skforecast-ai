@@ -65,7 +65,7 @@ python tools/mcp/check_mcp_agent.py --run-name 0.5.0-pilot
 # pass `metric` with a weaker model
 python tools/mcp/check_mcp_agent.py --run-name 0.5.0 --reps 3
 python tools/mcp/check_mcp_agent.py --run-name 0.5.0-haiku --model haiku --reps 3 \
-    --scenarios basic_forecast,exog_no_future,compare_code,dirty_data,restricted_model,err_url,err_outside_dir,err_bad_target,err_long_horizon,user_overrides,metric_list
+    --scenarios basic_forecast,exog_no_future,compare_code,dirty_data,restricted_model,err_url,err_outside_dir,err_bad_target,err_long_horizon,dirty_data_keep_gaps,user_overrides,metric_list
 
 # After writing evaluation.json: rebuild the report
 python tools/mcp/check_mcp_agent.py --run-name 0.5.0 --report-only
