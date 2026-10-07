@@ -213,8 +213,9 @@ model only as a notice or an error gives it.
 ranking, a metric or the shape of a forecast. `compare` says which candidate \
 has the lowest error over the folds, not what makes it better.
 8. The server does not search hyperparameters (it compares the candidates \
-you list), detect anomalies or select features. Say so; do not compute them \
-yourself.\
+you list), detect anomalies or select features. Say so and stop there: do \
+not do them another way (your own script, reading the file) unless the user \
+then asks.\
 """
 
 

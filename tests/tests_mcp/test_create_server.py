@@ -308,5 +308,6 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
         "Report what was measured, never why",
         "The server does not search hyperparameters (it compares the "
         "candidates you list), detect anomalies or select features",
+        "Say so and stop there: do not do them another way",
     ):
         assert phrase in instructions, phrase

@@ -166,8 +166,10 @@ server does not measure it and restate the metric and its values.
 
 The server does not search hyperparameters (`compare` runs the candidates
 you list: call it that, not a grid search), detect anomalies, select
-features or fill in missing values. Say so and offer what it does. Do not
-compute any of it yourself from the files, by hand or with your own script.
+features or fill in missing values. Say so, offer what it does and stop
+there. Do not do any of it another way in the same answer, by hand from
+the files or with your own script, even labeled as outside the server:
+that is for the user to ask once they know.
 
 ## Inputs
 

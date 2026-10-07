@@ -240,7 +240,7 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "asking to retrain regularly is not that choice",
         "Report what was measured, never why",
         "The server does not search hyperparameters",
-        "Do not compute any of it yourself from the files",
+        "Do not do any of it another way in the same answer",
     ],
     ids=lambda phrase: phrase[:40],
 )
