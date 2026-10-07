@@ -141,6 +141,24 @@ def check_allow_models(prefixes: Iterable[str]) -> tuple[str, ...]:
 _LICENSE_LEAD = "License (by the name of the model, as skforecast registers it):"
 
 
+def _default_license() -> str:
+    """
+    The license of the default foundation model as skforecast registers it,
+    to follow its name in a text; empty when skforecast gives none. An agent
+    told only the name of the model adds its license from memory.
+    """
+
+    try:
+        info = resolve_foundation_model(DEFAULT_FOUNDATION_MODEL_ID)
+    except InvalidInputError:
+        return ""
+    license_name = getattr(info, "license", None)
+    if not license_name:
+        return ""
+
+    return f" (license {license_name}, as skforecast registers it)"
+
+
 def _license_text(info: FoundationModelInfo) -> str:
     """
     The license of a model as skforecast registers it, and what else a user
@@ -349,8 +367,10 @@ class ModelPolicy:
             hint    = (
                 f"Tell the user about the license and, if they accept it, ask "
                 f"them to restart the server with `--allow-model {prefix}`. "
-                f"Otherwise leave `estimator` out for the default model, "
-                f"'{DEFAULT_FOUNDATION_MODEL_ID}'."
+                f"The only alternative to offer is the default model, "
+                f"'{DEFAULT_FOUNDATION_MODEL_ID}'{_default_license()}: leave "
+                f"`estimator` out for it. Name no other model and no other "
+                f"license: nothing here tells you which ones the server runs."
             ),
             details = {
                 "model_id": model_id,
