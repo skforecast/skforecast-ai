@@ -26,6 +26,7 @@ repetition that already has a finished trace is skipped.
 
 from __future__ import annotations
 import argparse
+import dataclasses
 import datetime as dt
 import hashlib
 import importlib.metadata
@@ -160,6 +161,9 @@ DATASETS: dict[str, Any] = {
     "bike": _bike,
     "bike_future": lambda: _bike(with_future=True),
     "bike_users": lambda: _bike()[["date_time", "users"]],
+    # Two years of hours: a backtest that retrains at every fold takes
+    # minutes, so the cost rule has something real to warn about.
+    "bike_two_years": lambda: _fetch("bike_sharing")[["date_time", "users"]],
     "items_long": _items_long,
     "dayfirst": _dayfirst,
     "note": lambda: "Put the CSV files to forecast in this folder.\n",
@@ -742,7 +746,7 @@ def run_checks(session: Session) -> None:
         "finished within the limits",
         session.status == "completed",
         f"status={session.status}, {session.meta['wall_seconds']} s of "
-        f"{scenario.timeout} s",
+        f"{session.meta.get('timeout', scenario.timeout)} s",
     )
 
     succeeded = [call.tool for call in session.server_calls if not call.is_error]
@@ -769,6 +773,23 @@ def run_checks(session: Session) -> None:
     known = set(scenario.expect_errors) | set(scenario.allowed_errors)
     unexpected = [code for code in codes if code not in known]
     add("no internal_error", "internal_error" not in codes)
+    failures = [
+        call for call in session.server_calls
+        if call.code in ("execution_failed", "all_candidates_failed")
+    ]
+    if failures:
+        # The error carries a `failure_id`; the traceback says why it failed.
+        unread = [
+            f"{call.tool} (call {call.index})" for call in failures
+            if not any(
+                later.tool == "get_failure" and later.index > call.index
+                for later in session.server_calls
+            )
+        ]
+        add(
+            "`get_failure` read after a failed execution", not unread,
+            f"not read after: {unread}" if unread else "",
+        )
     add(
         "no unexpected error", not unexpected,
         f"unexpected: {unexpected}" if unexpected else f"errors: {codes}",
@@ -1152,6 +1173,9 @@ def render_timeline(session: Session) -> list[str]:
 
 
 def _usage_cells(usage: dict[str, Any]) -> tuple[str, str, str]:
+    if not usage["agent_turns"] and not usage["cost_usd"]:
+        # A session cut by the runner never sends its totals.
+        return "unknown (cut)", "unknown", f"{usage['wall_seconds']:.0f}"
     tokens = (
         f"{usage['input_tokens'] + usage['cache_creation_tokens']:,} in, "
         f"{usage['cache_read_tokens']:,} cached, {usage['output_tokens']:,} out"
@@ -1550,6 +1574,8 @@ def run(arguments: argparse.Namespace) -> None:
     stopped = None
     for name, with_skill, rep in plan:
         scenario = BY_NAME[name]
+        if arguments.timeout:
+            scenario = dataclasses.replace(scenario, timeout=arguments.timeout)
         key = _session_key(name, with_skill, rep)
         meta_path = run_dir / "traces" / f"{key}.meta.json"
         if meta_path.exists():
@@ -1574,7 +1600,8 @@ def run(arguments: argparse.Namespace) -> None:
             meta = {
                 "key": key, "scenario": name, "with_skill": with_skill, "rep": rep,
                 "model": arguments.model, "workspace": str(root),
-                "turns": scenario.turns, "files_before": files_before,
+                "turns": scenario.turns, "timeout": scenario.timeout,
+                "files_before": files_before,
                 "files_after": files_after, **outcome,
             }
             log = root / "server.log"
@@ -1670,6 +1697,9 @@ def main() -> None:
                         help="Run only the sessions without the skill.")
     parser.add_argument("--max-budget-usd", type=float, default=5.0,
                         help="Equivalent cost at which a session is cut (0 for none).")
+    parser.add_argument("--timeout", type=int, default=None,
+                        help="Seconds allowed per session, instead of the limit of "
+                             "each scenario (to test the cut, or on a slow machine).")
     parser.add_argument("--stop-at-utilization", type=float, default=0.95,
                         help="Stop before the next session when a usage window of "
                              "the plan is at or above this fraction.")

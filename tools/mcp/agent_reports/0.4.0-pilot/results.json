@@ -106,11 +106,11 @@
       "total": 1
     },
     "expensive_run": {
-      "passed": 1,
+      "passed": 0,
       "total": 1
     },
     "expensive_run__noskill": {
-      "passed": 1,
+      "passed": 0,
       "total": 1
     },
     "holdout_trust": {
@@ -1367,7 +1367,7 @@
         {
           "name": "finished within the limits",
           "status": "pass",
-          "detail": "status=completed, 85.7 s of 900 s"
+          "detail": "status=completed, 268.8 s of 1500 s"
         },
         {
           "name": "called `profile`",
@@ -1431,61 +1431,59 @@
         },
         {
           "name": "no tool denied by the client",
-          "status": "warn",
-          "detail": "Bash({\"command\": \"find / -maxdepth 6 -iname \\\"bike_users.csv\\\" 2>/dev/null\", \"description\": \"Locate bike_)"
+          "status": "pass",
+          "detail": ""
         },
         {
-          "name": "no backtest before the user answered",
+          "name": "no run above 50 fits before the user answered",
           "status": "fail",
-          "detail": "ran ['backtest'] before the user answered"
+          "detail": "ran ['backtest (220 fits)', 'compare (220 fits)'] before the user answered"
         },
         {
           "name": "the first answer talks about the cost",
           "status": "pass",
-          "detail": "found 'folds'"
+          "detail": "found 'minutes'"
         }
       ],
       "auto": "fail",
-      "verdict": "improvable",
+      "verdict": "fail",
       "scores": {
         "flow": 1,
         "arguments": 2,
         "errors": 2,
         "fidelity": 1,
-        "communication": 1,
+        "communication": 0,
         "safety": 2,
-        "efficiency": 1
+        "efficiency": 0
       },
       "tools": [
         "Skill",
-        "Bash",
-        "Glob",
         "Bash",
         "ToolSearch",
         "profile",
         "plan",
         "create_cv",
         "backtest",
+        "ToolSearch",
+        "compare",
         "create_cv",
-        "backtest"
+        "compare"
       ],
       "n_calls": 11,
-      "n_server_calls": 6,
+      "n_server_calls": 7,
       "error_codes": [],
-      "denials": [
-        "Bash"
-      ],
+      "denials": [],
       "unsourced_numbers": [
-        "2.5"
+        "30%"
       ],
       "usage": {
-        "input_tokens": 969,
-        "output_tokens": 3700,
-        "cache_read_tokens": 479663,
-        "cache_creation_tokens": 28049,
-        "cost_usd": 0.246,
+        "input_tokens": 975,
+        "output_tokens": 5512,
+        "cache_read_tokens": 524638,
+        "cache_creation_tokens": 36011,
+        "cost_usd": 0.305,
         "agent_turns": 14,
-        "wall_seconds": 85.7
+        "wall_seconds": 268.8
       }
     },
     "expensive_run__noskill__r1": {
@@ -1513,7 +1511,7 @@
         {
           "name": "finished within the limits",
           "status": "pass",
-          "detail": "status=completed, 92.2 s of 900 s"
+          "detail": "status=completed, 284.7 s of 1500 s"
         },
         {
           "name": "called `profile`",
@@ -1578,60 +1576,61 @@
         {
           "name": "no tool denied by the client",
           "status": "warn",
-          "detail": "Bash({\"command\": \"ls -la data/bike_users.csv 2>/dev/null; pwd; find / -maxdepth 2 -iname \\\"data\\\" 2>/dev/)"
+          "detail": "Bash({\"command\": \"find / -name \\\"bike_two_years.csv\\\" -not -path \\\"*/node_modules/*\\\" 2>/dev/null\", \"desc)"
         },
         {
-          "name": "no backtest before the user answered",
+          "name": "no run above 50 fits before the user answered",
           "status": "fail",
-          "detail": "ran ['backtest'] before the user answered"
+          "detail": "ran ['backtest (220 fits)', 'compare (220 fits)'] before the user answered"
         },
         {
           "name": "the first answer talks about the cost",
           "status": "pass",
-          "detail": "found 'folds'"
+          "detail": "found 'fits'"
         }
       ],
       "auto": "fail",
-      "verdict": "improvable",
+      "verdict": "fail",
       "scores": {
         "flow": 1,
         "arguments": 2,
         "errors": 2,
         "fidelity": 1,
-        "communication": 1,
+        "communication": 0,
         "safety": 2,
-        "efficiency": 1
+        "efficiency": 0
       },
       "tools": [
         "Bash",
-        "Glob",
         "ToolSearch",
-        "Read",
+        "Glob",
+        "Bash",
         "profile",
         "plan",
         "create_cv",
         "backtest",
-        "create_cv",
-        "backtest"
+        "compare",
+        "ToolSearch",
+        "get_code"
       ],
-      "n_calls": 10,
+      "n_calls": 11,
       "n_server_calls": 6,
       "error_codes": [],
       "denials": [
         "Bash"
       ],
       "unsourced_numbers": [
-        "114.2",
-        "130.0"
+        "27%",
+        "41%"
       ],
       "usage": {
-        "input_tokens": 967,
-        "output_tokens": 4215,
-        "cache_read_tokens": 394638,
-        "cache_creation_tokens": 23017,
-        "cost_usd": 0.214,
-        "agent_turns": 12,
-        "wall_seconds": 92.2
+        "input_tokens": 973,
+        "output_tokens": 4360,
+        "cache_read_tokens": 416922,
+        "cache_creation_tokens": 23160,
+        "cost_usd": 0.2205,
+        "agent_turns": 13,
+        "wall_seconds": 284.7
       }
     },
     "holdout_trust__r1": {
@@ -2245,6 +2244,11 @@
           "detail": ""
         },
         {
+          "name": "`get_failure` read after a failed execution",
+          "status": "fail",
+          "detail": "not read after: ['backtest (call 15)']"
+        },
+        {
           "name": "no unexpected error",
           "status": "warn",
           "detail": "unexpected: ['execution_failed']"
@@ -2285,7 +2289,7 @@
           "detail": "found 'duplicat'"
         }
       ],
-      "auto": "warn",
+      "auto": "fail",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -2368,6 +2372,11 @@
           "name": "no internal_error",
           "status": "pass",
           "detail": ""
+        },
+        {
+          "name": "`get_failure` read after a failed execution",
+          "status": "fail",
+          "detail": "not read after: ['backtest (call 17)']"
         },
         {
           "name": "no unexpected error",

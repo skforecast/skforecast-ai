@@ -226,6 +226,31 @@ def no_successful_before_turn(turn: int, *tools: str) -> CheckFunction:
     return check
 
 
+def no_expensive_run_before_turn(turn: int, max_fits: int) -> CheckFunction:
+    """
+    No backtest or comparison above `max_fits` estimator fits ran before
+    the given turn (0-based) of the user. A cheap run is not held against
+    the agent: only the one the cost rule asks to announce.
+    """
+
+    def check(session: Any) -> CheckResult:
+        ran = []
+        for call in session.calls:
+            if (
+                not call.server or call.is_error or call.turn >= turn
+                or call.tool not in ("backtest", "compare")
+            ):
+                continue
+            fits = ((call.response or {}).get("cost") or {}).get("estimator_fits", 0)
+            if fits > max_fits:
+                ran.append(f"{call.tool} ({fits} fits)")
+        if ran:
+            return False, f"ran {ran} before the user answered"
+        return True, f"nothing above {max_fits} fits ran before the user answered"
+
+    return check
+
+
 def error_or_no_call(code: str, tool: str) -> CheckFunction:
     """
     Either the server answered with the error code, or the agent knew the
@@ -508,33 +533,37 @@ SCENARIOS: list[Scenario] = [
     ),
     Scenario(
         name         = "expensive_run",
-        summary      = "hourly backtest with refit and many folds (2 turns)",
+        summary      = "two years of hourly data, \"retrain regularly\" (2 turns)",
         expected     = (
-            "Reads `cost` of create_cv, tells the user about the number of "
-            "fits before running and proposes a cheaper strategy (fewer "
-            "folds or `refit=false`). Runs only after the user answers."
+            "The request leaves the strategy open: retraining at every "
+            "fold costs 220 fits or more (about 90 seconds on the default "
+            "folds, minutes with an earlier start). Reads `cost` of "
+            "create_cv and, before any run above 50 fits, stops, tells the "
+            "user the number of fits and proposes cheaper strategies (an "
+            "integer `refit`, fewer folds, `refit=false`). Runs the "
+            "expensive one only if the user chooses it."
         ),
         turns        = [
-            "Backtest a 24 hour ahead forecast of users on "
-            "data/bike_users.csv. Train on the first two weeks, then "
-            "retrain the model at every fold and move forward one day at a "
-            "time until the end of the data.",
+            "data/bike_two_years.csv has two years of hourly users. I want "
+            "to know how accurate a 24 hour ahead forecast would have been "
+            "over that time. In production we would retrain the model "
+            "regularly as new data arrives, so evaluate it that way.",
             "OK, go with the cheaper option you suggest.",
         ],
-        files        = {"data/bike_users.csv": "bike_users"},
+        files        = {"data/bike_two_years.csv": "bike_two_years"},
         expect_tools = ["profile", "plan", "create_cv", "backtest"],
         expect_order = WORKFLOW_ORDER,
         checks       = [
             (
-                "no backtest before the user answered",
-                no_successful_before_turn(1, "backtest", "compare"),
+                "no run above 50 fits before the user answered",
+                no_expensive_run_before_turn(1, 50),
             ),
             (
                 "the first answer talks about the cost",
                 answer_matches(r"\bfits?\b|refit|folds|expensive|cost|minutes", 0),
             ),
         ],
-        timeout      = 900,
+        timeout      = 1500,
     ),
     Scenario(
         name         = "holdout_trust",

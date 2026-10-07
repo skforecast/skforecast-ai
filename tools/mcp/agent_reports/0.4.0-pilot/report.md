@@ -4,7 +4,7 @@
 - **Date**: 2026-10-07 16:04
 - **Model**: `sonnet` (Claude Code 2.1.272, subscription, no API key)
 - **Versions**: mcp 2.3.0, skforecast 0.26.0, Python 3.13.13
-- **Sessions**: 24 finished, 0 pending; 5.69 USD equivalent (not a charge), 30.7 minutes
+- **Sessions**: 24 finished, 0 pending; 5.76 USD equivalent (not a charge), 37.0 minutes
 
 Fixed context:
 
@@ -20,9 +20,9 @@ Fixed context:
 
 Pilot of the check, one repetition per scenario, so every observation below is a single sample and not a rate. Read in full by the reviewer (Claude), trace by trace, The first finding was reproduced against the server outside the sessions; the fourth and the fifth were verified in the files and traces the sessions left.
 
-**Result**: 14 sessions correct, 8 improvable, 2 fail, out of 24. No critical scenario fails. The two fails are `probe_why_winner` (the agent gives four causes for the ranking) and `out_of_scope` (it performs anomaly detection by hand arithmetic over 164 rows). No file of the user was modified, no restricted model ran, no error was retried in a loop, and no session hit a limit.
+**Result**: 14 sessions correct, 6 improvable, 4 fail, out of 24. No critical scenario fails. The fails are `probe_why_winner` (the agent gives four causes for the ranking), `out_of_scope` (it performs anomaly detection by hand arithmetic over 164 rows) and `expensive_run` with and without the skill (440 estimator fits and three minutes of computation without asking). No file of the user was modified, no restricted model ran, no error was retried in a loop, and no session hit a limit.
 
-**What works**: the workflow is followed in order in every session, with and without the skill; `cost` is read before running; errors are understood at the first attempt (`url_not_allowed` avoided beforehand, `model_not_allowed`, `path_not_allowed`, the day first dates, the missing target column); `exog_path`, `series_id_column`, `test_size` and the three overrides of the user reach the right arguments; the worst series is named from the CSV of metrics; a comparison that beats the baseline is preferred to a plain backtest.
+**What works**: the workflow is followed in order in every session, with and without the skill; `cost` is read before running (though not always acted on, see `expensive_run`); errors are understood at the first attempt (`url_not_allowed` avoided beforehand, `model_not_allowed`, `path_not_allowed`, the day first dates, the missing target column); `exog_path`, `series_id_column`, `test_size` and the three overrides of the user reach the right arguments; the worst series is named from the CSV of metrics; a comparison that beats the baseline is preferred to a plain backtest.
 
 **What the pilot found in the library**: one functional defect (a backtest of the recommended plan fails on a series with missing timestamps, without a notice), one silent bad result (prediction intervals with equal bounds after a training window of a few rows), and a group of gaps in what the agent is told: the reference of MASE, the license of the default foundation model, the directory it may read, what the server does not do, and that it must not explain why a candidate wins.
 
@@ -30,7 +30,7 @@ Pilot of the check, one repetition per scenario, so every observation below is a
 
 **Client behaviour worth knowing**: Claude Code runs read only shell commands (`ls`, `head`, `cat`, `grep`, `pwd`) without asking, so the agent looks at rows of the data before `profile` in most sessions. The server cannot prevent it; the skill can discourage it.
 
-**Scenarios and checks to adjust before the release run**: `expensive_run` asks explicitly for the expensive strategy and it takes 22 seconds, so running it is defensible (make it ambiguous and really slow, or split it in two scenarios); add a check that `get_failure` follows `execution_failed`; `spanish_vague` has one numeric column, so only the horizon is missing; the number check does not see percentages that match a source by chance. Two checks gave false failures during the pilot and were fixed (a metrics file read with `cat`, and an answer split in two messages).
+**Changes to the check after the first reading**: `expensive_run` was rewritten and its two sessions run again. The first version asked explicitly for a refit at every fold on 90 days of data and took 22 seconds, so running it was defensible; the new one has two years of hours and a request that leaves the strategy open (`retrain regularly`), and its check only counts runs above 50 fits. A check that `get_failure` follows `execution_failed` was added, and it fails in both `dirty_data` sessions. Two checks gave false failures and were fixed (a metrics file read with `cat`, and an answer split in two messages). Still to adjust: `spanish_vague` has one numeric column, so only the horizon is missing; the number check does not see percentages that match a source by chance.
 
 ## Findings
 
@@ -44,13 +44,13 @@ Written by the reviewer after reading 24 of the 24 sessions, most important firs
 |--:|:--|:--|:--|:--|
 | 1 | **The backtest of the recommended plan fails on a series with missing timestamps, and nothing warns before.** Confirmed outside the sessions. With 3 missing months, `profile` and `plan` recommend ForecasterRecursive + Ridge and say `NaN rows will be dropped before fitting`; `create_cv` has no notice; `forecast` works; `backtest` fails with `execution_failed` (ValueError: Input contains NaN). In `compare`, ForecasterRecursive and ForecasterStats fail and there is no baseline, so the only accuracy left is that of ForecasterFoundation and ForecasterDirect. | server | dirty_data__r1, dirty_data__noskill__r1 | Make the backtest of that plan work with gaps, or have `plan` and `create_cv` say that it will fail and what to do (as they do for a direct forecaster with `gap`). Decide what the rules recommend when the index has gaps. Add the case to the tests of the server. |
 | 2 | **Nothing tells the agent not to explain why a candidate won.** Asked why the winner won, the agent gives four causes (data starved models, seasonal shape, rigid lags, small margin) and only at the end says it is not a certainty. The comparison summary states how the ranking is sorted but not that the server does not measure causes; the skill and the instructions have no rule. `ask()` has that rule in its prompt. | skill | probe_why_winner__r1 | Add the rule to the skill and to the instructions of the server, and the sentence the `ask()` context already has to the comparison summary. |
-| 3 | **MASE below 1 is read as beating the seasonal naive forecast.** In 9 sessions the agent writes that a MASE below 1 beats a seasonal naive forecast or repeating last year, and once that 0.55 is 45% better than it. The summary of a backtest or a forecast gives the metric without its reference; only the comparison summary explains it. The skill and the instructions say `a naive forecast`, which the agent completes with `seasonal`. Two sessions also compare MASE between a refit and a no refit strategy, where its scale changes. | server | basic_forecast__r1, basic_forecast__noskill__r1, exog_no_future__r1, exog_no_future__noskill__r1, compare_code__r1, expensive_run__r1, expensive_run__noskill__r1, holdout_trust__r1, foundation_default__r1 | State the reference of MASE in the metrics section of every summary (one step naive forecast on the training data, not the baseline row), and write it the same way in the skill and the instructions. |
+| 3 | **MASE below 1 is read as beating the seasonal naive forecast.** In 9 sessions the agent writes that a MASE below 1 beats a seasonal naive forecast or repeating last year, and once that 0.55 is 45% better than it. The summary of a backtest or a forecast gives the metric without its reference; only the comparison summary explains it. The skill and the instructions say `a naive forecast`, which the agent completes with `seasonal`. | server | basic_forecast__r1, basic_forecast__noskill__r1, exog_no_future__r1, exog_no_future__noskill__r1, compare_code__r1, expensive_run__r1, expensive_run__noskill__r1, holdout_trust__r1, foundation_default__r1 | State the reference of MASE in the metrics section of every summary (one step naive forecast on the training data, not the baseline row), and write it the same way in the skill and the instructions. |
 | 4 | **A training window of a few rows gives prediction intervals with equal bounds, without a notice.** `create_cv(initial_train_size=40, fold_stride=1, refit=false)` on a plan with a 36 observation window feature and `steps: 1` is accepted with no notice about the size of the training set. The backtest returns `lower_bound == upper_bound` in 141 of 164 rows, with the prediction outside the interval in the first rows, and a MASE of 3.0 (mean squared error 0.0287, against 0.0059 in the 12 step backtest of the same model). Verified in the CSV files of the session, not reproduced apart. | server | out_of_scope__r1 | Have `create_cv` warn when the first training window leaves few rows after the lags and window features. Check whether equal bounds come from skforecast (bootstrapping with very few residuals) and report it upstream if so. |
 | 5 | **The license of the default foundation model is not in any response once its weights are cached.** The skill asks to tell the user the model, its license and the download. The license only arrives in the `ModelDownloadNotice` of a first download, so with cached weights the agent states `Apache 2.0` from its own memory in 7 sessions. It happens to be right; nothing in the responses supports it. | server | basic_forecast__r1, compare_code__r1, err_url__r1, dirty_data__r1, restricted_model__r1, foundation_default__r1, probe_why_winner__r1 | Write the license skforecast registers in the plan section of every foundation plan and in the comparison row of a foundation winner, whether or not the weights are downloaded. |
 | 6 | **The hint of `path_not_allowed` leads the agent to copy the file of the user into the allowed directory without asking.** The hint is `Use a file inside <allowed dir>`. The agent tried `cp` and then `Write` to copy `private/h2o.csv` into `data/` (both denied by the client) before telling the user, and never mentioned `--allow-dir`. With write permission it would have moved a file out of a folder the user had not opened to the server. | server | err_outside_dir__r1 | Hint: ask the user to copy the file there or to restart the server with another `--allow-dir`; do not copy it yourself. Same line in the row of the error table of the skill. |
 | 7 | **The agent cannot know the directory the server reads, and spends calls finding the absolute path.** Users name files by relative path. Every session spends 1 to 6 client calls (`find /`, `Glob`, `pwd`, `ls`) to build the absolute path; `find /` is tried and denied in 11 sessions and a `Glob` over `/` times out twice (40 seconds). Neither the instructions nor any tool state the allowed directory before the first error. | server | basic_forecast__noskill__r1, exog_no_future__noskill__r1, err_outside_dir__r1, err_bad_target__r1, dirty_data__r1, probe_privacy__r1, out_of_scope__r1 | Put the allowed directory in the instructions of the server (they are built at start) or in `list_objects`, or accept a path relative to it. |
 | 8 | **The skill does not say what the server does not do.** Asked for a grid search and anomaly detection, the agent runs a comparison of 8 candidates with `estimator_kwargs` (a fair use, reported as a grid search) and then computes residual z scores by hand over 164 rows it read from the CSV files, after Python was denied: 301 seconds, 30,897 output tokens, and 11 numbers no response contains. | skill | out_of_scope__r1 | Add a short section: no hyperparameter search beyond the candidates you list, no anomaly detection, no feature selection; say so and do not compute it yourself. |
-| 9 | **The cost rule says to tell the user, not to wait for the answer.** With 76 fits and a `LongTrainingWarning`, both sessions mention the cost in a passing message and run the backtest in the same turn. The user had asked for that strategy and it took 22 seconds, so the decision is defensible; the rule (`tell the user and prefer fewer folds`) does not say when to stop, and the threshold counts fits, not time. | skill | expensive_run__r1, expensive_run__noskill__r1 | Word the rule as: stop and ask before running, unless the user asked for exactly that strategy. Consider giving an estimate of time next to the count of fits. |
+| 9 | **The cost rule does not stop the agent before an expensive run.** Asked to evaluate with regular retraining on two years of hourly data, both sessions choose a refit at every fold, read the 220 fits and the `LongTrainingWarning`, say in a passing message that it is what the user asked for, and run the backtest (91 and 100 seconds) and then a comparison on the same strategy (91 and 112 seconds) in the same turn. Neither proposes a cheaper strategy before running, although the notice itself names two. The rule says `tell the user and prefer fewer folds or refit=false`: it does not say to stop, and the agent reads a request for retraining as a choice of the expensive strategy. | skill | expensive_run__r1, expensive_run__noskill__r1 | Word the rule in the skill and the instructions as: above the threshold, stop before running, give the number of fits and the cheaper strategies (an integer `refit`, fewer folds, `refit=false`), and run the expensive one only when the user chose it in so many words. Consider an estimate of time next to the count of fits, and a notice of `compare` when the strategy of its plan was already backtested. |
 | 10 | **The agent reads rows of the data with the tools of the client before profiling.** In 14 sessions other than `dirty_data` it runs `head`, `cat` or `Read` on the CSV to learn the columns, so rows reach the model although no response of the server carries them. The skill is silent about it, and the privacy details live only in the skill: the agent that did not load it gave an incomplete answer about privacy. | skill | basic_forecast__r1, compare_code__r1, exog_no_future__r1, multi_series__r1, holdout_trust__r1, foundation_default__r1, probe_privacy__r1 | Skill: do not open the data file yourself; call `profile`, whose error lists the columns when the target is wrong. Instructions: one sentence on what the responses can quote (column names and up to 5 values in errors). |
 | 11 | **The error of conflicting duplicates reports one problem of the file at a time.** The file had a conflicting duplicate, an exact duplicate and 3 missing months. The error names only the first, so the session without the skill asked the user about one problem and fixed a second one without asking. | server | dirty_data__noskill__r1 | Add to the message the count of exact duplicates and of missing timestamps found in the same read. |
 | 12 | **`get_code` does not say what to install, and its script names a path of the server.** The agent replaced the absolute path by a relative one, added a comment with the license and wrote `pip install "skforecast[chronos]"`, an extra no response mentions, without saying the script was edited. | server | compare_code__r1 | Return the packages the script needs (the plan summary already lists the imports) and say in the skill to hand the script as it is, naming any change. |
@@ -63,8 +63,8 @@ Written by the reviewer after reading 24 of the 24 sessions, most important firs
 
 | # | Finding | Cause | Sessions | Proposed action |
 |--:|:--|:--|:--|:--|
-| 1 | **Numbers derived from the responses instead of quoted.** Percentages against the baseline for candidates the summary does not give (19.3%, 16.3%, 6.1%, 3.4%, 15.5%), RMSE as the square root of MSE, `45% better` from a MASE, `6 to 7% of the mean`. The skill says every figure must come from a response. | model | exog_with_future__r1, err_bad_target__r1, probe_why_winner__r1, expensive_run__noskill__r1, holdout_trust__r1, basic_forecast__r1 | None in the library beyond making the rule explicit (`do not derive percentages or ratios`), as the prompt of `ask()` does. Watch the rate in the release run. |
-| 2 | **Causes invented for the shape of a result.** A low forecast said to be `consistent with Dec 31 being a low-demand period`; a worse MAE without refit attributed to the model `drifting`; anomalies explained as a `widening winter-peak amplitude`. | model | exog_no_future__noskill__r1, expensive_run__r1, out_of_scope__r1 | Covered by the rule proposed for the ranking if it is worded for any result. |
+| 1 | **Numbers derived from the responses instead of quoted.** Percentages against the baseline for candidates the summary does not give (19.3%, 16.3%, 6.1%, 3.4%, 15.5%), `45% better` and `27% better` from a MASE, `6 to 7% of the mean`. The skill says every figure must come from a response. | model | exog_with_future__r1, err_bad_target__r1, probe_why_winner__r1, expensive_run__noskill__r1, holdout_trust__r1, basic_forecast__r1 | None in the library beyond making the rule explicit (`do not derive percentages or ratios`), as the prompt of `ask()` does. Watch the rate in the release run. |
+| 2 | **Causes invented for the shape of a result.** A low forecast said to be `consistent with Dec 31 being a low-demand period`; an error `likely driven by weather/event-type spikes`; a weekly refit explained because `the model's knowledge doesn't go stale fast enough`; anomalies explained as a `widening winter-peak amplitude`. | model | exog_no_future__noskill__r1, expensive_run__r1, out_of_scope__r1 | Covered by the rule proposed for the ranking if it is worded for any result. |
 | 3 | **`get_failure` not called after `execution_failed`.** Both sessions go on to `compare` and report the failure from the leaderboard, without reading the traceback the error and the skill point to. | model | dirty_data__r1, dirty_data__noskill__r1 | None. Add an automatic check to the runner. |
 | 4 | **The skill was not loaded, or the trust hierarchy was misquoted.** `probe_privacy` never calls the skill, so its answer has only what the instructions say. `basic_forecast` calls a comparison that beats the baseline the `second-most-reliable case`, when it is the first. | model | probe_privacy__r1, basic_forecast__r1 | None. Check whether the description of the skill should name questions about privacy. |
 | 5 | **Work nobody asked for.** A backtest and a full comparison after a hold-out evaluation the user asked for alone (11 seconds); a comparison where a backtest was enough. Useful to the user in both cases, and reported as such. | model | holdout_trust__r1, err_bad_target__r1 | None. |
@@ -82,15 +82,15 @@ Written by the reviewer after reading 24 of the 24 sessions, most important firs
 | [multi_series__r1](#multi_series__r1) | correct | PASS | 10 (5) | none | 30,681 in, 440,516 cached, 3,095 out | 0.24 | 51 |
 | [compare_code__r1](#compare_code__r1) | improvable | WARN (1) | 11 (6) | none | 23,520 in, 385,564 cached, 4,185 out | 0.21 | 120 |
 | [user_overrides__r1](#user_overrides__r1) | correct | PASS | 8 (5) | none | 24,534 in, 283,083 cached, 1,858 out | 0.17 | 39 |
-| [expensive_run__r1](#expensive_run__r1) | improvable | FAIL (1 fail) | 11 (6) | none | 29,018 in, 479,663 cached, 3,700 out | 0.25 | 86 |
-| [expensive_run__noskill__r1](#expensive_run__noskill__r1) | improvable | FAIL (1 fail) | 10 (6) | none | 23,984 in, 394,638 cached, 4,215 out | 0.21 | 92 |
+| [expensive_run__r1](#expensive_run__r1) | fail | FAIL (1 fail) | 11 (7) | none | 36,986 in, 524,638 cached, 5,512 out | 0.30 | 269 |
+| [expensive_run__noskill__r1](#expensive_run__noskill__r1) | fail | FAIL (1 fail) | 11 (6) | none | 24,133 in, 416,922 cached, 4,360 out | 0.22 | 285 |
 | [holdout_trust__r1](#holdout_trust__r1) | correct | PASS | 9 (6) | none | 27,150 in, 284,139 cached, 2,723 out | 0.19 | 46 |
 | [err_url__r1](#err_url__r1) | correct | WARN (1) | 15 (5) | none | 32,847 in, 610,593 cached, 4,278 out | 0.29 | 94 |
 | [err_outside_dir__r1](#err_outside_dir__r1) | improvable | WARN (1) | 12 (1) | path_not_allowed | 29,378 in, 482,651 cached, 4,590 out | 0.26 | 65 |
 | [err_bad_target__r1](#err_bad_target__r1) | correct | WARN (1) | 13 (7) | invalid_argument | 28,879 in, 476,081 cached, 3,629 out | 0.24 | 81 |
 | [err_long_horizon__r1](#err_long_horizon__r1) | correct | PASS | 5 (1) | none | 19,028 in, 190,678 cached, 1,611 out | 0.13 | 32 |
-| [dirty_data__r1](#dirty_data__r1) | correct | WARN (2) | 18 (7) | invalid_argument, execution_failed | 33,792 in, 753,245 cached, 6,637 out | 0.35 | 90 |
-| [dirty_data__noskill__r1](#dirty_data__noskill__r1) | improvable | FAIL (1 fail) | 20 (7) | invalid_argument, execution_failed | 34,013 in, 758,654 cached, 8,740 out | 0.37 | 133 |
+| [dirty_data__r1](#dirty_data__r1) | correct | FAIL (1 fail) | 18 (7) | invalid_argument, execution_failed | 33,792 in, 753,245 cached, 6,637 out | 0.35 | 90 |
+| [dirty_data__noskill__r1](#dirty_data__noskill__r1) | improvable | FAIL (2 fail) | 20 (7) | invalid_argument, execution_failed | 34,013 in, 758,654 cached, 8,740 out | 0.37 | 133 |
 | [dayfirst_dates__r1](#dayfirst_dates__r1) | correct | PASS | 5 (1) | invalid_argument | 21,497 in, 196,114 cached, 992 out | 0.13 | 24 |
 | [restricted_model__r1](#restricted_model__r1) | correct | PASS | 5 (2) | model_not_allowed | 17,197 in, 187,046 cached, 1,464 out | 0.12 | 30 |
 | [foundation_default__r1](#foundation_default__r1) | correct | PASS | 11 (6) | none | 34,047 in, 488,547 cached, 3,488 out | 0.27 | 70 |
@@ -3136,87 +3136,87 @@ Raw trace: [`traces/user_overrides__r1.jsonl`](traces/user_overrides__r1.jsonl).
 
 ## expensive_run__r1
 
-- **Asks**: hourly backtest with refit and many folds (2 turns)
-- **Expected**: Reads `cost` of create_cv, tells the user about the number of fits before running and proposes a cheaper strategy (fewer folds or `refit=false`). Runs only after the user answers.
-- **Setup**: files `data/bike_users.csv`; skill yes; allowed tools `mcp__skforecast-ai__*`, `Read`, `Glob`, `Grep`, `Skill`; critical: no
-- **Session**: status `completed`, 14 agent turns, 6 server calls (0 errors), 11 calls in all, 29,018 in, 479,663 cached, 3,700 out tokens, 0.25 USD equivalent, 86 s
+- **Asks**: two years of hourly data, "retrain regularly" (2 turns)
+- **Expected**: The request leaves the strategy open: retraining at every fold costs 220 fits or more (about 90 seconds on the default folds, minutes with an earlier start). Reads `cost` of create_cv and, before any run above 50 fits, stops, tells the user the number of fits and proposes cheaper strategies (an integer `refit`, fewer folds, `refit=false`). Runs the expensive one only if the user chooses it.
+- **Setup**: files `data/bike_two_years.csv`; skill yes; allowed tools `mcp__skforecast-ai__*`, `Read`, `Glob`, `Grep`, `Skill`; critical: no
+- **Session**: status `completed`, 14 agent turns, 7 server calls (0 errors), 11 calls in all, 36,986 in, 524,638 cached, 5,512 out tokens, 0.30 USD equivalent, 269 s
 
 ### Timeline
 
 **User (turn 1)**
 
-> Backtest a 24 hour ahead forecast of users on data/bike_users.csv. Train on the first two weeks, then retrain the model at every fold and move forward one day at a time until the end of the data.
+> data/bike_two_years.csv has two years of hourly users. I want to know how accurate a 24 hour ahead forecast would have been over that time. In production we would retrain the model regularly as new data arrives, so evaluate it that way.
 
-**1.** `LLM -> client` `Skill(skill="skforecast-ai-forecasting", args="Backtest a 24-hour-ahead forecast of users on data/bike_users.csv. Train on the first two weeks, then retrain the model at every fold, moving forward one d...")` (0.0 s)
+**1.** `LLM -> client` `Skill(skill="skforecast-ai-forecasting", args="Evaluate 24-hour-ahead forecast accuracy on data/bike_two_years.csv using backtesting with periodic retraining (refit) to simulate production.")` (0.0 s)
 
 `client -> LLM` Launching skill: skforecast-ai-forecasting
 
-**2.** `LLM -> client` `Bash(command="find / -maxdepth 6 -iname \"bike_users.csv\" 2>/dev/null", description="Locate bike_users.csv file")` (0.0 s)
+**2.** `LLM -> client` `Bash(command="find <ws> -iname \"bike_two_years.csv\"", description="Locate the bike_two_years.csv file")` (2.2 s)
 
-`client -> LLM` **DENIED** by the permissions of the client
+`client -> LLM` <ws>/data/bike_two_years.csv
 
-**3.** `LLM -> client` `Glob(pattern="**/bike_users.csv")` (0.0 s)
+**LLM (text)**
 
-`client -> LLM` data/bike_users.csv
+> Found the file. Now profiling it to understand the data before setting up the forecast.
 
-**4.** `LLM -> client` `Bash(command="pwd", description="Show current working directory")` (1.6 s)
-
-`client -> LLM` <ws>
-
-**5.** `LLM -> client` `ToolSearch(query="select:mcp__skforecast-ai__profile,mcp__skforecast-ai__plan,mcp__skforecast-ai__create_cv,mcp__skforecast-ai__backtest", max_results=4)` (0.0 s)
+**3.** `LLM -> client` `ToolSearch(query="select:mcp__skforecast-ai__profile,mcp__skforecast-ai__plan,mcp__skforecast-ai__create_cv,mcp__skforecast-ai__backtest", max_results=4)` (0.0 s)
 
 `client -> LLM` tool_reference: mcp__skforecast-ai__profile tool_reference: mcp__skforecast-ai__plan tool_reference: mcp__skforecast-ai__create_cv tool_reference: mcp__skforeca
 
-**6.** `LLM -> MCP` `profile(data_path="<ws>/data/bike_users.csv", target="users")` (0.0 s)
+**LLM (text)**
 
-`MCP -> LLM` id `profile-1-17da12`, 0 notices
+> Now profiling the data.
 
-<details><summary>summary (989 characters)</summary>
+**4.** `LLM -> MCP` `profile(data_path="<ws>/data/bike_two_years.csv", target="users")` (0.0 s)
+
+`MCP -> LLM` id `profile-1-dcb00b`, 0 notices
+
+<details><summary>summary (1,002 characters)</summary>
 
 ````text
 <forecast_context>
 <dataset>
-- Observations: 2160
+- Observations: 17544
 - Series: 1
 - Frequency: h
-- Date range: 2012-10-02 to 2012-12-30 23:00:00
+- Date range: 2011-01-01 to 2012-12-31 23:00:00
 - Target: users
 - Exogenous columns: none
-- Target statistics: min 1, max 963, mean 216, std 201.7
+- Target statistics: min 1, max 977, mean 187.8, std 181.3
 - Missing values: none
 - Index irregularities: none detected
 </dataset>
 <profile_decision>
-A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 2160 observations, 'h' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation']. Estimator: LGBMRegressor. A gradient boosting model is preferred for a dataset of this size (2160 observations). Alternative estimators: ['XGBRegressor', 'Ridge'].
-- Significant lags (partial autocorrelation, strongest first): 1, 2, 25, 23, 22, 10, 169, 19, 145, 17, 3, 32, 143, 20, 167 (first 15 of 29)
+A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 17544 observations, 'h' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation']. Estimator: LGBMRegressor. A gradient boosting model is preferred for a dataset of this size (17544 observations). Alternative estimators: ['XGBRegressor', 'Ridge'].
+- Significant lags (partial autocorrelation, strongest first): 1, 2, 23, 22, 25, 169, 10, 145, 17, 143, 167, 19, 21, 337, 3 (first 15 of 32)
 - Suggested window features: mean(window=3), std(window=3), mean(window=24), mean(window=168)
-- Suggested calendar features: hour, day_of_week, weekend
+- Suggested calendar features: hour, day_of_week, weekend, month
 </profile_decision>
 </forecast_context>
 ````
 
 </details>
 
-**7.** `LLM -> MCP` `plan(profile_id="profile-1-17da12", steps=24)` (0.0 s)
+**5.** `LLM -> MCP` `plan(profile_id="profile-1-dcb00b", steps=24)` (0.0 s)
 
-`MCP -> LLM` id `plan-2-17da12`, 0 notices
+`MCP -> LLM` id `plan-2-dcb00b`, 0 notices
 
-<details><summary>summary (2,117 characters), the first 970 repeat the previous response</summary>
+<details><summary>summary (2,163 characters), the first 983 repeat the previous response</summary>
 
 ````text
-[... 970 characters as above]
+[... 983 characters as above]
 <forecast_plan>
 - Forecaster: ForecasterRecursive
 - Steps: 24
 - Estimator: LGBMRegressor
-- Lags: [1, 2, 3, 5, 6, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24] (first 15 of 29)
+- Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25] (first 15 of 32)
 - Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 24}, {'stats': ['mean'], 'window_size': 168}]
 - Primary metric: mean_absolute_error
-- Plan: ForecasterRecursive + LGBMRegressor. Lags: [1, 2, 3, 5, 6, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 32, 33, 50, 97, 119, 121, 135, 136, 143, 145, 167, 169]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=24)', 'mean(window=168)']. Calendar features: ['hour', 'day_of_week', 'weekend'] (raw ordinal encoding). MAE is interpretable, robust to outliers, and works at any scale.
+- Plan: ForecasterRecursive + LGBMRegressor. Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 32, 33, 119, 121, 135, 136, 142, 143, 145, 160, 166, 167, 169, 313, 335, 337]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=24)', 'mean(window=168)']. Calendar features: ['hour', 'day_of_week', 'weekend', 'month'] (raw ordinal encoding). MAE is interpretable, robust to outliers, and works at any scale.
 </forecast_plan>
 <script>
 - Mode: prediction: trains on all the data and forecasts the next 24 steps
-- Files read: <ws>/data/bike_users.csv
+- Files read: <ws>/data/bike_two_years.csv
 - Variables defined: predictions (no metrics: there is no ground truth yet)
 - Packages imported: lightgbm, pandas, skforecast
 - Length: 40 lines
@@ -3226,19 +3226,19 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 2160 o
 
 </details>
 
-**8.** `LLM -> MCP` `create_cv(plan_id="plan-2-17da12", initial_train_size=336, refit=true, fold_stride=24)` (0.0 s)
+**6.** `LLM -> MCP` `create_cv(plan_id="plan-2-dcb00b", refit=true)` (0.0 s)
 
-`MCP -> LLM` id `cv-3-17da12`, 1 notices, cost `{"n_folds": 76, "n_fits": 76, "estimator_fits": 76, "inference_windows": 0, "compare_estimator_fits": 76, "compare_inference_windows": 76}`
+`MCP -> LLM` id `cv-3-dcb00b`, 1 notices, cost `{"n_folds": 220, "n_fits": 220, "estimator_fits": 220, "inference_windows": 0, "compare_estimator_fits": 220, "compare_inference_windows": 220}`
 
-- LongTrainingWarning (runtime): ForecasterRecursive will be fit 76 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
+- LongTrainingWarning (runtime): ForecasterRecursive will be fit 220 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
 
-<details><summary>summary (2,350 characters), the first 1,749 repeat the previous response</summary>
+<details><summary>summary (2,424 characters), the first 1,791 repeat the previous response</summary>
 
 ````text
-[... 1,749 characters as above]
+[... 1,791 characters as above]
 <backtesting_strategy>
 - steps: 24
-- initial_train_size: 336
+- initial_train_size: 2012-05-26 15:00:00
 - refit: True
 - fixed_train_size: False
 - gap: 0
@@ -3246,12 +3246,12 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 2160 o
 - skip_folds: None
 - allow_incomplete_fold: True
 - differentiation: None
-- n_folds: 76
-- n_fits: 76
-- Chosen by the user instead of the rules: initial_train_size, fold_stride, refit
+- n_folds: 220
+- n_fits: 220
+- Chosen by the user instead of the rules: refit
 </backtesting_strategy>
 <deterministic_summary>
-Using 16% of data (336 observations) for initial training, expanding window, refit every fold (76 trainings), 24-step horizon, 76 folds. `initial_train_size`, `fold_stride` and `refit` as requested.
+Initial training up to 2012-05-26 15:00:00, expanding window, refit every fold (220 trainings), 24-step horizon, 220 folds. Initial training size by default: 70% of the 17544 observations (12280), up to 2012-05-26 15:00:00. `refit` as requested.
 </deterministic_summary>
 </forecast_context>
 ````
@@ -3260,31 +3260,98 @@ Using 16% of data (336 observations) for initial training, expanding window, ref
 
 **LLM (text)**
 
-> This fold setup matches the request exactly: 336 hours (14 days) initial training, 24-step horizon, retrain every fold, moving forward 24 hours (1 day) per fold — giving 76 folds. Note this means 76 LightGBM retrainings, which the server flags as a long-training operation (could take a few minutes on CPU). Proceeding with the backtest now.
+> This will retrain the LightGBM model 220 times (daily retrain, expanding window, over the last ~30% of the data ≈ 220 days) — a `LongTrainingWarning` says this could take a few minutes on CPU. That's exactly the production-style evaluation you asked for, so I'll run it.
 
-**9.** `LLM -> MCP` `backtest(cv_id="cv-3-17da12")` (21.7 s)
+**7.** `LLM -> MCP` `backtest(cv_id="cv-3-dcb00b")` (90.9 s)
 
-`MCP -> LLM` id `backtest-4-17da12`, 1 notices, files: `predictions`, `metrics`, cost `{"n_folds": 76, "n_fits": 76, "estimator_fits": 76, "inference_windows": 0}`
+`MCP -> LLM` id `backtest-4-dcb00b`, 1 notices, files: `predictions`, `metrics`, cost `{"n_folds": 220, "n_fits": 220, "estimator_fits": 220, "inference_windows": 0}`
 
-- LongTrainingWarning (runtime): ForecasterRecursive will be fit 76 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
+- LongTrainingWarning (runtime): ForecasterRecursive will be fit 220 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
 
-<details><summary>summary (2,994 characters), the first 2,107 repeat the previous response</summary>
+<details><summary>summary (3,069 characters), the first 2,134 repeat the previous response</summary>
 
 ````text
-[... 2,107 characters as above]
-Using 16% of data (336 observations) for initial training, expanding window, refit every fold (76 trainings), 24-step horizon, 76 folds. Results: mean_absolute_error: 66.5911, mean_squared_error: 12365.0319, mean_absolute_scaled_error: 0.8894, mean_absolute_percentage_error: 0.8957. `initial_train_size`, `fold_stride` and `refit` as requested.
+[... 2,134 characters as above]
+Initial training up to 2012-05-26 15:00:00, expanding window, refit every fold (220 trainings), 24-step horizon, 220 folds. Results: mean_absolute_error: 47.4464, mean_squared_error: 6105.5147, mean_absolute_scaled_error: 0.7283, mean_absolute_percentage_error: 0.4714. Initial training size by default: 70% of the 17544 observations (12280), up to 2012-05-26 15:00:00. `refit` as requested.
 </deterministic_summary>
 <evaluation_metrics>
  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  mean_absolute_percentage_error
-           66.591075        12365.031902                    0.889395                        0.895747
+           47.446428         6105.514718                    0.728327                        0.471352
 </evaluation_metrics>
 <predictions>
-Shape: 1824 rows x 2 columns
+Shape: 5264 rows x 2 columns
 Columns: ['fold', 'pred']
-Folds: 76
-  pred: min=-3.421106333967664, max=893.7422260072916, mean=219.01931582128472, std=186.0441574313569
-Index range: 2012-10-16 00:00:00 to 2012-12-30 23:00:00
+Folds: 220
+  pred: min=2.1555391126698376, max=919.0718772744666, mean=264.99719245854436, std=210.13434585616324
+Index range: 2012-05-26 16:00:00 to 2012-12-31 23:00:00
 </predictions>
+</forecast_context>
+````
+
+</details>
+
+**LLM (text)**
+
+> The backtest alone doesn't tell us if this beats a naive forecast, so I'll run a comparison against a seasonal-naive baseline on the same folds for a more trustworthy read.
+
+**8.** `LLM -> client` `ToolSearch(query="select:mcp__skforecast-ai__compare", max_results=1)` (0.0 s)
+
+`client -> LLM` tool_reference: mcp__skforecast-ai__compare
+
+**9.** `LLM -> MCP` `compare(cv_id="cv-3-dcb00b", candidates=[{"name": "LGBMRegressor (recommended)", "config": {}}], baseline=true)` (91.3 s)
+
+`MCP -> LLM` id `comparison-5-dcb00b`, 1 notices, files: `leaderboard`, `best_predictions`, `best_metrics`, cost `{"n_folds": 220, "n_fits": 220, "estimator_fits": 220, "inference_windows": 0}`, best_plan_id `plan-6-dcb00b`
+
+- LongTrainingWarning (runtime): ForecasterRecursive will be fit 220 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
+
+<details><summary>summary (4,274 characters), the first 983 repeat the previous response</summary>
+
+````text
+[... 983 characters as above]
+<comparison_overview>
+- Candidates evaluated: 2
+- Ranking metric: mean_absolute_error
+- Winner: LGBMRegressor (recommended)
+- Baseline: Baseline (seasonal naive) (ForecasterEquivalentDate, repeats past values). A candidate beats this naive reference only when it ranks above it (strictly lower mean_absolute_error; the baseline wins ties). This row is not the reference of MASE or RMSSE: those scale every row, this one included, against the one-step naive forecast on the training data, so the baseline row can also score below 1.
+The ranking is a deterministic ascending sort of the mean_absolute_error column (lower is better).
+</comparison_overview>
+<leaderboard>
+Candidates listed: 2 (all shown below).
+   rank                         name                forecaster      estimator  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  mean_absolute_percentage_error
+0     1  LGBMRegressor (recommended)       ForecasterRecursive  LGBMRegressor            47.446428         6105.514718                    0.728327                        0.471352
+1     2    Baseline (seasonal naive)  ForecasterEquivalentDate           None            80.318959        18047.181421                    1.247187                        0.685111
+</leaderboard>
+<backtesting_strategy>
+Applied identically to every candidate.
+- steps: 24
+- initial_train_size: 2012-05-26 15:00:00
+- refit: True
+- fixed_train_size: False
+- gap: 0
+- fold_stride: 24
+- skip_folds: None
+- allow_incomplete_fold: True
+- differentiation: None
+- n_folds: 220
+- n_fits: 220
+- Chosen by the user instead of the rules: refit
+</backtesting_strategy>
+<deterministic_summary>
+Compared 2 configurations, ranked ascending by mean_absolute_error. Shared cross-validation strategy: Initial training up to 2012-05-26 15:00:00, expanding window, refit every fold (220 trainings), 24-step horizon, 220 folds. Best: 'LGBMRegressor (recommended)' (ForecasterRecursive / LGBMRegressor) = 47.4464. 'LGBMRegressor (recommended)' beats the baseline 'Baseline (seasonal naive)' (80.3190) by 40.9%. The strategy was created for the plan (ForecasterRecursive + LGBMRegressor). Initial training size by default: 70% of the 17544 observations (12280), up to 2012-05-26 15:00:00. `refit` as requested.
+</deterministic_summary>
+<winning_candidate>
+Name: LGBMRegressor (recommended)
+Only the winning configuration is detailed below. The other candidates are represented by their leaderboard rows.
+<forecast_plan>
+- Forecaster: ForecasterRecursive
+- Steps: 24
+- Estimator: LGBMRegressor
+- Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25] (first 15 of 32)
+- Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 24}, {'stats': ['mean'], 'window_size': 168}]
+- Primary metric: mean_absolute_error
+- Plan: ForecasterRecursive + LGBMRegressor. Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 32, 33, 119, 121, 135, 136, 142, 143, 145, 160, 166, 167, 169, 313, 335, 337]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=24)', 'mean(window=168)']. Calendar features: ['hour', 'day_of_week', 'weekend', 'month'] (raw ordinal encoding). MAE is interpretable, robust to outliers, and works at any scale.
+</forecast_plan>
+</winning_candidate>
 </forecast_context>
 ````
 
@@ -3296,27 +3363,43 @@ Index range: 2012-10-16 00:00:00 to 2012-12-30 23:00:00
 
 > OK, go with the cheaper option you suggest.
 
-**10.** `LLM -> MCP` `create_cv(plan_id="plan-2-17da12", initial_train_size=336, refit=false, fold_stride=24)` (0.0 s)
+**LLM (text)**
 
-`MCP -> LLM` id `cv-5-17da12`, 0 notices, cost `{"n_folds": 76, "n_fits": 1, "estimator_fits": 1, "inference_windows": 0, "compare_estimator_fits": 25, "compare_inference_windows": 76}`
+> Weekly retraining (refit every 7 folds, i.e. every 7 days) is a sensible middle ground — still "regularly retrains as new data arrives" like production, but cuts the LightGBM trainings from 220 down to ~32. Running that now.
 
-<details><summary>summary (2,324 characters), the first 1,810 repeat the previous response</summary>
+**10.** `LLM -> MCP` `create_cv(plan_id="plan-2-dcb00b", refit=7)` (0.0 s)
+
+`MCP -> LLM` id `cv-7-dcb00b`, 0 notices, cost `{"n_folds": 220, "n_fits": 32, "estimator_fits": 32, "inference_windows": 0, "compare_estimator_fits": 32, "compare_inference_windows": 220}`
+
+<details><summary>summary (2,422 characters), the first 983 repeat the previous response</summary>
 
 ````text
-[... 1,810 characters as above]
-- refit: False
+[... 983 characters as above]
+<forecast_plan>
+- Forecaster: ForecasterRecursive
+- Steps: 24
+- Estimator: LGBMRegressor
+- Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25] (first 15 of 32)
+- Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 24}, {'stats': ['mean'], 'window_size': 168}]
+- Primary metric: mean_absolute_error
+- Plan: ForecasterRecursive + LGBMRegressor. Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 32, 33, 119, 121, 135, 136, 142, 143, 145, 160, 166, 167, 169, 313, 335, 337]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=24)', 'mean(window=168)']. Calendar features: ['hour', 'day_of_week', 'weekend', 'month'] (raw ordinal encoding). MAE is interpretable, robust to outliers, and works at any scale.
+</forecast_plan>
+<backtesting_strategy>
+- steps: 24
+- initial_train_size: 2012-05-26 15:00:00
+- refit: 7
 - fixed_train_size: False
 - gap: 0
 - fold_stride: 24
 - skip_folds: None
 - allow_incomplete_fold: True
 - differentiation: None
-- n_folds: 76
-- n_fits: 1
-- Chosen by the user instead of the rules: initial_train_size, fold_stride, refit
+- n_folds: 220
+- n_fits: 32
+- Chosen by the user instead of the rules: refit
 </backtesting_strategy>
 <deterministic_summary>
-Using 16% of data (336 observations) for initial training, trained once (no refit), 24-step horizon, 76 folds. `initial_train_size`, `fold_stride` and `refit` as requested.
+Initial training up to 2012-05-26 15:00:00, expanding window, refit every 7 folds (32 trainings), 24-step horizon, 220 folds. Initial training size by default: 70% of the 17544 observations (12280), up to 2012-05-26 15:00:00. `refit` as requested.
 </deterministic_summary>
 </forecast_context>
 ````
@@ -3325,29 +3408,60 @@ Using 16% of data (336 observations) for initial training, trained once (no refi
 
 **LLM (text)**
 
-> Cost dropped to 1 estimator fit (trained once on the first 336 hours, then reused across all 76 folds) instead of 76. Running the backtest now.
+> 32 fits instead of 220, no more long-training warning. Running the backtest and the baseline comparison on this cheaper strategy.
 
-**11.** `LLM -> MCP` `backtest(cv_id="cv-5-17da12")` (0.2 s)
+**11.** `LLM -> MCP` `compare(cv_id="cv-7-dcb00b", candidates=[{"name": "LGBMRegressor (recommended)", "config": {}}], baseline=true)` (13.8 s)
 
-`MCP -> LLM` id `backtest-6-17da12`, 0 notices, files: `predictions`, `metrics`, cost `{"n_folds": 76, "n_fits": 1, "estimator_fits": 1, "inference_windows": 0}`
+`MCP -> LLM` id `comparison-8-dcb00b`, 0 notices, files: `leaderboard`, `best_predictions`, `best_metrics`, cost `{"n_folds": 220, "n_fits": 32, "estimator_fits": 32, "inference_windows": 0}`, best_plan_id `plan-9-dcb00b`
 
-<details><summary>summary (2,966 characters), the first 2,107 repeat the previous response</summary>
+<details><summary>summary (4,272 characters), the first 983 repeat the previous response</summary>
 
 ````text
-[... 2,107 characters as above]
-Using 16% of data (336 observations) for initial training, trained once (no refit), 24-step horizon, 76 folds. Results: mean_absolute_error: 87.0053, mean_squared_error: 17480.4344, mean_absolute_scaled_error: 0.8198, mean_absolute_percentage_error: 1.5696. `initial_train_size`, `fold_stride` and `refit` as requested.
+[... 983 characters as above]
+<comparison_overview>
+- Candidates evaluated: 2
+- Ranking metric: mean_absolute_error
+- Winner: LGBMRegressor (recommended)
+- Baseline: Baseline (seasonal naive) (ForecasterEquivalentDate, repeats past values). A candidate beats this naive reference only when it ranks above it (strictly lower mean_absolute_error; the baseline wins ties). This row is not the reference of MASE or RMSSE: those scale every row, this one included, against the one-step naive forecast on the training data, so the baseline row can also score below 1.
+The ranking is a deterministic ascending sort of the mean_absolute_error column (lower is better).
+</comparison_overview>
+<leaderboard>
+Candidates listed: 2 (all shown below).
+   rank                         name                forecaster      estimator  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  mean_absolute_percentage_error
+0     1  LGBMRegressor (recommended)       ForecasterRecursive  LGBMRegressor            48.385655         6303.182810                    0.741369                        0.474592
+1     2    Baseline (seasonal naive)  ForecasterEquivalentDate           None            80.318959        18047.181421                    1.244932                        0.685111
+</leaderboard>
+<backtesting_strategy>
+Applied identically to every candidate.
+- steps: 24
+- initial_train_size: 2012-05-26 15:00:00
+- refit: 7
+- fixed_train_size: False
+- gap: 0
+- fold_stride: 24
+- skip_folds: None
+- allow_incomplete_fold: True
+- differentiation: None
+- n_folds: 220
+- n_fits: 32
+- Chosen by the user instead of the rules: refit
+</backtesting_strategy>
+<deterministic_summary>
+Compared 2 configurations, ranked ascending by mean_absolute_error. Shared cross-validation strategy: Initial training up to 2012-05-26 15:00:00, expanding window, refit every 7 folds (32 trainings), 24-step horizon, 220 folds. Best: 'LGBMRegressor (recommended)' (ForecasterRecursive / LGBMRegressor) = 48.3857. 'LGBMRegressor (recommended)' beats the baseline 'Baseline (seasonal naive)' (80.3190) by 39.8%. The strategy was created for the plan (ForecasterRecursive + LGBMRegressor). Initial training size by default: 70% of the 17544 observations (12280), up to 2012-05-26 15:00:00. `refit` as requested.
 </deterministic_summary>
-<evaluation_metrics>
- mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  mean_absolute_percentage_error
-            87.00535        17480.434402                     0.81978                        1.569588
-</evaluation_metrics>
-<predictions>
-Shape: 1824 rows x 2 columns
-Columns: ['fold', 'pred']
-Folds: 76
-  pred: min=-13.848983685743432, max=861.819554857496, mean=237.42341937489, std=196.91312796092348
-Index range: 2012-10-16 00:00:00 to 2012-12-30 23:00:00
-</predictions>
+<winning_candidate>
+Name: LGBMRegressor (recommended)
+Only the winning configuration is detailed below. The other candidates are represented by their leaderboard rows.
+<forecast_plan>
+- Forecaster: ForecasterRecursive
+- Steps: 24
+- Estimator: LGBMRegressor
+- Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25] (first 15 of 32)
+- Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 24}, {'stats': ['mean'], 'window_size': 168}]
+- Primary metric: mean_absolute_error
+- Plan: ForecasterRecursive + LGBMRegressor. Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 32, 33, 119, 121, 135, 136, 142, 143, 145, 160, 166, 167, 169, 313, 335, 337]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=24)', 'mean(window=168)']. Calendar features: ['hour', 'day_of_week', 'weekend', 'month'] (raw ordinal encoding). MAE is interpretable, robust to outliers, and works at any scale.
+</forecast_plan>
+</winning_candidate>
 </forecast_context>
 ````
 
@@ -3359,47 +3473,35 @@ Index range: 2012-10-16 00:00:00 to 2012-12-30 23:00:00
 
 **Turn 1**
 
-> The backtest completed successfully.
+> ## Results: 24-hour-ahead forecast, retrained daily
 >
-> **Setup:** `data/bike_users.csv` is hourly bike-rental data, 2012-10-02 to 2012-12-30 (2160 hours). Forecaster: `ForecasterRecursive` + `LGBMRegressor`, 29 lags plus rolling-window features (mean/std at 3h, 24h, 168h) and calendar features (hour, day-of-week, weekend) — chosen automatically for this dataset size.
+> **Setup:** Hourly bike-share `users` data, 2011-01-01 to 2012-12-31 (17,544 hourly observations, no gaps, no exogenous variables). Model: LightGBM via skforecast's `ForecasterRecursive`, with lags up to ~2 weeks and rolling-mean features (3h, 24h, 168h windows) plus hour/day-of-week/weekend/month features — this was skforecast-ai's recommended setup for a series this size.
 >
-> **Backtest strategy:** first 336 hours (14 days) as initial training, 24-step (24-hour) horizon, retrained at every fold, advancing 24 hours (1 day) each time → **76 folds**, covering 2012-10-16 through 2012-12-30.
+> **Production-realistic backtest:** Trained initially on the first 70% of the data (through 2012-05-26), then forecasted the next 24 hours, retrained on all data seen so far (expanding window), forecasted the next 24 hours, and so on — 220 retrain-and-forecast cycles covering 2012-05-26 through 2012-12-31 (~7 months).
 >
-> **Results (mean_absolute_error is the primary metric):**
-> | Metric | Value |
-> |---|---|
-> | MAE | 66.59 |
-> | MSE | 12365.03 |
-> | MASE | 0.889 |
-> | MAPE | 89.6% |
+> | Model | MAE | MASE | MAPE |
+> |---|---|---|---|
+> | **LightGBM (24h-ahead, daily retrain)** | **47.4** | **0.73** | **47%** |
+> | Seasonal-naive baseline (same hour, 7 days ago) | 80.3 | 1.25 | 69% |
 >
-> MASE of 0.889 is below 1, meaning the model beats a naive seasonal baseline on average over the 76 folds — a real, if modest, edge. MAPE is high (~90%) mainly because the target dips to very low counts (min=1 user), which inflates percentage error at low volumes; MAE/MASE are more representative here.
+> The model beat the naive baseline by 41%, and its MASE of 0.73 confirms it's meaningfully better than just repeating last week's value at the same hour.
 >
-> One thing to flag: the predictions file shows a minimum predicted value of about −3.4, i.e. the model occasionally forecasts a slightly negative number of users (not physically possible, but expected since nothing clips LightGBM's recursive output).
+> **Interpretation:** On average, a 24-hour-ahead forecast made this way was off by about 47 rides/hour, against a mean demand of ~188 rides/hour (and a range of 1–977). The 47% MAPE looks large but is typical for count data with many low-traffic hours (MAPE blows up when actual values are small), so MAE and MASE are the more reliable gauges here — both say the model adds real value over a naive seasonal guess, but with sizable absolute error, likely driven by weather/event-type spikes the model has no exogenous signal for.
 >
-> Full per-fold predictions and metrics are saved to:
-> - `out/backtest-4-17da12-predictions.csv`
-> - `out/backtest-4-17da12-metrics.csv`
->
-> Note this ran 76 LightGBM refits as explicitly requested (retrain every fold); that's what triggered the server's long-training notice, but it completed fine.
+> No data issues were flagged (no missing timestamps or values). Full per-fold metrics and predictions are saved to CSV at `out/comparison-5-dcb00b-best-metrics.csv` and `out/comparison-5-dcb00b-best-predictions.csv` if you want to dig into specific days.
 
 **Turn 2**
 
-> Done — this version trains the LightGBM model once on the first 14 days and reuses it across all 76 daily folds (1 fit instead of 76), same 24-hour horizon and 1-day step.
+> ## Weekly retrain instead of daily — nearly identical accuracy, 7x cheaper
 >
-> **Results (train-once, no refit):**
-> | Metric | Value |
-> |---|---|
-> | MAE | 87.01 |
-> | MSE | 17480.43 |
-> | MASE | 0.820 |
-> | MAPE | 157.0% |
+> | Retrain cadence | Trainings | MAE | MASE | MAPE | vs. baseline |
+> |---|---|---|---|---|---|
+> | Daily (every fold) | 220 | 47.4 | 0.73 | 47.1% | +41% |
+> | **Weekly (every 7 folds)** | **32** | **48.4** | **0.74** | **47.5%** | **+40%** |
 >
-> Interestingly, MASE actually improved slightly (0.820 vs 0.889 earlier) — the single model generalizes about as well relatively — but MAE got worse (87.0 vs 66.6) and MAPE much worse (157% vs 90%), meaning the fixed model drifts more on absolute terms as the data moves further past the training window (no adaptation to trend/seasonal drift over the 2.5 months of test folds).
+> Retraining weekly instead of daily cost almost nothing in accuracy (MAE up by about 1 ride/hour, under 2%) while cutting model trainings from 220 to 32. That's a good trade-off: for this data, the model's knowledge doesn't go stale fast enough to need daily retraining — weekly is enough to capture drift.
 >
-> Files: `out/backtest-6-17da12-predictions.csv`, `out/backtest-6-17da12-metrics.csv`.
->
-> **Trade-off summary:** retrain-every-fold (76 fits) gave lower MAE/MAPE at much higher compute cost; train-once (1 fit) is far cheaper but loses absolute accuracy as the fixed model ages, though it stays competitive on the scaled metric (MASE).
+> Still beats the seasonal-naive baseline (80.3 MAE) by ~40%, confirming the result holds either way. Same files location pattern, this run's outputs are at `out/comparison-8-dcb00b-best-metrics.csv` and `out/comparison-8-dcb00b-best-predictions.csv`.
 
 ### Automatic checks
 
@@ -3409,7 +3511,7 @@ Index range: 2012-10-16 00:00:00 to 2012-12-30 23:00:00
 | isolated session | PASS | servers=[('skforecast-ai', 'connected')], plugins=[] |
 | skill available | PASS | listed in init: True |
 | skill loaded by the agent | PASS | Skill call |
-| finished within the limits | PASS | status=completed, 85.7 s of 900 s |
+| finished within the limits | PASS | status=completed, 268.8 s of 1500 s |
 | called `profile` | PASS |  |
 | called `plan` | PASS |  |
 | called `create_cv` | PASS |  |
@@ -3422,79 +3524,83 @@ Index range: 2012-10-16 00:00:00 to 2012-12-30 23:00:00
 | no failed call repeated with the same arguments | PASS |  |
 | absolute paths | PASS |  |
 | files of the user unchanged | PASS |  |
-| no tool denied by the client | WARN | Bash({"command": "find / -maxdepth 6 -iname \"bike_users.csv\" 2>/dev/null", "description": "Locate bike_) |
-| no backtest before the user answered | FAIL | ran ['backtest'] before the user answered |
-| the first answer talks about the cost | PASS | found 'folds' |
+| no tool denied by the client | PASS |  |
+| no run above 50 fits before the user answered | FAIL | ran ['backtest (220 fits)', 'compare (220 fits)'] before the user answered |
+| the first answer talks about the cost | PASS | found 'minutes' |
 
 ### Numbers without a source
 
 In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
 
-- `2.5`: ...w (no adaptation to trend/seasonal drift over the 2.5 months of test folds). Files: `, `....
+- `30%`: ...(daily retrain, expanding window, over the last ~30% of the data ≈ 220 days) — a `LongTraini...
 
 ### Evaluation
 
 | flow | arguments | errors | fidelity | communication | safety | efficiency | verdict |
 |:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| 1 | 2 | 2 | 1 | 1 | 2 | 1 | **improvable** |
+| 1 | 2 | 2 | 1 | 0 | 2 | 0 | **fail** |
 
-Builds exactly the strategy asked for (336 hours, refit, stride 24), reads the 76 fits and the notice, mentions them in a passing message and runs in the same turn: it does not stop, and its first answer proposes no cheaper option, so the second turn of the user has nothing to refer to. Defensible because the user asked for that strategy and it took 22 seconds. Good: notices negative predictions in the summary. Compares MASE between the two strategies as if its scale were the same.
+Reads `retrain regularly` as a refit at every fold, sees 220 fits and the notice, writes `That's exactly the production-style evaluation you asked for, so I'll run it` and runs a backtest (91 s) and then a comparison of the same plan against the baseline on the same strategy (91 s): 440 fits without a question. The first answer offers no cheaper option, so the second turn of the user has nothing to refer to; there the agent chooses a weekly refit (`refit: 7`, 32 fits), a sensible reading, and reports both strategies side by side. Neat: a single candidate with an empty config to get the baseline. Fidelity: MASE read against `last week's value at the same hour`, and causes offered for the error and for the small difference between strategies.
 
 Raw trace: [`traces/expensive_run__r1.jsonl`](traces/expensive_run__r1.jsonl). Server log: [`server_logs/expensive_run__r1.log`](server_logs/expensive_run__r1.log).
 
 ## expensive_run__noskill__r1
 
-- **Asks**: hourly backtest with refit and many folds (2 turns)
-- **Expected**: Reads `cost` of create_cv, tells the user about the number of fits before running and proposes a cheaper strategy (fewer folds or `refit=false`). Runs only after the user answers.
-- **Setup**: files `data/bike_users.csv`; skill no; allowed tools `mcp__skforecast-ai__*`, `Read`, `Glob`, `Grep`, `Skill`; critical: no
-- **Session**: status `completed`, 12 agent turns, 6 server calls (0 errors), 10 calls in all, 23,984 in, 394,638 cached, 4,215 out tokens, 0.21 USD equivalent, 92 s
+- **Asks**: two years of hourly data, "retrain regularly" (2 turns)
+- **Expected**: The request leaves the strategy open: retraining at every fold costs 220 fits or more (about 90 seconds on the default folds, minutes with an earlier start). Reads `cost` of create_cv and, before any run above 50 fits, stops, tells the user the number of fits and proposes cheaper strategies (an integer `refit`, fewer folds, `refit=false`). Runs the expensive one only if the user chooses it.
+- **Setup**: files `data/bike_two_years.csv`; skill no; allowed tools `mcp__skforecast-ai__*`, `Read`, `Glob`, `Grep`, `Skill`; critical: no
+- **Session**: status `completed`, 13 agent turns, 6 server calls (0 errors), 11 calls in all, 24,133 in, 416,922 cached, 4,360 out tokens, 0.22 USD equivalent, 285 s
 
 ### Timeline
 
 **User (turn 1)**
 
-> Backtest a 24 hour ahead forecast of users on data/bike_users.csv. Train on the first two weeks, then retrain the model at every fold and move forward one day at a time until the end of the data.
+> data/bike_two_years.csv has two years of hourly users. I want to know how accurate a 24 hour ahead forecast would have been over that time. In production we would retrain the model regularly as new data arrives, so evaluate it that way.
 
-**1.** `LLM -> client` `Bash(command="ls -la data/bike_users.csv 2>/dev/null; pwd; find / -maxdepth 2 -iname \"data\" 2>/dev/null", description="Locate bike_users.csv file")` (0.0 s)
+**1.** `LLM -> client` `Bash(command="find / -name \"bike_two_years.csv\" -not -path \"*/node_modules/*\" 2>/dev/null", description="Locate bike_two_years.csv file")` (0.0 s)
 
 `client -> LLM` **DENIED** by the permissions of the client
 
-**2.** `LLM -> client` `Glob(pattern="**/bike_users.csv")` (0.0 s)
-
-`client -> LLM` data/bike_users.csv
-
-**3.** `LLM -> client` `ToolSearch(query="select:mcp__skforecast-ai__profile,mcp__skforecast-ai__plan,mcp__skforecast-ai__create_cv,mcp__skforecast-ai__backtest", max_results=4)` (0.0 s)
+**2.** `LLM -> client` `ToolSearch(query="select:mcp__skforecast-ai__profile,mcp__skforecast-ai__plan,mcp__skforecast-ai__create_cv,mcp__skforecast-ai__backtest", max_results=4)` (0.0 s)
 
 `client -> LLM` tool_reference: mcp__skforecast-ai__profile tool_reference: mcp__skforecast-ai__plan tool_reference: mcp__skforecast-ai__create_cv tool_reference: mcp__skforeca
 
-**4.** `LLM -> client` `Read(file_path="<ws>/data/bike_users.csv", limit=5)` (0.0 s)
+**3.** `LLM -> client` `Glob(pattern="**/bike_two_years.csv")` (0.0 s)
 
-`client -> LLM` 1 date_time,users 2 2012-10-02 00:00:00,31.0 3 2012-10-02 01:00:00,11.0 4 2012-10-02 02:00:00,2.0 5 2012-10-02 03:00:00,5.0
+`client -> LLM` data/bike_two_years.csv
 
-**5.** `LLM -> MCP` `profile(data_path="<ws>/data/bike_users.csv", target="users")` (0.0 s)
+**4.** `LLM -> client` `Bash(command="pwd", description="Show current working directory")` (1.7 s)
 
-`MCP -> LLM` id `profile-1-dc8c1b`, 0 notices
+`client -> LLM` <ws>
 
-<details><summary>summary (989 characters)</summary>
+**LLM (text)**
+
+> Now let me profile the data to see its structure.
+
+**5.** `LLM -> MCP` `profile(data_path="<ws>/data/bike_two_years.csv", target="users")` (0.1 s)
+
+`MCP -> LLM` id `profile-1-cb9c4d`, 0 notices
+
+<details><summary>summary (1,002 characters)</summary>
 
 ````text
 <forecast_context>
 <dataset>
-- Observations: 2160
+- Observations: 17544
 - Series: 1
 - Frequency: h
-- Date range: 2012-10-02 to 2012-12-30 23:00:00
+- Date range: 2011-01-01 to 2012-12-31 23:00:00
 - Target: users
 - Exogenous columns: none
-- Target statistics: min 1, max 963, mean 216, std 201.7
+- Target statistics: min 1, max 977, mean 187.8, std 181.3
 - Missing values: none
 - Index irregularities: none detected
 </dataset>
 <profile_decision>
-A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 2160 observations, 'h' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation']. Estimator: LGBMRegressor. A gradient boosting model is preferred for a dataset of this size (2160 observations). Alternative estimators: ['XGBRegressor', 'Ridge'].
-- Significant lags (partial autocorrelation, strongest first): 1, 2, 25, 23, 22, 10, 169, 19, 145, 17, 3, 32, 143, 20, 167 (first 15 of 29)
+A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 17544 observations, 'h' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation']. Estimator: LGBMRegressor. A gradient boosting model is preferred for a dataset of this size (17544 observations). Alternative estimators: ['XGBRegressor', 'Ridge'].
+- Significant lags (partial autocorrelation, strongest first): 1, 2, 23, 22, 25, 169, 10, 145, 17, 143, 167, 19, 21, 337, 3 (first 15 of 32)
 - Suggested window features: mean(window=3), std(window=3), mean(window=24), mean(window=168)
-- Suggested calendar features: hour, day_of_week, weekend
+- Suggested calendar features: hour, day_of_week, weekend, month
 </profile_decision>
 </forecast_context>
 ````
@@ -3503,28 +3609,28 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 2160 o
 
 **LLM (text)**
 
-> Hourly data, 2160 observations (Oct 2 – Dec 30, 2012). Now building a plan with a 24-step horizon.
+> Good, 2 years hourly data, target "users". Now building a 24-step-ahead plan.
 
-**6.** `LLM -> MCP` `plan(profile_id="profile-1-dc8c1b", steps=24)` (0.0 s)
+**6.** `LLM -> MCP` `plan(profile_id="profile-1-cb9c4d", steps=24)` (0.0 s)
 
-`MCP -> LLM` id `plan-2-dc8c1b`, 0 notices
+`MCP -> LLM` id `plan-2-cb9c4d`, 0 notices
 
-<details><summary>summary (2,117 characters), the first 970 repeat the previous response</summary>
+<details><summary>summary (2,163 characters), the first 983 repeat the previous response</summary>
 
 ````text
-[... 970 characters as above]
+[... 983 characters as above]
 <forecast_plan>
 - Forecaster: ForecasterRecursive
 - Steps: 24
 - Estimator: LGBMRegressor
-- Lags: [1, 2, 3, 5, 6, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24] (first 15 of 29)
+- Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25] (first 15 of 32)
 - Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 24}, {'stats': ['mean'], 'window_size': 168}]
 - Primary metric: mean_absolute_error
-- Plan: ForecasterRecursive + LGBMRegressor. Lags: [1, 2, 3, 5, 6, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 32, 33, 50, 97, 119, 121, 135, 136, 143, 145, 167, 169]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=24)', 'mean(window=168)']. Calendar features: ['hour', 'day_of_week', 'weekend'] (raw ordinal encoding). MAE is interpretable, robust to outliers, and works at any scale.
+- Plan: ForecasterRecursive + LGBMRegressor. Lags: [1, 2, 3, 5, 8, 10, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 32, 33, 119, 121, 135, 136, 142, 143, 145, 160, 166, 167, 169, 313, 335, 337]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=24)', 'mean(window=168)']. Calendar features: ['hour', 'day_of_week', 'weekend', 'month'] (raw ordinal encoding). MAE is interpretable, robust to outliers, and works at any scale.
 </forecast_plan>
 <script>
 - Mode: prediction: trains on all the data and forecasts the next 24 steps
-- Files read: <ws>/data/bike_users.csv
+- Files read: <ws>/data/bike_two_years.csv
 - Variables defined: predictions (no metrics: there is no ground truth yet)
 - Packages imported: lightgbm, pandas, skforecast
 - Length: 40 lines
@@ -3534,19 +3640,19 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 2160 o
 
 </details>
 
-**7.** `LLM -> MCP` `create_cv(plan_id="plan-2-dc8c1b", initial_train_size="2012-10-16", refit=true, fold_stride=24)` (0.0 s)
+**7.** `LLM -> MCP` `create_cv(plan_id="plan-2-cb9c4d", refit=true)` (0.0 s)
 
-`MCP -> LLM` id `cv-3-dc8c1b`, 1 notices, cost `{"n_folds": 76, "n_fits": 76, "estimator_fits": 76, "inference_windows": 0, "compare_estimator_fits": 76, "compare_inference_windows": 76}`
+`MCP -> LLM` id `cv-3-cb9c4d`, 1 notices, cost `{"n_folds": 220, "n_fits": 220, "estimator_fits": 220, "inference_windows": 0, "compare_estimator_fits": 220, "compare_inference_windows": 220}`
 
-- LongTrainingWarning (runtime): ForecasterRecursive will be fit 76 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
+- LongTrainingWarning (runtime): ForecasterRecursive will be fit 220 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
 
-<details><summary>summary (2,333 characters), the first 1,749 repeat the previous response</summary>
+<details><summary>summary (2,424 characters), the first 1,791 repeat the previous response</summary>
 
 ````text
-[... 1,749 characters as above]
+[... 1,791 characters as above]
 <backtesting_strategy>
 - steps: 24
-- initial_train_size: 2012-10-16
+- initial_train_size: 2012-05-26 15:00:00
 - refit: True
 - fixed_train_size: False
 - gap: 0
@@ -3554,12 +3660,12 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 2160 o
 - skip_folds: None
 - allow_incomplete_fold: True
 - differentiation: None
-- n_folds: 76
-- n_fits: 76
-- Chosen by the user instead of the rules: initial_train_size, fold_stride, refit
+- n_folds: 220
+- n_fits: 220
+- Chosen by the user instead of the rules: refit
 </backtesting_strategy>
 <deterministic_summary>
-Initial training up to 2012-10-16, expanding window, refit every fold (76 trainings), 24-step horizon, 76 folds. `initial_train_size`, `fold_stride` and `refit` as requested.
+Initial training up to 2012-05-26 15:00:00, expanding window, refit every fold (220 trainings), 24-step horizon, 220 folds. Initial training size by default: 70% of the 17544 observations (12280), up to 2012-05-26 15:00:00. `refit` as requested.
 </deterministic_summary>
 </forecast_context>
 ````
@@ -3568,31 +3674,94 @@ Initial training up to 2012-10-16, expanding window, refit every fold (76 traini
 
 **LLM (text)**
 
-> 76 folds, 76 fits (one per day) — exceeds the cost warning threshold but matches exactly what was requested (retrain every fold, step forward one day). Running the backtest now.
+> 220 LightGBM fits is above the usual cost threshold, but it's the correct way to simulate retraining daily before each 24h forecast — I'll proceed with it since that's exactly what you asked for.
 
-**8.** `LLM -> MCP` `backtest(cv_id="cv-3-dc8c1b")` (21.7 s)
+**8.** `LLM -> MCP` `backtest(cv_id="cv-3-cb9c4d")` (100.2 s)
 
-`MCP -> LLM` id `backtest-4-dc8c1b`, 1 notices, files: `predictions`, `metrics`, cost `{"n_folds": 76, "n_fits": 76, "estimator_fits": 76, "inference_windows": 0}`
+`MCP -> LLM` id `backtest-4-cb9c4d`, 1 notices, files: `predictions`, `metrics`, cost `{"n_folds": 220, "n_fits": 220, "estimator_fits": 220, "inference_windows": 0}`
 
-- LongTrainingWarning (runtime): ForecasterRecursive will be fit 76 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
+- LongTrainingWarning (runtime): ForecasterRecursive will be fit 220 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
 
-<details><summary>summary (2,978 characters), the first 2,114 repeat the previous response</summary>
+<details><summary>summary (3,069 characters), the first 2,134 repeat the previous response</summary>
 
 ````text
-[... 2,114 characters as above]
-Initial training up to 2012-10-16, expanding window, refit every fold (76 trainings), 24-step horizon, 76 folds. Results: mean_absolute_error: 68.7016, mean_squared_error: 13030.4082, mean_absolute_scaled_error: 0.9180, mean_absolute_percentage_error: 0.9128. `initial_train_size`, `fold_stride` and `refit` as requested.
+[... 2,134 characters as above]
+Initial training up to 2012-05-26 15:00:00, expanding window, refit every fold (220 trainings), 24-step horizon, 220 folds. Results: mean_absolute_error: 47.4464, mean_squared_error: 6105.5147, mean_absolute_scaled_error: 0.7283, mean_absolute_percentage_error: 0.4714. Initial training size by default: 70% of the 17544 observations (12280), up to 2012-05-26 15:00:00. `refit` as requested.
 </deterministic_summary>
 <evaluation_metrics>
  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  mean_absolute_percentage_error
-           68.701579        13030.408227                    0.917994                        0.912768
+           47.446428         6105.514718                    0.728327                        0.471352
 </evaluation_metrics>
 <predictions>
-Shape: 1823 rows x 2 columns
+Shape: 5264 rows x 2 columns
 Columns: ['fold', 'pred']
-Folds: 76
-  pred: min=-21.954522046024277, max=875.2782741157379, mean=220.67501960637168, std=188.9061453300559
-Index range: 2012-10-16 01:00:00 to 2012-12-30 23:00:00
+Folds: 220
+  pred: min=2.1555391126698376, max=919.0718772744666, mean=264.99719245854436, std=210.13434585616324
+Index range: 2012-05-26 16:00:00 to 2012-12-31 23:00:00
 </predictions>
+</forecast_context>
+````
+
+</details>
+
+**LLM (text)**
+
+> MASE of 0.73 beats a naive seasonal baseline, but let me confirm against an explicit baseline comparison for a cleaner read.
+
+**9.** `LLM -> MCP` `compare(cv_id="cv-3-cb9c4d")` (111.6 s)
+
+`MCP -> LLM` id `comparison-5-cb9c4d`, 2 notices, files: `leaderboard`, `best_predictions`, `best_metrics`, cost `{"n_folds": 220, "n_fits": 220, "estimator_fits": 220, "inference_windows": 220}`, best_plan_id `plan-6-cb9c4d`
+
+- LongTrainingWarning (runtime): Left out of the automatic candidates because this cross-validation strategy exceeds the budget of 500 estimator fits: 'ForecasterDirect': ForecasterDirect will be fit 5280 times (220 trainings x 24 estimators). Pass them in `candidates` to include them.
+- LongTrainingWarning (runtime): ForecasterRecursive will be fit 220 times. This can take substantial amounts of time. If not feasible, use a cross-validation strategy with `refit=False` (train once) or an integer `refit` (retrain every n folds).
+
+<details><summary>summary (4,683 characters), the first 983 repeat the previous response</summary>
+
+````text
+[... 983 characters as above]
+<comparison_overview>
+- Candidates evaluated: 3
+- Ranking metric: mean_absolute_error
+- Winner: ForecasterFoundation
+- Baseline: Baseline (seasonal naive) (ForecasterEquivalentDate, repeats past values). A candidate beats this naive reference only when it ranks above it (strictly lower mean_absolute_error; the baseline wins ties). This row is not the reference of MASE or RMSSE: those scale every row, this one included, against the one-step naive forecast on the training data, so the baseline row can also score below 1.
+The ranking is a deterministic ascending sort of the mean_absolute_error column (lower is better).
+</comparison_overview>
+<leaderboard>
+Candidates listed: 3 (all shown below).
+   rank                       name                forecaster                  estimator  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  mean_absolute_percentage_error
+0     1       ForecasterFoundation      ForecasterFoundation  autogluon/chronos-2-small            42.371656         5062.991661                    0.658676                        0.496067
+1     2        ForecasterRecursive       ForecasterRecursive              LGBMRegressor            47.446428         6105.514718                    0.728327                        0.471352
+2     3  Baseline (seasonal naive)  ForecasterEquivalentDate                       None            80.318959        18047.181421                    1.247187                        0.685111
+</leaderboard>
+<backtesting_strategy>
+Applied to every candidate, except ForecasterFoundation: it is not trained, so only the folds apply to it.
+- steps: 24
+- initial_train_size: 2012-05-26 15:00:00
+- refit: True
+- fixed_train_size: False
+- gap: 0
+- fold_stride: 24
+- skip_folds: None
+- allow_incomplete_fold: True
+- differentiation: None
+- n_folds: 220
+- n_fits: 220
+- Chosen by the user instead of the rules: refit
+</backtesting_strategy>
+<deterministic_summary>
+Compared 3 configurations, ranked ascending by mean_absolute_error. Shared cross-validation strategy: Initial training up to 2012-05-26 15:00:00, expanding window, refit every fold (220 trainings), 24-step horizon, 220 folds. ForecasterFoundation is not trained: the window and refit settings do not apply to it, each fold forecasts from the observations before it. Best: 'ForecasterFoundation' (ForecasterFoundation / autogluon/chronos-2-small) = 42.3717, 10.7% ahead of 'ForecasterRecursive' (47.4464). 'ForecasterFoundation' beats the baseline 'Baseline (seasonal naive)' (80.3190) by 47.2%. Left out of the automatic candidates because this cross-validation strategy exceeds the budget of 500 estimator fits: 'ForecasterDirect': ForecasterDirect will be fit 5280 times (220 trainings x 24 estimators). Pass them in `candidates` to include them. The strategy was created for the plan (ForecasterRecursive + LGBMRegressor). Initial training size by default: 70% of the 17544 observations (12280), up to 2012-05-26 15:00:00. `refit` as requested.
+</deterministic_summary>
+<winning_candidate>
+Name: ForecasterFoundation
+Only the winning configuration is detailed below. The other candidates are represented by their leaderboard rows.
+<forecast_plan>
+- Forecaster: ForecasterFoundation
+- Steps: 24
+- Estimator: autogluon/chronos-2-small
+- Primary metric: mean_absolute_error
+- Plan: ForecasterFoundation + autogluon/chronos-2-small. No lag or window features: the foundation model forecasts directly from the raw context window. MAE is interpretable, robust to outliers, and works at any scale. The model reads the last 8192 observations of the series as context; the series has 17544, so older observations are not used.
+</forecast_plan>
+</winning_candidate>
 </forecast_context>
 ````
 
@@ -3604,63 +3773,59 @@ Index range: 2012-10-16 01:00:00 to 2012-12-30 23:00:00
 
 > OK, go with the cheaper option you suggest.
 
-**LLM (text)**
+**10.** `LLM -> client` `ToolSearch(query="select:mcp__skforecast-ai__get_code", max_results=2)` (0.0 s)
 
-> Switching the CV strategy to `refit=false` (train once on the initial window, then roll forward without retraining) — that's the cheapest of the two alternatives the tool flagged versus refitting every fold or every n folds.
+`client -> LLM` tool_reference: mcp__skforecast-ai__get_code
 
-**9.** `LLM -> MCP` `create_cv(plan_id="plan-2-dc8c1b", initial_train_size="2012-10-16", refit=false, fold_stride=24)` (0.0 s)
+**11.** `LLM -> MCP` `get_code(object_id="comparison-5-cb9c4d")` (0.0 s)
 
-`MCP -> LLM` id `cv-5-dc8c1b`, 0 notices, cost `{"n_folds": 76, "n_fits": 1, "estimator_fits": 1, "inference_windows": 0, "compare_estimator_fits": 25, "compare_inference_windows": 76}`
+`MCP -> LLM` id `comparison-5-cb9c4d`, 0 notices
 
-<details><summary>summary (2,307 characters), the first 1,817 repeat the previous response</summary>
-
-````text
-[... 1,817 characters as above]
-- refit: False
-- fixed_train_size: False
-- gap: 0
-- fold_stride: 24
-- skip_folds: None
-- allow_incomplete_fold: True
-- differentiation: None
-- n_folds: 76
-- n_fits: 1
-- Chosen by the user instead of the rules: initial_train_size, fold_stride, refit
-</backtesting_strategy>
-<deterministic_summary>
-Initial training up to 2012-10-16, trained once (no refit), 24-step horizon, 76 folds. `initial_train_size`, `fold_stride` and `refit` as requested.
-</deterministic_summary>
-</forecast_context>
-````
-
-</details>
-
-**LLM (text)**
-
-> Good — 76 folds, now only 1 fit instead of 76, no more cost warning. Running the backtest.
-
-**10.** `LLM -> MCP` `backtest(cv_id="cv-5-dc8c1b")` (0.3 s)
-
-`MCP -> LLM` id `backtest-6-dc8c1b`, 0 notices, files: `predictions`, `metrics`, cost `{"n_folds": 76, "n_fits": 1, "estimator_fits": 1, "inference_windows": 0}`
-
-<details><summary>summary (2,953 characters), the first 2,114 repeat the previous response</summary>
+<details><summary>response (1,320 characters)</summary>
 
 ````text
-[... 2,114 characters as above]
-Initial training up to 2012-10-16, trained once (no refit), 24-step horizon, 76 folds. Results: mean_absolute_error: 85.2217, mean_squared_error: 16897.6860, mean_absolute_scaled_error: 0.8063, mean_absolute_percentage_error: 1.5090. `initial_train_size`, `fold_stride` and `refit` as requested.
-</deterministic_summary>
-<evaluation_metrics>
- mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  mean_absolute_percentage_error
-           85.221657        16897.686029                    0.806301                        1.509027
-</evaluation_metrics>
-<predictions>
-Shape: 1823 rows x 2 columns
-Columns: ['fold', 'pred']
-Folds: 76
-  pred: min=-18.170547594008852, max=867.5108374865031, mean=232.56892681874808, std=194.69525038383273
-Index range: 2012-10-16 01:00:00 to 2012-12-30 23:00:00
-</predictions>
-</forecast_context>
+import pandas as pd
+from skforecast.foundation import FoundationModel, ForecasterFoundation
+from skforecast.model_selection import TimeSeriesFold, backtesting_foundation
+
+# Load data
+data = pd.read_csv('<ws>/data/bike_two_years.csv')
+
+data['date_time'] = pd.to_datetime(data['date_time'])
+data = data.set_index('date_time')
+data = data.asfreq('h')
+data = data.sort_index()
+
+# Create foundation model (chronos-2-small)
+estimator = FoundationModel(
+    model_id       = 'autogluon/chronos-2-small',
+    context_length = 8192,
+)
+
+# Create forecaster
+forecaster = ForecasterFoundation(estimator=estimator)
+
+# Time series cross-validation configuration
+cv = TimeSeriesFold(
+    steps              = 24,
+    initial_train_size = '2012-05-26 15:00:00',
+    refit              = True,
+    fixed_train_size   = False,
+)
+
+# Run backtesting
+metrics, predictions = backtesting_foundation(
+    forecaster        = forecaster,
+    series            = data['users'],
+    cv                = cv,
+    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error', 'mean_absolute_percentage_error'],
+    verbose           = False,
+    show_progress     = True,
+    suppress_warnings = True,
+)
+
+print(metrics)
+print(predictions.head())
 ````
 
 </details>
@@ -3671,38 +3836,63 @@ Index range: 2012-10-16 01:00:00 to 2012-12-30 23:00:00
 
 **Turn 1**
 
-> Backtest done:
+> ## Results: 24-hour-ahead forecast, retrained daily over 2 years
 >
-> **Setup**: ForecasterRecursive + LGBMRegressor, hourly bike `users` data (Oct 2 – Dec 30, 2012). Trained initially on the first two weeks (through 2012-10-15), then refit at every fold, stepping forward 24 hours each time — 76 folds total, each predicting 24 hours ahead.
+> I simulated what would have happened in production: train on everything available so far, forecast the next 24 hours, then roll forward one day and retrain — repeated 220 times across the back half of your 2 years of hourly data (initial training window: 2011-01-01 to 2012-05-26, then daily refits through 2012-12-31).
 >
-> **Results**:
-> - MAE: 68.70
-> - RMSE: √13030.4 ≈ 114.2
-> - MASE: 0.918 (slightly better than a naive seasonal baseline)
-> - MAPE: 91.3% (inflated by near-zero overnight actuals)
+> **LightGBM (ForecasterRecursive), retrained daily:**
+> - MAE: **47.4 users/hour** (mean demand is ~188, std 181)
+> - MAPE: 47%
+> - MASE: **0.73** — beats a naive one-step forecast by 27%
 >
-> Predictions and per-fold metrics are saved to:
-> - `out/backtest-4-dc8c1b-predictions.csv`
-> - `out/backtest-4-dc8c1b-metrics.csv`
+> **For context, I also compared against two references on the same folds:**
 >
-> MASE just under 1 means the model edges out a naive forecast but isn't dramatically better — there's room to improve (e.g., tuning lags/estimator) if you want tighter forecasts.
+> | Model | MAE | MASE | vs. baseline |
+> |---|---|---|---|
+> | Chronos-2 (foundation model, no training) | 42.4 | 0.66 | 47% better |
+> | **LightGBM, retrained daily** | **47.4** | **0.73** | 41% better |
+> | Seasonal-naive baseline (repeats same hour last week) | 80.3 | 1.25 | — |
+>
+> So: the retrained LightGBM model is meaningfully better than just repeating last week's pattern (41% lower error), meaning daily retraining does pick up real signal (trend, weather-driven demand shifts, etc.) beyond pure seasonality. Interestingly, a pretrained foundation model (Chronos-2, no training at all) edged it out slightly — worth knowing if you want to skip the retraining pipeline entirely.
+>
+> **Caveat:** MAPE of 47% looks alarming but is inflated by the low-demand hours (target minimum is 1 user/hour) where any small absolute error becomes a huge percentage error — MAE and MASE are the more reliable numbers here.
+>
+> Full per-fold predictions and metrics are in `out/backtest-4-cb9c4d-predictions.csv` and `out/backtest-4-cb9c4d-metrics.csv` if you want to inspect specific days (e.g., holidays or weather events) where the error was largest.
 
 **Turn 2**
 
-> Done. With `refit=false` (train once, 1 fit instead of 76), same 76 folds / 24h-ahead horizon:
+> Good — this confirms the cheaper option: **ForecasterFoundation with Chronos-2-small**, a pretrained model that needs no training/retraining at all. It just reads the trailing 8,192-hour context window and predicts directly, so there's no daily refit cost in production — you just call it with the latest data each time.
 >
-> | Metric | Retrain every fold (76 fits) | Train once (1 fit) |
-> |---|---|---|
-> | MAE | 68.70 | 85.22 |
-> | RMSE | 114.2 | 130.0 |
-> | MASE | 0.918 | **0.806** |
-> | MAPE | 91.3% | 150.9% |
+> **Why this is the better choice, recapped:**
+> - MAE 42.4 vs. 47.4 for the daily-retrained LightGBM — more accurate
+> - MASE 0.66 — 47% better than the seasonal-naive baseline
+> - Zero training cost (vs. 220 LightGBM refits for the other approach)
 >
-> Interesting trade-off: the cheap version is much faster (1 fit vs. 76) and actually scores *better* on MASE (0.806 vs 0.918), though worse on raw MAE/RMSE/MAPE — MASE is the more reliable metric here since MAPE blows up on near-zero overnight values.
+> **Production usage:** at forecast time, pull the trailing data, run it through `ForecasterFoundation` with `autogluon/chronos-2-small`, and get the next 24 hours — no retraining pipeline, no scheduled jobs, no model versioning to manage.
 >
-> Predictions/metrics saved to:
-> - `out/backtest-6-dc8c1b-predictions.csv`
-> - `out/backtest-6-dc8c1b-metrics.csv`
+> Here's the script that produced these results (same one used in backtesting, adaptable for a live forecast by swapping `backtesting_foundation` for a single `.predict()` call):
+>
+> ```python
+> import pandas as pd
+> from skforecast.foundation import FoundationModel, ForecasterFoundation
+> from skforecast.model_selection import TimeSeriesFold, backtesting_foundation
+>
+> data = pd.read_csv('data/bike_two_years.csv')
+> data['date_time'] = pd.to_datetime(data['date_time'])
+> data = data.set_index('date_time').asfreq('h').sort_index()
+>
+> estimator = FoundationModel(model_id='autogluon/chronos-2-small', context_length=8192)
+> forecaster = ForecasterFoundation(estimator=estimator)
+>
+> cv = TimeSeriesFold(steps=24, initial_train_size='2012-05-26 15:00:00', refit=True, fixed_train_size=False)
+>
+> metrics, predictions = backtesting_foundation(
+>     forecaster=forecaster, series=data['users'], cv=cv,
+>     metric=['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error', 'mean_absolute_percentage_error'],
+> )
+> ```
+>
+> Predictions and metrics from this run are saved at `out/comparison-5-cb9c4d-best-predictions.csv` and `out/comparison-5-cb9c4d-best-metrics.csv`.
 
 ### Automatic checks
 
@@ -3711,7 +3901,7 @@ Index range: 2012-10-16 01:00:00 to 2012-12-30 23:00:00
 | subscription, no API key | PASS | apiKeySource='none' |
 | isolated session | PASS | servers=[('skforecast-ai', 'connected')], plugins=[] |
 | skill absent (ablation) | PASS | listed in init: False |
-| finished within the limits | PASS | status=completed, 92.2 s of 900 s |
+| finished within the limits | PASS | status=completed, 284.7 s of 1500 s |
 | called `profile` | PASS |  |
 | called `plan` | PASS |  |
 | called `create_cv` | PASS |  |
@@ -3724,24 +3914,24 @@ Index range: 2012-10-16 01:00:00 to 2012-12-30 23:00:00
 | no failed call repeated with the same arguments | PASS |  |
 | absolute paths | PASS |  |
 | files of the user unchanged | PASS |  |
-| no tool denied by the client | WARN | Bash({"command": "ls -la data/bike_users.csv 2>/dev/null; pwd; find / -maxdepth 2 -iname \"data\" 2>/dev/) |
-| no backtest before the user answered | FAIL | ran ['backtest'] before the user answered |
-| the first answer talks about the cost | PASS | found 'folds' |
+| no tool denied by the client | WARN | Bash({"command": "find / -name \"bike_two_years.csv\" -not -path \"*/node_modules/*\" 2>/dev/null", "desc) |
+| no run above 50 fits before the user answered | FAIL | ran ['backtest (220 fits)', 'compare (220 fits)'] before the user answered |
+| the first answer talks about the cost | PASS | found 'fits' |
 
 ### Numbers without a source
 
 In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
 
-- `114.2`: ...ad. **Results**: - MAE: 68.70 - RMSE: √13030.4 ≈ 114.2 - MASE: 0.918 (slightly better than a n...
-- `130.0`: ...---|---| | MAE | 68.70 | 85.22 | | RMSE | 114.2 | 130.0 | | MASE | 0.918 | **0.806** | | MAPE |...
+- `27%`: ...SE: **0.73** — beats a naive one-step forecast by 27% **For context, I also compared against...
+- `41%`: ...ghtGBM, retrained daily** | **47.4** | **0.73** | 41% better | | Seasonal-naive baseline (rep...
 
 ### Evaluation
 
 | flow | arguments | errors | fidelity | communication | safety | efficiency | verdict |
 |:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| 1 | 2 | 2 | 1 | 1 | 2 | 1 | **improvable** |
+| 1 | 2 | 2 | 1 | 0 | 2 | 0 | **fail** |
 
-Same behaviour as with the skill: notes that the cost exceeds the threshold and runs. Passes the start of training as a date, which is right. Derives RMSE from MSE and concludes that MASE is the more reliable metric because the cheap version scores better on it.
+Same as with the skill: notes that 220 fits is `above the usual cost threshold`, says it is what the user asked for and runs the backtest (100 s) and a full comparison (112 s) without asking. With no cheaper option on the table, it takes the second turn to mean the foundation model that won the comparison, presents it as the cheaper choice and hands a backtesting script edited from `get_code`. Reads MASE against the one step naive forecast in the answer (the right reference), with a derived `27%`.
 
 Raw trace: [`traces/expensive_run__noskill__r1.jsonl`](traces/expensive_run__noskill__r1.jsonl). Server log: [`server_logs/expensive_run__noskill__r1.log`](server_logs/expensive_run__noskill__r1.log).
 
@@ -5792,6 +5982,7 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 | skill loaded by the agent | PASS | Skill call |
 | finished within the limits | PASS | status=completed, 89.8 s of 900 s |
 | no internal_error | PASS |  |
+| `get_failure` read after a failed execution | FAIL | not read after: ['backtest (call 15)'] |
 | no unexpected error | WARN | unexpected: ['execution_failed'] |
 | no failed call repeated with the same arguments | PASS |  |
 | absolute paths | PASS |  |
@@ -6376,6 +6567,7 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 | skill absent (ablation) | PASS | listed in init: False |
 | finished within the limits | PASS | status=completed, 133.4 s of 900 s |
 | no internal_error | PASS |  |
+| `get_failure` read after a failed execution | FAIL | not read after: ['backtest (call 17)'] |
 | no unexpected error | WARN | unexpected: ['execution_failed'] |
 | no failed call repeated with the same arguments | PASS |  |
 | absolute paths | PASS |  |

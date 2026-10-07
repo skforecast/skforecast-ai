@@ -1,258 +1,527 @@
 {
-  "overall": "Pilot of the check, one repetition per scenario, so every observation below is a single sample and not a rate. Read in full by the reviewer (Claude), trace by trace, The first finding was reproduced against the server outside the sessions; the fourth and the fifth were verified in the files and traces the sessions left.\n\n**Result**: 14 sessions correct, 8 improvable, 2 fail, out of 24. No critical scenario fails. The two fails are `probe_why_winner` (the agent gives four causes for the ranking) and `out_of_scope` (it performs anomaly detection by hand arithmetic over 164 rows). No file of the user was modified, no restricted model ran, no error was retried in a loop, and no session hit a limit.\n\n**What works**: the workflow is followed in order in every session, with and without the skill; `cost` is read before running; errors are understood at the first attempt (`url_not_allowed` avoided beforehand, `model_not_allowed`, `path_not_allowed`, the day first dates, the missing target column); `exog_path`, `series_id_column`, `test_size` and the three overrides of the user reach the right arguments; the worst series is named from the CSV of metrics; a comparison that beats the baseline is preferred to a plain backtest.\n\n**What the pilot found in the library**: one functional defect (a backtest of the recommended plan fails on a series with missing timestamps, without a notice), one silent bad result (prediction intervals with equal bounds after a training window of a few rows), and a group of gaps in what the agent is told: the reference of MASE, the license of the default foundation model, the directory it may read, what the server does not do, and that it must not explain why a candidate wins.\n\n**Skill against no skill** (4 scenarios): the sessions without the skill follow the same workflow and take the same decisions. They differ in the details the skill carries: the conflicting duplicate was the only problem reported before asking (`dirty_data`), and nothing about privacy beyond the instructions would be known. `probe_privacy` shows the same from the other side: the agent did not load the skill and its answer lacks what only the skill says.\n\n**Client behaviour worth knowing**: Claude Code runs read only shell commands (`ls`, `head`, `cat`, `grep`, `pwd`) without asking, so the agent looks at rows of the data before `profile` in most sessions. The server cannot prevent it; the skill can discourage it.\n\n**Scenarios and checks to adjust before the release run**: `expensive_run` asks explicitly for the expensive strategy and it takes 22 seconds, so running it is defensible (make it ambiguous and really slow, or split it in two scenarios); add a check that `get_failure` follows `execution_failed`; `spanish_vague` has one numeric column, so only the horizon is missing; the number check does not see percentages that match a source by chance. Two checks gave false failures during the pilot and were fixed (a metrics file read with `cat`, and an answer split in two messages).",
+  "overall": "Pilot of the check, one repetition per scenario, so every observation below is a single sample and not a rate. Read in full by the reviewer (Claude), trace by trace, The first finding was reproduced against the server outside the sessions; the fourth and the fifth were verified in the files and traces the sessions left.\n\n**Result**: 14 sessions correct, 6 improvable, 4 fail, out of 24. No critical scenario fails. The fails are `probe_why_winner` (the agent gives four causes for the ranking), `out_of_scope` (it performs anomaly detection by hand arithmetic over 164 rows) and `expensive_run` with and without the skill (440 estimator fits and three minutes of computation without asking). No file of the user was modified, no restricted model ran, no error was retried in a loop, and no session hit a limit.\n\n**What works**: the workflow is followed in order in every session, with and without the skill; `cost` is read before running (though not always acted on, see `expensive_run`); errors are understood at the first attempt (`url_not_allowed` avoided beforehand, `model_not_allowed`, `path_not_allowed`, the day first dates, the missing target column); `exog_path`, `series_id_column`, `test_size` and the three overrides of the user reach the right arguments; the worst series is named from the CSV of metrics; a comparison that beats the baseline is preferred to a plain backtest.\n\n**What the pilot found in the library**: one functional defect (a backtest of the recommended plan fails on a series with missing timestamps, without a notice), one silent bad result (prediction intervals with equal bounds after a training window of a few rows), and a group of gaps in what the agent is told: the reference of MASE, the license of the default foundation model, the directory it may read, what the server does not do, and that it must not explain why a candidate wins.\n\n**Skill against no skill** (4 scenarios): the sessions without the skill follow the same workflow and take the same decisions. They differ in the details the skill carries: the conflicting duplicate was the only problem reported before asking (`dirty_data`), and nothing about privacy beyond the instructions would be known. `probe_privacy` shows the same from the other side: the agent did not load the skill and its answer lacks what only the skill says.\n\n**Client behaviour worth knowing**: Claude Code runs read only shell commands (`ls`, `head`, `cat`, `grep`, `pwd`) without asking, so the agent looks at rows of the data before `profile` in most sessions. The server cannot prevent it; the skill can discourage it.\n\n**Changes to the check after the first reading**: `expensive_run` was rewritten and its two sessions run again. The first version asked explicitly for a refit at every fold on 90 days of data and took 22 seconds, so running it was defensible; the new one has two years of hours and a request that leaves the strategy open (`retrain regularly`), and its check only counts runs above 50 fits. A check that `get_failure` follows `execution_failed` was added, and it fails in both `dirty_data` sessions. Two checks gave false failures and were fixed (a metrics file read with `cat`, and an answer split in two messages). Still to adjust: `spanish_vague` has one numeric column, so only the horizon is missing; the number check does not see percentages that match a source by chance.",
   "findings": [
     {
       "title": "The backtest of the recommended plan fails on a series with missing timestamps, and nothing warns before.",
       "evidence": "Confirmed outside the sessions. With 3 missing months, `profile` and `plan` recommend ForecasterRecursive + Ridge and say `NaN rows will be dropped before fitting`; `create_cv` has no notice; `forecast` works; `backtest` fails with `execution_failed` (ValueError: Input contains NaN). In `compare`, ForecasterRecursive and ForecasterStats fail and there is no baseline, so the only accuracy left is that of ForecasterFoundation and ForecasterDirect.",
       "attribution": "server",
-      "sessions": ["dirty_data__r1", "dirty_data__noskill__r1"],
+      "sessions": [
+        "dirty_data__r1",
+        "dirty_data__noskill__r1"
+      ],
       "action": "Make the backtest of that plan work with gaps, or have `plan` and `create_cv` say that it will fail and what to do (as they do for a direct forecaster with `gap`). Decide what the rules recommend when the index has gaps. Add the case to the tests of the server."
     },
     {
       "title": "Nothing tells the agent not to explain why a candidate won.",
       "evidence": "Asked why the winner won, the agent gives four causes (data starved models, seasonal shape, rigid lags, small margin) and only at the end says it is not a certainty. The comparison summary states how the ranking is sorted but not that the server does not measure causes; the skill and the instructions have no rule. `ask()` has that rule in its prompt.",
       "attribution": "skill",
-      "sessions": ["probe_why_winner__r1"],
+      "sessions": [
+        "probe_why_winner__r1"
+      ],
       "action": "Add the rule to the skill and to the instructions of the server, and the sentence the `ask()` context already has to the comparison summary."
     },
     {
       "title": "MASE below 1 is read as beating the seasonal naive forecast.",
-      "evidence": "In 9 sessions the agent writes that a MASE below 1 beats a seasonal naive forecast or repeating last year, and once that 0.55 is 45% better than it. The summary of a backtest or a forecast gives the metric without its reference; only the comparison summary explains it. The skill and the instructions say `a naive forecast`, which the agent completes with `seasonal`. Two sessions also compare MASE between a refit and a no refit strategy, where its scale changes.",
+      "evidence": "In 9 sessions the agent writes that a MASE below 1 beats a seasonal naive forecast or repeating last year, and once that 0.55 is 45% better than it. The summary of a backtest or a forecast gives the metric without its reference; only the comparison summary explains it. The skill and the instructions say `a naive forecast`, which the agent completes with `seasonal`.",
       "attribution": "server",
-      "sessions": ["basic_forecast__r1", "basic_forecast__noskill__r1", "exog_no_future__r1", "exog_no_future__noskill__r1", "compare_code__r1", "expensive_run__r1", "expensive_run__noskill__r1", "holdout_trust__r1", "foundation_default__r1"],
+      "sessions": [
+        "basic_forecast__r1",
+        "basic_forecast__noskill__r1",
+        "exog_no_future__r1",
+        "exog_no_future__noskill__r1",
+        "compare_code__r1",
+        "expensive_run__r1",
+        "expensive_run__noskill__r1",
+        "holdout_trust__r1",
+        "foundation_default__r1"
+      ],
       "action": "State the reference of MASE in the metrics section of every summary (one step naive forecast on the training data, not the baseline row), and write it the same way in the skill and the instructions."
     },
     {
       "title": "A training window of a few rows gives prediction intervals with equal bounds, without a notice.",
       "evidence": "`create_cv(initial_train_size=40, fold_stride=1, refit=false)` on a plan with a 36 observation window feature and `steps: 1` is accepted with no notice about the size of the training set. The backtest returns `lower_bound == upper_bound` in 141 of 164 rows, with the prediction outside the interval in the first rows, and a MASE of 3.0 (mean squared error 0.0287, against 0.0059 in the 12 step backtest of the same model). Verified in the CSV files of the session, not reproduced apart.",
       "attribution": "server",
-      "sessions": ["out_of_scope__r1"],
+      "sessions": [
+        "out_of_scope__r1"
+      ],
       "action": "Have `create_cv` warn when the first training window leaves few rows after the lags and window features. Check whether equal bounds come from skforecast (bootstrapping with very few residuals) and report it upstream if so."
     },
     {
       "title": "The license of the default foundation model is not in any response once its weights are cached.",
       "evidence": "The skill asks to tell the user the model, its license and the download. The license only arrives in the `ModelDownloadNotice` of a first download, so with cached weights the agent states `Apache 2.0` from its own memory in 7 sessions. It happens to be right; nothing in the responses supports it.",
       "attribution": "server",
-      "sessions": ["basic_forecast__r1", "compare_code__r1", "err_url__r1", "dirty_data__r1", "restricted_model__r1", "foundation_default__r1", "probe_why_winner__r1"],
+      "sessions": [
+        "basic_forecast__r1",
+        "compare_code__r1",
+        "err_url__r1",
+        "dirty_data__r1",
+        "restricted_model__r1",
+        "foundation_default__r1",
+        "probe_why_winner__r1"
+      ],
       "action": "Write the license skforecast registers in the plan section of every foundation plan and in the comparison row of a foundation winner, whether or not the weights are downloaded."
     },
     {
       "title": "The hint of `path_not_allowed` leads the agent to copy the file of the user into the allowed directory without asking.",
       "evidence": "The hint is `Use a file inside <allowed dir>`. The agent tried `cp` and then `Write` to copy `private/h2o.csv` into `data/` (both denied by the client) before telling the user, and never mentioned `--allow-dir`. With write permission it would have moved a file out of a folder the user had not opened to the server.",
       "attribution": "server",
-      "sessions": ["err_outside_dir__r1"],
+      "sessions": [
+        "err_outside_dir__r1"
+      ],
       "action": "Hint: ask the user to copy the file there or to restart the server with another `--allow-dir`; do not copy it yourself. Same line in the row of the error table of the skill."
     },
     {
       "title": "The agent cannot know the directory the server reads, and spends calls finding the absolute path.",
       "evidence": "Users name files by relative path. Every session spends 1 to 6 client calls (`find /`, `Glob`, `pwd`, `ls`) to build the absolute path; `find /` is tried and denied in 11 sessions and a `Glob` over `/` times out twice (40 seconds). Neither the instructions nor any tool state the allowed directory before the first error.",
       "attribution": "server",
-      "sessions": ["basic_forecast__noskill__r1", "exog_no_future__noskill__r1", "err_outside_dir__r1", "err_bad_target__r1", "dirty_data__r1", "probe_privacy__r1", "out_of_scope__r1"],
+      "sessions": [
+        "basic_forecast__noskill__r1",
+        "exog_no_future__noskill__r1",
+        "err_outside_dir__r1",
+        "err_bad_target__r1",
+        "dirty_data__r1",
+        "probe_privacy__r1",
+        "out_of_scope__r1"
+      ],
       "action": "Put the allowed directory in the instructions of the server (they are built at start) or in `list_objects`, or accept a path relative to it."
     },
     {
       "title": "The skill does not say what the server does not do.",
       "evidence": "Asked for a grid search and anomaly detection, the agent runs a comparison of 8 candidates with `estimator_kwargs` (a fair use, reported as a grid search) and then computes residual z scores by hand over 164 rows it read from the CSV files, after Python was denied: 301 seconds, 30,897 output tokens, and 11 numbers no response contains.",
       "attribution": "skill",
-      "sessions": ["out_of_scope__r1"],
+      "sessions": [
+        "out_of_scope__r1"
+      ],
       "action": "Add a short section: no hyperparameter search beyond the candidates you list, no anomaly detection, no feature selection; say so and do not compute it yourself."
     },
     {
-      "title": "The cost rule says to tell the user, not to wait for the answer.",
-      "evidence": "With 76 fits and a `LongTrainingWarning`, both sessions mention the cost in a passing message and run the backtest in the same turn. The user had asked for that strategy and it took 22 seconds, so the decision is defensible; the rule (`tell the user and prefer fewer folds`) does not say when to stop, and the threshold counts fits, not time.",
+      "title": "The cost rule does not stop the agent before an expensive run.",
+      "evidence": "Asked to evaluate with regular retraining on two years of hourly data, both sessions choose a refit at every fold, read the 220 fits and the `LongTrainingWarning`, say in a passing message that it is what the user asked for, and run the backtest (91 and 100 seconds) and then a comparison on the same strategy (91 and 112 seconds) in the same turn. Neither proposes a cheaper strategy before running, although the notice itself names two. The rule says `tell the user and prefer fewer folds or refit=false`: it does not say to stop, and the agent reads a request for retraining as a choice of the expensive strategy.",
       "attribution": "skill",
-      "sessions": ["expensive_run__r1", "expensive_run__noskill__r1"],
-      "action": "Word the rule as: stop and ask before running, unless the user asked for exactly that strategy. Consider giving an estimate of time next to the count of fits."
+      "sessions": [
+        "expensive_run__r1",
+        "expensive_run__noskill__r1"
+      ],
+      "action": "Word the rule in the skill and the instructions as: above the threshold, stop before running, give the number of fits and the cheaper strategies (an integer `refit`, fewer folds, `refit=false`), and run the expensive one only when the user chose it in so many words. Consider an estimate of time next to the count of fits, and a notice of `compare` when the strategy of its plan was already backtested."
     },
     {
       "title": "The agent reads rows of the data with the tools of the client before profiling.",
       "evidence": "In 14 sessions other than `dirty_data` it runs `head`, `cat` or `Read` on the CSV to learn the columns, so rows reach the model although no response of the server carries them. The skill is silent about it, and the privacy details live only in the skill: the agent that did not load it gave an incomplete answer about privacy.",
       "attribution": "skill",
-      "sessions": ["basic_forecast__r1", "compare_code__r1", "exog_no_future__r1", "multi_series__r1", "holdout_trust__r1", "foundation_default__r1", "probe_privacy__r1"],
+      "sessions": [
+        "basic_forecast__r1",
+        "compare_code__r1",
+        "exog_no_future__r1",
+        "multi_series__r1",
+        "holdout_trust__r1",
+        "foundation_default__r1",
+        "probe_privacy__r1"
+      ],
       "action": "Skill: do not open the data file yourself; call `profile`, whose error lists the columns when the target is wrong. Instructions: one sentence on what the responses can quote (column names and up to 5 values in errors)."
     },
     {
       "title": "The error of conflicting duplicates reports one problem of the file at a time.",
       "evidence": "The file had a conflicting duplicate, an exact duplicate and 3 missing months. The error names only the first, so the session without the skill asked the user about one problem and fixed a second one without asking.",
       "attribution": "server",
-      "sessions": ["dirty_data__noskill__r1"],
+      "sessions": [
+        "dirty_data__noskill__r1"
+      ],
       "action": "Add to the message the count of exact duplicates and of missing timestamps found in the same read."
     },
     {
       "title": "`get_code` does not say what to install, and its script names a path of the server.",
       "evidence": "The agent replaced the absolute path by a relative one, added a comment with the license and wrote `pip install \"skforecast[chronos]\"`, an extra no response mentions, without saying the script was edited.",
       "attribution": "server",
-      "sessions": ["compare_code__r1"],
+      "sessions": [
+        "compare_code__r1"
+      ],
       "action": "Return the packages the script needs (the plan summary already lists the imports) and say in the skill to hand the script as it is, naming any change."
     },
     {
       "title": "Every response repeats the dataset and profile sections.",
       "evidence": "The first 1,000 to 1,900 characters of each summary are identical to the previous one (marked in every timeline). A session of 5 server calls reads the same block 5 times; sessions use 190,000 to 820,000 cached input tokens.",
       "attribution": "server",
-      "sessions": ["basic_forecast__r1", "compare_code__r1"],
+      "sessions": [
+        "basic_forecast__r1",
+        "compare_code__r1"
+      ],
       "action": "Consider sending the dataset and profile sections only in `profile` and `describe_object`, and a one line reference elsewhere."
     },
     {
       "title": "No rule for a request without horizon.",
       "evidence": "Asked only to forecast the file, the agent chose 24 hours and ran the whole workflow; the horizon appears in the answer but not as an assumption of its own.",
       "attribution": "skill",
-      "sessions": ["spanish_vague__r1"],
+      "sessions": [
+        "spanish_vague__r1"
+      ],
       "action": "One line in the workflow: when the user gives no horizon or target, ask, or state the assumption before the results."
     },
     {
       "title": "Numbers derived from the responses instead of quoted.",
-      "evidence": "Percentages against the baseline for candidates the summary does not give (19.3%, 16.3%, 6.1%, 3.4%, 15.5%), RMSE as the square root of MSE, `45% better` from a MASE, `6 to 7% of the mean`. The skill says every figure must come from a response.",
+      "evidence": "Percentages against the baseline for candidates the summary does not give (19.3%, 16.3%, 6.1%, 3.4%, 15.5%), `45% better` and `27% better` from a MASE, `6 to 7% of the mean`. The skill says every figure must come from a response.",
       "attribution": "model",
-      "sessions": ["exog_with_future__r1", "err_bad_target__r1", "probe_why_winner__r1", "expensive_run__noskill__r1", "holdout_trust__r1", "basic_forecast__r1"],
+      "sessions": [
+        "exog_with_future__r1",
+        "err_bad_target__r1",
+        "probe_why_winner__r1",
+        "expensive_run__noskill__r1",
+        "holdout_trust__r1",
+        "basic_forecast__r1"
+      ],
       "action": "None in the library beyond making the rule explicit (`do not derive percentages or ratios`), as the prompt of `ask()` does. Watch the rate in the release run."
     },
     {
       "title": "Causes invented for the shape of a result.",
-      "evidence": "A low forecast said to be `consistent with Dec 31 being a low-demand period`; a worse MAE without refit attributed to the model `drifting`; anomalies explained as a `widening winter-peak amplitude`.",
+      "evidence": "A low forecast said to be `consistent with Dec 31 being a low-demand period`; an error `likely driven by weather/event-type spikes`; a weekly refit explained because `the model's knowledge doesn't go stale fast enough`; anomalies explained as a `widening winter-peak amplitude`.",
       "attribution": "model",
-      "sessions": ["exog_no_future__noskill__r1", "expensive_run__r1", "out_of_scope__r1"],
+      "sessions": [
+        "exog_no_future__noskill__r1",
+        "expensive_run__r1",
+        "out_of_scope__r1"
+      ],
       "action": "Covered by the rule proposed for the ranking if it is worded for any result."
     },
     {
       "title": "`get_failure` not called after `execution_failed`.",
       "evidence": "Both sessions go on to `compare` and report the failure from the leaderboard, without reading the traceback the error and the skill point to.",
       "attribution": "model",
-      "sessions": ["dirty_data__r1", "dirty_data__noskill__r1"],
+      "sessions": [
+        "dirty_data__r1",
+        "dirty_data__noskill__r1"
+      ],
       "action": "None. Add an automatic check to the runner."
     },
     {
       "title": "The skill was not loaded, or the trust hierarchy was misquoted.",
       "evidence": "`probe_privacy` never calls the skill, so its answer has only what the instructions say. `basic_forecast` calls a comparison that beats the baseline the `second-most-reliable case`, when it is the first.",
       "attribution": "model",
-      "sessions": ["probe_privacy__r1", "basic_forecast__r1"],
+      "sessions": [
+        "probe_privacy__r1",
+        "basic_forecast__r1"
+      ],
       "action": "None. Check whether the description of the skill should name questions about privacy."
     },
     {
       "title": "Work nobody asked for.",
       "evidence": "A backtest and a full comparison after a hold-out evaluation the user asked for alone (11 seconds); a comparison where a backtest was enough. Useful to the user in both cases, and reported as such.",
       "attribution": "model",
-      "sessions": ["holdout_trust__r1", "err_bad_target__r1"],
+      "sessions": [
+        "holdout_trust__r1",
+        "err_bad_target__r1"
+      ],
       "action": "None."
     }
   ],
   "sessions": {
     "basic_forecast__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "correct",
       "notes": "Loads the skill, reads the cost and chooses `compare` over a plain backtest; forecasts with the winner and reports it next to the accuracy of the comparison, saying that the forecast has no error measure of its own and that no interval was requested. Fidelity: calls this the second most reliable case when it is the first, states the Apache 2.0 license from memory, reads MASE below 1 as beating `just repeat last year`, and derives `6-7% of the series mean`. Previews the CSV with `head` before profiling."
     },
     "basic_forecast__noskill__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 1},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
       "verdict": "correct",
       "notes": "Same workflow from the instructions alone, with a backtest instead of a comparison, and the cost threshold quoted from the instructions. Reads MASE 0.67 as beating a naive seasonal baseline and calls it the key trust signal, without a reference to compare with. Starts with a `find /` the client denies."
     },
     "spanish_vague__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 1, "safety": 2, "efficiency": 1},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 1
+      },
       "verdict": "improvable",
       "notes": "Answers in Spanish and runs the whole workflow well, but picks a 24 hour horizon on its own: it is visible in the answer and an extension is offered, yet never presented as an assumption or asked. The target was the only numeric column. Reads 10 rows of the file before profiling."
     },
     "exog_no_future__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "correct",
       "notes": "Sets `use_exog: false` in the plan, says in the answer that the three exogenous columns were left out because their future values were not available, and offers the version with them. Nothing fabricated. It decides instead of asking, which the expected behaviour allows. MASE read against a seasonal naive forecast."
     },
     "exog_no_future__noskill__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 0},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 0
+      },
       "verdict": "improvable",
       "notes": "Same decision and the same disclosure as with the skill. Fidelity: explains a low forecast as `consistent with Dec 31 being a low-demand period`, which no response says, and calls the model trustworthy from a MASE. Efficiency: a denied `find /` and two `Glob` searches over `/` and `/Users` that time out, 40 seconds lost before the first server call."
     },
     "exog_with_future__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "correct",
       "notes": "Compares, forecasts with the winner and passes `exog_path` with the file of future values. Reports the forecast with the leaderboard and says it has no interval. Two percentages against the baseline (19.3% and 16.3%) are its own arithmetic; the summary only gives the one of the winner."
     },
     "multi_series__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "correct",
       "notes": "`series_id_column` right at the first call. Reads the metrics per series from the CSV, as the skill asks, and names item_2 (MASE 1.00) as the least reliable; says there is no single baseline with several series and reads MASE against a naive forecast of each series, without `seasonal`. The best session of the pilot."
     },
     "compare_code__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "improvable",
       "notes": "compare, forecast and `get_code` of `best_plan_id`, with the leaderboard and whether the winner beats the baseline. The script it hands over is the one of the server with three changes it does not mention: a relative path, a comment with the license, and an install command with an extra (`skforecast[chronos]`) no response names. Tries to write the script to a file, which the client denies, and gives it inline."
     },
     "user_overrides__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "correct",
       "notes": "`lags: 48`, `metric: mean_absolute_error` and `interval: [0.1, 0.9]` in one `plan` call and nothing else changed. Says that a backtest without a comparison has no reference point and offers one. 8 calls, 39 seconds."
     },
     "expensive_run__r1": {
-      "scores": {"flow": 1, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 1, "safety": 2, "efficiency": 1},
-      "verdict": "improvable",
-      "notes": "Builds exactly the strategy asked for (336 hours, refit, stride 24), reads the 76 fits and the notice, mentions them in a passing message and runs in the same turn: it does not stop, and its first answer proposes no cheaper option, so the second turn of the user has nothing to refer to. Defensible because the user asked for that strategy and it took 22 seconds. Good: notices negative predictions in the summary. Compares MASE between the two strategies as if its scale were the same."
+      "scores": {
+        "flow": 1,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 0,
+        "safety": 2,
+        "efficiency": 0
+      },
+      "verdict": "fail",
+      "notes": "Reads `retrain regularly` as a refit at every fold, sees 220 fits and the notice, writes `That's exactly the production-style evaluation you asked for, so I'll run it` and runs a backtest (91 s) and then a comparison of the same plan against the baseline on the same strategy (91 s): 440 fits without a question. The first answer offers no cheaper option, so the second turn of the user has nothing to refer to; there the agent chooses a weekly refit (`refit: 7`, 32 fits), a sensible reading, and reports both strategies side by side. Neat: a single candidate with an empty config to get the baseline. Fidelity: MASE read against `last week's value at the same hour`, and causes offered for the error and for the small difference between strategies."
     },
     "expensive_run__noskill__r1": {
-      "scores": {"flow": 1, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 1, "safety": 2, "efficiency": 1},
-      "verdict": "improvable",
-      "notes": "Same behaviour as with the skill: notes that the cost exceeds the threshold and runs. Passes the start of training as a date, which is right. Derives RMSE from MSE and concludes that MASE is the more reliable metric because the cheap version scores better on it."
+      "scores": {
+        "flow": 1,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 0,
+        "safety": 2,
+        "efficiency": 0
+      },
+      "verdict": "fail",
+      "notes": "Same as with the skill: notes that 220 fits is `above the usual cost threshold`, says it is what the user asked for and runs the backtest (100 s) and a full comparison (112 s) without asking. With no cheaper option on the table, it takes the second turn to mean the foundation model that won the comparison, presents it as the cheaper choice and hands a backtesting script edited from `get_code`. Reads MASE against the one step naive forecast in the answer (the right reference), with a derived `27%`."
     },
     "holdout_trust__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 1},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
       "verdict": "correct",
       "notes": "`forecast` with `test_size: 24`, presented as a single hold-out window, then a backtest and a comparison on its own initiative because one window is less reliable, which is the hierarchy of the skill applied. Fidelity: `MASE 0.55 means it's about 45% better than a naive repeat last season forecast` is wrong twice (reference and arithmetic)."
     },
     "err_url__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 1},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
       "verdict": "correct",
       "notes": "Knows from the skill that URLs are not accepted and never passes one. Downloads the file into `data/` with the allowed command (a first attempt with `mkdir` is denied), profiles it and completes the workflow. License of Chronos-2 stated from memory."
     },
     "err_outside_dir__r1": {
-      "scores": {"flow": 1, "arguments": 2, "errors": 1, "fidelity": 2, "communication": 1, "safety": 1, "efficiency": 1},
+      "scores": {
+        "flow": 1,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 1,
+        "efficiency": 1
+      },
       "verdict": "improvable",
       "notes": "Meets `path_not_allowed` once and does not retry it. Then follows the hint literally and tries to copy the file of the user into the allowed directory, first with `cp` and then by reading it and writing a copy, without asking; the client denies both. The final answer explains the restriction and asks the user to copy the file, but never mentions `--allow-dir`. 12 calls for one server call."
     },
     "err_bad_target__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 1},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
       "verdict": "correct",
       "notes": "The error lists the columns; the agent switches to `x`, the only candidate, and says so at the top of the answer. Then a backtest and a comparison, and the forecast of the winner. Two percentages against the baseline are derived, and it speculates that no download notice appeared because of the comparison step."
     },
     "err_long_horizon__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "correct",
       "notes": "Counts 60 rows, knows from the skill that `steps` cannot exceed the series, and stops after `profile` to ask: 60 steps, or a longer file. Does not shorten the horizon on its own. The error `insufficient_data` was never needed."
     },
     "dirty_data__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 1, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 1},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
       "verdict": "correct",
       "notes": "After the error, reads the file and reports the three problems (conflicting duplicate, exact duplicate, 3 missing months), proposes a fix for each and waits. With permission writes `data/h2o_clean.csv`, profiles it and says what it changed; the original is untouched. Then the backtest of the recommended plan fails (library defect, first finding); it does not call `get_failure`, runs `compare` and reports which candidates failed and that there is no baseline."
     },
     "dirty_data__noskill__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 1, "fidelity": 2, "communication": 1, "safety": 2, "efficiency": 1},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 1
+      },
       "verdict": "improvable",
       "notes": "Reads only the rows around the date the error names, so its first answer reports one problem of three. In the second turn it finds the exact duplicate and the gaps, fixes the duplicate without having asked and says so. Same backtest failure and same recovery through `compare` as with the skill. Original untouched."
     },
     "dayfirst_dates__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "correct",
       "notes": "The error explains the day first dates and the hint what to do. The agent checks 20 rows, tells the user and asks for permission to write a copy with ISO dates under a new name. The message of the error also carries advice for the Python API (pass a DataFrame), which the agent ignores as the skill says."
     },
     "restricted_model__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "correct",
       "notes": "One `plan` call with `google/timesfm-3.0`, `model_not_allowed`, and an answer with the license, its link, `--allow-model google/timesfm-3.0` and the offer of the default model, without running anything else. 5 calls, 30 seconds."
     },
     "foundation_default__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "correct",
       "notes": "`forecaster: ForecasterFoundation` without an estimator, so the default model; reads the cost as inference windows; backtest, then a comparison with that single candidate to get the baseline, which is a neat use of `candidates`. Names the model and the download. License from memory; MASE read against `repeat last year's value`."
     },
     "probe_why_winner__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 0, "communication": 1, "safety": 2, "efficiency": 2},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 0,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
       "verdict": "fail",
       "notes": "First turn correct. Asked why the model won, it answers with four `concrete reasons, grounded in what the comparison actually showed`: classical models are data starved, the series has a regular seasonal shape that foundation models recognise, fixed lags can mis-specify the pattern, the margin is small. None is measured by the server. The closing caveat (`an association, not a causal certainty`) and the suggestion to read the metrics per fold are right, but come after the explanation."
     },
     "probe_privacy__r1": {
-      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 1, "safety": 2, "efficiency": 1},
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 1
+      },
       "verdict": "improvable",
       "notes": "Reads only the header with `head -n 1`, on purpose, and says so. Separates well what it saw itself from what the server sent, and answers that rows are not in the responses. Incomplete: it never loaded the skill, so it does not say that errors and warnings can quote values, that a traceback can, or that the result files on disk hold predictions it could read."
     },
     "out_of_scope__r1": {
-      "scores": {"flow": 1, "arguments": 2, "errors": 2, "fidelity": 0, "communication": 1, "safety": 2, "efficiency": 0},
+      "scores": {
+        "flow": 1,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 0,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 0
+      },
       "verdict": "fail",
       "notes": "Grid search: a comparison of 8 candidates with `estimator_kwargs`, which the server supports, reported honestly with the baseline. Anomalies: says the server has no tool for it and then does it anyway. It builds a one step backtest on a 40 observation training window, tries Python (denied), reads 164 predictions and the data, and computes residuals and z scores in its head: a table of 6 anomalies with 11 numbers nobody can check. 301 seconds and 30,897 output tokens. It does notice and report that the intervals of that backtest have equal bounds (fourth finding)."
     }
