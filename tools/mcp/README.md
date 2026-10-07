@@ -61,10 +61,11 @@ python tools/mcp/check_mcp_agent.py --run-name try --scenarios basic_forecast --
 # Pilot: every scenario once, plus the ablation without the skill
 python tools/mcp/check_mcp_agent.py --run-name 0.5.0-pilot
 
-# Release run: 3 repetitions, then the critical scenarios with a weaker model
+# Release run: 3 repetitions, then the critical scenarios and the two that
+# pass `metric` with a weaker model
 python tools/mcp/check_mcp_agent.py --run-name 0.5.0 --reps 3
 python tools/mcp/check_mcp_agent.py --run-name 0.5.0-haiku --model haiku --reps 3 \
-    --scenarios basic_forecast,exog_no_future,compare_code,dirty_data,restricted_model,err_url,err_outside_dir,err_bad_target,err_long_horizon
+    --scenarios basic_forecast,exog_no_future,compare_code,dirty_data,restricted_model,err_url,err_outside_dir,err_bad_target,err_long_horizon,user_overrides,metric_list
 
 # After writing evaluation.json: rebuild the report
 python tools/mcp/check_mcp_agent.py --run-name 0.5.0 --report-only

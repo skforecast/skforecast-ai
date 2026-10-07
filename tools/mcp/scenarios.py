@@ -14,6 +14,7 @@ well explained is read by the reviewer, with the rubric of the README.
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 CheckResult = tuple[bool, str]
@@ -344,6 +345,97 @@ def wrote_copy_and_profiled_it(session: Any) -> CheckResult:
     return True, f"wrote and profiled {profiled}"
 
 
+# `h2o_dirty` of `check_mcp_agent.DATASETS`: the months it lacks, and the
+# date it repeats with two values (1.230691 and 1.35376).
+DIRTY_MISSING_MONTHS = ("2001-01", "2001-02", "2004-10")
+DIRTY_REPEATED_MONTH = "2006-01"
+DIRTY_REPEATED_MEAN = 1.2922255
+
+
+def _corrected_copies(session: Any) -> list[tuple[str, list[str]]]:
+    """
+    The CSV files the session left in `data/`, each with its lines.
+    """
+
+    copies = []
+    for path in session.new_files:
+        file = Path(session.artifacts) / path
+        if path.startswith("data/") and path.endswith(".csv") and file.is_file():
+            copies.append(
+                (path, file.read_text(encoding="utf-8", errors="replace").splitlines())
+            )
+    return copies
+
+
+def copy_keeps_the_gaps(session: Any) -> CheckResult:
+    """
+    The corrected copy has no row for the months the file of the user
+    lacks: the user asked to leave them as they are.
+    """
+
+    copies = _corrected_copies(session)
+    if not copies:
+        return False, "no new CSV file in data/"
+    for path, lines in copies:
+        filled = [
+            month for month in DIRTY_MISSING_MONTHS
+            if any(line.startswith(month) for line in lines)
+        ]
+        if filled:
+            return False, f"{path} has rows for the missing months {filled}"
+    return True, f"no row for {list(DIRTY_MISSING_MONTHS)} in {[p for p, _ in copies]}"
+
+
+def copy_averages_the_repeated_date(session: Any) -> CheckResult:
+    """
+    The corrected copy holds the repeated date once, with the mean of its
+    two values, as the user asked.
+    """
+
+    copies = _corrected_copies(session)
+    if not copies:
+        return False, "no new CSV file in data/"
+    for path, lines in copies:
+        rows = [line for line in lines if line.startswith(DIRTY_REPEATED_MONTH)]
+        try:
+            values = [float(row.split(",")[1]) for row in rows]
+        except (IndexError, ValueError):
+            return False, f"{path}: the rows of {DIRTY_REPEATED_MONTH} cannot be read"
+        if len(values) != 1 or abs(values[0] - DIRTY_REPEATED_MEAN) > 1e-4:
+            return False, (
+                f"{path}: {DIRTY_REPEATED_MONTH} is {values}, expected "
+                f"[{DIRTY_REPEATED_MEAN}]"
+            )
+    return True, f"{DIRTY_REPEATED_MONTH} is {DIRTY_REPEATED_MEAN} in every copy"
+
+
+def metric_list_reaches_the_server(first: str, second: str) -> CheckFunction:
+    """
+    Some successful `plan`, `refine_plan` or `compare` receives `metric` as
+    a list that starts with `first` (the one that ranks) and holds `second`.
+    """
+
+    def check(session: Any) -> CheckResult:
+        seen = []
+        for call in session.calls:
+            if not call.server or call.is_error:
+                continue
+            if call.tool in ("plan", "compare"):
+                value = call.input.get("metric")
+            elif call.tool == "refine_plan":
+                value = (call.input.get("overrides") or {}).get("metric")
+            else:
+                continue
+            if value is None:
+                continue
+            seen.append(value)
+            if isinstance(value, list) and value[:1] == [first] and second in value:
+                return True, f"{call.tool}: metric={value!r}"
+        return False, f"expected a list starting with {first!r} with {second!r}; seen {seen!r}"
+
+    return check
+
+
 def downloaded_or_asked(session: Any) -> CheckResult:
     """
     The file of the URL is now inside `data/` and was profiled, or the
@@ -541,6 +633,32 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        name         = "metric_list",
+        summary      = "\"rank by MSE and report MAE too\"",
+        expected     = (
+            "`metric` reaches `plan` or `compare` as a list with "
+            "`mean_squared_error` first (the one that ranks) and "
+            "`mean_absolute_error`; the answer ranks by MSE and gives both, "
+            "and no metric nobody asked for is presented as the ranking."
+        ),
+        turns        = [
+            "Compare models to forecast the next 12 months of x in "
+            "data/h2o.csv. Rank them by MSE and report MAE too."
+        ],
+        files        = {"data/h2o.csv": "h2o"},
+        expect_tools = ["profile", "plan", "create_cv", "compare"],
+        expect_order = [("create_cv", "compare")],
+        checks       = [
+            (
+                "metric = [MSE, MAE]",
+                metric_list_reaches_the_server(
+                    "mean_squared_error", "mean_absolute_error"
+                ),
+            ),
+        ],
+        timeout      = 900,
+    ),
+    Scenario(
         name         = "expensive_run",
         summary      = "two years of hourly data, \"retrain regularly\" (2 turns)",
         expected     = (
@@ -723,6 +841,41 @@ SCENARIOS: list[Scenario] = [
         timeout      = 900,
     ),
     Scenario(
+        name         = "dirty_data_keep_gaps",
+        summary      = "CSV with duplicated dates and gaps, \"leave the gaps\" (2 turns)",
+        expected     = (
+            "As `dirty_data`, but the user says what to fix: the corrected "
+            "copy averages the repeated date, drops the identical row and "
+            "has no row for the three missing months. When the backtest "
+            "then fails on a missing month, the agent does not fill it in: "
+            "it asks, or changes the estimator and says so."
+        ),
+        turns        = [
+            "Forecast the next 12 months of x in data/h2o_dirty.csv.",
+            "Average the two values of the repeated date, drop the identical "
+            "row, and leave the missing months as they are. Do not modify my "
+            "file.",
+        ],
+        files        = {"data/h2o_dirty.csv": "h2o_dirty"},
+        extra_tools  = ["Write"],
+        writes_agreed_from = 1,
+        allowed_errors = ["invalid_argument", "data_unreadable"],
+        checks       = [
+            ("nothing written before the user agreed", no_new_files_before_turn(1)),
+            ("corrected copy written and profiled", wrote_copy_and_profiled_it),
+            ("the copy has no row for the missing months", copy_keeps_the_gaps),
+            (
+                "the copy holds the mean of the repeated date",
+                copy_averages_the_repeated_date,
+            ),
+            (
+                "the first answer names the data problem",
+                answer_matches(r"duplicat|missing|gap", 0),
+            ),
+        ],
+        timeout      = 900,
+    ),
+    Scenario(
         name           = "dayfirst_dates",
         summary        = "dates written day first",
         expected       = (
@@ -866,6 +1019,7 @@ SCENARIOS: list[Scenario] = [
 # server: what a user gets who adds the server by hand to another client.
 ABLATION: list[str] = [
     "basic_forecast", "exog_no_future", "expensive_run", "dirty_data",
+    "dirty_data_keep_gaps",
 ]
 
 BY_NAME: dict[str, Scenario] = {scenario.name: scenario for scenario in SCENARIOS}

@@ -512,6 +512,7 @@ class Session:
     denials: list[dict[str, Any]] = field(default_factory=list)
     checks: list[dict[str, str]] = field(default_factory=list)
     unsourced: list[dict[str, str]] = field(default_factory=list)
+    artifacts: str = ""
 
     @property
     def status(self) -> str:
@@ -1539,6 +1540,8 @@ def load_sessions(run_dir: Path) -> list[Session]:
         if meta["scenario"] not in BY_NAME:
             continue
         session = parse_trace(meta["key"], BY_NAME[meta["scenario"]], meta, trace)
+        # The files the session left, for the checks that read them.
+        session.artifacts = str(run_dir / "artifacts" / meta["key"])
         run_checks(session)
         find_unsourced(session)
         sessions.append(session)
