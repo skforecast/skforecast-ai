@@ -3397,22 +3397,92 @@ def _check_duplicate_timestamps(
         conflicts = repeated_keys
 
     if not conflicts.empty:
-        raise InvalidInputError(
-            _duplicate_timestamps_message(
-                conflicts   = conflicts,
-                data        = data,
-                dates       = dates,
-                target      = target,
-                date_col    = date_col,
-                data_format = data_format,
-                long_format = long_format,
-            ),
-            field = "data",
+        message = _duplicate_timestamps_message(
+            conflicts   = conflicts,
+            data        = data,
+            dates       = dates,
+            target      = target,
+            date_col    = date_col,
+            data_format = data_format,
+            long_format = long_format,
         )
+        # The other problems of the same read, so they are all solved in
+        # one pass instead of one per attempt.
+        message += _other_date_problems_note(
+            n_identical = len(repeated_keys) - len(conflicts),
+            dates       = dates[valid],
+            ids         = data[series_id_column][valid] if long_format else None,
+        )
+        raise InvalidInputError(message, field="data")
 
     keep_mask = ~(keys.duplicated(keep="first").to_numpy() & valid)
 
     return len(repeated_keys), keep_mask
+
+
+def _other_date_problems_note(
+    n_identical: int,
+    dates: pd.DatetimeIndex,
+    ids: pd.Series | None,
+) -> str:
+    """
+    Describe what else is wrong with the dates of data rejected for
+    timestamps repeated with different values.
+
+    The profile stops at those timestamps, so the timestamps repeated in
+    identical rows and the missing ones would only show in a later attempt,
+    after the user has already been asked about the first problem.
+
+    Parameters
+    ----------
+    n_identical : int
+        Number of timestamps (per series) repeated in identical rows.
+    dates : pandas DatetimeIndex
+        Date of every row that has one.
+    ids : pandas Series, None
+        Series id of each of those rows, for long format; None otherwise.
+
+    Returns
+    -------
+    note : str
+        Sentence to append to the error message, starting with a space, or
+        an empty string when nothing else was found. The missing timestamps
+        are counted on the distinct dates, as they will be once the repeated
+        rows are solved; they are left out when no frequency can be inferred
+        from them.
+    """
+    if ids is None:
+        distinct = pd.DatetimeIndex(dates.unique()).sort_values()
+        frequency = infer_frequency(distinct)
+        n_missing = count_missing_timestamps(distinct, frequency)
+    else:
+        series_dates = _long_series_dates(dates, ids)
+        frequency, n_missing = None, 0
+        # Time zone aware dates of several series need the search in UTC of
+        # the profile; their gaps are left to it.
+        if series_dates is not None and dates.tz is None:
+            frequency, n_missing, error = _search_long_frequency(series_dates)
+            if error is not None:
+                frequency, n_missing = None, 0
+
+    found = []
+    if n_identical > 0:
+        plural = "s" if n_identical != 1 else ""
+        found.append(
+            f"{n_identical} other timestamp{plural} repeated in identical "
+            f"rows (profiling keeps one of them)"
+        )
+    if frequency is not None and n_missing > 0:
+        plural = "s" if n_missing != 1 else ""
+        found.append(
+            f"{n_missing} timestamp{plural} missing at the '{frequency}' "
+            f"frequency, which will still be missing once the repeated rows "
+            f"are solved"
+        )
+    if not found:
+        return ""
+
+    return f" The same data also has {' and '.join(found)}."
 
 
 def _duplicate_timestamps_message(

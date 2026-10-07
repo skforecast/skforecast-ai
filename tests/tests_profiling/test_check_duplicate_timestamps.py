@@ -164,3 +164,36 @@ def test_check_duplicate_timestamps_output_when_dates_are_missing():
     )
 
     assert result == (0, None)
+
+
+def test_check_duplicate_timestamps_ValueError_names_the_other_date_problems():
+    """
+    Test that the error of a timestamp repeated with different values also
+    counts the timestamps repeated in identical rows and the missing ones,
+    so every problem of the dates is known from one attempt.
+    """
+    dates = pd.date_range("2020-01-01", periods=60, freq="MS").delete([10, 11, 30])
+    data = pd.DataFrame({"date": dates, "y": np.arange(57.0)})
+    data = pd.concat(
+        [data, data.iloc[[2]], data.iloc[[9]].assign(y=99.0)], ignore_index=True
+    )
+
+    err_msg = re.escape(
+        "Found 1 timestamp with more than one row and different values, for "
+        "example '2020-10-01'. A single series needs one row per timestamp, "
+        "and keeping only one of them would silently discard data. Aggregate "
+        "or remove the repeated rows before profiling, or pass "
+        "`series_id_column` if a column identifies different series. The same "
+        "data also has 1 other timestamp repeated in identical rows (profiling "
+        "keeps one of them) and 3 timestamps missing at the 'MS' frequency, "
+        "which will still be missing once the repeated rows are solved."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _check_duplicate_timestamps(
+            data             = data,
+            target           = "y",
+            date_col         = "date",
+            index_type       = "datetime",
+            data_format      = "single",
+            series_id_column = None,
+        )

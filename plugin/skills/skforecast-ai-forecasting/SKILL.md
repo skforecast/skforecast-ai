@@ -182,9 +182,10 @@ values, an exogenous column named like a lag or a window feature), tell the
 user what it is and what it changes. Never change their file. Only if they
 agree, write a corrected copy inside the allowed directory, under a new
 name, and `profile` the copy; say what you changed. An error names the
-first problem it finds, so the file can have others (missing dates only
-show once the repeated ones are solved): say so when you ask, and ask
-again before fixing a problem the user has not agreed to.
+first problem it finds, so the file can have others (the error of
+repeated dates with different values also counts the identical repeated
+rows and the missing dates): tell the user all of them when you ask, and
+ask again before fixing a problem they have not agreed to.
 
 ## Foundation models
 
