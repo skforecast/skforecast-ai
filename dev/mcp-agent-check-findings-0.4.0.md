@@ -554,7 +554,6 @@ sola carpeta de referencia para comparar con la 0.5.0.
 - El hallazgo 4 del piloto (intervalos con cotas iguales), arreglado en
   `96f4cdc`, no se ejercitó en esta ejecución: un escenario propio o una
   comprobación a mano.
-- Borrar `0.4.0-pilot` y sus relanzamientos 2, 3 y 4 cuando se confirme.
 
 ## Registro de avance
 
