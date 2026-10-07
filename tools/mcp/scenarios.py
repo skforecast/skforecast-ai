@@ -48,7 +48,7 @@ class Scenario:
         directory the server may read.
     extra_tools : list of str
         Tools allowed besides the MCP tools, `Read`, `Glob`, `Grep` and
-        `Skill` (`Write`, `Bash(curl:*)`).
+        `Skill` (`Write`, `Bash(curl:*)`, `Bash(mkdir:*)`).
     critical : bool
         Whether a failure blocks the release (see "Acceptance criteria" in
         the README).
@@ -614,7 +614,9 @@ SCENARIOS: list[Scenario] = [
             "save the file, the data/ folder is the place."
         ],
         files          = {"data/readme.txt": "note"},
-        extra_tools    = ["Bash(curl:*)"],
+        # Agents start with `mkdir -p data && curl ...`: with `curl` alone the
+        # client denied it and they gave up.
+        extra_tools    = ["Bash(curl:*)", "Bash(mkdir:*)"],
         critical       = True,
         # The request names `data/` as the place to save the file.
         writes_agreed_from = 0,

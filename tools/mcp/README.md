@@ -97,7 +97,8 @@ report: it is context each user pays for.
   the same server and its ids stay valid. `--resume` is not used: it starts
   a new server.
 - Allowed without asking: the tools of the server, `Read`, `Glob`, `Grep`
-  and `Skill`, plus what the scenario adds (`Write`, `Bash(curl:*)`).
+  and `Skill`, plus what the scenario adds (`Write`, `Bash(curl:*)`,
+  `Bash(mkdir:*)`).
   Anything else is denied and recorded, and is a signal: an agent that
   tries to write its own script instead of using the server shows up
   there. Claude Code runs read only shell commands (`ls`, `head`, `cat`)
