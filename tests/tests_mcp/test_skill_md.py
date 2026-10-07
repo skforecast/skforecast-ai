@@ -236,6 +236,8 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "Do not derive one either: no percentage, difference or ratio that a "
         "response does not give",
         "Do not open the data file with your own tools to look at it",
+        "without `target` its error lists the columns of the file, so never "
+        "guess a target to see them",
         "When the user gives no horizon",
         "stop and do not run it: tell the user the number of fits and the "
         "cheaper strategies",

@@ -49,6 +49,7 @@ from ..execution.comparison import (
     missing_foundation_backend,
     resolve_compare_candidates,
 )
+from ..profiling.data_profile import _listed_columns, read_csv_file
 from ..recommendation import (
     count_estimator_fits,
     count_inference_windows,
@@ -1366,10 +1367,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Absolute path of a CSV file inside the directory the server may "
             "read. URLs are not accepted."
         ))],
-        target: Annotated[str | list[str], Field(description=(
+        target: Annotated[str | list[str] | None, Field(description=(
             "Column to forecast, or a list of columns (one series each) for "
-            "wide multi-series data."
-        ))],
+            "wide multi-series data. Null when it is not known: the error "
+            "lists the columns of the file."
+        ))] = None,
         date_column: Annotated[str | None, Field(description=(
             "Column with the dates. When null, the first column holding dates "
             "is used."
@@ -1392,6 +1394,20 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         def work(control: CallControl):
             path = _inputs.resolve_csv_path(data_path, state.allowed, "data_path")
             _inputs.check_file_size(path, state.max_file_bytes, "data_path")
+            if target is None:
+                # Agents called `profile` with a made up target to read the
+                # columns in its error: the same answer, without guessing.
+                columns = [str(column) for column in read_csv_file(path).columns]
+                raise ServerError(
+                    f"`target` was not given. Columns of the file: "
+                    f"{_listed_columns(columns)}.",
+                    code  = "invalid_argument",
+                    field = "target",
+                    hint  = (
+                        "Pass the column to forecast as `target`. If more than "
+                        "one could be it, ask the user."
+                    ),
+                )
             digest = _inputs.file_sha256(path)
             try:
                 result = assistant.profile(

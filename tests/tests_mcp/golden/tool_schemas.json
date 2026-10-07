@@ -27,9 +27,13 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            {
+              "type": "null"
             }
           ],
-          "description": "Column to forecast, or a list of columns (one series each) for wide multi-series data."
+          "default": null,
+          "description": "Column to forecast, or a list of columns (one series each) for wide multi-series data. Null when it is not known: the error lists the columns of the file."
         },
         "date_column": {
           "anyOf": [
@@ -72,8 +76,7 @@
         }
       },
       "required": [
-        "data_path",
-        "target"
+        "data_path"
       ]
     },
     "output_schema": {

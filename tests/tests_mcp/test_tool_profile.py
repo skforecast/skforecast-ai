@@ -18,6 +18,7 @@ from .fixtures_mcp import (
     df_h2o_csv,
     df_h2o_gaps_csv,
     error_of,
+    h2o_server,
     write_csv,
 )
 
@@ -554,3 +555,60 @@ def test_tool_profile_invalid_argument_names_every_problem_of_the_dates(tmp_path
         "their decision. Tell them every problem the message names and ask "
         "before writing a corrected copy; never change their file."
     )
+
+
+def test_tool_profile_without_target_lists_the_columns(tmp_path):
+    """
+    Test that `profile` without `target` (omitted or null) is
+    `invalid_argument` on `target` with the columns of the file and a hint
+    to pass one or ask the user, so an agent need not make up a target to
+    read them, and that nothing is registered.
+    """
+    server, path = h2o_server(tmp_path)
+
+    omitted = error_of(call(server, "profile", {"data_path": path}), "profile")
+    null = error_of(
+        call(server, "profile", {"data_path": path, "target": None}), "profile"
+    )
+    objects = content_of(call(server, "list_objects", {}))["objects"]
+
+    assert omitted == null == {
+        "code": "invalid_argument",
+        "message": "`target` was not given. Columns of the file: ['fecha', 'x'].",
+        "field": "target",
+        "hint": (
+            "Pass the column to forecast as `target`. If more than one could "
+            "be it, ask the user."
+        ),
+        "details": None,
+    }
+    assert objects == []
+
+
+def test_tool_profile_without_target_checks_the_path_and_the_file_first(tmp_path):
+    """
+    Test that `profile` without `target` checks the file as with one before
+    reading its columns: a file outside the allowed directory is
+    `path_not_allowed`, a missing one `data_not_found`, one above the limit
+    `file_too_large` and one that is not a CSV `data_unreadable`.
+    """
+    allowed = tmp_path / "data"
+    allowed.mkdir()
+    outside = write_csv(tmp_path, "outside.csv", df_h2o_csv)
+    large = write_csv(allowed, "large.csv", df_h2o_csv)
+    with open(large, "a", encoding="utf-8") as handle:
+        handle.write("\n" * (1024 * 1024))
+    binary = allowed / "binary.csv"
+    binary.write_bytes(b"\xff\xfe\x00\x01")
+    server = create_server(
+        allow_dir=allowed, output_dir=tmp_path / "out", max_file_mb=1
+    )
+
+    codes = [
+        error_of(call(server, "profile", {"data_path": str(path)}), "profile")["code"]
+        for path in (outside, allowed / "missing.csv", large, binary)
+    ]
+
+    assert codes == [
+        "path_not_allowed", "data_not_found", "file_too_large", "data_unreadable",
+    ]

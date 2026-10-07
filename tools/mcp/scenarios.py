@@ -406,6 +406,8 @@ SCENARIOS: list[Scenario] = [
         ),
         turns    = ["predice este fichero: data/ventas.csv"],
         files    = {"data/ventas.csv": "bike_users"},
+        # `profile` without `target` answers with the columns of the file.
+        allowed_errors = ["invalid_argument"],
     ),
     Scenario(
         name           = "exog_no_future",
@@ -472,6 +474,7 @@ SCENARIOS: list[Scenario] = [
         ],
         files        = {"data/items.csv": "items_long"},
         expect_tools = ["profile", "plan", "create_cv", "forecast"],
+        allowed_errors = ["invalid_argument"],
         checks       = [
             (
                 "profile used series_id_column",
