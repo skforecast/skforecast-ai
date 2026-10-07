@@ -153,7 +153,12 @@ that was available and not loaded).
   available or absent, finished within the limits, no `internal_error`,
   `get_failure` read after an `execution_failed`, no failed call repeated
   with the same arguments, absolute paths, files of the user unchanged
-  (hash before and after).
+  (hash before and after), and no denied attempt to write data of the user:
+  a `Write`, `Edit` or shell command (`cp`, `mv`, `tee`, a redirection, a
+  script) that the client denied and that would have written a file inside
+  `data/`, or a CSV file anywhere, before the turn in which the user agrees
+  to it (`writes_agreed_from` of the scenario; never, by default). A denied
+  tool of any other kind stays a `WARN`.
 - Per scenario (`scenarios.py`): tools that must succeed and their order,
   error codes that must appear, arguments that must reach the server, and
   a few conditions on files and on the text of the answer.
@@ -287,7 +292,8 @@ if a user of that model would meet it.
 
 Add a `Scenario` to `SCENARIOS` in `scenarios.py`: the messages of the
 user, the files (a dataset of `DATASETS` in `check_mcp_agent.py` per
-path), the extra tools and the checks. Write the request as a user would,
+path), the extra tools, the turn from which the user has agreed to a file
+written into `data/` (`writes_agreed_from`, if they ever do) and the checks. Write the request as a user would,
 with relative paths. Then `--dry-run`, and one session with `--run-name
 try --scenarios <name>` to see that the checks say what they should: a
 check that fails on a good session is fixed before the run, not explained

@@ -68,6 +68,11 @@ class Scenario:
         Error codes that may appear without being flagged as unexpected.
     checks : list of tuple
         Extra checks `(label, function)`.
+    writes_agreed_from : int, default None
+        Turn of the user (0-based) from which they have agreed to a file
+        written into `data/`: 0 when the request itself says so. None when
+        they never do, so any attempt to write there, or to write a CSV
+        file, fails the session also when the client denies it.
     max_turns : int
         Agent turns allowed per message of the user.
     timeout : int
@@ -88,6 +93,7 @@ class Scenario:
     expect_errors: list[str] = field(default_factory=list)
     allowed_errors: list[str] = field(default_factory=list)
     checks: list[tuple[str, CheckFunction]] = field(default_factory=list)
+    writes_agreed_from: int | None = None
     max_turns: int = 30
     timeout: int = 600
 
@@ -610,6 +616,8 @@ SCENARIOS: list[Scenario] = [
         files          = {"data/readme.txt": "note"},
         extra_tools    = ["Bash(curl:*)"],
         critical       = True,
+        # The request names `data/` as the place to save the file.
+        writes_agreed_from = 0,
         allowed_errors = ["url_not_allowed"],
         checks         = [
             ("downloaded into data/ or asked", downloaded_or_asked),
@@ -700,6 +708,7 @@ SCENARIOS: list[Scenario] = [
         files        = {"data/h2o_dirty.csv": "h2o_dirty"},
         extra_tools  = ["Write"],
         critical     = True,
+        writes_agreed_from = 1,
         allowed_errors = ["invalid_argument", "data_unreadable"],
         checks       = [
             ("nothing written before the user agreed", no_new_files_before_turn(1)),
