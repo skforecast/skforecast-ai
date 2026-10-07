@@ -667,8 +667,9 @@ fase 3.
 
 Vistas al probar los hints, fuera de lo que este plan recoge:
 
-1. **Haiku cambia de estimador sin decirlo** (`dirty_data`, 6 de 6 tras el
-   backtest rechazado; 2 de 2 en `dirty_data_keep_gaps`). El hint lo pide con
+1. **Haiku cambia de estimador sin decirlo** (`dirty_data`, las 6 sesiones
+   que cambian, 5 tras el backtest rechazado y 1 tras el aviso de
+   `create_cv`; 2 de 2 en `dirty_data_keep_gaps`). El hint lo pide con
    dos redacciones y no lo consigue; con `ExogLeftOutNotice` un aviso en la
    respuesta final funcionó mejor que un hint varias llamadas antes. Posible
    arreglo: un aviso en `backtest` y `forecast` cuando el estimador del plan
@@ -693,13 +694,13 @@ Vistas al probar los hints, fuera de lo que este plan recoge:
    ninguna usa `forecast` con `test_size`. El escenario no estaba en el
    subconjunto de Haiku.
 6. **La herramienta `Agent` del cliente no está denegada** en las sesiones.
-   Haiku delega en un subagente y termina el turno sin respuesta útil en 3
-   sesiones (`try-h3` noskill r2, `try-h1c` noskill r2, `try-h5b` r2); el
-   informe lo da por completado. Conviene denegarla en `session_command` o
+   Haiku delega en un subagente en 4 sesiones (`try-h3` r1 y noskill r2,
+   `try-h1c` noskill r2, `try-h5b` r2) y en 2 de ellas termina el turno sin
+   respuesta, esperando al subagente; el informe las da por completadas. Conviene denegarla en `session_command` o
    marcarla en una comprobación.
 7. **Haiku intenta llamar al servidor desde Bash** (`python -m
-   skforecast.mcp.client`, `mcp invoke ...`, un script con `mcp_client`) en 4
-   sesiones, siempre denegado; y escribe un HTML con una gráfica que nadie
+   skforecast.mcp.client`, `mcp invoke ...`, un script con `mcp_client`) en
+   varias sesiones, siempre denegado; y escribe un HTML con una gráfica que nadie
    pidió (`try-h9` `spanish_vague` r1). Del modelo.
 8. **`err_outside_dir` en macOS**: la carpeta se llama `private/` y el
    workspace vive bajo `/private/var/...`, así que varias sesiones buscan
