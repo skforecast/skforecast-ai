@@ -191,9 +191,12 @@ judge each series by `mean_absolute_scaled_error` in the CSV of metrics and \
 name the worst one: the summary only has the average. Below 1 it beats the \
 one-step naive forecast (repeat the previous value) on the training data, \
 which is not a seasonal naive forecast nor the baseline of `compare`. Never \
-invent a number.
-2. Cost: read `cost` of `create_cv` before running; above 50 estimator fits \
-tell the user and prefer fewer folds or `refit=false`.
+invent a number, nor derive one: no percentage, ratio or difference that a \
+response does not give.
+2. Cost: read `cost` of `create_cv` before running. Before a run above 50 \
+estimator fits, stop: tell the user the number of fits and the cheaper \
+strategies (an integer `refit`, fewer folds, `refit=false`) and run the \
+expensive one only if they choose it. Asking to retrain is not that choice.
 3. Read `notices` before reporting and tell the user about data problems \
 (missing dates, rows without target) and plan warnings.
 4. `compare` without `interval` uses the interval of the plan of the \
@@ -205,7 +208,13 @@ directory under a new name and profile it. Never copy a file of the user \
 into that directory yourself: ask them to.
 6. Foundation models other than the default (Chronos-2) have their own \
 license and size: tell the user before choosing one. State the license of a \
-model only as a notice or an error gives it.\
+model only as a notice or an error gives it.
+7. Report what was measured, never why: give no cause, even hedged, for a \
+ranking, a metric or the shape of a forecast. `compare` says which candidate \
+has the lowest error over the folds, not what makes it better.
+8. The server does not search hyperparameters (it compares the candidates \
+you list), detect anomalies or select features. Say so; do not compute them \
+yourself.\
 """
 
 

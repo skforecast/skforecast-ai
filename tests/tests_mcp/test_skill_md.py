@@ -231,6 +231,16 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "server runs",
         "Hand the script as it is; if you change anything",
         "An error names the first problem it finds",
+        "Do not derive one either: no percentage, difference or ratio that a "
+        "response does not give",
+        "Do not open the data file with your own tools to look at it",
+        "When the user gives no horizon",
+        "stop and do not run it: tell the user the number of fits and the "
+        "cheaper strategies",
+        "asking to retrain regularly is not that choice",
+        "Report what was measured, never why",
+        "The server does not search hyperparameters",
+        "Do not compute any of it yourself from the files",
     ],
     ids=lambda phrase: phrase[:40],
 )

@@ -10,7 +10,9 @@ Every decision (forecaster, estimator, lags, metric, cross-validation) comes
 from rules, so the same inputs give the same results. You choose the inputs
 and explain the results; the server decides and computes. Never invent a
 number: every figure you report must come from a response or one of its
-files.
+files. Do not derive one either: no percentage, difference or ratio that a
+response does not give ("45% better" from a metric, a margin between two
+candidates).
 
 ## Workflow
 
@@ -24,10 +26,14 @@ files.
    exogenous variable unless `exog_columns` names the ones to use (an
    empty list for none); set it only when the user asks. Read the summary
    and the `notices`: frequency, series, gaps, exogenous columns and the
-   recommended forecaster.
+   recommended forecaster. Do not open the data file with your own tools
+   to look at it: `profile` gives its columns and statistics without rows,
+   and its error lists the columns when `target` is wrong. Read it only
+   to locate a problem an error reports.
 2. `plan(profile_id, steps, ...)`: `steps` is the horizon in observations
    (12 for a year of monthly data), at most the length of the longest
-   series. Leave the other arguments out to take the recommendation; set
+   series. When the user gives no horizon (or no target, and more than one
+   column could be it), ask; if you assume one, say so before the results. Leave the other arguments out to take the recommendation; set
    them only when the user asks. `metric` (one metric, or a list whose
    first one ranks) replaces the metric selected from the data, and only
    the metrics given are computed. `use_exog: false` leaves the
@@ -133,10 +139,13 @@ upper bound: a series without data in a fold is not forecast in it. Above
 50 estimator fits, or 2000 inference windows (added up over the foundation
 candidates of a `compare`), a run gets a `LongTrainingWarning` notice and
 can take minutes on a CPU; `compare` without `candidates` leaves out the
-candidates above 500 estimator fits. Before an expensive run, tell the user and prefer fewer
+candidates above 500 estimator fits. Before an expensive run (a `backtest` or a `compare` above those
+thresholds), stop and do not run it: tell the user the number of fits and
+the cheaper strategies, an integer `refit` (retrain every n folds), fewer
 folds (a larger `fold_stride` or a later `initial_train_size`) or
 `refit=false` (train once, no help for ForecasterStats nor for a foundation
-model).
+model). Run the expensive one only when the user chooses it in so many
+words: asking to retrain regularly is not that choice.
 
 Progress and cancellation: `compare` reports when each candidate starts
 and ends, and any long call (a backtest, a forecast, a candidate) sends a
@@ -146,6 +155,19 @@ waits for the candidate in progress to end and skips the rest; cancelling
 another tool waits for it to end (the backtest or the forecast in
 progress). Meanwhile only the read tools (`get_code`, `get_failure`,
 `list_objects`, `describe_object`) answer: the others wait their turn.
+
+## What a result says, and what the server does not do
+
+Report what was measured, never why. A ranking says which candidate had the
+lowest error over the folds, not what makes it better for the data: give
+no cause, even hedged, for a ranking, a metric or the shape of a forecast
+(a seasonal pattern, an event, too little data). Asked why, say that the
+server does not measure it and restate the metric and its values.
+
+The server does not search hyperparameters (`compare` runs the candidates
+you list: call it that, not a grid search), detect anomalies, select
+features or fill in missing values. Say so and offer what it does. Do not
+compute any of it yourself from the files, by hand or with your own script.
 
 ## Inputs
 

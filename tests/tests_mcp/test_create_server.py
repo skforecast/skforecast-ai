@@ -290,7 +290,7 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
     for phrase in (
         "Without a baseline",
         "`mean_absolute_scaled_error`",
-        f"above {LONG_TRAINING_FITS} estimator fits",
+        f"Before a run above {LONG_TRAINING_FITS} estimator fits",
         "Read `notices` before reporting",
         "`compare` without `interval` uses the interval of the plan",
         "Never modify the user's data",
@@ -301,5 +301,12 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
         "nor the baseline of `compare`",
         "Never copy a file of the user into that directory yourself",
         "State the license of a model only as a notice or an error gives it",
+        "nor derive one: no percentage, ratio or difference that a response "
+        "does not give",
+        "stop: tell the user the number of fits and the cheaper strategies",
+        "run the expensive one only if they choose it",
+        "Report what was measured, never why",
+        "The server does not search hyperparameters (it compares the "
+        "candidates you list), detect anomalies or select features",
     ):
         assert phrase in instructions, phrase
