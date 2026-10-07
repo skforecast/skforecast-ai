@@ -16,6 +16,7 @@ from .._constants import (
     AUTOREG_FORECASTERS,
     DIRECT_FORECASTERS,
     INTERVAL_RESIDUAL_BINS,
+    MIN_RESIDUALS_PER_BIN,
     ML_TASK_TYPES,
 )
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
@@ -1452,6 +1453,12 @@ def warn_first_window(
         )
 
 
+# Forecasters whose intervals come from binned residuals of the training rows.
+_RESIDUAL_INTERVAL_FORECASTERS = (
+    "ForecasterRecursive", "ForecasterDirect", "ForecasterEquivalentDate",
+)
+
+
 def warn_interval_residuals(
     plan: ForecastPlan,
     cv: TimeSeriesFold,
@@ -1459,15 +1466,18 @@ def warn_interval_residuals(
 ) -> None:
     """
     Warn when a strategy is built whose first training window leaves too few
-    rows for the bootstrapped prediction intervals of its plan.
+    rows for the prediction intervals of its plan.
 
-    ForecasterRecursive and ForecasterDirect bootstrap the intervals from
-    the residuals of the training rows, which skforecast spreads over up to
-    `INTERVAL_RESIDUAL_BINS` bins of the predicted value. A bin with a
-    single residual gives a lower bound equal to the upper one, with the
-    prediction outside, and skforecast says nothing: with fewer than two
-    residuals per bin that is certain. A training window of 40 observations
-    for a window size of 36 leaves 4 rows.
+    ForecasterRecursive and ForecasterDirect (bootstrapping) and
+    ForecasterEquivalentDate (conformal) estimate the intervals from the
+    residuals of the training rows, which skforecast spreads over up to
+    `INTERVAL_RESIDUAL_BINS` bins of the predicted value. With fewer than
+    `MIN_RESIDUALS_PER_BIN` residuals per bin the intervals tend to be too
+    narrow (a nominal 95% covers 59 to 80% with 2 to 6 per bin, in the
+    simulation skforecast took its rule of thumb from), and with a single
+    residual in a bin the lower bound equals the upper one, with the
+    prediction outside. skforecast warns about it only for out-of-sample
+    residuals, which the generated scripts do not use.
 
     Parameters
     ----------
@@ -1484,8 +1494,8 @@ def warn_interval_residuals(
     """
     if (
         plan.interval is None
-        or plan.interval_method != "bootstrapping"
-        or plan.forecaster not in ("ForecasterRecursive", "ForecasterDirect")
+        or plan.interval_method not in ("bootstrapping", "conformal")
+        or plan.forecaster not in _RESIDUAL_INTERVAL_FORECASTERS
     ):
         return
     window_size = plan_window_size(plan)
@@ -1509,18 +1519,24 @@ def warn_interval_residuals(
     # A direct forecaster trains the estimator of step h on h - 1 rows fewer.
     extra_steps = plan.steps - 1 if plan.forecaster in DIRECT_FORECASTERS else 0
     n_rows = n_train - window_size - extra_steps
+    needed = MIN_RESIDUALS_PER_BIN * INTERVAL_RESIDUAL_BINS
     # A window that leaves no rows is reported by `warn_first_window()`.
-    if n_rows < 1 or n_rows >= 2 * INTERVAL_RESIDUAL_BINS:
+    if n_rows < 1 or n_rows >= needed:
         return
+    features = (
+        ", or fewer lags or smaller window features"
+        if plan.forecaster in AUTOREG_FORECASTERS else ""
+    )
     warnings.warn(
         f"The first training window of the strategy leaves {n_rows} row(s) to "
         f"train on ({n_train} observations for a window size of "
-        f"{window_size}), so the prediction intervals are bootstrapped from "
+        f"{window_size}), so the prediction intervals are estimated from "
         f"{n_rows} residual(s). skforecast spreads them over up to "
-        f"{INTERVAL_RESIDUAL_BINS} bins, and a bin with a single residual "
-        f"gives a lower bound equal to the upper one, with the prediction "
-        f"outside: do not read those intervals. Use a later "
-        f"`initial_train_size`, or fewer lags or smaller window features.",
+        f"{INTERVAL_RESIDUAL_BINS} bins, and below {MIN_RESIDUALS_PER_BIN} "
+        f"residuals per bin ({needed} rows) the intervals tend to be too "
+        f"narrow; with a single residual in a bin the lower bound equals the "
+        f"upper one. Read them with caution, or use a later "
+        f"`initial_train_size`{features}.",
         UserWarning,
         stacklevel = 3,
     )

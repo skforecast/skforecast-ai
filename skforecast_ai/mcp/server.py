@@ -151,6 +151,13 @@ SCALED_METRICS = {
     "RMSSE": "root_mean_squared_scaled_error",
 }
 
+# Hint of an error of `profile` about the content of the file.
+DATA_PROBLEM_HINT = (
+    "This is a problem of the file of the user, and how to solve it is their "
+    "decision. Tell them every problem the message names and ask before "
+    "writing a corrected copy; never change their file."
+)
+
 # The instructions of a server, with the directory it reads in place of
 # `{allowed_dir}`.
 INSTRUCTIONS = """\
@@ -1076,13 +1083,21 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             path = _inputs.resolve_csv_path(data_path, state.allowed, "data_path")
             _inputs.check_file_size(path, state.max_file_bytes, "data_path")
             digest = _inputs.file_sha256(path)
-            result = assistant.profile(
-                data             = path,
-                target           = target,
-                date_column      = date_column,
-                series_id_column = series_id_column,
-                exog_columns     = exog_columns,
-            )
+            try:
+                result = assistant.profile(
+                    data             = path,
+                    target           = target,
+                    date_column      = date_column,
+                    series_id_column = series_id_column,
+                    exog_columns     = exog_columns,
+                )
+            except SkforecastAIError as exc:
+                # The content of the file is at fault, not an argument: the
+                # message says how to fix it, which an agent does on its
+                # own unless it is told whose decision that is.
+                if exc.field == "data" and exc.hint is None:
+                    exc.hint = DATA_PROBLEM_HINT
+                raise
             _inputs.check_profile_names(result)
             _inputs.check_unchanged(path, digest, "data_path")
             object_id = store.new_id("profile")

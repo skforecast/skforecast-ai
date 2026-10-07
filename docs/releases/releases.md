@@ -64,7 +64,7 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-enhancement">Enhancement</span> `python -m skforecast_ai` runs the CLI, like the `skforecast-ai` command (and `python -m skforecast_ai.cli` no longer exits without doing anything).
 
-+ <span class="badge text-bg-enhancement">Enhancement</span> [<code>ForecastingAssistant.create_cv()</code>][assistant] warns when a plan with bootstrapped prediction intervals gets a strategy whose first training window leaves fewer than 20 rows to train on: skforecast then returns intervals whose lower and upper bounds are equal, with the prediction outside them.
++ <span class="badge text-bg-enhancement">Enhancement</span> [<code>ForecastingAssistant.create_cv()</code>][assistant] warns when a plan with prediction intervals estimated from residuals (`ForecasterRecursive`, `ForecasterDirect` and the baseline `ForecasterEquivalentDate`) gets a strategy whose first training window leaves fewer than 100 rows to train on, 10 residuals for each of the 10 bins skforecast spreads them over: the intervals then tend to be too narrow, and with a handful of rows their lower and upper bounds are equal.
 
 + <span class="badge text-bg-docs">Docs</span> New documentation home page, and new animations in the [Agentic forecasting][agentic-guide] user guide: what reaches the LLM and how its suggestions are validated, how `create_cv()` and `backtest()` [validate the way you deploy][agentic-guide-backtesting], and how `compare()` [picks the model by measured performance][agentic-guide-compare].
 
