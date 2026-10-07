@@ -24,6 +24,7 @@ from tests.fixtures_assistant import (
     df_short,
 )
 from tests.fixtures_datasets import df_h2o, df_hourly_madrid_spring
+from tests.fixtures_last_window import data_h2o_gaps
 
 
 # =============================================================================
@@ -2045,3 +2046,73 @@ def test_create_cv_fields_without_effect_when_stats_refit_changes_the_window():
     assert expanding.defaults_explanation.endswith("`refit` as requested.")
     assert fixed.code == default.code
     assert fixed.fields_without_effect == ["refit"]
+
+
+def test_create_cv_UserWarning_when_backtest_can_read_missing_values():
+    """
+    Test that create_cv() warns, with a single series that has missing
+    timestamps and a plan whose estimator does not tolerate them, that the
+    backtest raises when a fold is predicted from one; with LGBMRegressor
+    or complete data there is no warning (warnings are errors here).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data_h2o_gaps, target="x")
+    plan = assistant.plan(profile, steps=12)
+
+    warn_msg = re.escape(
+        "The target has missing values or missing timestamps (asfreq() "
+        "restores them as missing values), and ForecasterRecursive with "
+        "Ridge cannot predict from a missing value: `backtest()` of this "
+        "plan raises when a test fold is predicted from one, naming its "
+        "dates. `dropna_from_series` only drops them from the training "
+        "data. Impute the target, or choose an estimator that accepts "
+        "missing values (for example 'LGBMRegressor') to backtest every fold."
+    )
+    with pytest.warns(UserWarning, match=warn_msg) as record:
+        assistant.create_cv(profile, plan, initial_train_size=84)
+
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+    plan_lgbm = assistant.plan(profile, steps=12, estimator="LGBMRegressor")
+    assistant.create_cv(profile, plan_lgbm, initial_train_size=84)
+
+    profile_clean = assistant.profile(data=df_h2o, target="x")
+    plan_clean = assistant.plan(profile_clean, steps=12)
+    assistant.create_cv(profile_clean, plan_clean, initial_train_size=84)
+
+
+def test_create_cv_UserWarning_when_intervals_have_few_residuals():
+    """
+    Test that create_cv() warns when the first training window leaves 4 rows
+    for the bootstrapped intervals (h2o, 40 observations for a window size of
+    36), and does not without interval or with a later window.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=1, interval=[0.025, 0.975])
+
+    warn_msg = re.escape(
+        "The first training window of the strategy leaves 4 row(s) to train "
+        "on (40 observations for a window size of 36), so the prediction "
+        "intervals are bootstrapped from 4 residual(s). skforecast spreads "
+        "them over up to 10 bins, and a bin with a single residual gives a "
+        "lower bound equal to the upper one, with the prediction outside: do "
+        "not read those intervals. Use a later `initial_train_size`, or "
+        "fewer lags or smaller window features."
+    )
+    with pytest.warns(UserWarning, match=warn_msg) as record:
+        assistant.create_cv(
+            profile, plan, initial_train_size=40, fold_stride=1, refit=False
+        )
+
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+    assistant.create_cv(
+        profile, plan, initial_train_size=100, fold_stride=1, refit=False
+    )
+    plan_no_interval = assistant.plan(profile, steps=1)
+    assistant.create_cv(
+        profile, plan_no_interval, initial_train_size=40, fold_stride=1, refit=False
+    )

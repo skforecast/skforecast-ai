@@ -259,6 +259,11 @@ TREE_BASED_ESTIMATORS: set[str] = {
     "ExtraTreesRegressor",
 }
 
+# Bins of the predicted value over which ForecasterRecursive and
+# ForecasterDirect spread the residuals of the bootstrapped intervals (the
+# default `n_bins` of `binner_kwargs` in skforecast).
+INTERVAL_RESIDUAL_BINS: int = 10
+
 # Estimators that fit and predict with missing values. RandomForestRegressor
 # does since scikit-learn 1.4, the minimum skforecast requires. Among the
 # supported estimators only the linear model (Ridge) does not.

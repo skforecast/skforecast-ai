@@ -27,6 +27,7 @@ from tests.fixtures_assistant import (
     df_no_exog,
     df_single,
 )
+from tests.fixtures_last_window import data_h2o_gaps
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
@@ -480,6 +481,41 @@ def test_backtest_InvalidInputError_when_target_has_infinite_value(
     assert exc_info.value.hint == (
         "Replace the infinite values of the target, for example with NaN."
     )
+
+
+def test_backtest_InvalidInputError_when_lag_reads_missing_timestamp():
+    """
+    Test that backtest() raises InvalidInputError, naming the date, instead
+    of ForecastExecutionError from the generated script ("Input contains
+    NaN"), when a lag reads a missing timestamp (2004-10-01) to predict a
+    test fold, and that forecast() of the same plan, whose last values are
+    complete, still works. `create_cv()` warns beforehand.
+    """
+    profile = assistant.profile(data=data_h2o_gaps, target="x")
+    plan = assistant.plan(profile, steps=12)
+    warn_msg = re.escape("`backtest()` of this plan raises")
+    with pytest.warns(UserWarning, match=warn_msg):
+        cv = assistant.create_cv(profile, plan, initial_train_size=84, refit=False)
+
+    err_msg = re.escape(
+        "The forecaster reads missing values of the target to predict 1 of "
+        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "ForecasterRecursive with Ridge cannot use them, so its predictions "
+        "would be missing: fill them in."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=data_h2o_gaps, cv=cv, profile=profile, plan=plan, show_progress=False
+        )
+    with (
+        pytest.warns(MissingValuesWarning, match="NaNs detected in `y_train`"),
+        pytest.warns(MissingValuesWarning, match="NaNs detected in `X_train`"),
+    ):
+        result = assistant.forecast(data=data_h2o_gaps, profile=profile, plan=plan)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert len(result.predictions) == 12
 
 
 # =============================================================================

@@ -20,6 +20,7 @@ from .backtesting import (
     resolve_cv_config,
     resolve_cv_provenance,
     warn_first_window,
+    warn_interval_residuals,
 )
 from .calendar import (
     constant_calendar_features,
@@ -85,4 +86,5 @@ __all__ = [
     "select_transformer_series",
     "select_window_features",
     "warn_first_window",
+    "warn_interval_residuals",
 ]

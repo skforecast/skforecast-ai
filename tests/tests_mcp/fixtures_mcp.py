@@ -38,6 +38,14 @@ DATA_WARNING = (
 # records in `data_profile.warnings` without emitting a Python warning).
 df_h2o_gaps_csv = df_h2o_csv.drop(index=[50, 51, 52]).reset_index(drop=True)
 
+# The last 120 months of h2o without three of them (positions 30, 31 and 75
+# of the 120). With 12 steps, an initial training window of 84 observations
+# and no refit, the third (2004-10-01) is read by a lag to predict a test fold.
+df_h2o_backtest_gaps_csv = (
+    df_h2o_csv.iloc[-120:].drop(index=[204 - 120 + i for i in (30, 31, 75)])
+    .reset_index(drop=True)
+)
+
 GAPS_WARNING = (
     "Missing timestamps: 3 timestamps of frequency 'MS' are missing from the "
     "date range. asfreq() inserts them as rows with missing values."

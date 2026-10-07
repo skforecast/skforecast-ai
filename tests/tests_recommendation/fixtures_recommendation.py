@@ -1,6 +1,9 @@
 """Fixtures for recommendation tests."""
 
+from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import DataProfile
+
+from tests.fixtures_datasets import df_h2o
 
 # --- Single series, daily, 365 observations, no exog ---
 profile_single_daily = DataProfile(
@@ -85,4 +88,24 @@ profile_single_daily_100 = DataProfile(
     index_type     = "datetime",
     frequency      = "D",
     start_date     = "2023-01-01",
+)
+
+
+# --- h2o (monthly, 204 observations) with bootstrapped intervals ---
+# The window size of the plans is 36, so an initial training window of 40
+# observations leaves 4 rows of a recursive forecaster, and 2 of a direct one
+# of 3 steps.
+_assistant = ForecastingAssistant()
+_profile_h2o = _assistant.profile(df_h2o, target="x")
+profile_h2o_complete = _profile_h2o.data_profile
+_interval = [0.025, 0.975]
+plan_h2o_interval_recursive = _assistant.plan(
+    _profile_h2o, steps=1, interval=_interval
+)
+plan_h2o_interval_direct = _assistant.plan(
+    _profile_h2o, steps=3, interval=_interval, forecaster="ForecasterDirect"
+)
+plan_h2o_no_interval = _assistant.plan(_profile_h2o, steps=1)
+plan_h2o_interval_stats = _assistant.plan(
+    _profile_h2o, steps=1, interval=_interval, forecaster="ForecasterStats"
 )

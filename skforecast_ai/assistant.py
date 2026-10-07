@@ -122,6 +122,7 @@ from .recommendation import (
     select_transformer_series,
     select_window_features,
     warn_first_window,
+    warn_interval_residuals,
 )
 from .schemas import (
     CV_OVERRIDE_NAMES,
@@ -2666,6 +2667,7 @@ class ForecastingAssistant:
         _warn_direct_gap(plan, cv.gap)
         warn_first_window(plan, cv, profile.data_profile)
         warn_backtest_missing_values(plan, profile.data_profile)
+        warn_interval_residuals(plan, cv, profile.data_profile)
         cv_config, cv_explanation = resolve_cv_config(
             cv,
             profile.data_profile,

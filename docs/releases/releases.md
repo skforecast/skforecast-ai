@@ -64,6 +64,8 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-enhancement">Enhancement</span> `python -m skforecast_ai` runs the CLI, like the `skforecast-ai` command (and `python -m skforecast_ai.cli` no longer exits without doing anything).
 
++ <span class="badge text-bg-enhancement">Enhancement</span> [<code>ForecastingAssistant.create_cv()</code>][assistant] warns when a plan with bootstrapped prediction intervals gets a strategy whose first training window leaves fewer than 20 rows to train on: skforecast then returns intervals whose lower and upper bounds are equal, with the prediction outside them.
+
 + <span class="badge text-bg-docs">Docs</span> New documentation home page, and new animations in the [Agentic forecasting][agentic-guide] user guide: what reaches the LLM and how its suggestions are validated, how `create_cv()` and `backtest()` [validate the way you deploy][agentic-guide-backtesting], and how `compare()` [picks the model by measured performance][agentic-guide-compare].
 
 **Changed**
@@ -124,6 +126,8 @@ All significant changes to this project are documented in this release file.
 
 
 **Fixed**
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.backtest()</code>][assistant] of a single series failed inside the script with `ValueError: Input contains NaN` when a lag read a missing value of the target (or a missing timestamp) to predict a test fold, although `forecast()` of the same plan ran. It now raises `InvalidInputError` before running, naming the dates and the folds, as `forecast()` does; with an estimator that accepts missing values it warns and runs. `create_cv()` warns beforehand when the plan and the data make it possible, and each candidate of `compare()` reports the same message.
 
 + <span class="badge text-bg-danger">Fix</span> Without the API key of the provider, [<code>ForecastingAssistant.ask()</code>][assistant], `refine_plan(prompt=...)` and `create_cv(prompt=...)` raised a `UserError` of pydantic-ai. `ask()` now raises `LLMCallError`, and the other two return the deterministic result with a `UserWarning`, as when the call fails.
 
