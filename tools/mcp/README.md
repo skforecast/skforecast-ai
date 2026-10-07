@@ -257,6 +257,15 @@ The server is ready when, in the release run (3 repetitions):
 A failure that appears in 1 of 3 repetitions is recorded as such: the
 report gives the rate per scenario, not a yes or a no.
 
+The agent is not a constant: `--model sonnet` and `--model haiku` are the
+models of the day, and Claude Code changes between releases too. When a
+scenario gets worse from one release to the next and nothing it reads
+changed here (tools, instructions, skill, summaries), compare the model
+and the Claude Code version of both rows of the log before looking for the
+cause in the library; the header of each report has them. A finding that
+only a new model shows is attributed to the model, and still worth a rule
+if a user of that model would meet it.
+
 ## Adding a scenario
 
 Add a `Scenario` to `SCENARIOS` in `scenarios.py`: the messages of the
