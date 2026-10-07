@@ -46,6 +46,7 @@ Compared 3 configurations, ranked ascending by MAE.
 Name: candidate_01
 Only the winning configuration is detailed below. The other candidates are represented by their leaderboard rows.
 <forecast_plan>
+- Forecaster: ForecasterRecursive
 - Steps: 5
 - Estimator: Ridge
 - Lags: [1, 2, 3, 4, 5, 7]

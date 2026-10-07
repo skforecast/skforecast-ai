@@ -23,11 +23,13 @@ The dataset contains 500 series, so a multi-series forecaster (ForecasterRecursi
 - Suggested calendar features: day_of_week, weekend, month
 </profile_decision>
 <forecast_plan>
+- Forecaster: ForecasterRecursiveMultiSeries
 - Steps: 3
 - Estimator: LGBMRegressor
 - Lags: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] (first 15 of 30)
 - Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 7}, {'stats': ['mean'], 'window_size': 21}]
 - Primary metric: mean_absolute_scaled_error
+- Preprocessing steps:
   - [informational] Impute or handle missing values before training. Use dropna_from_series=True or a NaN-tolerant estimator.
 - Chosen by the user instead of the rules: lags
 - Plan: ForecasterRecursiveMultiSeries + LGBMRegressor. Lags: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (raw ordinal encoding). NaN rows kept (NaN-tolerant estimator). Exogenous variables included. MASE is scale-independent, enabling fair comparison across differently-scaled series.

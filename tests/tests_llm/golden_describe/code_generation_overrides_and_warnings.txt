@@ -17,6 +17,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Suggested calendar features: day_of_week, weekend, month
 </profile_decision>
 <forecast_plan>
+- Forecaster: ForecasterRecursive
 - Steps: 5
 - Estimator: LGBMRegressor
 - Lags: [1, 2, 3, 4, 5, 7]

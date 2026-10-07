@@ -17,6 +17,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 - Suggested calendar features: month, quarter
 </profile_decision>
 <forecast_plan>
+- Forecaster: ForecasterStats
 - Steps: 12
 - Estimator: Arima
 - Primary metric: mean_absolute_error
