@@ -54,18 +54,26 @@ Por cada escenario y repetición:
    `-m skforecast_ai mcp --allow-dir <ws>/data --output-dir <ws>/out`,
    `PYTHONPATH` al repo, y stderr redirigido a un fichero para conservar el
    log del servidor (ids de `internal_error`, tracebacks).
-3. **Sesión**: `claude -p "<petición>" --mcp-config <cfg> --strict-mcp-config
-   --setting-sources project --output-format stream-json --verbose
-   --model <modelo> --allowedTools <lista>`, con un tiempo máximo y un
-   máximo de turnos que vigila el runner (cuenta los turnos en el
-   `stream-json` y corta el proceso al pasarse). Los turnos siguientes de
-   un escenario con varios turnos usan `--resume <session_id>` con
-   respuestas de usuario escritas de antemano ("sí, adelante", "no, no
-   toques mi fichero"). Las sesiones usan la suscripción de Claude con la
-   que la CLI ha iniciado sesión, nunca la API: el runner quita
-   `ANTHROPIC_API_KEY` y las variables de otros proveedores del entorno de
-   cada sesión, y comprueba con `claude auth status` que el método es
-   `claude.ai` antes de empezar.
+3. **Sesión**: un solo proceso `claude -p --input-format stream-json
+   --output-format stream-json --verbose --mcp-config <cfg>
+   --strict-mcp-config --setting-sources project --permission-prompts none
+   --no-session-persistence --model <modelo> --max-turns <n>
+   --max-budget-usd <tope> --allowedTools <lista>`. El runner escribe cada
+   mensaje del usuario por stdin cuando llega el evento `result` del
+   anterior, con respuestas escritas de antemano ("sí, adelante", "no, no
+   toques mi fichero"), así que todos los turnos corren contra el mismo
+   servidor, como en una sesión interactiva. No se usa `--resume`: cada
+   `claude -p --resume` arranca un servidor nuevo y los ids del turno
+   anterior dan `unknown_id` (comprobado en el paso 2). Topes por sesión:
+   `--max-turns` y `--max-budget-usd` de la CLI (los dos cortan también
+   con suscripción) y un tiempo máximo que vigila el runner, que mata el
+   grupo de procesos al pasarse. Las sesiones usan la suscripción de
+   Claude con la que la CLI ha iniciado sesión, nunca la API: el runner
+   quita `ANTHROPIC_API_KEY`, las variables `CLAUDE_*` de la sesión que lo
+   lanza y las de otros proveedores del entorno de cada sesión, comprueba
+   con `claude auth status` que el método es `claude.ai` antes de empezar,
+   y corta la sesión si su evento `init` no trae `apiKeySource: none`. La
+   memoria automática va apagada (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`).
 4. **Permisos por escenario**: siempre las herramientas `mcp__skforecast-ai__*`,
    `Read`, `Glob`, `Grep` y `Skill`; `Write` y `Bash(curl:*)` solo donde el
    escenario lo necesita. Lo denegado queda en la traza (`permission_denials`)
@@ -75,13 +83,23 @@ Por cada escenario y repetición:
    (herramientas, servidores MCP, skills y plugins cargados, para demostrar
    que la sesión estaba aislada), cada `tool_use` con sus argumentos, cada
    `tool_result`, el texto del agente y el resultado final (turnos, duración,
-   tokens, coste equivalente).
+   tokens, coste equivalente). Claude Code difiere las herramientas MCP:
+   el agente llama a `ToolSearch` antes de usar cada una, así que las
+   descripciones y los esquemas no están en el contexto desde el inicio.
+   `ToolSearch` se muestra en la línea de tiempo y es neutro para las
+   comprobaciones.
 6. **Reanudación y límite de uso**: una ejecución se identifica por su
    carpeta; al relanzarla, el runner se salta cada escenario y repetición
    que ya tiene una traza terminada. Si una sesión acaba por el límite de
-   uso de la suscripción, se marca como `interrumpida` (no como fallo), no
+   uso de la suscripción, se marca como `usage_limit` (no como fallo), no
    se guarda como terminada, y el runner para e imprime qué queda y cómo
    continuar. Tampoco cuenta como fallo del agente un error del proveedor.
+   El límite se detecta por un `rate_limit_event` con `status: rejected`,
+   o por un `result` con error 429 o con un `terminal_reason` de límite
+   (no observado todavía: los valores salen del binario de la CLI).
+   Además, cada sesión informa del uso de las ventanas de 5 horas y de 7
+   días, y el runner para antes de lanzar la siguiente si alguna pasa de
+   `--stop-at-utilization` (0,95 por defecto).
 
 Datos: los mismos que `check_ask_context.py` (`h2o`, `bike_sharing`,
 `items_sales` ancho y largo, con `fetch_dataset`), recortados para acotar el
@@ -94,7 +112,9 @@ Modo `--dry-run` (gratis): prepara las carpetas, arranca el servidor, hace
 `tools/list` y mide el tamaño de lo que cada cliente carga siempre
 (instrucciones, descripciones y esquemas, y el `SKILL.md`), sin lanzar
 ningún agente. Ese tamaño se registra por release: es contexto que paga
-cada usuario en cada sesión.
+cada usuario en cada sesión. Se mide en las dos variantes: un cliente que
+difiere las herramientas (instrucciones, nombres y descripción del skill)
+y uno que las carga todas (instrucciones, descripciones y esquemas).
 
 ## Escenarios
 
@@ -220,7 +240,10 @@ No lo cubre este check y va como lista manual en el README:
    que la sesión anidada usa la suscripción (y no una clave de API), cómo
    se ve en la traza una sesión cortada por el límite de uso y si
    `--max-budget-usd` corta con suscripción. Si alguno falla, se ajusta el
-   diseño antes de seguir.
+   diseño antes de seguir. Resultado (2026-10-07, Claude Code 2.1.272):
+   todos se cumplen menos `--resume`, que reinicia el servidor y pierde
+   los ids, sustituido por un solo proceso con `--input-format
+   stream-json`; el corte por límite de uso no se ha podido observar.
 3. Analizador de trazas, comprobaciones automáticas, cifras con origen y
    generación de `report.md` y `results.json`.
 4. Catálogo completo de escenarios, datos sucios y turnos múltiples.
@@ -264,8 +287,8 @@ acotarlas:
 - el coste que informa cada sesión es un equivalente calculado, no un
   cargo; el informe lo muestra como medida relativa entre escenarios y
   releases, junto a los tokens;
-- `--max-budget-usd` solo se usa si el paso 2 confirma que corta también
-  con suscripción;
+- `--max-budget-usd` corta también con suscripción (paso 2), así que cada
+  sesión lleva un tope de coste equivalente;
 - la ejecución de release se puede repartir en varios días: el runner
   reanuda donde se quedó y para limpio al alcanzar el límite de uso;
 - `--scenarios` permite relanzar solo lo que cambió.
