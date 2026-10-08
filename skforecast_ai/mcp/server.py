@@ -165,13 +165,18 @@ DATA_PROBLEM_HINT = (
 # Hint of `forecast` when the plan uses exogenous variables and no file of
 # future values was given. The message of the library offers `test_size`,
 # right in Python and wrong here: an agent runs the evaluation and reports
-# it as the forecast, or writes the file itself.
+# it as the forecast, or writes the file itself. The hint arrives after the
+# backtest of the plan, so it also asks to measure the plan built without
+# the exogenous variables: agents forecast with it and gave the accuracy of
+# the other one.
 FUTURE_EXOG_HINT = (
     "Only the user has the future values: never write, copy or estimate them "
     "yourself. Ask the user for a CSV file with them, or build the plan again "
     "with `use_exog: false` and tell the user the exogenous variables were "
-    "left out. Do not pass `test_size`: it evaluates dates already in the "
-    "data, which is not the forecast the user asked for."
+    "left out. Measure that new plan before forecasting, on the same folds "
+    "with `backtest(cv_id, plan_id)`, and report its accuracy, not that of "
+    "the plan with exogenous variables. Do not pass `test_size`: it evaluates "
+    "dates already in the data, which is not the forecast the user asked for."
 )
 
 # Hint of `backtest`, `compare` and `forecast` for an error of the library

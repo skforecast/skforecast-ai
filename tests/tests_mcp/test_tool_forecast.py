@@ -270,8 +270,11 @@ def test_tool_forecast_invalid_argument_when_future_exog_is_missing(tmp_path):
         "Only the user has the future values: never write, copy or estimate "
         "them yourself. Ask the user for a CSV file with them, or build the "
         "plan again with `use_exog: false` and tell the user the exogenous "
-        "variables were left out. Do not pass `test_size`: it evaluates dates "
-        "already in the data, which is not the forecast the user asked for."
+        "variables were left out. Measure that new plan before forecasting, "
+        "on the same folds with `backtest(cv_id, plan_id)`, and report its "
+        "accuracy, not that of the plan with exogenous variables. Do not pass "
+        "`test_size`: it evaluates dates already in the data, which is not "
+        "the forecast the user asked for."
     )
 
 
