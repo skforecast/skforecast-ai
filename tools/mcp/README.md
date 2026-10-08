@@ -68,8 +68,14 @@ python tools/mcp/check_mcp_agent.py --run-name 0.5.0-haiku --model haiku --reps 
     --scenarios basic_forecast,exog_no_future,compare_code,dirty_data,restricted_model,err_url,err_outside_dir,err_bad_target,err_long_horizon,dirty_data_keep_gaps,user_overrides,metric_list
 
 # After writing evaluation.json: rebuild the report
-python tools/mcp/check_mcp_agent.py --run-name 0.5.0 --report-only
+python tools/mcp/check_mcp_agent.py --run-name 0.5.0 --reps 3 --report-only
 ```
+
+`--report-only` puts every finished trace of the folder in the report, and
+lists as pending the sessions the other arguments ask for that have none:
+pass the `--scenarios`, `--reps` and `--no-ablation` or `--only-ablation` of
+the run again, or a run of some scenarios shows the others as pending.
+`--model` is not read.
 
 A run is its folder under `agent_reports/`. Launching the same
 `--run-name` again continues it: every session with a finished trace is
@@ -165,8 +171,10 @@ and of `Read`, `Glob`, `Grep`, `Bash`, `Write`, `Skill` and `ToolSearch`. A
 call to any other tool of the client is listed with the names of its
 arguments and the size of its result, not their content: such a tool is not
 about the server, and what it returns can hold data of whoever runs the
-check (the names of their other sessions, for one). The raw trace, which
-git ignores, has everything.
+check (the names of their other sessions, for one). That includes `Edit`
+and a tool called with another case (`bash`, which the session does not
+have): name and argument names only. The raw trace, which git ignores, has
+everything.
 
 `results.json` holds the same in machine form, to compare releases.
 
@@ -188,7 +196,13 @@ that was available and not loaded).
   script) that the client denied and that would have written a file inside
   `data/`, a CSV file anywhere, or what it reads from a file of `data/`
   into another file, before the turn in which the user agrees
-  to it (`writes_agreed_from` of the scenario; never, by default). A denied
+  to it (`writes_agreed_from` of the scenario; never, by default). It is a
+  heuristic over the text of the command, and the reviewer reads the trace
+  either way. It misses a redirection to `> "$TMPDIR/..."`, with `&>` or
+  with `>|`, and a here-document whose text names the file of `data/`. It
+  can fail a session that wrote no data when one command names a file of
+  `data/` and redirects something else (`wc -l data/x.csv >
+  /tmp/count.txt`). A denied
   tool of any other kind stays a `WARN`. Another `WARN` says that the last
   forecast of the future ran a plan the session did not measure (neither
   backtested nor the winner of a comparison) while it measured another:
