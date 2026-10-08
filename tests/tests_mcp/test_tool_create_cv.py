@@ -118,6 +118,8 @@ def test_tool_create_cv_output_matches_python_api(
     expected = ["LongTrainingWarning"] if cost["estimator_fits"] > 50 else []
     if compare_fits > max(50, cost["estimator_fits"]):
         expected.append("CompareCostNotice")
+    if max(compare_fits, cost["estimator_fits"]) > 50:
+        expected.append("CostNotice")
     assert sorted(notice["category"] for notice in result["notices"]) == sorted(
         expected
     )
@@ -148,6 +150,68 @@ def test_tool_create_cv_long_training_notice_before_the_backtest(tmp_path):
     assert built[0]["message"].startswith("ForecasterDirect will be fit 66 times")
 
 
+def test_tool_create_cv_cost_notice_when_backtest_above_the_threshold(tmp_path):
+    """
+    Test that a strategy whose backtest fits the estimator more than 50
+    times carries a `CostNotice` of the server (source 'runtime') with the
+    rule of an expensive run: stop, tell the number of fits and the cheaper
+    strategies, and run only if the user chooses it. It comes before the
+    `LongTrainingWarning` of the library, which is not changed.
+    """
+    server, _, _, plan_id = _planned(tmp_path, steps=6, forecaster="ForecasterDirect")
+
+    result = content_of(call(server, "create_cv", {"plan_id": plan_id, "refit": True}))
+
+    assert result["cost"]["estimator_fits"] == 66
+    assert result["cost"]["compare_estimator_fits"] == 88
+    assert [n["category"] for n in result["notices"]] == [
+        "CostNotice", "CompareCostNotice", "LongTrainingWarning",
+    ]
+    assert ToolNotice(**result["notices"][0]) == ToolNotice(
+        source   = "runtime",
+        category = "CostNotice",
+        message  = (
+            "Expensive run: with this strategy, `backtest` fits 66 estimators; "
+            "`compare` without `candidates` fits about 88 estimators (an expensive "
+            "run is one above 50 estimator fits or 2000 inference windows). Stop "
+            "here and do not run it: tell the user those numbers "
+            "and the cheaper strategies (an integer `refit`, fewer folds, "
+            "`refit=false`; for `compare`, a list of `candidates`), and run the "
+            "expensive one only if they choose it. Asking to retrain the model, "
+            "or to evaluate it as in production, is not that choice."
+        ),
+        count    = 1,
+    )
+
+
+def test_tool_create_cv_no_cost_notice_at_the_threshold(tmp_path, monkeypatch):
+    """
+    Test that the `CostNotice` is given above the thresholds, not at them:
+    with the default strategy of the h2o plan a `compare` without candidates
+    fits 19 estimators, so there is a notice with the threshold at 18 and
+    none with it at 19.
+    """
+    server, _, _, plan_id = _planned(tmp_path, steps=12)
+
+    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_TRAINING_FITS", 19)
+    at_threshold = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_TRAINING_FITS", 18)
+    above = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+
+    assert at_threshold["cost"]["compare_estimator_fits"] == 19
+    assert [n["category"] for n in at_threshold["notices"]] == []
+    assert [n["category"] for n in above["notices"]] == [
+        "CostNotice", "CompareCostNotice",
+    ]
+    assert above["notices"][0]["message"].startswith(
+        "Expensive run: with this strategy, `compare` without `candidates` fits "
+        "about 19 estimators (an expensive run is one above 18 estimator fits"
+    )
+    assert above["notices"][0]["message"].endswith(
+        "`backtest` of this plan is below the thresholds and can run."
+    )
+
+
 def test_tool_create_cv_notice_of_the_cost_of_a_default_compare(tmp_path):
     """
     Test that a strategy that is cheap for its plan but expensive for a
@@ -165,6 +229,23 @@ def test_tool_create_cv_notice_of_the_cost_of_a_default_compare(tmp_path):
     )
 
     assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "CostNotice",
+            message  = (
+                "Expensive run: with this strategy, `compare` without `candidates` "
+                "fits about 98 estimators (an expensive run is one above 50 "
+                "estimator fits or 2000 inference windows). "
+                "Stop here and do not run it: tell the user those numbers and "
+                "the cheaper strategies (an integer `refit`, fewer folds, "
+                "`refit=false`; for `compare`, a list of `candidates`), and "
+                "run the expensive one only if they choose it. Asking to "
+                "retrain the model, or to evaluate it as in production, is "
+                "not that choice. `backtest` of this plan is below the "
+                "thresholds and can run."
+            ),
+            count    = 1,
+        ),
         ToolNotice(
             source   = "runtime",
             category = "CompareCostNotice",
@@ -186,9 +267,9 @@ def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
     """
     Test that a strategy for a plan whose estimator cannot predict from a
     missing value, on a file with missing months, carries the
-    `MissingValuesNotice` of the server (source 'data') first, then the
-    `CompareCostNotice` of the same call, and last the warning of the
-    library about those values, once each.
+    `MissingValuesNotice` of the server (source 'data') after the
+    `CostNotice`, then the `CompareCostNotice` of the same call, and last
+    the warning of the library about those values, once each.
     """
     path = write_csv(tmp_path, "gaps.csv", df_h2o_backtest_gaps_csv)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -202,6 +283,23 @@ def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
     )
 
     assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "CostNotice",
+            message  = (
+                "Expensive run: with this strategy, `compare` without `candidates` "
+                "fits about 70 estimators (an expensive run is one above 50 "
+                "estimator fits or 2000 inference windows). "
+                "Stop here and do not run it: tell the user those numbers and "
+                "the cheaper strategies (an integer `refit`, fewer folds, "
+                "`refit=false`; for `compare`, a list of `candidates`), and "
+                "run the expensive one only if they choose it. Asking to "
+                "retrain the model, or to evaluate it as in production, is "
+                "not that choice. `backtest` of this plan is below the "
+                "thresholds and can run."
+            ),
+            count    = 1,
+        ),
         ToolNotice(
             source   = "data",
             category = "MissingValuesNotice",
@@ -274,9 +372,10 @@ def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypa
     Test that a `compare` without candidates counts the inference windows
     of its foundation candidate when its backend is installed (one per
     series and fold), and that above the threshold (lowered to 3 here, 2000
-    by default) a strategy says so when it is built: a `CompareCostNotice`
-    for the plan of another forecaster, and for a foundation plan the
-    `LongTrainingWarning` its backtest will emit.
+    by default) a strategy says so when it is built: a `CostNotice` and a
+    `CompareCostNotice` for the plan of another forecaster, and for a
+    foundation plan the `CostNotice` and the `LongTrainingWarning` its
+    backtest will emit.
     """
     monkeypatch.setattr(
         "skforecast_ai.execution.comparison.foundation_backend_installed",
@@ -302,6 +401,23 @@ def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypa
     assert [ToolNotice(**n) for n in result["notices"]] == [
         ToolNotice(
             source   = "runtime",
+            category = "CostNotice",
+            message  = (
+                "Expensive run: with this strategy, `compare` without `candidates` "
+                "runs up to 6 inference windows (an expensive run is one above "
+                "50 estimator fits or 3 inference windows). "
+                "Stop here and do not run it: tell the user those numbers and "
+                "the cheaper strategies (an integer `refit`, fewer folds, "
+                "`refit=false`; for `compare`, a list of `candidates`), and "
+                "run the expensive one only if they choose it. Asking to "
+                "retrain the model, or to evaluate it as in production, is "
+                "not that choice. `backtest` of this plan is below the "
+                "thresholds and can run."
+            ),
+            count    = 1,
+        ),
+        ToolNotice(
+            source   = "runtime",
             category = "CompareCostNotice",
             message  = (
                 "`compare` without `candidates` on this strategy runs "
@@ -318,6 +434,19 @@ def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypa
         (n["category"], n["source"], n["message"].split("\n")[0])
         for n in result_foundation["notices"]
     ] == [
+        (
+            "CostNotice",
+            "runtime",
+            "Expensive run: with this strategy, `backtest` runs up to 6 inference "
+            "windows; `compare` without `candidates` runs up to 6 inference "
+            "windows (an expensive run is one above 50 estimator fits or 3 "
+            "inference windows). Stop here and do not run it: tell the user "
+            "those numbers and the cheaper strategies (an integer `refit`, "
+            "fewer folds, `refit=false`; for `compare`, a list of "
+            "`candidates`), and run the expensive one only if they choose it. "
+            "Asking to retrain the model, or to evaluate it as in production, "
+            "is not that choice.",
+        ),
         (
             "LongTrainingWarning",
             "runtime",
@@ -510,7 +639,8 @@ def test_tool_create_cv_inference_windows_with_several_series_and_at_the_thresho
     """
     Test that the inference windows of a `compare` without candidates count
     every series (2 series over the 6 folds of the strategy are 12), and
-    that the `CompareCostNotice` is given above the threshold, not at it.
+    that the `CostNotice` and the `CompareCostNotice` are given above the
+    threshold, not at it.
     """
     from skforecast_ai.mcp import create_server
 
@@ -535,9 +665,11 @@ def test_tool_create_cv_inference_windows_with_several_series_and_at_the_thresho
     assert at_threshold["cost"]["n_folds"] == 6
     assert at_threshold["cost"]["compare_inference_windows"] == 12
     assert [n["category"] for n in at_threshold["notices"]] == []
-    assert [n["category"] for n in above["notices"]] == ["CompareCostNotice"]
+    assert [n["category"] for n in above["notices"]] == [
+        "CostNotice", "CompareCostNotice",
+    ]
     assert "on up to 12 inference windows (2 series x 6 folds)" in (
-        above["notices"][0]["message"]
+        above["notices"][1]["message"]
     )
 
 

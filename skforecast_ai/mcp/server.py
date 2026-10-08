@@ -430,6 +430,79 @@ def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
     ]
 
 
+def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
+    """
+    Notice of `create_cv` for a strategy whose backtest, or whose `compare`
+    without candidates, is above the thresholds of an expensive run. The
+    warning of the library that comes with it states the cost
+    (`... will be fit 220 times`), and rule 2 of the instructions says what
+    to do with it: an agent that has only the instructions reads the number
+    and runs anyway. This notice carries that rule with the number, in the
+    response where the strategy can still change.
+
+    Parameters
+    ----------
+    cost : dict
+        Cost of the strategy as `create_cv` returns it: `estimator_fits` and
+        `inference_windows` of its backtest, `compare_estimator_fits` and
+        `compare_inference_windows` of a `compare` without candidates.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`), or none when every run is at or
+        below the thresholds.
+    """
+
+    backtest_parts = []
+    if cost["estimator_fits"] > LONG_TRAINING_FITS:
+        backtest_parts.append(f"fits {cost['estimator_fits']} estimators")
+    if cost["inference_windows"] > LONG_INFERENCE_WINDOWS:
+        backtest_parts.append(
+            f"runs up to {cost['inference_windows']} inference windows"
+        )
+    compare_parts = []
+    if cost["compare_estimator_fits"] > LONG_TRAINING_FITS:
+        compare_parts.append(
+            f"fits about {cost['compare_estimator_fits']} estimators"
+        )
+    if cost["compare_inference_windows"] > LONG_INFERENCE_WINDOWS:
+        compare_parts.append(
+            f"runs up to {cost['compare_inference_windows']} inference windows"
+        )
+    if not backtest_parts and not compare_parts:
+        return []
+
+    runs = []
+    if backtest_parts:
+        runs.append(f"`backtest` {' and '.join(backtest_parts)}")
+    if compare_parts:
+        runs.append(
+            f"`compare` without `candidates` {' and '.join(compare_parts)}"
+        )
+    message = (
+        f"Expensive run: with this strategy, {'; '.join(runs)} (an expensive "
+        f"run is one above {LONG_TRAINING_FITS} estimator fits or "
+        f"{LONG_INFERENCE_WINDOWS} inference windows). Stop here and do not "
+        f"run it: tell the user those numbers and the cheaper strategies (an "
+        f"integer `refit`, fewer folds, `refit=false`; for `compare`, a list "
+        f"of `candidates`), and run the expensive one only if they choose it. "
+        f"Asking to retrain the model, or to evaluate it as in production, is "
+        f"not that choice."
+    )
+    if not backtest_parts:
+        message += " `backtest` of this plan is below the thresholds and can run."
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "CostNotice",
+            message  = message,
+            count    = 1,
+        )
+    ]
+
+
 def _holdout_notices(predictions: Any, test_size: Any) -> list[ToolNotice]:
     """
     Notice of a forecast run with `test_size`: its predictions are for
@@ -1877,6 +1950,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                 plan_warnings  = result.plan.warnings,
                                 data_warnings  = plan_entry.data_warnings,
                                 server_notices = [
+                                    *_cost_notices(cost),
                                     *_missing_values_notices(
                                         plan_entry.obj, plan_entry.profile
                                     ),
