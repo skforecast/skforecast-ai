@@ -742,12 +742,19 @@ la fase 3.
   `steps` es del plan) y `4f0e0bf` (el README dice cuándo el `WARN` de H11
   lee mal una sesión; el `WARN` no se toca). Los hallazgos fuera de alcance
   están en la fase 4.
-- [ ] Hints por tipo de error (`EXOG_FILE_HINT` solo para el contenido del
-  fichero de exógenas, `DATA_VALUES_HINT` solo para valores ausentes).
-  Parado: las comprobaciones del contenido se llaman dentro de
-  `assistant.forecast()`, `backtest()` y `compare()`, y sus errores no se
-  distinguen de los de argumentos más que por el texto (misma clase, mismo
-  `code`, mismo `field`). Necesita un cambio del núcleo o una decisión.
+- [x] Hints por tipo de error. Commit: `f462bcf`. Opción decidida
+  (2026-10-08): una subclase pública de `InvalidInputError` en el núcleo,
+  `DataContentError`, que lanzan las comprobaciones del contenido
+  (`validate_last_window`, `validate_backtest_windows`,
+  `validate_evaluation_partition`, `validate_future_exog`, `load_exog` y la
+  de valores ausentes en los folds o en el split de test,
+  `_check_evaluated_target`, que es la del caso medido de `compare`). Ningún
+  mensaje, `code` ni `field` cambia. `_leave_to_user` da `DATA_VALUES_HINT`
+  y `EXOG_FILE_HINT` solo a esa clase; `exog_path` con `test_size`,
+  `exog_path` con `use_exog: false` y las columnas que faltan respecto al
+  perfil quedan sin hint. Dos casos siguen por campo, como estaban medidos:
+  `DATA_PROBLEM_HINT` en `profile` y `FUTURE_EXOG_HINT` en `forecast` sin
+  `exog_path` (el error es de un argumento que falta, no de contenido).
 
 ### Fase 3. Relanzamiento y cierre
 
