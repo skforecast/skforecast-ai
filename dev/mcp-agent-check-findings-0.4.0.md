@@ -963,6 +963,10 @@ sola carpeta de referencia para comparar con la 0.5.0.
   cambió; `root_mean_squared_error` como métrica del servidor; el texto del
   resumen de un forecast con `test_size` (H4), con `/llm-context-change`.
 - H11, si la fase 3 solo lo encuentra con el modelo pequeño.
+- Unificar el texto de `MissingValuesNotice` (`_missing_values_notices`) con
+  `DATA_VALUES_HINT`, y el `'LGBMRegressor'` escrito a mano en los dos y en
+  el aviso de la librería: hoy son tres copias de la misma regla, y cambiar
+  una deja al agente con dos mensajes distintos a una llamada de distancia.
 - De la revisión de código del 2026-10-08, en código anterior a `a4a733b` o
   que hoy no se alcanza:
   - El guard de Bash (`.claude/hooks/pre_bash_guard.py`) resuelve la rama
