@@ -62,11 +62,14 @@ ones before merge.
    body.
 4. User-facing changes (API, CLI output, generated scripts, warnings) have
    an entry in `docs/releases/releases.md` under the version in
-   development. If one is missing, write it with `/release-note` and show
-   it to the user.
-5. `dev/` holds working notes. `/handoff` writes `dev/<slug>.md`, and
-   only some notes are versioned on purpose (`dev/mcp-preparation.md`).
-   List the `dev/` files in the diff and ask whether each belongs to the
+   development, as short entries (one or two sentences; the detail goes
+   in the PR description). If one is missing or over the length ceiling
+   (`python tools/docs/check_release_notes.py`), follow `/release-note`
+   and show the result to the user.
+5. `dev/` holds working notes. No `dev/handoff_*.md` file (written by
+   `/handoff`) is part of the PR: delete it first, asking the user. The
+   other notes are versioned only on purpose (`dev/mcp-preparation.md`):
+   list the `dev/` files in the diff and ask whether each belongs to the
    PR.
 
 ## 3. Open the PR
@@ -90,7 +93,10 @@ ones before merge.
     (for example the real-model `check_ask_context.py` run). Leave out the
     checklist of `.github/pull_request_template.md`: it is written for
     external contributors (the CLA does not apply to the copyright
-    holders), and the results say more than ticked boxes.
+    holders), and the results say more than ticked boxes. The
+    `## Description` carries the technical detail that the release note
+    leaves out: the cause of a bug, how it was fixed, the measurements
+    and the edge cases.
   - Anyone else: fill `.github/pull_request_template.md` with the
     Description, how it was tested and the checklist, ticking only what
     was actually verified.
@@ -99,6 +105,10 @@ ones before merge.
   The title follows the commit style of the repository
   (`fix(forecast): ...`, `docs(dev): ...`). In a cloud session, use the
   session's PR flow if `gh` is not authenticated.
+- Add the link of the new PR to its release note entries,
+  `([#123](https://github.com/skforecast/skforecast-ai/pull/123))` at the
+  end of each one (see the trailers in `/release-note`), then commit and
+  push that change to the same branch.
 - The title, body and commits carry only the author's identity: no AI
   co-author trailer, session link, "Generated with" line or mention of
   Claude (the Bash guard blocks them, also in a `--body-file`). No en

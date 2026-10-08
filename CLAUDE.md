@@ -54,7 +54,7 @@ Claude Code harness in `.claude/`.
 - Definition of done: run `/verify` before reporting a task as finished.
 - Skills: `/verify`, `/release-note`, `/llm-context-change`,
   `/open-pr`, `/sync-skforecast-assets` (user only), `/handoff` (user
-  only).
+  only), `/release-bump` (user only).
 - Subagents: `conventions-reviewer` (read-only review of the diff against
   the core principles) and `test-author` (writes tests under `tests/`).
 - Files synced from skforecast are denied for Edit and Write in
