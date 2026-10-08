@@ -1094,9 +1094,10 @@ Sonnet: 18 correctas, 12 mejorables, 0 fallos. Haiku: 3, 18 y 9.
   cargado**: promedia la fecha repetida por su cuenta y predice sobre esa
   copia; ningún mes rellenado), 1 de 12 en `0.4.0-final-haiku`. Queda dentro
   de la fila de aceptación, que la admite mientras la tasa siga a ese nivel.
-- [ ] 6. `compare` sobre la estrategia de un plan refinado: **defecto
-  confirmado, sin arreglar por decisión del autor**. Ver abajo. Es el único
-  hallazgo de servidor que no está ni arreglado ni aceptado en el log.
+- [x] 6. `compare` sobre la estrategia de un plan refinado: **defecto
+  confirmado, sin arreglar por decisión del autor**. Ver abajo. Aceptado
+  para 0.4.0 con su fila en el log del README; pasa a la fase 4 y bloquea la
+  versión siguiente.
 
 **`compare` sobre la estrategia de un plan refinado: qué evalúa.** Caso
 mínimo, con la API de Python sobre `h2o` (`x`, 12 pasos):
@@ -1142,9 +1143,8 @@ Criterios de "listo", con `0.4.0-final` y `0.4.0-final2` juntos:
   el cambio), sin fichero modificado, sin cambio de modelo oculto, sin
   bucles. Las cifras derivadas (un RMSE desde el MSE, 4 de 6 en
   `expensive_run`) siguen y se cuentan como mejorables, como hasta ahora.
-- [ ] Hallazgos de servidor y skill arreglados o aceptados en el log: todos
-  menos uno, `compare` sobre un plan refinado. Se cumple si se acepta con una
-  fila en el log, o si se arregla.
+- [x] Hallazgos de servidor y skill arreglados o aceptados en el log: el
+  último, `compare` sobre un plan refinado, aceptado con su fila.
 - [x] Sin skill, mejorable pero nunca fallo: 0 de 12 en `0.4.0-final2`; los 3
   de `0.4.0-final` eran la regla de coste.
 - [x] Modelo pequeño, con la excepción aceptada: ninguna copia de fuera,
@@ -1158,8 +1158,10 @@ código final y el log conserva sus tasas.
 
 ### Fase 4. Después de publicar
 
-- `compare` sobre la estrategia de un plan refinado, si se acepta para 0.4.0
-  (ver "Última ronda").
+- `compare` sobre la estrategia de un plan refinado, aceptado para 0.4.0
+  (ver "Última ronda"): que el plan de la estrategia entre como candidato
+  cuando difiere del recomendado, con `/llm-context-change`. Alternativa más
+  ligera: un aviso del servidor en `compare` que diga que no entra.
 - Coste con el modelo pequeño: confirmación explícita en `backtest` y
   `compare` por encima del umbral (Haiku 12 de 12 lanza con el aviso leído).
 
@@ -1226,7 +1228,7 @@ código final y el log conserva sus tasas.
 | 2026-10-08 | Check: segundo turno de `dirty_data`, marca falsa de H11 | `05ef57b` | | La fecha repetida queda resuelta en el mensaje. |
 | 2026-10-08 | Filas de aceptación y guía | `f225c31` | | Escritura consumada con Haiku (1 de 12); H10, H11 y el forecast sin medida, a la fase 4. |
 | 2026-10-08 | Intervalos desde el fichero | `bcc6070` | muestra `try-interval` | Sonnet 3 de 3 lee `files.predictions`; ninguna anchura. |
-| 2026-10-08 | `compare` sobre un plan refinado | | fuera de sesión, API de Python | Defecto confirmado: evalúa el plan recomendado del perfil, no el refinado. Sin arreglar. |
+| 2026-10-08 | `compare` sobre un plan refinado | | fuera de sesión, API de Python | Defecto confirmado: evalúa el plan recomendado del perfil, no el refinado. Sin arreglar; aceptado en el log para 0.4.0, fase 4. |
 | 2026-10-08 | Relanzamiento dirigido, Sonnet | `bcc6070` | `0.4.0-final2`, 30 sesiones | 18 correctas, 12 mejorables, 0 fallos. `expensive_run` para 6 de 6; `user_overrides` 3 de 3 sin anchura; `dirty_data` pasa su comprobación 6 de 6. |
 | 2026-10-08 | Relanzamiento dirigido, Haiku | `bcc6070` | `0.4.0-final2-haiku`, 30 sesiones | 3 correctas, 18 mejorables, 9 fallos: `expensive_run` 6 de 6 lanza con el aviso leído; una copia antes del permiso con el skill (1 de 12); 2 sesiones que no llegan al servidor. |
 
