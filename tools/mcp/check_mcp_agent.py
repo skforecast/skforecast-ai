@@ -749,7 +749,9 @@ def _read_result(call: Call) -> None:
 # into a file, and what a script uses to write one.
 _COPY_COMMAND = re.compile(r"(?:^|[\s;&|(])(cp|mv|tee|rsync|install|ln)\s+([^;&|\n]+)")
 # A here-document with its text, and a file of `data/` named in a command.
-_HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?.*?^\s*\1\s*$", re.DOTALL | re.MULTILINE)
+_HEREDOC = re.compile(
+    r"<<-?\s*[\"']?(\w+)[\"']?([^\n]*)\n.*?^\s*\1\s*$", re.DOTALL | re.MULTILINE
+)
 _DATA_FILE = re.compile(r"(?:^|[\s\"'/=])data/[\w.-]+")
 _REDIRECTION = re.compile(r"(?<![0-9&])>{1,2}\s*[\"']?([^\s\"';&|)]+)")
 # Calls of a script that write a file, and the position of the argument
@@ -828,10 +830,13 @@ def _write_target(call: Call, root: str) -> str | None:
         relative = path.removeprefix(root).lstrip("/")
         return relative.startswith("data/") or path.lower().endswith(".csv")
 
-    if call.tool in ("Write", "Edit"):
+    # Whatever its case: an agent that calls a tool the session does not
+    # have often names it `bash` or `write`.
+    tool = call.tool.lower()
+    if tool in ("write", "edit"):
         path = str(call.input.get("file_path", ""))
         return path.replace(root, "<ws>") if of_user(path) else None
-    if call.tool != "Bash":
+    if tool != "bash":
         return None
     command = str(call.input.get("command", ""))
     for found in _COPY_COMMAND.finditer(command):
@@ -852,13 +857,42 @@ def _write_target(call: Call, root: str) -> str | None:
     # anywhere else (`awk ... data/x.csv > /tmp/rows.txt`) takes rows of the
     # user out of the directory. The text of a here-document is not read:
     # a script that only names the file is judged by `_script_targets`.
-    shell = _HEREDOC.sub("", command)
+    # What follows the delimiter on its line stays: `<<'PY' > rows.txt`.
+    shell = _HEREDOC.sub(r"\2", command)
     if _DATA_FILE.search(shell.replace(root, "")):
+        quoted = _quoted_positions(shell)
         for found in _REDIRECTION.finditer(shell):
             target = found.group(1)
+            # A `>` inside a quoted text is the comparison of an inline
+            # script (`python3 -c "print(d[d.x > d.x.mean()])"`), not a
+            # redirection of the shell, unless what follows is a text of
+            # its own: `awk '{print > "/tmp/rows.txt"}'` writes the file.
+            names_text = found.group(0).lstrip("> \t")[:1] in ("'", '"')
+            if quoted[found.start()] and not names_text:
+                continue
             if _is_file_path(target):
                 return f"rows of data/ to {target.replace(root, '<ws>')}"
     return None
+
+
+def _quoted_positions(command: str) -> list[bool]:
+    """
+    Whether each character of a shell command is inside a quoted text. A
+    backslash escapes the next character, except between single quotes.
+    """
+
+    inside, quote, escaped = [], "", False
+    for char in command:
+        inside.append(bool(quote))
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            quote = "" if char == quote else quote
+        elif char in "\"'":
+            quote = char
+    return inside
 
 
 def _is_file_path(text: str) -> bool:
