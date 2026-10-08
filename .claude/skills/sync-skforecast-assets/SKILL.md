@@ -16,10 +16,11 @@ network access to GitHub.
 2. Run `PY tools/ai/sync_skforecast_assets.py` (add `--branch $ARGUMENTS`
    when an argument was given). `PY` as in `/verify`.
 3. Read the report: skills added, removed, renamed or with a new
-   description. If there are none, go to step 5.
+   description, and the token estimates the script rewrote in
+   `skforecast_ai/llm/skills.py`. If the inventory did not change, go to
+   step 5.
 4. Update the files maintained by hand:
    - `skforecast_ai/llm/skills.py`: `ALL_SKILLS` and the routing tables.
-   - Token estimates: `PY tools/ai/measure_skill_tokens.py --update`.
    - The table in `docs/user-guides/skills.md`
      (`tests/test_docs_skills_page.py` checks it against `ALL_SKILLS`).
    - The upstream order test in `tests/tests_llm/test_select_skills.py`.

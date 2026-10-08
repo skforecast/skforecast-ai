@@ -26,6 +26,10 @@ Usage
 Both the sync and the check report the skills added, removed or whose
 description changed, because the skill inventory is mirrored by hand in
 `skforecast_ai/llm/skills.py`, `docs/user-guides/skills.md` and the tests.
+
+The sync also rewrites the token estimates in `skforecast_ai/llm/skills.py`
+(what `measure_skill_tokens.py --update` does), since they are derived from
+the files it has just written. The check never writes anything.
 """
 
 from __future__ import annotations
@@ -40,6 +44,15 @@ import tarfile
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+# Sibling script: importable because running this file puts tools/ai/ first
+# on sys.path.
+from measure_skill_tokens import (
+    SKILLS_MODULE,
+    collect_estimates,
+    read_skills_file,
+    update_skills_file,
+)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -184,8 +197,7 @@ def _skills_hash_from_dict(skills: dict[str, bytes]) -> str:
 # reminder printed after a sync so the change is not forgotten.
 _MANUAL_INVENTORY_FILES = (
     "skforecast_ai/llm/skills.py (ALL_SKILLS, _TASK_TYPE_SKILLS, "
-    "_KEYWORD_SKILLS, _SKILL_OVERRIDES), then run "
-    "`python tools/ai/measure_skill_tokens.py --update`",
+    "_KEYWORD_SKILLS, _SKILL_OVERRIDES)",
     "docs/user-guides/skills.md (skills table, checked by "
     "tests/test_docs_skills_page.py)",
     "tests/tests_llm/test_select_skills.py (upstream order test)",
@@ -304,6 +316,42 @@ def _print_manual_files_reminder() -> None:
         print(f"  - {entry}")
 
 
+def _update_token_estimates() -> None:
+    """
+    Rewrite the token estimates in skills.py from the files just synced.
+
+    The estimates go stale with any content change, not only when the
+    inventory changes, and they involve no decision: leaving them to a
+    manual step only defers the failure to the CI check.
+    """
+    module = SKILLS_MODULE.relative_to(REPO_ROOT)
+    old_skills, old_reference = read_skills_file()
+    new_skills, new_reference = collect_estimates()
+
+    changes = [
+        f"{name}: {old_skills.get(name, 'new')} -> {tokens}"
+        for name, tokens in new_skills.items()
+        if old_skills.get(name) != tokens
+    ]
+    changes += [
+        f"{name}: {tokens} -> removed"
+        for name, tokens in old_skills.items()
+        if name not in new_skills
+    ]
+    if old_reference != new_reference:
+        changes.append(f"llms-base.txt: {old_reference} -> {new_reference}")
+
+    if not changes:
+        print(f"  Token estimates unchanged in {module}.")
+        return
+
+    if not update_skills_file(new_skills, new_reference):
+        sys.exit(f"Error: could not update the token estimates in {module}.")
+    print(f"  Token estimates updated in {module}:")
+    for change in changes:
+        print(f"    {change}")
+
+
 def print_inventory() -> None:
     """Print the local skill inventory as a Markdown table (no network)."""
     inventory = _inventory_from_dir(DEST_SKILLS)
@@ -358,6 +406,8 @@ def sync(branch: str) -> None:
         inventory_changed = _report_inventory_changes(
             local_inventory, _inventory_from_files(skills)
         )
+
+    _update_token_estimates()
 
     print("Sync complete.")
     if skills and inventory_changed:

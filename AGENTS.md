@@ -152,10 +152,11 @@ Follow `.github/instructions/testing.instructions.md`. In short:
 - `skforecast_ai/skills/` and `skforecast_ai/resources/llms-base.txt` are
   synced from the skforecast repository with
   `tools/ai/sync_skforecast_assets.py`; `.github/copilot-instructions.md` is
-  generated upstream. Do not edit any of them here. When a sync adds,
+  generated upstream. Do not edit any of them here. Every sync also
+  rewrites the token estimates in `llm/skills.py`. When a sync adds,
   removes or renames a skill, the script lists the change and the files
   maintained by hand: `llm/skills.py` (`ALL_SKILLS` and the routing
-  tables, plus `tools/ai/measure_skill_tokens.py --update`), the table in
+  tables), the table in
   `docs/user-guides/skills.md` (`tests/test_docs_skills_page.py` checks it
   against `ALL_SKILLS`) and the upstream-order test in
   `tests/tests_llm/test_select_skills.py`.
