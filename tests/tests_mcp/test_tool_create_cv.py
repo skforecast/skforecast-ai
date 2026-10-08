@@ -496,7 +496,7 @@ def test_tool_create_cv_insufficient_data_with_hint_when_one_fold(tmp_path):
     )
     assert error["hint"] == (
         "For at least 2 folds, use a smaller `initial_train_size` (or leave "
-        "it out for the default), a smaller `fold_stride` or fewer `steps`. To "
-        "evaluate a single window, the last `steps` observations, use "
-        "`forecast` with `test_size` instead: one hold-out, not a backtest."
+        "it out for the default), a smaller `fold_stride` or a plan with fewer "
+        "`steps`. To evaluate a single window, the last `steps` observations, "
+        "use `forecast` with `test_size` instead: one hold-out, not a backtest."
     )

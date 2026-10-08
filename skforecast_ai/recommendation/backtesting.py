@@ -1018,9 +1018,10 @@ def build_cv(
             hint = (
                 f"For at least {min_folds} folds, use a smaller "
                 f"`initial_train_size` (or leave it out for the default), a "
-                f"smaller `fold_stride` or fewer `steps`. To evaluate a single "
-                f"window, the last `steps` observations, use `forecast` with "
-                f"`test_size` instead: one hold-out, not a backtest."
+                f"smaller `fold_stride` or a plan with fewer `steps`. To "
+                f"evaluate a single window, the last `steps` observations, use "
+                f"`forecast` with `test_size` instead: one hold-out, not a "
+                f"backtest."
             ),
         )
 

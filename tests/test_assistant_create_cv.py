@@ -68,9 +68,9 @@ def test_create_cv_ValueError_when_fewer_than_2_folds():
     assert exc_info.value.code == "insufficient_data"
     assert exc_info.value.hint == (
         "For at least 2 folds, use a smaller `initial_train_size` (or leave "
-        "it out for the default), a smaller `fold_stride` or fewer `steps`. To "
-        "evaluate a single window, the last `steps` observations, use "
-        "`forecast` with `test_size` instead: one hold-out, not a backtest."
+        "it out for the default), a smaller `fold_stride` or a plan with fewer "
+        "`steps`. To evaluate a single window, the last `steps` observations, "
+        "use `forecast` with `test_size` instead: one hold-out, not a backtest."
     )
 
 
