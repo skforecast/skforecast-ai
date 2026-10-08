@@ -58,11 +58,20 @@ SKILL_DIR = REPO_ROOT / "skforecast_ai" / "mcp" / "skills" / SKILL_NAME
 SERVER_NAME = "skforecast-ai"
 TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
 BASE_TOOLS = [f"{TOOL_PREFIX}*", "Read", "Glob", "Grep", "Skill"]
-# Tools of the client that hand the work to a subagent, removed from every
-# session: its calls are not in the trace, it wrote files the session was
-# not allowed to, and launched in the background it ends the turn with a
-# promise instead of an answer.
-SUBAGENT_TOOLS = ["Agent", "Task", "Workflow"]
+# The only tools of the client a session has, besides those of the server
+# and the ones its scenario adds (`--tools`, a list of what exists, not of
+# what is denied). `ToolSearch` loads the deferred tools of the server and
+# `Bash` is there to be denied: an agent that copies a file or writes its
+# own script does it through the shell, and the denial is what the checks
+# read. Everything else Claude Code offers is out, whatever a new version
+# adds: a session reached another session of the machine with `SendMessage`
+# when only the subagent tools were denied by name.
+SESSION_TOOLS = ["Read", "Glob", "Grep", "Skill", "ToolSearch", "Bash"]
+# Tools of the client that hand the work to a subagent: its calls are not
+# in the trace, it wrote files the session was not allowed to, and launched
+# in the background it ends the turn with a promise instead of an answer.
+# Not in `SESSION_TOOLS`; a check still fails the session that calls one.
+SUBAGENT_TOOLS = ["Agent", "Task", "Workflow", "SendMessage"]
 # Tools of the client whose arguments and results the report shows. Any
 # other one (a tool that reaches other sessions of the machine, the web or
 # the account of whoever runs the check) is named in the timeline with its
@@ -288,6 +297,20 @@ def server_config(root: Path) -> dict[str, Any]:
     }
 
 
+def _session_tools(scenario: Scenario) -> list[str]:
+    """
+    Tools of the client a session of the scenario has: `SESSION_TOOLS` and
+    the ones the scenario allows (`Bash(curl:*)` is the tool `Bash`).
+    """
+
+    tools = list(SESSION_TOOLS)
+    for rule in scenario.extra_tools:
+        name = rule.split("(", 1)[0]
+        if name not in tools:
+            tools.append(name)
+    return tools
+
+
 def session_command(
     scenario: Scenario, model: str, max_budget: float | None
 ) -> list[str]:
@@ -308,9 +331,9 @@ def session_command(
         "--no-session-persistence",
         "--model", model,
         "--max-turns", str(scenario.max_turns),
+        # What exists in the session, then what runs without asking.
+        "--tools", ",".join(_session_tools(scenario)),
         "--allowedTools", *BASE_TOOLS, *scenario.extra_tools,
-        # A subagent runs outside the trace, with permissions of its own.
-        "--disallowedTools", *SUBAGENT_TOOLS,
     ]
     if max_budget:
         command += ["--max-budget-usd", str(max_budget)]
@@ -498,6 +521,8 @@ class Call:
     text: str = ""
     is_error: bool = False
     denied: bool = False
+    # The call named a tool the session does not have.
+    missing: bool = False
     code: str | None = None
     error: dict[str, Any] | None = None
     response: dict[str, Any] | None = None
@@ -667,6 +692,7 @@ def parse_trace(key: str, scenario: Scenario, meta: dict[str, Any], path: Path) 
                     continue
                 call.text = _block_text(block.get("content"))
                 call.is_error = bool(block.get("is_error"))
+                call.missing = call.is_error and "No such tool available" in call.text
                 if at is not None and call.started is not None:
                     call.seconds = round(at - call.started, 1)
                 _read_result(call)
@@ -890,6 +916,23 @@ def run_checks(session: Session) -> None:
         servers == [(SERVER_NAME, "connected")] and not plugins,
         f"servers={servers}, plugins={plugins}",
     )
+    # Only the tools the runner asked for exist in the session. A run made
+    # before the runner listed them (no `session_tools` in its meta) had
+    # every tool of Claude Code: reported, not failed after the fact.
+    asked = session.meta.get("session_tools")
+    expected = set(asked or _session_tools(scenario))
+    others = sorted(
+        tool for tool in init.get("tools") or []
+        if not tool.startswith(TOOL_PREFIX) and tool not in expected
+    )
+    add(
+        "only the tools of the session", not others,
+        (
+            f"also available: {others}" if asked is not None
+            else f"run before the list of tools; also available: {others}"
+        ) if others else "",
+        soft=asked is None,
+    )
     listed = SKILL_NAME in (init.get("skills") or [])
     if session.with_skill:
         add("skill available", listed, f"listed in init: {listed}")
@@ -1030,7 +1073,7 @@ def run_checks(session: Session) -> None:
     attempts = [
         f"{call.tool} (call {call.index}): {target}"
         for call in session.calls
-        if call.denied and (agreed is None or call.turn < agreed)
+        if (call.denied or call.missing) and (agreed is None or call.turn < agreed)
         for target in [_write_target(call, session.root)]
         if target
     ]
@@ -1831,6 +1874,7 @@ def run(arguments: argparse.Namespace) -> None:
                 "key": key, "scenario": name, "with_skill": with_skill, "rep": rep,
                 "model": arguments.model, "workspace": str(root),
                 "turns": scenario.turns, "timeout": scenario.timeout,
+                "session_tools": _session_tools(scenario),
                 "files_before": files_before,
                 "files_after": files_after, **outcome,
             }

@@ -104,9 +104,17 @@ report: it is context each user pays for.
   tries to write its own script instead of using the server shows up
   there. Claude Code runs read only shell commands (`ls`, `head`, `cat`)
   without asking, so those are not denied.
-- The tools that launch a subagent (`Agent`, `Task`, `Workflow`) are removed from the
-  session: a subagent works outside the trace and with permissions of its
-  own, and one launched in the background ends the turn before it answers.
+- The session has no other tool of Claude Code: `--tools` lists the ones
+  that exist (the tools of the server, `Read`, `Glob`, `Grep`, `Skill`,
+  `ToolSearch`, `Bash` and what the scenario adds), so `Edit`, `WebFetch`,
+  the tools that launch a subagent (`Agent`, `Task`, `Workflow`) and the
+  ones that reach other sessions or schedule work (`SendMessage`,
+  `ListAgents`, `ScheduleWakeup`, `CronCreate`, `RemoteTrigger`) are not
+  there, nor whatever a later version of Claude Code adds. A subagent works
+  outside the trace and with permissions of its own; with a list of denied
+  tools instead, one session of `0.4.0-fix1-haiku` sent its request to
+  another session of the machine. A call to a tool that does not exist
+  comes back as an error and counts as an attempt where a denied one would.
 - Claude Code defers MCP tools: the agent calls `ToolSearch` before the
   first use of each one. It is shown in the timeline and ignored by the
   checks.
@@ -162,8 +170,9 @@ Deterministic, over the trace. `PASS`, `FAIL`, or `WARN` for a signal that
 does not fail on its own (an unexpected error code, a denied tool, a skill
 that was available and not loaded).
 
-- Every session: subscription and no API key, isolated session, skill
-  available or absent, finished within the limits, no work handed to a
+- Every session: subscription and no API key, isolated session, only the
+  tools of the session in its `init` event (a `WARN` in a run made before
+  the runner listed them), skill available or absent, finished within the limits, no work handed to a
   subagent and every turn ended with an answer (text, and not a promise
   made while a subagent runs in the background), no `internal_error`,
   `get_failure` read after an `execution_failed`, no failed call repeated
