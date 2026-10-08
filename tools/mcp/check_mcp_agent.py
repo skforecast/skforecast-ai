@@ -717,7 +717,65 @@ def _read_result(call: Call) -> None:
 # into a file, and what a script uses to write one.
 _COPY_COMMAND = re.compile(r"(?:^|[\s;&|(])(cp|mv|tee|rsync|install|ln)\s+([^;&|\n]+)")
 _REDIRECTION = re.compile(r"(?<![0-9&])>{1,2}\s*[\"']?([^\s\"';&|)]+)")
-_SCRIPT_WRITE = re.compile(r"to_csv\(|shutil\.|\.write\(|open\([^)]*[\"'][wa]b?[\"']")
+# Calls of a script that write a file, and the position of the argument
+# that names it; and a text given to a variable, which often holds it.
+_SCRIPT_WRITE = (
+    (re.compile(r"\.to_csv\("), 0),
+    (re.compile(r"\bopen\((?=[^\n]*,\s*(?:mode\s*=\s*)?[\"'][wax])"), 0),
+    (re.compile(r"\bshutil\.(?:copy\w*|move)\("), 1),
+    (re.compile(r"\bPath\((?=[^\n]*\)\.write_(?:text|bytes)\()"), 0),
+)
+_ASSIGNED_TEXT = re.compile(r"^\s*(\w+)\s*=\s*[rfb]*[\"']([^\"'\n]+)[\"']\s*$", re.M)
+_QUOTED = re.compile(r"[\"']([^\"'\n]+)[\"']")
+
+
+def _call_arguments(text: str, start: int) -> list[str]:
+    """
+    Arguments of the call whose opening parenthesis ends at `start`, split
+    at the commas outside any bracket or text.
+    """
+
+    arguments, depth, quote, current = [], 0, "", ""
+    for char in text[start:]:
+        if quote:
+            quote = "" if char == quote else quote
+        elif char in "\"'":
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif char == "," and depth == 0:
+            arguments.append(current.strip())
+            current = ""
+            continue
+        current += char
+    return [*arguments, current.strip()]
+
+
+def _script_targets(command: str) -> list[str]:
+    """
+    Files that the script in a command writes: the text of the argument
+    that names each one, or the text given to the variable passed there.
+    A file named another way (computed, read from an argument) is not found.
+    """
+
+    assigned = dict(_ASSIGNED_TEXT.findall(command))
+    targets = []
+    for pattern, position in _SCRIPT_WRITE:
+        for found in pattern.finditer(command):
+            arguments = _call_arguments(command, found.end())
+            if position >= len(arguments):
+                continue
+            argument = arguments[position]
+            quoted = _QUOTED.findall(argument)
+            if quoted:
+                targets.append(quoted[-1])
+            elif argument in assigned:
+                targets.append(assigned[argument])
+    return targets
 
 
 def _write_target(call: Call, root: str) -> str | None:
@@ -725,7 +783,9 @@ def _write_target(call: Call, root: str) -> str | None:
     What a call of the client would have written among the data of the
     user: a file inside `data/`, or a CSV file anywhere (future exogenous
     values written next to the workspace). None for a call that reads, or
-    that writes something else (a script, a chart).
+    that writes something else (a script, a chart). A script counts by the
+    file it writes, as `cp` and `Write` do, not by the files it names: one
+    that reads the data and prints, or draws a chart, wrote none of it.
     """
 
     def of_user(path: str) -> bool:
@@ -751,7 +811,7 @@ def _write_target(call: Call, root: str) -> str | None:
     for found in _REDIRECTION.finditer(command):
         if of_user(found.group(1)):
             return f"> {found.group(1).replace(root, '<ws>')}"
-    if _SCRIPT_WRITE.search(command) and re.search(r"data/|\.csv", command):
+    if any(of_user(target) for target in _script_targets(command)):
         return "a script that writes a file of data"
     return None
 
