@@ -146,6 +146,14 @@ hand:
   as written, the automatic checks, the numbers without a source, the
   evaluation, and links to the raw trace and the log of the server.
 
+The timeline shows the arguments and the result of the tools of the server
+and of `Read`, `Glob`, `Grep`, `Bash`, `Write`, `Skill` and `ToolSearch`. A
+call to any other tool of the client is listed with the names of its
+arguments and the size of its result, not their content: such a tool is not
+about the server, and what it returns can hold data of whoever runs the
+check (the names of their other sessions, for one). The raw trace, which
+git ignores, has everything.
+
 `results.json` holds the same in machine form, to compare releases.
 
 ### Automatic checks

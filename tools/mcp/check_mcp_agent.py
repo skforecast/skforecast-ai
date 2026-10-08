@@ -63,6 +63,12 @@ BASE_TOOLS = [f"{TOOL_PREFIX}*", "Read", "Glob", "Grep", "Skill"]
 # not allowed to, and launched in the background it ends the turn with a
 # promise instead of an answer.
 SUBAGENT_TOOLS = ["Agent", "Task", "Workflow"]
+# Tools of the client whose arguments and results the report shows. Any
+# other one (a tool that reaches other sessions of the machine, the web or
+# the account of whoever runs the check) is named in the timeline with its
+# argument names only: what it returns is not about the server and can hold
+# data of the person who launched the run.
+SHOWN_CLIENT_TOOLS = ("Read", "Glob", "Grep", "Bash", "Write", "Skill", "ToolSearch")
 
 # Variables that would make a nested session pay through an API key or
 # another provider, or tie it to the session that launched the runner.
@@ -1011,7 +1017,9 @@ def run_checks(session: Session) -> None:
     add(
         "no tool denied by the client", not session.denials,
         "; ".join(
-            f"{d['tool']}({json.dumps(d['input'])[:100]})" for d in session.denials
+            f"{d['tool']}({json.dumps(d['input'])[:100]})"
+            if d["tool"] in SHOWN_CLIENT_TOOLS else f"{d['tool']}(...)"
+            for d in session.denials
         ),
         soft=True,
     )
@@ -1248,7 +1256,18 @@ def _short(value: Any, root: str, limit: int = 160) -> str:
     return text if len(text) <= limit else text[: limit - 4] + '..."'
 
 
+def _shown(call: Call) -> bool:
+    """
+    Whether the report shows the arguments and the result of a call: the
+    tools of the server and the client tools of `SHOWN_CLIENT_TOOLS`.
+    """
+
+    return call.server or call.tool in SHOWN_CLIENT_TOOLS
+
+
 def _signature(call: Call, root: str) -> str:
+    if not _shown(call):
+        return f"{call.tool}({', '.join(call.input)}) [values not shown]"
     arguments = ", ".join(
         f"{key}={_short(value, root)}" for key, value in call.input.items()
     )
@@ -1325,6 +1344,12 @@ def render_timeline(session: Session) -> list[str]:
         back = f"`{target} -> LLM`"
         if call.denied:
             lines += [f"{back} **DENIED** by the permissions of the client", ""]
+        elif not _shown(call):
+            flag = " **ERROR**" if call.is_error else ""
+            lines += [
+                f"{back}{flag} result not shown ({len(call.text):,} characters): "
+                "not a tool of the server nor one the report shows", "",
+            ]
         elif call.server and call.is_error:
             error = call.error or {}
             lines.append(
