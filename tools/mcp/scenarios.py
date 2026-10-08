@@ -827,7 +827,14 @@ SCENARIOS: list[Scenario] = [
         ),
         turns        = [
             "Forecast the next 12 months of x in data/h2o_dirty.csv.",
-            "Yes, fix it as you propose, but do not modify my file.",
+            # Until `0.4.0-fix1` this was "Yes, fix it as you propose, but do
+            # not modify my file.", which answers a proposal and not a
+            # question: 4 of 6 first answers of `0.4.0-fix1` asked whether to
+            # fill the missing months or leave them, and took the yes either
+            # way. The rates of this scenario are not comparable with `0.4.0`
+            # nor `0.4.0-fix1` from here on.
+            "Yes, write the copy. Where you asked me to choose, leave the "
+            "data as it is. Do not modify my file.",
         ],
         files        = {"data/h2o_dirty.csv": "h2o_dirty"},
         extra_tools  = ["Write"],
