@@ -1705,7 +1705,7 @@ def test_add_baseline_candidate_skips_baseline_when_target_has_missing_values():
     which ForecasterEquivalentDate would repeat as missing predictions, and
     that the note says why.
     """
-    with pytest.warns(MissingValuesWarning, match="pairwise deletion"):
+    with pytest.warns(MissingValuesWarning, match="Only the pairs where both values are finite"):
         profile = assistant.profile(
             data=df_with_missing, target="sales", date_column="date"
         )

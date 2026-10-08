@@ -837,17 +837,45 @@ def test_check_evaluated_target_ValueError_when_gap_in_test_split_with_time_zone
     ) is None
 
 
-def test_check_evaluated_target_output_when_cv_dates_lack_the_time_zone():
+def test_check_evaluated_target_ValueError_when_cv_dates_lack_the_time_zone():
     """
-    Test that a `TimeSeriesFold` whose dates have no time zone, on a tz-aware
-    index, is not checked: the generated script fails on it with its own
-    error, not a bare TypeError from the check.
+    Test that a `TimeSeriesFold` whose date has no time zone, on a tz-aware
+    index, is checked: skforecast reads the date in the time zone of the
+    index, so the missing timestamp of a test fold is reported.
     """
     data, _ = _gapped_single_series(drop=[85])
     data["date"] = data["date"].dt.tz_localize("UTC")
     data_profile = create_data_profile(data, target="y", date_column="date")
     cv = TimeSeriesFold(
         steps=5, initial_train_size="2023-03-12", verbose=False
+    )
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test folds "
+        "(2023-03-27 00:00:00+00:00), counting the missing timestamps that "
+        "asfreq() restores."
+    )
+    with pytest.raises(DataContentError, match=err_msg):
+        _check_evaluated_target(data=data, data_profile=data_profile, cv=cv)
+
+
+@pytest.mark.parametrize(
+    "initial_train_size",
+    ["2023-03-12 00:00:00+00:00", "not a date"],
+    ids=["date with time zone", "not a date"],
+)
+def test_check_evaluated_target_output_when_cv_date_cannot_be_placed(
+    initial_train_size
+):
+    """
+    Test that a `TimeSeriesFold` whose date skforecast cannot place on the
+    index (a date with a time zone on an index without one, a text that is
+    not a date) is not checked: the validation of the strategy reports it,
+    not a bare ValueError from the check.
+    """
+    data, data_profile = _gapped_single_series(drop=[85])
+    cv = TimeSeriesFold(
+        steps=5, initial_train_size=initial_train_size, verbose=False
     )
 
     assert _check_evaluated_target(

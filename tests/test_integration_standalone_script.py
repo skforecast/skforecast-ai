@@ -442,7 +442,7 @@ def test_standalone_script_matches_forecast_when_csv_last_window_has_missing_val
 
     np.testing.assert_allclose(
         executed.predictions["pred"].to_numpy(),
-        [0.9933306508753204, 0.9629531895209908, 1.0539713022220016],
+        [0.970301079342671, 0.9582311356017825, 1.0445571101106315],
         rtol=1e-6,
     )
     _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)

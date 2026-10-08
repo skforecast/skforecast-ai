@@ -197,8 +197,8 @@ def test_profile_output_when_data_has_missing_values():
     the missing_target field in DataProfile.
     """
     assistant = ForecastingAssistant()
-    # The PACF falls back to pairwise deletion on NaN and says so.
-    with pytest.warns(MissingValuesWarning, match="pairwise deletion"):
+    # The PACF uses only the pairs of finite values on NaN and says so.
+    with pytest.warns(MissingValuesWarning, match="Only the pairs where both values are finite"):
         profile = assistant.profile(
             data=df_with_missing, target="sales", date_column="date"
         )

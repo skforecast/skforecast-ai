@@ -16,3 +16,8 @@ def pytest_configure(config):
     os.environ["TZ"] = "UTC"
     if hasattr(time, "tzset"):
         time.tzset()
+    # Typer forces a color terminal when `GITHUB_ACTIONS` is set, so the
+    # usage errors of the CLI came with escape codes in CI only and the
+    # tests that read their text failed there. Read when typer is imported,
+    # and inherited by the subprocesses that run the CLI.
+    os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"

@@ -325,7 +325,7 @@ def compute_series_pacf(
     Source: `skforecast_ai/skills/autocorrelation-and-lag-selection/SKILL.md`.
 
     NaN handling is delegated to `pacf`, which strips leading/trailing
-    non-finite values and falls back to pairwise deletion for interior
+    non-finite values and uses only the pairs of finite values for interior
     gaps. Runs one PACF per series, so wide datasets incur one PACF
     computation per column.
 

@@ -1810,9 +1810,11 @@ def _check_evaluated_target(
     contains NaN", whatever the estimator. The generated evaluation script
     fails the same way on the test split. This check names the dates up
     front. Multi-series backtesting drops them per series and is not
-    checked. `end_train` is read in the time zone of the dates; a date of
-    the strategy that cannot be compared with them (a naive date on a time
-    zone aware index) skips the check, and the generated script reports it.
+    checked. `end_train` and a date of the strategy without time zone are
+    read in the time zone of the dates; a date of the strategy that
+    skforecast cannot place on them (a date with a time zone on an index
+    without one, a text that is not a date) skips the check, and the
+    validation of the strategy reports it.
 
     Parameters
     ----------
@@ -1871,9 +1873,10 @@ def _check_evaluated_target(
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 folds = cv.split(X=y, as_pandas=True)
-        except TypeError:
-            # A date of the strategy without the time zone of the index: the
-            # generated script fails on it with its own error.
+        except (TypeError, ValueError):
+            # A strategy skforecast cannot split on these dates (a date with
+            # a time zone on an index without one, a text that is not a
+            # date): its validation reports it with its own error.
             return
         finally:
             cv.verbose = original_verbose

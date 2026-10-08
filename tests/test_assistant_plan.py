@@ -728,7 +728,7 @@ def test_plan_UserWarning_when_baseline_with_missing_target():
     the preprocessing step advises imputing the target.
     """
     assistant = ForecastingAssistant()
-    with pytest.warns(MissingValuesWarning, match="pairwise deletion"):
+    with pytest.warns(MissingValuesWarning, match="Only the pairs where both values are finite"):
         profile = assistant.profile(
             data=df_with_missing, target="sales", date_column="date"
         )
@@ -765,7 +765,7 @@ def test_plan_explanation_says_nothing_about_nan_when_no_missing_values():
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    with pytest.warns(MissingValuesWarning, match="pairwise deletion"):
+    with pytest.warns(MissingValuesWarning, match="Only the pairs where both values are finite"):
         profile_missing = assistant.profile(
             data=df_with_missing, target="sales", date_column="date"
         )

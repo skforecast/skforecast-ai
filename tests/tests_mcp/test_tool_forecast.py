@@ -298,6 +298,11 @@ def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(
         raise AssertionError("run_forecast must not be called")
 
     monkeypatch.setattr("skforecast_ai.assistant.run_forecast", _not_called)
+    # The backend of the foundation model is not installed in CI, and its
+    # check comes first.
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
+    )
     data = df_items_sales_long.loc[
         (df_items_sales_long["series"] != "item_2")
         | (df_items_sales_long["date"] <= "2012-04-19")

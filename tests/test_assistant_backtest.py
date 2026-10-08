@@ -16,7 +16,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import BacktestResult, ForecastingAssistant
 from skforecast_ai.exceptions import (
-    ForecastExecutionError,
+    DataContentError,
     InvalidInputError,
     InvalidInputTypeError,
 )
@@ -785,23 +785,25 @@ def test_backtest_InvalidInputError_when_received_plan_clashes_with_exog_names()
 
 
 @pytest.mark.parametrize("tz", ["UTC", "Europe/Madrid"])
-def test_backtest_ForecastExecutionError_when_time_zone_data_and_cv_date_without_zone(
+def test_backtest_DataContentError_when_time_zone_data_and_cv_date_without_zone(
     tz
 ):
     """
     Test that backtest() of tz-aware data with a missing value in a test fold
-    and an `initial_train_size` date without time zone no longer raises a bare
-    TypeError from the check of the evaluated target: it reaches the script,
-    which fails with ForecastExecutionError.
+    and an `initial_train_size` date without time zone reports the missing
+    value before any script runs: the date is read in the time zone of the
+    data, so the check of the evaluated target finds the test folds.
     """
     data = df_h2o.copy()
     data.index = data.index.tz_localize(tz)
     data.iloc[-5, 0] = np.nan
     cv = TimeSeriesFold(steps=12, initial_train_size="2004-01-01", verbose=False)
 
-    err_msg = re.escape("Error executing generated forecasting code.")
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test folds (2008-02-01"
+    )
     with pytest.warns(MissingValuesWarning):
-        with pytest.raises(ForecastExecutionError, match=err_msg):
+        with pytest.raises(DataContentError, match=err_msg):
             assistant.backtest(
                 data=data, cv=cv, target="x", estimator="Ridge",
                 show_progress=False,
