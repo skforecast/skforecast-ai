@@ -2224,11 +2224,17 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 _inputs.check_file_size(exog_file, state.max_file_bytes, "exog_path")
                 exog_digest = _inputs.file_sha256(exog_file)
                 data_profile = plan_entry.profile.data_profile
-                exog = load_exog(
-                    exog_file,
-                    date_column      = data_profile.date_column,
-                    series_id_column = data_profile.series_id_column,
-                )
+                try:
+                    exog = load_exog(
+                        exog_file,
+                        date_column      = data_profile.date_column,
+                        series_id_column = data_profile.series_id_column,
+                    )
+                except SkforecastAIError as exc:
+                    # A file that cannot be read as future values is as
+                    # much the user's as one with a wrong value in it.
+                    _leave_to_user(exc, {"exog": EXOG_FILE_HINT})
+                    raise
             try:
                 result = assistant.forecast(
                     data      = path,

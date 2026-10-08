@@ -401,3 +401,34 @@ def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_missing_v
         "says and let them correct it. Never write or change those values "
         "yourself."
     )
+
+
+def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_no_date_column(
+    tmp_path,
+):
+    """
+    Test that a file of future exogenous values without the date column of
+    the data, which fails before the forecast runs, is `invalid_argument`
+    on `exog_path` with the hint that leaves the file to the user.
+    """
+    future = df_single_future_exog.rename(columns={"date": "day"})
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    exog_path = write_csv(tmp_path, "future.csv", future)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": exog_path}),
+        "forecast",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        f"The exog CSV '{exog_path}' has no column 'date'; its columns are "
+        f"['day', 'promo']."
+    )
+    assert error["hint"] == (
+        "The file of future values is the user's: tell them what the message "
+        "says and let them correct it. Never write or change those values "
+        "yourself."
+    )
