@@ -36,6 +36,7 @@ jobs:
           python -m pip install -e ".[test]"
 
       - name: Run tests and collect coverage
+        shell: bash  # with pipefail, so a failure of pytest is not hidden by tee
         env:
           KERAS_BACKEND: torch
           # NUMBA_DISABLE_JIT: 1  # Disable Numba JIT to capture a better coverage report
@@ -43,11 +44,23 @@ jobs:
           # -q keeps the log short so failures are easy to find; -ra lists them at the end;
           # verbosity_assertions=2 keeps the full assertion diffs of -vv. Failed tests are
           # also shown as annotations (pytest-github-actions-annotate-failures).
+          # The log is kept to list the failures in the summary of the run.
           pytest -q -ra -o verbosity_assertions=2 --exclude-warning-annotations \
             --cov=skforecast_ai \
             --cov-report=xml:coverage.xml \
             --junitxml=junit.xml \
-            -o junit_family=legacy
+            -o junit_family=legacy 2>&1 | tee pytest.log
+
+      - name: List failed tests in the run summary
+        if: ${{ failure() && hashFiles('pytest.log') != '' }}
+        shell: bash
+        run: |
+          {
+            echo "### Failed tests"
+            echo '```'
+            sed -n '/short test summary info/,$p' pytest.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7

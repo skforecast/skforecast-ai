@@ -471,10 +471,34 @@ def test_describe_output_when_many_categorical_exog_cuts_preprocessing_reason():
 
 def test_describe_output_when_backtest_code_strategy_cannot_be_counted():
     """
-    Test that the script of `backtest_code()` with a `pd.Timestamp` as
-    `initial_train_size`, whose folds cannot be counted, is still described
+    Test that the script of `backtest_code()` with an `initial_train_size`
+    date after the data, whose folds cannot be counted, is still described
     as a backtest, saying that the folds were not counted, instead of
     failing.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size="2030-01-01")
+    result = assistant.backtest_code(data=None, cv=cv, profile=profile, plan=plan)
+
+    description = result.describe()
+
+    assert "initial_train_size = '2030-01-01'" in result.code
+    assert (
+        "- Mode: backtesting: predicts every fold of a cross-validation "
+        "strategy and scores it against the held-out observations (its folds "
+        "could not be counted from the script)\n"
+    ) in description
+    assert "<backtesting_strategy>" not in description
+
+
+def test_describe_output_when_backtest_code_strategy_has_a_timestamp():
+    """
+    Test that the script of `backtest_code()` with a `pd.Timestamp` as
+    `initial_train_size` is described with its folds counted and the date
+    as text (its folds could not be counted while the explanation of the
+    strategy failed on a Timestamp).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
@@ -486,11 +510,12 @@ def test_describe_output_when_backtest_code_strategy_cannot_be_counted():
 
     assert "initial_train_size = pd.Timestamp('2023-03-11 00:00:00')" in result.code
     assert (
-        "- Mode: backtesting: predicts every fold of a cross-validation "
-        "strategy and scores it against the held-out observations (its folds "
-        "could not be counted from the script)\n"
+        "- Mode: backtesting: predicts 6 folds of 5 steps, training the "
+        "forecaster 1 time, and scores the predictions of every fold against "
+        "the held-out observations\n"
     ) in description
-    assert "<backtesting_strategy>" not in description
+    assert "- initial_train_size: 2023-03-11\n" in description
+    assert "- n_folds: 6\n" in description
 
 
 def test_describe_output_escapes_free_text_of_plan_loaded_from_json():

@@ -31,6 +31,11 @@ git diff --name-only HEAD
 git ls-files --others --exclude-standard
 ```
 
+On a working branch, also include the commits not yet in the release
+branch (`X.Y.x`, from `__version__` in `skforecast_ai/__init__.py`), which
+the commands above no longer show once the work is committed:
+`git diff --name-only origin/<release-branch>...HEAD`.
+
 Classify the changed files: package code (`skforecast_ai/`), tests, docs
 (`docs/`, `mkdocs.yml`), LLM layer (`skforecast_ai/llm/`,
 `recommendation/explanation.py`, `execution/backtesting_runner.py`,
@@ -78,6 +83,8 @@ project, so a new warning fails here too.
   no:cacheprovider` (outside `testpaths`, so the full suite does not run it).
 - User-visible change (API, CLI output, generated scripts, warnings) and no
   entry in `docs/releases/releases.md`: add one with `/release-note`.
+- Release notes changed: `PY tools/docs/check_release_notes.py` (undefined
+  references, entries over the length ceiling or without a link).
 
 ## 6. Report
 

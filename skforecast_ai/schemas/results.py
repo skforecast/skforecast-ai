@@ -213,10 +213,10 @@ class CodeGenerationResult(
         cv_config = None
         cv = backtest_cv_from_code(self.code)
         if cv is not None:
-            # A strategy that cannot be counted (a `pd.Timestamp` as
-            # `initial_train_size` fails in the explanation) is described
-            # without its counts, and the mode line says so, rather than
-            # failing a description that worked before.
+            # A strategy that cannot be counted (an `initial_train_size`
+            # date outside the data, which skforecast cannot split) is
+            # described without its counts, and the mode line says so,
+            # rather than failing a description that worked before.
             try:
                 cv_config, _ = resolve_cv_config(
                     cv,

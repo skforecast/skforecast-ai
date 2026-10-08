@@ -1,5 +1,7 @@
 # Unit test _read_positions
 
+import warnings
+
 import numpy as np
 import pytest
 from sklearn.linear_model import Ridge
@@ -187,8 +189,10 @@ def test_read_positions_output_equals_skforecast_equivalent_date(
         y = _y.copy()
         y.iloc[-position] = np.nan
         forecaster = ForecasterEquivalentDate(offset=offset, n_offsets=n_offsets)
-        # skforecast warns about the missing value the test inserts.
-        with pytest.warns(MissingValuesWarning):
+        # skforecast warns about the missing value the test inserts, but not
+        # at every position.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MissingValuesWarning)
             forecaster.fit(y=y)
             predictions = forecaster.predict(steps=steps)
 

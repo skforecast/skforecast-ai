@@ -608,19 +608,35 @@ def _local_index(
     autumn, as the dates of the data do, so the position of a date is the
     one it has in the data. A zone pandas cannot use gives the regular grid.
     """
-    index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
+    aware = _aware_index(start_date, n_observations, frequency, time_zone)
+    if aware is None:
+        return pd.date_range(
+            start=start_date, periods=n_observations, freq=frequency
+        )
+
+    return aware.tz_localize(None)
+
+
+def _aware_index(
+    start_date: str,
+    n_observations: int,
+    frequency: str,
+    time_zone: str | None,
+) -> pd.DatetimeIndex | None:
+    """
+    Rebuild the dates of the data in their time zone, or return None when
+    they have none or pandas cannot build the grid in it.
+    """
     if time_zone is None:
-        return index
+        return None
     try:
-        aware = pd.date_range(
+        return pd.date_range(
             start   = pd.Timestamp(start_date).tz_localize(time_zone),
             periods = n_observations,
             freq    = frequency,
         )
     except Exception:
-        return index
-
-    return aware.tz_localize(None)
+        return None
 
 
 def _split_folds(
@@ -664,7 +680,8 @@ def _split_folds(
         index.
     time_zone : str, default None
         Time zone of the dates of the dataset (`DataProfile.time_zone`),
-        to place a date on their local times (see `_local_index`).
+        to place a date on their local times (see `_local_index`), or on
+        the dates in their zone when the date has a time zone of its own.
 
     Returns
     -------
@@ -702,7 +719,14 @@ def _split_folds(
         # counts it on the data (`_cv_in_time_zone`).
         local = _local_index(start_date, n_observations, frequency, time_zone)
         date = pd.Timestamp(its)
-        if (
+        aware = None
+        if date.tz is not None:
+            aware = _aware_index(start_date, n_observations, frequency, time_zone)
+        if aware is not None:
+            # A date with its own time zone is placed by skforecast on the
+            # dates in their zone, as in the script, which gets it as given.
+            index = aware
+        elif (
             not local.equals(index)
             and date.tz is None
             and local[0] <= date <= local[-1]
@@ -1163,10 +1187,12 @@ def _timestamp_to_str(ts: pd.Timestamp) -> str:
     -------
     text : str
         `'YYYY-MM-DD'` when the time component is midnight, otherwise the
-        full `'YYYY-MM-DD HH:MM:SS'` form.
+        full `'YYYY-MM-DD HH:MM:SS'` form. A Timestamp with a time zone
+        keeps the full form with its UTC offset, also at midnight: the date
+        alone would be read in the time zone of the data.
     """
 
-    if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+    if ts.tz is not None or ts.hour != 0 or ts.minute != 0 or ts.second != 0:
         return str(ts)
     return str(ts.date())
 
@@ -1231,7 +1257,13 @@ def resolve_cv_config(
     n_fits = sum(bool(fold[-1]) for fold in folds) if trains else 0
     cv_config = {
         "steps": cv.steps,
-        "initial_train_size": cv.initial_train_size,
+        # A Timestamp as text, as `build_cv` stores it: the configuration
+        # serializes to JSON and the explanation reads a date.
+        "initial_train_size": (
+            _timestamp_to_str(cv.initial_train_size)
+            if isinstance(cv.initial_train_size, pd.Timestamp)
+            else cv.initial_train_size
+        ),
         "refit": cv.refit,
         "fixed_train_size": cv.fixed_train_size,
         "gap": cv.gap,

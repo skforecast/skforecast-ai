@@ -1674,6 +1674,43 @@ def test_create_cv_output_when_dates_cross_a_daylight_saving_change():
     assert backtest.predictions.groupby("fold").size().tolist() == [24, 24, 15]
 
 
+def test_create_cv_output_when_initial_train_size_timestamp_with_time_zone():
+    """
+    Test that a pandas Timestamp `initial_train_size` with a time zone, on
+    data whose dates have another one, keeps its UTC offset at midnight
+    (the date alone would be read in the time zone of the data, two hours
+    earlier) and is placed at its instant: midnight UTC of 2023-03-27 is
+    02:00 in Madrid, 170 observations, and backtest() runs the folds that
+    `cv_config` states.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly_madrid_spring, target="y")
+    plan = assistant.plan(
+        profile, steps=24, forecaster="ForecasterRecursive", estimator="Ridge",
+        lags=24,
+    )
+
+    result = assistant.create_cv(
+        profile, plan, initial_train_size=pd.Timestamp("2023-03-27", tz="UTC")
+    )
+    backtest = assistant.backtest(
+        data          = df_hourly_madrid_spring,
+        cv            = result,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert result.cv.initial_train_size == "2023-03-27 00:00:00+00:00"
+    assert result.cv_config["initial_train_size"] == "2023-03-27 00:00:00+00:00"
+    assert result.cv_config["n_folds"] == 2
+    assert "    initial_train_size = '2023-03-27 00:00:00+00:00'," in backtest.code
+    assert backtest.predictions.groupby("fold").size().tolist() == [24, 16]
+    assert backtest.predictions.index[0] == pd.Timestamp(
+        "2023-03-27 03:00", tz="Europe/Madrid"
+    )
+
+
 @pytest.mark.parametrize(
     "start, initial_train_size",
     [
