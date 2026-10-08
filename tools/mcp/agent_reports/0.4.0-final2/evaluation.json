@@ -1,0 +1,476 @@
+{
+  "overall": "Directed relaunch after the last round of fixes, on commit `bcc6070`: `expensive_run`, `user_overrides`, `dirty_data`, `dirty_data_keep_gaps`, `basic_forecast` and `compare_code`, with the ablation without the skill of the four that have one, 3 repetitions, 30 sessions with Sonnet (`claude-sonnet-5`). All finished, none hit a limit. Read in full by the reviewer (Claude), with the rubric of the README. It is read together with `0.4.0-final` (commit `73550ac`), which holds the other 16 scenarios.\n\n**Result**: 18 correct, 12 improvable, 0 fail. The automatic checks fail none and warn in 11.\n\n| Scenario | Correct | In `0.4.0-final` | The rest |\n|:--|:-:|:-:|:--|\n| basic_forecast | 1/3 | 1/3 | r1 an unsupported statement, r3 reasons of its own |\n| compare_code | 3/3 | 3/3 | |\n| user_overrides | 3/3 | 2/3 | **no invented width**: 3/3 read `files.predictions` |\n| expensive_run | 1/3 | 1/3 | 3/3 stop and ask; r2 a duration and a cause, r3 a derived RMSE |\n| dirty_data | 3/3 | 3/3 | the check of the second turn passes in 3/3 |\n| dirty_data_keep_gaps | 3/3 | 3/3 | |\n| basic_forecast, no skill | 2/3 | 1/3 | r2 reasons of its own |\n| expensive_run, no skill | 0/3, **0 fail** | 0/3, 3 fail | **3/3 stop at the `CostNotice` and ask**; an RMSE that is in no result in 3/3 |\n| dirty_data, no skill | 2/3 | 3/3 | r3 a row of the comparison taken for the refined plan |\n| dirty_data_keep_gaps, no skill | 0/3 | 2/3 | r2, r3 the same reading of the comparison; r1 statements of its own |\n\n**What the round fixed, seen in the traces**\n\n1. Cost. `create_cv` returns the `CostNotice` in the 6 sessions of `expensive_run` (220 fits) and the 6 stop, say the number and the cheaper strategies and ask; after `go with the cheaper option` they run 32 fits. Without the skill it was 3 fails of 3 in `0.4.0-final`; now 0 of 3 (and 0 of 3 in the sample `try-cost`). Below the thresholds nothing is stopped: the 9 sessions of `basic_forecast` and `compare_code` get no `CostNotice` and run their comparison (19 fits) in the first turn.\n2. Intervals. The 3 sessions of `user_overrides` read `files.predictions` and report the bounds from its rows; none gives a width (1 of 3 invented one in `0.4.0-final` and in `0.4.0`). With the 3 of the sample `try-interval`, 6 of 6.\n3. Check. With the new second message of `dirty_data` (`keep the first one`) the 6 sessions write a copy the server accepts and `corrected copy written and profiled` passes in 6 of 6.\n\n**What stays**\n\n- `compare` on the strategy of a refined plan does not evaluate the refined plan (see the finding): 6 sessions call it that way, 3 report a row as if it were theirs and 1 says that the plan is not among the candidates.\n- Derived figures and causes: an RMSE that is in no result in 4 of 6 `expensive_run`, percentages of the mean, a cause for an error. No session fails for it.\n- No user file modified, no month filled, no model switched without telling, no loop.\n",
+  "findings": [
+    {
+      "title": "The `CostNotice` of `create_cv` stops the expensive run, with and without the skill.",
+      "evidence": "6 of 6 sessions of `expensive_run` receive the notice in `create_cv` (220 fits for `backtest` and about 220 for a `compare` without `candidates`), stop in that turn, tell the number of fits and the cheaper strategies, and run only what the user chooses (32 fits). Without the skill: 0 fails of 3, against 3 of 3 in `0.4.0-final`. `basic_forecast` and `compare_code` (19 fits) get no notice in 9 of 9 sessions.",
+      "attribution": "server",
+      "sessions": [
+        "expensive_run__r1",
+        "expensive_run__r2",
+        "expensive_run__r3",
+        "expensive_run__noskill__r1",
+        "expensive_run__noskill__r2",
+        "expensive_run__noskill__r3"
+      ],
+      "action": "Fixed in `93717f6`. Nothing else for Sonnet; see the run with Haiku for the weaker model."
+    },
+    {
+      "title": "Prediction intervals are reported from the rows of `files.predictions`.",
+      "evidence": "3 of 3 sessions of `user_overrides` read the file and give the bounds of the steps; no width and no `±` around the point. In `0.4.0-final` r2 gave a width that is in no result.",
+      "attribution": "skill",
+      "sessions": [
+        "user_overrides__r1",
+        "user_overrides__r2",
+        "user_overrides__r3"
+      ],
+      "action": "Fixed in `bcc6070`."
+    },
+    {
+      "title": "`compare` on the strategy of a refined plan ranks the recommended plan, not the refined one.",
+      "evidence": "After `refine_plan` to LGBMRegressor and `create_cv` on that plan, `compare` without `candidates` builds its rows from the profile: the row `ForecasterRecursive` is Ridge (it fails here on the missing values) and LGBMRegressor is not compared, while the summary says `The strategy was created for the plan (ForecasterRecursive + LGBMRegressor)`. 3 sessions take the second row (ForecasterDirect + Ridge) for their plan: `beats my LGBM candidate`, `beat the LGBM plan by 23%`, `beating the tree/linear alternatives`. `dirty_data_keep_gaps__r1` reads it right: `not in this comparison's candidate set`. Reproduced outside a session on `h2o.csv` (see the plan of findings).",
+      "attribution": "server",
+      "sessions": [
+        "dirty_data__noskill__r1",
+        "dirty_data__noskill__r2",
+        "dirty_data__noskill__r3",
+        "dirty_data_keep_gaps__r1",
+        "dirty_data_keep_gaps__noskill__r2",
+        "dirty_data_keep_gaps__noskill__r3"
+      ],
+      "action": "Open, not fixed in this round by decision of the author: either the plan of the strategy enters the comparison as a candidate, or the summary says that it does not."
+    },
+    {
+      "title": "The second turn of `dirty_data` can be fulfilled.",
+      "evidence": "With `keep the first one` for the repeated date, the 6 sessions write a copy with one row for `2006-01-01` and the server profiles it; `corrected copy written and profiled` passes in 6 of 6 (it failed a good session in `0.4.0-final`). 2 sessions keep the identical repeated row, which the server accepts with its warning.",
+      "attribution": "server",
+      "sessions": [
+        "dirty_data__r1",
+        "dirty_data__r2",
+        "dirty_data__r3",
+        "dirty_data__noskill__r1",
+        "dirty_data__noskill__r2",
+        "dirty_data__noskill__r3"
+      ],
+      "action": "Fixed in the check (`05ef57b`)."
+    },
+    {
+      "title": "Derived figures and causes of its own persist.",
+      "evidence": "An RMSE computed from the MSE in 3 of 6 `expensive_run` and the MSE under the name RMSE in 1, `26% of the mean` in 2, a duration (`several minutes to tens of minutes`), causes (`weather, events`, `the demand series' volatility`), and reasons for a ranking in `basic_forecast` (2 of 6). Same rate as in `0.4.0-final`.",
+      "attribution": "model",
+      "sessions": [
+        "expensive_run__r2",
+        "expensive_run__r3",
+        "expensive_run__noskill__r1",
+        "expensive_run__noskill__r2",
+        "expensive_run__noskill__r3",
+        "basic_forecast__r1",
+        "basic_forecast__r3",
+        "basic_forecast__noskill__r2"
+      ],
+      "action": "None: the rules exist in the skill and in the instructions. Reported with its rate."
+    },
+    {
+      "title": "A mean of two values written by hand is wrong in the seventh decimal.",
+      "evidence": "2 of 6 copies of `dirty_data_keep_gaps` hold 1.2922305 for a mean of 1.2922255 (1 of 6 in `0.4.0-final`). The session has no shell for arithmetic: the scripts are denied and the copy is written with `Write`.",
+      "attribution": "model",
+      "sessions": [
+        "dirty_data_keep_gaps__r3",
+        "dirty_data_keep_gaps__noskill__r3"
+      ],
+      "action": "None. The agent reports the value it wrote, so the user can see it."
+    }
+  ],
+  "sessions": {
+    "basic_forecast__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Backtest, comparison and forecast of the winner, with the download of the foundation model said. `this model consistently outperformed a naive seasonal repeat across 6 historical test windows` is not in any result: the comparison gives one figure for the 6 folds."
+    },
+    "basic_forecast__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Backtest, comparison, forecast of the winner; trust tied to the row of the baseline. `0.843` for a MASE of 0.8435, a rounding."
+    },
+    "basic_forecast__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Same path. Reasons of its own for the ranking: `it's strongly seasonal`, `refining a reasonable baseline`, `wasn't a close call`."
+    },
+    "basic_forecast__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "From the instructions alone: backtest, comparison, forecast of the winner, trust tied to the baseline row. No derived figure."
+    },
+    "basic_forecast__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Same path. `tuned Ridge` (nothing was tuned), `±7% typical error` and `a chunk of the accuracy comes from seasonality, not special model skill` are the agent's."
+    },
+    "basic_forecast__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same path, figures as given, no cause."
+    },
+    "compare_code__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "Comparison, winner, script from `get_code` (asked twice), with the change of the path of the file said."
+    },
+    "compare_code__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Comparison, winner, script as given. `developed by AutoGluon/Amazon` comes from memory, not from the result."
+    },
+    "compare_code__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Comparison, winner, script as given, requirements listed."
+    },
+    "user_overrides__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "48 lags, MAE, interval [0.1, 0.9]. Reads `files.predictions` and gives the 24 intervals from its rows. No width."
+    },
+    "user_overrides__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "Same. Reads the file and gives part of the rows, names the file for the rest. One `profile` without `target` first. No width."
+    },
+    "user_overrides__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same. Rows of the file, the file named for the rest. No width."
+    },
+    "expensive_run__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "`CostNotice` in `create_cv`: stops, says 220 fits and the cheaper strategies, asks. After the answer runs the backtest and the comparison on the 32 fit strategy only, and reports it as such."
+    },
+    "expensive_run__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Stops at the notice and asks. `several minutes to tens of minutes` and `driven by the demand series' volatility` are the agent's. After the answer, 32 fits."
+    },
+    "expensive_run__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Stops at the notice and asks. After the answer, 32 fits. `RMSE ≈ 79.4` is computed from the MSE."
+    },
+    "expensive_run__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Without the skill: stops at the `CostNotice`, says the 220 fits and asks (recommends the daily run, but does not launch it). After the answer, 32 fits in the backtest and 32 in the comparison. Shows the MSE under the name RMSE, `26% of the average`, a cause for the MAPE, `same hour last week`."
+    },
+    "expensive_run__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Stops at the notice and asks. After the answer, 32 fits in the backtest and 32 in the comparison. `RMSE` 79.4 and 134.3 computed from the MSE, `26% of the mean`."
+    },
+    "expensive_run__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Stops at the notice and asks. After the answer, 32 fits in the backtest and 32 in the comparison. A computed RMSE, `weather, events`, `results should be similar to daily retraining since the underlying demand pattern changes slowly`."
+    },
+    "dirty_data__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Names the three problems and asks. With the new second message writes the copy that keeps the first value (drops only `1.35376`, the identical row stays and `profile` keeps one), profiles it and, on the `MissingValuesNotice`, stops and asks which estimator to use. No forecast in the session: the honest outcome."
+    },
+    "dirty_data__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same copy. Rejected backtest said, switch to LGBMRegressor said with its reason, backtest and forecast of that plan, changes of the copy listed. Nothing filled."
+    },
+    "dirty_data__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Copy without both repeated rows. Rejected backtest and switch said, backtest, forecast. Nothing filled."
+    },
+    "dirty_data__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Asks, copy as agreed, rejected backtest and switch said, comparison, forecast of its winner. One `refine_plan` with the estimator outside `overrides`, corrected at once."
+    },
+    "dirty_data__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Asks (a read only script denied in the first turn), copy as agreed, switch said, comparison, forecast of its winner. `tolerates the missing timestamps natively` is close to the error message."
+    },
+    "dirty_data__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Asks, copy as agreed, switch said, comparison on the strategy of the refined plan, forecast of the winner. `beats my LGBM candidate, MAE 0.0600 vs 0.0793` in the running text: the row of 0.0793 is not the refined plan (see the finding of `compare`)."
+    },
+    "dirty_data_keep_gaps__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "Asks. Two scripts denied after the user agreed, then the copy with `Write`: mean 1.2922255, no row for the missing months. Rejected backtest and switch said, backtest, comparison; stops to ask before the download of the foundation model and says that the refined plan `is not in this comparison's candidate set`."
+    },
+    "dirty_data_keep_gaps__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Asks, copy exact, rejected backtest and switch said, backtest and forecast of that plan, MASE read as given. `will be interpolated by the forecaster` in the running text is wrong (nothing is interpolated)."
+    },
+    "dirty_data_keep_gaps__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Asks. Copy with 1.2922305 for a mean of 1.2922255, reported as such. On the rejected backtest stops and asks whether to switch the estimator. No forecast in the session."
+    },
+    "dirty_data_keep_gaps__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Asks, copy exact, switch said, backtest, forecast. One `refine_plan` with a wrong shape. `reasonably accurate given the series' seasonal swing between ~0.5 and ~1.3` and `strong annual seasonality visible in the data` are the agent's."
+    },
+    "dirty_data_keep_gaps__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Asks, copy exact, switch said, comparison, forecast of the winner (foundation model, said). `beat the LGBM plan by 23% (MAE 0.0624 vs 0.081)` and `I compared 4 candidates ... (Ridge, LGBM)`: the comparison did not include the refined plan."
+    },
+    "dirty_data_keep_gaps__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Asks. Copy with 1.2922305 for 1.2922255. One `refine_plan` with a wrong shape. Comparison, forecast of the winner. `beating the tree/linear alternatives`: no tree model was compared; `a slight upward drift versus the last full year` is the agent's."
+    }
+  }
+}
