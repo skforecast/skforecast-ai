@@ -121,10 +121,13 @@ so). That reference is not a seasonal naive forecast nor the baseline of
 `compare`: never report a value below 1 as beating either, nor turn it
 into a percentage against them.
 
-Prediction intervals are estimates: report them as such. Read `notices`
-before you report anything: any notice can change what the result means
-(a data problem, a warning of the plan, a long training), so tell the user
-about it.
+Prediction intervals are estimates: report them as such, and only from the
+rows of `files.predictions` (the bounds of each step). If you have not read
+that file, do not describe the interval: name the file. The summary gives
+the minimum, maximum and mean of each bound, not a width, so no width and
+no range around the point comes from it. Read `notices` before you report
+anything: any notice can change what the result means (a data problem, a
+warning of the plan, a long training), so tell the user about it.
 
 ## Cost
 
