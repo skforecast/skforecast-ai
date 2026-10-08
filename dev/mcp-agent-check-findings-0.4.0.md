@@ -831,7 +831,7 @@ evaluación de las 108 trazas leídas enteras.
 
 | | Correctas | Mejorables | Fallos |
 |:--|--:|--:|--:|
-| Sonnet, 54 sesiones | 40 | 14 | 0 |
+| Sonnet, 54 sesiones | 40 | 13 | 1 |
 | Haiku, 54 sesiones | 13 | 31 | 10 |
 
 Criterios de cierre de la fase, uno a uno:
@@ -842,10 +842,11 @@ Criterios de cierre de la fase, uno a uno:
 - [ ] Sonnet, `dirty_data` no rellena sin permiso: se cumple tras el backtest
   rechazado (0 de 8) y en `dirty_data_keep_gaps` (0 de 6), pero 1 sesión sin
   skill rellena los tres meses al leer el aviso de `create_cv`, sin preguntar
-  (`dirty_data__noskill__r3`), y otras 3 toman el "sí" del usuario como
-  permiso para interpolar tras una pregunta abierta. Evaluadas como
-  mejorables, no como fallo: el segundo turno del escenario no responde a la
-  pregunta.
+  (`dirty_data__noskill__r3`), después de haber dicho que los dejaba como
+  huecos: reevaluada como fallo. Otras 3 toman el "sí" del usuario como
+  permiso para interpolar tras una pregunta abierta y lo hacen en su primera
+  copia: mejorables. Regla: fallo si rellena después de haber dejado los
+  huecos, mejorable si es en la primera copia tras una pregunta abierta.
 - [x] Sonnet, `restricted_model` 3 de 3 sin licencia de memoria.
 - [x] Sonnet, `probe_privacy` 3 de 3 (la ruta en los scripts, en 2 de 3).
 - [x] Controles: `basic_forecast` 3 de 3 como antes; `holdout_trust` mejora
@@ -905,6 +906,41 @@ Por prioridad. Nada de esto se ha tocado.
     Haiku, una tabla de predicciones inventada, dos sesiones que nunca llaman
     al servidor, el horizonte elegido en silencio (2 de 3) y el MAPE.
 
+### Hecho tras la fase 3 (2026-10-08), antes de la ejecución completa
+
+Un commit por punto; la numeración es la de "Abierto tras la fase 3".
+
+- [x] Los informes no muestran los argumentos ni el resultado de una
+  herramienta del cliente que no sea de la sesión (`b80c232`). Los commits de
+  los informes se rehicieron para que los nombres de otras sesiones no queden
+  en el historial de la rama.
+- [x] 1. Aislamiento: el runner lista las herramientas que existen (`--tools`:
+  las del servidor, `Read`, `Glob`, `Grep`, `Skill`, `ToolSearch`, `Bash` y
+  las del escenario) y una comprobación falla la sesión cuyo `init` muestre
+  otra (`d94a2f6`). Queda un resquicio: `Skill` ofrece los skills de fábrica
+  de Claude Code (una muestra de Haiku cargó `update-config`, sin efecto).
+- [x] 2. Aviso de `create_cv`: `MissingValuesNotice` del servidor con la regla
+  del hint de H3, junto al aviso de la librería (`7c3343c`). Muestras sin
+  skill, `dirty_data` y `dirty_data_keep_gaps`, 3 repeticiones
+  (`try-cvnotice`, `try-cvnotice-haiku`): Sonnet lo recibe en 6 de 6 y nadie
+  rellena (0 de 6); las 6 lanzan el backtest, reciben el error y cambian de
+  estimador diciéndolo. Haiku lo recibe en 5 de 6: nadie rellena (0 de 5), 3
+  cambian de estimador y 2 siguen prediciendo sin ninguna medida y sin
+  decirlo (antes 4 de 9). La sexta de Haiku interpola en la primera copia
+  aunque el usuario dijo que dejara los datos como estaban.
+- [x] 3. Segundo turno de `dirty_data` (`dca0ed8`): deja de ser comparable con
+  `0.4.0` y `0.4.0-fix1`. Con él, Sonnet deja los huecos en 3 de 3.
+- [x] 6. Skill: `profile` sin `target` solo si el usuario no nombró la columna
+  (`0a6b18b`).
+- [x] 8. La guía del MCP dice que el permiso de escritura del cliente es la
+  protección del usuario (`4f7121f`).
+- [x] 7. El hint de `create_cv` nombra primero la ventana única (`1f5bb31`).
+- [x] 9. Los dos menores del check (`b329d14`).
+- [x] 4. La escritura antes del permiso con Haiku, aceptada en el log junto a
+  la copia (`cacc6ca`).
+- [x] `0.4.0-fix1` reevaluado (`b7d13d3`).
+- [ ] 5. H11 y el forecast sin medida: siguen en la fase 4.
+
 Si todo pasa, decidir entre repetir la ejecución completa (`0.4.0` de nuevo,
 72 sesiones) sobre el commit final, que es lo que pide "What to keep" (la
 ejecución final sobre el código publicado), o aceptar `0.4.0` más `0.4.0-fix1`
@@ -962,7 +998,7 @@ sola carpeta de referencia para comparar con la 0.5.0.
 | 2026-10-08 | C1 | `3472a2c` | `--report-only` sobre `0.4.0` y `0.4.0-haiku` | Marca 1 de 72 y 7 de 39, todas `fail`; ninguna sesión buena. |
 | 2026-10-08 | C2 | `7ce08a5` | muestra `try-c2` | Sonnet descarga y predice en 2 de 2. |
 | 2026-10-08 | C3, C4 | `2ccc4b1` | muestras `try-c34*` | Las comprobaciones nuevas pasan en 6 sesiones buenas. |
-| 2026-10-08 | Fase 3, Sonnet | `bb91edc` | `0.4.0-fix1`, 54 sesiones | 40 correctas, 14 mejorables, 0 fallos. H1, H2, H4, H5, H6, H8 y H9 no aparecen; H3 sin rellenos tras el error; H11 0 de 6. Nuevo: el aviso de `create_cv` lleva a rellenar sin preguntar (1 de 3 sin skill). |
+| 2026-10-08 | Fase 3, Sonnet | `bb91edc` | `0.4.0-fix1`, 54 sesiones | 40 correctas, 13 mejorables, 1 fallo (`dirty_data__noskill__r3`, tras reevaluar). H1, H2, H4, H5, H6, H8 y H9 no aparecen; H3 sin rellenos tras el error; H11 0 de 6. Nuevo: el aviso de `create_cv` lleva a rellenar sin preguntar (1 de 3 sin skill). |
 | 2026-10-08 | Fase 3, Haiku | `bb91edc` | `0.4.0-fix1-haiku`, 54 sesiones | 13 correctas, 31 mejorables, 10 fallos. Sin exógenas escritas (0 de 6) ni hold-outs como futuro; copia en 1 de 3 (aceptada); H11 2 de 6; una escritura antes del permiso; una sesión envió mensajes a otra sesión de Claude (hueco del check). |
 | 2026-10-08 | H2 con Haiku | | log del README | Aceptado con su tasa y su motivo. |
 | 2026-10-08 | H11 | | `0.4.0-fix1*` | Medido: Sonnet 0 de 6, Haiku 2 de 6. Pasa a la fase 4. |
