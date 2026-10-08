@@ -588,6 +588,52 @@ Antes del relanzamiento, para que mida lo arreglado:
 3. C3 y C4 (escenarios nuevos): `--dry-run` y una sesión de prueba con
    `--run-name try` de cada uno, como pide "Adding a scenario" del README.
 
+### Fase 2b. Antes de la fase 3 (decisiones del 2026-10-08)
+
+Tomadas tras revisar el resultado de las fases 1 y 2 y las observaciones de
+las trazas de prueba (última sección).
+
+1. **H2 con el modelo pequeño: medir y, si sigue, aceptar.** Haiku aún
+   intenta copiar el fichero antes de llamar al servidor (3 de 6, 2 de 6 y 2
+   de 8 con tres redacciones). No se itera más el texto de las instrucciones.
+   La fase 3 lo mide con el escenario corregido (punto 5). Si sigue
+   apareciendo, se acepta en el log del README con su tasa y su motivo (el
+   servidor no puede impedir lo que ocurre antes de que lo llamen), la
+   documentación del MCP dice que el permiso de escritura del cliente es la
+   protección del usuario, y el criterio del modelo pequeño queda con esa
+   excepción anotada.
+2. **H11, backtest de un plan y forecast de otro: medir en la fase 3 y
+   decidir.** El agente mide el plan con exógenas y predice con el plan sin
+   ellas, y da la precisión del primero como la del segundo (observación 1).
+   Puede haberlo inducido el `FutureExogNotice` de H1. La fase 3 da su tasa
+   con Sonnet y con Haiku. Si aparece con Sonnet, bloquea la release y se
+   arregla con un aviso en `forecast` cuando su plan no tiene backtest en la
+   sesión. Si solo aparece con Haiku, se informa y pasa a la fase 4.
+3. **Entra antes de la fase 3**: un hint en el `insufficient_data` de
+   `create_cv` con un solo fold (observación 5; con Sonnet acabó en una
+   afirmación falsa en `holdout_trust__r3` de `0.4.0`).
+4. **No entra, pasa a la fase 4**: el aviso de cambio de estimador
+   (observación 2, solo Haiku y de redacción), RMSE como métrica (observación
+   7, carencia de producto) y el texto del resumen de un forecast con
+   `test_size` (H4; vive en `llm/context.py` y obliga al check de pago).
+5. **Arreglos del check antes de relanzar**: denegar la herramienta `Agent`
+   y fallar la sesión cuyo turno termina sin respuesta (observación 3);
+   renombrar la carpeta `private/` de `err_outside_dir`, que en macOS se
+   confunde con `/private/var/...` (observación 4).
+6. **Revisión de código antes de la fase 3**: una sesión nueva con
+   `/code-review` y el subagente `conventions-reviewer` sobre el diff de la
+   rama. Un cambio de redacción posterior a la fase 3 obligaría a medir otra
+   vez.
+
+Orden: puntos 3 y 5 en la sesión de implementación, luego el punto 6, luego
+la fase 3.
+
+- [ ] Hint de `create_cv`. Commit: .
+- [ ] `Agent` denegado y respuesta vacía. Commit: .
+- [ ] `err_outside_dir` sin `private/`. Commit: .
+- [ ] H11 con ficha propia en este documento. Commit: .
+- [ ] Revisión de código hecha y sus cambios aplicados. Commits: .
+
 ### Fase 3. Relanzamiento y cierre
 
 Desde la raíz del repositorio, en el entorno del proyecto:
@@ -640,6 +686,11 @@ sola carpeta de referencia para comparar con la 0.5.0.
 - El hallazgo 4 del piloto (intervalos con cotas iguales), arreglado en
   `96f4cdc`, no se ejercitó en esta ejecución: un escenario propio o una
   comprobación a mano.
+- Aplazado el 2026-10-08 (fase 2b): un aviso en `backtest` y `forecast`
+  cuando el estimador no es el recomendado, para que el agente diga que lo
+  cambió; `root_mean_squared_error` como métrica del servidor; el texto del
+  resumen de un forecast con `test_size` (H4), con `/llm-context-change`.
+- H11, si la fase 3 solo lo encuentra con el modelo pequeño.
 
 ## Registro de avance
 
