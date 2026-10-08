@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from skforecast_ai.mcp.models import ToolNotice
 from skforecast_ai.mcp.server import _missing_values_notices
 
@@ -63,13 +65,23 @@ def test_missing_values_notices_baseline_has_no_estimator_to_switch_to():
     assert [notice.message for notice in notices] == [LEAVE + NO_BACKTEST]
 
 
-def test_missing_values_notices_empty_when_the_backtest_cannot_fail_on_them():
+@pytest.mark.parametrize(
+    "plan, data_profile",
+    [
+        (plan_h2o_lgbm, profile_h2o_gaps),
+        (plan_h2o_ridge, profile_h2o),
+    ],
+    ids=["estimator_accepts_missing_values", "clean_data"],
+)
+def test_missing_values_notices_empty_when_the_backtest_cannot_fail_on_them(
+    plan, data_profile
+):
     """
     Test that there is no notice with an estimator that accepts missing
-    values nor with data without them.
+    values, nor with data without them.
     """
-    gaps = SimpleNamespace(data_profile=profile_h2o_gaps)
-    clean = SimpleNamespace(data_profile=profile_h2o)
+    notices = _missing_values_notices(
+        plan, SimpleNamespace(data_profile=data_profile)
+    )
 
-    assert _missing_values_notices(plan_h2o_lgbm, gaps) == []
-    assert _missing_values_notices(plan_h2o_ridge, clean) == []
+    assert notices == []

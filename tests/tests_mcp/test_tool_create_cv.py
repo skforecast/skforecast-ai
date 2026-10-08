@@ -3,11 +3,20 @@
 import pytest
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.mcp import create_server
 from skforecast_ai.mcp import server as server_module
 from skforecast_ai.mcp.models import ToolNotice
 from skforecast_ai.schemas import CV_OVERRIDE_NAMES
 
-from .fixtures_mcp import call, content_of, error_of, h2o_server, profile_and_plan
+from .fixtures_mcp import (
+    call,
+    content_of,
+    df_h2o_backtest_gaps_csv,
+    error_of,
+    h2o_server,
+    profile_and_plan,
+    write_csv,
+)
 
 CV_ARGUMENTS = [
     "initial_train_size",
@@ -169,6 +178,95 @@ def test_tool_create_cv_notice_of_the_cost_of_a_default_compare(tmp_path):
             count    = 1,
         )
     ]
+
+
+def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
+    tmp_path,
+):
+    """
+    Test that a strategy for a plan whose estimator cannot predict from a
+    missing value, on a file with missing months, carries the
+    `MissingValuesNotice` of the server (source 'data') first, then the
+    `CompareCostNotice` of the same call, and last the warning of the
+    library about those values, once each.
+    """
+    path = write_csv(tmp_path, "gaps.csv", df_h2o_backtest_gaps_csv)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path)
+
+    result = content_of(
+        call(
+            server, "create_cv",
+            {"plan_id": plan_id, "initial_train_size": 60, "refit": True},
+        )
+    )
+
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "data",
+            category = "MissingValuesNotice",
+            message  = (
+                "The missing values of the target are data of the user: do "
+                "not fill in, drop or write any of them yourself, in their "
+                "file or in a copy of it, unless they asked for exactly that. "
+                "Ask before you do. Without touching the data, an estimator "
+                "that accepts missing values (such as 'LGBMRegressor', with "
+                "`refine_plan` and a new `create_cv`) lets `backtest` run on "
+                "every fold: if you switch to it, say in your answer that you "
+                "changed the estimator and why. If you forecast without a "
+                "backtest, say in your answer that the forecast has no "
+                "measure of error and why."
+            ),
+            count    = 1,
+        ),
+        ToolNotice(
+            source   = "runtime",
+            category = "CompareCostNotice",
+            message  = (
+                "`compare` without `candidates` on this strategy fits about 70 "
+                "estimators (ForecasterRecursive: 5, ForecasterDirect: 60, "
+                "ForecasterFoundation: 0, ForecasterStats: 5), more than the 5 "
+                "of this plan. Pass `candidates` to choose what runs, or use "
+                "`refit=false` or fewer folds."
+            ),
+            count    = 1,
+        ),
+        ToolNotice(
+            source   = "runtime",
+            category = "UserWarning",
+            message  = (
+                "The target has missing values or missing timestamps "
+                "(asfreq() restores them as missing values), and "
+                "ForecasterRecursive with Ridge cannot predict from a "
+                "missing value: `backtest()` of this plan raises when a test "
+                "fold is predicted from one, naming its dates. "
+                "`dropna_from_series` only drops them from the training "
+                "data. Impute the target, or choose an estimator that "
+                "accepts missing values (for example 'LGBMRegressor') to "
+                "backtest every fold."
+            ),
+            count    = 1,
+        ),
+    ]
+
+
+def test_tool_create_cv_no_missing_values_notice_when_estimator_accepts_them(
+    tmp_path,
+):
+    """
+    Test that the same file with missing months gives no notice, neither
+    of the server nor of the library, when the estimator of the plan
+    accepts missing values.
+    """
+    path = write_csv(tmp_path, "gaps.csv", df_h2o_backtest_gaps_csv)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, estimator="LGBMRegressor")
+
+    result = content_of(
+        call(server, "create_cv", {"plan_id": plan_id, "initial_train_size": 84})
+    )
+
+    assert result["notices"] == []
 
 
 def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypatch):
