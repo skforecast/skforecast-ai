@@ -697,8 +697,7 @@ la fase 3.
   `exports/`; en 6 sesiones (`try-exports`, `try-exports-sonnet`) ninguna
   busca fuera del workspace ni intenta copiar. `data_not_found` pasa a ser
   un error esperado del escenario.
-- [x] H11 con ficha propia en este documento (tras H10). Commit: el de esta
-  ficha.
+- [x] H11 con ficha propia en este documento (tras H10). Commit: `4a7108b`.
 - [ ] Revisión de código hecha y sus cambios aplicados. Commits: .
 
 ### Fase 3. Relanzamiento y cierre
