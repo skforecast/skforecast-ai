@@ -7,7 +7,11 @@ import pandas as pd
 import pytest
 
 from skforecast_ai._utils import load_exog
-from skforecast_ai.exceptions import DataNotFoundError, InvalidInputError
+from skforecast_ai.exceptions import (
+    DataContentError,
+    DataNotFoundError,
+    InvalidInputError,
+)
 
 _EXPECTED = pd.DataFrame(
     {"temp": [1, 2]},
@@ -434,3 +438,26 @@ def test_load_exog_hint_when_dates_wrong(tmp_path, text, hint, date_column, advi
         load_exog(path, date_column=date_column)
 
     assert exc_info.value.hint == hint + advice
+
+
+def test_load_exog_DataContentError_when_date_column_missing(tmp_path):
+    """
+    Test that the error for a file of future exogenous variables without
+    the date column is a DataContentError, the class that tells a problem
+    of the content of the file from an argument to correct, with the code
+    and the field of an InvalidInputError.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("day,promo\n2023-01-01,1\n")
+
+    err_msg = re.escape(
+        f"The exog CSV '{path}' has no column 'date'; its columns are "
+        f"['day', 'promo']."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        load_exog(path, date_column="date")
+
+    assert type(exc_info.value) is DataContentError
+    assert (exc_info.value.code, exc_info.value.field) == (
+        "invalid_argument", "exog"
+    )

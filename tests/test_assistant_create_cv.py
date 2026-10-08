@@ -24,6 +24,7 @@ from tests.fixtures_assistant import (
     df_short,
 )
 from tests.fixtures_datasets import df_h2o, df_hourly_madrid_spring
+from tests.fixtures_last_window import data_h2o_gaps
 
 
 # =============================================================================
@@ -53,15 +54,25 @@ def test_create_cv_ValueError_when_initial_train_size_float_out_of_range(value):
 def test_create_cv_ValueError_when_fewer_than_2_folds():
     """
     Test that create_cv() raises ValueError when the configuration
-    produces fewer than 2 folds.
+    produces fewer than 2 folds, with a hint that names what gives more
+    folds and `forecast` with `test_size` for a single window.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_short, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
 
     err_msg = re.escape("At least 2 are required")
-    with pytest.raises(ValueError, match=err_msg):
+    with pytest.raises(ValueError, match=err_msg) as exc_info:
         assistant.create_cv(profile, plan, initial_train_size=20)
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.hint == (
+        "To evaluate a single window, the last `steps` observations, use "
+        "`forecast` with `test_size` instead: one hold-out, not a backtest. A "
+        "backtest needs at least 2 folds: a smaller `initial_train_size` (or "
+        "leave it out for the default), a smaller `fold_stride` or a plan with "
+        "fewer `steps`."
+    )
 
 
 def test_create_cv_ValueError_when_initial_train_size_date_unparseable():
@@ -2045,3 +2056,74 @@ def test_create_cv_fields_without_effect_when_stats_refit_changes_the_window():
     assert expanding.defaults_explanation.endswith("`refit` as requested.")
     assert fixed.code == default.code
     assert fixed.fields_without_effect == ["refit"]
+
+
+def test_create_cv_UserWarning_when_backtest_can_read_missing_values():
+    """
+    Test that create_cv() warns, with a single series that has missing
+    timestamps and a plan whose estimator does not tolerate them, that the
+    backtest raises when a fold is predicted from one; with LGBMRegressor
+    or complete data there is no warning (warnings are errors here).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data_h2o_gaps, target="x")
+    plan = assistant.plan(profile, steps=12)
+
+    warn_msg = re.escape(
+        "The target has missing values or missing timestamps (asfreq() "
+        "restores them as missing values), and ForecasterRecursive with "
+        "Ridge cannot predict from a missing value: `backtest()` of this "
+        "plan raises when a test fold is predicted from one, naming its "
+        "dates. `dropna_from_series` only drops them from the training "
+        "data. Impute the target, or choose an estimator that accepts "
+        "missing values (for example 'LGBMRegressor') to backtest every fold."
+    )
+    with pytest.warns(UserWarning, match=warn_msg) as record:
+        assistant.create_cv(profile, plan, initial_train_size=84)
+
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+    plan_lgbm = assistant.plan(profile, steps=12, estimator="LGBMRegressor")
+    assistant.create_cv(profile, plan_lgbm, initial_train_size=84)
+
+    profile_clean = assistant.profile(data=df_h2o, target="x")
+    plan_clean = assistant.plan(profile_clean, steps=12)
+    assistant.create_cv(profile_clean, plan_clean, initial_train_size=84)
+
+
+def test_create_cv_UserWarning_when_intervals_have_few_residuals():
+    """
+    Test that create_cv() warns when the first training window leaves 4 rows
+    for the intervals (h2o, 40 observations for a window size of 36), and does
+    not without interval or with a window that leaves 100 rows.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=1, interval=[0.025, 0.975])
+
+    warn_msg = re.escape(
+        "The first training window of the strategy leaves 4 row(s) to train "
+        "on (40 observations for a window size of 36), so the prediction "
+        "intervals are estimated from 4 residual(s). skforecast spreads "
+        "them over up to 10 bins, and below 10 residuals per bin (100 rows) "
+        "the intervals tend to be too narrow; with a single residual in a "
+        "bin the lower bound equals the upper one. Read them with caution, "
+        "or use a later `initial_train_size`, or fewer lags or smaller "
+        "window features."
+    )
+    with pytest.warns(UserWarning, match=warn_msg) as record:
+        assistant.create_cv(
+            profile, plan, initial_train_size=40, fold_stride=1, refit=False
+        )
+
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+    assistant.create_cv(
+        profile, plan, initial_train_size=136, fold_stride=1, refit=False
+    )
+    plan_no_interval = assistant.plan(profile, steps=1)
+    assistant.create_cv(
+        profile, plan_no_interval, initial_train_size=40, fold_stride=1, refit=False
+    )

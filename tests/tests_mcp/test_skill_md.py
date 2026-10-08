@@ -68,6 +68,8 @@ def test_skill_md_front_matter_follows_agent_skills():
     assert len(name) <= 64
     assert re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", name)
     assert 0 < len(description) <= 1024
+    # Without it the skill is never loaded for a question about privacy.
+    assert "what the server or you can see of the user's data" in description
 
 
 def test_skill_md_names_every_tool_error_code_and_foundation_kwarg(tmp_path):
@@ -209,6 +211,55 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
     comparison without baseline, problems of the CSV file, foundation
     models, `test_size` as a fraction, `compare` without candidates, the
     names of the Python API in messages and what `values_included` means.
+    """
+    skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
+
+    assert phrase in skill
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "the directory the server may read, which its instructions name",
+        "divide the error by that of the one-step naive forecast (repeat the "
+        "previous value) on the training data",
+        "never report a value below 1 as beating either",
+        "Never copy or move a file of the user into that directory yourself",
+        "Do not copy or move it yourself: tell the user, who can copy it there "
+        "or restart the server with another `--allow-dir`",
+        "State a license only as a response gives it: a `ModelLicenseNotice` "
+        "or a `ModelDownloadNotice`",
+        "`requirements`, the packages to install for it with the versions the "
+        "server runs",
+        "Hand the script as it is; if you change anything",
+        "An error names the first problem it finds",
+        "Do not derive one either: no percentage, difference or ratio that a "
+        "response does not give",
+        "Do not open the data file with your own tools to look at it",
+        "When the user named the column to forecast, pass it as `target` at "
+        "once",
+        "its error lists the columns of the file, so never guess a target to "
+        "see them",
+        "When the user gives no horizon",
+        "stop and do not run it: tell the user the number of fits and the "
+        "cheaper strategies",
+        "asking to retrain regularly is not that choice",
+        "Report what was measured, never why",
+        "The server does not search hyperparameters",
+        "Do not do any of it another way in the same answer",
+        "Never write those values yourself, nor answer with a `test_size` "
+        "evaluation instead",
+        "nor as the forecast of the future: its dates are already in the data",
+    ],
+    ids=lambda phrase: phrase[:40],
+)
+def test_skill_md_states_the_rules_agents_broke_in_the_agent_check(phrase):
+    """
+    Test that SKILL.md keeps the rules added after the sessions of the MCP
+    agent check: where the allowed directory is named, what MASE is scaled
+    by, that the agent never copies a file of the user into the allowed
+    directory, that a license is quoted from a response, what `get_code`
+    says to install and that an error names one problem of a file.
     """
     skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
 

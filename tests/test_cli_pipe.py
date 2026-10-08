@@ -544,11 +544,13 @@ class TestBacktestCode:
         plan_file = tmp_path / "plan.json"
         plan_file.write_text(plan_result.stdout)
 
-        result = runner.invoke(app, [
-            "backtest-code", "--from-plan", str(plan_file),
-            "--interval", "0.1,0.9", "--estimator", "Ridge",
-            "--format", "json", "--quiet",
-        ])
+        # The default strategy leaves 49 rows for the intervals (create_cv warns).
+        with pytest.warns(UserWarning, match="the prediction intervals are estimated"):
+            result = runner.invoke(app, [
+                "backtest-code", "--from-plan", str(plan_file),
+                "--interval", "0.1,0.9", "--estimator", "Ridge",
+                "--format", "json", "--quiet",
+            ])
 
         assert result.exit_code == 0, result.output
         output = json.loads(result.stdout)

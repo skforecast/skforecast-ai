@@ -1,5 +1,6 @@
 # Unit test tool plan
 
+from importlib.metadata import version
 import pytest
 
 from skforecast_ai import ForecastingAssistant
@@ -55,7 +56,8 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
     """
     Test that `plan` registers the plan the Python API builds, described by
     its forecasting script, links it to its profile and lists the arguments
-    of `refine_plan`; `get_code` returns that script.
+    of `refine_plan`; `get_code` returns that script and the packages it
+    imports.
     """
     server, path, profile_id = _profiled(tmp_path)
 
@@ -66,6 +68,10 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
     profile = assistant.profile(path, target="x")
     plan = assistant.plan(profile=profile, **arguments)
     script = assistant.forecast_code(profile=profile, plan=plan)
+    # The script of ForecasterStats imports nothing from scikit-learn.
+    packages = ["pandas", "scikit-learn", "skforecast"]
+    if arguments.get("forecaster") == "ForecasterStats":
+        packages.remove("scikit-learn")
 
     assert result["id"].startswith("plan-2-")
     assert result["kind"] == "plan"
@@ -94,6 +100,7 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
         "candidate": None,
         "code": script.code,
         "code_truncated": False,
+        "requirements": [f"{package}=={version(package)}" for package in packages],
         "files": {},
     }
 
@@ -200,8 +207,9 @@ def test_tool_plan_announces_model_download_once(tmp_path, monkeypatch):
     """
     Test that the first plan with a foundation model whose weights are not
     in the local Hugging Face cache carries a `ModelDownloadNotice` (source
-    'plan') with its license, that a second plan with the same model does
-    not, and that a model already in the cache is never announced.
+    'plan') with its license, and that a second plan with the same model, or
+    a plan with a model already in the cache, carries a `ModelLicenseNotice`
+    with the license instead.
     """
     cache = tmp_path / "hf"
     (cache / "models--Synthefy--Nori" / "snapshots" / "abc").mkdir(parents=True)
@@ -228,8 +236,27 @@ def test_tool_plan_announces_model_download_once(tmp_path, monkeypatch):
             count    = 1,
         ).model_dump()
     ]
-    assert second["notices"] == []
-    assert cached["notices"] == []
+    assert second["notices"] == [
+        ToolNotice(
+            source   = "plan",
+            category = "ModelLicenseNotice",
+            message  = (
+                "Foundation model 'autogluon/chronos-2-small'. License (by "
+                "the name of the model, as skforecast registers it): its "
+                "license is Apache-2.0 "
+                "(https://huggingface.co/autogluon/chronos-2-small)."
+            ),
+            count    = 1,
+        ).model_dump()
+    ]
+    assert [(n["category"], n["message"]) for n in cached["notices"]] == [
+        (
+            "ModelLicenseNotice",
+            "Foundation model 'Synthefy/Nori'. License (by the name of the "
+            "model, as skforecast registers it): its license is Apache-2.0 "
+            "(https://huggingface.co/Synthefy/Nori).",
+        )
+    ]
 
 
 @pytest.mark.parametrize("steps", [205, 500, 10**9], ids=lambda s: f"steps={s}")
@@ -239,7 +266,8 @@ def test_tool_plan_invalid_argument_when_steps_longer_than_the_series(
     """
     Test that a horizon longer than the longest series of the profile (h2o
     has 204 observations) is `invalid_argument` on `steps` when the plan is
-    built, instead of failing when it runs, and that 204 is accepted.
+    built, instead of failing when it runs, with a hint that leaves the
+    choice of a shorter one to the user, and that 204 is accepted.
     """
     server, _, profile_id = _profiled(tmp_path)
 
@@ -252,6 +280,10 @@ def test_tool_plan_invalid_argument_when_steps_longer_than_the_series(
     assert error["message"] == (
         f"`steps` is {steps}, more than the 204 observations of the longest "
         f"series of the data. The horizon must not exceed the history."
+    )
+    assert error["hint"] == (
+        "Ask the user which horizon they want, of at most 204 and usually far "
+        "fewer: do not choose one for them."
     )
     assert error["details"] == {"steps": steps, "longest_series": 204}
     assert content_of(longest)["kind"] == "plan"

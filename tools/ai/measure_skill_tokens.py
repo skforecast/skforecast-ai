@@ -102,6 +102,25 @@ def format_dict(skills: dict[str, int]) -> str:
     return "\n".join(lines)
 
 
+def read_skills_file() -> tuple[dict[str, int], int | None]:
+    """Return the estimates currently stored in skills.py."""
+    content = SKILLS_MODULE.read_text(encoding="utf-8")
+
+    skills: dict[str, int] = {}
+    block = re.search(
+        r"_SKILL_TOKEN_ESTIMATES: dict\[str, int\] = \{(.*?)^\}",
+        content,
+        re.DOTALL | re.MULTILINE,
+    )
+    if block is not None:
+        for name, tokens in re.findall(r'"([\w-]+)":\s*(\d+)', block.group(1)):
+            skills[name] = int(tokens)
+
+    match = re.search(r"^_REFERENCE_TOKEN_ESTIMATE = (\d+)", content, re.MULTILINE)
+    reference = int(match.group(1)) if match is not None else None
+    return skills, reference
+
+
 def update_skills_file(skills: dict[str, int], reference: int) -> bool:
     """Update _SKILL_TOKEN_ESTIMATES and _REFERENCE_TOKEN_ESTIMATE in skills.py."""
     content = SKILLS_MODULE.read_text(encoding="utf-8")

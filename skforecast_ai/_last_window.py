@@ -1,7 +1,7 @@
 ################################################################################
 #                           Last window of the target                          #
 #                                                                              #
-# Checks of the last values of the target that forecast() reads                #
+# Checks of the values of the target that forecast() and backtest() read       #
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
 
@@ -9,11 +9,12 @@ from __future__ import annotations
 import warnings
 import numpy as np
 import pandas as pd
+from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS, NAN_TOLERANT_ESTIMATORS
 from ._dates import row_dates, training_end
 from ._future_exog import _SHOWN, _per_series, _shown
-from .exceptions import InvalidInputError
+from .exceptions import DataContentError, InvalidInputError
 from .profiling.data_profile import _caller_stacklevel, _fmt_timestamp
 from .schemas import DataProfile, ForecastPlan
 
@@ -499,13 +500,15 @@ def _report(
     plan: ForecastPlan,
     order: int,
     by_series: bool,
+    where: str = "",
 ) -> None:
     """
     Raise for the missing values read by the predictions, or warn when the
     estimator tolerates missing values, as for the future exogenous
     variables. `missing` maps each series (its id when `by_series`, its
     column otherwise) to the dates of its missing values read and whether
-    the inverse of the differentiation reads one.
+    the inverse of the differentiation reads one. `where` names the test
+    folds of a backtest that read them.
     """
     if not missing:
         return
@@ -515,28 +518,30 @@ def _report(
         shown += f"; and {len(found) - _SHOWN} more series"
     series = "series " if by_series else ""
     message = (
-        f"The forecaster reads missing values of the target to predict "
-        f"({series}{shown})."
+        f"The forecaster reads missing values of the target to predict"
+        f"{where} ({series}{shown})."
     )
     if plan.forecaster == "ForecasterEquivalentDate":
-        raise InvalidInputError(
-            f"{message} {plan.forecaster} repeats them as missing predictions: "
-            f"fill them in.",
+        raise DataContentError(
+            f"{message} {plan.forecaster} repeats them as missing predictions. "
+            f"Those values have to be filled in before predicting.",
             field = "data",
         )
     if any(by_differentiation for _, by_differentiation in missing.values()):
         # The inverse of the differentiation starts from them, so the
         # predictions are missing whatever the estimator.
-        raise InvalidInputError(
+        raise DataContentError(
             f"{message} The differentiation of {plan.forecaster} reads the "
-            f"last {order} value(s), so its predictions would be missing: fill "
-            f"them in.",
+            f"last {order} value(s), so its predictions would be missing. Those "
+            f"values have to be filled in before predicting.",
             field = "data",
         )
     if plan.estimator not in NAN_TOLERANT_ESTIMATORS:
-        raise InvalidInputError(
+        raise DataContentError(
             f"{message} {plan.forecaster} with {plan.estimator} cannot use "
-            f"them, so its predictions would be missing: fill them in.",
+            f"them, so its predictions would be missing. Either they are "
+            f"filled in, or the plan uses an estimator that accepts missing "
+            f"values (for example 'LGBMRegressor').",
             field = "data",
         )
     warnings.warn(
@@ -606,7 +611,7 @@ def _final_rows(
         f"; to forecast {their}, pass their exogenous variables in `exog`"
         if uses_exog else ""
     )
-    raise InvalidInputError(
+    raise DataContentError(
         f"The data has no target value{where} after {prefix}{shown[0]}: drop "
         f"its last {len(after)} row(s) ({prefix}{span}), so that it ends with "
         f"the last value of the target{exog}.{weekends}",
@@ -1049,7 +1054,7 @@ def _check_multiseries_evaluation(
             missing[_plain(name)] = pd.DatetimeIndex(absent)
 
     if ending:
-        raise InvalidInputError(
+        raise DataContentError(
             f"Some series have no value on the last training date "
             f"({plan.end_train}): {_shown(ending)}. {plan.forecaster} does not "
             f"predict a series that ends before the others, and when no series "
@@ -1075,10 +1080,197 @@ def _check_multiseries_evaluation(
             f"they reach."
             if ended else ""
         )
-        raise InvalidInputError(
+        raise DataContentError(
             f"The target has missing values in the test split ({shown}). "
             f"skforecast cannot compute the metrics on them, whatever the "
             f"estimator. Impute the target, or evaluate on dates without "
             f"missing values.{without_test}",
             field = "data",
         )
+
+
+def validate_backtest_windows(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+) -> None:
+    """
+    Check the values of the target that the forecaster reads to predict each
+    test fold of a backtest of a single series.
+
+    Every fold is predicted from the values before it, as a forecast is from
+    the last ones, and `dropna_from_series` only drops the missing values
+    from the training matrices. A missing value (or a missing timestamp,
+    which `asfreq()` restores as one) that a lag reads in a fold gave
+    missing predictions and the metrics failed on them with "Input contains
+    NaN", although the same plan forecasts when its last values are
+    complete. The rule is that of the prediction mode
+    (`validate_last_window`), applied to the window of each fold: an error
+    when the estimator does not tolerate missing values, for
+    ForecasterEquivalentDate and when the inverse of the differentiation
+    reads them; a warning with an estimator that tolerates them.
+
+    Several series are not checked: their backtest drops the missing values
+    per series. Data the generated code cannot read and a strategy that
+    cannot be split on it are left to the error of the generated code.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Data the backtest runs on.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+
+    Returns
+    -------
+    None
+    """
+    if profile.n_series != 1 or not isinstance(profile.target, str):
+        return
+    if not profile.missing_target and not profile.has_gaps:
+        return
+    frames = _target_frame(data, profile)
+    if frames is None:
+        return
+    frame = frames[0]
+    absent = frame[profile.target].isna().to_numpy()
+    if not absent.any():
+        return
+
+    original_verbose = cv.verbose
+    cv.verbose = False
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            folds = cv.split(X=frame[profile.target], as_pandas=True)
+    except (ValueError, TypeError):
+        # The generated script fails on this strategy with its own error.
+        return
+    finally:
+        cv.verbose = original_verbose
+
+    # The positions read depend on the steps predicted from the window, the
+    # gap included: fewer in an incomplete last fold.
+    read_by_steps: dict[int, tuple[np.ndarray, int, int]] = {}
+    read: set[int] = set()
+    by_differentiation = False
+    n_folds = 0
+    order = 0
+    for start, end in zip(folds["test_start"], folds["test_end"]):
+        start, end = int(start), int(end)
+        if not absent[:start].any():
+            continue
+        n_steps = end - start
+        if n_steps not in read_by_steps:
+            read_by_steps[n_steps] = _read_positions(
+                plan.model_copy(update={"steps": n_steps}), limit=len(frame)
+            )
+        positions, order, size = read_by_steps[n_steps]
+        if not size:
+            return
+        in_fold, differentiation = _missing_read(
+            missing_window = absent[:start][::-1][:size],
+            positions      = positions,
+            order          = order,
+            plan           = plan,
+            inverse        = True,
+        )
+        if in_fold:
+            n_folds += 1
+            by_differentiation = by_differentiation or differentiation
+            read.update(start - position for position in in_fold)
+
+    if not read:
+        return
+    _report(
+        missing   = {
+            _plain(profile.target): (frame.index[sorted(read)], by_differentiation)
+        },
+        plan      = plan,
+        order     = order,
+        by_series = False,
+        where     = f" {n_folds} of the {len(folds)} test folds",
+    )
+
+
+def backtest_missing_values_reason(
+    plan: ForecastPlan, profile: DataProfile
+) -> tuple[str, bool] | None:
+    """
+    Why a backtest of a plan can read missing values of the target it cannot
+    use: a single series with missing values or missing timestamps, and a
+    forecaster that cannot predict from one (a lag forecaster whose
+    estimator does not tolerate them, or ForecasterEquivalentDate).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan a strategy is built for.
+    profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    reason : tuple, None
+        None when the backtest cannot fail for that reason. Otherwise who
+        cannot use a missing value (`'ForecasterRecursive with Ridge cannot
+        predict from'`, `'ForecasterEquivalentDate repeats'`) and whether an
+        estimator that accepts missing values would avoid it.
+    """
+    if profile.n_series != 1 or not isinstance(profile.target, str):
+        return None
+    if not profile.missing_target and not profile.has_gaps:
+        return None
+    if plan.forecaster == "ForecasterEquivalentDate":
+        return f"{plan.forecaster} repeats", False
+    if (
+        plan.forecaster in AUTOREG_FORECASTERS
+        and plan.estimator not in NAN_TOLERANT_ESTIMATORS
+    ):
+        return f"{plan.forecaster} with {plan.estimator} cannot predict from", True
+
+    return None
+
+
+def warn_backtest_missing_values(plan: ForecastPlan, profile: DataProfile) -> None:
+    """
+    Warn when a strategy is built for a plan whose backtest can read missing
+    values of the target (see `backtest_missing_values_reason`). Where they
+    are is not known without the data, so `backtest()` checks every fold
+    (see `validate_backtest_windows`) and this warning says beforehand that
+    it can raise, and what avoids it.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy is built for.
+    profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    None
+    """
+    reason = backtest_missing_values_reason(plan, profile)
+    if reason is None:
+        return
+    who, estimator_avoids_it = reason
+    estimator = (
+        ", or choose an estimator that accepts missing values (for "
+        "example 'LGBMRegressor')"
+    ) if estimator_avoids_it else ""
+    warnings.warn(
+        f"The target has missing values or missing timestamps (asfreq() "
+        f"restores them as missing values), and {who} a missing value: "
+        f"`backtest()` of this plan raises when a test fold is predicted "
+        f"from one, naming its dates. `dropna_from_series` only drops them "
+        f"from the training data. Impute the target{estimator} to backtest "
+        f"every fold.",
+        UserWarning,
+        stacklevel = 3,
+    )

@@ -9,6 +9,7 @@ from skforecast_ai.mcp import create_server
 from ..fixtures_assistant import df_single
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
+    DATA_VALUES_HINT,
     call,
     df_single_future_exog,
     content_of,
@@ -50,25 +51,44 @@ def test_tool_forecast_output_matches_python_api(tmp_path, test_size):
     assert result["links"] == {"profile_id": profile_id, "plan_id": plan_id}
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
+    # Only an evaluation has metrics, and with them the notice that gives
+    # the reference of MASE and the unit of MAPE, after the one that says it
+    # is an evaluation.
+    categories = [notice["category"] for notice in result["notices"]]
     if test_size is None:
         assert sorted(result["files"]) == ["predictions"]
+        assert categories == []
     else:
         assert text_of(result["files"]["metrics"]) == expected.metrics.to_csv()
+        assert categories == [
+            "HoldoutEvaluationNotice", "MetricReferenceNotice", "MetricUnitNotice",
+        ]
     assert code == expected.code
 
 
 def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
     """
     Test that the plan of an evaluation, which holds the split of the test
-    set, is never registered as a plan.
+    set, is never registered as a plan, and that only the evaluation carries
+    the notice that its dates are already in the data.
     """
     server, path = h2o_server(tmp_path)
     _, plan_id = profile_and_plan(server, path)
 
-    content_of(call(server, "forecast", {"plan_id": plan_id, "test_size": 12}))
+    evaluation = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 12})
+    )
+    future = content_of(call(server, "forecast", {"plan_id": plan_id}))
     objects = content_of(call(server, "list_objects", {"kind": "plan"}))["objects"]
 
     assert [o["id"] for o in objects] == [plan_id]
+    assert [notice["category"] for notice in evaluation["notices"]] == [
+        "HoldoutEvaluationNotice", "MetricReferenceNotice", "MetricUnitNotice",
+    ]
+    assert "2007-07-01 00:00:00 to 2008-06-01 00:00:00" in (
+        evaluation["notices"][0]["message"]
+    )
+    assert future["notices"] == []
 
 
 def test_tool_forecast_with_future_exog(tmp_path):
@@ -191,8 +211,10 @@ def test_tool_forecast_file_too_large_for_exog_or_grown_data(tmp_path):
 def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
     """
     Test that a plan built with `use_exog=false` forecasts data with
-    exogenous columns without `exog_path`, as the Python API does, and
-    that passing `exog_path` to it is an `invalid_argument`.
+    exogenous columns without `exog_path`, as the Python API does, with a
+    notice that says they were left out, and that passing `exog_path` to it
+    is an `invalid_argument` without the hint about the file of the user:
+    the argument is the agent's to drop.
     """
     path = write_csv(tmp_path, "sales.csv", df_single)
     exog_path = write_csv(tmp_path, "future.csv", df_single_future_exog)
@@ -216,7 +238,50 @@ def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
     )
 
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
+    assert [notice["category"] for notice in result["notices"]] == [
+        "ExogLeftOutNotice"
+    ]
     assert (given["code"], given["field"]) == ("invalid_argument", "exog_path")
+    assert given["message"] == (
+        "`exog` was provided but the plan does not use exogenous variables "
+        "(`plan.use_exog` is False). Remove `exog`."
+    )
+    assert given["hint"] is None
+
+
+def test_tool_forecast_invalid_argument_when_future_exog_is_missing(tmp_path):
+    """
+    Test that a plan with exogenous variables carries a notice about their
+    future values, and that forecasting it without `exog_path` is
+    `invalid_argument` with a hint that leaves those values to the user:
+    the message of the library offers `test_size`, and an agent without the
+    hint writes the file itself or reports the evaluation as the forecast.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    plan = content_of(call(server, "describe_object", {"object_id": plan_id}))
+    error = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
+
+    assert [notice["category"] for notice in plan["notices"]] == ["FutureExogNotice"]
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        "`exog` is required for future prediction because the data contains "
+        "exogenous variables. Provide future exogenous values covering the "
+        "forecast horizon, or pass `test_size` to run in evaluation mode "
+        "instead."
+    )
+    assert error["hint"] == (
+        "Only the user has the future values: never write, copy or estimate "
+        "them yourself. Ask the user for a CSV file with them, or build the "
+        "plan again with `use_exog: false` and tell the user the exogenous "
+        "variables were left out. Measure that new plan before forecasting, "
+        "on the same folds with `backtest(cv_id, plan_id)`, and report its "
+        "accuracy, not that of the plan with exogenous variables. Do not pass "
+        "`test_size`: it evaluates dates already in the data, which is not "
+        "the forecast the user asked for."
+    )
 
 
 def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(
@@ -279,3 +344,129 @@ def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(
         "dates they reach."
     )
     assert error["field"] == "data_path"
+
+
+def test_tool_forecast_invalid_argument_with_hint_when_final_rows_have_no_target(
+    tmp_path,
+):
+    """
+    Test that forecasting data whose last rows have no target value is
+    `invalid_argument` on `data_path` with the hint of the server that
+    leaves the values to the user: the message says to drop the rows, which
+    an agent does without asking.
+    """
+    data = df_single.drop(columns="promo")
+    data.loc[data.index[-3:], "sales"] = float("nan")
+    path = write_csv(tmp_path, "tail.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    error = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
+    assert error["message"] == (
+        "The data has no target value after 2023-04-07: drop its last 3 "
+        "row(s) (2023-04-08 to 2023-04-10), so that it ends with the last "
+        "value of the target."
+    )
+    assert error["hint"] == DATA_VALUES_HINT
+
+
+def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_missing_values(
+    tmp_path,
+):
+    """
+    Test that a file of future exogenous values with a missing value, for
+    an estimator that cannot use it, is `invalid_argument` on `exog_path`
+    with a hint that leaves the file to the user.
+    """
+    future = df_single_future_exog.copy()
+    future.iloc[2, 1] = float("nan")
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    exog_path = write_csv(tmp_path, "future.csv", future)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(
+        server, path, target="sales", steps=10, estimator="Ridge"
+    )
+
+    error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": exog_path}),
+        "forecast",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        "`exog` has missing values in the rows to forecast ('promo': 1 "
+        "value(s), such as '2023-04-13'). ForecasterRecursive with Ridge "
+        "cannot use them, so its predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
+    )
+    assert error["hint"] == (
+        "The file of future values is the user's: tell them what the message "
+        "says and let them correct it. Never write or change those values "
+        "yourself."
+    )
+
+
+def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_no_date_column(
+    tmp_path,
+):
+    """
+    Test that a file of future exogenous values without the date column of
+    the data, which fails before the forecast runs, is `invalid_argument`
+    on `exog_path` with the hint that leaves the file to the user.
+    """
+    future = df_single_future_exog.rename(columns={"date": "day"})
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    exog_path = write_csv(tmp_path, "future.csv", future)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": exog_path}),
+        "forecast",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        f"The exog CSV '{exog_path}' has no column 'date'; its columns are "
+        f"['day', 'promo']."
+    )
+    assert error["hint"] == (
+        "The file of future values is the user's: tell them what the message "
+        "says and let them correct it. Never write or change those values "
+        "yourself."
+    )
+
+
+def test_tool_forecast_invalid_argument_without_hint_when_exog_path_and_test_size(
+    tmp_path,
+):
+    """
+    Test that `exog_path` together with `test_size` is `invalid_argument`
+    on `exog_path` without the hint about the file of the user: nothing is
+    wrong in the file, the agent passed an argument an evaluation does not
+    take.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    exog_path = write_csv(tmp_path, "future.csv", df_single_future_exog)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    error = error_of(
+        call(
+            server,
+            "forecast",
+            {"plan_id": plan_id, "exog_path": exog_path, "test_size": 10},
+        ),
+        "forecast",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        "`exog` is only used for future prediction (`test_size=None`). In "
+        "evaluation mode the test-set exogenous values are taken from the "
+        "train/test split, so `exog` must not be provided."
+    )
+    assert error["hint"] is None

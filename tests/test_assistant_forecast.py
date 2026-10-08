@@ -1220,7 +1220,9 @@ def test_forecast_InvalidInputError_when_last_window_missing_value_and_ridge():
     err_msg = re.escape(
         "The forecaster reads missing values of the target to predict ('x': 1 "
         "value(s), such as '2007-06-01'). ForecasterRecursive with Ridge cannot "
-        "use them, so its predictions would be missing: fill them in."
+        "use them, so its predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.warns(MissingValuesWarning):
         with pytest.raises(InvalidInputError, match=err_msg):
@@ -1326,7 +1328,9 @@ def test_forecast_InvalidInputError_when_evaluation_training_ends_with_missing_a
         err_msg = re.escape(
             "The forecaster reads missing values of the target to predict ('x': "
             f"1 value(s), such as '{date}'). ForecasterRecursive with Ridge "
-            "cannot use them, so its predictions would be missing: fill them in."
+            "cannot use them, so its predictions would be missing. "
+            "Either they are filled in, or the plan uses an estimator that "
+            "accepts missing values (for example 'LGBMRegressor')."
         )
         with pytest.warns(MissingValuesWarning):
             with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
@@ -1684,7 +1688,9 @@ def test_forecast_evaluation_mode_when_last_training_date_absent():
 
     err_msg = re.escape(
         _H2O_LAST_TRAINING_READ + "ForecasterRecursive with Ridge cannot use "
-        "them, so its predictions would be missing: fill them in."
+        "them, so its predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         ForecastingAssistant().forecast(

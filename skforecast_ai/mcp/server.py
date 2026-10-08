@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import ast
 import copy
 import functools
 import json
@@ -17,6 +18,7 @@ import threading
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
+from importlib import metadata
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args, get_origin
 import anyio
@@ -34,6 +36,8 @@ from .._constants import (
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
 )
+from .._foundation import resolve_foundation_model
+from .._last_window import backtest_missing_values_reason
 from .._utils import (
     load_exog,
     plan_override_value,
@@ -41,11 +45,12 @@ from .._utils import (
     warn_long_training,
 )
 from ..assistant import ForecastingAssistant
-from ..exceptions import InvalidInputError, SkforecastAIError
+from ..exceptions import DataContentError, InvalidInputError, SkforecastAIError
 from ..execution.comparison import (
     missing_foundation_backend,
     resolve_compare_candidates,
 )
+from ..profiling.data_profile import _listed_columns, read_csv_file
 from ..recommendation import (
     count_estimator_fits,
     count_inference_windows,
@@ -138,17 +143,89 @@ NonNegative = Annotated[int, Field(ge=0)]
 # same order, a strategy records when the user passes them.
 CV_ARGUMENTS = CV_OVERRIDE_NAMES
 
+# Metrics scaled by the error of a naive forecast, as the metrics of a
+# backtest (the names of skforecast) and of a forecast (short names) call
+# them.
+SCALED_METRICS = {
+    "mean_absolute_scaled_error": "mean_absolute_scaled_error",
+    "root_mean_squared_scaled_error": "root_mean_squared_scaled_error",
+    "MASE": "mean_absolute_scaled_error",
+    "RMSSE": "root_mean_squared_scaled_error",
+}
+
+# MAPE, as the metrics of a backtest and of a forecast call it.
+MAPE_NAMES = frozenset({"mean_absolute_percentage_error", "MAPE"})
+
+# Hint of an error of `profile` about the content of the file.
+DATA_PROBLEM_HINT = (
+    "This is a problem of the file of the user, and how to solve it is their "
+    "decision. Tell them every problem the message names and ask before "
+    "writing a corrected copy; never change their file."
+)
+
+# Hint of `forecast` when the plan uses exogenous variables and no file of
+# future values was given. The message of the library offers `test_size`,
+# right in Python and wrong here: an agent runs the evaluation and reports
+# it as the forecast, or writes the file itself. The hint arrives after the
+# backtest of the plan, so it also asks to measure the plan built without
+# the exogenous variables: agents forecast with it and gave the accuracy of
+# the other one.
+FUTURE_EXOG_HINT = (
+    "Only the user has the future values: never write, copy or estimate them "
+    "yourself. Ask the user for a CSV file with them, or build the plan again "
+    "with `use_exog: false` and tell the user the exogenous variables were "
+    "left out. Measure that new plan before forecasting, on the same folds "
+    "with `backtest(cv_id, plan_id)`, and report its accuracy, not that of "
+    "the plan with exogenous variables. Do not pass `test_size`: it evaluates "
+    "dates already in the data, which is not the forecast the user asked for."
+)
+
+# Hint of `backtest`, `compare` and `forecast` for an error of the library
+# about the values of the data (missing values a prediction reads, final
+# rows without a target). The message says what would solve it, and an agent
+# does it without asking: it fills the values in, or changes the estimator
+# and does not tell.
+DATA_VALUES_HINT = (
+    "The values the message names are data of the user: do not fill in, drop "
+    "or write any of them yourself, and ask before a corrected copy is "
+    "written. Say in your answer that this call failed and why. When the "
+    "message blames the estimator, one that accepts missing values (such as "
+    "'LGBMRegressor') avoids the error without touching the data: if you "
+    "switch to it, say in your answer that you changed the estimator and why."
+)
+
+# Hint of `forecast` for an error of the library about the file of future
+# exogenous values.
+EXOG_FILE_HINT = (
+    "The file of future values is the user's: tell them what the message "
+    "says and let them correct it. Never write or change those values "
+    "yourself."
+)
+
+# The instructions of a server, with the directory it reads in place of
+# `{allowed_dir}`.
 INSTRUCTIONS = """\
 Deterministic time series forecasting with skforecast. Every decision \
 (forecaster, estimator, lags, metric, cross-validation) comes from rules, \
 never from a language model, and is reproducible.
 
-Workflow: `profile` a CSV file (absolute path inside the directory the server \
-may read) -> `plan` with a horizon (`steps`) -> optionally `refine_plan` -> \
+The server reads CSV files only inside '{allowed_dir}' (subdirectories \
+included). Tools take absolute paths: a file the user names by a relative \
+path or by its name is looked for there, so build the path from that \
+directory instead of searching the file system. When the file is outside \
+it, stop and answer the user: only they can copy it there or restart the \
+server with another `--allow-dir`. Never copy, move or rewrite it into that \
+directory yourself (no `cp`, no reading it and writing it again).
+
+Workflow: `profile` a CSV file (absolute path inside that directory) -> \
+`plan` with a horizon (`steps`) -> optionally `refine_plan` -> \
 `create_cv` (check its `cost`) -> `backtest` -> optionally `compare` -> \
 `forecast`. Each tool returns an `id`; later tools take ids, never objects. \
 Every response has a plain-text `summary` and the warnings of the call in \
 `notices`; it never holds rows of data, which go to CSV files (`files`). \
+What you do see of the data: the messages of errors and warnings can name \
+columns and series and quote up to 5 values, a traceback of `get_failure` \
+can quote values, and scripts and plan summaries name the path of the file. \
 `get_code` returns the script that ran, `get_failure` the traceback of a \
 failure, `describe_object` the response that created an object, \
 `list_objects` the ids registered now.
@@ -160,22 +237,396 @@ Rules (the skforecast-ai-forecasting skill has the rest):
 1. Trust: a `compare` whose winner beats the baseline > a `backtest` > a \
 `forecast` with `test_size` (one window) > a `forecast` of the future (no \
 error measure). Without a baseline (several series, or a target with gaps), \
-judge each series by `mean_absolute_scaled_error` in the CSV of metrics \
-(below 1 beats a naive forecast) and name the worst one: the summary only \
-has the average. Never invent a number.
-2. Cost: read `cost` of `create_cv` before running; above 50 estimator fits \
-tell the user and prefer fewer folds or `refit=false`.
+judge each series by `mean_absolute_scaled_error` in the CSV of metrics and \
+name the worst one: the summary only has the average. Below 1 it beats the \
+one-step naive forecast (repeat the previous value) on the training data, \
+which is not a seasonal naive forecast nor the baseline of `compare`. Never \
+invent a number, nor derive one: no percentage, ratio or difference that a \
+response does not give.
+2. Cost: read `cost` of `create_cv` before running. Before a run above 50 \
+estimator fits, stop: tell the user the number of fits and the cheaper \
+strategies (an integer `refit`, fewer folds, `refit=false`) and run the \
+expensive one only if they choose it. Asking to retrain is not that choice.
 3. Read `notices` before reporting and tell the user about data problems \
 (missing dates, rows without target) and plan warnings.
 4. `compare` without `interval` uses the interval of the plan of the \
 strategy; with an asymmetric one there is no baseline ([0.1, 0.9] is \
 symmetric).
-5. Never modify the user's data. If the CSV has a problem, tell the user; \
+5. Never modify the user's data, nor write data for them: future values of \
+exogenous variables come from the user, or the plan leaves them out \
+(`use_exog: false`) and you say so. If the CSV has a problem, tell the user; \
 only with their permission write a corrected copy inside the allowed \
 directory under a new name and profile it.
 6. Foundation models other than the default (Chronos-2) have their own \
-license and size: tell the user before choosing one.\
+license and size: tell the user before choosing one. State the license of a \
+model only as a notice or an error gives it.
+7. Report what was measured, never why: give no cause, even hedged, for a \
+ranking, a metric or the shape of a forecast. `compare` says which candidate \
+has the lowest error over the folds, not what makes it better.
+8. The server does not search hyperparameters (it compares the candidates \
+you list), detect anomalies or select features. Say so and stop there: do \
+not do them another way (your own script, reading the file) unless the user \
+then asks.\
 """
+
+
+def _instructions(allowed: AllowedDir) -> str:
+    """
+    Instructions of a server that reads a directory. They name it: an agent
+    that does not know it searches the file system for the files the user
+    names by a relative path.
+    """
+
+    return INSTRUCTIONS.format(allowed_dir=allowed.path)
+
+
+def _leave_to_user(
+    exc: SkforecastAIError,
+    hints: dict[str, str],
+    kind: type[SkforecastAIError] = DataContentError,
+) -> None:
+    """
+    Give an error of the library that has no hint the one of the server for
+    its field, when the error is of the kind the hints are for.
+
+    The content of a file of the user is at fault, not an argument: the
+    message says how to fix it, which an agent does on its own unless it is
+    told whose decision that is. An argument the agent got wrong has the
+    same field and is its own to correct, so it gets none of these hints.
+
+    Parameters
+    ----------
+    exc : SkforecastAIError
+        Error raised by the core, changed in place.
+    hints : dict
+        Hint by field of the Python API (`'data'`, `'exog'`).
+    kind : type, default DataContentError
+        Class of the errors that get a hint: by default those the core
+        raises for the content of the data or of the future exogenous
+        variables.
+
+    Returns
+    -------
+    None
+    """
+
+    if exc.hint is None and exc.field in hints and isinstance(exc, kind):
+        exc.hint = hints[exc.field]
+
+
+def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
+    """
+    Notice about the exogenous columns of the data: on a plan that uses
+    them, that `forecast` needs their future values from the user; on a
+    forecast of a plan that does not, that they were left out.
+
+    The hint of `forecast` arrives after an agent wrote the file of future
+    values itself, which it does as soon as the summary of the plan names
+    that file; and an agent that leaves the columns out seldom says so.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan built, or plan the forecast ran.
+    profile : ForecastingProfile
+        Profile the plan comes from.
+    forecast : bool
+        Whether the notice is for a forecast (True) or for a plan (False).
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice, or none: a plan without exogenous variables, a forecast
+        that uses them, or data without exogenous columns.
+    """
+
+    columns = list(profile.data_profile.exog_columns)
+    if not columns or plan.use_exog == forecast:
+        return []
+    shown = ", ".join(repr(column) for column in columns[:5])
+    if len(columns) > 5:
+        shown += f" (first 5 of {len(columns)})"
+    if forecast:
+        return [
+            ToolNotice(
+                source   = "plan",
+                category = "ExogLeftOutNotice",
+                message  = (
+                    f"Say in your answer that this forecast does not use the "
+                    f"exogenous columns of the data ({shown}): its plan has "
+                    f"`use_exog: false`."
+                ),
+                count    = 1,
+            )
+        ]
+
+    return [
+        ToolNotice(
+            source   = "plan",
+            category = "FutureExogNotice",
+            message  = (
+                f"This plan uses the exogenous columns {shown}: `forecast` "
+                f"needs their future values, which only the user has, in a "
+                f"CSV file (`exog_path`). Never write that file yourself: ask "
+                f"the user for it, or use `use_exog: false` and tell them "
+                f"those columns were left out."
+            ),
+            count    = 1,
+        )
+    ]
+
+
+def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
+    """
+    Notice of `create_cv` for a plan whose backtest can fail on the missing
+    values of the target. The warning of the library that comes with it says
+    what would solve it (`Impute the target, or choose an estimator...`),
+    which is right for whoever owns the data and an order for an agent: it
+    fills the values in without asking, or skips the backtest and forecasts
+    without telling. This notice carries the rule of `DATA_VALUES_HINT`, one
+    call before the error that has it.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy was built for.
+    profile : ProfileResult
+        Profile the plan was built from.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'data'`), or none when the backtest cannot fail
+        for that reason.
+    """
+
+    reason = backtest_missing_values_reason(plan, profile.data_profile)
+    if reason is None:
+        return []
+    message = (
+        "The missing values of the target are data of the user: do not fill "
+        "in, drop or write any of them yourself, in their file or in a copy "
+        "of it, unless they asked for exactly that. Ask before you do."
+    )
+    if reason[1]:
+        message += (
+            " Without touching the data, an estimator that accepts missing "
+            "values (such as 'LGBMRegressor', with `refine_plan` and a new "
+            "`create_cv`) lets `backtest` run on every fold: if you switch to "
+            "it, say in your answer that you changed the estimator and why."
+        )
+    message += (
+        " If you forecast without a backtest, say in your answer that the "
+        "forecast has no measure of error and why."
+    )
+
+    return [
+        ToolNotice(
+            source   = "data",
+            category = "MissingValuesNotice",
+            message  = message,
+            count    = 1,
+        )
+    ]
+
+
+def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
+    """
+    Notice of `create_cv` for a strategy whose backtest, or whose `compare`
+    without candidates, is above the thresholds of an expensive run. The
+    warning of the library that comes with it states the cost
+    (`... will be fit 220 times`), and rule 2 of the instructions says what
+    to do with it: an agent that has only the instructions reads the number
+    and runs anyway. This notice carries that rule with the number, in the
+    response where the strategy can still change.
+
+    Parameters
+    ----------
+    cost : dict
+        Cost of the strategy as `create_cv` returns it: `estimator_fits` and
+        `inference_windows` of its backtest, `compare_estimator_fits` and
+        `compare_inference_windows` of a `compare` without candidates.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`), or none when every run is at or
+        below the thresholds.
+    """
+
+    backtest_parts = []
+    if cost["estimator_fits"] > LONG_TRAINING_FITS:
+        backtest_parts.append(f"fits {cost['estimator_fits']} estimators")
+    if cost["inference_windows"] > LONG_INFERENCE_WINDOWS:
+        backtest_parts.append(
+            f"runs up to {cost['inference_windows']} inference windows"
+        )
+    compare_parts = []
+    if cost["compare_estimator_fits"] > LONG_TRAINING_FITS:
+        compare_parts.append(
+            f"fits about {cost['compare_estimator_fits']} estimators"
+        )
+    if cost["compare_inference_windows"] > LONG_INFERENCE_WINDOWS:
+        compare_parts.append(
+            f"runs up to {cost['compare_inference_windows']} inference windows"
+        )
+    if not backtest_parts and not compare_parts:
+        return []
+
+    runs = []
+    if backtest_parts:
+        runs.append(f"`backtest` {' and '.join(backtest_parts)}")
+    if compare_parts:
+        runs.append(
+            f"`compare` without `candidates` {' and '.join(compare_parts)}"
+        )
+    message = (
+        f"Expensive run: with this strategy, {'; '.join(runs)} (an expensive "
+        f"run is one above {LONG_TRAINING_FITS} estimator fits or "
+        f"{LONG_INFERENCE_WINDOWS} inference windows). Stop here and do not "
+        f"run it: tell the user those numbers and the cheaper strategies (an "
+        f"integer `refit`, fewer folds, `refit=false`; for `compare`, a list "
+        f"of `candidates`), and run the expensive one only if they choose it. "
+        f"Asking to retrain the model, or to evaluate it as in production, is "
+        f"not that choice."
+    )
+    if not backtest_parts:
+        message += " `backtest` of this plan is below the thresholds and can run."
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "CostNotice",
+            message  = message,
+            count    = 1,
+        )
+    ]
+
+
+def _holdout_notices(predictions: Any, test_size: Any) -> list[ToolNotice]:
+    """
+    Notice of a forecast run with `test_size`: its predictions are for
+    dates already in the data, so it is an evaluation and not the forecast
+    of the future, which agents present it as.
+
+    Parameters
+    ----------
+    predictions : pandas DataFrame, None
+        Predictions of the result, indexed by the dates (or positions) of
+        the test set.
+    test_size : int, float, str, None
+        Argument of the tool. None for a forecast of the future.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`) for an evaluation, else empty.
+    """
+
+    if test_size is None:
+        return []
+    where = "dates"
+    if predictions is not None and len(predictions):
+        index = predictions.index
+        where = f"{index.min()} to {index.max()}, dates"
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "HoldoutEvaluationNotice",
+            message  = (
+                f"Say in your answer that these predictions are for {where} "
+                f"already in the data: with `test_size` this is an evaluation "
+                f"of the model on its last observations, not a forecast of "
+                f"the future. Never title or describe it as the next periods; "
+                f"the future needs `forecast` without `test_size`."
+            ),
+            count    = 1,
+        )
+    ]
+
+
+def _metric_notices(metrics: Any) -> list[ToolNotice]:
+    """
+    Notice with the reference of the scaled metrics (MASE, RMSSE) among the
+    metrics of a backtest or a forecast.
+
+    The summary of a comparison states it; the one of a backtest or a
+    forecast gives the value alone, which agents read as the error against
+    a seasonal naive forecast.
+
+    Parameters
+    ----------
+    metrics : pandas DataFrame, None
+        Metrics of the result, one column per metric.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`) when a scaled metric was computed,
+        and the one of `_mape_notices` when MAPE was.
+    """
+
+    if metrics is None:
+        return []
+    names = list(dict.fromkeys(
+        SCALED_METRICS[column] for column in metrics.columns
+        if column in SCALED_METRICS
+    ))
+    if not names:
+        return _mape_notices(metrics)
+    shown = " and ".join(f"`{name}`" for name in names)
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricReferenceNotice",
+            message  = (
+                f"{shown} divide{'s' if len(names) == 1 else ''} the error "
+                f"by that of the one-step naive forecast (repeat the previous "
+                f"value) on the training data: below 1 the error is smaller "
+                f"than that reference. The reference is not a seasonal naive "
+                f"forecast nor the baseline of `compare`, so do not report a "
+                f"value below 1 as beating either."
+            ),
+            count    = 1,
+        ),
+        *_mape_notices(metrics),
+    ]
+
+
+def _mape_notices(metrics: Any) -> list[ToolNotice]:
+    """
+    Notice with the unit of MAPE among the metrics of a result or the
+    columns of a leaderboard: a fraction, which agents report as a
+    percentage as it is (1.245 as "1.25 %", 100 times too small).
+
+    Parameters
+    ----------
+    metrics : pandas DataFrame, None
+        Metrics of the result, one column per metric.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`) when MAPE was computed, else empty.
+    """
+
+    if metrics is None or not MAPE_NAMES.intersection(metrics.columns):
+        return []
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricUnitNotice",
+            message  = (
+                "`mean_absolute_percentage_error` is a fraction, not a "
+                "percentage: 0.05 is 5 %, and 1.245 is 124.5 %. Multiply it "
+                "by 100 before you write it with a % sign."
+            ),
+            count    = 1,
+        )
+    ]
 
 
 def _accepts_text(annotation: Any) -> bool:
@@ -192,6 +643,90 @@ def _accepts_text(annotation: Any) -> bool:
         return _accepts_text(get_args(annotation)[0])
 
     return any(_accepts_text(arg) for arg in get_args(annotation))
+
+
+def _drop_titles(node: Any) -> Any:
+    """
+    Copy of a JSON schema without the `title` texts Pydantic generates from
+    the names of the fields (`"title": "Metric"` next to `metric`), which
+    tell an agent nothing its key does not. A property named `title` is
+    kept: its value is a schema, not a text.
+    """
+
+    if isinstance(node, dict):
+        return {
+            key: _drop_titles(value)
+            for key, value in node.items()
+            if not (key == "title" and isinstance(value, str))
+        }
+    if isinstance(node, list):
+        return [_drop_titles(item) for item in node]
+
+    return node
+
+
+def _share_enums(schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    Copy of a JSON schema in which a list of allowed values written more
+    than once (the metrics, as one value and as the items of a list) is
+    written once in `$defs` and referenced, named after the first property
+    that uses it.
+    """
+
+    found: dict[str, dict[str, Any]] = {}
+
+    def is_enum(node: Any) -> bool:
+        return isinstance(node, dict) and set(node) == {"enum", "type"}
+
+    def count(node: Any, name: str) -> None:
+        if is_enum(node):
+            entry = found.setdefault(
+                json.dumps(node, sort_keys=True), {"name": name, "uses": 0}
+            )
+            entry["uses"] += 1
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                if key == "properties" and isinstance(value, dict):
+                    for prop, prop_schema in value.items():
+                        count(prop_schema, prop)
+                else:
+                    count(value, name)
+        elif isinstance(node, list):
+            for item in node:
+                count(item, name)
+
+    count(schema, "")
+    definitions = dict(schema.get("$defs", {}))
+    references = {}
+    for text, entry in found.items():
+        if entry["uses"] < 2 or not entry["name"]:
+            continue
+        name = "".join(part.capitalize() for part in entry["name"].split("_"))
+        while name in definitions:
+            name += "Value"
+        definitions[name] = json.loads(text)
+        references[text] = {"$ref": f"#/$defs/{name}"}
+    if not references:
+        return schema
+
+    def replace(node: Any) -> Any:
+        if is_enum(node):
+            reference = references.get(json.dumps(node, sort_keys=True))
+            return dict(reference) if reference else node
+        if isinstance(node, dict):
+            return {key: replace(value) for key, value in node.items()}
+        if isinstance(node, list):
+            return [replace(item) for item in node]
+        return node
+
+    shared = replace({k: v for k, v in schema.items() if k != "$defs"})
+    shared["$defs"] = {
+        name: definition if name not in schema.get("$defs", {})
+        else replace(definition)
+        for name, definition in definitions.items()
+    }
+
+    return shared
 
 
 class _StrictFuncMetadata(FuncMetadata):
@@ -294,7 +829,11 @@ class _StrictTool(Tool):
             output_model  = loose.output_model,
             wrap_output   = loose.wrap_output,
         )
-        tool.parameters = StrictArguments.model_json_schema(by_alias=True)
+        # Every client that loads the tools up front pays for this schema in
+        # each session, so it carries nothing the agent does not need.
+        tool.parameters = _share_enums(
+            _drop_titles(StrictArguments.model_json_schema(by_alias=True))
+        )
 
         return tool
 
@@ -646,7 +1185,10 @@ def _check_steps(steps: Any, profile: Any, argument: str) -> None:
             f"history.",
             code    = "invalid_argument",
             field   = argument,
-            hint    = f"Pass `steps` of at most {longest}, usually far fewer.",
+            hint    = (
+                f"Ask the user which horizon they want, of at most {longest} "
+                f"and usually far fewer: do not choose one for them."
+            ),
             details = {"steps": steps, "longest_series": longest},
         )
 
@@ -714,6 +1256,68 @@ def _text_notices(
         for text in dict.fromkeys(texts)
         if text not in emitted
     ]
+
+
+@functools.lru_cache(maxsize=1)
+def _distributions() -> dict[str, list[str]]:
+    """
+    Installed distributions by the module they provide (`sklearn` comes
+    from `scikit-learn`), read once: it scans every installed package.
+    """
+
+    return dict(metadata.packages_distributions())
+
+
+def _pinned(package: str) -> str:
+    """
+    A package with the version installed where the server runs
+    (`'pandas==2.3.1'`), or the package alone when it is not installed.
+    """
+
+    try:
+        return f"{package}=={metadata.version(package.split('[', 1)[0])}"
+    except metadata.PackageNotFoundError:
+        return package
+
+
+def _requirements(code: str, model_id: str | None) -> list[str]:
+    """
+    Packages a script needs to run outside the server.
+
+    Parameters
+    ----------
+    code : str
+        Script, whole.
+    model_id : str, None
+        Foundation model the script runs, whose backend skforecast imports
+        when it loads the model: the script does not import it.
+
+    Returns
+    -------
+    requirements : list of str
+        The packages of the modules the script imports, sorted, then the
+        backend of the foundation model, each with the version installed
+        where the server runs.
+    """
+
+    modules = set()
+    for node in ast.walk(ast.parse(code)):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            modules.add(node.module.split(".")[0])
+    distributions = _distributions()
+    packages = sorted(
+        sorted(distributions.get(module, [module]))[0]
+        for module in modules - sys.stdlib_module_names
+    )
+    if model_id is not None:
+        try:
+            packages.append(resolve_foundation_model(model_id).backend_package)
+        except InvalidInputError:
+            pass
+
+    return [_pinned(package) for package in dict.fromkeys(packages)]
 
 
 def _check_test_size_date(test_size: object) -> None:
@@ -905,10 +1509,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Absolute path of a CSV file inside the directory the server may "
             "read. URLs are not accepted."
         ))],
-        target: Annotated[str | list[str], Field(description=(
+        target: Annotated[str | list[str] | None, Field(description=(
             "Column to forecast, or a list of columns (one series each) for "
-            "wide multi-series data."
-        ))],
+            "wide multi-series data. Null when it is not known: the error "
+            "lists the columns of the file."
+        ))] = None,
         date_column: Annotated[str | None, Field(description=(
             "Column with the dates. When null, the first column holding dates "
             "is used."
@@ -931,14 +1536,36 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         def work(control: CallControl):
             path = _inputs.resolve_csv_path(data_path, state.allowed, "data_path")
             _inputs.check_file_size(path, state.max_file_bytes, "data_path")
+            if target is None:
+                # Agents called `profile` with a made up target to read the
+                # columns in its error: the same answer, without guessing.
+                columns = [str(column) for column in read_csv_file(path).columns]
+                raise ServerError(
+                    f"`target` was not given. Columns of the file: "
+                    f"{_listed_columns(columns)}.",
+                    code  = "invalid_argument",
+                    field = "target",
+                    hint  = (
+                        "Pass the column to forecast as `target`. If more than "
+                        "one could be it, ask the user."
+                    ),
+                )
             digest = _inputs.file_sha256(path)
-            result = assistant.profile(
-                data             = path,
-                target           = target,
-                date_column      = date_column,
-                series_id_column = series_id_column,
-                exog_columns     = exog_columns,
-            )
+            try:
+                result = assistant.profile(
+                    data             = path,
+                    target           = target,
+                    date_column      = date_column,
+                    series_id_column = series_id_column,
+                    exog_columns     = exog_columns,
+                )
+            except SkforecastAIError as exc:
+                # Every error of a profile on `data` is about the file:
+                # the call has no other argument with that field.
+                _leave_to_user(
+                    exc, {"data": DATA_PROBLEM_HINT}, kind=SkforecastAIError
+                )
+                raise
             _inputs.check_profile_names(result)
             _inputs.check_unchanged(path, digest, "data_path")
             object_id = store.new_id("profile")
@@ -980,9 +1607,16 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         summary: tuple[str, bool, dict[str, str]],
         code: tuple[str, str | None],
         notices: tuple[list, int] | None = None,
-        server_notices: list | None = None,
+        uncached: Iterable[str] = (),
     ) -> ToolResult:
         if notices is None:
+            # The license of its foundation model, in the announcement of
+            # the download when one is due.
+            server_notices = state.models.notices(
+                [state.models.model_of(new_plan.forecaster, new_plan.estimator)],
+                uncached,
+            )
+            server_notices += _exog_notices(new_plan, source.profile, forecast=False)
             # The plan carries its own warnings and the problems of the data
             # it was built from, also when they were not emitted this call.
             texts = [
@@ -995,7 +1629,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 outcome_warnings,
                 plan_warnings  = new_plan.warnings,
                 data_warnings  = source.data_warnings,
-                server_notices = [*(server_notices or ()), *texts],
+                server_notices = [*server_notices, *texts],
             )
         return _register(
             state,
@@ -1115,7 +1749,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         return _plan_envelope(
             object_id, new_plan, profile_entry, outcome.warnings,
             {"profile_id": profile_entry.id}, summary, code,
-            server_notices = state.models.announce(uncached),
+            uncached = uncached,
         )
 
     @_reported
@@ -1163,7 +1797,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             object_id, new_plan, plan_entry, outcome.warnings,
             {"profile_id": plan_entry.profile_id, "parent_plan_id": plan_entry.id},
             summary, code,
-            server_notices = state.models.announce(uncached),
+            uncached = uncached,
         )
 
     @_reported
@@ -1315,7 +1949,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                 outcome.warnings,
                                 plan_warnings  = result.plan.warnings,
                                 data_warnings  = plan_entry.data_warnings,
-                                server_notices = compare_notice,
+                                server_notices = [
+                                    *_cost_notices(cost),
+                                    *_missing_values_notices(
+                                        plan_entry.obj, plan_entry.profile
+                                    ),
+                                    *compare_notice,
+                                ],
                             ),
             source        = plan_entry,
             code          = result.code,
@@ -1418,6 +2058,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     show_progress = False,
                 )
             except SkforecastAIError as exc:
+                _leave_to_user(exc, {"data": DATA_VALUES_HINT})
                 _keep_failure(exc)
                 raise
             _inputs.check_unchanged(path, cv_entry.data_sha256, "data_path")
@@ -1444,8 +2085,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             summary   = summary,
             notices   = build_notices(
                             outcome.warnings,
-                            plan_warnings = result.plan.warnings,
-                            data_warnings = cv_entry.data_warnings,
+                            plan_warnings  = result.plan.warnings,
+                            data_warnings  = cv_entry.data_warnings,
+                            server_notices = _metric_notices(result.metrics),
                         ),
             source    = cv_entry,
             code      = result.code,
@@ -1557,6 +2199,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     progress_callback = on_progress,
                 )
             except SkforecastAIError as exc:
+                _leave_to_user(exc, {"data": DATA_VALUES_HINT})
                 _keep_failure(exc)
                 # Every candidate failed, so no result carries the notice of
                 # the weights the candidates that ran may have downloaded:
@@ -1639,14 +2282,20 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         estimator_fits = sum(cost["estimator_fits"] for cost in candidate_costs)
         inference_windows = sum(cost["inference_windows"] for cost in candidate_costs)
         # Only the candidates whose script ran (also those that failed while
-        # running) can have downloaded weights.
-        ran_models = {
-            state.models.model_of(candidate.plan.forecaster, candidate.plan.estimator)
-            for candidate in result.candidates.values()
-        } | {
-            models.get(name) for name, failure in result.failures.items()
-            if failure.generated_code is not None
-        }
+        # running) can have downloaded weights. Their license is given too,
+        # in the announcement of the download or alone.
+        ran_models = [
+            *(
+                state.models.model_of(
+                    candidate.plan.forecaster, candidate.plan.estimator
+                )
+                for candidate in result.candidates.values()
+            ),
+            *(
+                models.get(name) for name, failure in result.failures.items()
+                if failure.generated_code is not None
+            ),
+        ]
         cost = {
             "n_folds": int(result.cv_config["n_folds"]),
             "n_fits": int(result.cv_config["n_fits"]),
@@ -1669,13 +2318,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                        outcome.warnings,
                                        plan_warnings  = plan_warnings,
                                        data_warnings  = cv_entry.data_warnings,
-                                       server_notices = state.models.announce(
-                                           (
-                                               model for model in uncached
-                                               if model in ran_models
+                                       server_notices = [
+                                           *state.models.notices(
+                                               ran_models, uncached, ran=True
                                            ),
-                                           ran = True,
-                                       ),
+                                           *_mape_notices(result.results),
+                                       ],
                                    ),
             source               = cv_entry,
             code                 = best.code,
@@ -1723,11 +2371,17 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 _inputs.check_file_size(exog_file, state.max_file_bytes, "exog_path")
                 exog_digest = _inputs.file_sha256(exog_file)
                 data_profile = plan_entry.profile.data_profile
-                exog = load_exog(
-                    exog_file,
-                    date_column      = data_profile.date_column,
-                    series_id_column = data_profile.series_id_column,
-                )
+                try:
+                    exog = load_exog(
+                        exog_file,
+                        date_column      = data_profile.date_column,
+                        series_id_column = data_profile.series_id_column,
+                    )
+                except SkforecastAIError as exc:
+                    # A file that cannot be read as future values is as
+                    # much the user's as one with a wrong value in it.
+                    _leave_to_user(exc, {"exog": EXOG_FILE_HINT})
+                    raise
             try:
                 result = assistant.forecast(
                     data      = path,
@@ -1737,6 +2391,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     plan      = _copy(plan_entry.obj),
                 )
             except SkforecastAIError as exc:
+                if exog_path is None:
+                    # Without a file, the only error on `exog` is that the
+                    # plan needs one: an argument left out, not content.
+                    _leave_to_user(
+                        exc, {"exog": FUTURE_EXOG_HINT}, kind=SkforecastAIError
+                    )
+                _leave_to_user(
+                    exc, {"data": DATA_VALUES_HINT, "exog": EXOG_FILE_HINT}
+                )
                 _keep_failure(exc)
                 raise
             _inputs.check_unchanged(path, plan_entry.data_sha256, "data_path")
@@ -1763,8 +2426,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             summary   = summary,
             notices   = build_notices(
                             outcome.warnings,
-                            plan_warnings = result.plan.warnings,
-                            data_warnings = plan_entry.data_warnings,
+                            plan_warnings  = result.plan.warnings,
+                            data_warnings  = plan_entry.data_warnings,
+                            server_notices = [
+                                *_holdout_notices(result.predictions, test_size),
+                                *_metric_notices(result.metrics),
+                                *_exog_notices(
+                                    result.plan, plan_entry.profile, forecast=True
+                                ),
+                            ],
                         ),
             source    = plan_entry,
             code      = result.code,
@@ -1856,9 +2526,24 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 )
             code = entry.obj.candidates[candidate].code
             code_file = entry.candidate_code_files.get(candidate)
+        # The plan the script runs: of the object, or of a candidate of a
+        # comparison (the best one unless another is named).
+        obj = entry.obj
+        if entry.kind == "comparison":
+            ran = obj.best_candidate if candidate is None else obj.candidates[candidate]
+            plan_obj = ran.plan
+        else:
+            plan_obj = obj if entry.kind == "plan" else obj.plan
+        requirements = _requirements(
+            code, state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
+        )
         if code_file is None:
             return CodeResult(
-                id=entry.id, kind=entry.kind, candidate=candidate, code=code
+                id           = entry.id,
+                kind         = entry.kind,
+                candidate    = candidate,
+                code         = code,
+                requirements = requirements,
             )
 
         return CodeResult(
@@ -1867,6 +2552,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             candidate      = candidate,
             code           = code[:MAX_CODE_CHARS],
             code_truncated = True,
+            requirements   = requirements,
             files          = {"code": code_file},
         )
 
@@ -2065,7 +2751,7 @@ def _build_server(state: _ServerState) -> MCPServer:
     return MCPServer(
         name         = "skforecast-ai",
         title        = "skforecast-ai",
-        instructions = INSTRUCTIONS,
+        instructions = _instructions(state.allowed),
         version      = __version__,
         tools        = _build_tools(state),
     )

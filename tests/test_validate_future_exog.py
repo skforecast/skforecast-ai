@@ -11,7 +11,7 @@ from skforecast.preprocessing import reshape_exog_long_to_dict
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._future_exog import used_exog_columns, validate_future_exog
-from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.exceptions import DataContentError, InvalidInputError
 from skforecast_ai.execution.forecast_runner import (
     exog_as_injected,
     render_forecast_script,
@@ -495,7 +495,9 @@ def test_validate_future_exog_InvalidInputError_when_index_not_dates():
             plan_daily_ridge,
             "`exog` has missing values in the rows to forecast ('promo': 1 "
             "value(s), such as '2023-04-11'). ForecasterRecursive with Ridge "
-            "cannot use them, so its predictions would be missing: fill them in.",
+            "cannot use them, so its predictions would be missing. "
+            "Either they are filled in, or the plan uses an estimator that "
+            "accepts missing values (for example 'LGBMRegressor').",
         ),
         (
             exog_daily.assign(weekday=np.nan),
@@ -531,7 +533,9 @@ def test_validate_future_exog_InvalidInputError_when_column_not_in_data():
     err_msg = re.escape(
         "`exog` has missing values in the rows to forecast ('promo': 1 "
         "value(s), such as '2023-04-11'). ForecasterRecursive with Ridge "
-        "cannot use them, so its predictions would be missing: fill them in."
+        "cannot use them, so its predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_future_exog(
@@ -551,7 +555,9 @@ def test_validate_future_exog_InvalidInputError_when_data_without_dates():
     err_msg = re.escape(
         "`exog` has missing values in the rows to forecast ('x': 1 value(s), "
         "at index 61). ForecasterRecursive with Ridge cannot use them, so its "
-        "predictions would be missing: fill them in."
+        "predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_future_exog(exog, data_range, profile_range, plan_range_ridge)
@@ -1194,3 +1200,25 @@ def test_validate_future_exog_output_when_foundation_profile_leaves_out_columns(
         "predictions = forecaster.predict(steps=steps, "
         "exog=exog_future[['promo']])"
     ) in code
+
+
+def test_validate_future_exog_DataContentError_when_column_missing():
+    """
+    Test that the error for future exogenous variables that do not fit the
+    plan is a DataContentError, the class that tells a problem of their
+    content from an argument to correct, with the code and the field of an
+    InvalidInputError.
+    """
+    err_msg = re.escape(
+        "`exog` has no column 'weekday'. The future exogenous variables must "
+        "hold the columns ['promo', 'weekday'] that the plan uses."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_future_exog(
+            exog_daily[["promo"]], data_daily, profile_daily, plan_daily_ridge
+        )
+
+    assert type(exc_info.value) is DataContentError
+    assert (exc_info.value.code, exc_info.value.field) == (
+        "invalid_argument", "exog"
+    )

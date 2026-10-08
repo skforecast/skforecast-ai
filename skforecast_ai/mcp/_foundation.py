@@ -21,6 +21,10 @@ from .models import ToolNotice
 # the server, not a Python warning.
 MODEL_DOWNLOAD_NOTICE = "ModelDownloadNotice"
 
+# Category of the notice with the license of the foundation model of a
+# response, given when no download is announced in it.
+MODEL_LICENSE_NOTICE = "ModelLicenseNotice"
+
 # Values of HF_HUB_OFFLINE that huggingface_hub reads as true.
 _TRUE_VALUES = frozenset({"1", "on", "yes", "true"})
 
@@ -135,6 +139,24 @@ def check_allow_models(prefixes: Iterable[str]) -> tuple[str, ...]:
 # start of the model id: the notice of a model says so, since the server
 # does not check that a repository of that name exists nor read its card.
 _LICENSE_LEAD = "License (by the name of the model, as skforecast registers it):"
+
+
+def _default_license() -> str:
+    """
+    The license of the default foundation model as skforecast registers it,
+    to follow its name in a text; empty when skforecast gives none. An agent
+    told only the name of the model adds its license from memory.
+    """
+
+    try:
+        info = resolve_foundation_model(DEFAULT_FOUNDATION_MODEL_ID)
+    except InvalidInputError:
+        return ""
+    license_name = getattr(info, "license", None)
+    if not license_name:
+        return ""
+
+    return f" (license {license_name}, as skforecast registers it)"
 
 
 def _license_text(info: FoundationModelInfo) -> str:
@@ -345,8 +367,10 @@ class ModelPolicy:
             hint    = (
                 f"Tell the user about the license and, if they accept it, ask "
                 f"them to restart the server with `--allow-model {prefix}`. "
-                f"Otherwise leave `estimator` out for the default model, "
-                f"'{DEFAULT_FOUNDATION_MODEL_ID}'."
+                f"The only alternative to offer is the default model, "
+                f"'{DEFAULT_FOUNDATION_MODEL_ID}'{_default_license()}: leave "
+                f"`estimator` out for it. Name no other model and no other "
+                f"license: nothing here tells you which ones the server runs."
             ),
             details = {
                 "model_id": model_id,
@@ -513,6 +537,65 @@ class ModelPolicy:
                     source   = "plan",
                     category = MODEL_DOWNLOAD_NOTICE,
                     message  = message,
+                    count    = 1,
+                )
+            )
+
+        return notices
+
+    def notices(
+        self,
+        model_ids: Iterable[str | None],
+        uncached: Iterable[str] = (),
+        ran: bool = False,
+    ) -> list[ToolNotice]:
+        """
+        Notices about the foundation models of a response: for each one, the
+        announcement of its download (see `announce`), which carries its
+        license, or else its license alone.
+
+        The license is given in every response that names a foundation
+        model, not only the first time its weights are downloaded: without
+        it, an agent asked to tell the user the license states one from its
+        own memory.
+
+        Parameters
+        ----------
+        model_ids : iterable of str, None
+            Model IDs of the plans of the response; None is skipped.
+        uncached : iterable of str, default ()
+            Those found by `uncached` before the call ran.
+        ran : bool, default False
+            Whether the call already ran the models (a comparison).
+
+        Returns
+        -------
+        notices : list of ToolNotice
+            One notice (source `'plan'`) per model that skforecast serves,
+            without repetitions, in order.
+        """
+
+        uncached = set(uncached)
+        notices = []
+        for model_id in dict.fromkeys(model_ids):
+            if model_id is None:
+                continue
+            download = self.announce([model_id], ran=ran) if model_id in uncached else []
+            if download:
+                notices.extend(download)
+                continue
+            try:
+                info = resolve_foundation_model(model_id)
+            except InvalidInputError:
+                continue
+            notices.append(
+                ToolNotice(
+                    source   = "plan",
+                    category = MODEL_LICENSE_NOTICE,
+                    message  = (
+                        f"Foundation model '{model_id}'. {_LICENSE_LEAD} "
+                        f"{_license_text(info)}."
+                    ),
                     count    = 1,
                 )
             )

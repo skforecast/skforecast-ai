@@ -6,12 +6,15 @@ import pandas as pd
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import _runtime, create_server
+from skforecast_ai.mcp.models import ToolNotice
 
 from .fixtures_mcp import (
+    DATA_VALUES_HINT,
     call,
     content_of,
     cv_of,
     df_data_warning,
+    df_h2o_backtest_gaps_csv,
     df_h2o_csv,
     error_of,
     h2o_server,
@@ -26,7 +29,8 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     """
     Test that `backtest` runs the plan of the strategy as the Python API
     does: same summary, predictions and metrics (written to CSV files, not
-    sent), cost, links and script.
+    sent), cost, links and script. Its metrics include MASE, so a notice
+    gives the reference it is scaled by, which the summary does not.
     """
     server, path = h2o_server(tmp_path)
     profile_id, plan_id, cv_id = cv_of(server, path, cv_arguments={"refit": True})
@@ -57,6 +61,14 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
     assert text_of(result["files"]["metrics"]) == expected.metrics.to_csv()
     assert code == expected.code
+    assert [(n["source"], n["category"]) for n in result["notices"]] == [
+        ("runtime", "MetricReferenceNotice"), ("runtime", "MetricUnitNotice")
+    ]
+    assert result["notices"][0]["message"].startswith(
+        "`mean_absolute_scaled_error` divides the error by that of the "
+        "one-step naive forecast (repeat the previous value) on the training "
+        "data"
+    )
 
 
 def test_tool_backtest_another_plan_of_the_same_profile(tmp_path):
@@ -118,7 +130,7 @@ def test_tool_backtest_does_not_repeat_the_warnings_of_the_profile(tmp_path):
 
     result = content_of(call(server, "backtest", {"cv_id": cv_id}))
 
-    assert result["notices"] == []
+    assert [n["category"] for n in result["notices"]] == ["MetricReferenceNotice"]
 
 
 def test_tool_backtest_data_changed_since_profiled(tmp_path):
@@ -339,3 +351,59 @@ def test_tool_backtest_summary_names_the_arguments_passed_to_the_strategy(tmp_pa
         "Trained once by default: refitting in every fold would multiply the "
         "training cost by the 6 folds."
     ) in default["summary"]
+
+
+def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
+    """
+    Test that a CSV with missing months, one of them read by a lag to predict
+    a test fold, gets a notice from `create_cv` (source 'runtime') and a
+    `backtest` that is `invalid_argument` on `data_path` (the argument that
+    holds the data; not `execution_failed`), whose message names the date,
+    while `forecast` of the plan works.
+    """
+    path = write_csv(tmp_path, "gaps.csv", df_h2o_backtest_gaps_csv)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id, cv_id = cv_of(
+        server, path, cv_arguments={"initial_train_size": 84, "refit": False}
+    )
+
+    cv = content_of(
+        call(server, "create_cv", {"plan_id": plan_id, "initial_train_size": 84})
+    )
+    error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+    forecast = call(server, "forecast", {"plan_id": plan_id})
+
+    assert [
+        ToolNotice(**n) for n in cv["notices"] if n["category"] == "UserWarning"
+    ] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "UserWarning",
+            message  = (
+                "The target has missing values or missing timestamps "
+                "(asfreq() restores them as missing values), and "
+                "ForecasterRecursive with Ridge cannot predict from a "
+                "missing value: `backtest()` of this plan raises when a test "
+                "fold is predicted from one, naming its dates. "
+                "`dropna_from_series` only drops them from the training "
+                "data. Impute the target, or choose an estimator that "
+                "accepts missing values (for example 'LGBMRegressor') to "
+                "backtest every fold."
+            ),
+            count    = 1,
+        )
+    ]
+    # The notice of the server that leaves those values to the user comes
+    # with the warning, one call before the error that carries the hint.
+    assert [n["category"] for n in cv["notices"]][:1] == ["MissingValuesNotice"]
+    assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
+    assert error["message"] == (
+        "The forecaster reads missing values of the target to predict 1 of "
+        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "ForecasterRecursive with Ridge cannot use them, so its predictions "
+        "would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
+    )
+    assert error["hint"] == DATA_VALUES_HINT
+    assert not forecast.is_error

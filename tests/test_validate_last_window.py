@@ -15,7 +15,7 @@ from skforecast_ai._last_window import (
     _read_positions,
     validate_last_window,
 )
-from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.exceptions import DataContentError, InvalidInputError
 from skforecast_ai.execution.forecast_runner import render_forecast_script
 from skforecast_ai.profiling.data_profile import _fmt_timestamp
 
@@ -364,7 +364,9 @@ def test_validate_last_window_InvalidInputError_when_lag_reads_missing_value(
     err_msg = re.escape(
         f"The forecaster reads missing values of the target to predict ('y': 1 "
         f"value(s), such as '{date}'). {plan.forecaster} with Ridge cannot use "
-        f"them, so its predictions would be missing: fill them in."
+        f"them, so its predictions would be missing. "
+        f"Either they are filled in, or the plan uses an estimator that "
+        f"accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_last_window(data=data, profile=profile_single, plan=plan)
@@ -449,7 +451,8 @@ def test_validate_last_window_InvalidInputError_when_differentiation_reads_it(pl
     if plan.estimator == "LGBMRegressor":
         assert str(exc_info.value).endswith(
             "The differentiation of ForecasterRecursive reads the last 2 value(s), "
-            "so its predictions would be missing: fill them in."
+            "so its predictions would be missing. Those values have to be "
+            "filled in before predicting."
         )
 
 
@@ -488,8 +491,8 @@ def test_validate_last_window_InvalidInputError_when_equivalent_date_missing(
     data = with_missing(data_single, [position])
 
     err_msg = re.escape(
-        "ForecasterEquivalentDate repeats them as missing predictions: fill "
-        "them in."
+        "ForecasterEquivalentDate repeats them as missing predictions. Those "
+        "values have to be filled in before predicting."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_last_window(
@@ -1205,7 +1208,9 @@ def test_validate_last_window_InvalidInputError_when_final_rows_false_and_ridge_
     err_msg = re.escape(
         "The forecaster reads missing values of the target to predict ('y': 1 "
         "value(s), such as '2023-03-01'). ForecasterRecursive with Ridge cannot "
-        "use them, so its predictions would be missing: fill them in."
+        "use them, so its predictions would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_last_window(
@@ -1290,3 +1295,27 @@ def test_validate_last_window_final_rows_checked_by_default():
     )
     with pytest.warns(UserWarning, match=warn_msg):
         validate_last_window(data=data, profile=profile_wide, plan=plan_wide_ridge)
+
+
+def test_validate_last_window_DataContentError_when_final_rows_without_target():
+    """
+    Test that the error for the values of the data is a DataContentError,
+    the class that tells a problem of the content from an argument to
+    correct, with the code and the field of an InvalidInputError.
+    """
+    data = with_missing(data_single, [1, 2])
+
+    err_msg = re.escape(
+        "The data has no target value after 2023-02-27: drop its last 2 "
+        "row(s) (2023-02-28 to 2023-03-01), so that it ends with the last "
+        "value of the target."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_last_window(
+            data=data, profile=profile_single, plan=plan_single_ridge
+        )
+
+    assert type(exc_info.value) is DataContentError
+    assert (exc_info.value.code, exc_info.value.field) == (
+        "invalid_argument", "data"
+    )

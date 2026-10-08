@@ -139,6 +139,22 @@ def has_control_characters(text: str) -> bool:
     return any(unicodedata.category(char) in _CONTROL_CATEGORIES for char in text)
 
 
+def _outside_hint(allowed: AllowedDir) -> str:
+    """
+    Hint of a path outside the allowed directory. It names who acts: told
+    only to use a file inside the directory, an agent copied the file of the
+    user into it without asking.
+    """
+
+    return (
+        f"Stop here and answer the user, with no other tool call: the "
+        f"server only reads inside {allowed.path!r}, and only the user can "
+        f"copy the file there or restart the server with `--allow-dir` set "
+        f"to the directory of the file. Copying or rewriting the file "
+        f"yourself is not allowed, even if you can."
+    )
+
+
 def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
     """
     Check a path given by the agent and return the file to read.
@@ -184,7 +200,8 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             f"file (relative paths and '~' are not expanded).",
             code    = "invalid_path",
             field   = field,
-            details = {"path": raw},
+            hint    = f"The server reads CSV files inside {allowed.path!r}.",
+            details = {"path": raw, "allowed_dir": allowed.path},
         )
     normalized = os.path.normpath(raw)
     if Path(normalized).suffix.lower() != ".csv":
@@ -199,7 +216,7 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             f"The path {raw!r} is outside the directory the server may read.",
             code    = "path_not_allowed",
             field   = field,
-            hint    = f"Use a file inside {allowed.path!r}.",
+            hint    = _outside_hint(allowed),
             details = {"path": raw, "allowed_dir": allowed.path},
         )
     real = os.path.realpath(normalized)
@@ -209,7 +226,7 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             f"server may read, or to a file that is not a CSV.",
             code    = "path_not_allowed",
             field   = field,
-            hint    = f"Use a file inside {allowed.path!r}.",
+            hint    = _outside_hint(allowed),
             details = {"path": raw, "allowed_dir": allowed.path},
         )
     if not os.path.isfile(real):
@@ -217,6 +234,13 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             f"CSV file not found: {raw!r}.",
             code    = "data_not_found",
             field   = field,
+            # An agent that then finds the file elsewhere copies it here.
+            hint    = (
+                f"If the file is in another directory, stop here and answer "
+                f"the user: only they can copy it into {allowed.path!r} or "
+                f"restart the server with `--allow-dir`. Copying or rewriting "
+                f"it yourself is not allowed, even if you can."
+            ),
             details = {"path": raw},
         )
 

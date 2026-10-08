@@ -9,6 +9,7 @@ import skforecast_ai
 from skforecast_ai.exceptions import (
     ERROR_CODES,
     AllCandidatesFailedError,
+    DataContentError,
     DataNotFoundError,
     ForecastExecutionError,
     InvalidInputError,
@@ -16,6 +17,7 @@ from skforecast_ai.exceptions import (
     LLMCallError,
     LLMRequiredError,
     SkforecastAIError,
+    _reported_type_name,
 )
 
 
@@ -42,6 +44,7 @@ def test_skforecast_ai_error_codes_are_the_closed_set():
     [
         (InvalidInputError, ValueError, "invalid_argument"),
         (InvalidInputTypeError, TypeError, "invalid_argument"),
+        (DataContentError, ValueError, "invalid_argument"),
         (DataNotFoundError, FileNotFoundError, "data_not_found"),
     ],
     ids=lambda dt: f"{dt.__name__ if isinstance(dt, type) else dt}",
@@ -109,7 +112,7 @@ def test_skforecast_ai_error_init_ValueError_when_code_unknown():
 
 @pytest.mark.parametrize(
     "error_class",
-    [InvalidInputError, InvalidInputTypeError, DataNotFoundError],
+    [InvalidInputError, InvalidInputTypeError, DataContentError, DataNotFoundError],
     ids=lambda dt: dt.__name__,
 )
 def test_skforecast_ai_error_pickle_keeps_code_field_and_hint(error_class):
@@ -162,6 +165,7 @@ def test_skforecast_ai_error_existing_errors_derive_from_base_with_their_code():
         "SkforecastAIError",
         "InvalidInputError",
         "InvalidInputTypeError",
+        "DataContentError",
         "DataNotFoundError",
     ],
     ids=lambda dt: f"name: {dt}",
@@ -173,3 +177,20 @@ def test_skforecast_ai_error_importable_from_package_root(name):
     """
     assert getattr(skforecast_ai, name) is getattr(skforecast_ai.exceptions, name)
     assert name in skforecast_ai.__all__
+
+
+def test_skforecast_ai_error_init_DataContentError_is_InvalidInputError():
+    """
+    Test that DataContentError is also an InvalidInputError and a
+    ValueError, so the `except` clauses written for those still catch it,
+    and that failure summaries report it as a ValueError.
+    """
+    error = DataContentError("The data has missing values.", field="data")
+
+    assert isinstance(error, InvalidInputError)
+    assert isinstance(error, ValueError)
+    assert not isinstance(error, InvalidInputTypeError)
+    assert (error.code, error.field, error.hint) == (
+        "invalid_argument", "data", None
+    )
+    assert _reported_type_name(error) == "ValueError"

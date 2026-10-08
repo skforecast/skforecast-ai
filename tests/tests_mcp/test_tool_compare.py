@@ -20,6 +20,7 @@ from ..fixtures_datasets import df_items_sales_long
 
 from .fixtures_mcp import (
     COMPARE_CANDIDATES,
+    DATA_VALUES_HINT,
     call,
     content_of,
     cv_of,
@@ -88,7 +89,8 @@ def test_tool_compare_output_matches_python_api(tmp_path):
     assert result["cost"] == {
         "n_folds": 6, "n_fits": 1, "estimator_fits": 13, "inference_windows": 0
     }
-    assert result["notices"] == []
+    # The leaderboard has MAPE, whose unit the server states.
+    assert [n["category"] for n in result["notices"]] == ["MetricUnitNotice"]
     assert best_plan["kind"] == "plan"
     assert best_plan["links"] == {
         "profile_id": profile_id,
@@ -338,7 +340,8 @@ def test_tool_compare_announces_model_download_of_a_candidate_that_ran(
     Hugging Face cache and whose script ran (here it fails inside the script
     without its backend, which a download could precede; the backend is
     taken as installed so the check before running lets it run) gets one
-    `ModelDownloadNotice` in the comparison, and none in a second comparison.
+    `ModelDownloadNotice` in the comparison, and in a second comparison a
+    `ModelLicenseNotice` with its license instead.
     """
     monkeypatch.setattr(
         "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
@@ -375,6 +378,15 @@ def test_tool_compare_announces_model_download_of_a_candidate_that_ran(
     ] == [("plan", "ModelDownloadNotice")]
     assert "CC-BY-NC-4.0" in first["notices"][0]["message"]
     assert all(n["category"] != "ModelDownloadNotice" for n in second["notices"])
+    assert [
+        n["message"] for n in second["notices"]
+        if n["category"] == "ModelLicenseNotice"
+    ] == [
+        "Foundation model 'Salesforce/moirai-2.0-R-small'. License (by the "
+        "name of the model, as skforecast registers it): its license is "
+        "CC-BY-NC-4.0 (https://huggingface.co/Salesforce/moirai-2.0-R-small), "
+        "which restricts commercial use."
+    ]
 
 
 def test_tool_compare_heartbeat_inside_a_long_candidate(tmp_path, monkeypatch):
@@ -575,3 +587,34 @@ def test_tool_compare_summary_names_the_arguments_passed_to_the_strategy(tmp_pat
         "The shared strategy trains once by default: refitting in every fold "
         "would multiply the training cost by the 6 folds."
     ) in default["summary"]
+
+
+def test_tool_compare_invalid_argument_with_hint_when_the_target_has_missing_values(
+    tmp_path,
+):
+    """
+    Test that a comparison on data whose last rows have no target value is
+    `invalid_argument` on `data_path` with the hint of the server that
+    leaves the values to the user: the message says to impute them, which
+    an agent does without asking.
+    """
+    data = df_h2o_csv.copy()
+    data.loc[data.index[-3:], "x"] = float("nan")
+    path = write_csv(tmp_path, "tail.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(server, path)
+
+    error = error_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES}),
+        "compare",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
+    assert error["message"] == (
+        "The target has 3 missing value(s) in the test folds (2008-04-01 "
+        "00:00:00, 2008-05-01 00:00:00, 2008-06-01 00:00:00), counting the "
+        "missing timestamps that asfreq() restores. skforecast cannot compute "
+        "the metrics on them, whatever the estimator. Impute the target, or "
+        "evaluate on dates without missing values."
+    )
+    assert error["hint"] == DATA_VALUES_HINT

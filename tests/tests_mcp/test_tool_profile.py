@@ -18,6 +18,7 @@ from .fixtures_mcp import (
     df_h2o_csv,
     df_h2o_gaps_csv,
     error_of,
+    h2o_server,
     write_csv,
 )
 
@@ -515,3 +516,99 @@ def test_tool_profile_and_plan_notice_when_the_target_has_missing_values(tmp_pat
             notice["message"] for notice in result["notices"]
             if notice["category"] == "DataProfileWarning"
         ]
+
+
+def test_tool_profile_invalid_argument_names_every_problem_of_the_dates(tmp_path):
+    """
+    Test that a file with a date repeated with different values is rejected
+    with a message that also counts the identical repeated rows and the
+    missing dates, and with a hint that leaves the fix to the user: without
+    it an agent writes a corrected copy without asking.
+    """
+    dates = pd.date_range("2015-01-01", periods=60, freq="MS").delete([10, 11, 30])
+    frame = pd.DataFrame(
+        {"date": dates.strftime("%Y-%m-%d"), "y": [float(i) for i in range(57)]}
+    )
+    frame = pd.concat(
+        [frame, frame.iloc[[2]], frame.iloc[[9]].assign(y=99.0)], ignore_index=True
+    )
+    path = write_csv(tmp_path, "dirty.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "y"}), "profile"
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
+    assert error["message"] == (
+        "Found 1 timestamp with more than one row and different values, for "
+        "example '2015-10-01'. A single series needs one row per timestamp, "
+        "and keeping only one of them would silently discard data. Aggregate "
+        "or remove the repeated rows before profiling, or pass "
+        "`series_id_column` if a column identifies different series. The same "
+        "data also has 1 other timestamp repeated in identical rows (profiling "
+        "keeps one of them) and 3 timestamps missing at the 'MS' frequency, "
+        "which will still be missing once the repeated rows are solved."
+    )
+    assert error["hint"] == (
+        "This is a problem of the file of the user, and how to solve it is "
+        "their decision. Tell them every problem the message names and ask "
+        "before writing a corrected copy; never change their file."
+    )
+
+
+def test_tool_profile_without_target_lists_the_columns(tmp_path):
+    """
+    Test that `profile` without `target` (omitted or null) is
+    `invalid_argument` on `target` with the columns of the file and a hint
+    to pass one or ask the user, so an agent need not make up a target to
+    read them, and that nothing is registered.
+    """
+    server, path = h2o_server(tmp_path)
+
+    omitted = error_of(call(server, "profile", {"data_path": path}), "profile")
+    null = error_of(
+        call(server, "profile", {"data_path": path, "target": None}), "profile"
+    )
+    objects = content_of(call(server, "list_objects", {}))["objects"]
+
+    assert omitted == null == {
+        "code": "invalid_argument",
+        "message": "`target` was not given. Columns of the file: ['fecha', 'x'].",
+        "field": "target",
+        "hint": (
+            "Pass the column to forecast as `target`. If more than one could "
+            "be it, ask the user."
+        ),
+        "details": None,
+    }
+    assert objects == []
+
+
+def test_tool_profile_without_target_checks_the_path_and_the_file_first(tmp_path):
+    """
+    Test that `profile` without `target` checks the file as with one before
+    reading its columns: a file outside the allowed directory is
+    `path_not_allowed`, a missing one `data_not_found`, one above the limit
+    `file_too_large` and one that is not a CSV `data_unreadable`.
+    """
+    allowed = tmp_path / "data"
+    allowed.mkdir()
+    outside = write_csv(tmp_path, "outside.csv", df_h2o_csv)
+    large = write_csv(allowed, "large.csv", df_h2o_csv)
+    with open(large, "a", encoding="utf-8") as handle:
+        handle.write("\n" * (1024 * 1024))
+    binary = allowed / "binary.csv"
+    binary.write_bytes(b"\xff\xfe\x00\x01")
+    server = create_server(
+        allow_dir=allowed, output_dir=tmp_path / "out", max_file_mb=1
+    )
+
+    codes = [
+        error_of(call(server, "profile", {"data_path": str(path)}), "profile")["code"]
+        for path in (outside, allowed / "missing.csv", large, binary)
+    ]
+
+    assert codes == [
+        "path_not_allowed", "data_not_found", "file_too_large", "data_unreadable",
+    ]

@@ -29,7 +29,11 @@ from skforecast_ai._utils import (
     structure_differences,
 )
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.exceptions import DataNotFoundError, InvalidInputError
+from skforecast_ai.exceptions import (
+    DataContentError,
+    DataNotFoundError,
+    InvalidInputError,
+)
 from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
@@ -718,7 +722,7 @@ def test_check_evaluated_target_ValueError_when_gap_in_test_folds():
     """
     Test that a missing timestamp inside a test fold is reported with its
     date before running, whatever the estimator, because skforecast cannot
-    compute single-series metrics on it.
+    compute single-series metrics on it, as a DataContentError on `data`.
     """
     data, data_profile = _gapped_single_series(drop=[85])
     cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
@@ -730,8 +734,15 @@ def test_check_evaluated_target_ValueError_when_gap_in_test_folds():
         "the estimator. Impute the target, or evaluate on dates without "
         "missing values."
     )
-    with pytest.raises(ValueError, match=err_msg):
+    with pytest.raises(ValueError, match=err_msg) as exc_info:
         _check_evaluated_target(data=data, data_profile=data_profile, cv=cv)
+
+    # The class that tells a problem of the content of the data from an
+    # argument to correct.
+    assert type(exc_info.value) is DataContentError
+    assert (exc_info.value.code, exc_info.value.field) == (
+        "invalid_argument", "data"
+    )
 
 
 def test_check_evaluated_target_output_when_gap_only_in_training():

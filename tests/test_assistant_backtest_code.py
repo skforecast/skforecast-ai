@@ -24,6 +24,10 @@ from tests.fixtures_datasets import (
 
 assistant = ForecastingAssistant()
 
+# Distinctive part of the warning of `create_cv()` for a short first training
+# window with intervals (the series of 100 observations leaves few residuals).
+INTERVAL_WARNING = re.escape("so the prediction intervals are estimated from")
+
 
 # =============================================================================
 # Tests: error / validation
@@ -247,7 +251,8 @@ def test_backtest_code_output_when_cv_result_without_plan_keeps_its_plan():
     plan = assistant.plan(
         profile, steps=5, estimator="LGBMRegressor", interval=[0.1, 0.9]
     )
-    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+    with pytest.warns(UserWarning, match=INTERVAL_WARNING):
+        cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
 
     result = assistant.backtest_code(
         data=df_single, target="sales", date_column="date", cv=cv_result
@@ -270,7 +275,8 @@ def test_backtest_code_output_when_cv_result_and_estimator_passed_builds_new_pla
     plan = assistant.plan(
         profile, steps=5, estimator="LGBMRegressor", interval=[0.1, 0.9]
     )
-    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+    with pytest.warns(UserWarning, match=INTERVAL_WARNING):
+        cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
 
     result = assistant.backtest_code(
         data=df_single,
@@ -296,7 +302,8 @@ def test_backtest_code_output_when_bare_time_series_fold_builds_default_plan():
     plan = assistant.plan(
         profile, steps=5, estimator="LGBMRegressor", interval=[0.1, 0.9]
     )
-    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+    with pytest.warns(UserWarning, match=INTERVAL_WARNING):
+        cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
 
     result = assistant.backtest_code(
         data=df_single, target="sales", date_column="date", cv=cv_result.cv

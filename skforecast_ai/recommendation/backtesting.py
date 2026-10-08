@@ -12,7 +12,13 @@ import warnings
 import pandas as pd
 from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
-from .._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS, ML_TASK_TYPES
+from .._constants import (
+    AUTOREG_FORECASTERS,
+    DIRECT_FORECASTERS,
+    INTERVAL_RESIDUAL_BINS,
+    MIN_RESIDUALS_PER_BIN,
+    ML_TASK_TYPES,
+)
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
@@ -1009,6 +1015,14 @@ def build_cv(
             f"{n_folds} fold(s). At least {min_folds} are required. "
             f"Resolved parameters: {public_params}.",
             code = "insufficient_data",
+            hint = (
+                f"To evaluate a single window, the last `steps` observations, "
+                f"use `forecast` with `test_size` instead: one hold-out, not a "
+                f"backtest. A backtest needs at least {min_folds} folds: a "
+                f"smaller `initial_train_size` (or leave it out for the "
+                f"default), a smaller `fold_stride` or a plan with fewer "
+                f"`steps`."
+            ),
         )
 
     return cv
@@ -1445,6 +1459,95 @@ def warn_first_window(
             UserWarning,
             stacklevel = 3,
         )
+
+
+# Forecasters whose intervals come from binned residuals of the training rows.
+_RESIDUAL_INTERVAL_FORECASTERS = (
+    "ForecasterRecursive", "ForecasterDirect", "ForecasterEquivalentDate",
+)
+
+
+def warn_interval_residuals(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Warn when a strategy is built whose first training window leaves too few
+    rows for the prediction intervals of its plan.
+
+    ForecasterRecursive and ForecasterDirect (bootstrapping) and
+    ForecasterEquivalentDate (conformal) estimate the intervals from the
+    residuals of the training rows, which skforecast spreads over up to
+    `INTERVAL_RESIDUAL_BINS` bins of the predicted value. With fewer than
+    `MIN_RESIDUALS_PER_BIN` residuals per bin the intervals tend to be too
+    narrow (a nominal 95% covers 59 to 80% with 2 to 6 per bin, in the
+    simulation skforecast took its rule of thumb from), and with a single
+    residual in a bin the lower bound equals the upper one, with the
+    prediction outside. skforecast warns about it only for out-of-sample
+    residuals, which the generated scripts do not use.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy is built for.
+    cv : TimeSeriesFold
+        Strategy built.
+    data_profile : DataProfile
+        Profile of the data, to place a date `initial_train_size`.
+
+    Returns
+    -------
+    None
+    """
+    if (
+        plan.interval is None
+        or plan.interval_method not in ("bootstrapping", "conformal")
+        or plan.forecaster not in _RESIDUAL_INTERVAL_FORECASTERS
+    ):
+        return
+    window_size = plan_window_size(plan)
+    if window_size is None:
+        return
+    try:
+        folds = _split_folds(
+            cv             = cv,
+            n_observations = data_profile.span_index_length,
+            start_date     = data_profile.span_start_date,
+            frequency      = data_profile.frequency,
+            time_zone      = data_profile.time_zone,
+        )
+    except ValueError:
+        # A strategy that cannot be split is reported by `build_cv()`.
+        return
+    if not folds:
+        return
+    train_start, train_end = folds[0][1]
+    n_train = train_end - train_start
+    # A direct forecaster trains the estimator of step h on h - 1 rows fewer.
+    extra_steps = plan.steps - 1 if plan.forecaster in DIRECT_FORECASTERS else 0
+    n_rows = n_train - window_size - extra_steps
+    needed = MIN_RESIDUALS_PER_BIN * INTERVAL_RESIDUAL_BINS
+    # A window that leaves no rows is reported by `warn_first_window()`.
+    if n_rows < 1 or n_rows >= needed:
+        return
+    features = (
+        ", or fewer lags or smaller window features"
+        if plan.forecaster in AUTOREG_FORECASTERS else ""
+    )
+    warnings.warn(
+        f"The first training window of the strategy leaves {n_rows} row(s) to "
+        f"train on ({n_train} observations for a window size of "
+        f"{window_size}), so the prediction intervals are estimated from "
+        f"{n_rows} residual(s). skforecast spreads them over up to "
+        f"{INTERVAL_RESIDUAL_BINS} bins, and below {MIN_RESIDUALS_PER_BIN} "
+        f"residuals per bin ({needed} rows) the intervals tend to be too "
+        f"narrow; with a single residual in a bin the lower bound equals the "
+        f"upper one. Read them with caution, or use a later "
+        f"`initial_train_size`{features}.",
+        UserWarning,
+        stacklevel = 3,
+    )
 
 
 def _compute_min_train_size(plan: ForecastPlan) -> int:

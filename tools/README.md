@@ -7,6 +7,7 @@ package.
 |:-----|:--------|
 | [`ai/`](ai/) | Syncs the AI assets from skforecast and checks the context sent to the LLM. See its README. |
 | [`docs/`](docs/) | Scripts and notebooks used to build and maintain the documentation (see below). |
+| [`mcp/`](mcp/) | Checks the MCP server with a real agent (headless Claude Code sessions) and keeps one reviewed report per release. Manual, pre-release. See its README. |
 | [`perf/`](perf/) | Parity and timing scripts for performance and cleanup changes. See its README. |
 
 ## docs/

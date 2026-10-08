@@ -11,8 +11,8 @@ repository and never edited here.
 
 | Path | Purpose |
 |:-----|:--------|
-| `sync_skforecast_assets.py` | Downloads the skills and `llms-base.txt` from a skforecast branch or tag. `--check` compares them without writing; `--inventory` prints the local skill table. |
-| `measure_skill_tokens.py` | Estimates the tokens of each skill and of `llms-base.txt`. `--update` rewrites the constants in `skforecast_ai/llm/skills.py`; `--check` and `--report` are used by CI. |
+| `sync_skforecast_assets.py` | Downloads the skills and `llms-base.txt` from a skforecast branch or tag, then rewrites the token estimates in `skforecast_ai/llm/skills.py`. `--check` compares them without writing; `--inventory` prints the local skill table. |
+| `measure_skill_tokens.py` | Estimates the tokens of each skill and of `llms-base.txt`. `--update` rewrites the constants in `skforecast_ai/llm/skills.py` (the sync already does it); `--check` and `--report` are used by CI. |
 
 The workflow `.github/workflows/ai-context-check.yml` runs both in `--check`
 mode.

@@ -48,7 +48,12 @@ from .profiling.data_profile import (
     read_csv_file,
 )
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
-from .exceptions import DataNotFoundError, InvalidInputError, InvalidInputTypeError
+from .exceptions import (
+    DataContentError,
+    DataNotFoundError,
+    InvalidInputError,
+    InvalidInputTypeError,
+)
 
 _CODE_BLOCK_RE = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
 _CODE_BLOCK_REPLACEMENT = "(See `result.code` for the validated implementation.)"
@@ -989,7 +994,7 @@ def load_exog(
         len(exog.columns) and exog.iloc[:, -1].isna().all()
     )
     if isinstance(exog.index, pd.MultiIndex) or shifted:
-        raise InvalidInputError(
+        raise DataContentError(
             f"The rows of the exog CSV '{path}' have more fields than its header "
             f"(often separators at the end of the rows).",
             field = "exog",
@@ -1009,7 +1014,7 @@ def load_exog(
     text = {column: exog[column].copy() for column in exog.columns}
     if date_column is not None:
         if date_column not in exog.columns:
-            raise InvalidInputError(
+            raise DataContentError(
                 f"The exog CSV '{path}' has no column {date_column!r}; its "
                 f"columns are {list(exog.columns)}.",
                 field = "exog",
@@ -1019,13 +1024,13 @@ def load_exog(
         if is_text(values):
             parsed, issue = _read_date_column(date_column, values, named=True)
         if issue is not None:
-            raise InvalidInputError(
+            raise DataContentError(
                 f"Exog CSV '{path}': {''.join(issue)}",
                 field = "exog",
                 hint  = date_issue_hint(issue),
             )
         if parsed is None or parsed.isna().any():
-            raise InvalidInputError(
+            raise DataContentError(
                 f"Column {date_column!r} of the exog CSV '{path}' does not hold "
                 f"dates.",
                 field = "exog",
@@ -1048,7 +1053,7 @@ def load_exog(
             try:
                 exog = _try_parse_first_date_column(exog)
             except InvalidInputError as exc:
-                raise InvalidInputError(
+                raise DataContentError(
                     f"Exog CSV '{path}': {exc}",
                     field = "exog",
                     hint  = exc.hint,
@@ -1079,7 +1084,7 @@ def load_exog(
                 warnings.simplefilter("ignore", UserWarning)
                 parse_text_dates(text[found])
         except (ValueError, TypeError) as exc:
-            raise InvalidInputError(
+            raise DataContentError(
                 f"Exog CSV '{path}': the dates of column {found!r} cannot be "
                 f"read as the generated code reads them: {exc}",
                 field = "exog",
@@ -1895,7 +1900,7 @@ def _check_evaluated_target(
     shown = ", ".join(str(date) for date in missing[:5])
     if len(missing) > 5:
         shown += f" and {len(missing) - 5} more"
-    raise InvalidInputError(
+    raise DataContentError(
         f"The target has {len(missing)} missing value(s) {where} ({shown}), "
         f"counting the missing timestamps that asfreq() restores. skforecast "
         f"cannot compute the metrics on them, whatever the estimator. Impute "

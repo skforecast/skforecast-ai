@@ -493,8 +493,8 @@ def test_skill_inventory_matches_the_skills_directory():
     directory and rewriting it from the pinned skforecast release, so a
     renamed or newly added skill upstream leaves both constants stale. A
     removed skill then raises `FileNotFoundError` at request time, and an
-    added one is simply never selectable. Run
-    `python tools/ai/measure_skill_tokens.py --update` after syncing.
+    added one is simply never selectable. The sync rewrites
+    `_SKILL_TOKEN_ESTIMATES` itself; `ALL_SKILLS` is updated by hand.
     """
     from skforecast_ai.llm.skills import ALL_SKILLS, _SKILLS_DIR
 

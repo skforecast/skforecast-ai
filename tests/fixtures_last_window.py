@@ -1,11 +1,16 @@
 # Fixtures for the checks of the last window of the target
 
+import warnings
+
 import numpy as np
 import pandas as pd
+from skforecast.exceptions import MissingValuesWarning
+
+from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant
 
-from tests.fixtures_datasets import df_items_sales_long
+from tests.fixtures_datasets import df_h2o, df_items_sales_long
 
 _assistant = ForecastingAssistant()
 
@@ -226,3 +231,70 @@ def long_ending_early(data: pd.DataFrame, series: str, n_rows: int):
     """
     drop = data.index[data["series"] == series][-n_rows:]
     return data.drop(index=drop)
+
+
+# --- Last 120 months of h2o (monthly), for the backtest of a single series ---
+# The plan (12 steps) reads the lags 1, 11, 12 and 13, and a strategy with an
+# initial training window of 84 observations and no refit has 3 test folds,
+# that start at the positions 84, 96 and 108 (counting from 0).
+data_h2o = df_h2o.iloc[-120:]
+_profile_h2o = _assistant.profile(data_h2o, target="x")
+profile_h2o = _profile_h2o.data_profile
+plan_h2o_ridge = _assistant.plan(_profile_h2o, steps=12)
+plan_h2o_lgbm = _assistant.plan(
+    _profile_h2o, steps=12, estimator="LGBMRegressor"
+)
+plan_h2o_direct = _assistant.plan(
+    _profile_h2o, steps=12, forecaster="ForecasterDirect"
+)
+plan_h2o_baseline = _assistant.plan(
+    _profile_h2o, steps=12, forecaster="ForecasterEquivalentDate"
+)
+plans_h2o_without_lags = {
+    "stats": _assistant.plan(_profile_h2o, steps=12, forecaster="ForecasterStats"),
+    "foundation": _assistant.plan(
+        _profile_h2o, steps=12, forecaster="ForecasterFoundation"
+    ),
+}
+
+
+def cv_h2o(initial_train_size: int = 84, **kwargs) -> TimeSeriesFold:
+    """
+    Return a strategy of 12 steps without refit, for `data_h2o`.
+    """
+    return TimeSeriesFold(
+        steps              = 12,
+        initial_train_size = initial_train_size,
+        refit              = False,
+        verbose            = False,
+        **kwargs,
+    )
+
+
+def without_months(data: pd.DataFrame, positions: list[int]) -> pd.DataFrame:
+    """
+    Return a copy of `data` without the rows at `positions` (counting from 0),
+    which are missing timestamps that `asfreq()` restores as missing values.
+    """
+    return data.drop(index=data.index[positions])
+
+
+def profile_of(data: pd.DataFrame):
+    """
+    Return the `DataProfile` of `data` (target 'x', dates in the index).
+    """
+    return _assistant.profile(data, target="x").data_profile
+
+
+# Months 30, 31 and 75 removed: the first two are read by no fold; the third
+# (2004-10-01) is read by the fold that starts at position 84.
+data_h2o_gaps = without_months(data_h2o, [30, 31, 75])
+profile_h2o_gaps = profile_of(data_h2o_gaps)
+
+# One value of the target is missing (not only a timestamp); profiling it
+# warns, which the fixture silences because only the profile is needed.
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=MissingValuesWarning)
+    profile_h2o_missing_target = profile_of(
+        with_missing(data_h2o, [30], column="x")
+    )

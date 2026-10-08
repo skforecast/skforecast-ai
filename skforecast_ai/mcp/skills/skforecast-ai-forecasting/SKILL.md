@@ -1,6 +1,6 @@
 ---
 name: skforecast-ai-forecasting
-description: Forecast time series stored in CSV files with the tools of the skforecast-ai MCP server (profile, plan, create_cv, backtest, compare, forecast). Use when asked to forecast, backtest or compare forecasting models on tabular time series and the skforecast-ai server is connected.
+description: Forecast time series stored in CSV files with the tools of the skforecast-ai MCP server (profile, plan, create_cv, backtest, compare, forecast). Use when asked to forecast, backtest or compare forecasting models on tabular time series and the skforecast-ai server is connected. Also use it before answering what the server or you can see of the user's data (privacy) and what the server does not do.
 ---
 
 # Forecasting with the skforecast-ai MCP server
@@ -10,22 +10,32 @@ Every decision (forecaster, estimator, lags, metric, cross-validation) comes
 from rules, so the same inputs give the same results. You choose the inputs
 and explain the results; the server decides and computes. Never invent a
 number: every figure you report must come from a response or one of its
-files.
+files. Do not derive one either: no percentage, difference or ratio that a
+response does not give ("45% better" from a metric, a margin between two
+candidates).
 
 ## Workflow
 
 1. `profile(data_path, target, date_column?, series_id_column?,
    exog_columns?)`: the absolute path of a CSV file inside the directory
-   the server may read. `target` is one column, or a list of columns for
+   the server may read, which its instructions name: build the path from
+   it when the user gives a relative one, without searching the file
+   system. `target` is one column, or a list of columns for
    several series side by side; `series_id_column` names the column of
    series ids when the series are stacked. Every other column is an
    exogenous variable unless `exog_columns` names the ones to use (an
    empty list for none); set it only when the user asks. Read the summary
    and the `notices`: frequency, series, gaps, exogenous columns and the
-   recommended forecaster.
+   recommended forecaster. Do not open the data file with your own tools
+   to look at it: `profile` gives its columns and statistics without rows.
+   When the user named the column to forecast, pass it as `target` at
+   once. Only when they did not, call `profile` without `target`: its
+   error lists the columns of the file, so never guess a target to see
+   them. Read the file only to locate a problem an error reports.
 2. `plan(profile_id, steps, ...)`: `steps` is the horizon in observations
    (12 for a year of monthly data), at most the length of the longest
-   series. Leave the other arguments out to take the recommendation; set
+   series. When the user gives no horizon (or no target, and more than one
+   column could be it), ask; if you assume one, say so before the results. Leave the other arguments out to take the recommendation; set
    them only when the user asks. `metric` (one metric, or a list whose
    first one ranks) replaces the metric selected from the data, and only
    the metrics given are computed. `use_exog: false` leaves the
@@ -64,15 +74,21 @@ files.
    The candidates do not take `use_exog` from that plan: to compare
    without exogenous variables, `profile` with `exog_columns: []`.
 7. `forecast(plan_id, test_size?, exog_path?)`: the future. `exog_path` is
-   required when the plan uses exogenous variables. With `test_size` it is
-   a single hold-out evaluation instead, without `exog_path`: pass the
-   integer `steps` (the last `steps` observations) or the ISO 8601 date the
-   test set starts at. A fraction only works when it gives exactly `steps`
-   observations.
+   required when the plan uses exogenous variables: without a file of
+   future values from the user, ask for it, or build the plan again with
+   `use_exog: false` and say that they were left out. Never write those
+   values yourself, nor answer with a `test_size` evaluation instead. With
+   `test_size` it is a single hold-out evaluation instead, without
+   `exog_path`: pass the integer `steps` (the last `steps` observations) or
+   the ISO 8601 date the test set starts at. A fraction only works when it
+   gives exactly `steps` observations.
 
 `get_code(object_id)` returns the Python script that ran (for a plan, the
 one that would run; a profile has none), so the user can reproduce any
-result without the server. `describe_object(object_id)` returns a response
+result without the server, and `requirements`, the packages to install
+for it with the versions the server runs: name those, not others. Hand
+the script as it is; if you change anything (the path of the data, a
+comment), say what. `describe_object(object_id)` returns a response
 again; `list_objects()` lists the ids.
 
 ## How far to trust a result
@@ -86,19 +102,32 @@ From most to least reliable:
    when the target has missing values or dates, or with an asymmetric
    interval (the summary says why):
    then read the rows per series of `files.best_metrics` (`files.metrics`
-   of a backtest). A `mean_absolute_scaled_error` below 1 beats a naive
-   forecast of that series, above 1 does worse. The summary only gives the
-   average, so the worst series is not in it: name it.
+   of a backtest). A `mean_absolute_scaled_error` below 1 beats the
+   one-step naive forecast of that series, above 1 does worse. The summary
+   only gives the average, so the worst series is not in it: name it.
 2. A `backtest`: measured over the same folds, but without a reference.
 3. A `forecast` with `test_size`: one window of `steps` observations. It
-   can be lucky or unlucky; do not present it as the accuracy of the model.
+   can be lucky or unlucky; do not present it as the accuracy of the model,
+   nor as the forecast of the future: its dates are already in the data (a
+   `HoldoutEvaluationNotice` names them).
 4. A `forecast` of the future: no measure of error at all. Report it with
    the accuracy of the backtest or comparison of the same plan.
 
-Prediction intervals are estimates: report them as such. Read `notices`
-before you report anything: any notice can change what the result means
-(a data problem, a warning of the plan, a long training), so tell the user
-about it.
+`mean_absolute_scaled_error` and `root_mean_squared_scaled_error` divide
+the error by that of the one-step naive forecast (repeat the previous
+value) on the training data, in every result and every row of a
+leaderboard (a `MetricReferenceNotice` of a backtest or a forecast says
+so). That reference is not a seasonal naive forecast nor the baseline of
+`compare`: never report a value below 1 as beating either, nor turn it
+into a percentage against them.
+
+Prediction intervals are estimates: report them as such, and only from the
+rows of `files.predictions` (the bounds of each step). If you have not read
+that file, do not describe the interval: name the file. The summary gives
+the minimum, maximum and mean of each bound, not a width, so no width and
+no range around the point comes from it. Read `notices` before you report
+anything: any notice can change what the result means (a data problem, a
+warning of the plan, a long training), so tell the user about it.
 
 ## Cost
 
@@ -120,10 +149,13 @@ upper bound: a series without data in a fold is not forecast in it. Above
 50 estimator fits, or 2000 inference windows (added up over the foundation
 candidates of a `compare`), a run gets a `LongTrainingWarning` notice and
 can take minutes on a CPU; `compare` without `candidates` leaves out the
-candidates above 500 estimator fits. Before an expensive run, tell the user and prefer fewer
+candidates above 500 estimator fits. Before an expensive run (a `backtest` or a `compare` above those
+thresholds), stop and do not run it: tell the user the number of fits and
+the cheaper strategies, an integer `refit` (retrain every n folds), fewer
 folds (a larger `fold_stride` or a later `initial_train_size`) or
 `refit=false` (train once, no help for ForecasterStats nor for a foundation
-model).
+model). Run the expensive one only when the user chooses it in so many
+words: asking to retrain regularly is not that choice.
 
 Progress and cancellation: `compare` reports when each candidate starts
 and ends, and any long call (a backtest, a forecast, a candidate) sends a
@@ -134,10 +166,29 @@ another tool waits for it to end (the backtest or the forecast in
 progress). Meanwhile only the read tools (`get_code`, `get_failure`,
 `list_objects`, `describe_object`) answer: the others wait their turn.
 
+## What a result says, and what the server does not do
+
+Report what was measured, never why. A ranking says which candidate had the
+lowest error over the folds, not what makes it better for the data: give
+no cause, even hedged, for a ranking, a metric or the shape of a forecast
+(a seasonal pattern, an event, too little data). Asked why, say that the
+server does not measure it and restate the metric and its values.
+
+The server does not search hyperparameters (`compare` runs the candidates
+you list: call it that, not a grid search), detect anomalies, select
+features or fill in missing values. Say so, offer what it does and stop
+there. Do not do any of it another way in the same answer, by hand from
+the files or with your own script, even labeled as outside the server:
+that is for the user to ask once they know.
+
 ## Inputs
 
-- Paths: absolute paths of `.csv` files inside the allowed directory. No
-  URLs: download the file first. No relative paths and no `~`.
+- Paths: absolute paths of `.csv` files inside the allowed directory,
+  which the instructions of the server name (also `details.allowed_dir`
+  of a path error). No URLs: download the file first. No relative paths
+  and no `~`. Never copy or move a file of the user into that directory
+  yourself: tell them it is outside, and that they can copy it there or
+  restart the server with another `--allow-dir`.
 - Dates: ISO 8601 text, `"2012-01-01"`, where an argument takes one
   (`initial_train_size` of `create_cv`, `test_size` of `forecast`). A count
   is a number, never text: `"12"` is rejected.
@@ -164,7 +215,11 @@ dates, dates written in more than one format or day first, a series without
 values, an exogenous column named like a lag or a window feature), tell the
 user what it is and what it changes. Never change their file. Only if they
 agree, write a corrected copy inside the allowed directory, under a new
-name, and `profile` the copy; say what you changed.
+name, and `profile` the copy; say what you changed. An error names the
+first problem it finds, so the file can have others (the error of
+repeated dates with different values also counts the identical repeated
+rows and the missing dates): tell the user all of them when you ask, and
+ask again before fixing a problem they have not agreed to.
 
 ## Foundation models
 
@@ -172,7 +227,10 @@ name, and `profile` the copy; say what you changed.
 training. Its default model is Chronos-2 (`autogluon/chronos-2-small`).
 Each of the others has its own license and size, so tell the user which
 model, its license and that it downloads its weights before you choose
-one; never switch models on your own. Through the server they only take
+one; never switch models on your own. State a license only as a response
+gives it: a `ModelLicenseNotice` or a `ModelDownloadNotice` of a plan
+with a foundation model or of a comparison that ran one, or the message
+of `model_not_allowed`. Through the server they only take
 the `estimator_kwargs` `context_length`, `cross_learning`,
 `point_estimate`, `max_horizon`, `add_calendar_features` and
 `n_fourier_terms`. Models whose license
@@ -215,7 +273,8 @@ and follow `hint` when there is one:
 |---|---|
 | `invalid_argument` | Fix the argument named in `field`, as the message says. |
 | `insufficient_data` | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later `initial_train_size`). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
-| `data_not_found`, `invalid_path`, `path_not_allowed`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
+| `data_not_found`, `invalid_path`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
+| `path_not_allowed` | The file is outside the allowed directory (`details.allowed_dir`). Do not copy or move it yourself: tell the user, who can copy it there or restart the server with another `--allow-dir`. |
 | `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header). Tell the user, as for the data problems above. |
 | `file_too_large` | The file is larger than the server reads (`--max-file-mb`, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |
 | `data_changed` | The file changed: call `profile` again (or the tool again for an exogenous file). |
@@ -246,7 +305,8 @@ do not. Tell the user when they ask what you can see.
 Foundation models download their weights from the Hugging Face Hub the
 first time they run; a `ModelDownloadNotice` (source `plan`) says so, with
 the license skforecast registers for models of that name, the first time a
-model whose weights are not in the local cache is used. Later runs still
+model whose weights are not in the local cache is used. Otherwise a
+`ModelLicenseNotice` gives that license. Later runs still
 contact the Hub to check the cached weights, without sending data. The
 user can forbid any connection to it by starting the server with
 `HF_HUB_OFFLINE=1`.

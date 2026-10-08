@@ -164,3 +164,13 @@ tools/ai/ask_context_reports/*.md
 .claude/settings.local.json
 CLAUDE.local.md
 .claude/worktrees/
+
+# MCP agent check runs: only the reviewed per-release reports are kept
+tools/mcp/agent_reports/*/
+!tools/mcp/agent_reports/[0-9]*.[0-9]*.[0-9]*/
+tools/mcp/agent_reports/*/traces/
+tools/mcp/agent_reports/*/server_logs/
+tools/mcp/agent_reports/*/artifacts/
+
+# Local data of the development notes
+dev/*.csv
