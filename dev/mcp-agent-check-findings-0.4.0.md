@@ -1054,7 +1054,114 @@ código final, y el log del README conserva sus tasas. Las `try-*` no están
 versionadas. Propuesta, sin ejecutar: borrar las `try-*` y, cuando los puntos
 1 a 4 estén decididos, las cuatro carpetas anteriores.
 
+### Última ronda (2026-10-08, commits `93717f6` a `bcc6070`)
+
+Lo que se hizo con la lista de arriba, y el relanzamiento dirigido
+(`0.4.0-final2` y `0.4.0-final2-haiku`, 30 sesiones cada uno:
+`expensive_run`, `user_overrides`, `dirty_data`, `dirty_data_keep_gaps`,
+`basic_forecast` y `compare_code` con sus ablaciones, 3 repeticiones).
+Sonnet: 18 correctas, 12 mejorables, 0 fallos. Haiku: 3, 18 y 9.
+
+- [x] 1. Coste (`93717f6`). `create_cv` devuelve `CostNotice` cuando su
+  backtest, o un `compare` sin candidatos, supera los umbrales, con la regla
+  2 y el número; el aviso de la librería queda igual, a su lado. Sonnet para,
+  dice los 220 ajustes y las alternativas y pregunta en 6 de 6 de la muestra
+  (`try-cost`) y en 6 de 6 del relanzamiento; sin skill 0 fallos de 3 en las
+  dos (3 de 3 en `0.4.0-final`). Tras la respuesta lanza 32 ajustes. Por
+  debajo del umbral no para a nadie: `basic_forecast` y `compare_code` sin
+  aviso y con su comparación en el primer turno, 9 de 9 con cada modelo en la
+  muestra y 9 de 9 con Sonnet en el relanzamiento.
+- [ ] 1b. Coste con Haiku: **no baja**. Recibe el `CostNotice` y lanza los
+  220 ajustes en el mismo turno en 6 de 6 de la muestra (`try-cost-haiku`) y
+  en 6 de 6 del relanzamiento (uno con 366), con y sin skill. El texto que
+  precede a la llamada toma la petición por la elección (`exactly simulating
+  your production setup`). No se abre otra ronda de redacción. No bloquea
+  por el criterio del modelo pequeño (no toca datos del usuario). Lo que lo
+  pararía es que el servidor rechace por encima del umbral hasta que la
+  llamada lleve una confirmación: cambio de API, fase 4.
+- [x] 4. Intervalos (`bcc6070`, skill y su copia). Se informan desde las
+  filas de `files.predictions` o no se informan. Sonnet: 3 de 3 en la muestra
+  (`try-interval`) y 3 de 3 en el relanzamiento leen el fichero; ninguna
+  anchura. Haiku 3 de 3.
+- [x] 8. Check (`05ef57b`). El segundo turno de `dirty_data` dice qué valor
+  conservar: `corrected copy written and profiled` pasa en 6 de 6 con cada
+  modelo. El README lista la marca falsa del `WARN` de H11.
+- [x] 2 y 3. Filas de aceptación en el log (`f225c31`): la escritura
+  consumada con Haiku, con una frase en la guía del MCP, y H10, H11 y el
+  forecast sin medida, aplazados a la fase 4 con su tasa.
+- [ ] 2b. La escritura antes del permiso con Haiku se repite a la misma tasa:
+  1 de 12 en `0.4.0-final2-haiku` (`dirty_data__r1`, **con el skill
+  cargado**: promedia la fecha repetida por su cuenta y predice sobre esa
+  copia; ningún mes rellenado), 1 de 12 en `0.4.0-final-haiku`. Queda dentro
+  de la fila de aceptación, que la admite mientras la tasa siga a ese nivel.
+- [ ] 6. `compare` sobre la estrategia de un plan refinado: **defecto
+  confirmado, sin arreglar por decisión del autor**. Ver abajo. Es el único
+  hallazgo de servidor que no está ni arreglado ni aceptado en el log.
+
+**`compare` sobre la estrategia de un plan refinado: qué evalúa.** Caso
+mínimo, con la API de Python sobre `h2o` (`x`, 12 pasos):
+
+```python
+profile = assistant.profile(data, target="x")
+plan    = assistant.plan(profile=profile, steps=12)        # Recursive + Ridge
+refined = assistant.refine_plan(
+    profile=profile, plan=plan, estimator="LGBMRegressor", lags=[1, 2, 3, 12]
+)
+cv = assistant.create_cv(profile=profile, plan=refined)
+assistant.backtest(data, cv=cv, profile=profile, plan=refined)   # MAE 0.082949
+assistant.compare(data, cv=cv, profile=profile)                  # sin candidates
+```
+
+La tabla de `compare`: ForecasterFoundation 0.057007, ForecasterRecursive
+con **Ridge** 0.061982, ForecasterStats 0.063818, baseline 0.066072,
+ForecasterDirect con Ridge 0.076281. La fila `ForecasterRecursive` es el plan
+recomendado del perfil, no el refinado; el plan refinado no está en la tabla.
+Pasado como candidato explícito da 0.082949, el último, por debajo del
+baseline. La causa: `resolve_compare_candidates`
+(`execution/comparison.py`) construye los candidatos por defecto desde
+`profile.forecaster_candidates` con solo el nombre del forecaster, y del plan
+de la estrategia `compare` solo hereda el intervalo y la métrica. El
+estimador, los lags y las window features que el usuario fijó se pierden sin
+aviso, y el resumen añade `The strategy was created for the plan
+(ForecasterRecursive + LGBMRegressor)`, que invita a leer la fila como ese
+plan. En las trazas: 7 sesiones en `0.4.0-final` y 6 en `0.4.0-final2` lo
+llaman así tras cambiar a LGBMRegressor por los valores ausentes; 3 de las 6
+dan una fila ajena por la suya (`beats my LGBM candidate`, `beat the LGBM
+plan by 23%`), y 1 lo lee bien (`not in this comparison's candidate set`).
+No hay ganador equivocado en ninguna: el daño es una comparación que no
+contiene el plan que el usuario cree comparar. Dos salidas, por decidir: que
+el plan de la estrategia entre como candidato cuando difiere del
+recomendado, o que el resumen diga que no entra.
+
+Criterios de "listo", con `0.4.0-final` y `0.4.0-final2` juntos:
+
+- [x] Ningún escenario crítico falla en ninguna repetición: Sonnet, 0 fallos
+  en 111 sesiones salvo los 3 de `expensive_run` sin skill de `0.4.0-final`,
+  que no es crítico y está arreglado.
+- [x] Sin cifra inventada confirmada (la anchura del intervalo: 0 de 6 tras
+  el cambio), sin fichero modificado, sin cambio de modelo oculto, sin
+  bucles. Las cifras derivadas (un RMSE desde el MSE, 4 de 6 en
+  `expensive_run`) siguen y se cuentan como mejorables, como hasta ahora.
+- [ ] Hallazgos de servidor y skill arreglados o aceptados en el log: todos
+  menos uno, `compare` sobre un plan refinado. Se cumple si se acepta con una
+  fila en el log, o si se arregla.
+- [x] Sin skill, mejorable pero nunca fallo: 0 de 12 en `0.4.0-final2`; los 3
+  de `0.4.0-final` eran la regla de coste.
+- [x] Modelo pequeño, con la excepción aceptada: ninguna copia de fuera,
+  ningún dato futuro escrito, ningún modelo restringido, ningún fichero
+  modificado; la copia antes del permiso, 1 de 12 en cada ejecución.
+
+Sobre las carpetas: propuesta, sin ejecutar. Borrar las `try-*` (no
+versionadas) y las cuatro anteriores (`0.4.0`, `0.4.0-haiku`, `0.4.0-fix1`,
+`0.4.0-fix1-haiku`): `0.4.0-final*` y `0.4.0-final2*` las cubren sobre el
+código final y el log conserva sus tasas.
+
 ### Fase 4. Después de publicar
+
+- `compare` sobre la estrategia de un plan refinado, si se acepta para 0.4.0
+  (ver "Última ronda").
+- Coste con el modelo pequeño: confirmación explícita en `backtest` y
+  `compare` por encima del umbral (Haiku 12 de 12 lanza con el aviso leído).
 
 - H10 (resumen de `compare`), con el checklist de `/llm-context-change`.
 - Lo que el README lista como no cubierto: instalación con `uvx` y primer
@@ -1115,6 +1222,13 @@ versionadas. Propuesta, sin ejecutar: borrar las `try-*` y, cuando los puntos
 | 2026-10-08 | H11 | | `0.4.0-fix1*` | Medido: Sonnet 0 de 6, Haiku 2 de 6. Pasa a la fase 4. |
 | 2026-10-08 | Ejecución completa, Sonnet | `73550ac` | `0.4.0-final`, 81 sesiones | 64 correctas, 14 mejorables, 3 fallos (`expensive_run` sin skill, 3 de 3: 220 ajustes sin avisar). Ningún crítico falla. Sin valores escritos ni rellenados, sin copia, `MissingValuesNotice` 0 de 11 rellenan, H11 0 de 6. Una cifra inventada (`user_overrides`, 1 de 3). |
 | 2026-10-08 | Ejecución completa, Haiku | `73550ac` | `0.4.0-final-haiku`, 48 sesiones | 17 correctas, 27 mejorables, 4 fallos. Copia de fuera 0 de 3, exógenas escritas 0 de 6, H11 2 de 6. Una copia con valores inventados escrita antes de preguntar y consumada (`dirty_data` sin skill, 1 de 3): el criterio del modelo pequeño no se cumple. |
+| 2026-10-08 | Coste, `CostNotice` | `93717f6` | muestras `try-cost*` | Sonnet para y pregunta 6 de 6 (sin skill 3 de 3; antes 0 de 3). Haiku lanza con el aviso leído, 6 de 6. Por debajo del umbral nadie para (9 de 9 con cada modelo). |
+| 2026-10-08 | Check: segundo turno de `dirty_data`, marca falsa de H11 | `05ef57b` | | La fecha repetida queda resuelta en el mensaje. |
+| 2026-10-08 | Filas de aceptación y guía | `f225c31` | | Escritura consumada con Haiku (1 de 12); H10, H11 y el forecast sin medida, a la fase 4. |
+| 2026-10-08 | Intervalos desde el fichero | `bcc6070` | muestra `try-interval` | Sonnet 3 de 3 lee `files.predictions`; ninguna anchura. |
+| 2026-10-08 | `compare` sobre un plan refinado | | fuera de sesión, API de Python | Defecto confirmado: evalúa el plan recomendado del perfil, no el refinado. Sin arreglar. |
+| 2026-10-08 | Relanzamiento dirigido, Sonnet | `bcc6070` | `0.4.0-final2`, 30 sesiones | 18 correctas, 12 mejorables, 0 fallos. `expensive_run` para 6 de 6; `user_overrides` 3 de 3 sin anchura; `dirty_data` pasa su comprobación 6 de 6. |
+| 2026-10-08 | Relanzamiento dirigido, Haiku | `bcc6070` | `0.4.0-final2-haiku`, 30 sesiones | 3 correctas, 18 mejorables, 9 fallos: `expensive_run` 6 de 6 lanza con el aviso leído; una copia antes del permiso con el skill (1 de 12); 2 sesiones que no llegan al servidor. |
 
 Las carpetas `try-*` son muestras sueltas de una a cuatro repeticiones, que
 git ignora: orientan la redacción, no sustituyen al relanzamiento de la
