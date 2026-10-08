@@ -1198,15 +1198,52 @@ def validate_backtest_windows(
     )
 
 
+def backtest_missing_values_reason(
+    plan: ForecastPlan, profile: DataProfile
+) -> tuple[str, bool] | None:
+    """
+    Why a backtest of a plan can read missing values of the target it cannot
+    use: a single series with missing values or missing timestamps, and a
+    forecaster that cannot predict from one (a lag forecaster whose
+    estimator does not tolerate them, or ForecasterEquivalentDate).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan a strategy is built for.
+    profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    reason : tuple, None
+        None when the backtest cannot fail for that reason. Otherwise who
+        cannot use a missing value (`'ForecasterRecursive with Ridge cannot
+        predict from'`, `'ForecasterEquivalentDate repeats'`) and whether an
+        estimator that accepts missing values would avoid it.
+    """
+    if profile.n_series != 1 or not isinstance(profile.target, str):
+        return None
+    if not profile.missing_target and not profile.has_gaps:
+        return None
+    if plan.forecaster == "ForecasterEquivalentDate":
+        return f"{plan.forecaster} repeats", False
+    if (
+        plan.forecaster in AUTOREG_FORECASTERS
+        and plan.estimator not in NAN_TOLERANT_ESTIMATORS
+    ):
+        return f"{plan.forecaster} with {plan.estimator} cannot predict from", True
+
+    return None
+
+
 def warn_backtest_missing_values(plan: ForecastPlan, profile: DataProfile) -> None:
     """
     Warn when a strategy is built for a plan whose backtest can read missing
-    values of the target: a single series with missing values or missing
-    timestamps, and a forecaster that cannot predict from one (a lag
-    forecaster whose estimator does not tolerate them, or
-    ForecasterEquivalentDate). Where they are is not known without the data,
-    so `backtest()` checks every fold (see `validate_backtest_windows`) and
-    this warning says beforehand that it can raise, and what avoids it.
+    values of the target (see `backtest_missing_values_reason`). Where they
+    are is not known without the data, so `backtest()` checks every fold
+    (see `validate_backtest_windows`) and this warning says beforehand that
+    it can raise, and what avoids it.
 
     Parameters
     ----------
@@ -1219,24 +1256,14 @@ def warn_backtest_missing_values(plan: ForecastPlan, profile: DataProfile) -> No
     -------
     None
     """
-    if profile.n_series != 1 or not isinstance(profile.target, str):
+    reason = backtest_missing_values_reason(plan, profile)
+    if reason is None:
         return
-    if not profile.missing_target and not profile.has_gaps:
-        return
-    if plan.forecaster == "ForecasterEquivalentDate":
-        who = f"{plan.forecaster} repeats"
-        estimator = ""
-    elif (
-        plan.forecaster in AUTOREG_FORECASTERS
-        and plan.estimator not in NAN_TOLERANT_ESTIMATORS
-    ):
-        who = f"{plan.forecaster} with {plan.estimator} cannot predict from"
-        estimator = (
-            ", or choose an estimator that accepts missing values (for "
-            "example 'LGBMRegressor')"
-        )
-    else:
-        return
+    who, estimator_avoids_it = reason
+    estimator = (
+        ", or choose an estimator that accepts missing values (for "
+        "example 'LGBMRegressor')"
+    ) if estimator_avoids_it else ""
     warnings.warn(
         f"The target has missing values or missing timestamps (asfreq() "
         f"restores them as missing values), and {who} a missing value: "

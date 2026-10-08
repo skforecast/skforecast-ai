@@ -393,6 +393,9 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
             count    = 1,
         )
     ]
+    # The notice of the server that leaves those values to the user comes
+    # with the warning, one call before the error that carries the hint.
+    assert [n["category"] for n in cv["notices"]][:1] == ["MissingValuesNotice"]
     assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
     assert error["message"] == (
         "The forecaster reads missing values of the target to predict 1 of "

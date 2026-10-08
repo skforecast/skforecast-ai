@@ -37,6 +37,7 @@ from .._constants import (
     LONG_TRAINING_FITS,
 )
 from .._foundation import resolve_foundation_model
+from .._last_window import backtest_missing_values_reason
 from .._utils import (
     load_exog,
     plan_override_value,
@@ -370,6 +371,60 @@ def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
                 f"the user for it, or use `use_exog: false` and tell them "
                 f"those columns were left out."
             ),
+            count    = 1,
+        )
+    ]
+
+
+def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
+    """
+    Notice of `create_cv` for a plan whose backtest can fail on the missing
+    values of the target. The warning of the library that comes with it says
+    what would solve it (`Impute the target, or choose an estimator...`),
+    which is right for whoever owns the data and an order for an agent: it
+    fills the values in without asking, or skips the backtest and forecasts
+    without telling. This notice carries the rule of `DATA_VALUES_HINT`, one
+    call before the error that has it.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy was built for.
+    profile : ProfileResult
+        Profile the plan was built from.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'data'`), or none when the backtest cannot fail
+        for that reason.
+    """
+
+    reason = backtest_missing_values_reason(plan, profile.data_profile)
+    if reason is None:
+        return []
+    message = (
+        "The missing values of the target are data of the user: do not fill "
+        "in, drop or write any of them yourself, in their file or in a copy "
+        "of it, unless they asked for exactly that. Ask before you do."
+    )
+    if reason[1]:
+        message += (
+            " Without touching the data, an estimator that accepts missing "
+            "values (such as 'LGBMRegressor', with `refine_plan` and a new "
+            "`create_cv`) lets `backtest` run on every fold: if you switch to "
+            "it, say in your answer that you changed the estimator and why."
+        )
+    message += (
+        " If you forecast without a backtest, say in your answer that the "
+        "forecast has no measure of error and why."
+    )
+
+    return [
+        ToolNotice(
+            source   = "data",
+            category = "MissingValuesNotice",
+            message  = message,
             count    = 1,
         )
     ]
@@ -1821,7 +1876,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                 outcome.warnings,
                                 plan_warnings  = result.plan.warnings,
                                 data_warnings  = plan_entry.data_warnings,
-                                server_notices = compare_notice,
+                                server_notices = [
+                                    *_missing_values_notices(
+                                        plan_entry.obj, plan_entry.profile
+                                    ),
+                                    *compare_notice,
+                                ],
                             ),
             source        = plan_entry,
             code          = result.code,
