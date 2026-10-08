@@ -44,7 +44,7 @@ from .._utils import (
     warn_long_training,
 )
 from ..assistant import ForecastingAssistant
-from ..exceptions import InvalidInputError, SkforecastAIError
+from ..exceptions import DataContentError, InvalidInputError, SkforecastAIError
 from ..execution.comparison import (
     missing_foundation_backend,
     resolve_compare_candidates,
@@ -279,14 +279,19 @@ def _instructions(allowed: AllowedDir) -> str:
     return INSTRUCTIONS.format(allowed_dir=allowed.path)
 
 
-def _leave_to_user(exc: SkforecastAIError, hints: dict[str, str]) -> None:
+def _leave_to_user(
+    exc: SkforecastAIError,
+    hints: dict[str, str],
+    kind: type[SkforecastAIError] = DataContentError,
+) -> None:
     """
     Give an error of the library that has no hint the one of the server for
-    its field.
+    its field, when the error is of the kind the hints are for.
 
     The content of a file of the user is at fault, not an argument: the
     message says how to fix it, which an agent does on its own unless it is
-    told whose decision that is.
+    told whose decision that is. An argument the agent got wrong has the
+    same field and is its own to correct, so it gets none of these hints.
 
     Parameters
     ----------
@@ -294,13 +299,17 @@ def _leave_to_user(exc: SkforecastAIError, hints: dict[str, str]) -> None:
         Error raised by the core, changed in place.
     hints : dict
         Hint by field of the Python API (`'data'`, `'exog'`).
+    kind : type, default DataContentError
+        Class of the errors that get a hint: by default those the core
+        raises for the content of the data or of the future exogenous
+        variables.
 
     Returns
     -------
     None
     """
 
-    if exc.hint is None and exc.field in hints:
+    if exc.hint is None and exc.field in hints and isinstance(exc, kind):
         exc.hint = hints[exc.field]
 
 
@@ -1423,7 +1432,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     exog_columns     = exog_columns,
                 )
             except SkforecastAIError as exc:
-                _leave_to_user(exc, {"data": DATA_PROBLEM_HINT})
+                # Every error of a profile on `data` is about the file:
+                # the call has no other argument with that field.
+                _leave_to_user(
+                    exc, {"data": DATA_PROBLEM_HINT}, kind=SkforecastAIError
+                )
                 raise
             _inputs.check_profile_names(result)
             _inputs.check_unchanged(path, digest, "data_path")
@@ -2244,10 +2257,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     plan      = _copy(plan_entry.obj),
                 )
             except SkforecastAIError as exc:
-                _leave_to_user(exc, {
-                    "data": DATA_VALUES_HINT,
-                    "exog": FUTURE_EXOG_HINT if exog_path is None else EXOG_FILE_HINT,
-                })
+                if exog_path is None:
+                    # Without a file, the only error on `exog` is that the
+                    # plan needs one: an argument left out, not content.
+                    _leave_to_user(
+                        exc, {"exog": FUTURE_EXOG_HINT}, kind=SkforecastAIError
+                    )
+                _leave_to_user(
+                    exc, {"data": DATA_VALUES_HINT, "exog": EXOG_FILE_HINT}
+                )
                 _keep_failure(exc)
                 raise
             _inputs.check_unchanged(path, plan_entry.data_sha256, "data_path")

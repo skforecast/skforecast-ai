@@ -110,6 +110,21 @@ class InvalidInputTypeError(InvalidInputError, TypeError):
     """
 
 
+class DataContentError(InvalidInputError):
+    """
+    Raised when the content of the data, or of the future exogenous
+    variables, cannot be used for what was asked, although every argument
+    is valid: a missing value of the target that a prediction or a metric
+    reads, final rows without a target value, or future exogenous variables
+    whose columns, dates or values do not fit the data and the plan.
+
+    A subclass of `InvalidInputError`, with its code and its `field`
+    (`'data'`, `'exog'` or `'test_size'`), so catching `InvalidInputError`
+    or `ValueError` still covers it. Catch it to tell a problem of the
+    values, which is solved in the data, from an argument to correct.
+    """
+
+
 class DataNotFoundError(SkforecastAIError, FileNotFoundError):
     """
     Raised when a file to read cannot be found: the data (a CSV path or

@@ -9,6 +9,7 @@ Every error derives from `SkforecastAIError`, which carries a `code` from a clos
 | `SkforecastAIError` | every method | Base class of the errors below. Catch it to handle any error of skforecast-ai. |
 | `InvalidInputError` | every method | An argument, or the plan, profile or CV passed in, is not valid. A `ValueError`. |
 | `InvalidInputTypeError` | every method | An argument has a type that is not accepted, such as a bool `test_size` or a `compare()` candidate config that is not a dict, or a `CVResult` is unpacked as a tuple. A `TypeError`, and also an `InvalidInputError` and therefore a `ValueError`. |
+| `DataContentError` | `forecast()`, `backtest()`, `compare()` and the CLI | Every argument is valid and the content of the data, or of the future exogenous variables, cannot be used for what was asked: a missing value of the target that a prediction or a metric reads, final rows without a target value, or future exogenous variables whose columns, dates or values do not fit the data and the plan. An `InvalidInputError` and therefore a `ValueError`, with the same `code` and `field`. |
 | `DataNotFoundError` | every method that takes `data`, and the CLI | The CSV path does not exist or the URL cannot be read, or a JSON or CSV input of the CLI does not exist. A `FileNotFoundError`. |
 | `LLMRequiredError` | `ask()`, `refine_plan()` and `create_cv()` with a prompt | The method needs an LLM and none was configured at init time. |
 | `LLMCallError` | `ask()` | The call to the LLM fails. There is no deterministic answer to fall back on, so the provider error is raised (chained as `original_error`) instead of returned as text. |
@@ -28,7 +29,7 @@ The warnings that skforecast emits while `forecast()`, `backtest()` and `compare
 
 | `code` | Raised as | When |
 |---|---|---|
-| `invalid_argument` | `InvalidInputError`, `InvalidInputTypeError` | An argument or a received object is not valid. |
+| `invalid_argument` | `InvalidInputError`, `InvalidInputTypeError`, `DataContentError` | An argument or a received object is not valid. |
 | `insufficient_data` | `InvalidInputError` | The data is too short for what was asked: fewer than two folds for the cross-validation, lags and window features longer than the data allows, a target column without any value, or a series of `ForecasterRecursiveMultiSeries` without values or shorter than its lags and window features. |
 | `data_not_found` | `DataNotFoundError` | A file to read (the CSV path or URL, or an input of the CLI) cannot be found. |
 | `data_unreadable` | `DataNotFoundError`, `InvalidInputError` | An input exists but cannot be parsed: a CSV file that pandas cannot read (empty, binary, not UTF-8, or rows with more fields than the header), a URL whose content is not a CSV (`DataNotFoundError`, as before), or the JSON of `--from-plan` or `--from-profile` in the CLI. |

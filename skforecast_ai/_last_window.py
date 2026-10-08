@@ -14,7 +14,7 @@ from skforecast.model_selection import TimeSeriesFold
 from ._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS, NAN_TOLERANT_ESTIMATORS
 from ._dates import row_dates, training_end
 from ._future_exog import _SHOWN, _per_series, _shown
-from .exceptions import InvalidInputError
+from .exceptions import DataContentError, InvalidInputError
 from .profiling.data_profile import _caller_stacklevel, _fmt_timestamp
 from .schemas import DataProfile, ForecastPlan
 
@@ -522,7 +522,7 @@ def _report(
         f"{where} ({series}{shown})."
     )
     if plan.forecaster == "ForecasterEquivalentDate":
-        raise InvalidInputError(
+        raise DataContentError(
             f"{message} {plan.forecaster} repeats them as missing predictions. "
             f"Those values have to be filled in before predicting.",
             field = "data",
@@ -530,14 +530,14 @@ def _report(
     if any(by_differentiation for _, by_differentiation in missing.values()):
         # The inverse of the differentiation starts from them, so the
         # predictions are missing whatever the estimator.
-        raise InvalidInputError(
+        raise DataContentError(
             f"{message} The differentiation of {plan.forecaster} reads the "
             f"last {order} value(s), so its predictions would be missing. Those "
             f"values have to be filled in before predicting.",
             field = "data",
         )
     if plan.estimator not in NAN_TOLERANT_ESTIMATORS:
-        raise InvalidInputError(
+        raise DataContentError(
             f"{message} {plan.forecaster} with {plan.estimator} cannot use "
             f"them, so its predictions would be missing. Either they are "
             f"filled in, or the plan uses an estimator that accepts missing "
@@ -611,7 +611,7 @@ def _final_rows(
         f"; to forecast {their}, pass their exogenous variables in `exog`"
         if uses_exog else ""
     )
-    raise InvalidInputError(
+    raise DataContentError(
         f"The data has no target value{where} after {prefix}{shown[0]}: drop "
         f"its last {len(after)} row(s) ({prefix}{span}), so that it ends with "
         f"the last value of the target{exog}.{weekends}",
@@ -1054,7 +1054,7 @@ def _check_multiseries_evaluation(
             missing[_plain(name)] = pd.DatetimeIndex(absent)
 
     if ending:
-        raise InvalidInputError(
+        raise DataContentError(
             f"Some series have no value on the last training date "
             f"({plan.end_train}): {_shown(ending)}. {plan.forecaster} does not "
             f"predict a series that ends before the others, and when no series "
@@ -1080,7 +1080,7 @@ def _check_multiseries_evaluation(
             f"they reach."
             if ended else ""
         )
-        raise InvalidInputError(
+        raise DataContentError(
             f"The target has missing values in the test split ({shown}). "
             f"skforecast cannot compute the metrics on them, whatever the "
             f"estimator. Impute the target, or evaluate on dates without "

@@ -213,7 +213,8 @@ def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
     Test that a plan built with `use_exog=false` forecasts data with
     exogenous columns without `exog_path`, as the Python API does, with a
     notice that says they were left out, and that passing `exog_path` to it
-    is an `invalid_argument`.
+    is an `invalid_argument` without the hint about the file of the user:
+    the argument is the agent's to drop.
     """
     path = write_csv(tmp_path, "sales.csv", df_single)
     exog_path = write_csv(tmp_path, "future.csv", df_single_future_exog)
@@ -241,6 +242,11 @@ def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
         "ExogLeftOutNotice"
     ]
     assert (given["code"], given["field"]) == ("invalid_argument", "exog_path")
+    assert given["message"] == (
+        "`exog` was provided but the plan does not use exogenous variables "
+        "(`plan.use_exog` is False). Remove `exog`."
+    )
+    assert given["hint"] is None
 
 
 def test_tool_forecast_invalid_argument_when_future_exog_is_missing(tmp_path):
@@ -432,3 +438,35 @@ def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_no_date_c
         "says and let them correct it. Never write or change those values "
         "yourself."
     )
+
+
+def test_tool_forecast_invalid_argument_without_hint_when_exog_path_and_test_size(
+    tmp_path,
+):
+    """
+    Test that `exog_path` together with `test_size` is `invalid_argument`
+    on `exog_path` without the hint about the file of the user: nothing is
+    wrong in the file, the agent passed an argument an evaluation does not
+    take.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    exog_path = write_csv(tmp_path, "future.csv", df_single_future_exog)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    error = error_of(
+        call(
+            server,
+            "forecast",
+            {"plan_id": plan_id, "exog_path": exog_path, "test_size": 10},
+        ),
+        "forecast",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        "`exog` is only used for future prediction (`test_size=None`). In "
+        "evaluation mode the test-set exogenous values are taken from the "
+        "train/test split, so `exog` must not be provided."
+    )
+    assert error["hint"] is None

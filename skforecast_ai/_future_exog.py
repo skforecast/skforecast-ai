@@ -12,7 +12,7 @@ import pandas as pd
 
 from ._constants import AUTOREG_FORECASTERS, NAN_TOLERANT_ESTIMATORS
 from ._dates import is_text, parse_text_dates, row_dates
-from .exceptions import InvalidInputError, InvalidInputTypeError
+from .exceptions import DataContentError, InvalidInputTypeError
 from .execution.forecast_runner import exog_as_injected
 from .profiling.data_profile import _caller_stacklevel, _fmt_timestamp
 from .rendering._helpers import _get_numeric_exog
@@ -153,7 +153,7 @@ def validate_future_exog(
         if column is not None and (exog.columns == column).sum() > 1
     ]
     if duplicated:
-        raise InvalidInputError(
+        raise DataContentError(
             f"`exog` has repeated column names: {_shown(duplicated)}.",
             field = "exog",
         )
@@ -252,7 +252,7 @@ def _check_columns(
             with_keys = f", with the series id column {profile.series_id_column!r}"
             if profile.date_column is not None:
                 with_keys += f" and the date column {profile.date_column!r}"
-        raise InvalidInputError(
+        raise DataContentError(
             f"`exog` has no column {_shown(missing)}. The future exogenous "
             f"variables must hold the columns {columns} that the plan "
             f"uses{with_keys}.",
@@ -266,7 +266,7 @@ def _check_columns(
             if column not in columns and column != profile.date_column
         ]
         if extra:
-            raise InvalidInputError(
+            raise DataContentError(
                 f"`exog` has columns that the data has no history of: "
                 f"{_shown(extra)}. A ForecasterFoundation model takes every "
                 f"column of the future exogenous variables; keep only "
@@ -311,7 +311,7 @@ def _exog_dates(
         ):
             # The generated code reshapes long-format exog without parsing
             # its dates, which turned every value into a missing one.
-            raise InvalidInputError(
+            raise DataContentError(
                 f"The dates of `exog` (column {date_column!r}) are text: convert "
                 f"them with pandas.to_datetime first.",
                 field = "exog",
@@ -321,7 +321,7 @@ def _exog_dates(
             # Python dates and datetimes, which pandas reads as dates.
             dates = pd.DatetimeIndex(pd.to_datetime(values))
         except (ValueError, TypeError) as exc:
-            raise InvalidInputError(
+            raise DataContentError(
                 f"The dates of `exog` (column {date_column!r}) cannot be read "
                 f"as dates: {exc}",
                 field = "exog",
@@ -333,7 +333,7 @@ def _exog_dates(
                 parse_text_dates(values) if is_text(values) else values
             )
         except (ValueError, TypeError) as exc:
-            raise InvalidInputError(
+            raise DataContentError(
                 f"The dates of `exog` (column or index {date_column!r}) cannot be "
                 f"read as the generated code reads them: {exc}",
                 field = "exog",
@@ -346,7 +346,7 @@ def _exog_dates(
             # Python dates or datetimes, which pandas reads as dates.
             index = pd.DatetimeIndex(index)
         if not isinstance(index, pd.DatetimeIndex):
-            raise InvalidInputError(
+            raise DataContentError(
                 f"The dates of `exog` must be its index, a pandas "
                 f"DatetimeIndex, as in the data; its index is "
                 f"{type(exog.index).__name__}.",
@@ -355,7 +355,7 @@ def _exog_dates(
         dates = index
     if dates.isna().any():
         positions = np.flatnonzero(dates.isna())
-        raise InvalidInputError(
+        raise DataContentError(
             f"`exog` has {len(positions)} row(s) without a date, at row "
             f"position(s) {_shown(positions.tolist())}: every row needs a date.",
             field = "exog",
@@ -384,7 +384,7 @@ def _last_date(
             dates = dates[data[targets].notna().any(axis=1).to_numpy()]
     last = dates.max() if dates is not None else None
     if last is None or pd.isna(last):
-        raise InvalidInputError(
+        raise DataContentError(
             "The last date of the data is unknown, so `exog` cannot be checked "
             "against the dates to forecast.",
             field = "exog",
@@ -418,9 +418,9 @@ def _in_data_zone(
     return converted, exog_dates.tz
 
 
-def _zone_error(exog_zone: object, data_zone: object) -> InvalidInputError:
+def _zone_error(exog_zone: object, data_zone: object) -> DataContentError:
     """Return the error for future exog dates in another time zone."""
-    return InvalidInputError(
+    return DataContentError(
         f"The dates of `exog` have the time zone {exog_zone}, those of the "
         f"data {data_zone}: use the time zone of the data.",
         field = "exog",
@@ -471,7 +471,7 @@ def _check_dates(
     for_series = "" if series is None else f" for series {str(series)!r}"
     repeated = dates[dates.duplicated()].unique()
     if len(repeated):
-        raise InvalidInputError(
+        raise DataContentError(
             f"`exog` repeats dates{of_series}: "
             f"{_shown([_fmt_timestamp(date) for date in repeated])}. Every date "
             f"must appear once.",
@@ -482,7 +482,7 @@ def _check_dates(
     kept = dates[on_grid]
     before = kept[kept < expected[0]]
     if len(before) and not by_date:
-        raise InvalidInputError(
+        raise DataContentError(
             f"`exog` starts at {_fmt_timestamp(before.min())}{for_series}, before "
             f"the first date to forecast, {_fmt_timestamp(expected[0])} (the "
             f"date after the last date of {after}). Drop the rows before it.",
@@ -490,7 +490,7 @@ def _check_dates(
         )
     absent = expected[~expected.isin(dates)]
     if len(absent):
-        raise InvalidInputError(
+        raise DataContentError(
             f"`exog` has no row{of_series} for {len(absent)} of the {len(expected)} "
             f"dates to forecast, such as {_fmt_timestamp(absent[0])}. It must "
             f"hold the dates from {_fmt_timestamp(expected[0])} to "
@@ -500,7 +500,7 @@ def _check_dates(
     within = (kept >= expected[0]) & (kept <= expected[-1])
     off_grid = kept[within & ~kept.isin(expected)]
     if len(off_grid):
-        raise InvalidInputError(
+        raise DataContentError(
             f"`exog` has dates{of_series} off the grid of frequency "
             f"{profile.frequency!r} among the dates to forecast, such as "
             f"{_fmt_timestamp(off_grid[0])}: the generated code drops them. "
@@ -518,7 +518,7 @@ def _check_dates(
         if len(outside):
             if zone is not None:
                 raise _zone_error(zone, dates.tz)
-            raise InvalidInputError(
+            raise DataContentError(
                 f"`exog` starts at {_fmt_timestamp(kept.min())}{for_series}, off "
                 f"the grid of frequency {profile.frequency!r} of the dates to "
                 f"forecast: the generated code puts the rows on the grid that "
@@ -587,7 +587,7 @@ def _check_long_dates(
     foundation = plan.forecaster == "ForecasterFoundation"
     ends = _long_series_ends(data, profile, by_value=not foundation)
     if not ends:
-        raise InvalidInputError(
+        raise DataContentError(
             "The last date of the data is unknown, so `exog` cannot be checked "
             "against the dates to forecast.",
             field = "exog",
@@ -637,7 +637,7 @@ def _check_long_dates(
                 f"({exog[series_id].dtype}) than those of the data: use the "
                 f"same type."
             )
-        raise InvalidInputError(
+        raise DataContentError(
             f"`exog` has no rows for {len(absent)} series of the data: "
             f"{_shown([str(name) for name in absent])}.{hint}",
             field = "exog",
@@ -813,7 +813,7 @@ def _check_values(
             dtype=bool,
         )
         if not_single.any():
-            raise InvalidInputError(
+            raise DataContentError(
                 f"`exog` column {column!r} holds values that are not single "
                 f"values, such as {present[not_single].iloc[0]!r}.",
                 field = "exog",
@@ -833,14 +833,14 @@ def _check_values(
                 and pd.api.types.is_numeric_dtype(present)
                 and not any(_is_number(value) for value in seen)
             ):
-                raise InvalidInputError(
+                raise DataContentError(
                     f"`exog` column {column!r} holds numbers, but it holds text "
                     f"in the data (categories such as {_shown(seen)}).",
                     field = "exog",
                 )
             new = _categories(present[~present.isin(known)])
             if new and not tolerant:
-                raise InvalidInputError(
+                raise DataContentError(
                     f"`exog` column {column!r} holds categories that the data "
                     f"has not: {_shown(new)}. The data has "
                     f"{_shown(sorted(seen, key=str))}; the forecaster cannot "
@@ -873,7 +873,7 @@ def _check_values(
                 )
                 and any(value is pd.NA for value in future)
             ):
-                raise InvalidInputError(
+                raise DataContentError(
                     f"`exog` column {column!r} holds pd.NA (dtype "
                     f"{future.dtype}), which the forecaster cannot read: "
                     f"convert it to float, with NaN for the missing values.",
@@ -883,7 +883,7 @@ def _check_values(
                 "datetime64", "datetime", "date", "timedelta64", "timedelta",
                 "period",
             ):
-                raise InvalidInputError(
+                raise DataContentError(
                     f"`exog` column {column!r} holds dates or durations, such as "
                     f"{present.iloc[0]!r}, but it holds numbers in the data.",
                     field = "exog",
@@ -891,7 +891,7 @@ def _check_values(
             numbers = pd.to_numeric(present, errors="coerce")
             text = present[numbers.isna()]
             if len(text) and trained is not None:
-                raise InvalidInputError(
+                raise DataContentError(
                     f"`exog` column {column!r} holds values that are not "
                     f"numbers, such as {_shown(pd.unique(text).tolist())}, but "
                     f"it holds numbers in the data.",
@@ -899,7 +899,7 @@ def _check_values(
                 )
             if np.isinf(numbers.to_numpy(dtype=float)).any():
                 if not tolerant:
-                    raise InvalidInputError(
+                    raise DataContentError(
                         f"`exog` column {column!r} holds infinite values, which "
                         f"{plan.forecaster} with {plan.estimator} cannot use.",
                         field = "exog",
@@ -914,7 +914,7 @@ def _check_values(
             ):
                 # A column of missing values only reads as numbers, which the
                 # encoder of the categories fails on.
-                raise InvalidInputError(
+                raise DataContentError(
                     f"`exog` column {column!r} has no value in the rows to "
                     f"forecast; the forecaster cannot encode it.",
                     field = "exog",
@@ -930,7 +930,7 @@ def _check_values(
         found = "; ".join(
             f"{column!r}: {where}" for column, where in with_missing.items()
         )
-        raise InvalidInputError(
+        raise DataContentError(
             f"`exog` has missing values in the rows to forecast ({found}). "
             f"{plan.forecaster} with {plan.estimator} cannot use them, so its "
             f"predictions would be missing. Either they are filled in, or the "

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from skforecast_ai._last_window import validate_evaluation_partition
-from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.exceptions import DataContentError, InvalidInputError
 
 from tests.fixtures_last_window import (
     data_long,
@@ -622,3 +622,30 @@ def test_validate_evaluation_partition_InvalidInputError_names_series_without_te
             profile = profile_wide,
             plan    = plan_wide_multiseries_eval,
         )
+
+
+def test_validate_evaluation_partition_DataContentError_when_lag_reads_missing():
+    """
+    Test that the error for a missing value of the training partition that
+    a lag reads is a DataContentError, the class that tells a problem of
+    the content of the data from an argument to correct, with the code and
+    the field of an InvalidInputError.
+    """
+    err_msg = re.escape(
+        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "value(s), such as '2023-02-26'). ForecasterRecursive with Ridge "
+        "cannot use them, so its predictions would be missing. Either they "
+        "are filled in, or the plan uses an estimator that accepts missing "
+        "values (for example 'LGBMRegressor')."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_evaluation_partition(
+            data    = with_missing(data_single, [4]),
+            profile = profile_single,
+            plan    = plan_single_ridge_eval,
+        )
+
+    assert type(exc_info.value) is DataContentError
+    assert (exc_info.value.code, exc_info.value.field) == (
+        "invalid_argument", "data"
+    )

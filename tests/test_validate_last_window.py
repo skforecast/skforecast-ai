@@ -15,7 +15,7 @@ from skforecast_ai._last_window import (
     _read_positions,
     validate_last_window,
 )
-from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.exceptions import DataContentError, InvalidInputError
 from skforecast_ai.execution.forecast_runner import render_forecast_script
 from skforecast_ai.profiling.data_profile import _fmt_timestamp
 
@@ -1295,3 +1295,27 @@ def test_validate_last_window_final_rows_checked_by_default():
     )
     with pytest.warns(UserWarning, match=warn_msg):
         validate_last_window(data=data, profile=profile_wide, plan=plan_wide_ridge)
+
+
+def test_validate_last_window_DataContentError_when_final_rows_without_target():
+    """
+    Test that the error for the values of the data is a DataContentError,
+    the class that tells a problem of the content from an argument to
+    correct, with the code and the field of an InvalidInputError.
+    """
+    data = with_missing(data_single, [1, 2])
+
+    err_msg = re.escape(
+        "The data has no target value after 2023-02-27: drop its last 2 "
+        "row(s) (2023-02-28 to 2023-03-01), so that it ends with the last "
+        "value of the target."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_last_window(
+            data=data, profile=profile_single, plan=plan_single_ridge
+        )
+
+    assert type(exc_info.value) is DataContentError
+    assert (exc_info.value.code, exc_info.value.field) == (
+        "invalid_argument", "data"
+    )

@@ -5,7 +5,7 @@ import re
 import pytest
 
 from skforecast_ai._last_window import validate_backtest_windows
-from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.exceptions import DataContentError, InvalidInputError
 
 from tests.fixtures_last_window import (
     cv_h2o,
@@ -192,3 +192,29 @@ def test_validate_backtest_windows_does_not_modify_cv_verbose():
         validate_backtest_windows(data_h2o_gaps, profile_h2o_gaps, plan_h2o_ridge, cv)
 
     assert cv.verbose is True
+
+
+def test_validate_backtest_windows_DataContentError_when_fold_reads_missing():
+    """
+    Test that the error for a missing value that a test fold reads is a
+    DataContentError, the class that tells a problem of the content of the
+    data from an argument to correct, with the code and the field of an
+    InvalidInputError.
+    """
+    err_msg = re.escape(
+        "The forecaster reads missing values of the target to predict 1 of "
+        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "ForecasterRecursive with Ridge cannot use them, so its predictions "
+        "would be missing. "
+        "Either they are filled in, or the plan uses an estimator that "
+        "accepts missing values (for example 'LGBMRegressor')."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_backtest_windows(
+            data_h2o_gaps, profile_h2o_gaps, plan_h2o_ridge, cv_h2o()
+        )
+
+    assert type(exc_info.value) is DataContentError
+    assert (exc_info.value.code, exc_info.value.field) == (
+        "invalid_argument", "data"
+    )
