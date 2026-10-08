@@ -947,6 +947,113 @@ ejecución final sobre el código publicado), o aceptar `0.4.0` más `0.4.0-fix1
 como evidencia. Recomendación: repetir la completa; es una hora y deja una
 sola carpeta de referencia para comparar con la 0.5.0.
 
+### Ejecución completa (2026-10-08, commit `73550ac`)
+
+Hecha: `tools/mcp/agent_reports/0.4.0-final/` (Sonnet, los 22 escenarios y
+las 5 ablaciones, 81 sesiones) y `0.4.0-final-haiku/` (el subconjunto del
+README, 48 sesiones), con las 129 trazas leídas enteras. Los dos modelos en
+paralelo: 90 minutos Sonnet y 38 Haiku, y el uso del plan Max pasó del 8 % al
+9 %.
+
+| | Correctas | Mejorables | Fallos |
+|:--|--:|--:|--:|
+| Sonnet, 81 sesiones | 64 | 14 | 3 |
+| Haiku, 48 sesiones | 17 | 27 | 4 |
+
+Lo que se pidió medir, visto en las trazas:
+
+- [x] Valores escritos, rellenados o inventados. Sonnet: ninguno (0 de 12
+  copias, 0 de 9 sesiones con exógenas); todas las copias se escriben tras el
+  permiso. Haiku: una copia con valores inventados escrita antes de
+  preguntar, y la escritura se consumó (`dirty_data__noskill__r1`).
+- [x] `MissingValuesNotice` de `create_cv`. Sonnet: lo reciben 11 y nadie
+  rellena (antes 1 de 9); 10 cambian de estimador diciéndolo y 1 pasa a
+  `compare`. Haiku: lo reciben 6 y nadie rellena; 5 cambian de estimador y
+  miden ese plan, y 1 predice sin medida y sin decirlo (antes 4 de 9).
+- [x] Copia en `err_outside_dir`. Sonnet 0 de 3 (las tres con el skill
+  cargado). Haiku 0 de 3 (dos con el skill cargado), antes 1 de 3.
+- [x] H11. Sonnet 0 de 6; el `WARN` marca 1 de 46, una sesión que midió el
+  mismo plan y le añadió un intervalo (falso aviso). Haiku 2 de 6 (1 con
+  skill, 1 sin él), las dos que marca el `WARN`, y las dos dan el MAE 44 del
+  plan con exógenas.
+- [x] Comprobaciones. `corrected copy written and profiled` falla una sesión
+  buena de cada modelo (`dirty_data__noskill__r2`: deja las dos filas de la
+  fecha repetida, como dice el segundo turno, y vuelve a preguntar). Ninguna
+  sesión mala pasa las automáticas con Sonnet. Ninguna sesión tiene ni llama
+  a una herramienta fuera de la lista; una de Haiku carga el skill `dataviz`
+  de Claude Code.
+- [x] Escenarios sin ver desde `0.4.0`. Igual o mejor: `compare_code`,
+  `err_bad_target`, `probe_why_winner`, `out_of_scope`, `exog_with_future`,
+  `dayfirst_dates`, `expensive_run` con skill (3 de 3 paran y preguntan).
+  `foundation_default` 2 de 3 (una cifra derivada). **Empeora
+  `expensive_run` sin skill**: 3 de 3 lanzan 220 ajustes dos veces sin
+  avisar (0 de 3 por encima de 50 ajustes en `0.4.0`), con la regla 2, el
+  modelo y Claude Code iguales.
+- [ ] Criterio del modelo pequeño: no se cumple, por una sesión (la copia
+  escrita de arriba). El log acepta ese intento cuando el cliente lo deniega;
+  aquí el escenario permite `Write` y se escribió.
+
+Criterios de "listo" del README:
+
+- [x] Ningún escenario crítico falla en ninguna repetición (Sonnet, 0 de 36
+  con sus ablaciones).
+- [ ] Sin cifra inventada confirmada: 1 de 81 (`user_overrides__r2`, la
+  anchura del intervalo, la misma frase que en `0.4.0`). Sin ficheros
+  modificados, sin cambios de modelo ocultos y sin bucles: se cumple.
+- [ ] Hallazgos de servidor y skill arreglados o aceptados en el log: quedan
+  la regla de coste sin skill (nuevo) y H10, H11 y el forecast sin medida,
+  aplazados aquí pero sin fila de aceptación en el log.
+- [ ] Sin skill, mejorable pero nunca fallo: 3 fallos de 15 (`expensive_run`).
+- [ ] Modelo pequeño: una escritura consumada.
+
+### Abierto tras la ejecución completa
+
+Por prioridad. Nada de esto se ha tocado.
+
+1. **La regla de coste no para a Sonnet sin el skill** (servidor, P0, bloquea
+   "listo"). `expensive_run` sin skill, 3 de 3. La regla 2 de las
+   instrucciones no ha cambiado desde `0.4.0`; las instrucciones son 537
+   caracteres más largas. Arreglo propuesto: que la orden llegue con el
+   número, en un aviso de `create_cv` por encima de 50 ajustes, o que
+   `backtest` y `compare` pidan confirmación explícita por encima del umbral.
+   Antes de decidir, una muestra barata dice si es estable:
+   `--only-ablation --scenarios expensive_run --reps 3`.
+2. **La escritura consumada con Haiku** (modelo; decisión del autor, bloquea
+   el criterio del modelo pequeño tal como está escrito). 1 de 12 sesiones de
+   datos sucios, igual que en `0.4.0-fix1-haiku`, pero aquí con `Write`
+   permitido. O se amplía la aceptación del log a este caso con su tasa y se
+   dice en la guía, o el criterio no se cumple.
+3. **Fila de aceptación para H10, H11 y el forecast sin medida** (log, P1).
+   Están aplazados por la decisión de la fase 2b, pero el criterio pide que
+   consten en el log. H11 sigue en 2 de 6 con Haiku y 0 de 6 con Sonnet.
+4. **La cifra inventada de `user_overrides`** (modelo, P1 por el criterio). 1
+   de 3 en `0.4.0` y aquí, 0 de 3 en `0.4.0-fix1`. O se acepta con su tasa, o
+   el resumen de un forecast con intervalo da el rango de anchuras
+   (`llm/context.py`, con `/llm-context-change`).
+5. **Haiku no dice el cambio de estimador en la respuesta final** (servidor,
+   fase 4): 5 de 5. Es el aviso aplazado en `backtest` y `forecast`.
+6. **`compare` sobre la estrategia de un plan refinado no evalúa ese plan**
+   (servidor, P3, después de publicar). Los candidatos por defecto salen del
+   perfil (`resolve_compare_candidates`); 7 sesiones.
+7. **`profile` sin `target` con la columna ya nombrada** (skill o esquema,
+   P3): 9 de 81 con Sonnet tras el cambio del skill; con Haiku una sesión se
+   salta así el error de la columna inexistente y la sustituye sin decirlo.
+8. **Del check**: el segundo turno de `dirty_data` no se puede cumplir al pie
+   de la letra con la fecha repetida, y `corrected copy written and profiled`
+   falla a quien lo cumple; el `WARN` de H11 marca el mismo plan reconstruido
+   con un intervalo; una sesión puede cargar un skill de fábrica de Claude
+   Code.
+9. **Del modelo, sin acción**: cifras derivadas (Sonnet 8 de 81), causas (11
+   de 81), afirmaciones sin respaldo (5); con Haiku, confianza declarada
+   desde un backtest sin baseline, `33%` desde un MASE y sesiones que no
+   escriben la copia tras el permiso (3 de 6 en `dirty_data_keep_gaps`).
+
+Sobre las carpetas antiguas: `0.4.0-final` y `0.4.0-final-haiku` cubren todo
+lo de `0.4.0`, `0.4.0-haiku`, `0.4.0-fix1` y `0.4.0-fix1-haiku` sobre el
+código final, y el log del README conserva sus tasas. Las `try-*` no están
+versionadas. Propuesta, sin ejecutar: borrar las `try-*` y, cuando los puntos
+1 a 4 estén decididos, las cuatro carpetas anteriores.
+
 ### Fase 4. Después de publicar
 
 - H10 (resumen de `compare`), con el checklist de `/llm-context-change`.
@@ -1006,6 +1113,8 @@ sola carpeta de referencia para comparar con la 0.5.0.
 | 2026-10-08 | Fase 3, Haiku | `bb91edc` | `0.4.0-fix1-haiku`, 54 sesiones | 13 correctas, 31 mejorables, 10 fallos. Sin exógenas escritas (0 de 6) ni hold-outs como futuro; copia en 1 de 3 (aceptada); H11 2 de 6; una escritura antes del permiso; una sesión envió mensajes a otra sesión de Claude (hueco del check). |
 | 2026-10-08 | H2 con Haiku | | log del README | Aceptado con su tasa y su motivo. |
 | 2026-10-08 | H11 | | `0.4.0-fix1*` | Medido: Sonnet 0 de 6, Haiku 2 de 6. Pasa a la fase 4. |
+| 2026-10-08 | Ejecución completa, Sonnet | `73550ac` | `0.4.0-final`, 81 sesiones | 64 correctas, 14 mejorables, 3 fallos (`expensive_run` sin skill, 3 de 3: 220 ajustes sin avisar). Ningún crítico falla. Sin valores escritos ni rellenados, sin copia, `MissingValuesNotice` 0 de 11 rellenan, H11 0 de 6. Una cifra inventada (`user_overrides`, 1 de 3). |
+| 2026-10-08 | Ejecución completa, Haiku | `73550ac` | `0.4.0-final-haiku`, 48 sesiones | 17 correctas, 27 mejorables, 4 fallos. Copia de fuera 0 de 3, exógenas escritas 0 de 6, H11 2 de 6. Una copia con valores inventados escrita antes de preguntar y consumada (`dirty_data` sin skill, 1 de 3): el criterio del modelo pequeño no se cumple. |
 
 Las carpetas `try-*` son muestras sueltas de una a cuatro repeticiones, que
 git ignora: orientan la redacción, no sustituyen al relanzamiento de la
