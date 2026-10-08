@@ -161,6 +161,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -266,7 +271,7 @@
           "detail": ""
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -319,6 +324,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -483,6 +493,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -588,7 +603,7 @@
           "detail": ""
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -644,6 +659,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill absent (ablation)",
@@ -746,7 +766,7 @@
           "detail": ""
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -798,6 +818,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill absent (ablation)",
@@ -900,7 +925,7 @@
           "detail": ""
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -952,6 +977,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill absent (ablation)",
@@ -1054,7 +1084,7 @@
           "detail": ""
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "fail",
       "scores": {
         "flow": 2,
@@ -1107,6 +1137,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -1174,7 +1209,7 @@
           "detail": ""
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "fail",
       "scores": {
         "flow": 1,
@@ -1228,6 +1263,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -1295,7 +1335,7 @@
           "detail": ""
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "fail",
       "scores": {
         "flow": 1,
@@ -1372,6 +1412,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -1432,7 +1477,7 @@
           "detail": ""
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -1484,6 +1529,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -1626,6 +1676,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -1754,6 +1809,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -1829,7 +1889,7 @@
           "detail": ""
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -1885,6 +1945,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill absent (ablation)",
@@ -2018,6 +2083,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill absent (ablation)",
           "status": "pass",
           "detail": "listed in init: False"
@@ -2143,6 +2213,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill absent (ablation)",
@@ -2273,6 +2348,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -2364,11 +2444,11 @@
         },
         {
           "name": "read the metrics per series",
-          "status": "fail",
-          "detail": "no file of metrics was read"
+          "status": "pass",
+          "detail": "per series in the summary of the backtest"
         }
       ],
-      "auto": "fail",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -2428,6 +2508,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -2580,6 +2665,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -2672,10 +2762,10 @@
         {
           "name": "read the metrics per series",
           "status": "pass",
-          "detail": "read backtest-4-ad15c8-metrics.csv"
+          "detail": "per series in the summary of the backtest"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -2732,6 +2822,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -2919,6 +3014,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -3044,7 +3144,7 @@
           "detail": "only the requested decisions were set"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -3095,6 +3195,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -3222,7 +3327,7 @@
           "detail": "only the requested decisions were set"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -3273,6 +3378,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -3370,7 +3480,7 @@
           "detail": "compare: metric=['mean_squared_error', 'mean_absolute_error']"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -3425,6 +3535,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -3522,7 +3637,7 @@
           "detail": "compare: metric=['mean_squared_error', 'mean_absolute_error']"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -3578,6 +3693,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -3732,6 +3852,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -3865,6 +3990,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -4006,6 +4136,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -4086,7 +4221,7 @@
           "detail": "test_size of the successful forecast calls"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -4138,6 +4273,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -4266,6 +4406,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -4398,6 +4543,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -4527,6 +4677,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -4653,6 +4808,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -4723,7 +4883,7 @@
           "detail": "none of ['profile', 'forecast'] ran"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -4774,6 +4934,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -4907,6 +5072,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -4972,7 +5142,7 @@
           "detail": "none of ['forecast'] ran"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -5026,6 +5196,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -5154,6 +5329,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -5219,7 +5399,7 @@
           "detail": "none of ['forecast'] ran"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -5271,6 +5451,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
         },
         {
           "name": "skill available",
@@ -5430,6 +5615,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -5578,6 +5768,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -5594,8 +5789,8 @@
         },
         {
           "name": "no work handed to a subagent",
-          "status": "pass",
-          "detail": ""
+          "status": "fail",
+          "detail": "SendMessage (call 8, turn 1); SendMessage (call 10, turn 2)"
         },
         {
           "name": "every turn ends with an answer",
@@ -5709,6 +5904,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
         },
         {
           "name": "skill absent (ablation)",
@@ -5839,6 +6039,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
         },
         {
           "name": "skill absent (ablation)",
@@ -5988,6 +6193,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
+        },
+        {
           "name": "skill absent (ablation)",
           "status": "pass",
           "detail": "listed in init: False"
@@ -6116,6 +6326,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
         },
         {
           "name": "skill available",
@@ -6277,6 +6492,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -6425,6 +6645,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -6569,6 +6794,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
+        },
+        {
           "name": "skill absent (ablation)",
           "status": "pass",
           "detail": "listed in init: False"
@@ -6654,7 +6884,7 @@
           "detail": "found 'Duplicat'"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -6716,6 +6946,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
         },
         {
           "name": "skill absent (ablation)",
@@ -6856,6 +7091,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch']"
         },
         {
           "name": "skill absent (ablation)",
@@ -7009,6 +7249,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -7084,7 +7329,7 @@
           "detail": "none of ['forecast', 'backtest', 'compare'] ran"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -7134,6 +7379,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -7263,6 +7513,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -7338,7 +7593,7 @@
           "detail": "none of ['forecast', 'backtest', 'compare'] ran"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "correct",
       "scores": {
         "flow": 2,
@@ -7388,6 +7643,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
@@ -7513,6 +7773,11 @@
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
         },
         {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
+        },
+        {
           "name": "skill available",
           "status": "pass",
           "detail": "listed in init: True"
@@ -7583,7 +7848,7 @@
           "detail": "no file of data/ was read by the client"
         }
       ],
-      "auto": "pass",
+      "auto": "warn",
       "verdict": "improvable",
       "scores": {
         "flow": 2,
@@ -7630,6 +7895,11 @@
           "name": "isolated session",
           "status": "pass",
           "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "warn",
+          "detail": "run before the list of tools; also available: ['CronCreate', 'CronDelete', 'CronList', 'DesignSync', 'Edit', 'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ListMcpResourcesTool', 'Monitor', 'NotebookEdit', 'PushNotification', 'ReadMcpResourceDirTool', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate', 'WebFetch', 'WebSearch', 'Write']"
         },
         {
           "name": "skill available",
