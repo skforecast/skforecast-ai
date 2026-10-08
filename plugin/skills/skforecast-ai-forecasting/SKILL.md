@@ -27,10 +27,11 @@ candidates).
    empty list for none); set it only when the user asks. Read the summary
    and the `notices`: frequency, series, gaps, exogenous columns and the
    recommended forecaster. Do not open the data file with your own tools
-   to look at it: `profile` gives its columns and statistics without rows,
-   and without `target` its error lists the columns of the file, so never
-   guess a target to see them. Read it only
-   to locate a problem an error reports.
+   to look at it: `profile` gives its columns and statistics without rows.
+   When the user named the column to forecast, pass it as `target` at
+   once. Only when they did not, call `profile` without `target`: its
+   error lists the columns of the file, so never guess a target to see
+   them. Read the file only to locate a problem an error reports.
 2. `plan(profile_id, steps, ...)`: `steps` is the horizon in observations
    (12 for a year of monthly data), at most the length of the longest
    series. When the user gives no horizon (or no target, and more than one
