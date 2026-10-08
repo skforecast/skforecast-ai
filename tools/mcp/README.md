@@ -104,6 +104,9 @@ report: it is context each user pays for.
   tries to write its own script instead of using the server shows up
   there. Claude Code runs read only shell commands (`ls`, `head`, `cat`)
   without asking, so those are not denied.
+- The tools that launch a subagent (`Agent`, `Task`, `Workflow`) are removed from the
+  session: a subagent works outside the trace and with permissions of its
+  own, and one launched in the background ends the turn before it answers.
 - Claude Code defers MCP tools: the agent calls `ToolSearch` before the
   first use of each one. It is shown in the timeline and ignored by the
   checks.
@@ -152,7 +155,9 @@ does not fail on its own (an unexpected error code, a denied tool, a skill
 that was available and not loaded).
 
 - Every session: subscription and no API key, isolated session, skill
-  available or absent, finished within the limits, no `internal_error`,
+  available or absent, finished within the limits, no work handed to a
+  subagent and every turn ended with an answer (text, and not a promise
+  made while a subagent runs in the background), no `internal_error`,
   `get_failure` read after an `execution_failed`, no failed call repeated
   with the same arguments, absolute paths, files of the user unchanged
   (hash before and after), and no denied attempt to write data of the user:

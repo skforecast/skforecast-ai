@@ -58,6 +58,11 @@ SKILL_DIR = REPO_ROOT / "skforecast_ai" / "mcp" / "skills" / SKILL_NAME
 SERVER_NAME = "skforecast-ai"
 TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
 BASE_TOOLS = [f"{TOOL_PREFIX}*", "Read", "Glob", "Grep", "Skill"]
+# Tools of the client that hand the work to a subagent, removed from every
+# session: its calls are not in the trace, it wrote files the session was
+# not allowed to, and launched in the background it ends the turn with a
+# promise instead of an answer.
+SUBAGENT_TOOLS = ["Agent", "Task", "Workflow"]
 
 # Variables that would make a nested session pay through an API key or
 # another provider, or tie it to the session that launched the runner.
@@ -298,6 +303,8 @@ def session_command(
         "--model", model,
         "--max-turns", str(scenario.max_turns),
         "--allowedTools", *BASE_TOOLS, *scenario.extra_tools,
+        # A subagent runs outside the trace, with permissions of its own.
+        "--disallowedTools", *SUBAGENT_TOOLS,
     ]
     if max_budget:
         command += ["--max-budget-usd", str(max_budget)]
@@ -792,6 +799,31 @@ def run_checks(session: Session) -> None:
         f"status={session.status}, {session.meta['wall_seconds']} s of "
         f"{session.meta.get('timeout', scenario.timeout)} s",
     )
+
+    delegated = [
+        call for call in session.calls
+        if call.tool in SUBAGENT_TOOLS and not call.denied and not call.is_error
+    ]
+    add(
+        "no work handed to a subagent", not delegated,
+        "; ".join(
+            f"{call.tool} (call {call.index}, turn {call.turn + 1})"
+            for call in delegated
+        ),
+    )
+    # A turn has an answer when the agent wrote text in it and was not
+    # waiting for a subagent launched in the background.
+    sent = len(scenario.turns)
+    unanswered = [
+        f"turn {turn + 1}: no text"
+        for turn in range(sent)
+        if turn >= len(session.turn_texts) or not session.turn_texts[turn].strip()
+    ] + [
+        f"turn {call.turn + 1}: ended waiting for a subagent (call {call.index})"
+        for call in delegated if "Async agent launched" in call.text
+    ]
+    if session.status == "completed":
+        add("every turn ends with an answer", not unanswered, "; ".join(unanswered))
 
     succeeded = [call.tool for call in session.server_calls if not call.is_error]
     def first_of(names: str) -> int | None:
