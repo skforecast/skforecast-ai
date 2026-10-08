@@ -1,5 +1,6 @@
 # Unit test resolve_cv_config recommendation/backtesting
 
+import pandas as pd
 import pytest
 from skforecast.model_selection import TimeSeriesFold
 
@@ -226,3 +227,40 @@ def test_resolve_cv_config_output_when_stats_does_not_refit():
         "skforecast requires it for ARIMA models."
     )
     assert cv.refit is False
+
+
+@pytest.mark.parametrize(
+    "initial_train_size, time_zone, expected",
+    [
+        (pd.Timestamp("2023-03-01"), None, "2023-03-01"),
+        (pd.Timestamp("2023-03-01 12:00"), None, "2023-03-01 12:00:00"),
+        (
+            pd.Timestamp("2023-03-01", tz="UTC"), "Europe/Madrid",
+            "2023-03-01 00:00:00+00:00",
+        ),
+    ],
+    ids=["midnight", "with time", "with time zone"],
+)
+def test_resolve_cv_config_output_when_timestamp_initial_train_size(
+    initial_train_size, time_zone, expected
+):
+    """
+    Test that a pandas Timestamp `initial_train_size` of a strategy built by
+    the user is stored as text in `cv_config`, with its UTC offset when it
+    has a time zone, and that the explanation names the date, on a strategy
+    that keeps its Timestamp.
+    """
+    cv = TimeSeriesFold(
+        steps=10, initial_train_size=initial_train_size, refit=False
+    )
+    profile = profile_single_daily_100.model_copy(update={"time_zone": time_zone})
+
+    cv_config, explanation = resolve_cv_config(cv, profile)
+
+    assert cv_config["initial_train_size"] == expected
+    assert cv_config["n_folds"] == 4
+    assert explanation == (
+        f"Initial training up to {expected}, trained once (no refit), "
+        f"10-step horizon, 4 folds."
+    )
+    assert cv.initial_train_size == initial_train_size

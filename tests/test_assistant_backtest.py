@@ -651,6 +651,105 @@ def test_backtest_output_when_dates_have_a_time_zone():
     )
 
 
+@pytest.mark.parametrize(
+    "initial_train_size, in_config, in_code",
+    [
+        (
+            "2003-04-01 00:00:00+02:00",
+            "2003-04-01 00:00:00+02:00",
+            "    initial_train_size = '2003-04-01 00:00:00+02:00',\n",
+        ),
+        (
+            "2003-03-31 22:00:00+00:00",
+            "2003-03-31 22:00:00+00:00",
+            "    initial_train_size = '2003-03-31 22:00:00+00:00',\n",
+        ),
+        (
+            pd.Timestamp("2003-04-01", tz="Europe/Madrid"),
+            "2003-04-01 00:00:00+02:00",
+            "    initial_train_size = pd.Timestamp('2003-04-01 00:00:00+02:00'),\n",
+        ),
+    ],
+    ids=["local offset", "UTC", "Timestamp"],
+)
+def test_backtest_output_when_cv_date_and_dates_have_a_time_zone(
+    initial_train_size, in_config, in_code
+):
+    """
+    Test that backtest() of data whose dates have a time zone, with an
+    `initial_train_size` date that has one too, runs (the strategy was
+    rejected as a date with a time zone on an index without one): the date
+    is placed at its instant, the script and `cv_config` keep it as given,
+    backtest_code() returns the same script, and the predictions are those
+    of the same date without time zone.
+    """
+    cv = TimeSeriesFold(
+        steps=12, initial_train_size=initial_train_size, verbose=False
+    )
+    expected = assistant.backtest(
+        data          = df_h2o_madrid,
+        cv            = TimeSeriesFold(
+                            steps=12, initial_train_size="2003-04-01", verbose=False
+                        ),
+        target        = "x",
+        estimator     = "Ridge",
+        show_progress = False,
+    )
+
+    result = assistant.backtest(
+        data=df_h2o_madrid, cv=cv, target="x", estimator="Ridge",
+        show_progress=False,
+    )
+    code = assistant.backtest_code(
+        data=df_h2o_madrid, cv=cv, target="x", estimator="Ridge"
+    )
+
+    assert result.cv_config["initial_train_size"] == in_config
+    assert result.cv_config["n_folds"] == 6
+    assert in_code in result.code
+    assert code.code == result.code
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.predictions.index[0] == pd.Timestamp(
+        "2003-05-01", tz="Europe/Madrid"
+    )
+
+
+def test_backtest_output_when_cv_initial_train_size_is_a_timestamp():
+    """
+    Test that backtest() runs a `TimeSeriesFold` whose `initial_train_size`
+    is a pandas Timestamp (it raised a bare TypeError while describing the
+    strategy): `cv_config` stores the date as text, the explanation names
+    it, the script keeps the Timestamp and the predictions are those of the
+    same date as text.
+    """
+    cv = TimeSeriesFold(
+        steps=12, initial_train_size=pd.Timestamp("2003-04-01"), verbose=False
+    )
+    expected = assistant.backtest(
+        data          = df_h2o,
+        cv            = TimeSeriesFold(
+                            steps=12, initial_train_size="2003-04-01", verbose=False
+                        ),
+        target        = "x",
+        estimator     = "Ridge",
+        show_progress = False,
+    )
+
+    result = assistant.backtest(
+        data=df_h2o, cv=cv, target="x", estimator="Ridge", show_progress=False
+    )
+    code = assistant.backtest_code(data=df_h2o, cv=cv, target="x", estimator="Ridge")
+
+    assert result.cv_config["initial_train_size"] == "2003-04-01"
+    assert result.explanation.startswith("Initial training up to 2003-04-01,")
+    assert (
+        "    initial_train_size = pd.Timestamp('2003-04-01 00:00:00'),\n"
+        in result.code
+    )
+    assert code.code == result.code
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+
+
 def test_backtest_InvalidInputError_when_direct_forecaster_with_gap():
     """
     Test that backtest() rejects, before running, a ForecasterDirect plan

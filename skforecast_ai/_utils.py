@@ -1715,8 +1715,9 @@ def _cv_in_time_zone(
 
     The strategy is returned as it is without data (`backtest_code()`
     rendered from a profile alone: the count needs the dates), for a date
-    that has its own time zone, and for a date that does not parse or is
-    outside the dates of the data, which skforecast reports as before.
+    that has its own time zone, which skforecast places on the dates of the
+    data, and for a date that does not parse or is outside the dates of the
+    data, which skforecast reports as before.
 
     Parameters
     ----------
