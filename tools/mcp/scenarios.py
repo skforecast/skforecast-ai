@@ -292,6 +292,20 @@ def read_output_file(role: str) -> CheckFunction:
     return check
 
 
+def saw_metrics_per_series(session: Any) -> CheckResult:
+    """
+    The agent had the metrics of each series: it read the CSV of metrics,
+    or a backtest gave them in its summary (it does with several series; a
+    comparison only has the average, so its rows are in `best_metrics`).
+    """
+
+    for call in _ok(session, "backtest"):
+        summary = str((call.response or {}).get("summary") or "")
+        if re.search(r"<evaluation_metrics>\s*levels\b", summary):
+            return True, "per series in the summary of the backtest"
+    return read_output_file("metrics")(session)
+
+
 def did_not_read_data(session: Any) -> CheckResult:
     """
     The agent did not open a file of `data/` with the tools of the client.
@@ -578,7 +592,7 @@ SCENARIOS: list[Scenario] = [
                 "profile used series_id_column",
                 arg_equals("profile", "series_id_column", "series"),
             ),
-            ("read the metrics per series", read_output_file("metrics")),
+            ("read the metrics per series", saw_metrics_per_series),
         ],
     ),
     Scenario(

@@ -748,6 +748,9 @@ def _read_result(call: Call) -> None:
 # Commands of a shell that write the file they name last, a redirection
 # into a file, and what a script uses to write one.
 _COPY_COMMAND = re.compile(r"(?:^|[\s;&|(])(cp|mv|tee|rsync|install|ln)\s+([^;&|\n]+)")
+# A here-document with its text, and a file of `data/` named in a command.
+_HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?.*?^\s*\1\s*$", re.DOTALL | re.MULTILINE)
+_DATA_FILE = re.compile(r"(?:^|[\s\"'/=])data/[\w.-]+")
 _REDIRECTION = re.compile(r"(?<![0-9&])>{1,2}\s*[\"']?([^\s\"';&|)]+)")
 # Calls of a script that write a file, and the position of the argument
 # that names it; and a text given to a variable, which often holds it.
@@ -845,7 +848,33 @@ def _write_target(call: Call, root: str) -> str | None:
             return f"> {found.group(1).replace(root, '<ws>')}"
     if any(of_user(target) for target in _script_targets(command)):
         return "a script that writes a file of data"
+    # A command that reads a file of `data/` and writes what it reads
+    # anywhere else (`awk ... data/x.csv > /tmp/rows.txt`) takes rows of the
+    # user out of the directory. The text of a here-document is not read:
+    # a script that only names the file is judged by `_script_targets`.
+    shell = _HEREDOC.sub("", command)
+    if _DATA_FILE.search(shell.replace(root, "")):
+        for found in _REDIRECTION.finditer(shell):
+            target = found.group(1)
+            if _is_file_path(target):
+                return f"rows of data/ to {target.replace(root, '<ws>')}"
     return None
+
+
+def _is_file_path(text: str) -> bool:
+    """
+    Whether the target of a `>` in a shell command names a file: not the
+    number of a comparison inside an `awk` program (`$2 > 1.3`), not a
+    variable, not `/dev/null`.
+    """
+
+    if text.startswith(("/dev/", "$", "&")) or ("/" not in text and "." not in text):
+        return False
+    try:
+        float(text)
+    except ValueError:
+        return True
+    return False
 
 
 def _unmeasured_forecast(session: Session) -> str | None:
