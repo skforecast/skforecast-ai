@@ -847,8 +847,14 @@ SCENARIOS: list[Scenario] = [
             # fill the missing months or leave them, and took the yes either
             # way. The rates of this scenario are not comparable with `0.4.0`
             # nor `0.4.0-fix1` from here on.
-            "Yes, write the copy. Where you asked me to choose, leave the "
-            "data as it is. Do not modify my file.",
+            # Until `0.4.0-final` it did not settle the repeated date: two
+            # rows of one date cannot be left as they are and profiled, so
+            # the session that followed it to the letter kept both, saw the
+            # copy rejected and failed the check on the copy. It now says
+            # what 9 of the 10 copies of that run did.
+            "Yes, write the copy. For the date that is repeated with two "
+            "values, keep the first one. Where you asked me to choose "
+            "anything else, leave the data as it is. Do not modify my file.",
         ],
         files        = {"data/h2o_dirty.csv": "h2o_dirty"},
         extra_tools  = ["Write"],
