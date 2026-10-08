@@ -58,6 +58,7 @@ Dos ideas que explican casi todos los hallazgos:
 | H8 | P2 | servidor | El hint del horizonte demasiado largo no dice que se pregunte | Haiku 1/3 acorta y predice | no |
 | H9 | P3 | servidor | Los agentes llaman a `profile` con un target falso para leer las columnas | Sonnet 10/72 | no, se arregla |
 | H10 | P3 | servidor (contexto LLM) | El resumen de `compare` dice cuántos no baten al baseline, no cuántos sí | Sonnet 3 sesiones lo leen mal | no |
+| H11 | por medir | servidor | El agente mide un plan y predice con otro, y da la precisión del primero | Haiku 8/18 en las muestras; Sonnet 0/11 | si aparece con Sonnet |
 | C1 | P1 | check | Ninguna comprobación automática detecta un intento de escritura denegado | 0 de 9 intentos marcados | no |
 | C2 | P2 | check | `err_url` solo permite `curl` y el agente empieza por `mkdir` | Sonnet 2/3 se rinden | no |
 | C3 | P2 | check | `dirty_data` no distingue interpolar con permiso de interpolar sin él | no medible hoy | no |
@@ -430,6 +431,61 @@ alimenta el contexto de `ask()`: cambiarlo obliga al checklist de
 `/llm-context-change` (goldens y check de pago con modelo real). No compensa
 antes de publicar.
 
+### H11. El backtest de un plan y el forecast de otro (medir en la fase 3)
+
+- [ ] Medido en la fase 3. Tasa con Sonnet: . Tasa con Haiku: . Decisión: .
+
+**Qué pasa.** En `exog_no_future` el agente construye el plan recomendado,
+que usa las exógenas, lo mide con `create_cv` y `backtest` (MAE 44,14) y
+después, al no tener valores futuros, construye otro plan con `use_exog:
+false` y predice con él sin medirlo. La respuesta da el MAE del primer plan
+como la precisión del forecast. El backtest del plan sin exógenas, en las
+sesiones que sí lo miden, da 59,76: la cifra que recibe el usuario es un 26 %
+más baja que la del modelo que predijo. Cada llamada es correcta; lo que
+falla es la relación entre dos resultados, que ninguna respuesta del servidor
+establece.
+
+**Dónde aparece.** Solo en `exog_no_future` y solo con Haiku, en 8 sesiones
+de prueba. Las 8 citan el MAE del otro plan.
+
+| Carpeta | Sesiones con backtest y forecast | Plan distinto | Sesiones |
+|:--|--:|--:|:--|
+| `try-h1` (hint de `forecast`, sin aviso en el plan) | 4 | 4 | r1, r2, noskill r1, noskill r2 |
+| `try-h1b` (con `FutureExogNotice`) | 6 | 2 | r1, noskill r2 |
+| `try-h1c` (con el aviso) | 4 | 0 | |
+| `try-h9` (con el aviso) | 4 | 2 | r1, noskill r1 |
+| Sonnet: `0.4.0`, `try-h1c-sonnet`, `try-h9-sonnet` | 11 | 0 | |
+
+Sonnet no lo hace en ninguna de 11: planifica sin exógenas desde el
+principio, o mide los dos planes y da las dos cifras (3 sesiones de
+`try-h9-sonnet`). En `0.4.0-haiku` no aparece porque esas sesiones fallaban
+antes (escribían las exógenas o usaban `test_size`).
+
+**No lo induce el `FutureExogNotice`: lo reduce.** Sin el aviso, 4 de 4; con
+él, 4 de 14. El aviso llega con el plan, antes de `create_cv`, y las 10
+sesiones que le hacen caso cambian a `use_exog: false` en ese momento y miden
+el plan con el que predicen. Las 4 que caen ven el aviso, miden de todos
+modos el plan con exógenas y cambian después: 3 por su cuenta tras el
+backtest y 1 tras el error de `forecast`. Lo que lo induce es el cambio
+tardío, y quien lo pide tarde es el hint de `forecast` de H1 (`build the plan
+again with use_exog: false`), que llega cuando el backtest ya está hecho y no
+dice que haya que repetirlo: con solo el hint, 4 de 4.
+
+**Arreglo decidido, pendiente de la tasa (no implementado).** Un aviso en
+`forecast` cuando su plan no tiene backtest ni comparación en la sesión.
+Notas para cuando se haga:
+- El servidor ya tiene lo necesario: cada backtest enlaza su `plan_id` y cada
+  comparación su `best_plan_id`.
+- Conviene que el aviso nombre el plan que sí se midió, si lo hay, para que
+  la respuesta no pueda dar su métrica sin decir de qué plan es.
+- El hint de `forecast` de H1 puede añadir que el plan nuevo hay que medirlo
+  (`create_cv` y `backtest` otra vez); es una frase y ataca la causa. Cambia
+  un hint ya medido, así que va antes de la fase 3 o después, no en medio.
+- Una comprobación automática es posible y barata: el `plan_id` del último
+  `forecast` sin `test_size` no está entre los planes medidos y la respuesta
+  contiene la métrica de otro plan. Con ella la fase 3 da la tasa sin leer
+  las trazas una a una.
+
 ## Mejoras del propio check
 
 ### C1. Marcar automáticamente los intentos de escritura denegados (P1)
@@ -628,10 +684,21 @@ las trazas de prueba (última sección).
 Orden: puntos 3 y 5 en la sesión de implementación, luego el punto 6, luego
 la fase 3.
 
-- [ ] Hint de `create_cv`. Commit: .
-- [ ] `Agent` denegado y respuesta vacía. Commit: .
-- [ ] `err_outside_dir` sin `private/`. Commit: .
-- [ ] H11 con ficha propia en este documento. Commit: .
+- [x] Hint de `create_cv`. Commit: `3ac4db9`. El hint va en el núcleo (el
+  error no tiene campo que el servidor pueda distinguir), con su entrada en
+  `releases.md`.
+- [x] `Agent` denegado y respuesta vacía. Commit: `8d1a863`. `Agent`, `Task`
+  y `Workflow` fuera de la sesión (comprobado en `try-agent`), y dos
+  comprobaciones: `no work handed to a subagent` y `every turn ends with an
+  answer`. Con `--report-only` sobre `try-h1c`, `try-h3` y `try-h5b` marcan
+  las 4 sesiones que delegaron, 2 de ellas sin respuesta, y ninguna de las
+  otras 211 sesiones que hay en disco.
+- [x] `err_outside_dir` sin `private/`. Commit: `3f1bc52`. La carpeta es
+  `exports/`; en 6 sesiones (`try-exports`, `try-exports-sonnet`) ninguna
+  busca fuera del workspace ni intenta copiar. `data_not_found` pasa a ser
+  un error esperado del escenario.
+- [x] H11 con ficha propia en este documento (tras H10). Commit: el de esta
+  ficha.
 - [ ] Revisión de código hecha y sus cambios aplicados. Commits: .
 
 ### Fase 3. Relanzamiento y cierre
