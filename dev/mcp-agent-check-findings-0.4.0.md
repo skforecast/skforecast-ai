@@ -736,12 +736,18 @@ la fase 3.
 - [x] Revisión de código hecha y sus cambios aplicados. Commits: `560339d`
   (el check lee una traza con un evento por salto de línea) y `2c2f86c` (el
   fichero de exógenas futuras que no se puede leer lleva `EXOG_FILE_HINT`).
-  Sin cambios de redacción. Quedan para decidir, sin tocar: la rama de
-  scripts de C1, que marca como escritura un script denegado que solo lee
-  el CSV; `EXOG_FILE_HINT` y `DATA_VALUES_HINT` asignados por campo, que
-  también caen en errores de argumentos; el `WARN` de H11 cuando el ganador
-  de `compare` es el plan que el agente ya tenía; y `steps` en el hint de
-  `create_cv`, que no es un argumento de esa llamada en Python.
+  Decidido después (2026-10-08): `a33d036` (la rama de scripts de C1 cuenta
+  el fichero que el script escribe; las mismas 8 sesiones marcadas en
+  `0.4.0` y `0.4.0-haiku`), `d51fb41` (el hint de `create_cv` dice que
+  `steps` es del plan) y `4f0e0bf` (el README dice cuándo el `WARN` de H11
+  lee mal una sesión; el `WARN` no se toca). Los hallazgos fuera de alcance
+  están en la fase 4.
+- [ ] Hints por tipo de error (`EXOG_FILE_HINT` solo para el contenido del
+  fichero de exógenas, `DATA_VALUES_HINT` solo para valores ausentes).
+  Parado: las comprobaciones del contenido se llaman dentro de
+  `assistant.forecast()`, `backtest()` y `compare()`, y sus errores no se
+  distinguen de los de argumentos más que por el texto (misma clase, mismo
+  `code`, mismo `field`). Necesita un cambio del núcleo o una decisión.
 
 ### Fase 3. Relanzamiento y cierre
 
@@ -800,6 +806,23 @@ sola carpeta de referencia para comparar con la 0.5.0.
   cambió; `root_mean_squared_error` como métrica del servidor; el texto del
   resumen de un forecast con `test_size` (H4), con `/llm-context-change`.
 - H11, si la fase 3 solo lo encuentra con el modelo pequeño.
+- De la revisión de código del 2026-10-08, en código anterior a `a4a733b` o
+  que hoy no se alcanza:
+  - El guard de Bash (`.claude/hooks/pre_bash_guard.py`) resuelve la rama
+    desde `CLAUDE_PROJECT_DIR` antes que desde el `cwd` de la llamada: en un
+    worktree comprueba la rama del checkout principal, así que puede dejar
+    pasar un push a `main` o bloquear uno legítimo.
+  - `warn_backtest_missing_values` (`create_cv`) no avisa con un estimador
+    que acepta valores ausentes y `differentiation`, y `backtest` rechaza
+    después porque la inversa de la diferenciación lee un valor ausente.
+  - `get_code` calcula `requirements` en el event loop (la primera llamada
+    recorre todas las distribuciones instaladas) y añade el backend del
+    modelo foundation al script de una estrategia (`cv`), que no carga
+    ningún modelo.
+  - `FutureExogNotice` nombra todas las exógenas del perfil, también las
+    categóricas que un modelo foundation descartaría
+    (`foundation_exog_columns`). Hoy no se alcanza: Chronos-2 las acepta
+    todas y TimesFM 2.5 y Moirai-2 no usan exógenas.
 
 ## Registro de avance
 
