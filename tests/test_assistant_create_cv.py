@@ -54,15 +54,24 @@ def test_create_cv_ValueError_when_initial_train_size_float_out_of_range(value):
 def test_create_cv_ValueError_when_fewer_than_2_folds():
     """
     Test that create_cv() raises ValueError when the configuration
-    produces fewer than 2 folds.
+    produces fewer than 2 folds, with a hint that names what gives more
+    folds and `forecast` with `test_size` for a single window.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_short, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
 
     err_msg = re.escape("At least 2 are required")
-    with pytest.raises(ValueError, match=err_msg):
+    with pytest.raises(ValueError, match=err_msg) as exc_info:
         assistant.create_cv(profile, plan, initial_train_size=20)
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.hint == (
+        "For at least 2 folds, use a smaller `initial_train_size` (or leave "
+        "it out for the default), a smaller `fold_stride` or fewer `steps`. To "
+        "evaluate a single window, the last `steps` observations, use "
+        "`forecast` with `test_size` instead: one hold-out, not a backtest."
+    )
 
 
 def test_create_cv_ValueError_when_initial_train_size_date_unparseable():

@@ -472,3 +472,31 @@ def test_tool_create_cv_summary_names_the_arguments_passed(tmp_path):
     )
     assert "Chosen by the user instead of the rules" not in default["summary"]
     assert "Trained once by default" in default["summary"]
+
+
+def test_tool_create_cv_insufficient_data_with_hint_when_one_fold(tmp_path):
+    """
+    Test that a strategy that leaves a single fold (the first training set
+    ends one horizon before the end of h2o) is `insufficient_data` with a
+    hint that says what gives more folds and names `forecast` with
+    `test_size` for one window: without it agents tried sizes blindly.
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, steps=24)
+
+    error = error_of(
+        call(server, "create_cv", {"plan_id": plan_id, "initial_train_size": 180}),
+        "create_cv",
+    )
+
+    assert error["code"] == "insufficient_data"
+    assert error["message"].startswith(
+        "The resolved CV configuration produces only 1 fold(s). At least 2 "
+        "are required."
+    )
+    assert error["hint"] == (
+        "For at least 2 folds, use a smaller `initial_train_size` (or leave "
+        "it out for the default), a smaller `fold_stride` or fewer `steps`. To "
+        "evaluate a single window, the last `steps` observations, use "
+        "`forecast` with `test_size` instead: one hold-out, not a backtest."
+    )

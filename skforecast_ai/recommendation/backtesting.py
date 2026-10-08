@@ -1015,6 +1015,13 @@ def build_cv(
             f"{n_folds} fold(s). At least {min_folds} are required. "
             f"Resolved parameters: {public_params}.",
             code = "insufficient_data",
+            hint = (
+                f"For at least {min_folds} folds, use a smaller "
+                f"`initial_train_size` (or leave it out for the default), a "
+                f"smaller `fold_stride` or fewer `steps`. To evaluate a single "
+                f"window, the last `steps` observations, use `forecast` with "
+                f"`test_size` instead: one hold-out, not a backtest."
+            ),
         )
 
     return cv
