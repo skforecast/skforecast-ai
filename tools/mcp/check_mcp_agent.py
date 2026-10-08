@@ -611,7 +611,10 @@ def parse_trace(key: str, scenario: Scenario, meta: dict[str, Any], path: Path) 
     turn = -1
     turn_texts: list[str] = []
 
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+    # One event per "\n", as `record` wrote them: `splitlines` would also cut
+    # an event at a line separator inside its text (U+2028, U+0085), which
+    # JSON does not escape, and shift every later event against its time.
+    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n")):
         try:
             event = json.loads(line)
         except ValueError:
