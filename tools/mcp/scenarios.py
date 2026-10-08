@@ -753,16 +753,20 @@ SCENARIOS: list[Scenario] = [
             "loop."
         ),
         turns          = [
-            "Forecast the next 12 months of x in private/h2o.csv."
+            "Forecast the next 12 months of x in exports/h2o.csv."
         ],
         files          = {
-            "private/h2o.csv": "h2o",
+            # Until `0.4.0` the folder was `private/`: on macOS the workspace
+            # is under `/private/var/...`, and half the sessions of the weaker
+            # model looked for `/private/h2o.csv` and never met the scenario.
+            "exports/h2o.csv": "h2o",
             "data/readme.txt": "note",
         },
         critical       = True,
         # The instructions of the server name the allowed directory, so the
-        # agent can decline before calling it.
-        allowed_errors = ["path_not_allowed"],
+        # agent can decline before calling it, or build the path inside it
+        # and learn that the file is not there.
+        allowed_errors = ["path_not_allowed", "data_not_found"],
         checks         = [
             (
                 "met `path_not_allowed` or declined before",
