@@ -169,7 +169,11 @@ that was available and not loaded).
   forecast of the future ran a plan the session did not measure (neither
   backtested nor the winner of a comparison) while it measured another:
   whether the answer then gives the accuracy of that other plan as the
-  accuracy of the forecast is for the reviewer.
+  accuracy of the forecast is for the reviewer. It can warn about a session
+  that did nothing wrong in one case, when `compare` picks as winner the
+  plan the agent already had and the forecast uses that id, not the new one
+  in `links.best_plan_id`; and it can stay silent in another, since a
+  backtest run after the forecast counts as its measure.
 - Per scenario (`scenarios.py`): tools that must succeed and their order,
   error codes that must appear, arguments that must reach the server, and
   a few conditions on files and on the text of the answer.
