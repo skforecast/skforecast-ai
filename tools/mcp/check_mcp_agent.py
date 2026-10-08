@@ -753,6 +753,46 @@ def _write_target(call: Call, root: str) -> str | None:
     return None
 
 
+def _unmeasured_forecast(session: Session) -> str | None:
+    """
+    Whether the last forecast of the future (without `test_size`) ran a
+    plan that the session did not measure, while it measured another: the
+    agent backtests one plan, builds a second one and forecasts with it.
+
+    Returns
+    -------
+    detail : str, None
+        None when the session has no forecast of the future or measured no
+        plan (nothing to compare); `''` when the plan of the forecast was
+        measured, by a backtest or as the winner of a comparison; else the
+        plan of the forecast and the plans measured.
+    """
+
+    cv_plans: dict[str, str] = {}
+    measured: list[str] = []
+    forecast_plan = None
+    for call in session.server_calls:
+        if call.is_error or not call.response:
+            continue
+        links = call.response.get("links") or {}
+        if call.tool == "create_cv":
+            cv_plans[call.response.get("id", "")] = links.get("plan_id", "")
+        elif call.tool == "backtest":
+            measured.append(
+                call.input.get("plan_id") or links.get("plan_id")
+                or cv_plans.get(call.input.get("cv_id", ""), "")
+            )
+        elif call.tool == "compare":
+            measured.append(links.get("best_plan_id", ""))
+        elif call.tool == "forecast" and call.input.get("test_size") is None:
+            forecast_plan = call.input.get("plan_id")
+    if forecast_plan is None or not measured:
+        return None
+    if forecast_plan in measured:
+        return ""
+    return f"forecast ran {forecast_plan}; measured: {sorted(set(measured))}"
+
+
 def run_checks(session: Session) -> None:
     """
     Automatic, deterministic checks of a session. Each one is `pass`,
@@ -824,6 +864,15 @@ def run_checks(session: Session) -> None:
     ]
     if session.status == "completed":
         add("every turn ends with an answer", not unanswered, "; ".join(unanswered))
+
+    unmeasured = _unmeasured_forecast(session)
+    if unmeasured is not None:
+        # Mechanical half of the finding: whether the answer gives the
+        # accuracy of the other plan as its own is read by the reviewer.
+        add(
+            "the plan of the forecast was measured", not unmeasured, unmeasured,
+            soft=True,
+        )
 
     succeeded = [call.tool for call in session.server_calls if not call.is_error]
     def first_of(names: str) -> int | None:

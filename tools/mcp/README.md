@@ -165,7 +165,11 @@ that was available and not loaded).
   script) that the client denied and that would have written a file inside
   `data/`, or a CSV file anywhere, before the turn in which the user agrees
   to it (`writes_agreed_from` of the scenario; never, by default). A denied
-  tool of any other kind stays a `WARN`.
+  tool of any other kind stays a `WARN`. Another `WARN` says that the last
+  forecast of the future ran a plan the session did not measure (neither
+  backtested nor the winner of a comparison) while it measured another:
+  whether the answer then gives the accuracy of that other plan as the
+  accuracy of the forecast is for the reviewer.
 - Per scenario (`scenarios.py`): tools that must succeed and their order,
   error codes that must appear, arguments that must reach the server, and
   a few conditions on files and on the text of the answer.
