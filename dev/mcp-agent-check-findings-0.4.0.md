@@ -1151,10 +1151,12 @@ Criterios de "listo", con `0.4.0-final` y `0.4.0-final2` juntos:
   ningún dato futuro escrito, ningún modelo restringido, ningún fichero
   modificado; la copia antes del permiso, 1 de 12 en cada ejecución.
 
-Sobre las carpetas: propuesta, sin ejecutar. Borrar las `try-*` (no
-versionadas) y las cuatro anteriores (`0.4.0`, `0.4.0-haiku`, `0.4.0-fix1`,
-`0.4.0-fix1-haiku`): `0.4.0-final*` y `0.4.0-final2*` las cubren sobre el
-código final y el log conserva sus tasas.
+Sobre las carpetas: borradas el 2026-10-08 las `try-*` (no versionadas) y
+las cuatro anteriores (`0.4.0`, `0.4.0-haiku`, `0.4.0-fix1`,
+`0.4.0-fix1-haiku`), a las que este documento sigue apuntando en sus
+secciones anteriores. `0.4.0-final*` y `0.4.0-final2*` las cubren sobre el
+código final y el log del README conserva sus tasas; sus informes y
+evaluaciones siguen en el historial de git (hasta `2ee4f82`), sus trazas no.
 
 ### Fase 4. Después de publicar
 
