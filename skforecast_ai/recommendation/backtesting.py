@@ -1016,12 +1016,12 @@ def build_cv(
             f"Resolved parameters: {public_params}.",
             code = "insufficient_data",
             hint = (
-                f"For at least {min_folds} folds, use a smaller "
-                f"`initial_train_size` (or leave it out for the default), a "
-                f"smaller `fold_stride` or a plan with fewer `steps`. To "
-                f"evaluate a single window, the last `steps` observations, use "
-                f"`forecast` with `test_size` instead: one hold-out, not a "
-                f"backtest."
+                f"To evaluate a single window, the last `steps` observations, "
+                f"use `forecast` with `test_size` instead: one hold-out, not a "
+                f"backtest. A backtest needs at least {min_folds} folds: a "
+                f"smaller `initial_train_size` (or leave it out for the "
+                f"default), a smaller `fold_stride` or a plan with fewer "
+                f"`steps`."
             ),
         )
 

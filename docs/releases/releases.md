@@ -68,7 +68,7 @@ All significant changes to this project are documented in this release file.
 
 + <span class="badge text-bg-docs">Docs</span> New documentation home page, and new animations in the [Agentic forecasting][agentic-guide] user guide: what reaches the LLM and how its suggestions are validated, how `create_cv()` and `backtest()` [validate the way you deploy][agentic-guide-backtesting], and how `compare()` [picks the model by measured performance][agentic-guide-compare].
 
-+ <span class="badge text-bg-enhancement">Enhancement</span> The error of [<code>ForecastingAssistant.create_cv()</code>][assistant] when the strategy leaves fewer than 2 folds carries a `hint`: what gives more folds, and `forecast()` with `test_size` to evaluate a single window.
++ <span class="badge text-bg-enhancement">Enhancement</span> The error of [<code>ForecastingAssistant.create_cv()</code>][assistant] when the strategy leaves fewer than 2 folds carries a `hint`: `forecast()` with `test_size` to evaluate a single window, and what gives more folds.
 
 **Changed**
 
