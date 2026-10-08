@@ -90,7 +90,8 @@ The same check is available in Python as `assistant.check_llm()`. [Configuring t
 |:------|:-----|:-----------|
 | `llm` | [pydantic-ai](https://ai.pydantic.dev/), the only LLM abstraction the package uses | OpenAI, Anthropic, Google, Groq, Ollama and OpenAI-compatible endpoints |
 | `bedrock` | pydantic-ai with its Bedrock support, and `boto3` | Amazon Bedrock |
-| `all` | Every provider-specific dependency (`full` is an alias) | Several providers in the same environment |
+| `mcp` | [mcp](https://pypi.org/project/mcp/), the Model Context Protocol SDK | The [MCP server for coding agents](../user-guides/mcp-server.md) |
+| `all` | Every provider-specific dependency and the `mcp` extra (`full` is an alias) | Several providers in the same environment |
 | `foundation` | `chronos-forecasting`, the backend of Chronos-2 | Running `ForecasterFoundation` with its default model |
 
 The core dependencies (skforecast, pandas, pydantic, statsmodels, typer and rich) are listed with their versions on [PyPI](https://pypi.org/project/skforecast-ai/).
