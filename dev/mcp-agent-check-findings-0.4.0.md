@@ -58,7 +58,7 @@ Dos ideas que explican casi todos los hallazgos:
 | H8 | P2 | servidor | El hint del horizonte demasiado largo no dice que se pregunte | Haiku 1/3 acorta y predice | no |
 | H9 | P3 | servidor | Los agentes llaman a `profile` con un target falso para leer las columnas | Sonnet 10/72 | no, se arregla |
 | H10 | P3 | servidor (contexto LLM) | El resumen de `compare` dice cuántos no baten al baseline, no cuántos sí | Sonnet 3 sesiones lo leen mal | no |
-| H11 | por medir | servidor | El agente mide un plan y predice con otro, y da la precisión del primero | Haiku 8/18 en las muestras; Sonnet 0/11 | si aparece con Sonnet |
+| H11 | por medir | servidor | El agente mide un plan y predice con otro, y da la precisión del primero | Haiku 4/14 con el aviso del plan, 1/6 tras ampliar el hint; Sonnet 0/11 | si aparece con Sonnet |
 | C1 | P1 | check | Ninguna comprobación automática detecta un intento de escritura denegado | 0 de 9 intentos marcados | no |
 | C2 | P2 | check | `err_url` solo permite `curl` y el agente empieza por `mkdir` | Sonnet 2/3 se rinden | no |
 | C3 | P2 | check | `dirty_data` no distingue interpolar con permiso de interpolar sin él | no medible hoy | no |
@@ -471,6 +471,38 @@ tardío, y quien lo pide tarde es el hint de `forecast` de H1 (`build the plan
 again with use_exog: false`), que llega cuando el backtest ya está hecho y no
 dice que haya que repetirlo: con solo el hint, 4 de 4.
 
+**Hecho antes de la fase 3 (2026-10-08).**
+
+1. *Hint de `forecast` ampliado* (`d5f125b`). Añade: `Measure that new plan
+   before forecasting, on the same folds with backtest(cv_id, plan_id), and
+   report its accuracy, not that of the plan with exogenous variables.`
+   - Con el servidor tal cual (`try-h11`, Haiku, 3 con skill y 3 sin él): 0
+     intentos de escritura, 0 hold-outs, y H11 en 1 de 6 (antes 4 de 14, sin
+     diferencia medible). Ninguna de las 6 llegó a ver el hint: con el
+     `FutureExogNotice` solo 1 de 26 sesiones alcanza el error de
+     `forecast`. La que cae cambia de plan por su cuenta tras el backtest.
+     Otras 2 predicen sin medir ningún plan y no dan precisión alguna.
+   - El hint aislado (`try-h11-nonotice`, 8 sesiones de Haiku con el aviso
+     del plan desactivado temporalmente, sin commit): 5 llegan al hint y
+     ninguna cae en H11; 4 se paran y preguntan al usuario, y 1 mide el plan
+     nuevo en los mismos folds y da su MAE (59,8). Con el hint anterior, las
+     3 sesiones que lo recibieron cayeron (`try-h1` noskill r1 y r2,
+     `try-h1b` noskill r2). Las 3 que no llegan al hint caen las 3, y una
+     vuelve a escribir las exógenas: es lo que el aviso del plan evita.
+   - Conclusión: el hint cierra el camino que pasa por el error (3 de 3 a 0
+     de 5), que con el aviso del plan es raro. Lo que queda de H11 es el
+     cambio de plan por cuenta propia después del backtest, al que el hint no
+     llega.
+2. *Comprobación automática* (`4f99ba0`), un `WARN`: `the plan of the forecast
+   was measured`. Solo la parte mecánica: el plan del último `forecast` sin
+   `test_size` no fue medido (ni por `backtest` ni como `best_plan_id` de un
+   `compare`) y la sesión midió otro. Con `--report-only`: 12 avisos, todos
+   de `exog_no_future` con Haiku (`try-h1` 4, `try-h1b` 2, `try-h9` 2,
+   `try-h11` 1, `try-h11-nonotice` 3); 0 en `0.4.0` (34 sesiones con
+   forecast y medida) y 0 en `0.4.0-haiku` (19); 0 con Sonnet. Los informes
+   de release regenerados no se han guardado. Si la respuesta da la precisión
+   del otro plan lo lee el revisor.
+
 **Arreglo decidido, pendiente de la tasa (no implementado).** Un aviso en
 `forecast` cuando su plan no tiene backtest ni comparación en la sesión.
 Notas para cuando se haga:
@@ -478,13 +510,9 @@ Notas para cuando se haga:
   comparación su `best_plan_id`.
 - Conviene que el aviso nombre el plan que sí se midió, si lo hay, para que
   la respuesta no pueda dar su métrica sin decir de qué plan es.
-- El hint de `forecast` de H1 puede añadir que el plan nuevo hay que medirlo
-  (`create_cv` y `backtest` otra vez); es una frase y ataca la causa. Cambia
-  un hint ya medido, así que va antes de la fase 3 o después, no en medio.
-- Una comprobación automática es posible y barata: el `plan_id` del último
-  `forecast` sin `test_size` no está entre los planes medidos y la respuesta
-  contiene la métrica de otro plan. Con ella la fase 3 da la tasa sin leer
-  las trazas una a una.
+- La misma frase del hint cabría en el `FutureExogNotice`, que es lo que sí
+  leen todas las sesiones: quien cambia a `use_exog: false` después de medir
+  el plan lo hace tras haber visto ese aviso. Sin probar.
 
 ## Mejoras del propio check
 
@@ -665,6 +693,10 @@ las trazas de prueba (última sección).
    con Sonnet y con Haiku. Si aparece con Sonnet, bloquea la release y se
    arregla con un aviso en `forecast` cuando su plan no tiene backtest en la
    sesión. Si solo aparece con Haiku, se informa y pasa a la fase 4.
+   Decidido después (2026-10-08) y hecho antes de la fase 3: el hint de
+   `forecast` pide medir el plan nuevo, y el check avisa (`WARN`) cuando el
+   plan del forecast no fue medido, así que la fase 3 da la tasa sin leer
+   las trazas. Lo medido está en la ficha de H11.
 3. **Entra antes de la fase 3**: un hint en el `insufficient_data` de
    `create_cv` con un solo fold (observación 5; con Sonnet acabó en una
    afirmación falsa en `holdout_trust__r3` de `0.4.0`).
@@ -698,6 +730,9 @@ la fase 3.
   busca fuera del workspace ni intenta copiar. `data_not_found` pasa a ser
   un error esperado del escenario.
 - [x] H11 con ficha propia en este documento (tras H10). Commit: `4a7108b`.
+- [x] Hint de `forecast` con la medida del plan nuevo (H11). Commit:
+  `d5f125b`.
+- [x] Comprobación automática de H11 como `WARN`. Commit: `4f99ba0`.
 - [ ] Revisión de código hecha y sus cambios aplicados. Commits: .
 
 ### Fase 3. Relanzamiento y cierre
