@@ -479,7 +479,7 @@ dice que haya que repetirlo: con solo el hint, 4 de 4.
    - Con el servidor tal cual (`try-h11`, Haiku, 3 con skill y 3 sin él): 0
      intentos de escritura, 0 hold-outs, y H11 en 1 de 6 (antes 4 de 14, sin
      diferencia medible). Ninguna de las 6 llegó a ver el hint: con el
-     `FutureExogNotice` solo 1 de 26 sesiones alcanza el error de
+     `FutureExogNotice` solo 1 de 20 sesiones alcanza el error de
      `forecast`. La que cae cambia de plan por su cuenta tras el backtest.
      Otras 2 predicen sin medir ningún plan y no dan precisión alguna.
    - El hint aislado (`try-h11-nonotice`, 8 sesiones de Haiku con el aviso
