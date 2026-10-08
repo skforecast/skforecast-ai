@@ -1097,14 +1097,22 @@ def run_checks(session: Session) -> None:
     )
 
     failed: dict[str, int] = {}
+    hidden: set[str] = set()
     for call in session.calls:
         if call.is_error and not call.denied:
             signature = call.tool + json.dumps(call.input, sort_keys=True)
             failed[signature] = failed.get(signature, 0) + 1
+            if not _shown(call):
+                hidden.add(signature)
     repeated = [signature for signature, count in failed.items() if count > 1]
     add(
         "no failed call repeated with the same arguments", not repeated,
-        "; ".join(text[:120] for text in repeated),
+        # The arguments of a tool the report does not show stay out of the
+        # detail too: only its name, which has no `{`.
+        "; ".join(
+            f"{text.split('{', 1)[0]}(...)" if text in hidden else text[:120]
+            for text in repeated
+        ),
     )
 
     relative = [
