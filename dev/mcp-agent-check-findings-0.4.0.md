@@ -733,7 +733,15 @@ la fase 3.
 - [x] Hint de `forecast` con la medida del plan nuevo (H11). Commit:
   `d5f125b`.
 - [x] Comprobación automática de H11 como `WARN`. Commit: `4f99ba0`.
-- [ ] Revisión de código hecha y sus cambios aplicados. Commits: .
+- [x] Revisión de código hecha y sus cambios aplicados. Commits: `560339d`
+  (el check lee una traza con un evento por salto de línea) y `2c2f86c` (el
+  fichero de exógenas futuras que no se puede leer lleva `EXOG_FILE_HINT`).
+  Sin cambios de redacción. Quedan para decidir, sin tocar: la rama de
+  scripts de C1, que marca como escritura un script denegado que solo lee
+  el CSV; `EXOG_FILE_HINT` y `DATA_VALUES_HINT` asignados por campo, que
+  también caen en errores de argumentos; el `WARN` de H11 cuando el ganador
+  de `compare` es el plan que el agente ya tenía; y `steps` en el hint de
+  `create_cv`, que no es un argumento de esa llamada en Python.
 
 ### Fase 3. Relanzamiento y cierre
 
