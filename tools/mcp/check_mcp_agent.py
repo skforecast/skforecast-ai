@@ -67,11 +67,17 @@ BASE_TOOLS = [f"{TOOL_PREFIX}*", "Read", "Glob", "Grep", "Skill"]
 # adds: a session reached another session of the machine with `SendMessage`
 # when only the subagent tools were denied by name.
 SESSION_TOOLS = ["Read", "Glob", "Grep", "Skill", "ToolSearch", "Bash"]
-# Tools of the client that hand the work to a subagent: its calls are not
-# in the trace, it wrote files the session was not allowed to, and launched
-# in the background it ends the turn with a promise instead of an answer.
-# Not in `SESSION_TOOLS`; a check still fails the session that calls one.
-SUBAGENT_TOOLS = ["Agent", "Task", "Workflow", "SendMessage"]
+# Tools of the client that hand the work to a subagent, reach another
+# session of the machine or schedule work for later: its calls are not in
+# the trace, it wrote files the session was not allowed to, and launched in
+# the background it ends the turn with a promise instead of an answer. None
+# is in `SESSION_TOOLS`, so a call to one comes back as an error: the check
+# `no work handed to a subagent` fails on that attempt (whatever the case of
+# the name), as it fails on a call that ran in a run made before `--tools`.
+SUBAGENT_TOOLS = [
+    "Agent", "Task", "Workflow", "SendMessage", "ListAgents", "ScheduleWakeup",
+    "CronCreate", "RemoteTrigger",
+]
 # Tools of the client whose arguments and results the report shows. Any
 # other one (a tool that reaches other sessions of the machine, the web or
 # the account of whoever runs the check) is named in the timeline with its
@@ -582,6 +588,14 @@ class Session:
         return [call for call in self.calls if call.server]
 
     @property
+    def missing_calls(self) -> list[Call]:
+        """
+        Calls to a tool the session does not have: an attempt, as a call
+        the client denied is.
+        """
+        return [call for call in self.calls if call.missing]
+
+    @property
     def usage(self) -> dict[str, Any]:
         """
         Tokens and equivalent cost of the session (the last result event
@@ -692,7 +706,7 @@ def parse_trace(key: str, scenario: Scenario, meta: dict[str, Any], path: Path) 
                     continue
                 call.text = _block_text(block.get("content"))
                 call.is_error = bool(block.get("is_error"))
-                call.missing = call.is_error and "No such tool available" in call.text
+                call.missing = call.is_error and _is_missing(call, session.init)
                 if at is not None and call.started is not None:
                     call.seconds = round(at - call.started, 1)
                 _read_result(call)
@@ -712,6 +726,21 @@ def parse_trace(key: str, scenario: Scenario, meta: dict[str, Any], path: Path) 
                     "input": denial.get("tool_input"),
                 })
     return session
+
+
+def _is_missing(call: Call, init: dict[str, Any]) -> bool:
+    """
+    Whether a failed call named a tool the session does not have: a name
+    that is not, letter by letter, in the tool list of the `init` event
+    (`bash` is not `Bash`, and the client answers that it does not exist).
+    A trace without that list is read by the text of the error.
+    """
+
+    listed = init.get("tools")
+    if not listed:
+        return "No such tool available" in call.text
+    name = f"{TOOL_PREFIX}{call.tool}" if call.server else call.tool
+    return name not in listed
 
 
 def _read_result(call: Call) -> None:
@@ -1015,15 +1044,29 @@ def run_checks(session: Session) -> None:
         f"{session.meta.get('timeout', scenario.timeout)} s",
     )
 
+    subagent_tools = {tool.lower() for tool in SUBAGENT_TOOLS}
     delegated = [
         call for call in session.calls
-        if call.tool in SUBAGENT_TOOLS and not call.denied and not call.is_error
+        if call.tool.lower() in subagent_tools and not call.denied
+        and not call.is_error
+    ]
+    # A call to one of them that the session does not have is the same
+    # attempt: only the list of tools of the runner stopped it.
+    tried = [
+        call for call in session.missing_calls
+        if call.tool.lower() in subagent_tools
     ]
     add(
-        "no work handed to a subagent", not delegated,
+        "no work handed to a subagent", not delegated and not tried,
         "; ".join(
-            f"{call.tool} (call {call.index}, turn {call.turn + 1})"
-            for call in delegated
+            [
+                f"{call.tool} (call {call.index}, turn {call.turn + 1})"
+                for call in delegated
+            ] + [
+                f"{call.tool} (call {call.index}, turn {call.turn + 1}), not "
+                "in the session"
+                for call in tried
+            ]
         ),
     )
     # A turn has an answer when the agent wrote text in it and was not
@@ -1129,11 +1172,17 @@ def run_checks(session: Session) -> None:
         f"changed: {session.changed_files}" if session.changed_files else "",
     )
     add(
-        "no tool denied by the client", not session.denials,
+        "no tool denied by the client",
+        not session.denials and not session.missing_calls,
         "; ".join(
-            f"{d['tool']}({json.dumps(d['input'])[:100]})"
-            if d["tool"] in SHOWN_CLIENT_TOOLS else f"{d['tool']}(...)"
-            for d in session.denials
+            [
+                f"{d['tool']}({json.dumps(d['input'])[:100]})"
+                if d["tool"] in SHOWN_CLIENT_TOOLS else f"{d['tool']}(...)"
+                for d in session.denials
+            ] + [
+                f"{call.tool} (call {call.index}), not in the session"
+                for call in session.missing_calls
+            ]
         ),
         soft=True,
     )
