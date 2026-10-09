@@ -5,6 +5,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parent.parent
 LAUNCHER = ROOT / "packages" / "skforecast-ai-mcp"
@@ -118,6 +119,39 @@ def test_mcp_registry_launcher_is_not_in_the_skforecast_ai_distribution():
     manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
 
     assert "prune packages" in manifest.splitlines()
+
+
+def test_mcp_registry_vscode_install_link_starts_the_launcher():
+    """
+    Test that the install link of VS Code in the README and in the guide,
+    unreadable as it is written (encoded twice), decodes to the handler
+    `vscode:mcp/install` with the command of the launcher and an input that
+    asks for the directory of `--allow-dir`.
+    """
+    expected = {
+        "name"   : "skforecast-ai",
+        "command": "uvx",
+        "args"   : ["skforecast-ai-mcp", "--allow-dir", "${input:allow_dir}"],
+        "inputs" : [
+            {
+                "type"       : "promptString",
+                "id"         : "allow_dir",
+                "description": (
+                    "Absolute path of the directory with your CSV files "
+                    "(the server reads only inside it)"
+                ),
+            }
+        ],
+    }
+    prefix = "https://insiders.vscode.dev/redirect?url="
+
+    for path in [ROOT / "README.md", ROOT / "docs" / "user-guides" / "mcp-server.md"]:
+        text = path.read_text(encoding="utf-8")
+        links = re.findall(re.escape(prefix) + r"([^)\s]+)\)", text)
+        assert len(links) == 1, path.name
+        handler, _, config = unquote(links[0]).partition("?")
+        assert handler == "vscode:mcp/install", path.name
+        assert json.loads(unquote(config)) == expected, path.name
 
 
 def test_mcp_registry_launcher_main_runs_the_mcp_command(monkeypatch):

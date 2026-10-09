@@ -136,6 +136,27 @@ del proyecto que el README lleva la línea `mcp-name`.
 2.5. **Según 2.4, cerrar A2**: si el comando corto arranca igual, la guía lo
 nombra (yo, en otra rama `docs/`).
 
+Estado, 2026-10-09: 2.1 y 2.2 hechos (`skforecast-ai-mcp` 0.4.0 en PyPI, con
+la línea `mcp-name` en su descripción; `JavierEscobarOrtiz` es miembro
+público de la organización). Queda añadir a Joaquín como Owner del puente
+en PyPI y que él añada a Javier en `skforecast-ai`. 2.3 hecho: la ficha
+`io.github.skforecast/skforecast-ai` 0.4.0 está publicada desde las 10:54
+UTC. El paso 2.1 estaba mal planteado: el registro ya no mira la pertenencia
+pública, sino el rol de Owner, y lo lee con un token que necesita
+`read:org`; el login por navegador dio 403 dos veces y funcionó
+`login github --token` con un token clásico de solo `read:org`
+(`packages/README.md`). De 2.4, medido el arranque del comando corto (24 a
+33 s en frío en cuatro arranques, igual que el del plugin; 1,2 s en
+caliente), la API devuelve la ficha y el comando que un cliente construiría
+con ella arranca; todo apuntado en el log de `tools/mcp/README.md`.
+La instalación desde la ventana de VS Code no se puede probar: `@mcp
+skforecast` no encuentra nada, porque su galería lee el GitHub MCP Registry
+(394 servidores, una selección del oficial) y la ficha no está en él; queda
+en el paso 3.5. A cambio, el README y la guía tienen un botón "Install in
+VS Code" (enlace `vscode:mcp/install`), probado en VS Code 1.141.0: añade el
+servidor, pide el directorio y arranca el comando corto. 2.5 hecho: la guía
+nombra el comando corto en una nota de `Install`; el plugin no cambia (A2).
+
 ## Fase 3: directorios (en paralelo con las fases 1 y 2)
 
 No dependen del puente ni del registro.

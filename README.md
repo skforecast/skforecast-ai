@@ -115,6 +115,10 @@ In Claude Code, install the server and its skill as a plugin:
 
 Then ask in plain language: *"Forecast the next 12 months of `data/sales.csv` and tell me how accurate it is."* The agent brings the language model and calls skforecast-ai as tools; every decision still comes from the same deterministic rules, every result comes with the script that produced it, and responses never carry rows of your data. The setups for Cursor, VS Code, Codex and Claude Desktop are in [MCP server for coding agents](https://ai.skforecast.org/stable/user-guides/mcp-server.html).
 
+In VS Code, this button adds the server and asks for the directory with your data (it needs [uv](https://docs.astral.sh/uv/)):
+
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522skforecast-ai%2522%252C%2522command%2522%253A%2522uvx%2522%252C%2522args%2522%253A%255B%2522skforecast-ai-mcp%2522%252C%2522--allow-dir%2522%252C%2522%2524%257Binput%253Aallow_dir%257D%2522%255D%252C%2522inputs%2522%253A%255B%257B%2522type%2522%253A%2522promptString%2522%252C%2522id%2522%253A%2522allow_dir%2522%252C%2522description%2522%253A%2522Absolute%2520path%2520of%2520the%2520directory%2520with%2520your%2520CSV%2520files%2520%2528the%2520server%2520reads%2520only%2520inside%2520it%2529%2522%257D%255D%257D)
+
 </details>
 
 
