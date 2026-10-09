@@ -189,6 +189,13 @@ Estado, 2026-10-09, leída la lista de comprobación del portal
   `uvx skforecast-ai-mcp==X.Y.Z --allow-project-dir`, sin ninguna ruta. Eso
   cierra A2 para el plugin y exige publicar una 0.4.1 antes de fusionar en
   `main`. Sin comprobar: Cowork y Windows.
+  Enviado el 2026-10-09 con la 0.4.1 en `main`, desde la organización de
+  claude.ai de la cuenta personal de Javier, que queda como dueña de la
+  ficha. Dos decisiones del envío: publicación automática desactivada (hay
+  que pulsar "Publish" en cada versión, tras comprobar que el lanzador está
+  en PyPI) y comprobación programada sin webhook (cada 6 horas, o "Check
+  for new commits"). Los pasos de cada release están en
+  `packages/README.md`. Pendiente: el escaneo y la revisión de Anthropic.
 - **Seguro**: un lanzador con paquete fijado siempre queda retenido para un
   revisor de Anthropic (`Runs a pinned npx or uvx package`). No es un
   rechazo.

@@ -77,9 +77,11 @@ python -m pytest tests/test_plugin_distribution.py tests/test_mcp_registry_distr
 python tools/docs/check_release_notes.py
 ```
 
-Remind the user that the release has two more steps after `skforecast-ai`
-is on PyPI: publishing `skforecast-ai-mcp` and the entry of the MCP
-registry, with the commands of `packages/README.md`.
+Remind the user that the release has more steps after `skforecast-ai` is
+on PyPI, all in `packages/README.md`: publishing `skforecast-ai-mcp` and
+the entry of the MCP registry, and then, once the release branch is merged
+into `main`, selecting **Publish** for the new version in the plugin
+directory of Anthropic (auto-publish is off there on purpose).
 
 Report the files changed and the remaining hits of the old version that
 need a decision.
