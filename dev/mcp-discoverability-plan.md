@@ -149,7 +149,10 @@ pública, sino el rol de Owner, y lo lee con un token que necesita
 33 s en frío en cuatro arranques, igual que el del plugin; 1,2 s en
 caliente), la API devuelve la ficha y el comando que un cliente construiría
 con ella arranca; todo apuntado en el log de `tools/mcp/README.md`.
-**Falta** la instalación desde la ventana de VS Code. 2.5 hecho: la guía
+La instalación desde la ventana de VS Code no se puede probar: `@mcp
+skforecast` no encuentra nada, porque su galería lee el GitHub MCP Registry
+(394 servidores, una selección del oficial) y la ficha no está en él; queda
+en el paso 3.5. 2.5 hecho: la guía
 nombra el comando corto en una nota de `Install`; el plugin no cambia (A2).
 
 ## Fase 3: directorios (en paralelo con las fases 1 y 2)
