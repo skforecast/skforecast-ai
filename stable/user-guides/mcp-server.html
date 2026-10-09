@@ -1732,9 +1732,10 @@ pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">"skf
 <p>The path of <code>--allow-dir</code> must be absolute: the client starts the server from a working directory of its own choosing. The place and format of the configuration are those of each client, so check its documentation if they differ.</p>
 <div class="admonition tip">
 <p class="admonition-title">Warm up uvx before the first start</p>
-<p><strong>The first start takes about a minute.</strong> <code>uvx</code> downloads and installs the package and its dependencies the first time (about 60 seconds), and a client may give up on a server that takes that long to start. Run this once before connecting the agent, so later starts take about 2 seconds (with the plugin of Claude Code, use <code>"skforecast-ai[mcp]==&lt;version&gt;"</code>):</p>
+<p><strong>The first start is slow.</strong> <code>uvx</code> downloads and installs the package and its dependencies the first time, and Python loads them for the first time: about 30 seconds with a fast connection, more with a slow one. A client may give up on a server that takes that long to start: Claude Code waits 30 seconds by default. Run this once before connecting the agent, so later starts take a few seconds (the first one up to 10, the next ones about 2). With the plugin of Claude Code, use <code>"skforecast-ai[mcp]==&lt;version&gt;"</code>:</p>
 <div class="language-bash highlight"><pre><span></span><code>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span><span class="w"> </span>skforecast-ai<span class="w"> </span>--version
 </code></pre></div>
+<p>In Claude Code, the <code>MCP_TIMEOUT</code> environment variable, in milliseconds, makes it wait longer instead: <code>MCP_TIMEOUT=120000 claude</code>.</p>
 </div>
 <p><strong>Install the skill.</strong> <a href="#the-skill">The skill</a> teaches the agent how to use the tools. The plugin of Claude Code already includes it. For Cursor, VS Code, Codex and other agents, install it with the <a href="https://github.com/vercel-labs/skills">skills</a> command:</p>
 <div class="language-bash highlight"><pre><span></span><code>npx<span class="w"> </span>skills<span class="w"> </span>add<span class="w"> </span>skforecast/skforecast-ai<span class="w"> </span>--skill<span class="w"> </span>skforecast-ai-forecasting
@@ -1964,7 +1965,7 @@ pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">"skf
 <tr>
 <td style="text-align: left;">The server does not appear, or fails to start the first time</td>
 <td style="text-align: left;"><code>uvx</code> is still downloading the package when the client gives up</td>
-<td style="text-align: left;">Run the warm up command of <a href="#install">Install</a> once, then restart the client. In Codex, set <code>startup_timeout_sec</code></td>
+<td style="text-align: left;">Run the warm up command of <a href="#install">Install</a> once, then restart the client. In Claude Code, <code>MCP_TIMEOUT=120000 claude</code> also gives it time. In Codex, set <code>startup_timeout_sec</code></td>
 </tr>
 <tr>
 <td style="text-align: left;">The client cannot find <code>uvx</code> or <code>skforecast-ai</code></td>
@@ -2010,6 +2011,11 @@ pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">"skf
 <td style="text-align: left;">Two skforecast-ai servers in <code>/mcp</code> of Claude Code</td>
 <td style="text-align: left;">The plugin and a server added by hand both run</td>
 <td style="text-align: left;">Disable one of them</td>
+</tr>
+<tr>
+<td style="text-align: left;">Two server processes with Claude Desktop</td>
+<td style="text-align: left;">Claude Desktop starts the server twice when it opens and keeps both processes</td>
+<td style="text-align: left;">Nothing to fix: it talks to one of them, and both stop when the application quits</td>
 </tr>
 </tbody>
 </table>
