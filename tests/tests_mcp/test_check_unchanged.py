@@ -12,7 +12,9 @@ def test_check_unchanged_passes_and_raises_data_changed(tmp_path):
     changed raises `data_changed` naming the argument.
     """
     path = tmp_path / "data.csv"
-    path.write_text("date,y\n2020-01-01,1\n")
+    # As bytes: the text mode of Windows writes other line ends, and so
+    # another fingerprint.
+    path.write_bytes(b"date,y\n2020-01-01,1\n")
     digest = file_sha256(str(path))
 
     check_unchanged(str(path), digest, "data_path")

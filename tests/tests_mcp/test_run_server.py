@@ -99,7 +99,10 @@ def test_discard_stdout_points_duplicates_of_the_wire_to_the_null_device():
     the SDK writes the responses: its buffer is flushed when the process
     ends, which printed "Exception ignored ... BrokenPipeError". A
     descriptor of another pipe is left as it is. It runs in its own process,
-    whose standard output the function also discards.
+    whose standard output the function also discards. On Windows a pipe has
+    no device or inode to tell it from another one, so no duplicate is
+    looked for (every pipe of the process was pointed to the null device):
+    only the standard output is discarded.
     """
     script = (
         "import os, sys\n"
@@ -119,4 +122,8 @@ def test_discard_stdout_points_duplicates_of_the_wire_to_the_null_device():
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stderr == "[True, True, False, True]"
+    expected = (
+        "[False, False, False, True]" if sys.platform == "win32"
+        else "[True, True, False, True]"
+    )
+    assert result.stderr == expected
