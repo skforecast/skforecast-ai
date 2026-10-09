@@ -208,6 +208,14 @@ Estado, 2026-10-09, leída la lista de comprobación del portal
 3.2. **Glama**. Tú: el formulario "Add MCP Server". Yo: los textos y revisar
 qué pide su revisión (licencia y README ya están).
 
+Estado, 2026-10-09: formulario enviado. Un repo de una organización solo se
+reclama con un `glama.json` en la raíz que nombre a los mantenedores por su
+usuario de GitHub: añadido, valida contra el esquema de Glama. Pendiente,
+cuando esté en `main`: "Claim ownership" en la ficha y configurar cómo
+arranca el servidor en su imagen Docker (necesita `--allow-dir`; ahí no
+vale `--allow-project-dir`). El `CONTRIBUTING` de awesome-mcp-servers (3.3)
+no exige la ficha de Glama.
+
 3.3. **awesome-mcp-servers**, después de 3.2: un PR de una línea en la
 categoría que toque. Comprobar antes en su `CONTRIBUTING` si exige la ficha
 de Glama (lo dice una guía de terceros, sin verificar).
