@@ -88,10 +88,18 @@ def test_plugin_marketplace_and_server_command():
 def test_plugin_listing_fields_of_the_directory():
     """
     Test the fields the plugin directory of Anthropic reads for the listing:
-    the name shown is the name of the package, not a title made from it, and
-    the documentation and support links are https URLs of the project.
+    the name shown is the name of the package, not a title made from it, the
+    documentation and support links are https URLs of the project, and the
+    privacy link points to a section that the README of the plugin has.
     """
     plugin = _json(PLUGIN / ".claude-plugin" / "plugin.json")
+    readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
+
+    assert plugin["privacyPolicyUrl"] == (
+        "https://github.com/skforecast/skforecast-ai/blob/main/plugin/README.md"
+        "#privacy"
+    )
+    assert "## Privacy" in readme.splitlines()
 
     assert plugin["displayName"] == "skforecast-ai"
     assert plugin["documentationUrl"] == (

@@ -11,6 +11,7 @@
   "repository": "https://github.com/skforecast/skforecast-ai",
   "documentationUrl": "https://ai.skforecast.org/stable/user-guides/mcp-server.html",
   "supportUrl": "https://github.com/skforecast/skforecast-ai/issues",
+  "privacyPolicyUrl": "https://github.com/skforecast/skforecast-ai/blob/main/plugin/README.md#privacy",
   "license": "Apache-2.0",
   "keywords": [
     "forecasting",
