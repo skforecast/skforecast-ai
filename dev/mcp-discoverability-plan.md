@@ -152,7 +152,9 @@ con ella arranca; todo apuntado en el log de `tools/mcp/README.md`.
 La instalación desde la ventana de VS Code no se puede probar: `@mcp
 skforecast` no encuentra nada, porque su galería lee el GitHub MCP Registry
 (394 servidores, una selección del oficial) y la ficha no está en él; queda
-en el paso 3.5. 2.5 hecho: la guía
+en el paso 3.5. A cambio, el README y la guía tienen un botón "Install in
+VS Code" (enlace `vscode:mcp/install`), probado en VS Code 1.141.0: añade el
+servidor, pide el directorio y arranca el comando corto. 2.5 hecho: la guía
 nombra el comando corto en una nota de `Install`; el plugin no cambia (A2).
 
 ## Fase 3: directorios (en paralelo con las fases 1 y 2)
