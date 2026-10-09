@@ -2182,7 +2182,9 @@ def mcp_server(
     try:
         from .mcp.server import run_server
     except ModuleNotFoundError as exc:
-        if exc.name is None or exc.name.split(".")[0] != "mcp":
+        # The packages of the `mcp` extra that the server imports: without
+        # it `anyio`, which `mcp` installs, is the first one missing.
+        if exc.name is None or exc.name.split(".")[0] not in ("mcp", "anyio"):
             raise
         err_console.print(
             "[red]Error:[/red] the MCP server needs the `mcp` extra: "
