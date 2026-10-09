@@ -3,4 +3,6 @@
 # working notes, and the reports of the MCP agent check (megabytes of
 # traces of agent sessions, kept to compare releases).
 prune dev
+# The launcher of the MCP server is a distribution of its own.
+prune packages
 prune tools/mcp/agent_reports
