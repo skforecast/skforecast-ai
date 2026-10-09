@@ -115,7 +115,14 @@ def test_discard_stdout_points_duplicates_of_the_wire_to_the_null_device():
         "for fd, text in ((wire, b'w'), (duplicate, b'd'), (other, b'o'), (1, b's')):\n"
         "    os.write(fd, text)\n"
         "os.close(other)\n"
-        "sys.stderr.write(repr([os.read(read_end, 9), os.read(other_read, 9)]))\n"
+        # Linux gives both ends of a pipe the same inode, so the read end,
+        # which this process also holds, is pointed to the null device too
+        # and cannot be read: nothing reached it either way.
+        "try:\n"
+        "    received = os.read(read_end, 9)\n"
+        "except OSError:\n"
+        "    received = b''\n"
+        "sys.stderr.write(repr([received, os.read(other_read, 9)]))\n"
     )
 
     result = subprocess.run(
