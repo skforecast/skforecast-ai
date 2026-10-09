@@ -26,6 +26,9 @@ Replace the old version with the new one in:
 - `plugin/.claude-plugin/plugin.json` (`version`)
 - `plugin/.mcp.json` (the `skforecast-ai[mcp]==X.Y.Z` pin)
 - `.claude-plugin/marketplace.json` (`version`, twice)
+- `packages/skforecast-ai-mcp/pyproject.toml` (`version` and the
+  `skforecast-ai[mcp]==X.Y.Z` pin)
+- `server.json` (`version`, twice)
 - `tests/test_cli_config.py` (the version in the output)
 - `docs/quick-start/how-to-install.md` (the example of a pinned install)
 
@@ -70,9 +73,13 @@ The main changes in this release are:
 With the Python command of `/verify`:
 
 ```bash
-python -m pytest tests/test_plugin_distribution.py tests/test_cli_config.py -q -p no:cacheprovider
+python -m pytest tests/test_plugin_distribution.py tests/test_mcp_registry_distribution.py tests/test_cli_config.py -q -p no:cacheprovider
 python tools/docs/check_release_notes.py
 ```
+
+Remind the user that the release has two more steps after `skforecast-ai`
+is on PyPI: publishing `skforecast-ai-mcp` and the entry of the MCP
+registry, with the commands of `packages/README.md`.
 
 Report the files changed and the remaining hits of the old version that
 need a decision.

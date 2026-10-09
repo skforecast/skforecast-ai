@@ -50,6 +50,14 @@ Comprobado el 2026-10-09:
 
 ## Fase 1: paquete puente y ficha, en esta rama (yo)
 
+Estado, 2026-10-09: hechos 1.1 a 1.7, salvo `mcp-publisher validate`, que no
+está instalado en la máquina y queda para el paso 2.3 (`server.json` valida
+contra el esquema `2025-12-11` con `jsonschema`). El wheel del puente,
+instalado con `uvx --isolated` contra la 0.4.0 de PyPI, responde a
+`initialize` como `skforecast-ai` 0.4.0. `claude plugin validate --strict`
+pasa para el plugin y para el marketplace (paso 3.1). Los comandos de la
+fase 2 están en `packages/README.md`.
+
 1.1. **Crear `packages/skforecast-ai-mcp/`**:
 
 ```

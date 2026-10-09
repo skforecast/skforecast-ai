@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skforecast-ai-mcp"
+version = "0.4.0"
+description = "MCP server of skforecast-ai: deterministic time series forecasting as tools for coding agents."
+readme = "README.md"
+authors = [
+    {name = "Javier Escobar Ortiz", email = "javier.escobar.ortiz@gmail.com"},
+    {name = "Joaquin Amat Rodrigo", email = "j.amatrodrigo@gmail.com"},
+]
+
+maintainers = [
+    {name = "Javier Escobar Ortiz", email = "javier.escobar.ortiz@gmail.com"},
+    {name = "Joaquin Amat Rodrigo", email = "j.amatrodrigo@gmail.com"},
+]
+
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+keywords = ["mcp", "forecasting", "time-series", "skforecast", "backtesting"]
+
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
+requires-python = ">=3.10"
+# The exact version: an entry of the MCP registry names a version of this
+# package, and it must always start the same server.
+dependencies = [
+    "skforecast-ai[mcp]==0.4.0",
+]
+
+[project.urls]
+Homepage = "https://ai.skforecast.org/stable/user-guides/mcp-server.html"
+Repository = "https://github.com/skforecast/skforecast-ai"
+Documentation = "https://ai.skforecast.org"
+
+[project.scripts]
+skforecast-ai-mcp = "skforecast_ai_mcp:main"
+
+[tool.setuptools]
+packages = ["skforecast_ai_mcp"]

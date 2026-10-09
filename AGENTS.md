@@ -53,6 +53,10 @@ plugin/               Claude Code plugin of the MCP server (marketplace in
                       .claude-plugin/); its SKILL.md is a byte for byte copy
                       of skforecast_ai/mcp/skills/ and its versions follow
                       pyproject.toml (tests/test_plugin_distribution.py)
+packages/             other PyPI packages (see packages/README.md):
+                      skforecast-ai-mcp, the launcher that server.json (the
+                      entry of the MCP registry) names; their versions follow
+                      pyproject.toml (tests/test_mcp_registry_distribution.py)
 tools/                maintenance scripts (see tools/README.md): ai/ for the
                       skforecast assets and the LLM context checks,
                       docs/ for the documentation build
