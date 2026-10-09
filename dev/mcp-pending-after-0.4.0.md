@@ -103,10 +103,40 @@ Dónde está lo demás:
 
 ### Comprobaciones a mano
 
-18. Lo que el README lista como no cubierto: instalación con `uvx` y primer
-    arranque, el plugin del marketplace, y Cursor, Codex y Claude Desktop.
+18. Lo que el README lista como no cubierto. Comprobado el 2026-10-09 con la
+    0.4.0 de PyPI y el marketplace de `main`; las cifras, en la fila de ese
+    día del log de `tools/mcp/README.md`.
+    - **Hecho**: primer arranque con `uvx` (27,8 s hasta `initialize` con
+      la caché vacía; 1,2 a 1,3 s en caliente), `MCP_TIMEOUT` de Claude Code
+      (30 s por defecto, medido), el plugin del marketplace con una llamada
+      real a `profile` desde una sesión, `npx skills add` (instala la copia
+      del plugin, sin conflicto) y Claude Desktop por su log (25,2 s en
+      frío, 1,2 s en caliente).
+    - **Sin probar**: Cursor y Codex (no están instalados en la máquina) y
+      VS Code. Siguen sin comprobar el formato de `~/.codex/config.toml` y
+      de `codex mcp add`, los timeouts de arranque de los tres y si Cursor
+      interpola `${workspaceFolder}`. De Claude Desktop, su timeout de
+      arranque (no se alcanzó), lo que muestra la ventana y una llamada
+      desde un chat. De Claude Code, los comandos `/plugin` tecleados en
+      una sesión interactiva (se usaron `claude plugin marketplace add` y
+      `claude plugin install`).
+    - **Para la guía** (`docs/user-guides/mcp-server.md`), propuesto y sin
+      aplicar: el primer arranque son unos 30 s con buena conexión, no un
+      minuto, y en Claude Code cabe en el timeout por 2 s, así que conviene
+      nombrar `MCP_TIMEOUT` junto al warm up; tras el warm up, el primer
+      arranque del servidor tarda unos 9 s y los siguientes unos 2; Claude
+      Desktop arranca el servidor dos veces y mantiene los dos procesos
+      hasta que se cierra.
+    - **Visto de paso**: `npx skills add skforecast/skforecast-ai --list`
+      enseña también los 7 skills de `.claude/skills/`, que son de los
+      mantenedores.
 19. El hallazgo 4 del piloto (intervalos con cotas iguales), arreglado en
-    `96f4cdc`, no se ejercitó en la ejecución de release.
+    `96f4cdc`. Ejercitado el 2026-10-09 con llamadas directas al servidor
+    publicado: `create_cv` con `initial_train_size=28` para un plan con
+    intervalo y una ventana de 24 devuelve el aviso (4 residuos), y 60 de
+    las 68 filas del backtest tienen las dos cotas iguales. La respuesta de
+    `backtest` no lo repite. Queda por ver, con un escenario del check de
+    pago, si un agente lee el aviso y lo cuenta.
 
 ## `compare` sobre un plan refinado: caso mínimo
 
