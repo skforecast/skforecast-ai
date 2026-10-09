@@ -48,32 +48,36 @@ def test_project_dir_from_environment_InvalidInputError_when_not_set(
     assert excinfo.value.field == "allow_project_dir"
 
 
-@pytest.mark.parametrize("place", ["home", "home through a link", "root"])
+@pytest.mark.parametrize(
+    "place", ["home", "home through a link", "parent of home", "root"]
+)
 def test_project_dir_from_environment_InvalidInputError_when_home_or_root(
     tmp_path, monkeypatch, place
 ):
     """
-    Test that the home directory, also through a symbolic link, and the
-    root of the file system raise `InvalidInputError`: a session opened
-    there is not a project.
+    Test that the home directory, also through a symbolic link, a directory
+    that contains it and the root of the file system raise
+    `InvalidInputError`: a session opened there is not a project.
     """
-    home = tmp_path / "home"
-    home.mkdir()
+    home = tmp_path / "users" / "home"
+    home.mkdir(parents=True)
     os.symlink(home, tmp_path / "alias")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
     given = {
         "home"               : str(home),
         "home through a link": str(tmp_path / "alias"),
+        "parent of home"     : str(tmp_path / "users"),
         "root"               : os.path.abspath(os.sep),
     }[place]
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", given)
 
     err_msg = re.escape(
-        f"`--allow-project-dir` does not accept {given!r}, the home "
-        f"directory or the root of a file system: the server would read "
-        f"every CSV file in it. Start the agent in the directory of the "
-        f"project, or give a directory with `--allow-dir`."
+        f"`--allow-project-dir` does not accept {given!r}: the home "
+        f"directory, a directory that contains it or the root of a file "
+        f"system, where the server would read every CSV file of the "
+        f"user. Start the agent in the directory of the project, or "
+        f"give a directory with `--allow-dir`."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as excinfo:
         project_dir_from_environment()

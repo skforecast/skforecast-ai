@@ -204,7 +204,7 @@ skforecast-ai mcp --allow-dir /path/to/data
 | Option | Default | Meaning |
 |:--|:--|:--|
 | `--allow-dir` | (required) | Directory the server may read, as an absolute path (an empty or relative value is rejected). Only absolute paths of `.csv` files inside it are accepted, also after resolving symbolic links. |
-| `--allow-project-dir` | off | Instead of `--allow-dir`: the directory is the project of the session, read from the environment variable `CLAUDE_PROJECT_DIR`, which Claude Code sets for the servers it starts. The server stops if the variable is not set, or if it is the home directory or the root of a file system. It is what the plugin of Claude Code uses. |
+| `--allow-project-dir` | off | Instead of `--allow-dir`: the directory is the project of the session, read from the environment variable `CLAUDE_PROJECT_DIR`, which Claude Code sets for the servers it starts. The server stops if the variable is not set, or if it is the home directory, a directory that contains it or the root of a file system. It is what the plugin of Claude Code uses. |
 | `--output-dir` | a new temporary directory | Where the server writes predictions, metrics, leaderboards and long texts. It is also the working directory of the server, and it is kept when the server stops. Its path is logged when the server starts. |
 | `--max-objects` | 256 | Most objects (profiles, plans, results) the server keeps. |
 | `--max-memory-mb` | 1024 | Memory the objects may take. Beyond either limit, the least recently used objects are removed. |

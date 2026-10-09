@@ -127,9 +127,10 @@ def project_dir_from_environment() -> str:
     for `--allow-project-dir`.
 
     Claude Code starts the servers of a plugin with that variable set to the
-    directory of the session. The root of a file system and the home
-    directory are rejected: a session opened there would let the server
-    read every CSV file of the user, which is not a project.
+    directory of the session. The root of a file system, the home directory
+    and the directories that contain it are rejected: a session opened
+    there would let the server read every CSV file of the user, which is
+    not a project.
 
     Returns
     -------
@@ -146,14 +147,18 @@ def project_dir_from_environment() -> str:
             "`--allow-dir` instead.",
             field = "allow_project_dir",
         )
-    real = os.path.normcase(os.path.realpath(given))
-    home = os.path.normcase(os.path.realpath(os.path.expanduser("~")))
-    if os.path.isabs(given) and (real == home or os.path.dirname(real) == real):
+    real = os.path.realpath(given)
+    home = os.path.realpath(os.path.expanduser("~"))
+    # The root is checked apart: the home can be on another drive (Windows).
+    if os.path.isabs(given) and (
+        _is_within(home, real) or os.path.dirname(real) == real
+    ):
         raise InvalidInputError(
-            f"`--allow-project-dir` does not accept {given!r}, the home "
-            f"directory or the root of a file system: the server would read "
-            f"every CSV file in it. Start the agent in the directory of the "
-            f"project, or give a directory with `--allow-dir`.",
+            f"`--allow-project-dir` does not accept {given!r}: the home "
+            f"directory, a directory that contains it or the root of a file "
+            f"system, where the server would read every CSV file of the "
+            f"user. Start the agent in the directory of the project, or "
+            f"give a directory with `--allow-dir`.",
             field = "allow_project_dir",
         )
     return given
