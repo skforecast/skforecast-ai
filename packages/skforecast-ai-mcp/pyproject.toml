@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skforecast-ai-mcp"
-version = "0.4.0"
+version = "0.4.1"
 description = "MCP server of skforecast-ai: deterministic time series forecasting as tools for coding agents."
 readme = "README.md"
 authors = [
@@ -34,7 +34,7 @@ requires-python = ">=3.10"
 # The exact version: an entry of the MCP registry names a version of this
 # package, and it must always start the same server.
 dependencies = [
-    "skforecast-ai[mcp]==0.4.0",
+    "skforecast-ai[mcp]==0.4.1",
 ]
 
 [project.urls]

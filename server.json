@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://ai.skforecast.org/stable/user-guides/mcp-server.html",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "skforecast-ai-mcp",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
