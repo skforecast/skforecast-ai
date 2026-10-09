@@ -1,6 +1,6 @@
 <h1 align="left">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/skforecast/skforecast-ai/blob/main/docs/img/banner-landing-page-dark-mode-skforecast-ai.png?raw=true">
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/skforecast/skforecast-ai/blob/main/docs/img/banner-landing-page-dark-mode-skforecast-ai-no-background.png?raw=true">
     <img src="https://github.com/skforecast/skforecast-ai/blob/main/docs/img/banner-landing-page-skforecast-ai.png?raw=true" alt="skforecast-ai">
   </picture>
 </h1>
