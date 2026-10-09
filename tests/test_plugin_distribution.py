@@ -85,6 +85,23 @@ def test_plugin_marketplace_and_server_command():
     assert server["skforecast-ai"]["args"][1:] == ["--allow-project-dir"]
 
 
+def test_plugin_listing_fields_of_the_directory():
+    """
+    Test the fields the plugin directory of Anthropic reads for the listing:
+    the name shown is the name of the package, not a title made from it, and
+    the documentation and support links are https URLs of the project.
+    """
+    plugin = _json(PLUGIN / ".claude-plugin" / "plugin.json")
+
+    assert plugin["displayName"] == "skforecast-ai"
+    assert plugin["documentationUrl"] == (
+        "https://ai.skforecast.org/stable/user-guides/mcp-server.html"
+    )
+    assert plugin["supportUrl"] == (
+        "https://github.com/skforecast/skforecast-ai/issues"
+    )
+
+
 def test_plugin_readme_meets_the_directory_requirements():
     """
     Test that the plugin folder has a README with at least 40 words outside
