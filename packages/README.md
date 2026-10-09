@@ -69,3 +69,39 @@ in the README that `skforecast-ai-mcp` publishes to PyPI, so step 3 fails
 until step 2 is done. A published version of the entry cannot be changed,
 so run `mcp-publisher validate` and read `server.json` once more before
 publishing it.
+
+## The plugin directory of Anthropic, after the steps above
+
+The plugin (`plugin/`) is listed in the plugin directory of Anthropic,
+submitted on 2026-10-09 from <https://claude.ai/directory/manage>. The
+directory follows `main` and does not need a new submission for a release,
+but two settings chosen at the submission leave a step by hand:
+
+- **Auto-publish is off.** A version that passes the checks is not live
+  until someone selects **Publish** on the page of the plugin. It is the
+  gate of the release: the checks of the directory do not look at PyPI, so
+  they pass a `plugin/.mcp.json` that pins a version of `skforecast-ai-mcp`
+  that does not exist yet, and that plugin would not start.
+- **Scheduled check only**, no GitHub webhook. The directory looks at
+  `main` about every 6 hours; **Check for new commits** on the page of the
+  plugin does it at once.
+
+So, in every release, once `skforecast-ai` and `skforecast-ai-mcp` are on
+PyPI:
+
+```bash
+# 5. The command of the plugin starts with the new version
+CLAUDE_PROJECT_DIR="$PWD" uvx skforecast-ai-mcp==X.Y.Z --allow-project-dir < /dev/null
+
+# 6. Merge the release branch into main (never before step 2: the
+#    marketplace of this repository and the directory serve main)
+```
+
+7. Open the plugin from **Submissions** in the portal, select **Check for
+   new commits** and wait for the scan of the new commit.
+8. A launcher with a pinned package (`Runs a pinned npx or uvx package`) is
+   held for a reviewer of Anthropic, possibly in every version. When the
+   version passes, select **Publish**. Until then the listing keeps serving
+   the previous version.
+
+Both settings can be changed in the **Settings** tab of the plugin.
