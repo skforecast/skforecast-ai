@@ -213,12 +213,20 @@ reclama con un `glama.json` en la raíz que nombre a los mantenedores por su
 usuario de GitHub: añadido, valida contra el esquema de Glama. Pendiente,
 cuando esté en `main`: "Claim ownership" en la ficha y configurar cómo
 arranca el servidor en su imagen Docker (necesita `--allow-dir`; ahí no
-vale `--allow-project-dir`). El `CONTRIBUTING` de awesome-mcp-servers (3.3)
-no exige la ficha de Glama.
+vale `--allow-project-dir`).
 
 3.3. **awesome-mcp-servers**, después de 3.2: un PR de una línea en la
 categoría que toque. Comprobar antes en su `CONTRIBUTING` si exige la ficha
 de Glama (lo dice una guía de terceros, sin verificar).
+
+Estado, 2026-10-09: sí la exige, aunque su `CONTRIBUTING` no lo diga. Un bot
+(`glama-check`) comenta en cada PR que el servidor debe estar en Glama y
+pasar sus comprobaciones (arrancar y responder a la introspección, con un
+Dockerfile dado en Glama), y que la línea lleve la insignia
+`[![OWNER/REPO MCP server](https://glama.ai/mcp/servers/OWNER/REPO/badges/score.svg)](https://glama.ai/mcp/servers/OWNER/REPO)`.
+El PR espera a que la ficha de Glama exista y pase (3.2). Categoría: Data
+Science Tools. Un agente que abre el PR añade `🤖🤖🤖` al final del título,
+que además lo acelera.
 
 3.4. **cursor.directory** (opcional): ficha autogestionada. Antes conviene
 cerrar lo que el punto 18 de `dev/mcp-pending-after-0.4.0.md` deja sin probar
