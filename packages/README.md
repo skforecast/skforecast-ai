@@ -39,7 +39,7 @@ python -m twine upload dist/*
 # 3. The entry of the registry, from the root of the repository
 cd ../..
 mcp-publisher validate
-mcp-publisher login github
+mcp-publisher login github --token <token with read:org>
 mcp-publisher publish
 
 # 4. Check
@@ -53,8 +53,16 @@ the root of the repository would upload `skforecast-ai` instead: check the
 directory first.
 
 `mcp-publisher` is installed with `brew install mcp-publisher`. The GitHub
-account of the login must be a public member of the `skforecast`
-organization: the registry cannot see a private membership and answers 403.
+account of the login must be an Owner of the `skforecast` organization: the
+registry gives the namespace `io.github.skforecast` only to that role, which
+it reads with the token of the login (`GET /user/memberships/orgs`, which
+needs the `read:org` scope). The login in the browser
+(`mcp-publisher login github`, 1.8.1) gave a token without access to the
+organizations, and `publish` answered 403 with only
+`io.github.<user>/*` allowed, also with a public membership. What works is
+a classic personal access token with the `read:org` scope and nothing else
+(<https://github.com/settings/tokens/new>), passed with `--token` and
+deleted afterwards: the registry receives that token to exchange it.
 
 The registry looks for the line `mcp-name: io.github.skforecast/skforecast-ai`
 in the README that `skforecast-ai-mcp` publishes to PyPI, so step 3 fails
