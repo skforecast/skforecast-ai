@@ -34,6 +34,10 @@ There are no hooks, no commands and no other scripts in the plugin.
 
 The responses of the tools carry summaries: statistics of the data, dates, column names, the decisions and their explanations, the metrics and the leaderboard. They never carry rows of your data or of the predictions, which stay in files on your machine. Error and warning messages can name columns and quote up to 5 values of the data.
 
+## Privacy
+
+The plugin and its server collect nothing. Everything runs on your machine: the skforecast team receives no data, no telemetry and no usage statistics, and the server keeps nothing after it stops except the files it wrote for you. What reaches the language model of your agent is what the tools return, described in the section above, under the terms of the provider of that agent.
+
 ## Documentation
 
 [MCP server for coding agents](https://ai.skforecast.org/stable/user-guides/mcp-server.html) has the setup for other clients, every tool and option, what the server does with your data and the troubleshooting.
