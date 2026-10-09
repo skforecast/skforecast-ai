@@ -129,11 +129,13 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
 The path of `--allow-dir` must be absolute: the client starts the server from a working directory of its own choosing. The place and format of the configuration are those of each client, so check its documentation if they differ.
 
 !!! tip "Warm up uvx before the first start"
-    **The first start takes about a minute.** `uvx` downloads and installs the package and its dependencies the first time (about 60 seconds), and a client may give up on a server that takes that long to start. Run this once before connecting the agent, so later starts take about 2 seconds (with the plugin of Claude Code, use `"skforecast-ai[mcp]==<version>"`):
+    **The first start is slow.** `uvx` downloads and installs the package and its dependencies the first time, and Python loads them for the first time: about 30 seconds with a fast connection, more with a slow one. A client may give up on a server that takes that long to start: Claude Code waits 30 seconds by default. Run this once before connecting the agent, so later starts take a few seconds (the first one up to 10, the next ones about 2). With the plugin of Claude Code, use `"skforecast-ai[mcp]==<version>"`:
 
     ```bash
     uvx --from "skforecast-ai[mcp]" skforecast-ai --version
     ```
+
+    In Claude Code, the `MCP_TIMEOUT` environment variable, in milliseconds, makes it wait longer instead: `MCP_TIMEOUT=120000 claude`.
 
 **Install the skill.** [The skill](#the-skill) teaches the agent how to use the tools. The plugin of Claude Code already includes it. For Cursor, VS Code, Codex and other agents, install it with the [skills](https://github.com/vercel-labs/skills) command:
 
@@ -279,7 +281,7 @@ In the checks of this release a small model tried to copy a file from outside th
 
 | Symptom | Cause | Fix |
 |:--|:--|:--|
-| The server does not appear, or fails to start the first time | `uvx` is still downloading the package when the client gives up | Run the warm up command of [Install](#install) once, then restart the client. In Codex, set `startup_timeout_sec` |
+| The server does not appear, or fails to start the first time | `uvx` is still downloading the package when the client gives up | Run the warm up command of [Install](#install) once, then restart the client. In Claude Code, `MCP_TIMEOUT=120000 claude` also gives it time. In Codex, set `startup_timeout_sec` |
 | The client cannot find `uvx` or `skforecast-ai` | The client starts the server with a `PATH` that is not the one of your terminal | Give the absolute path of the command (`which uvx`, `which skforecast-ai`) |
 | The server stops as soon as it starts | `--allow-dir` is missing, relative or not a directory, or the output directory is not writable | Give an absolute path; the log of the server (stderr, shown by the client) says which |
 | `path_not_allowed` | The file is outside `--allow-dir` | Copy the file there yourself, or restart the server with another `--allow-dir` |
@@ -289,6 +291,7 @@ In the checks of this release a small model tried to copy a file from outside th
 | `unknown_id` | The server restarted, or removed the object to stay within its limits | Ask the agent to profile the data again |
 | A tool times out in Codex | A comparison takes longer than the default 60 seconds | Set `tool_timeout_sec` |
 | Two skforecast-ai servers in `/mcp` of Claude Code | The plugin and a server added by hand both run | Disable one of them |
+| Two server processes with Claude Desktop | Claude Desktop starts the server twice when it opens and keeps both processes | Nothing to fix: it talks to one of them, and both stop when the application quits |
 
 To see why a server does not start, run its command in a terminal: it prints the error and stops, or waits for a client (stop it with Ctrl+C).
 
