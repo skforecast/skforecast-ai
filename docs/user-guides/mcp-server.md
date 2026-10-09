@@ -56,7 +56,11 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
 
 === "VS Code"
 
-    In `.vscode/mcp.json` of the project (or run **MCP: Open User Configuration** from the Command Palette for every project). The key is `servers`, not `mcpServers`:
+    This button adds the server to your user configuration and asks for the directory the first time it starts:
+
+    [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522skforecast-ai%2522%252C%2522command%2522%253A%2522uvx%2522%252C%2522args%2522%253A%255B%2522skforecast-ai-mcp%2522%252C%2522--allow-dir%2522%252C%2522%2524%257Binput%253Aallow_dir%257D%2522%255D%252C%2522inputs%2522%253A%255B%257B%2522type%2522%253A%2522promptString%2522%252C%2522id%2522%253A%2522allow_dir%2522%252C%2522description%2522%253A%2522Absolute%2520path%2520of%2520the%2520directory%2520with%2520your%2520CSV%2520files%2520%2528the%2520server%2520reads%2520only%2520inside%2520it%2529%2522%257D%255D%257D)
+
+    It writes the command `uvx skforecast-ai-mcp --allow-dir <the directory you give>` (see the note below the tabs). To write the configuration yourself: in `.vscode/mcp.json` of the project (or run **MCP: Open User Configuration** from the Command Palette for every project). The key is `servers`, not `mcpServers`:
 
     ```json
     {
