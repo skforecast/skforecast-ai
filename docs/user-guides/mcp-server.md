@@ -25,10 +25,10 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
     /plugin install skforecast-ai@skforecast-ai
     ```
 
-    The plugin starts `uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai mcp --allow-dir <your project>`, where `<version>` is the version of the plugin (`claude plugin list` shows it).
+    The plugin starts `uvx skforecast-ai-mcp==<version> --allow-project-dir`, where `<version>` is the version of the plugin (`claude plugin list` shows it).
 
     !!! warning "The plugin can read every CSV file of your project"
-        The allowed directory is the project you open in Claude Code. That includes an export of credentials or of personal data saved as `.csv`, whose values an error or a summary can quote.
+        The allowed directory is the project you open in Claude Code, the directory you start it in: `--allow-project-dir` reads it from the environment variable `CLAUDE_PROJECT_DIR`, which Claude Code sets. That includes an export of credentials or of personal data saved as `.csv`, whose values an error or a summary can quote. The server does not start in your home directory or in the root of a disk: open Claude Code in the folder of the project.
 
     To pass other options (another directory, `--allow-model`, `HF_HUB_OFFLINE`, or the backend of a foundation model with `uvx --with`), add the server by hand instead and disable the plugin: with both, two servers run. For every project (`--scope user`):
 
@@ -195,7 +195,7 @@ Each of these tools returns an id for the next ones, a plain-text summary (the o
 
 ## Server options
 
-The agent starts the server itself, as a command, and talks to it over its standard input and output. `--allow-dir` is required: the server only reads CSV files inside that directory.
+The agent starts the server itself, as a command, and talks to it over its standard input and output. `--allow-dir` is required, unless `--allow-project-dir` is given: the server only reads CSV files inside that directory.
 
 ```bash
 skforecast-ai mcp --allow-dir /path/to/data
@@ -204,6 +204,7 @@ skforecast-ai mcp --allow-dir /path/to/data
 | Option | Default | Meaning |
 |:--|:--|:--|
 | `--allow-dir` | (required) | Directory the server may read, as an absolute path (an empty or relative value is rejected). Only absolute paths of `.csv` files inside it are accepted, also after resolving symbolic links. |
+| `--allow-project-dir` | off | Instead of `--allow-dir`: the directory is the project of the session, read from the environment variable `CLAUDE_PROJECT_DIR`, which Claude Code sets for the servers it starts. The server stops if the variable is not set, or if it is the home directory, a directory that contains it or the root of a file system. It is what the plugin of Claude Code uses. |
 | `--output-dir` | a new temporary directory | Where the server writes predictions, metrics, leaderboards and long texts. It is also the working directory of the server, and it is kept when the server stops. Its path is logged when the server starts. |
 | `--max-objects` | 256 | Most objects (profiles, plans, results) the server keeps. |
 | `--max-memory-mb` | 1024 | Memory the objects may take. Beyond either limit, the least recently used objects are removed. |
@@ -297,7 +298,7 @@ In the checks of this release a small model tried to copy a file from outside th
 |:--|:--|:--|
 | The server does not appear, or fails to start the first time | `uvx` is still downloading the package when the client gives up | Run the warm up command of [Install](#install) once, then restart the client. In Claude Code, `MCP_TIMEOUT=120000 claude` also gives it time. In Codex, set `startup_timeout_sec` |
 | The client cannot find `uvx` or `skforecast-ai` | The client starts the server with a `PATH` that is not the one of your terminal | Give the absolute path of the command (`which uvx`, `which skforecast-ai`) |
-| The server stops as soon as it starts | `--allow-dir` is missing, relative or not a directory, or the output directory is not writable | Give an absolute path; the log of the server (stderr, shown by the client) says which |
+| The server stops as soon as it starts | `--allow-dir` is missing, relative or not a directory, the output directory is not writable, or, with the plugin of Claude Code, the session was opened in the home directory or in the root of a disk | Give an absolute path, or open Claude Code in the folder of the project; the log of the server (stderr, shown by the client) says which |
 | `path_not_allowed` | The file is outside `--allow-dir` | Copy the file there yourself, or restart the server with another `--allow-dir` |
 | `invalid_path` or `url_not_allowed` | The path is relative, is not a `.csv` file or is a URL | Give the absolute path of a CSV file; download a URL first |
 | `model_not_allowed` | The license of the foundation model restricts its use | Read its license and add `--allow-model` with its prefix |

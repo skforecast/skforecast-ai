@@ -19,11 +19,11 @@ Ask in plain language:
 One local MCP server over stdio, started with the command of `.mcp.json`:
 
 ```text
-uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai mcp --allow-dir <your project>
+uvx skforecast-ai-mcp==<version> --allow-project-dir
 ```
 
-- **It downloads** the package `skforecast-ai`, pinned to the version of the plugin, and its dependencies from PyPI the first time, which takes about 30 seconds. Nothing else is installed.
-- **It reads** only `.csv` files inside the project you open, by absolute path. That includes any export of credentials or of personal data saved as `.csv` in the project.
+- **It downloads** the package `skforecast-ai-mcp`, the launcher of the server, pinned to the version of the plugin, with `skforecast-ai` at that same version and their dependencies from PyPI the first time, which takes about 30 seconds. Nothing else is installed.
+- **It reads** only `.csv` files inside the project you open, by absolute path. That includes any export of credentials or of personal data saved as `.csv` in the project. The project is the directory the agent was started in, which the server reads from the environment variable `CLAUDE_PROJECT_DIR`; it refuses to start in your home directory or in the root of a disk.
 - **It writes** predictions, metrics and leaderboards to a new temporary directory, never into your project.
 - **It runs** the generated forecasting scripts in the process of the server, with your permissions.
 - **It opens no network connection itself.** Foundation models need a backend package that the plugin does not install. If you add one, it downloads the weights of the model from the Hugging Face Hub the first time and checks them on each run, without sending data.

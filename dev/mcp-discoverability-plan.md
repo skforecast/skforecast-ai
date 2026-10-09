@@ -181,6 +181,14 @@ Estado, 2026-10-09, leída la lista de comprobación del portal
   `${CLAUDE_PROJECT_DIR}` a `--allow-dir`; y el ejemplo de pin es
   `uvx <paquete>==1.2.3`, no `uvx --from "paquete[extra]==1.2.3"`. Si alguno
   bloquea, la salida es el comando corto: `uvx skforecast-ai-mcp==X.Y.Z`.
+  Resuelto: el `Validate` bloqueó por `${CLAUDE_PROJECT_DIR}` ("Command path
+  can't be followed"). Claude Code da esa variable en el entorno a los
+  servidores de un plugin (comprobado con una sonda en 2.1.272 y 2.1.294),
+  así que el servidor la lee él mismo con la opción nueva
+  `--allow-project-dir` y el plugin arranca
+  `uvx skforecast-ai-mcp==X.Y.Z --allow-project-dir`, sin ninguna ruta. Eso
+  cierra A2 para el plugin y exige publicar una 0.4.1 antes de fusionar en
+  `main`. Sin comprobar: Cowork y Windows.
 - **Seguro**: un lanzador con paquete fijado siempre queda retenido para un
   revisor de Anthropic (`Runs a pinned npx or uvx package`). No es un
   rechazo.
