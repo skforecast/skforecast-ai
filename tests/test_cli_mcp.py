@@ -1,6 +1,8 @@
 # Unit test cli mcp
 
 import sys
+
+import pytest
 from typer.testing import CliRunner
 
 import skforecast_ai.mcp.server as server_module
@@ -85,13 +87,17 @@ def test_cli_mcp_exit_code_when_allow_model_is_not_a_model_prefix(tmp_path):
     )
 
 
-def test_cli_mcp_exit_code_when_mcp_extra_missing(tmp_path, monkeypatch):
+@pytest.mark.parametrize("missing", ["mcp", "anyio"])
+def test_cli_mcp_exit_code_when_mcp_extra_missing(tmp_path, monkeypatch, missing):
     """
-    Test that without the `mcp` package the command says which extra to
-    install and exits with code 1.
+    Test that without a package of the `mcp` extra the command says which
+    extra to install and exits with code 1: `mcp` itself, or `anyio`, which
+    `mcp` installs and is the first one missing in an install without
+    extras (the command ended there with a traceback).
     """
+    monkeypatch.setitem(sys.modules, missing, None)
     for name in list(sys.modules):
-        if name == "mcp" or name.startswith("mcp."):
+        if name.startswith(f"{missing}."):
             monkeypatch.setitem(sys.modules, name, None)
         if name.startswith("skforecast_ai.mcp"):
             monkeypatch.delitem(sys.modules, name)
