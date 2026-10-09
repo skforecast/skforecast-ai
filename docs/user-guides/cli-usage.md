@@ -264,7 +264,7 @@ skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12 \
 
 ## Serve coding agents
 
-`mcp` runs the MCP server, so a coding agent (Claude Code, Cursor, Claude Desktop) calls the deterministic workflow as tools. It needs the `[mcp]` extra, speaks over stdio and is started by the agent, which you configure with the command below. `--allow-dir` is required: the server only reads CSV files inside that directory, given by their absolute path.
+`mcp` runs the MCP server, so a coding agent (Claude Code, Cursor, Claude Desktop) calls the deterministic workflow as tools. It needs the `[mcp]` extra, speaks over stdio and is started by the agent, which you configure with the command below. `--allow-dir` is required: the server only reads CSV files inside that directory, given by their absolute path. `--allow-project-dir` takes its place where Claude Code starts the server: the directory is then the project of the session.
 
 ```bash
 pip install "skforecast-ai[mcp]"

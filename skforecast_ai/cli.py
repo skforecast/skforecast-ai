@@ -2171,7 +2171,8 @@ def check_llm(
 
 @app.command(name="mcp")
 def mcp_server(
-    allow_dir: Annotated[Path, typer.Option("--allow-dir", help="Directory the server may read data from (required). Only absolute paths of CSV files inside it are accepted, also after resolving symbolic links.")],
+    allow_dir: Annotated[Path | None, typer.Option("--allow-dir", help="Directory the server may read data from (required unless --allow-project-dir is given). Only absolute paths of CSV files inside it are accepted, also after resolving symbolic links.")] = None,
+    allow_project_dir: Annotated[bool, typer.Option("--allow-project-dir", help="Use as the directory of --allow-dir the project of the session, read from the environment variable CLAUDE_PROJECT_DIR that Claude Code sets. The home directory and the root of a file system are rejected.")] = False,
     output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Directory of the files the server writes; also its working directory. Default: a new temporary directory.")] = None,
     max_objects: Annotated[int, typer.Option("--max-objects", min=1, help="Most objects the server keeps; the least recently used ones are removed beyond it.")] = 256,
     max_memory_mb: Annotated[int, typer.Option("--max-memory-mb", min=1, help="Memory, in MB, the objects may take; the least recently used ones are removed beyond it.")] = 1024,
@@ -2179,7 +2180,14 @@ def mcp_server(
     allow_model: Annotated[list[str] | None, typer.Option("--allow-model", help="Model ID prefix of a foundation model that the server may run although its license restricts commercial use, its weights are gated, its provider requires an account or skforecast gives no license information, e.g. google/timesfm-3.0 (repeatable). Other models run without it.")] = None,
 ) -> None:
     """Serve the deterministic workflow to MCP clients (coding agents) over stdio."""
+    if (allow_dir is None) == (not allow_project_dir):
+        raise typer.BadParameter(
+            "Give one of '--allow-dir' or '--allow-project-dir'.",
+            param_hint = "'--allow-dir'",
+        )
+
     try:
+        from .mcp._inputs import project_dir_from_environment
         from .mcp.server import run_server
     except ModuleNotFoundError as exc:
         # The packages of the `mcp` extra that the server imports: without
@@ -2194,6 +2202,8 @@ def mcp_server(
 
     # stdout carries the protocol: errors go to stderr.
     try:
+        if allow_project_dir:
+            allow_dir = Path(project_dir_from_environment())
         run_server(
             allow_dir     = allow_dir,
             output_dir    = output_dir,
