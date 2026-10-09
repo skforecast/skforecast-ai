@@ -277,9 +277,15 @@ def _jsonrpc_server(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
     path = write_csv(data, "h2o.csv", df_h2o_csv)
+    # A server that does not exit writes where each of its threads waits,
+    # before the test gives up on it.
+    script = (
+        "import faulthandler\n"
+        "faulthandler.dump_traceback_later(45, exit=False)\n" + _SLOW_SERVER
+    )
     process = subprocess.Popen(
         [
-            sys.executable, "-c", _SLOW_SERVER, "mcp",
+            sys.executable, "-c", script, "mcp",
             "--allow-dir", str(data), "--output-dir", str(tmp_path / "out"),
         ],
         stdin=subprocess.PIPE,
@@ -355,7 +361,16 @@ def test_stdio_server_exits_cleanly_when_the_client_disconnects_during_a_call(
         time.sleep(0.5)
         process.stdout.close()
         process.stdin.close()
-        code = process.wait(timeout=60)
+        try:
+            code = process.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            pytest.fail(
+                "The server did not exit after the client disconnected. Its "
+                "standard error:\n"
+                + process.stderr.read().decode(errors="replace")
+            )
         stderr = process.stderr.read().decode()
     finally:
         if process.poll() is None:

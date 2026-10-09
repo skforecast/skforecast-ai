@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import copy
 import functools
+import inspect
 import json
 import logging
 import os
@@ -1265,7 +1266,42 @@ def _distributions() -> dict[str, list[str]]:
     from `scikit-learn`), read once: it scans every installed package.
     """
 
-    return dict(metadata.packages_distributions())
+    distributions = dict(metadata.packages_distributions())
+    if sys.version_info < (3, 11):
+        # Python 3.10 reads the modules only from `top_level.txt`, which
+        # packages such as scikit-learn no longer ship, so `sklearn` was
+        # returned as the package to install.
+        for module, names in _undeclared_distributions().items():
+            distributions.setdefault(module, names)
+
+    return distributions
+
+
+def _undeclared_distributions() -> dict[str, list[str]]:
+    """
+    Installed distributions that do not declare their modules in
+    `top_level.txt`, by the module they provide, read from their files as
+    Python 3.11 and later do in `importlib.metadata.packages_distributions`.
+    """
+
+    distributions: dict[str, list[str]] = {}
+    for distribution in metadata.distributions():
+        if distribution.read_text("top_level.txt") is not None:
+            continue
+        name = distribution.metadata["Name"]
+        modules = {
+            file.parts[0] if len(file.parts) > 1 else inspect.getmodulename(file.name)
+            for file in distribution.files or []
+        }
+        for module in modules:
+            # A dot is a metadata directory (`*.dist-info`) or a path
+            # outside the package (`../../bin`).
+            if module and "." not in module and name is not None:
+                names = distributions.setdefault(module, [])
+                if name not in names:
+                    names.append(name)
+
+    return distributions
 
 
 def _pinned(package: str) -> str:
@@ -2918,7 +2954,9 @@ def _discard_stdout(wire: os.stat_result | None = None) -> None:
     other descriptor open on the same pipe (`wire`, its status when the
     server started) is pointed to the null device too. Without it the
     process ended with "Exception ignored ... BrokenPipeError" on the
-    standard error.
+    standard error. The duplicates are told by the device and inode of the
+    pipe, which Windows does not give: only the standard output is pointed
+    to the null device there.
     """
 
     try:
@@ -2931,7 +2969,11 @@ def _discard_stdout(wire: os.stat_result | None = None) -> None:
             descriptors.add(sys.stdout.fileno())
         except (OSError, ValueError):
             pass
-        if wire is not None:
+        # Windows gives no identity to a pipe (its device and inode are 0),
+        # so every pipe of the process would pass for the one of the client
+        # and be pointed to the null device: the duplicates are not looked
+        # for there.
+        if wire is not None and (wire.st_ino or wire.st_dev):
             for fd in range(3, _MAX_DESCRIPTORS):
                 if fd == devnull:
                     continue

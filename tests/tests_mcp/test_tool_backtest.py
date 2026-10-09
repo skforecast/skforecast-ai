@@ -12,6 +12,7 @@ from .fixtures_mcp import (
     DATA_VALUES_HINT,
     call,
     content_of,
+    csv_of,
     cv_of,
     df_data_warning,
     df_h2o_backtest_gaps_csv,
@@ -58,8 +59,8 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     }
     assert result["values_included"] is False
     assert sorted(result["files"]) == ["metrics", "predictions"]
-    assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
-    assert text_of(result["files"]["metrics"]) == expected.metrics.to_csv()
+    assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
+    assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
     assert code == expected.code
     assert [(n["source"], n["category"]) for n in result["notices"]] == [
         ("runtime", "MetricReferenceNotice"), ("runtime", "MetricUnitNotice")

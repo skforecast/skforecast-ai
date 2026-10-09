@@ -1,5 +1,7 @@
 # Unit test tool profile
 
+import csv
+
 import pandas as pd
 import pytest
 
@@ -226,7 +228,10 @@ def test_tool_profile_rejects_column_names_with_line_breaks(tmp_path):
     nothing is registered.
     """
     frame = df_h2o_csv.assign(**{"Temperature\n(C)": 1.0, "exog\r": 2.0})
-    path = write_csv(tmp_path, "names.csv", frame)
+    # Every text between quotes: Python 3.10 does not quote a name that
+    # ends in a carriage return, which then reads as the end of the line.
+    path = str(tmp_path / "names.csv")
+    frame.to_csv(path, index=False, quoting=csv.QUOTE_NONNUMERIC)
     long = df_items_sales_long.replace({"series": {"item_1": "item\u20291"}})
     long_path = write_csv(tmp_path, "long.csv", long)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")

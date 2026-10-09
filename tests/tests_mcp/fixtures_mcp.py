@@ -241,6 +241,16 @@ def text_of(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+def csv_of(frame: pd.DataFrame) -> str:
+    """
+    Return a frame as the text of the CSV file the server writes for it, as
+    `text_of` reads it: with line feeds on every platform (pandas ends the
+    lines of a CSV with a carriage return too on Windows).
+    """
+
+    return frame.to_csv(lineterminator="\n")
+
+
 def cv_of(
     server,
     path: str,

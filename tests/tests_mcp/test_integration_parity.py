@@ -14,7 +14,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server
 
 from ..fixtures_datasets import df_items_sales_long, df_items_sales_wide
-from .fixtures_mcp import content_of, df_h2o_csv, text_of, write_csv
+from .fixtures_mcp import content_of, csv_of, df_h2o_csv, text_of, write_csv
 
 CANDIDATES = [
     {"name": "ridge", "config": {"estimator": "Ridge"}},
@@ -130,19 +130,19 @@ def test_server_workflow_matches_python_api_and_scripts(
 
     assert (
         text_of(backtest["files"]["predictions"])
-        == expected_backtest.predictions.to_csv()
+        == csv_of(expected_backtest.predictions)
     )
-    assert text_of(backtest["files"]["metrics"]) == expected_backtest.metrics.to_csv()
+    assert text_of(backtest["files"]["metrics"]) == csv_of(expected_backtest.metrics)
     assert (
         text_of(comparison["files"]["leaderboard"])
-        == expected_comparison.results.to_csv()
+        == csv_of(expected_comparison.results)
     )
     assert (
         text_of(forecast["files"]["predictions"])
-        == expected_forecast.predictions.to_csv()
+        == csv_of(expected_forecast.predictions)
     )
     assert (
-        text_of(evaluation["files"]["metrics"]) == expected_evaluation.metrics.to_csv()
+        text_of(evaluation["files"]["metrics"]) == csv_of(expected_evaluation.metrics)
     )
     for key, expected in (
         ("backtest", expected_backtest),

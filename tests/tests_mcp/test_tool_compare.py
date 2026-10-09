@@ -23,6 +23,7 @@ from .fixtures_mcp import (
     DATA_VALUES_HINT,
     call,
     content_of,
+    csv_of,
     cv_of,
     df_h2o_csv,
     error_of,
@@ -81,9 +82,9 @@ def test_tool_compare_output_matches_python_api(tmp_path):
         "best_plan_id": result["links"]["best_plan_id"],
     }
     assert result["summary"] == expected.describe()
-    assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()
-    assert text_of(result["files"]["best_predictions"]) == best.predictions.to_csv()
-    assert text_of(result["files"]["best_metrics"]) == best.metrics.to_csv()
+    assert text_of(result["files"]["leaderboard"]) == csv_of(expected.results)
+    assert text_of(result["files"]["best_predictions"]) == csv_of(best.predictions)
+    assert text_of(result["files"]["best_metrics"]) == csv_of(best.metrics)
     # Ridge 1, the direct forecaster one per step (12) and the baseline 0;
     # the candidate that failed trained nothing, and no foundation model ran.
     assert result["cost"] == {
@@ -329,7 +330,7 @@ def test_tool_compare_default_candidates_of_the_profile(tmp_path):
             )
 
     assert result["summary"] == expected.describe()
-    assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()
+    assert text_of(result["files"]["leaderboard"]) == csv_of(expected.results)
 
 
 def test_tool_compare_announces_model_download_of_a_candidate_that_ran(
@@ -546,7 +547,7 @@ def test_tool_compare_candidates_with_the_overrides_of_a_plan(tmp_path):
         baseline=False,
     )
 
-    assert text_of(result["files"]["leaderboard"]) == expected.results.to_csv()
+    assert text_of(result["files"]["leaderboard"]) == csv_of(expected.results)
     assert result["summary"] == expected.describe()
 
 

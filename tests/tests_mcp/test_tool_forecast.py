@@ -13,6 +13,7 @@ from .fixtures_mcp import (
     call,
     df_single_future_exog,
     content_of,
+    csv_of,
     error_of,
     h2o_server,
     profile_and_plan,
@@ -50,7 +51,7 @@ def test_tool_forecast_output_matches_python_api(tmp_path, test_size):
     assert result["kind"] == "forecast"
     assert result["links"] == {"profile_id": profile_id, "plan_id": plan_id}
     assert result["summary"] == expected.describe()
-    assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
+    assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     # Only an evaluation has metrics, and with them the notice that gives
     # the reference of MASE and the unit of MAPE, after the one that says it
     # is an evaluation.
@@ -59,7 +60,7 @@ def test_tool_forecast_output_matches_python_api(tmp_path, test_size):
         assert sorted(result["files"]) == ["predictions"]
         assert categories == []
     else:
-        assert text_of(result["files"]["metrics"]) == expected.metrics.to_csv()
+        assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
         assert categories == [
             "HoldoutEvaluationNotice", "MetricReferenceNotice", "MetricUnitNotice",
         ]
@@ -115,7 +116,7 @@ def test_tool_forecast_with_future_exog(tmp_path):
         exog=load_exog(exog_path, date_column="date"),
     )
 
-    assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
+    assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     assert missing["code"] == "invalid_argument"
     assert missing["field"] == "exog_path"
 
@@ -237,7 +238,7 @@ def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
         plan=assistant.plan(profile=profile, steps=10, use_exog=False),
     )
 
-    assert text_of(result["files"]["predictions"]) == expected.predictions.to_csv()
+    assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     assert [notice["category"] for notice in result["notices"]] == [
         "ExogLeftOutNotice"
     ]

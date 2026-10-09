@@ -27,7 +27,12 @@ def test_as_exog_frame_InvalidInputTypeError_when_unnamed_series():
 
 @pytest.mark.parametrize(
     "exog, name",
-    [("exog.csv", "str"), (Path("exog.csv"), "PosixPath"), ({"x": 1}, "dict")],
+    [
+        ("exog.csv", "str"),
+        # PosixPath, or WindowsPath on Windows.
+        (Path("exog.csv"), type(Path()).__name__),
+        ({"x": 1}, "dict"),
+    ],
     ids=["str", "path", "dict"],
 )
 def test_as_exog_frame_InvalidInputTypeError_when_not_dataframe(exog, name):

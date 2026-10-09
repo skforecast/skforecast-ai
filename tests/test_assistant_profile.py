@@ -269,8 +269,9 @@ def test_profile_output_when_csv_path(tmp_path, path_type):
         (
             {"data": "/nonexistent/data.csv", "target": "sales"},
             DataNotFoundError, "data_not_found", "data",
-            "CSV file not found: '/nonexistent/data.csv'. Please provide a "
-            "valid file path.",
+            # The path as the platform writes it (backslashes on Windows).
+            f"CSV file not found: '{Path('/nonexistent/data.csv')}'. Please "
+            f"provide a valid file path.",
         ),
     ],
     ids=["target", "date_column", "csv_path"],
