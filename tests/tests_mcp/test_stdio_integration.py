@@ -361,17 +361,22 @@ def test_stdio_server_exits_cleanly_when_the_client_disconnects_during_a_call(
         time.sleep(0.5)
         process.stdout.close()
         process.stdin.close()
-        try:
-            code = process.wait(timeout=60)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-            pytest.fail(
-                "The server did not exit after the client disconnected. Its "
-                "standard error:\n"
-                + process.stderr.read().decode(errors="replace")
-            )
-        stderr = process.stderr.read().decode()
+        # The standard error is read while waiting: a server that writes
+        # more than its pipe holds (4 KB on Windows, less than a traceback)
+        # would wait for a reader and never exit.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            reading = pool.submit(process.stderr.read)
+            try:
+                code = process.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                pytest.fail(
+                    "The server did not exit after the client disconnected. "
+                    "Its standard error:\n"
+                    + reading.result().decode(errors="replace")
+                )
+            stderr = reading.result().decode()
     finally:
         if process.poll() is None:
             process.kill()

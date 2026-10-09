@@ -8,6 +8,7 @@
 from __future__ import annotations
 import ast
 import copy
+import errno
 import functools
 import inspect
 import json
@@ -2694,6 +2695,8 @@ _DISCONNECTED = (
     anyio.BrokenResourceError,
     anyio.ClosedResourceError,
 )
+# ERROR_BROKEN_PIPE and ERROR_NO_DATA of Windows.
+_WINDOWS_BROKEN_PIPE = (109, 232)
 
 
 def _client_disconnected(exc: BaseException) -> bool:
@@ -2707,7 +2710,15 @@ def _client_disconnected(exc: BaseException) -> bool:
     if isinstance(inner, tuple) and inner:
         return all(_client_disconnected(item) for item in inner)
 
-    return isinstance(exc, _DISCONNECTED)
+    if isinstance(exc, _DISCONNECTED):
+        return True
+    # Windows reports a write to a pipe whose reader is gone as a plain
+    # OSError: "Invalid argument", or its own error of a pipe that is
+    # broken (109) or being closed (232).
+    return isinstance(exc, OSError) and (
+        getattr(exc, "winerror", None) in _WINDOWS_BROKEN_PIPE
+        or (sys.platform == "win32" and exc.errno == errno.EINVAL)
+    )
 
 
 class _OneLineFormatter(logging.Formatter):
@@ -2911,6 +2922,7 @@ def run_server(
     logger.setLevel(logging.INFO)
     logger.propagate = False
     wire = _stdout_stat()
+    wire_fd = _stdout_duplicate() if sys.platform == "win32" else None
     try:
         logger.info(
             "skforecast-ai MCP server: reads CSV files in %s, writes files to %s.",
@@ -2925,8 +2937,13 @@ def run_server(
             # The client went away while a call ran: nothing is left to
             # answer, so the server stops as if the client had closed it.
             logger.info("The client disconnected; the server stops.")
-            _discard_stdout(wire)
+            _discard_stdout(wire, wire_fd)
     finally:
+        if wire_fd is not None:
+            try:
+                os.close(wire_fd)
+            except OSError:
+                pass
         logger.removeHandler(handler)
         logger.setLevel(previous[0])
         logger.propagate = previous[1]
@@ -2944,7 +2961,43 @@ def _stdout_stat() -> os.stat_result | None:
         return None
 
 
-def _discard_stdout(wire: os.stat_result | None = None) -> None:
+def _stdout_duplicate() -> int | None:
+    """
+    Return a duplicate of the descriptor of the standard output, kept open
+    to tell later which descriptors are open on the pipe of the client, or
+    None when it has no file descriptor.
+    """
+
+    try:
+        return os.dup(sys.stdout.fileno())
+    except (OSError, ValueError):
+        return None
+
+
+def _same_windows_object(fd: int, other: int) -> bool:
+    """
+    Whether two descriptors are open on the same object of Windows (two
+    duplicates of a pipe), which their status does not tell there.
+    """
+
+    try:
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        compare = ctypes.WinDLL("kernelbase").CompareObjectHandles
+        compare.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+        compare.restype = wintypes.BOOL
+
+        return bool(compare(msvcrt.get_osfhandle(fd), msvcrt.get_osfhandle(other)))
+    except (ImportError, AttributeError, OSError, ValueError):
+        return False
+
+
+def _discard_stdout(
+    wire: os.stat_result | None = None,
+    wire_fd: int | None = None,
+) -> None:
     """
     Point the standard output to the null device, so flushing it when the
     process ends does not fail again on the closed pipe.
@@ -2955,8 +3008,10 @@ def _discard_stdout(wire: os.stat_result | None = None) -> None:
     server started) is pointed to the null device too. Without it the
     process ended with "Exception ignored ... BrokenPipeError" on the
     standard error. The duplicates are told by the device and inode of the
-    pipe, which Windows does not give: only the standard output is pointed
-    to the null device there.
+    pipe. Windows gives none to a pipe (both are 0, so every pipe of the
+    process would pass for the one of the client): there they are told by
+    comparing each descriptor with `wire_fd`, a duplicate of the standard
+    output kept since the server started.
     """
 
     try:
@@ -2969,11 +3024,12 @@ def _discard_stdout(wire: os.stat_result | None = None) -> None:
             descriptors.add(sys.stdout.fileno())
         except (OSError, ValueError):
             pass
-        # Windows gives no identity to a pipe (its device and inode are 0),
-        # so every pipe of the process would pass for the one of the client
-        # and be pointed to the null device: the duplicates are not looked
-        # for there.
-        if wire is not None and (wire.st_ino or wire.st_dev):
+        if sys.platform == "win32":
+            if wire_fd is not None:
+                for fd in range(3, _MAX_DESCRIPTORS):
+                    if fd != devnull and _same_windows_object(fd, wire_fd):
+                        descriptors.add(fd)
+        elif wire is not None:
             for fd in range(3, _MAX_DESCRIPTORS):
                 if fd == devnull:
                     continue
