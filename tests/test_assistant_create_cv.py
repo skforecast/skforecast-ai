@@ -1,22 +1,30 @@
 # Unit test create_cv ForecastingAssistant
 
 import ast
+import contextlib
 import re
 import warnings
 
+import numpy as np
 import pandas as pd
 import pytest
 
+from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
-from skforecast_ai.schemas import CVParams, CVResult
+from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.recommendation.backtesting import _compute_min_train_size
+from skforecast_ai.schemas import CV_OVERRIDE_NAMES, CVParams, CVResult
 from tests.fixtures_assistant import (
     df_single,
     df_multi_long,
+    df_multi_long_staggered,
     df_range_index,
     df_short,
 )
+from tests.fixtures_datasets import df_h2o, df_hourly_madrid_spring
+from tests.fixtures_last_window import data_h2o_gaps
 
 
 # =============================================================================
@@ -46,15 +54,25 @@ def test_create_cv_ValueError_when_initial_train_size_float_out_of_range(value):
 def test_create_cv_ValueError_when_fewer_than_2_folds():
     """
     Test that create_cv() raises ValueError when the configuration
-    produces fewer than 2 folds.
+    produces fewer than 2 folds, with a hint that names what gives more
+    folds and `forecast` with `test_size` for a single window.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_short, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
 
     err_msg = re.escape("At least 2 are required")
-    with pytest.raises(ValueError, match=err_msg):
+    with pytest.raises(ValueError, match=err_msg) as exc_info:
         assistant.create_cv(profile, plan, initial_train_size=20)
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.hint == (
+        "To evaluate a single window, the last `steps` observations, use "
+        "`forecast` with `test_size` instead: one hold-out, not a backtest. A "
+        "backtest needs at least 2 folds: a smaller `initial_train_size` (or "
+        "leave it out for the default), a smaller `fold_stride` or a plan with "
+        "fewer `steps`."
+    )
 
 
 def test_create_cv_ValueError_when_initial_train_size_date_unparseable():
@@ -126,7 +144,8 @@ def test_create_cv_cv_config_matches_splitter_and_counts_folds():
     """
     Test that `cv_config` mirrors every TimeSeriesFold parameter,
     including `skip_folds` and `allow_incomplete_fold`, and reports the
-    fold count the splitter actually produces.
+    fold count the splitter actually produces and the folds that train the
+    forecaster.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -149,6 +168,7 @@ def test_create_cv_cv_config_matches_splitter_and_counts_folds():
         "allow_incomplete_fold": False,
         "differentiation": None,
         "n_folds": 4,
+        "n_fits": 1,
     }
     assert "4 folds" in result.explanation
 
@@ -321,6 +341,41 @@ def test_create_cv_ValueError_when_initial_train_size_str_date_too_late():
         assistant.create_cv(profile, plan, initial_train_size="2023-04-09")
 
 
+@pytest.mark.parametrize(
+    "forecaster, expected_explanation",
+    [
+        (
+            None,
+            "Initial training up to 2023-03-11, trained once (no refit), "
+            "10-step horizon, 3 folds.",
+        ),
+        (
+            "ForecasterDirect",
+            "Initial training up to 2023-03-11, trained once (no refit), "
+            "10-step horizon, 3 folds. ForecasterDirect fits one estimator per "
+            "step, so each training fits 10 estimators (10 fits in all).",
+        ),
+    ],
+    ids=["recursive", "direct"],
+)
+def test_create_cv_output_when_default_refit(forecaster, expected_explanation):
+    """
+    Test that the default strategy trains the forecaster once (refit=False,
+    the skforecast default), since refitting in every fold multiplies the
+    cost by the number of folds, and that the explanation states the cost,
+    including the estimator fits of a direct forecaster.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, forecaster=forecaster)
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.cv.refit is False
+    assert result.cv_config["n_fits"] == 1
+    assert result.explanation == expected_explanation
+
+
 def test_create_cv_output_when_refit_override():
     """
     Test that explicit refit value overrides the default.
@@ -336,15 +391,62 @@ def test_create_cv_output_when_refit_override():
 
 def test_create_cv_output_when_fixed_train_size_override():
     """
-    Test that explicit fixed_train_size overrides the default.
+    Test that explicit fixed_train_size overrides the default when the
+    forecaster is refitted.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
 
-    cv = assistant.create_cv(profile, plan, fixed_train_size=True).cv
+    cv = assistant.create_cv(profile, plan, refit=True, fixed_train_size=True).cv
 
     assert cv.fixed_train_size is True
+
+
+@pytest.mark.parametrize("fixed_train_size", [True, False])
+@pytest.mark.parametrize("refit", [None, False, 0])
+def test_create_cv_IgnoredArgumentWarning_when_fixed_train_size_without_refit(
+    refit, fixed_train_size
+):
+    """
+    Test that create_cv warns that `fixed_train_size` has no effect when it
+    is passed for a forecaster that is trained once (`refit` False, 0 or the
+    default), and returns the strategy that runs without it.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    expected = assistant.create_cv(profile, plan, refit=refit)
+
+    resolved = False if refit is None else refit
+    warn_msg = re.escape(
+        f"`fixed_train_size={fixed_train_size!r}` has no effect: with "
+        f"`refit={resolved!r}` the forecaster is trained once, on a single "
+        f"training window. Pass `refit=True` (or an integer) to refit it, or "
+        f"omit `fixed_train_size` to avoid this warning."
+    )
+    with pytest.warns(IgnoredArgumentWarning, match=warn_msg):
+        result = assistant.create_cv(
+            profile, plan, refit=refit, fixed_train_size=fixed_train_size
+        )
+
+    assert result.cv_config["n_folds"] == expected.cv_config["n_folds"]
+    assert result.cv_config["n_fits"] == expected.cv_config["n_fits"] == 1
+    assert result.explanation == expected.explanation
+
+
+def test_create_cv_output_when_fixed_train_size_with_integer_refit():
+    """
+    Test that `fixed_train_size` is accepted with an integer `refit`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    cv = assistant.create_cv(profile, plan, refit=2, fixed_train_size=False).cv
+
+    assert cv.refit == 2
+    assert cv.fixed_train_size is False
 
 
 def test_create_cv_output_when_gap_override():
@@ -420,6 +522,43 @@ def test_create_cv_output_when_statistical_floor():
     assert cv.initial_train_size == "2023-03-11"
 
 
+def test_create_cv_output_when_baseline_floor():
+    """
+    Test that a baseline plan uses 2 * steps as floor when its window
+    (`offset * n_offsets`) is shorter than one horizon.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, forecaster="ForecasterEquivalentDate"
+    )
+
+    cv = assistant.create_cv(profile, plan).cv
+
+    # offset = 7, floor = max(7 + 10, 2*10) = 20, 70% of 100 = 70.
+    # ceiling = 100 - 2*10 = 80. So initial_train_size = 70.
+    # Date at index 69 = 2023-01-01 + 69 days = 2023-03-11.
+    assert cv.initial_train_size == "2023-03-11"
+
+
+def test_create_cv_output_when_floor_by_baseline_window():
+    """
+    Test that the initial_train_size floor of a baseline plan is
+    `offset * n_offsets + steps`, so every fold finds its equivalent dates.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_short, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=1, forecaster="ForecasterEquivalentDate")
+
+    plan.forecaster_kwargs["offset"] = 20  # floor = 20 * 1 + 1 = 21
+
+    cv = assistant.create_cv(profile, plan).cv
+
+    # With 25 obs, 70% = 17. Floor = 21 (> 17). Ceiling = 25 - 2*1 = 23.
+    # So initial_train_size = 21. Date at index 20 = 2023-01-21.
+    assert cv.initial_train_size == "2023-01-21"
+
+
 def test_create_cv_output_when_differentiation_set():
     """
     Test that differentiation flows from plan.forecaster_kwargs to the
@@ -474,6 +613,91 @@ def test_create_cv_explanation_contains_key_params():
 
     assert "10-step horizon" in explanation
     assert "Initial training up to" in explanation
+
+
+def test_create_cv_output_when_forecaster_is_stats():
+    """
+    Test that for a ForecasterStats plan the splitter keeps the parameters
+    given, while `cv_config`, the snippet and the explanation state what
+    skforecast runs: refit in every fold on a fixed window, one training
+    per fold.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.cv.refit is False
+    assert result.cv.fixed_train_size is False
+    assert result.cv_config["refit"] is True
+    assert result.cv_config["fixed_train_size"] is True
+    assert result.cv_config["n_folds"] == 6
+    assert result.cv_config["n_fits"] == 6
+    assert "refit              = True,\n" in result.code
+    assert "fixed_train_size   = True,\n" in result.code
+    assert result.explanation == (
+        "Initial training up to 2003-04-01, fixed window, refit every fold "
+        "(6 trainings), 12-step horizon, 6 folds. ForecasterStats is "
+        "refitted in every fold whatever `refit` says: skforecast requires "
+        "it for ARIMA models."
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, ignored, fixed",
+    [
+        ({"refit": False}, "`refit=False`", True),
+        (
+            {"refit": False, "fixed_train_size": False},
+            "`refit=False` and `fixed_train_size=False`",
+            True,
+        ),
+        ({"refit": 2}, "`refit=2`", False),
+    ],
+    ids=["refit_false", "refit_false_expanding", "refit_integer"],
+)
+def test_create_cv_IgnoredArgumentWarning_when_stats_arguments_do_not_run(
+    kwargs, ignored, fixed
+):
+    """
+    Test that an explicit `refit` or `fixed_train_size` that ForecasterStats
+    does not run is warned about: skforecast refits it in every fold, which
+    `cv_config` and the explanation already state.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    warn_msg = re.escape(
+        f"{ignored} do not apply to ForecasterStats: skforecast refits it in "
+        f"every fold, so its backtest runs with `refit=True` and "
+        f"`fixed_train_size={fixed}`. Pass those values to avoid this warning."
+    )
+    with pytest.warns(IgnoredArgumentWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, **kwargs)
+
+    assert result.cv.refit == kwargs["refit"]
+    assert result.cv_config["refit"] is True
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"refit": True}, {"refit": True, "fixed_train_size": False}],
+    ids=["defaults", "refit_true", "refit_true_expanding"],
+)
+def test_create_cv_no_warning_when_stats_arguments_run(kwargs):
+    """
+    Test that ForecasterStats gives no warning with the default strategy or
+    with arguments it runs as given.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assistant.create_cv(profile, plan, **kwargs)
 
 
 def test_create_cv_output_when_initial_train_size_timestamp():
@@ -637,7 +861,7 @@ def test_create_cv_prompt_ignored_when_all_params_explicit(monkeypatch):
             prompt="I retrain weekly",
             initial_train_size=50,
             fold_stride=5,
-            refit=False,
+            refit=True,
             fixed_train_size=True,
             gap=0,
             skip_folds=1,
@@ -646,7 +870,7 @@ def test_create_cv_prompt_ignored_when_all_params_explicit(monkeypatch):
 
     assert isinstance(cv, TimeSeriesFold)
     assert cv.initial_train_size == 50
-    assert cv.refit is False
+    assert cv.refit is True
     assert cv.fixed_train_size is True
     assert cv.gap == 0
     ignored = [
@@ -824,6 +1048,125 @@ def test_create_cv_llm_retry_then_success_when_date_out_of_range(monkeypatch):
     assert call_count["n"] == 2
 
 
+def test_create_cv_llm_retry_then_success_when_first_window_too_short(monkeypatch):
+    """
+    Test that an initial_train_size shorter than the window of the
+    forecaster, which TimeSeriesFold accepts and skforecast rejects when
+    the plan is backtested, is caught inside the LLM retry loop and the
+    second suggestion is used, without the warning of a strategy that
+    cannot be backtested.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    call_count = _install_fake_cv_agent(
+        monkeypatch,
+        assistant,
+        [
+            _make_cv_params(6, "A very short first window."),
+            _make_cv_params(50, "Fixed after retry."),
+        ],
+    )
+
+    result = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+
+    assert result.cv.initial_train_size == 50
+    assert result.llm_configured is True
+    assert call_count["n"] == 2
+
+
+def test_create_cv_llm_deterministic_fallback_when_first_window_too_short(
+    monkeypatch,
+):
+    """
+    Test that an initial_train_size too short for the forecaster in every
+    attempt exhausts the LLM retries and create_cv() degrades to the
+    deterministic defaults with a UserWarning that says what failed and
+    the minimum to use.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    expected = assistant.create_cv(profile, plan)
+
+    call_count = _install_fake_cv_agent(
+        monkeypatch,
+        assistant,
+        [_make_cv_params(6, "A very short first window.")],
+    )
+
+    warn_msg = re.escape(
+        "The first training window of the strategy has 6 observations, and "
+        "ForecasterRecursive needs at least 22 (more than its window size, "
+        "21), so skforecast would fail. The minimum viable initial_train_size "
+        "of the dataset context is 26 observations: use at least that). "
+        "Falling back to deterministic defaults."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+
+    assert call_count["n"] == 3
+    assert result.cv.initial_train_size == expected.cv.initial_train_size
+    assert result.llm_configured is False
+
+
+def test_create_cv_llm_deterministic_fallback_when_api_key_is_missing(monkeypatch):
+    """
+    Test that a missing API key, which pydantic-ai reports when the agent
+    is built and not when it is called, degrades to the deterministic
+    defaults with a UserWarning, like a failed call, instead of raising a
+    pydantic-ai UserError.
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    expected = assistant.create_cv(profile, plan)
+
+    warn_msg = (
+        re.escape(
+            "LLM CV configuration failed (Set the `OPENAI_API_KEY` environment "
+            "variable"
+        )
+        + ".*"
+        + re.escape("Falling back to deterministic defaults.")
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+
+    assert result.cv_config == expected.cv_config
+    assert result.llm_configured is False
+
+
+def test_create_cv_llm_keeps_its_suggestion_when_initial_train_size_is_explicit(
+    monkeypatch,
+):
+    """
+    Test that an explicit `initial_train_size` replaces the one of the LLM
+    without a retry: a suggestion whose own size is too short for the
+    forecaster, which never runs, is accepted in one call and its other
+    parameters (`refit=2`) are kept. It was retried three times and the
+    whole suggestion was dropped.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    params = _make_cv_params(6, "Refit every two folds.")
+    params = params.model_copy(update={"refit": 2})
+    call_count = _install_fake_cv_agent(monkeypatch, assistant, [params])
+
+    result = assistant.create_cv(
+        profile, plan, prompt="Retrain every two folds", initial_train_size=60
+    )
+
+    assert call_count["n"] == 1
+    assert result.cv.initial_train_size == 60
+    assert result.cv.refit == 2
+    assert result.llm_configured is True
+    assert result.overridden_fields == ["initial_train_size"]
+
+
 def test_create_cv_llm_deterministic_fallback_when_date_unparseable(monkeypatch):
     """
     Test that an unparseable date-based initial_train_size exhausts the
@@ -972,3 +1315,852 @@ def test_create_cv_deterministic_when_no_prompt_and_llm_configured():
     assert isinstance(cv, TimeSeriesFold)
     assert cv.steps == 5
     assert "Initial training up to" in explanation
+
+
+def test_create_cv_explanation_when_foundation_plan():
+    """
+    Test that the explanation of the strategy for a foundation plan does
+    not describe a training window or refits, which do not apply to a model
+    that is not trained, and states its cost in inference windows instead
+    (one per series and fold).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+
+    result = assistant.create_cv(profile, plan)
+
+    assert "no training (each fold forecasts from the observations before it)" in (
+        result.explanation
+    )
+    assert "refit" not in result.explanation
+    assert "training window" not in result.explanation
+    assert "expanding window" not in result.explanation
+    assert "fixed window" not in result.explanation
+    assert result.explanation.endswith(
+        "The model forecasts each series in each fold where it has data (up "
+        "to 6 inference windows)."
+    )
+    assert result.cv_config["inference_windows"] == 6
+
+
+# =============================================================================
+# Tests: error code and field
+# =============================================================================
+@pytest.mark.parametrize(
+    "data, initial_train_size, expected_code, expected_field, err_msg",
+    [
+        (
+            df_single, 1.5, "invalid_argument", "initial_train_size",
+            "initial_train_size as float must satisfy 0 < value < 1, got 1.5.",
+        ),
+        (
+            df_single, "not-a-date", "invalid_argument", "initial_train_size",
+            "`initial_train_size` date 'not-a-date' could not be parsed. Use "
+            "an ISO date such as '2023-03-01'.",
+        ),
+        (
+            df_short, 20, "insufficient_data", None,
+            "The resolved CV configuration produces only 1 fold(s). At least "
+            "2 are required.",
+        ),
+    ],
+    ids=["float_out_of_range", "date_unparseable", "fewer_than_2_folds"],
+)
+def test_create_cv_InvalidInputError_code_and_field(
+    data, initial_train_size, expected_code, expected_field, err_msg
+):
+    """
+    Test that the errors of create_cv() are InvalidInputError with the
+    argument at fault as field, and that a configuration with too few folds
+    for the data has the code 'insufficient_data'.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        assistant.create_cv(profile, plan, initial_train_size=initial_train_size)
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.field == expected_field
+
+
+# =============================================================================
+# Tests: early input checks
+# =============================================================================
+_STRATEGY_HINT = (
+    "Change the arguments of the strategy (`initial_train_size`, "
+    "`fold_stride`, `gap`, `skip_folds`) or the `steps` of the plan so that "
+    "at least two folds fit in the data."
+)
+
+
+@pytest.mark.parametrize(
+    "kwargs, field, reason",
+    [
+        (
+            {"gap": -1},
+            "gap",
+            "`gap` must be an integer greater than or equal to 0. Got -1.",
+        ),
+        (
+            {"fold_stride": 0},
+            "fold_stride",
+            "`fold_stride` must be an integer greater than 0. Got 0.",
+        ),
+        (
+            {"initial_train_size": 500},
+            "initial_train_size",
+            "The time series must have more than `initial_train_size + gap` "
+            "observations to create at least one fold. Time series length: "
+            "100 Required > 500 initial_train_size: 500 gap: 0",
+        ),
+        (
+            {"skip_folds": [0]},
+            "skip_folds",
+            "`skip_folds` list must contain integers greater than or equal "
+            "to 1. The first fold is always needed to train the forecaster. "
+            "Got [0].",
+        ),
+    ],
+    ids=["gap", "fold_stride", "initial_train_size", "skip_folds"],
+)
+def test_create_cv_InvalidInputError_when_strategy_cannot_be_built(
+    kwargs, field, reason
+):
+    """
+    Test that create_cv() raises an InvalidInputError that names the argument
+    that TimeSeriesFold rejects, with the message of skforecast and a hint
+    (the folds when the strategy does not fit, the argument otherwise).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    err_msg = re.escape(f"The cross-validation strategy cannot be built: {reason}")
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        assistant.create_cv(profile, plan, **kwargs)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == field
+    assert exc_info.value.hint == (
+        _STRATEGY_HINT if field == "initial_train_size"
+        else f"Pass a value that `TimeSeriesFold` accepts for `{field}`."
+    )
+
+
+def test_create_cv_InvalidInputError_when_skip_folds_do_not_exist():
+    """
+    Test that create_cv() rejects `skip_folds` that name folds beyond the
+    strategy (6 folds, numbered from 0 to 5), which TimeSeriesFold ignores.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    err_msg = re.escape(
+        "`skip_folds` names folds that do not exist ([100]): the strategy has "
+        "6 folds, numbered from 0 to 5."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.create_cv(profile, plan, skip_folds=[100])
+
+    assert exc_info.value.field == "skip_folds"
+
+
+def test_create_cv_output_when_skip_folds_in_range():
+    """
+    Test that create_cv() accepts `skip_folds` within the folds of the
+    strategy.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    cv = assistant.create_cv(profile, plan, skip_folds=[1, 2]).cv
+
+    assert cv.skip_folds == [1, 2]
+
+
+def test_create_cv_output_when_plan_has_differentiation():
+    """
+    Test that the strategy of a plan with a differentiation order carries
+    it and says so, and that the order adds to the minimum size of the
+    first training window.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plain = assistant.plan(profile, steps=12, lags=12)
+    plan = assistant.plan(profile, steps=12, lags=12, differentiation=2)
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.cv.differentiation == 2
+    assert result.cv_config["differentiation"] == 2
+    assert result.explanation.endswith("differentiation order 2.")
+    assert _compute_min_train_size(plan) == _compute_min_train_size(plain) + 2
+
+
+def test_create_cv_UserWarning_when_direct_forecaster_with_gap():
+    """
+    Test that create_cv() builds a strategy with a gap for a ForecasterDirect
+    plan, whose backtest raises, with a UserWarning that says so: the
+    strategy can still serve the candidates of compare() that are not
+    direct.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=6, forecaster="ForecasterDirect")
+
+    warn_msg = re.escape(
+        "ForecasterDirect is trained to predict 6 steps, and with `gap=2` "
+        "each fold needs steps + gap = 8 steps ahead, so skforecast would "
+        "fail: `backtest()` and `backtest_code()` of this plan with this "
+        "strategy raise. The strategy can still serve the candidates of "
+        "`compare()` that are not direct; use a strategy without gap to "
+        "backtest this plan."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, gap=2)
+
+    assert result.cv.gap == 2
+
+
+@pytest.mark.parametrize(
+    "forecaster, gap",
+    [("ForecasterRecursive", 2), ("ForecasterDirect", 0)],
+    ids=["recursive_with_gap", "direct_without_gap"],
+)
+def test_create_cv_no_warning_when_gap_can_run(forecaster, gap):
+    """
+    Test that create_cv() gives no warning for a recursive forecaster with a
+    gap or a direct forecaster without one.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=6, forecaster=forecaster)
+
+    # Warnings are errors in this suite.
+    result = assistant.create_cv(profile, plan, gap=gap)
+
+    assert result.cv.gap == gap
+
+
+def test_create_cv_UserWarning_when_llm_sets_gap_for_direct_forecaster(monkeypatch):
+    """
+    Test that create_cv() warns about a direct forecaster with a gap also
+    when the LLM chose the gap.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterDirect")
+    cv_params = CVParams(
+        initial_train_size    = 50,
+        refit                 = False,
+        fixed_train_size      = False,
+        gap                   = 2,
+        fold_stride           = None,
+        skip_folds            = None,
+        allow_incomplete_fold = True,
+        reasoning             = "Two days of delay before each forecast.",
+    )
+
+    class _FakeResult:
+        output = cv_params
+
+    class _FakeAgent:
+        async def run(self, msg, **kw):
+            return _FakeResult()
+
+    monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
+    monkeypatch.setattr(assistant, "_resolve_model", lambda self_=None: "fake")
+
+    warn_msg = re.escape(
+        "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+        "each fold needs steps + gap = 7 steps ahead"
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, prompt="Two days of delay")
+
+    assert result.cv.gap == 2
+
+
+def test_create_cv_UserWarning_when_first_window_shorter_than_forecaster():
+    """
+    Test that create_cv() builds the default strategy of a horizon that
+    leaves no room for the window of the forecaster (h2o, 204 observations,
+    `steps=100`: 2 folds take 200 and leave 4, and the default plan reads
+    36), with a UserWarning that its backtest raises.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=100)
+
+    warn_msg = re.escape(
+        "The first training window of the strategy has 4 observations, and "
+        "ForecasterRecursive needs at least 37 (more than its window size, "
+        "36), so skforecast would fail: `backtest()` of this plan with this "
+        "strategy raises. The strategy can still serve the candidates of "
+        "`compare()` with a smaller window; use a later `initial_train_size`, "
+        "or a shorter horizon, to backtest this plan."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan)
+
+    assert result.cv_config["n_folds"] == 2
+
+
+def test_create_cv_output_when_long_series_start_on_different_dates():
+    """
+    Test that the default strategy of long data whose series start on
+    different dates counts from the first date of the span, not from the
+    latest first date of the series: the first training set ends inside the
+    data, and backtest() runs the folds that `cv_config` states.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data             = df_multi_long_staggered,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(profile, plan)
+    backtest = assistant.backtest(
+        data          = df_multi_long_staggered,
+        cv            = result,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert profile.data_profile.start_date == "2023-03-02"
+    assert profile.data_profile.span_start_date == "2023-01-01"
+    assert result.cv_config["initial_train_size"] == "2023-03-11"
+    assert result.cv_config["n_folds"] == 6
+    assert backtest.predictions["fold"].nunique() == 6
+
+
+def test_create_cv_output_when_dates_cross_a_daylight_saving_change():
+    """
+    Test that the default strategy of hourly data in a time zone with a
+    daylight saving change is counted on the local times of the data: its
+    date is an hour that exists (03:00, since 02:00 is skipped on
+    2023-03-26), and backtest() runs the folds and the training size that
+    `cv_config` states.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly_madrid_spring, target="y")
+    plan = assistant.plan(
+        profile, steps=24, forecaster="ForecasterRecursive", estimator="Ridge",
+        lags=24,
+    )
+
+    result = assistant.create_cv(profile, plan)
+    backtest = assistant.backtest(
+        data          = df_hourly_madrid_spring,
+        cv            = result,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert profile.data_profile.time_zone == "Europe/Madrid"
+    assert result.cv_config["initial_train_size"] == "2023-03-26 03:00:00"
+    assert result.cv_config["n_folds"] == 3
+    assert "    initial_train_size = 147," in backtest.code
+    assert backtest.predictions.groupby("fold").size().tolist() == [24, 24, 15]
+
+
+def test_create_cv_output_when_initial_train_size_timestamp_with_time_zone():
+    """
+    Test that a pandas Timestamp `initial_train_size` with a time zone, on
+    data whose dates have another one, keeps its UTC offset at midnight
+    (the date alone would be read in the time zone of the data, two hours
+    earlier) and is placed at its instant: midnight UTC of 2023-03-27 is
+    02:00 in Madrid, 170 observations, and backtest() runs the folds that
+    `cv_config` states.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_hourly_madrid_spring, target="y")
+    plan = assistant.plan(
+        profile, steps=24, forecaster="ForecasterRecursive", estimator="Ridge",
+        lags=24,
+    )
+
+    result = assistant.create_cv(
+        profile, plan, initial_train_size=pd.Timestamp("2023-03-27", tz="UTC")
+    )
+    backtest = assistant.backtest(
+        data          = df_hourly_madrid_spring,
+        cv            = result,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert result.cv.initial_train_size == "2023-03-27 00:00:00+00:00"
+    assert result.cv_config["initial_train_size"] == "2023-03-27 00:00:00+00:00"
+    assert result.cv_config["n_folds"] == 2
+    assert "    initial_train_size = '2023-03-27 00:00:00+00:00'," in backtest.code
+    assert backtest.predictions.groupby("fold").size().tolist() == [24, 16]
+    assert backtest.predictions.index[0] == pd.Timestamp(
+        "2023-03-27 03:00", tz="Europe/Madrid"
+    )
+
+
+@pytest.mark.parametrize(
+    "start, initial_train_size",
+    [
+        ("2012-11-20 18:00", "2012-11-29 11:00:00"),
+        ("2023-03-20 18:00", "2023-03-29 12:00:00"),
+    ],
+    ids=["winter", "across the spring change"],
+)
+def test_create_cv_output_when_dates_with_time_zone_do_not_start_at_midnight(
+    start, initial_train_size
+):
+    """
+    Test that hourly data in a time zone whose first date is not midnight
+    get a default strategy written in local time, and that its backtest
+    runs the folds it states. The profile wrote the first date with its UTC
+    offset, the strategy carried that offset, and the script failed with
+    "Start and end cannot both be tz-aware with different timezones".
+    """
+    assistant = ForecastingAssistant()
+    index = pd.date_range(start, periods=300, freq="h", tz="Europe/Madrid")
+    data = pd.DataFrame({"y": np.arange(300, dtype=float) % 24}, index=index)
+    profile = assistant.profile(data=data, target="y")
+    plan = assistant.plan(
+        profile, steps=24, forecaster="ForecasterRecursive", estimator="Ridge",
+        lags=24,
+    )
+
+    result = assistant.create_cv(profile, plan)
+    backtest = assistant.backtest(
+        data=data, cv=result, profile=profile, plan=plan, show_progress=False
+    )
+
+    assert profile.data_profile.start_date == f"{start}:00"
+    assert result.cv_config["initial_train_size"] == initial_train_size
+    assert "    initial_train_size = 210," in backtest.code
+    assert backtest.predictions["fold"].nunique() == result.cv_config["n_folds"]
+
+
+# =============================================================================
+# Tests: provenance of the strategy
+# =============================================================================
+_INITIAL_TRAIN_SIZE_DEFAULT = (
+    "Initial training size by default: 70% of the 100 observations (70), up "
+    "to 2023-03-11."
+)
+_TRAINED_ONCE_DEFAULT = (
+    "Trained once by default: refitting in every fold would multiply the "
+    "training cost by the 6 folds."
+)
+
+
+def test_create_cv_provenance_when_no_arguments():
+    """
+    Test that create_cv() without arguments records that nothing was
+    passed, no LLM, and explains the two defaults with a rule: the share of
+    the observations and the single training. The explanation of the
+    strategy does not contain that text.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.overridden_fields == []
+    assert result.fields_without_effect == []
+    assert result.llm_configured is False
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT}"
+    )
+    assert result.explanation == (
+        "Initial training up to 2023-03-11, trained once (no refit), 5-step "
+        "horizon, 6 folds."
+    )
+    assert result.defaults_explanation not in result.explanation
+
+
+def test_create_cv_provenance_names_in_the_same_order_as_backtest():
+    """
+    Test that the text of create_cv() names the parameters passed in the
+    canonical order of `overridden_fields` (`fold_stride` before `refit`),
+    so backtest() of the same strategy, which rebuilds the text from that
+    list, says the same.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(profile, plan, refit=True, fold_stride=5)
+    backtested = assistant.backtest(
+        data=df_single, cv=result, profile=profile, plan=plan, show_progress=False
+    )
+
+    assert result.overridden_fields == ["fold_stride", "refit"]
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} `fold_stride` and `refit` as requested."
+    )
+    assert backtested.cv_defaults_explanation == result.defaults_explanation
+
+
+def test_create_cv_provenance_when_value_equal_to_default():
+    """
+    Test that an argument whose value equals the default is recorded as
+    passed: the user decided it, whatever the rules would have said.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(
+        profile, plan, refit=False, gap=0, allow_incomplete_fold=True
+    )
+
+    assert result.overridden_fields == ["refit", "gap", "allow_incomplete_fold"]
+    assert result.fields_without_effect == []
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} `refit`, `gap` and "
+        "`allow_incomplete_fold` as requested."
+    )
+
+
+@pytest.mark.parametrize(
+    "skip_folds, expected",
+    [([], ["skip_folds"]), (1, ["skip_folds"]), ([1], ["skip_folds"])],
+    ids=["empty_list", "integer", "list"],
+)
+def test_create_cv_provenance_when_skip_folds(skip_folds, expected):
+    """
+    Test that any value of `skip_folds` other than None is recorded as
+    passed, an empty list included: it is applied to the strategy like
+    the others, also over what the LLM would set.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(profile, plan, skip_folds=skip_folds)
+
+    assert result.overridden_fields == expected
+
+
+def test_create_cv_provenance_when_all_arguments_passed():
+    """
+    Test that every argument passed is recorded, in the canonical order of
+    CV_OVERRIDE_NAMES, and that no default is explained.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    result = assistant.create_cv(
+        profile, plan, initial_train_size=60, fold_stride=5, refit=True,
+        fixed_train_size=True, gap=0, skip_folds=1, allow_incomplete_fold=True,
+    )
+
+    assert result.overridden_fields == list(CV_OVERRIDE_NAMES)
+    assert result.fields_without_effect == []
+    assert "by default" not in result.defaults_explanation
+    assert result.defaults_explanation.endswith(" as requested.")
+
+
+def test_create_cv_provenance_when_fixed_train_size_without_refit():
+    """
+    Test that a `fixed_train_size` passed for a forecaster trained once
+    (it warns) is recorded as passed and as without effect, and the text
+    says so instead of "as requested".
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+
+    with pytest.warns(IgnoredArgumentWarning, match="`fixed_train_size=True`"):
+        result = assistant.create_cv(profile, plan, fixed_train_size=True)
+
+    assert result.overridden_fields == ["fixed_train_size"]
+    assert result.fields_without_effect == ["fixed_train_size"]
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT} "
+        "`fixed_train_size` was passed but has no effect on this forecaster."
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, without_effect, expected",
+    [
+        (
+            {"refit": False},
+            ["refit"],
+            "`refit` was passed but has no effect on this forecaster.",
+        ),
+        (
+            {"refit": False, "fixed_train_size": False},
+            ["refit", "fixed_train_size"],
+            "`refit` and `fixed_train_size` were passed but have no effect on "
+            "this forecaster.",
+        ),
+        ({"refit": True}, [], "`refit` as requested."),
+    ],
+    ids=["refit_false", "refit_false_expanding", "refit_true"],
+)
+def test_create_cv_provenance_when_forecaster_is_stats(
+    kwargs, without_effect, expected
+):
+    """
+    Test that for ForecasterStats the arguments skforecast does not run are
+    without effect (it refits in every fold), the text has no sentence about
+    refit as a default, and an argument it runs is "as requested".
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    warns = (
+        pytest.warns(IgnoredArgumentWarning, match="do not apply to ForecasterStats")
+        if without_effect else contextlib.nullcontext()
+    )
+    with warns:
+        result = assistant.create_cv(profile, plan, **kwargs)
+
+    assert result.overridden_fields == list(kwargs)
+    assert result.fields_without_effect == without_effect
+    assert result.defaults_explanation == (
+        "Initial training size by default: 70% of the 204 observations "
+        f"(142), up to 2003-04-01. {expected}"
+    )
+
+
+def test_create_cv_provenance_when_forecaster_is_stats_without_arguments():
+    """
+    Test that ForecasterStats without arguments explains the initial
+    training size only: refit is not a default it chose.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    result = assistant.create_cv(profile, plan)
+
+    assert result.defaults_explanation == (
+        "Initial training size by default: 70% of the 204 observations "
+        "(142), up to 2003-04-01."
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, without_effect, expected",
+    [
+        ({}, [], ""),
+        (
+            {"refit": True, "fixed_train_size": True},
+            ["refit", "fixed_train_size"],
+            " `refit` and `fixed_train_size` were passed but have no effect on "
+            "this forecaster.",
+        ),
+        ({"gap": 1}, [], " `gap` as requested."),
+    ],
+    ids=["defaults", "refit_and_fixed_train_size", "gap"],
+)
+def test_create_cv_provenance_when_plan_is_foundation(
+    kwargs, without_effect, expected
+):
+    """
+    Test that for a foundation plan the text says "First fold start by
+    default", has no sentence about refit, and reports `refit` and
+    `fixed_train_size` as without effect because the model is not trained.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+
+    result = assistant.create_cv(profile, plan, **kwargs)
+
+    assert result.overridden_fields == list(kwargs)
+    assert result.fields_without_effect == without_effect
+    assert result.defaults_explanation == (
+        "First fold start by default: 70% of the 100 observations (70), up "
+        f"to 2023-03-11.{expected}"
+    )
+
+
+def test_create_cv_provenance_when_llm_succeeds(monkeypatch):
+    """
+    Test that when the LLM sets the parameters `llm_configured` is True and
+    no default is explained (its reasoning, in the explanation, does it);
+    the names the user passed are still said "as requested".
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    _install_fake_cv_agent(
+        monkeypatch, assistant, [_make_cv_params(50, "Retrain every fold.")]
+    )
+
+    result = assistant.create_cv(profile, plan, prompt="I retrain weekly")
+    result_with_gap = assistant.create_cv(
+        profile, plan, prompt="I retrain weekly", gap=1
+    )
+
+    assert result.llm_configured is True
+    assert result.overridden_fields == []
+    assert result.defaults_explanation == ""
+    assert result.explanation.startswith("Retrain every fold.")
+    assert result_with_gap.llm_configured is True
+    assert result_with_gap.overridden_fields == ["gap"]
+    assert result_with_gap.defaults_explanation == "`gap` as requested."
+
+
+def test_create_cv_provenance_when_llm_fails(monkeypatch):
+    """
+    Test that when the LLM fails after its retries and the deterministic
+    defaults are used, `llm_configured` is False and the defaults are
+    explained.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    n_obs = profile.data_profile.series_lengths["sales"].length
+    _install_fake_cv_agent(
+        monkeypatch, assistant, [_make_cv_params(n_obs - 3, "Always bad.")]
+    )
+
+    with pytest.warns(UserWarning, match=re.escape("LLM CV configuration failed")):
+        result = assistant.create_cv(profile, plan, prompt="Bad scenario")
+
+    assert result.llm_configured is False
+    assert result.overridden_fields == []
+    assert result.defaults_explanation == (
+        f"{_INITIAL_TRAIN_SIZE_DEFAULT} {_TRAINED_ONCE_DEFAULT}"
+    )
+
+
+def test_create_cv_provenance_when_prompt_ignored(monkeypatch):
+    """
+    Test that when the prompt is ignored because every parameter was passed
+    the LLM did not configure anything: `llm_configured` is False and the
+    seven names are recorded as passed.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    call_count = _install_fake_cv_agent(
+        monkeypatch, assistant, [_make_cv_params(50, "Not used.")]
+    )
+
+    with pytest.warns(UserWarning, match=re.escape("Prompt ignored")):
+        result = assistant.create_cv(
+            profile, plan, prompt="I retrain weekly", initial_train_size=50,
+            fold_stride=5, refit=True, fixed_train_size=True, gap=0,
+            skip_folds=1, allow_incomplete_fold=True,
+        )
+
+    assert call_count["n"] == 0
+    assert result.llm_configured is False
+    assert result.overridden_fields == list(CV_OVERRIDE_NAMES)
+    assert "by default" not in result.defaults_explanation
+    assert result.defaults_explanation.endswith(" as requested.")
+
+
+def test_create_cv_fields_without_effect_when_stats_refit_changes_the_window():
+    """
+    Test that for ForecasterStats a truthy `refit` is not reported as
+    without effect when it changes the window that runs: the default
+    strategy refits on a fixed window, and `refit=3` on an expanding one
+    (the script differs). With `fixed_train_size=True` as well, the window
+    is the fixed one anyway and `refit` has no effect.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+    default = assistant.create_cv(profile, plan)
+
+    with pytest.warns(IgnoredArgumentWarning):
+        expanding = assistant.create_cv(profile, plan, refit=3)
+    with pytest.warns(IgnoredArgumentWarning):
+        fixed = assistant.create_cv(profile, plan, refit=3, fixed_train_size=True)
+
+    assert "    fixed_train_size   = True,\n" in default.code
+    assert "    fixed_train_size   = False,\n" in expanding.code
+    assert expanding.fields_without_effect == []
+    assert expanding.defaults_explanation.endswith("`refit` as requested.")
+    assert fixed.code == default.code
+    assert fixed.fields_without_effect == ["refit"]
+
+
+def test_create_cv_UserWarning_when_backtest_can_read_missing_values():
+    """
+    Test that create_cv() warns, with a single series that has missing
+    timestamps and a plan whose estimator does not tolerate them, that the
+    backtest raises when a fold is predicted from one; with LGBMRegressor
+    or complete data there is no warning (warnings are errors here).
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data_h2o_gaps, target="x")
+    plan = assistant.plan(profile, steps=12)
+
+    warn_msg = re.escape(
+        "The target has missing values or missing timestamps (asfreq() "
+        "restores them as missing values), and ForecasterRecursive with "
+        "Ridge cannot predict from a missing value: `backtest()` of this "
+        "plan raises when a test fold is predicted from one, naming its "
+        "dates. `dropna_from_series` only drops them from the training "
+        "data. Impute the target, or choose an estimator that accepts "
+        "missing values (for example 'LGBMRegressor') to backtest every fold."
+    )
+    with pytest.warns(UserWarning, match=warn_msg) as record:
+        assistant.create_cv(profile, plan, initial_train_size=84)
+
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+    plan_lgbm = assistant.plan(profile, steps=12, estimator="LGBMRegressor")
+    assistant.create_cv(profile, plan_lgbm, initial_train_size=84)
+
+    profile_clean = assistant.profile(data=df_h2o, target="x")
+    plan_clean = assistant.plan(profile_clean, steps=12)
+    assistant.create_cv(profile_clean, plan_clean, initial_train_size=84)
+
+
+def test_create_cv_UserWarning_when_intervals_have_few_residuals():
+    """
+    Test that create_cv() warns when the first training window leaves 4 rows
+    for the intervals (h2o, 40 observations for a window size of 36), and does
+    not without interval or with a window that leaves 100 rows.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=1, interval=[0.025, 0.975])
+
+    warn_msg = re.escape(
+        "The first training window of the strategy leaves 4 row(s) to train "
+        "on (40 observations for a window size of 36), so the prediction "
+        "intervals are estimated from 4 residual(s). skforecast spreads "
+        "them over up to 10 bins, and below 10 residuals per bin (100 rows) "
+        "the intervals tend to be too narrow; with a single residual in a "
+        "bin the lower bound equals the upper one. Read them with caution, "
+        "or use a later `initial_train_size`, or fewer lags or smaller "
+        "window features."
+    )
+    with pytest.warns(UserWarning, match=warn_msg) as record:
+        assistant.create_cv(
+            profile, plan, initial_train_size=40, fold_stride=1, refit=False
+        )
+
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+    assistant.create_cv(
+        profile, plan, initial_train_size=136, fold_stride=1, refit=False
+    )
+    plan_no_interval = assistant.plan(profile, steps=1)
+    assistant.create_cv(
+        profile, plan_no_interval, initial_train_size=40, fold_stride=1, refit=False
+    )

@@ -10,13 +10,15 @@ from __future__ import annotations
 from typing import Any, Callable
 import pandas as pd
 
-from ..rendering._helpers import _METRIC_REGISTRY
+from ..rendering._helpers import _metric_info
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 
 from ..rendering.single_series import render_forecast_single_series
 from ..rendering.multi_series import render_forecast_multi_series, render_forecast_multivariate
 from ..rendering.statistical import render_forecast_statistical
 from ..rendering.foundation import render_forecast_foundation
+from ..rendering.baseline import render_forecast_baseline
+from ..exceptions import InvalidInputError
 from ._exec import exec_rendered
 
 _RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript]] = {
@@ -25,6 +27,7 @@ _RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript
     "multivariate": render_forecast_multivariate,
     "statistical": render_forecast_statistical,
     "foundation": render_forecast_foundation,
+    "baseline": render_forecast_baseline,
 }
 
 
@@ -51,9 +54,10 @@ def render_forecast_script(
     render_fn = _RENDER_DISPATCH.get(plan.task_type)
     if render_fn is None:
         supported = list(_RENDER_DISPATCH.keys())
-        raise ValueError(
+        raise InvalidInputError(
             f"Unsupported task_type '{plan.task_type}'. "
-            f"Supported types: {supported}"
+            f"Supported types: {supported}",
+            field = "task_type",
         )
     return render_fn(plan, profile)
 
@@ -103,22 +107,8 @@ def run_forecast(
         included in `'predictions'`.
     """
     rendered = render_forecast_script(profile, plan)
-
-    # The rendered code prepares the future exog exactly like `data`
-    # (sort + asfreq, plus `set_index` when a date column is used). When
-    # the data uses a date column, `data` is injected with that column
-    # present, so the injected future exog must expose the same column for
-    # the shared preparation code to run identically. Users typically pass
-    # exog pre-indexed by datetime, so move that index back to a named
-    # column here.
-    if (
-        exog is not None
-        and profile.date_column
-        and profile.date_column not in exog.columns
-    ):
-        exog = exog.copy()
-        exog.index.name = profile.date_column
-        exog = exog.reset_index()
+    if exog is not None:
+        exog = exog_as_injected(exog, profile)
 
     # Execute the rendered code with `data` (and optional future `exog`)
     # pre-loaded in the namespace. The future exog is injected raw; the
@@ -148,9 +138,7 @@ def run_forecast(
                 target_name = target_name[0]
             row: dict[str, object] = {"series": target_name}
             for m in plan.metrics_to_compute:
-                info = _METRIC_REGISTRY.get(m)
-                if info is None:
-                    continue
+                info = _metric_info(m)
                 row[info["label"]] = namespace.get(info["var"])
             metrics = pd.DataFrame([row])
 
@@ -163,6 +151,39 @@ def run_forecast(
         "predictions": predictions,
         "rendered_code": rendered,
     }
+
+
+def exog_as_injected(exog: pd.DataFrame, profile: DataProfile) -> pd.DataFrame:
+    """
+    Return the future exogenous variables as they are injected into the
+    executed code.
+
+    The rendered code prepares the future exog exactly like `data` (sort and
+    asfreq, plus `set_index` when a date column is used). When the data uses
+    a date column, `data` is injected with that column present, so the
+    injected future exog must expose the same column for the shared
+    preparation code to run identically. Users typically pass exog
+    pre-indexed by datetime, so that index is moved back to a named column.
+
+    Parameters
+    ----------
+    exog : pandas DataFrame
+        Future exogenous variables.
+    profile : DataProfile
+        Profiled dataset metadata.
+
+    Returns
+    -------
+    exog : pandas DataFrame
+        Future exogenous variables, with the date column of the data when
+        the data uses one.
+    """
+    if profile.date_column and profile.date_column not in exog.columns:
+        exog = exog.copy()
+        exog.index.name = profile.date_column
+        exog = exog.reset_index()
+
+    return exog
 
 
 def _exec_rendered_code(

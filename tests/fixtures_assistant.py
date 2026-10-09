@@ -19,6 +19,22 @@ df_single = pd.DataFrame(
     }
 )
 
+# --- Single series with a numeric and a categorical exog ---
+df_categorical_exog = df_single.assign(
+    weekday=df_single["date"].dt.day_name(),
+)
+
+# --- Single series with exog named like the calendar features ---
+# The daily profile recommends `day_of_week`, `weekend` and `month`; these
+# exog columns carry the names the raw calendar columns would take.
+df_calendar_named_exog = df_single.assign(
+    month=df_single["date"].dt.month,
+    weekend=(df_single["date"].dt.dayofweek >= 5).astype(int),
+)
+df_all_calendar_named_exog = df_calendar_named_exog.assign(
+    day_of_week=df_single["date"].dt.dayofweek,
+)
+
 # --- Single series without exog (100 daily observations) ---
 df_no_exog = pd.DataFrame(
     {
@@ -35,6 +51,14 @@ df_hourly = pd.DataFrame(
     {
         "date": _dates_hourly,
         "sales": np.arange(_n_obs_hourly, dtype=float),
+    }
+)
+
+# --- Biweekly series fixture (120 observations every two weeks) ---
+df_biweekly = pd.DataFrame(
+    {
+        "date": pd.date_range("2020-01-05", periods=120, freq="2W-SUN"),
+        "sales": np.arange(120, dtype=float),
     }
 )
 
@@ -66,6 +90,21 @@ df_multi_long = pd.DataFrame(
         ]),
     }
 )
+
+# The long data with one series fewer, or one more, than `df_multi_long`
+# (tests of data against a saved profile).
+df_multi_long_one_series = df_multi_long[df_multi_long["series_id"] == "store_a"]
+df_multi_long_three_series = pd.concat([
+    df_multi_long,
+    df_multi_long_one_series.assign(series_id="store_c"),
+])
+
+# The long data with the second series starting 60 days later (store_b from
+# 2023-03-02, 40 observations); both end on 2023-04-10.
+df_multi_long_staggered = pd.concat([
+    df_multi_long[df_multi_long["series_id"] == "store_a"],
+    df_multi_long[df_multi_long["series_id"] == "store_b"].iloc[60:],
+])
 
 # --- Multi-series wide format (2 series as columns) ---
 df_multi_wide = pd.DataFrame(
@@ -114,6 +153,15 @@ series_unnamed = pd.Series(
 
 # --- Single series without a date column (RangeIndex, no frequency) ---
 df_range_index = df_single.drop(columns=["date"]).reset_index(drop=True)
+
+# --- Single series with irregular timestamps (no inferable frequency) ---
+# Cumulative random minutes: the datetime index has no frequency.
+_irregular_minutes = pd.Timestamp("2023-01-01") + pd.to_timedelta(
+    np.cumsum(np.random.default_rng(1).integers(1, 60, 100)), unit="m"
+)
+df_irregular = pd.DataFrame(
+    {"date": _irregular_minutes, "sales": np.arange(100, dtype=float)}
+)
 
 
 def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None):
@@ -269,3 +317,34 @@ def make_comparison_result(assistant, *, with_failure=False):
         ranking_metric = "MAE",
         explanation    = "Compared 2 configurations, ranked ascending by MAE.",
     )
+
+
+def make_comparison_with_stats(assistant, comparison, stats_cv_config):
+    """
+    Replace the runner-up of a comparison with a ForecasterStats candidate.
+
+    Parameters
+    ----------
+    assistant : ForecastingAssistant
+        Assistant used to build the ForecasterStats plan.
+    comparison : ComparisonResult
+        Output of `make_comparison_result`.
+    stats_cv_config : dict
+        Strategy that ran for the ForecasterStats candidate.
+
+    Returns
+    -------
+    comparison : ComparisonResult
+        Copy of `comparison` whose `'runner_up'` is a ForecasterStats
+        backtest with `stats_cv_config`.
+    """
+    stats = comparison.candidates["runner_up"].model_copy(
+        update={
+            "plan": assistant.plan(
+                comparison.profile, steps=5, forecaster="ForecasterStats"
+            ),
+            "cv_config": stats_cv_config,
+        }
+    )
+    candidates = {**comparison.candidates, "runner_up": stats}
+    return comparison.model_copy(update={"candidates": candidates})

@@ -1,0 +1,355 @@
+################################################################################
+#                           Foundation models                                  #
+#                                                                              #
+# Validation of foundation model plans against the capabilities that          #
+# skforecast declares for each adapter                                         #
+# This work by skforecast team is licensed under the Apache License 2.0        #
+################################################################################
+
+from __future__ import annotations
+import numbers
+import re
+from importlib.metadata import PackageNotFoundError, distribution
+from skforecast.foundation import FoundationModelInfo, get_model_info, list_adapters
+
+from ._constants import DEFAULT_FOUNDATION_MODEL_ID
+from ._validation import validate_interval
+from .exceptions import InvalidInputError, InvalidInputTypeError
+
+# Same tolerance skforecast uses to match a quantile level against the grid
+# of a backend, so a level accepted here is never rejected at prediction.
+_QUANTILE_TOLERANCE = 1e-9
+
+# Hugging Face model ID: 'owner/name', each part starting with a letter or
+# a digit and made of letters, digits, '-', '_' and '.'.
+_MODEL_ID_PATTERN = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*"
+)
+
+
+def resolve_foundation_model(model_id: str) -> FoundationModelInfo:
+    """
+    Resolve the capabilities of a foundation model from its model ID.
+
+    The adapter is resolved by skforecast from the prefix of `model_id`,
+    without importing the backend library or loading the weights, so every
+    capability of the plan comes from skforecast and none is duplicated
+    here.
+
+    Parameters
+    ----------
+    model_id : str
+        Hugging Face model ID, e.g. `'autogluon/chronos-2-small'`.
+
+    Returns
+    -------
+    info : FoundationModelInfo
+        Capabilities and requirements of `model_id`.
+
+    Raises
+    ------
+    TypeError
+        When `model_id` is not a string.
+    ValueError
+        When no skforecast adapter serves `model_id`, or when it is not a
+        Hugging Face model ID of the form `'owner/name'`.
+    """
+    if not isinstance(model_id, str):
+        raise InvalidInputTypeError(
+            f"The estimator of 'ForecasterFoundation' must be a Hugging Face "
+            f"model ID (str), got {type(model_id).__name__}.",
+            field = "estimator",
+        )
+    try:
+        info = get_model_info(model_id)
+    except ValueError:
+        prefixes = [
+            prefix
+            for adapter in list_adapters()
+            for prefix in adapter.model_id_prefixes
+        ]
+        raise InvalidInputError(
+            f"'{model_id}' is not a foundation model supported by skforecast. "
+            f"Pass its Hugging Face model ID as `estimator`, for example "
+            f"'{DEFAULT_FOUNDATION_MODEL_ID}'. Supported model ID prefixes: "
+            f"{prefixes}.",
+            field = "estimator",
+        ) from None
+    # skforecast matches the adapter by prefix only, so anything may follow
+    # a supported prefix; the ID is written into the generated script.
+    if not _MODEL_ID_PATTERN.fullmatch(model_id):
+        raise InvalidInputError(
+            f"{model_id!r} is not a valid Hugging Face model ID. It must have "
+            f"the form 'owner/name', with letters, digits, '-', '_' and '.' "
+            f"only, for example '{DEFAULT_FOUNDATION_MODEL_ID}'.",
+            field = "estimator",
+        )
+
+    return info
+
+
+def foundation_backend_installed(info: FoundationModelInfo) -> bool:
+    """
+    Check whether the backend package of a foundation model is installed.
+
+    The check reads the installed distributions and imports nothing, so it
+    is cheap and never loads a deep learning framework. Only the package
+    is checked: extras such as `timesfm[torch]` are not.
+
+    Parameters
+    ----------
+    info : FoundationModelInfo
+        Capabilities of the foundation model; `info.backend_package` is the
+        name passed to `pip install`.
+
+    Returns
+    -------
+    installed : bool
+        Whether the distribution of `info.backend_package` is installed.
+    """
+    package = info.backend_package.split("[", 1)[0]
+    try:
+        distribution(package)
+    except PackageNotFoundError:
+        return False
+    return True
+
+
+def missing_foundation_backend(model_id: str | None) -> str | None:
+    """
+    Return the backend package of a foundation model when it is not
+    installed.
+
+    Like `foundation_backend_installed`, it imports nothing. A model ID
+    that no adapter serves is left to the validation of the plan.
+
+    Parameters
+    ----------
+    model_id : str, None
+        Hugging Face model ID of a `ForecasterFoundation` plan.
+
+    Returns
+    -------
+    package : str, None
+        Name to pass to `pip install` (with its extras), or None when the
+        backend is installed or the model is not known.
+    """
+    if model_id is None:
+        return None
+    try:
+        info = resolve_foundation_model(model_id)
+    except InvalidInputError:
+        return None
+    if foundation_backend_installed(info):
+        return None
+    return info.backend_package
+
+
+def check_foundation_backend(model_id: str | None) -> None:
+    """
+    Check that the backend package of a foundation model is installed.
+
+    Called before a plan is executed, not when a script is only rendered:
+    a script may run on another machine.
+
+    Parameters
+    ----------
+    model_id : str, None
+        Hugging Face model ID of a `ForecasterFoundation` plan.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    An `InvalidInputError` with code `'missing_dependency'` and the
+    `pip install` command is raised when the package is missing, instead of
+    an `ImportError` inside the executed script.
+    """
+    package = missing_foundation_backend(model_id)
+    if package is None:
+        return
+    raise InvalidInputError(
+        f"'{model_id}' needs the '{package}' package, which is not "
+        f"installed (pip install \"{package}\").",
+        code  = "missing_dependency",
+        field = "estimator",
+        hint  = f'Install it where skforecast-ai runs: pip install "{package}".',
+    )
+
+
+def validate_foundation_estimator_kwargs(estimator_kwargs: dict | None) -> None:
+    """
+    Reject a model ID given in the estimator keyword arguments, and a
+    `context_length` that `FoundationModel` does not accept.
+
+    The model ID is the `estimator` of a foundation plan. Accepting it in
+    `estimator_kwargs` as well would let the plan name one model and the
+    script load another. `context_length` must be a positive integer, as
+    skforecast requires: another value failed when the plan was explained
+    (a text) or inside the script.
+
+    Parameters
+    ----------
+    estimator_kwargs : dict, None
+        Keyword arguments for `FoundationModel`.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    TypeError
+        When `context_length` is not an integer.
+    ValueError
+        When `estimator_kwargs` contains `'model_id'`, or when
+        `context_length` is lower than 1.
+    """
+    if estimator_kwargs and "model_id" in estimator_kwargs:
+        raise InvalidInputError(
+            f"`estimator_kwargs` cannot contain 'model_id' for "
+            f"'ForecasterFoundation'. Pass the model ID as `estimator` "
+            f"instead, e.g. estimator='{estimator_kwargs['model_id']}'.",
+            field = "estimator_kwargs",
+        )
+    if estimator_kwargs and "context_length" in estimator_kwargs:
+        context_length = estimator_kwargs["context_length"]
+        message = (
+            f"`context_length` in `estimator_kwargs` must be a positive "
+            f"integer (the number of past observations the model reads), "
+            f"got {context_length!r}."
+        )
+        # A numpy integer is accepted: the plan stores it as a Python int,
+        # which is what skforecast takes.
+        if not isinstance(context_length, numbers.Integral):
+            raise InvalidInputTypeError(message, field="estimator_kwargs")
+        if context_length < 1:
+            raise InvalidInputError(message, field="estimator_kwargs")
+
+
+def validate_foundation_interval(
+    info: FoundationModelInfo,
+    interval: list[float] | None,
+) -> None:
+    """
+    Check that a foundation model can predict the requested interval.
+
+    Foundation models predict the interval bounds as quantiles, together
+    with the median. Backends with a fixed quantile grid only predict the
+    levels of that grid, so the bounds must belong to it.
+
+    Parameters
+    ----------
+    info : FoundationModelInfo
+        Capabilities of the foundation model.
+    interval : list of float, None
+        Prediction interval quantiles as `[lower, upper]`. None means no
+        interval, which is always valid.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        When `interval` is not `[lower, upper]` with `0 < lower < upper < 1`,
+        or when a bound is not in the quantile grid of the backend.
+    """
+    if interval is None:
+        return
+    validate_interval(interval)
+    grid = info.supported_quantiles
+    if grid is None:
+        return
+    unsupported = [
+        bound
+        for bound in interval
+        if not any(abs(bound - level) < _QUANTILE_TOLERANCE for level in grid)
+    ]
+    if unsupported:
+        raise InvalidInputError(
+            f"'{info.model_id}' ({info.adapter}) only predicts the quantile "
+            f"levels {list(grid)}, so `interval` {interval} cannot be "
+            f"computed: {unsupported} not in that list. Choose both bounds "
+            f"from it, e.g. [0.1, 0.9].",
+            field = "interval",
+        )
+
+
+def foundation_exog_columns(
+    info: FoundationModelInfo,
+    exog_columns: list[str],
+    categorical_exog: list[str],
+) -> list[str]:
+    """
+    Exogenous columns a foundation model can use.
+
+    Parameters
+    ----------
+    info : FoundationModelInfo
+        Capabilities of the foundation model.
+    exog_columns : list of str
+        Exogenous columns of the data.
+    categorical_exog : list of str
+        Exogenous columns with a non-numeric dtype.
+
+    Returns
+    -------
+    columns : list of str
+        No column when the backend does not accept covariates; the numeric
+        columns when it does not accept categorical covariates natively;
+        otherwise every exogenous column.
+    """
+    if not info.allow_exog:
+        return []
+    if not info.supports_categorical_covariates:
+        return [col for col in exog_columns if col not in categorical_exog]
+    return list(exog_columns)
+
+
+def validate_foundation_plan(
+    estimator: str | None,
+    estimator_kwargs: dict | None,
+    interval: list[float] | None,
+) -> FoundationModelInfo:
+    """
+    Validate the model and options of a `ForecasterFoundation` plan.
+
+    Parameters
+    ----------
+    estimator : str, None
+        Hugging Face model ID of the foundation model.
+    estimator_kwargs : dict, None
+        Keyword arguments for `FoundationModel`.
+    interval : list of float, None
+        Prediction interval quantiles as `[lower, upper]`.
+
+    Returns
+    -------
+    info : FoundationModelInfo
+        Capabilities and requirements of `estimator`.
+
+    Raises
+    ------
+    TypeError
+        When `context_length` in `estimator_kwargs` is not an integer.
+    ValueError
+        When `estimator` is missing or unsupported, when `estimator_kwargs`
+        contains `'model_id'` or a `context_length` lower than 1, or when
+        the backend cannot predict `interval`.
+    """
+    if estimator is None:
+        raise InvalidInputError(
+            f"A 'ForecasterFoundation' plan needs the Hugging Face model ID "
+            f"of the foundation model as `estimator`, e.g. "
+            f"'{DEFAULT_FOUNDATION_MODEL_ID}'.",
+            field = "estimator",
+        )
+    info = resolve_foundation_model(estimator)
+    validate_foundation_estimator_kwargs(estimator_kwargs)
+    validate_foundation_interval(info, interval)
+
+    return info

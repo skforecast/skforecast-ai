@@ -61,6 +61,7 @@ def test_role_prompt_structure(name, prompt):
         "never second-guess or re-derive them",
         "must not contain invented numeric thresholds",
         "Never present a suggestion as a decision that has already been made",
+        "`assistant.compare()` to choose between models",
         # Output contract.
         "Open with a direct answer to the question",
         "Cover only what was asked",
@@ -84,7 +85,7 @@ def test_static_role_prompt_documents_context_tags():
     emits, so the model knows which content is authoritative.
     """
     for tag in ["<forecast_context>", "<dataset>", "<forecast_plan>", "<script>",
-                "<cross_validation>", "<deterministic_summary>",
+                "<backtesting_strategy>", "<deterministic_summary>",
                 "<evaluation_metrics>", "<predictions>", "<leaderboard>",
                 "<question>"]:
         assert tag in _STATIC_ROLE_PROMPT

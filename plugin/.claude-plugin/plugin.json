@@ -1,0 +1,20 @@
+{
+  "name": "skforecast-ai",
+  "version": "0.4.0",
+  "description": "Forecast time series in CSV files with deterministic skforecast workflows: the skforecast-ai MCP server (profile, plan, backtest, compare, forecast) and the skill that teaches the agent to use it. Needs uv.",
+  "author": {
+    "name": "skforecast team",
+    "url": "https://github.com/skforecast"
+  },
+  "homepage": "https://ai.skforecast.org/stable/user-guides/mcp-server.html",
+  "repository": "https://github.com/skforecast/skforecast-ai",
+  "license": "Apache-2.0",
+  "keywords": [
+    "forecasting",
+    "time-series",
+    "skforecast",
+    "machine-learning",
+    "backtesting",
+    "mcp"
+  ]
+}

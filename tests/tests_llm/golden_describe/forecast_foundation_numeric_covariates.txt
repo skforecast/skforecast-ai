@@ -1,0 +1,44 @@
+<forecast_context>
+<dataset>
+- Observations: 100
+- Series: 1
+- Frequency: D
+- Date range: 2023-01-01 to 2023-04-10
+- Target: sales
+- Exogenous columns: promo, weekday
+- Categorical exogenous columns: weekday
+- Target statistics: min 0, max 99, mean 49.5, std 29.01
+- Missing values: none
+- Index irregularities: none detected
+</dataset>
+<profile_decision>
+A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 observations, 'D' frequency. Alternative forecasters: ['ForecasterDirect', 'ForecasterFoundation', 'ForecasterStats']. Estimator: Ridge. A linear model is preferred because the dataset is small (100 observations < 250); gradient boosting is offered as an alternative once more data is available. Alternative estimators: ['RandomForestRegressor', 'LGBMRegressor']. 2 exogenous variables (1 categorical) available as predictors.
+- Significant lags (partial autocorrelation, strongest first): 1
+- Suggested window features: mean(window=3), std(window=3), mean(window=7), mean(window=21)
+- Suggested calendar features: day_of_week, weekend, month
+</profile_decision>
+<forecast_plan>
+- Forecaster: ForecasterFoundation
+- Steps: 5
+- Estimator: google/timesfm-3.0-pytorch
+- Prediction interval: [0.1, 0.9] (80% coverage)
+- Interval method: native
+- Primary metric: mean_absolute_error
+- Preprocessing steps:
+  - [informational] Categorical exogenous variables detected: ['weekday']. 'google/timesfm-3.0-pytorch' only accepts numeric covariates, so these columns are excluded. Encode them manually to include them.
+- Chosen by the user instead of the rules: forecaster, estimator
+- Plan: ForecasterFoundation + google/timesfm-3.0-pytorch. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. Exogenous variables included. MAE is interpretable, robust to outliers, and works at any scale. The model reads up to 2048 observations of the series as context, so the whole history is used (the series has 100). The weights of 'google/timesfm-3.0-pytorch' are released under timesfm-non-commercial-license-v1.0, which restricts commercial use (https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE).
+</forecast_plan>
+<evaluation_metrics>
+series  MAE  MSE  MASE
+ sales  2.5 9.25   0.8
+</evaluation_metrics>
+<predictions>
+Shape: 5 rows x 3 columns
+Columns: ['pred', 'lower_bound', 'upper_bound']
+  pred: min=1000.0, max=2000.0, mean=1347.22222, std=391.36119066489204
+  lower_bound: min=900.0, max=1800.0, mean=1196.0, std=356.4828186603107
+  upper_bound: min=1100.0, max=2200.0, mean=1498.0, std=427.22359485402956
+Index range: 2023-04-11 00:00:00 to 2023-04-15 00:00:00
+</predictions>
+</forecast_context>

@@ -130,6 +130,25 @@ def test_serialize_dataframe_summary_breaks_pred_down_by_level():
     assert "Per-level summary of lower_bound" not in result
 
 
+def test_serialize_dataframe_summary_breaks_median_down_by_level_without_pred():
+    """
+    Test that a truncated multi-series frame of quantile predictions, which
+    has no `pred` column, breaks down the median `q_0.5` by level instead,
+    the point forecast of a foundation model.
+    """
+    df = pd.DataFrame({
+        "level": ["a"] * 20 + ["b"] * 20,
+        "q_0.1": np.zeros(40),
+        "q_0.5": np.concatenate([np.arange(20, dtype=float), np.arange(100, 120, dtype=float)]),
+        "q_0.9": np.full(40, 200.0),
+    })
+    result = _serialize_dataframe(df)
+    assert "Per-level summary of q_0.5 (all rows):" in result
+    assert "  a: min=0.0, max=19.0, mean=9.5" in result
+    assert "  b: min=100.0, max=119.0, mean=109.5" in result
+    assert "Per-level summary of q_0.1" not in result
+
+
 def test_serialize_dataframe_summary_caps_levels():
     """
     Test that the per-level summary of `pred` lists at most
@@ -283,6 +302,35 @@ def test_build_context_message_predictions_without_metrics_notes_prediction_mode
     assert "<predictions>" in result
 
 
+def test_build_context_message_passes_the_provenance_of_the_strategy():
+    """
+    Test that the names the user passed, those without effect and the LLM
+    flag reach the `<backtesting_strategy>` section, and that without them
+    the section has no provenance line.
+    """
+    cv_config = {"steps": 5, "initial_train_size": 80, "n_folds": 4}
+
+    result = build_context_message(
+        cv_config         = cv_config,
+        cv_overridden     = ["refit", "fixed_train_size"],
+        cv_without_effect = ["fixed_train_size"],
+        cv_llm_configured = True,
+    )
+    without = build_context_message(cv_config=cv_config)
+
+    assert result == (
+        "<forecast_context>\n<backtesting_strategy>\n- steps: 5\n"
+        "- initial_train_size: 80\n- n_folds: 4\n"
+        "- Chosen by the user instead of the rules: refit\n"
+        "- Passed by the user without effect: fixed_train_size\n"
+        "- Parameters not chosen by the user were set by the LLM from the "
+        "prompt.\n</backtesting_strategy>\n</forecast_context>"
+    )
+    assert "Chosen by the user" not in without
+    assert "without effect" not in without
+    assert "set by the LLM" not in without
+
+
 def test_build_context_message_empty_when_no_args():
     """
     Test that an empty string is returned when no arguments are provided.
@@ -396,6 +444,23 @@ def test_summarize_dataframe_shows_stats_not_values():
     assert "1  20" not in result
 
 
+def test_summarize_dataframe_gives_number_of_folds_instead_of_fold_statistics():
+    """
+    Test that the summary of a backtest frame without row values gives the
+    number of folds and no statistics of the `fold` column, which is an
+    identifier and not a measurement.
+    """
+    df = pd.DataFrame({
+        "fold": np.repeat(np.arange(4), 3),
+        "pred": np.arange(12, dtype=float),
+    })
+    result = _summarize_dataframe(df)
+
+    assert "Folds: 4" in result
+    assert "  fold:" not in result
+    assert "  pred: min=0.0, max=11.0, mean=5.5" in result
+
+
 def test_summarize_dataframe_includes_index_range():
     """
     Test that _summarize_dataframe includes the index range.
@@ -427,7 +492,7 @@ def test_build_context_message_cv_config_section():
     }
     result = build_context_message(cv_config=cv_config)
 
-    assert "<cross_validation>" in result
+    assert "<backtesting_strategy>" in result
     assert "- steps: 12" in result
     assert "- initial_train_size: 100" in result
     assert "- refit: False" in result
@@ -441,7 +506,7 @@ def test_build_context_message_no_cv_config_no_section():
     section when cv_config is None.
     """
     result = build_context_message()
-    assert "cross_validation" not in result
+    assert "backtesting_strategy" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -497,7 +562,7 @@ def test_build_context_message_wraps_sections_in_forecast_context():
     assert result.count("<forecast_context>") == 1
     assert result.count("</forecast_context>") == 1
 
-    for tag in ["cross_validation", "deterministic_summary",
+    for tag in ["backtesting_strategy", "deterministic_summary",
                 "evaluation_metrics", "predictions"]:
         assert result.count(f"<{tag}>") == 1
         assert result.count(f"</{tag}>") == 1

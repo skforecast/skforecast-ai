@@ -1,25 +1,52 @@
 # Unit test _utils
 
 import re
+import urllib.error
+import warnings
 from pathlib import Path
 
+import numpy as np
 import pytest
 import pandas as pd
 
+from skforecast.model_selection import TimeSeriesFold
+
 from skforecast_ai._utils import (
+    _check_cv_matches_profile,
+    _check_evaluated_target,
+    _check_plan_matches_profile,
+    _check_feature_name_collisions,
     _apply_interval_to_plan,
     _strip_code_blocks,
     _resolve_data_and_target,
     _resolve_inputs_with_profile,
-    _validate_lags,
     _validate_max_window_size,
     _validate_task_input,
-    _validate_window_features,
+    _data_path_of_run,
+    _with_data_path,
+    profile_structure,
+    same_period,
+    structure_differences,
 )
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.exceptions import (
+    DataContentError,
+    DataNotFoundError,
+    InvalidInputError,
+)
+from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
-from tests.fixtures_assistant import df_single, series_single
+from tests.fixtures_assistant import (
+    df_categorical_exog,
+    df_multi_long,
+    df_multi_wide,
+    df_no_exog,
+    df_range_index,
+    df_single,
+    series_single,
+)
+from tests.fixtures_datasets import df_h2o, df_h2o_text, df_items_sales_wide
 
 
 # =============================================================================
@@ -205,6 +232,57 @@ def test_resolve_data_and_target_parses_date_column(tmp_path):
     assert pd.api.types.is_datetime64_any_dtype(data["date"])
 
 
+def test_resolve_data_and_target_passes_date_column_to_csv_loader(tmp_path):
+    """
+    Test that `date_column` reaches the CSV loader: a column of dates with
+    empty cells before the date column ('contract_end') is left as text
+    with a warning without it, and without a warning with it.
+    """
+    df = df_h2o_text.copy()
+    df.insert(0, "contract_end", df["date"])
+    df.loc[list(range(10)), "contract_end"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    warn_msg = re.escape(
+        "The dates of column 'contract_end' have 10 empty cell(s)"
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        data_without, _ = _resolve_data_and_target(csv_path, target="x")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        data_with, _ = _resolve_data_and_target(
+                           data        = csv_path,
+                           target      = "x",
+                           date_column = "date",
+                       )
+
+    for data in (data_without, data_with):
+        assert pd.api.types.is_object_dtype(data["contract_end"])
+        assert pd.api.types.is_datetime64_any_dtype(data["date"])
+
+
+def test_resolve_data_and_target_ValueError_when_csv_date_column_has_empty_cell(
+    tmp_path
+):
+    """
+    Test that the `date_column` of a CSV with an empty cell raises, without
+    the advice to pass `date_column`.
+    """
+    df = df_h2o_text.copy()
+    df.loc[100, "date"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "100 (counting from 0, header excluded): every row needs a date. Fill "
+        "in or drop those rows."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$"):
+        _resolve_data_and_target(csv_path, target="x", date_column="date")
+
+
 # =============================================================================
 # _resolve_inputs_with_profile
 # =============================================================================
@@ -316,20 +394,26 @@ def test_resolve_inputs_with_profile_output_when_series_input():
 # =============================================================================
 # Task-aware observation-count helpers
 # =============================================================================
-def _make_profile(series_lengths, frequency="D", n_series=None):
-    """Build a minimal DataProfile for task input validation tests."""
+def _make_profile(
+    series_lengths, frequency="D", n_series=None, **long_format
+):
+    """
+    Build a minimal DataProfile for task input validation tests; pass
+    `data_format`, `date_column` and `series_id_column` for long format.
+    """
     return DataProfile(
         n_series=n_series if n_series is not None else len(series_lengths),
         series_lengths=series_lengths,
         target="value",
         index_type="datetime",
         frequency=frequency,
+        **long_format,
     )
 
 
 @pytest.mark.parametrize(
     "task_type",
-    ["single_series", "statistical", "foundation"],
+    ["single_series", "statistical", "baseline"],
 )
 def test_validate_task_input_raises_when_single_task_with_multiple_series(
     task_type,
@@ -356,59 +440,140 @@ def test_validate_task_input_raises_when_multivariate_unequal_lengths():
 def test_validate_task_input_passes_when_valid():
     """
     Test _validate_task_input accepts compatible inputs (single-series
-    task with one series; multivariate with equal lengths).
+    task with one series; multivariate with equal lengths; foundation with
+    one or several series, of equal or different lengths).
     """
     single = _make_profile({"value": {"length": 100}}, n_series=1)
     multivariate = _make_profile({"A": {"length": 100}, "B": {"length": 100}})
+    uneven = _make_profile({"A": {"length": 100}, "B": {"length": 80}})
 
     assert _validate_task_input(single, "single_series") is None
     assert _validate_task_input(multivariate, "multivariate") is None
+    assert _validate_task_input(single, "foundation") is None
+    assert _validate_task_input(uneven, "foundation") is None
 
 
+_LONG = {"data_format": "long", "series_id_column": "series"}
 
-# =============================================================================
-# _validate_lags
-# =============================================================================
-@pytest.mark.parametrize(
-    "lags",
-    [None, 1, 7, [1], [1, 2, 7], [7, 2, 1]],
-    ids=lambda lags: f"lags: {lags}",
-)
-def test_validate_lags_passes_when_valid(lags):
+
+def test_validate_task_input_InvalidInputError_when_multivariate_long_format():
     """
-    Test that None, a positive int and a non-empty list of unique positive
-    ints (in any order) pass validation without raising.
+    Test that ForecasterDirectMultiVariate is rejected on long-format data
+    with several series: its script failed in every mode, with or without
+    exogenous variables.
     """
-    assert _validate_lags(lags) is None
+    profile = _make_profile(
+        {"A": {"length": 100}, "B": {"length": 100}},
+        date_column="date", **_LONG,
+    )
+
+    err_msg = re.escape(
+        "ForecasterDirectMultiVariate cannot forecast long-format data with "
+        "several series. Use 'ForecasterRecursiveMultiSeries', or pass the "
+        "series as columns (wide format) with `target` naming them."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_task_input(profile, "multivariate")
+    assert exc_info.value.field == "forecaster"
+
+
+def test_validate_task_input_InvalidInputError_when_multivariate_long_format_single_series():
+    """
+    Test that ForecasterDirectMultiVariate is rejected on long-format data
+    with a single series too: its level is the target column, which is not
+    one of the series.
+    """
+    profile = _make_profile(
+        {"A": {"length": 100}}, n_series=1, date_column="date", **_LONG,
+    )
+
+    err_msg = re.escape(
+        "ForecasterDirectMultiVariate cannot forecast long-format data with a "
+        "single series. Use a single-series forecaster (e.g. "
+        "'ForecasterRecursive')."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_task_input(profile, "multivariate")
+
+    assert exc_info.value.field == "forecaster"
+
+
+@pytest.mark.parametrize("task_type", ["multi_series", "foundation"])
+def test_validate_task_input_InvalidInputError_when_long_format_without_date_column(
+    task_type,
+):
+    """
+    Test that long-format data with several series and no date column (dated
+    by its index) is rejected for the forecasters that split it into series:
+    the script read a 'datetime' column that does not exist.
+    """
+    profile = _make_profile(
+        {"A": {"length": 100}, "B": {"length": 100}}, **_LONG
+    )
+
+    err_msg = re.escape(
+        "Long-format data with several series needs its dates in a column, "
+        "named by `date_column`, which the generated script reads to split the "
+        "series. With the dates in the index, move them to a column with "
+        "`data.reset_index()`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_task_input(profile, task_type)
+    assert exc_info.value.field == "date_column"
+
+
+def test_validate_task_input_passes_when_long_format_single_series_without_date_column():
+    """
+    Test that long-format data with a single series dated by its index is
+    accepted: its script works.
+    """
+    profile = _make_profile({"A": {"length": 100}}, n_series=1, **_LONG)
+
+    assert _validate_task_input(profile, "single_series") is None
+    assert _validate_task_input(profile, "foundation") is None
+
 
 
 @pytest.mark.parametrize(
-    "lags, match",
+    "task_type, forecaster",
     [
-        (0, "must be positive integers"),
-        (-1, "must be positive integers"),
-        (True, "must be an int or a list of ints"),
-        ("3", "must be an int or a list of ints"),
-        (3.0, "must be an int or a list of ints"),
-        ((1, 2), "must be an int or a list of ints"),
-        ([], "must not be an empty list"),
-        ([0, 1], "must be positive integers"),
-        ([-3], "must be positive integers"),
-        ([1.5], "must contain ints only"),
-        ([1, "3"], "must contain ints only"),
-        ([True], "must contain ints only"),
-        ([2, 2], "must not contain duplicates"),
-        ([1, 2, 1], "must not contain duplicates"),
+        ("multi_series", "ForecasterRecursiveMultiSeries"),
+        ("multivariate", "ForecasterDirectMultiVariate"),
     ],
-    ids=lambda value: f"{value!r}",
 )
-def test_validate_lags_ValueError_when_invalid(lags, match):
+def test_validate_task_input_InvalidInputError_when_multi_series_task_with_single_series(
+    task_type, forecaster
+):
     """
-    Test that non-positive, non-int, boolean, empty or duplicated lags
-    raise ValueError with a message naming the violated rule.
+    Test that a multi-series task (ForecasterRecursiveMultiSeries or
+    ForecasterDirectMultiVariate) is rejected on single-format data with one
+    series: its generated script always failed. The error points at the
+    `forecaster` and says how to pass several series.
     """
-    with pytest.raises(ValueError, match=match):
-        _validate_lags(lags)
+    profile = _make_profile({"value": {"length": 100}}, n_series=1)
+
+    err_msg = re.escape(
+        f"{forecaster} forecasts several series, but the data has a single "
+        f"series (target 'value'). Use a single-series forecaster "
+        f"(e.g. 'ForecasterRecursive'), or pass several series: a list of "
+        f"target columns, or `series_id_column` for long format."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_task_input(profile, task_type)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "forecaster"
+
+
+def test_validate_task_input_passes_when_multi_series_task_with_several_series():
+    """
+    Test that the multi-series tasks accept wide-format data with several
+    series.
+    """
+    profile = _make_profile({"A": {"length": 100}, "B": {"length": 100}})
+
+    assert _validate_task_input(profile, "multi_series") is None
+    assert _validate_task_input(profile, "multivariate") is None
 
 
 # =============================================================================
@@ -457,67 +622,33 @@ def test_validate_max_window_size_ValueError_when_span_exceeds_budget(
         _validate_max_window_size(lags, window_features, 100)
 
 
-# =============================================================================
-# _validate_window_features
-# =============================================================================
 @pytest.mark.parametrize(
-    "window_features",
+    "lags, window_features, expected_field",
     [
-        None,
-        [{"stats": ["mean"], "window_size": 7}],
-        [{"stats": ["mean", "std"], "window_size": 3}],
-        [
-            {"stats": ["mean", "std"], "window_size": 3},
-            {"stats": ["mean"], "window_size": 24},
-            {"stats": ["ratio_min_max", "coef_variation", "ewm"], "window_size": 168},
-        ],
-        [
-            {"stats": ["mean"], "window_size": 7},
-            {"stats": ["mean"], "window_size": 14},
-        ],
+        (34, None, "lags"),
+        ([1, 2, 34], [{"stats": ["mean"], "window_size": 7}], "lags"),
+        (3, [{"stats": ["mean"], "window_size": 34}], "window_features"),
     ],
-    ids=lambda wf: f"window_features: {wf}",
+    ids=lambda value: f"{value!r}",
 )
-def test_validate_window_features_passes_when_valid(window_features):
+def test_validate_max_window_size_code_and_field_when_span_exceeds_budget(
+    lags, window_features, expected_field
+):
     """
-    Test that valid window_features configurations (including None,
-    multi-stat scalar-window entries and the same statistic at different
-    window sizes) pass validation without raising.
+    Test that a span longer than the data allows has the code
+    'insufficient_data' and names as field the override with the largest
+    span.
     """
-    assert _validate_window_features(window_features) is None
+    err_msg = re.escape(
+        "Explicit lags/window_features span up to 34 observations, exceeding "
+        "the maximum of 33 (33% of 100 observations). Reduce the largest lag "
+        "or window size."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _validate_max_window_size(lags, window_features, 100)
 
-
-@pytest.mark.parametrize(
-    "window_features, match",
-    [
-        ({"stats": ["mean"], "window_size": 7}, "must be a list of dicts"),
-        ([["mean", 7]], "must be a dict"),
-        ([{"stats": ["mean"]}], "missing required key"),
-        ([{"window_size": 7}], "missing required key"),
-        ([{"stats": "mean", "window_size": 7}], "non-empty list"),
-        ([{"stats": [], "window_size": 7}], "non-empty list"),
-        ([{"stats": ["mean", "variance"], "window_size": 7}], "unsupported"),
-        ([{"stats": ["mean"], "window_size": [3, 7]}], "must be a scalar int"),
-        ([{"stats": ["mean"], "window_size": 7.0}], "must be a scalar int"),
-        ([{"stats": ["mean"], "window_size": True}], "must be a scalar int"),
-        ([{"stats": ["mean"], "window_size": 0}], "must be a positive int"),
-        (
-            [
-                {"stats": ["mean"], "window_size": 7},
-                {"stats": ["mean", "std"], "window_size": 7},
-            ],
-            re.escape("duplicate (stat, window_size) pairs: [('mean', 7)]"),
-        ),
-    ],
-)
-def test_validate_window_features_raises_when_invalid(window_features, match):
-    """
-    Test that malformed window_features (wrong container, missing keys,
-    unsupported stats, non-scalar/invalid window_size, or the same statistic
-    paired twice with the same window size) raise ValueError.
-    """
-    with pytest.raises(ValueError, match=match):
-        _validate_window_features(window_features)
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == expected_field
 
 
 def test_apply_interval_to_plan_uses_native_method_for_foundation_plan():
@@ -539,3 +670,1025 @@ def test_apply_interval_to_plan_uses_native_method_for_foundation_plan():
     assert updated.explanation == f"{plan.explanation} Prediction intervals via native."
     assert plan.interval is None
     assert _apply_interval_to_plan(updated, [0.1, 0.9]) is updated
+
+
+def test_apply_interval_to_plan_ValueError_when_foundation_model_lacks_quantiles():
+    """
+    Test that applying an interval that the foundation model of the plan
+    cannot predict raises ValueError, although the plan copy skips the
+    schema validators.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterFoundation",
+        estimator="google/timesfm-3.0-pytorch",
+    )
+
+    err_msg = re.escape(
+        "'google/timesfm-3.0-pytorch' (TimesFM3Adapter) only predicts the "
+        "quantile levels"
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _apply_interval_to_plan(plan, [0.05, 0.95])
+
+
+def test_apply_interval_to_plan_uses_conformal_for_baseline():
+    """
+    Test that applying an interval to a baseline plan selects the conformal
+    method, the only one ForecasterEquivalentDate supports.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterEquivalentDate")
+
+    updated = _apply_interval_to_plan(plan, [0.1, 0.9])
+
+    assert updated.interval == [0.1, 0.9]
+    assert updated.interval_method == "conformal"
+
+
+def _gapped_single_series(drop: list[int]) -> tuple[pd.DataFrame, DataProfile]:
+    """Daily series of 100 days without the given positions, and its profile."""
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame(
+        {"date": dates, "y": np.arange(100, dtype=float)}
+    ).drop(index=drop).reset_index(drop=True)
+
+    return data, create_data_profile(data, target="y", date_column="date")
+
+
+def test_check_evaluated_target_ValueError_when_gap_in_test_folds():
+    """
+    Test that a missing timestamp inside a test fold is reported with its
+    date before running, whatever the estimator, because skforecast cannot
+    compute single-series metrics on it, as a DataContentError on `data`.
+    """
+    data, data_profile = _gapped_single_series(drop=[85])
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test folds "
+        "(2023-03-27 00:00:00), counting the missing timestamps that asfreq() "
+        "restores. skforecast cannot compute the metrics on them, whatever "
+        "the estimator. Impute the target, or evaluate on dates without "
+        "missing values."
+    )
+    with pytest.raises(ValueError, match=err_msg) as exc_info:
+        _check_evaluated_target(data=data, data_profile=data_profile, cv=cv)
+
+    # The class that tells a problem of the content of the data from an
+    # argument to correct.
+    assert type(exc_info.value) is DataContentError
+    assert (exc_info.value.code, exc_info.value.field) == (
+        "invalid_argument", "data"
+    )
+
+
+def test_check_evaluated_target_output_when_gap_only_in_training():
+    """
+    Test that a missing timestamp before the first test fold is accepted:
+    the forecaster handles it in training and no metric is computed on it.
+    """
+    data, data_profile = _gapped_single_series(drop=[20, 21])
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    assert _check_evaluated_target(data=data, data_profile=data_profile, cv=cv) is None
+
+
+def test_check_evaluated_target_ValueError_when_gap_in_test_split():
+    """
+    Test that a missing timestamp in the test split of an evaluation-mode
+    forecast is reported, and one outside the evaluated steps is not.
+    """
+    data, data_profile = _gapped_single_series(drop=[97])
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test split (2023-04-08 00:00:00)"
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _check_evaluated_target(
+            data         = data,
+            data_profile = data_profile,
+            end_train    = "2023-04-05",
+            steps        = 5,
+        )
+
+    assert _check_evaluated_target(
+        data         = data,
+        data_profile = data_profile,
+        end_train    = "2023-03-20",
+        steps        = 5,
+    ) is None
+
+
+def test_check_evaluated_target_ValueError_when_level_has_missing_test_value():
+    """
+    Test that with `level` the test split of that series of wide data is
+    checked: a missing value of the level raises, one of another series does
+    not, and without `level` several series are not checked.
+    """
+    data = df_items_sales_wide.copy()
+    data.loc["2012-04-25", "item_1"] = np.nan
+    data_profile = create_data_profile(data, target=list(data.columns))
+    kwargs = {"data": data, "data_profile": data_profile,
+              "end_train": "2012-04-22", "steps": 7}
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test split "
+        "(2012-04-25 00:00:00), counting the missing timestamps that asfreq() "
+        "restores."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _check_evaluated_target(level="item_1", **kwargs)
+
+    assert _check_evaluated_target(level="item_2", **kwargs) is None
+    assert _check_evaluated_target(**kwargs) is None
+
+
+@pytest.mark.parametrize("tz", ["UTC", "Europe/Madrid"])
+def test_check_evaluated_target_ValueError_when_gap_in_test_split_with_time_zone(tz):
+    """
+    Test that the test split of a tz-aware index is found with an `end_train`
+    written without the time zone (it raised `TypeError: Invalid comparison`).
+    """
+    data, data_profile = _gapped_single_series(drop=[97])
+    data["date"] = data["date"].dt.tz_localize(tz)
+    offset = "+00:00" if tz == "UTC" else "+02:00"
+    data_profile = create_data_profile(data, target="y", date_column="date")
+
+    err_msg = re.escape(
+        f"The target has 1 missing value(s) in the test split "
+        f"(2023-04-08 00:00:00{offset})"
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        _check_evaluated_target(
+            data         = data,
+            data_profile = data_profile,
+            end_train    = "2023-04-05",
+            steps        = 5,
+        )
+
+    assert _check_evaluated_target(
+        data         = data,
+        data_profile = data_profile,
+        end_train    = "2023-03-20",
+        steps        = 5,
+    ) is None
+
+
+def test_check_evaluated_target_ValueError_when_cv_dates_lack_the_time_zone():
+    """
+    Test that a `TimeSeriesFold` whose date has no time zone, on a tz-aware
+    index, is checked: skforecast reads the date in the time zone of the
+    index, so the missing timestamp of a test fold is reported.
+    """
+    data, _ = _gapped_single_series(drop=[85])
+    data["date"] = data["date"].dt.tz_localize("UTC")
+    data_profile = create_data_profile(data, target="y", date_column="date")
+    cv = TimeSeriesFold(
+        steps=5, initial_train_size="2023-03-12", verbose=False
+    )
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test folds "
+        "(2023-03-27 00:00:00+00:00), counting the missing timestamps that "
+        "asfreq() restores."
+    )
+    with pytest.raises(DataContentError, match=err_msg):
+        _check_evaluated_target(data=data, data_profile=data_profile, cv=cv)
+
+
+@pytest.mark.parametrize(
+    "initial_train_size",
+    ["2023-03-12 00:00:00+00:00", "not a date"],
+    ids=["date with time zone", "not a date"],
+)
+def test_check_evaluated_target_output_when_cv_date_cannot_be_placed(
+    initial_train_size
+):
+    """
+    Test that a `TimeSeriesFold` whose date skforecast cannot place on the
+    index (a date with a time zone on an index without one, a text that is
+    not a date) is not checked: the validation of the strategy reports it,
+    not a bare ValueError from the check.
+    """
+    data, data_profile = _gapped_single_series(drop=[85])
+    cv = TimeSeriesFold(
+        steps=5, initial_train_size=initial_train_size, verbose=False
+    )
+
+    assert _check_evaluated_target(
+        data=data, data_profile=data_profile, cv=cv
+    ) is None
+
+
+@pytest.mark.parametrize(
+    "error, expected_code",
+    [
+        (urllib.error.URLError("unreachable"), "data_not_found"),
+        (pd.errors.ParserError("bad row"), "data_unreadable"),
+    ],
+    ids=["unreachable", "not_a_csv"],
+)
+def test_resolve_data_and_target_code_when_url_cannot_be_read(
+    monkeypatch, error, expected_code
+):
+    """
+    Test that a URL that cannot be read raises DataNotFoundError (a
+    FileNotFoundError) with the code 'data_not_found' when it cannot be
+    reached, and 'data_unreadable' when it was downloaded but is not a CSV.
+    """
+
+    def _read_csv(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(pd, "read_csv", _read_csv)
+
+    err_msg = re.escape(
+        f"Could not read CSV from URL: 'https://example.com/a.csv'. {error}"
+    )
+    with pytest.raises(DataNotFoundError, match=err_msg) as exc_info:
+        _resolve_data_and_target("https://example.com/a.csv", "y")
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.field == "data"
+
+
+def test_resolve_inputs_with_profile_ValueError_when_csv_date_column_has_empty_cell(
+    tmp_path
+):
+    """
+    Test that a profile reused on a CSV whose date column (the one of the
+    profile) has an empty cell raises, even when a later column holds
+    complete dates, instead of leaving the dates as text for the generated
+    script to fail on.
+    """
+    df = df_h2o_text.copy()
+    df["period_end"] = (
+        pd.to_datetime(df["date"]) + pd.offsets.MonthEnd(0)
+    ).dt.strftime("%Y-%m-%d")
+    clean_path = tmp_path / "clean.csv"
+    df.to_csv(clean_path, index=False)
+    profile = ForecastingAssistant().profile(data=clean_path, target="x")
+    df.loc[100, "date"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "100 (counting from 0, header excluded): every row needs a date. Fill "
+        "in or drop those rows."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$"):
+        _resolve_inputs_with_profile(csv_path, None, None, None, profile=profile)
+
+
+def test_resolve_data_and_target_passes_date_column_to_loader_of_url(monkeypatch):
+    """
+    Test that `date_column` reaches the CSV loader also for a URL: the named
+    column with an empty cell raises, without the advice to pass
+    `date_column`.
+    """
+    df = df_h2o_text.copy()
+    df.loc[100, "date"] = None
+    monkeypatch.setattr(pd, "read_csv", lambda *args, **kwargs: df.copy())
+
+    err_msg = re.escape(
+        "The dates of column 'date' have 1 empty cell(s), at row position(s) "
+        "100 (counting from 0, header excluded): every row needs a date. Fill "
+        "in or drop those rows."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$"):
+        _resolve_data_and_target(
+            data        = "https://example.com/data.csv",
+            target      = "x",
+            date_column = "date",
+        )
+
+
+def test_resolve_inputs_with_profile_passes_date_column_when_no_profile(tmp_path):
+    """
+    Test that, without a profile, `date_column` reaches the CSV loader: a
+    column of dates with empty cells before it is left as text without a
+    warning.
+    """
+    df = df_h2o_text.copy()
+    df.insert(0, "contract_end", df["date"])
+    df.loc[list(range(10)), "contract_end"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        data, _, date_column, _ = _resolve_inputs_with_profile(
+            csv_path, "x", "date", None, profile=None
+        )
+
+    assert date_column == "date"
+    assert pd.api.types.is_object_dtype(data["contract_end"])
+    assert pd.api.types.is_datetime64_any_dtype(data["date"])
+
+
+def test_resolve_inputs_with_profile_ValueError_when_date_column_conflicts(tmp_path):
+    """
+    Test that a `date_column` that does not match the profile raises the
+    mismatch error, as the CSV loader checks the date column of the profile
+    (here complete), not the one passed.
+    """
+    clean_path = tmp_path / "clean.csv"
+    df_h2o_text.to_csv(clean_path, index=False)
+    profile = ForecastingAssistant().profile(data=clean_path, target="x")
+    df = df_h2o_text.copy()
+    df["period_end"] = df["date"]
+    df.loc[100, "period_end"] = None
+    csv_path = tmp_path / "data.csv"
+    df.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "`date_column` 'period_end' does not match the value recorded in "
+        "`profile` ('date'). Pass the value the profile was built with, or "
+        "omit it."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        _resolve_inputs_with_profile(
+            csv_path, None, "period_end", None, profile=profile
+        )
+
+
+def test_resolve_inputs_with_profile_DataNotFoundError_before_date_column_conflict(
+    tmp_path
+):
+    """
+    Test that a missing CSV is reported before a `date_column` that does not
+    match the profile.
+    """
+    clean_path = tmp_path / "clean.csv"
+    df_h2o_text.to_csv(clean_path, index=False)
+    profile = ForecastingAssistant().profile(data=clean_path, target="x")
+
+    err_msg = re.escape("CSV file not found: '")
+    with pytest.raises(DataNotFoundError, match=err_msg):
+        _resolve_inputs_with_profile(
+            tmp_path / "missing.csv", None, "other", None, profile=profile
+        )
+
+
+# =============================================================================
+# Tests: _with_data_path
+# =============================================================================
+@pytest.mark.parametrize(
+    "data, expected_path, same_object",
+    [
+        (df_single, "data.csv", True),
+        ("data.csv", "./data.csv", False),
+        ("other.csv", "other.csv", False),
+        (Path("dir") / "other.csv", str(Path("dir") / "other.csv"), False),
+        ("https://example.com/sales.csv", "https://example.com/sales.csv", False),
+    ],
+    ids=["dataframe", "placeholder name", "other path", "Path", "URL"],
+)
+def test_with_data_path_output(data, expected_path, same_object):
+    """
+    Test that `_with_data_path` records a path or URL in a copy of the
+    profile, and returns the same profile for a DataFrame on a profile of
+    data in memory, never changing the profile passed. A real file named
+    as the placeholder is recorded as './data.csv'.
+    """
+    profile = ForecastingAssistant().profile(
+        data=df_single, target="sales", date_column="date"
+    )
+
+    result = _with_data_path(profile, data)
+
+    assert result.data_profile.data_path == expected_path
+    assert (result is profile) is same_object
+    assert profile.data_profile.data_path == "data.csv"
+    assert result.model_dump(exclude={"data_profile"}) == profile.model_dump(
+        exclude={"data_profile"}
+    )
+
+
+def test_with_data_path_output_when_dataframe_and_profile_of_file(tmp_path):
+    """
+    Test that a DataFrame with a profile saved from a file records the
+    placeholder, so the script never loads that file instead of the data
+    that ran; within `_data_path_of_run` (the candidates of compare(), run
+    on the DataFrame read from a path), it records the path of the run.
+    """
+    csv_path = tmp_path / "sales.csv"
+    df_single.to_csv(csv_path, index=False)
+    profile = ForecastingAssistant().profile(
+        data=csv_path, target="sales", date_column="date"
+    )
+
+    in_memory = _with_data_path(profile, df_single)
+    with _data_path_of_run("run.csv"):
+        in_run = _with_data_path(profile, df_single)
+
+    assert in_memory.data_profile.data_path == "data.csv"
+    assert in_run.data_profile.data_path == "run.csv"
+    assert _with_data_path(profile, None) is profile
+    assert profile.data_profile.data_path == str(csv_path)
+
+
+def test_apply_interval_to_plan_does_not_share_lists():
+    """
+    Test that the plan with the new interval does not share its lists
+    (`warnings`, `forecaster_kwargs`) with the plan passed: changing one
+    changed the other.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    plan.warnings.append("A warning.")
+
+    new_plan = _apply_interval_to_plan(plan, [0.1, 0.9])
+    new_plan.warnings.append("Another warning.")
+
+    assert plan.warnings == ["A warning."]
+    assert new_plan.warnings == ["A warning.", "Another warning."]
+    assert new_plan.forecaster_kwargs is not plan.forecaster_kwargs
+
+
+# =============================================================================
+# _check_feature_name_collisions
+# =============================================================================
+_assistant = ForecastingAssistant()
+_COLLISION_HINT = (
+    "Rename the exogenous columns named like lags ('lag_1') or window "
+    "features ('roll_mean_7')."
+)
+_WINDOW_FEATURES = [{"stats": ["mean"], "window_size": 3}]
+
+# plan() runs the check itself, so the plans are built on data without the
+# clash and the exogenous columns of the profile are replaced afterwards.
+_profile_single = _assistant.profile(
+    data=df_single, target="sales", date_column="date"
+)
+_profile_wide = _assistant.profile(
+    data=df_multi_wide.assign(promo=1.0),
+    target=["series_a", "series_b"],
+    date_column="date",
+)
+
+
+def _with_exog(profile, exog_columns):
+    """Return the data profile with `exog_columns` as its exogenous columns."""
+    return profile.data_profile.model_copy(update={"exog_columns": exog_columns})
+
+
+@pytest.mark.parametrize("forecaster", ["ForecasterRecursive", "ForecasterDirect"])
+@pytest.mark.parametrize("name", ["lag_1", "lag_2", "roll_mean_3"])
+def test_check_feature_name_collisions_InvalidInputError_when_exog_named_like_predictor(
+    name, forecaster
+):
+    """
+    Test that an exogenous column named like a lag ('lag_k') or a window
+    feature ('roll_mean_3') is rejected for the single-series forecasters,
+    with `data` as field and a hint: skforecast fails with duplicated
+    feature names.
+    """
+    plan = _assistant.plan(
+        _profile_single, steps=3, forecaster=forecaster, lags=[1, 2],
+        window_features=_WINDOW_FEATURES,
+    )
+    data_profile = _with_exog(_profile_single, ["promo", name])
+
+    err_msg = re.escape(
+        f"Exogenous column(s) '{name}' have the name of a predictor that "
+        f"{forecaster} creates (a lag or a window feature), so the script "
+        f"would fail with duplicated feature names. Rename them in the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _check_feature_name_collisions(plan, data_profile)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == _COLLISION_HINT
+
+
+def test_check_feature_name_collisions_lists_at_most_five_columns():
+    """
+    Test that the message names the first 5 clashing columns only.
+    """
+    plan = _assistant.plan(
+        _profile_single, steps=3, lags=[1, 2, 3, 4, 5, 6, 7],
+        window_features=_WINDOW_FEATURES,
+    )
+    names = [f"lag_{lag}" for lag in range(1, 8)]
+    data_profile = _with_exog(_profile_single, names)
+
+    err_msg = re.escape(
+        "Exogenous column(s) 'lag_1', 'lag_2', 'lag_3', 'lag_4', 'lag_5' and "
+        "2 more have the name of a predictor"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        _check_feature_name_collisions(plan, data_profile)
+
+
+def test_check_feature_name_collisions_passes_when_exog_does_not_clash():
+    """
+    Test that an exogenous column that is not the name of a lag created by
+    the plan (lag_5 with lags [1, 2]), nor of a window feature (a rolling
+    std when only the mean is created, a rolling mean of another window)
+    passes.
+    """
+    plan = _assistant.plan(
+        _profile_single, steps=3, lags=[1, 2], window_features=_WINDOW_FEATURES,
+    )
+    data_profile = _with_exog(
+        _profile_single, ["promo", "lag_5", "roll_std_3", "roll_mean_7"]
+    )
+
+    assert _check_feature_name_collisions(plan, data_profile) is None
+
+
+def test_check_feature_name_collisions_InvalidInputError_when_multivariate_exog_has_series_prefix():
+    """
+    Test that for ForecasterDirectMultiVariate the names created are
+    prefixed with each series ('series_a_lag_1'), and those are rejected.
+    """
+    plan = _assistant.plan(
+        _profile_wide, steps=3, forecaster="ForecasterDirectMultiVariate",
+        lags=[1, 2], window_features=_WINDOW_FEATURES,
+    )
+    data_profile = _with_exog(_profile_wide, ["promo", "series_b_roll_mean_3"])
+
+    err_msg = re.escape(
+        "Exogenous column(s) 'series_b_roll_mean_3' have the name of a "
+        "predictor that ForecasterDirectMultiVariate creates (a lag or a "
+        "window feature), so the script would fail with duplicated feature "
+        "names. Rename them in the data."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _check_feature_name_collisions(plan, data_profile)
+
+    assert exc_info.value.field == "data"
+
+
+def test_check_feature_name_collisions_passes_when_multivariate_exog_has_no_prefix():
+    """
+    Test that, for ForecasterDirectMultiVariate, an exogenous column named
+    'lag_1' (without the series prefix) does not clash, whereas it does for
+    ForecasterRecursiveMultiSeries, which does not prefix the names.
+    """
+    data_profile = _with_exog(_profile_wide, ["promo", "lag_1"])
+    multivariate = _assistant.plan(
+        _profile_wide, steps=3, forecaster="ForecasterDirectMultiVariate",
+        lags=[1, 2], window_features=_WINDOW_FEATURES,
+    )
+    multi_series = _assistant.plan(
+        _profile_wide, steps=3, forecaster="ForecasterRecursiveMultiSeries",
+        lags=[1, 2], window_features=_WINDOW_FEATURES,
+    )
+
+    assert _check_feature_name_collisions(multivariate, data_profile) is None
+    err_msg = re.escape("Exogenous column(s) 'lag_1' have the name of a predictor")
+    with pytest.raises(InvalidInputError, match=err_msg):
+        _check_feature_name_collisions(multi_series, data_profile)
+
+
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterStats", "ForecasterFoundation", "ForecasterEquivalentDate"],
+)
+def test_check_feature_name_collisions_passes_when_forecaster_has_no_lags(forecaster):
+    """
+    Test that the plans of the statistical, foundation and baseline
+    forecasters, which create no lags nor window features, are not checked.
+    """
+    plan = _assistant.plan(_profile_single, steps=3, forecaster=forecaster)
+    data_profile = _with_exog(_profile_single, ["lag_1", "roll_mean_3"])
+
+    assert _check_feature_name_collisions(plan, data_profile) is None
+
+
+def test_check_feature_name_collisions_passes_when_plan_does_not_use_exog():
+    """
+    Test that a plan with `use_exog` False is not checked: the exogenous
+    columns never reach the forecaster.
+    """
+    plan = _assistant.plan(
+        _profile_single, steps=3, lags=[1, 2], window_features=_WINDOW_FEATURES,
+    ).model_copy(update={"use_exog": False})
+    data_profile = _with_exog(_profile_single, ["lag_1"])
+
+    assert _check_feature_name_collisions(plan, data_profile) is None
+
+
+def test_check_feature_name_collisions_passes_when_data_has_no_exog():
+    """
+    Test that data without exogenous columns is not checked.
+    """
+    profile = _assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = _assistant.plan(profile, steps=3)
+
+    assert _check_feature_name_collisions(plan, profile.data_profile) is None
+
+
+# =============================================================================
+# profile_structure
+# =============================================================================
+@pytest.mark.parametrize(
+    "kwargs, data, expected",
+    [
+        (
+            {"target": "sales", "date_column": "date"},
+            df_categorical_exog,
+            {
+                "data_format": "single",
+                "target": "sales",
+                "date_column": "date",
+                "series_id_column": None,
+                "index_type": "datetime",
+                "frequency": "D",
+                "exog_columns": ["promo", "weekday"],
+                "categorical_exog": ["weekday"],
+            },
+        ),
+        (
+            {"target": ["series_b", "series_a"], "date_column": "date"},
+            df_multi_wide,
+            {
+                "data_format": "wide",
+                "target": ["series_a", "series_b"],
+                "date_column": "date",
+                "series_id_column": None,
+                "index_type": "datetime",
+                "frequency": "D",
+                "exog_columns": [],
+                "categorical_exog": [],
+            },
+        ),
+        (
+            {
+                "target": "value",
+                "date_column": "date",
+                "series_id_column": "series_id",
+            },
+            df_multi_long,
+            {
+                "data_format": "long",
+                "target": "value",
+                "date_column": "date",
+                "series_id_column": "series_id",
+                "index_type": "datetime",
+                "frequency": "D",
+                "exog_columns": [],
+                "categorical_exog": [],
+            },
+        ),
+        (
+            {"target": "x"},
+            df_h2o,
+            {
+                "data_format": "single",
+                "target": "x",
+                "date_column": None,
+                "series_id_column": None,
+                "index_type": "datetime",
+                "frequency": "MS",
+                "exog_columns": [],
+                "categorical_exog": [],
+            },
+        ),
+    ],
+    ids=["single_categorical_exog", "wide", "long", "index_dates"],
+)
+def test_profile_structure_output(kwargs, data, expected):
+    """
+    Test that profile_structure() returns the documented structural fields
+    (format, target, sorted series, date and series id columns, index type,
+    frequency and exogenous columns) of the profile.
+    """
+    profile = ForecastingAssistant().profile(data=data, **kwargs)
+
+    assert profile_structure(profile.data_profile) == expected
+
+
+def test_profile_structure_ignores_values_and_length_of_the_data():
+    """
+    Test that two profiles of the same structure but different observations
+    (values, length) have the same structure.
+    """
+    assistant = ForecastingAssistant()
+    full = assistant.profile(data=df_single, target="sales", date_column="date")
+    short = assistant.profile(
+        data=df_single.iloc[:60].assign(sales=lambda d: d["sales"] * 2.0),
+        target="sales",
+        date_column="date",
+    )
+
+    assert profile_structure(full.data_profile) == profile_structure(
+        short.data_profile
+    )
+
+
+# =============================================================================
+# structure_differences
+# =============================================================================
+def test_structure_differences_output_when_profiles_differ():
+    """
+    Test that structure_differences() lists each differing field as
+    `'name: first != second'`, in the order of the structure, and nothing
+    for the fields that match.
+    """
+    assistant = ForecastingAssistant()
+    single = assistant.profile(data=df_h2o, target="x").data_profile
+    wide = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    ).data_profile
+
+    assert structure_differences(single, wide) == [
+        "data_format: 'single' != 'wide'",
+        "target: 'x' != ['series_a', 'series_b']",
+        "date_column: None != 'date'",
+        "frequency: 'MS' != 'D'",
+    ]
+
+
+def test_structure_differences_output_when_profiles_have_same_structure():
+    """
+    Test that structure_differences() returns an empty list when the
+    structure matches (the same data, or the same data shorter).
+    """
+    assistant = ForecastingAssistant()
+    full = assistant.profile(data=df_single, target="sales", date_column="date")
+    short = assistant.profile(
+        data=df_single.iloc[:60], target="sales", date_column="date"
+    )
+
+    assert structure_differences(full.data_profile, full.data_profile) == []
+    assert structure_differences(full.data_profile, short.data_profile) == []
+
+
+@pytest.mark.parametrize(
+    "first, second, expected",
+    [
+        ("MS", "ME", True),
+        ("W-SUN", "W-MON", True),
+        ("QS-JAN", "QE-DEC", True),
+        ("YS", "YE-DEC", True),
+        ("D", "D", True),
+        (None, None, True),
+        ("MS", "2MS", False),
+        ("MS", "QS-JAN", False),
+        ("D", "B", False),
+        ("s", "ms", False),
+        ("MS", None, False),
+    ],
+)
+def test_same_period_output(first, second, expected):
+    """
+    Test that same_period() tells apart the period of two frequencies and
+    not the date their observations are stamped with.
+    """
+    assert same_period(first, second) is expected
+    assert same_period(second, first) is expected
+
+
+def test_structure_differences_output_when_same_period_or_series_change():
+    """
+    Test that structure_differences() returns an empty list for monthly
+    data stamped on another day of the month, and for long format data with
+    one more series: both are profiled again, not rejected.
+    """
+    assistant = ForecastingAssistant()
+    month_start = assistant.profile(data=df_h2o, target="x").data_profile
+    data = df_h2o.copy()
+    data.index = data.index + pd.offsets.MonthEnd(0)
+    month_end = assistant.profile(data=data, target="x").data_profile
+    long_arguments = {
+        "target": "value", "date_column": "date", "series_id_column": "series_id"
+    }
+    two = assistant.profile(data=df_multi_long, **long_arguments).data_profile
+    three = assistant.profile(
+        data=pd.concat([
+            df_multi_long,
+            df_multi_long[df_multi_long["series_id"] == "store_a"].assign(
+                series_id="store_c"
+            ),
+        ]),
+        **long_arguments,
+    ).data_profile
+
+    assert month_end.frequency == "ME"
+    assert structure_differences(month_start, month_end) == []
+    assert structure_differences(two, three) == []
+
+
+def test_structure_differences_cuts_lists_at_five_items():
+    """
+    Test that a list of more than 5 items (series, target) is cut at 5 with
+    its length, and a list of at most 5 is shown whole.
+    """
+    assistant = ForecastingAssistant()
+    index = pd.date_range("2023-01-01", periods=30, freq="D")
+    targets_7 = [f"s{i}" for i in range(7)]
+    targets_8 = [f"s{i}" for i in range(8)]
+    seven = assistant.profile(
+        data=pd.DataFrame({"date": index, **{t: range(30) for t in targets_7}}),
+        target=targets_7,
+        date_column="date",
+    ).data_profile
+    eight = assistant.profile(
+        data=pd.DataFrame({"date": index, **{t: range(30) for t in targets_8}}),
+        target=targets_8,
+        date_column="date",
+    ).data_profile
+    five = assistant.profile(
+        data=pd.DataFrame({"date": index, **{t: range(30) for t in targets_7[:5]}}),
+        target=targets_7[:5],
+        date_column="date",
+    ).data_profile
+
+    first_five = "['s0', 's1', 's2', 's3', 's4']"
+    assert structure_differences(seven, eight) == [
+        f"target: {first_five} (first 5 of 7) != {first_five} (first 5 of 8)",
+    ]
+    assert structure_differences(five, seven) == [
+        f"target: {first_five} != {first_five} (first 5 of 7)",
+    ]
+
+
+# =============================================================================
+# _check_plan_matches_profile
+# =============================================================================
+def test_check_plan_matches_profile_passes_when_plan_built_for_the_profile():
+    """
+    Test that _check_plan_matches_profile() accepts a plan built from the
+    same profile, and from a profile of the same structure with fewer
+    observations.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    short = assistant.profile(
+        data=df_single.iloc[:60], target="sales", date_column="date"
+    )
+    plan = assistant.plan(profile, steps=5)
+
+    assert _check_plan_matches_profile(plan, profile.data_profile) is None
+    assert _check_plan_matches_profile(plan, short.data_profile) is None
+
+
+def test_check_plan_matches_profile_InvalidInputError_when_frequency_differs():
+    """
+    Test that a plan built for monthly data used with daily data raises
+    InvalidInputError with the field 'plan'.
+    """
+    assistant = ForecastingAssistant()
+    h2o_profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(h2o_profile, steps=5)
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "The plan was built for data of frequency 'MS', and the data has "
+        "frequency 'D'. Build the plan from the profile of these data with "
+        "`plan()`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _check_plan_matches_profile(plan, profile.data_profile)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "plan"
+
+
+def test_check_plan_matches_profile_output_when_same_period():
+    """
+    Test that a plan built for monthly data stamped on the first day of the
+    month ('MS') is accepted for data stamped on the last ('ME').
+    """
+    assistant = ForecastingAssistant()
+    plan = assistant.plan(assistant.profile(data=df_h2o, target="x"), steps=5)
+    data = df_h2o.copy()
+    data.index = data.index + pd.offsets.MonthEnd(0)
+    profile = assistant.profile(data=data, target="x")
+
+    assert plan.frequency == "MS"
+    assert _check_plan_matches_profile(plan, profile.data_profile) is None
+
+
+def test_check_plan_matches_profile_InvalidInputError_when_task_type_does_not_fit_data():
+    """
+    Test that a single-series plan used with wide multi-series data of the
+    same frequency raises the task type error of _validate_task_input().
+    """
+    assistant = ForecastingAssistant()
+    plan = assistant.plan(
+        assistant.profile(data=df_single, target="sales", date_column="date"),
+        steps=5,
+    )
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+
+    err_msg = re.escape(
+        "Task type 'single_series' supports a single series only, but the "
+        "input contains 2 series (['series_a', 'series_b']). Use a "
+        "multi-series forecaster (e.g. 'ForecasterRecursiveMultiSeries') or "
+        "provide a single series."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _check_plan_matches_profile(plan, profile.data_profile)
+
+    assert exc_info.value.field == "forecaster"
+
+
+def test_check_plan_matches_profile_InvalidInputError_when_plan_uses_exog_and_data_has_none():
+    """
+    Test that a plan with exogenous variables used with data that has none
+    raises InvalidInputError with the field 'plan'.
+    """
+    assistant = ForecastingAssistant()
+    plan = assistant.plan(
+        assistant.profile(data=df_single, target="sales", date_column="date"),
+        steps=5,
+    )
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    assert plan.use_exog is True
+
+    err_msg = re.escape(
+        "The plan uses exogenous variables and the data has none. Build the "
+        "plan from the profile of these data with `plan()`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _check_plan_matches_profile(plan, profile.data_profile)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "plan"
+
+
+def test_check_plan_matches_profile_InvalidInputError_when_calendar_features_without_datetime_index():
+    """
+    Test that a plan with calendar features used with data without a
+    datetime index raises InvalidInputError with the field 'plan'. The plan
+    is a daily one edited to the frequency of the data (None).
+    """
+    assistant = ForecastingAssistant()
+    plan = assistant.plan(
+        assistant.profile(data=df_single, target="sales", date_column="date"),
+        steps=5,
+    )
+    plan = plan.model_copy(update={"frequency": None, "use_exog": False})
+    profile = assistant.profile(data=df_range_index, target="sales")
+    assert profile.data_profile.index_type == "range"
+    assert plan.forecaster_kwargs["calendar_features"]
+
+    err_msg = re.escape(
+        "The plan has calendar features, which need dates, and the data has "
+        "no datetime index. Build the plan from the profile of these data "
+        "with `plan()`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _check_plan_matches_profile(plan, profile.data_profile)
+
+    assert exc_info.value.field == "plan"
+
+
+# =============================================================================
+# _check_cv_matches_profile
+# =============================================================================
+def test_check_cv_matches_profile_passes_when_structure_matches():
+    """
+    Test that _check_cv_matches_profile() accepts a CVResult for the same
+    data, and for the same data shorter.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    short = assistant.profile(
+        data=df_single.iloc[:60], target="sales", date_column="date"
+    )
+    cv = assistant.create_cv(profile, assistant.plan(profile, steps=5))
+
+    assert _check_cv_matches_profile(cv, profile.data_profile) is None
+    assert _check_cv_matches_profile(cv, short.data_profile) is None
+
+
+def test_check_cv_matches_profile_InvalidInputError_when_structure_differs():
+    """
+    Test that a CVResult created for single-series monthly data used with
+    wide multi-series daily data raises InvalidInputError with the field
+    'cv', listing the fields that differ.
+    """
+    assistant = ForecastingAssistant()
+    h2o_profile = assistant.profile(data=df_h2o, target="x")
+    cv = assistant.create_cv(h2o_profile, assistant.plan(h2o_profile, steps=5))
+    profile = assistant.profile(
+        data=df_multi_wide, target=["series_a", "series_b"], date_column="date"
+    )
+
+    err_msg = re.escape(
+        "The CVResult was created for data of another structure "
+        "(data_format: 'single' != 'wide'; "
+        "target: 'x' != ['series_a', 'series_b']; "
+        "date_column: None != 'date'; "
+        "frequency: 'MS' != 'D'). Create the strategy from the profile of "
+        "these data with `create_cv()`, or pass its TimeSeriesFold "
+        "(`cv.cv`)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _check_cv_matches_profile(cv, profile.data_profile)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "cv"

@@ -163,6 +163,41 @@ def test_forecaster_recursive_multiseries_full_workflow():
     ast.parse(result.code)
 
 
+@pytest.mark.parametrize(
+    "forecaster",
+    ["ForecasterRecursiveMultiSeries", "ForecasterDirectMultiVariate"],
+)
+def test_forecaster_multiseries_backtest_uses_interval_method_of_plan(forecaster):
+    """
+    Test that a multi-series or multivariate backtest with an interval
+    writes and runs the interval method of the plan (bootstrapping) instead
+    of the conformal default of backtesting_forecaster_multiseries, and
+    that its predictions carry the bounds.
+    """
+    data = df_multi_wide
+    target = ["series_a", "series_b"]
+    profile = assistant.profile(data=data, target=target, date_column="date")
+    plan = assistant.plan(
+        profile, steps=5, forecaster=forecaster, interval=[0.1, 0.9]
+    )
+    cv = assistant.create_cv(profile, plan).cv
+
+    result = assistant.backtest(
+        data          = data,
+        target        = target,
+        date_column   = "date",
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+    )
+
+    assert result.plan.interval_method == "bootstrapping"
+    assert "    interval_method   = 'bootstrapping',\n" in result.code
+    assert {"pred", "lower_bound", "upper_bound"} <= set(result.predictions.columns)
+    assert result.predictions[["pred", "lower_bound", "upper_bound"]].notna().all().all()
+
+
 # =============================================================================
 # Tests: ForecasterDirectMultiVariate (multivariate)
 # =============================================================================
@@ -234,6 +269,49 @@ def test_forecaster_stats_full_workflow():
     assert "backtesting_stats" in result.code
     ast.parse(result.code)
 
+    # skforecast refits ForecasterStats in every fold: the config and the
+    # script state it even though the splitter was created with refit=False.
+    assert cv.refit is False
+    assert result.cv_config["refit"] is True
+    assert result.cv_config["fixed_train_size"] is True
+    assert result.cv_config["n_fits"] == result.cv_config["n_folds"]
+    assert "refit              = True," in result.code
+
+
+# =============================================================================
+# Tests: ForecasterEquivalentDate (baseline)
+# =============================================================================
+def test_forecaster_equivalent_date_full_workflow():
+    """
+    Full workflow with the ForecasterEquivalentDate baseline: profile, plan,
+    create_cv and backtest. Validates metrics, predictions and code syntax.
+    """
+    profile = assistant.profile(
+        data=df_single, target="sales", date_column="date"
+    )
+    plan = assistant.plan(
+        profile, steps=5, forecaster="ForecasterEquivalentDate"
+    )
+    cv = assistant.create_cv(profile, plan).cv
+
+    result = assistant.backtest(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        cv=cv,
+        profile=profile,
+        plan=plan,
+    )
+
+    assert isinstance(result, BacktestResult)
+    assert result.plan.forecaster == "ForecasterEquivalentDate"
+    assert result.plan.task_type == "baseline"
+    # Linear series and offset 7: every prediction is off by exactly 7.
+    np.testing.assert_allclose(result.metrics["mean_absolute_error"], [7.0])
+    assert len(result.predictions) > 0
+    assert "backtesting_forecaster" in result.code
+    ast.parse(result.code)
+
 
 # =============================================================================
 # Tests: custom CV parameters flow through the full chain
@@ -243,7 +321,7 @@ def test_forecaster_stats_full_workflow():
     [
         ({"initial_train_size": 80}, "initial_train_size", 80),
         ({"refit": False}, "refit", False),
-        ({"fixed_train_size": True}, "fixed_train_size", True),
+        ({"refit": True, "fixed_train_size": True}, "fixed_train_size", True),
         ({"gap": 2}, "gap", 2),
     ],
     ids=["initial_train_size=80", "refit=False", "fixed_train_size=True", "gap=2"],

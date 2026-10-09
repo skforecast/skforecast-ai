@@ -1,0 +1,6 @@
+# setuptools-scm puts every file git tracks in the source distribution.
+# These stay in the repository and out of what is published to PyPI:
+# working notes, and the reports of the MCP agent check (megabytes of
+# traces of agent sessions, kept to compare releases).
+prune dev
+prune tools/mcp/agent_reports

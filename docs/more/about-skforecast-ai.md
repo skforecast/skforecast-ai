@@ -2,7 +2,7 @@
 
 ## History
 
-**skforecast-ai** was born from a simple idea: pair the robust, reproducible time series forecasting of the [`skforecast`](https://github.com/skforecast/skforecast) engine with the advanced reasoning capabilities of an LLM. What if an assistant could handle the complex decisions around forecasting, such as profiling data, selecting models, and evaluating metrics, while explicitly reasoning through each step? The result is a transparent, two-tier system: a deterministic, rule-based core that generates the exact, runnable script, elevated by an LLM layer that explains the strategic why behind every decision without ever altering the underlying math. The project builds directly on the mature skforecast ecosystem and grows alongside it.
+**skforecast-ai** comes from the team behind [skforecast](https://skforecast.org). Building a good forecasting model takes many decisions (the forecaster, the estimator, the lags and features, how to validate it), and most of them follow rules that experienced practitioners apply every day. skforecast-ai writes those rules down: a deterministic engine profiles the data, makes every decision with a rule you can read and returns the skforecast script that produced the forecast. An optional LLM explains those decisions, turns domain knowledge into features and a deployment scenario into a backtesting strategy, and never makes a decision on its own. The project builds on the mature skforecast ecosystem and grows alongside it.
 
 ## Governance
 
@@ -11,35 +11,10 @@
 
 ## Core Development Team
 
-[![!linkedin](https://img.shields.io/static/v1?logo=linkedin&label=LinkedIn&message=news&color=lightblue)](https://www.linkedin.com/company/skforecast/) [![Forecasting Python](https://img.shields.io/static/v1?logo=readme&logoColor=white&label=Blog&labelColor=%23333333&message=Forecasting%20Python&color=%23ffab40)](https://cienciadedatos.net/en/forecasting-python)
-
 Meet the core developers behind [skforecast-ai](https://github.com/skforecast/skforecast-ai).
 
 
-<div class="profile-container">
-
-  <div class="profile-card">
-    <div class="profile-avatar">
-      <img src="https://github.com/JoaquinAmatRodrigo.png" alt="Joaquín Amat Rodrigo">
-    </div>
-    <div class="profile-info">
-      <strong>Joaquín Amat Rodrigo</strong>
-      <a href="https://github.com/JoaquinAmatRodrigo" class="github-link" target="_blank" rel="noopener noreferrer">@JoaquinAmatRodrigo</a>
-      <a href="https://www.linkedin.com/in/joaquin-amat-rodrigo" class="linkedin-link" target="_blank" rel="noopener noreferrer">LinkedIn</a>
-    </div>
-  </div>
-
-  <div class="profile-card">
-    <div class="profile-avatar">
-      <img src="https://github.com/JavierEscobarOrtiz.png" alt="Javier Escobar Ortiz">
-    </div>
-    <div class="profile-info">
-      <strong>Javier Escobar Ortiz</strong>
-      <a href="https://github.com/JavierEscobarOrtiz" class="github-link" target="_blank" rel="noopener noreferrer">@JavierEscobarOrtiz</a>
-      <a href="https://www.linkedin.com/in/javier-escobar-ortiz" class="linkedin-link" target="_blank" rel="noopener noreferrer">LinkedIn</a>
-    </div>
-  </div>
-</div>
+--8<-- "team.html"
 
 
 ## Contributors
@@ -48,7 +23,7 @@ Meet the core developers behind [skforecast-ai](https://github.com/skforecast/sk
 
 View the full list of [contributors](https://github.com/skforecast/skforecast-ai/graphs/contributors) and their contributions to the project.
 
-Thank you for helping us make **skforecast-ai** better! 🎉
+Thank you for helping us make **skforecast-ai** better!
 
 ???+ note "Get Involved"
 
@@ -63,30 +38,25 @@ Thank you for helping us make **skforecast-ai** better! 🎉
 
 ## Citing skforecast-ai
 
-If you use **skforecast-ai** for a scientific publication, please cite it using the references below.
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21338159.svg)](https://doi.org/10.5281/zenodo.21338159)
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21338160.svg)](https://doi.org/10.5281/zenodo.21338159)
-
-**APA**
+If you use skforecast-ai in a scientific publication, please cite the version you used. Each version has its own DOI and ready-made citations (APA, BibTeX and others) on [Zenodo](https://doi.org/10.5281/zenodo.21338159). To cite skforecast-ai in general, use the DOI that always resolves to the latest release:
 
 ```
-Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.1) [Computer software]. https://doi.org/10.5281/zenodo.21338159
+Amat Rodrigo, J., & Escobar Ortiz, J. skforecast-ai [Computer software]. https://doi.org/10.5281/zenodo.21338159
 ```
 
-**BibTeX**
-
-```
+```bibtex
 @software{skforecast-ai,
   author  = {Amat Rodrigo, Joaquin and Escobar Ortiz, Javier},
   title   = {skforecast-ai},
-  version = {0.3.1},
-  month   = {9},
-  year    = {2026},
   license = {Apache-2.0},
   url     = {https://ai.skforecast.org/},
   doi     = {10.5281/zenodo.21338159}
 }
 ```
+
+The citation metadata is in [CITATION.cff](https://github.com/skforecast/skforecast-ai/blob/main/CITATION.cff), which GitHub also offers through its "Cite this repository" button.
 
 
 ## License
@@ -96,3 +66,7 @@ Amat Rodrigo, J., & Escobar Ortiz, J. (2026). skforecast-ai (Version 0.3.1) [Com
 **skforecast-ai software**: [Apache License 2.0](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE)
 
 The underlying [`skforecast`](https://github.com/skforecast/skforecast) engine is distributed under its own [BSD-3-Clause License](https://github.com/skforecast/skforecast/blob/main/LICENSE).
+
+**skforecast-ai documentation**: [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+
+**Trademark**: The trademark skforecast is registered with the European Union Intellectual Property Office (EUIPO) under the application number 019109684. Unauthorized use of this trademark, its logo, or any associated visual identity elements is strictly prohibited without the express consent of the owner.

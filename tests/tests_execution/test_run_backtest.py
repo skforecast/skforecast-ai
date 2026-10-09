@@ -1,10 +1,14 @@
 # Unit test run_backtest execution/backtesting_runner
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast_ai.exceptions import ForecastExecutionError
+from skforecast.model_selection import TimeSeriesFold
+
+from skforecast_ai import ForecastingAssistant
 from skforecast_ai.execution.backtesting_runner import run_backtest
 from skforecast_ai.schemas import ForecastPlan, RenderedScript
 
@@ -16,6 +20,7 @@ from .fixtures_execution import (
     df_multi,
     df_short,
     df_single,
+    plan_baseline,
     plan_multi,
     plan_short,
     plan_single,
@@ -57,22 +62,24 @@ def test_run_backtest_ValueError_when_unsupported_task_type():
         )
 
 
-def test_run_backtest_ForecastExecutionError_when_invalid_estimator():
+def test_run_backtest_ValueError_when_estimator_not_supported():
     """
-    Test that run_backtest raises ForecastExecutionError when the generated
-    code references an estimator that cannot be imported.
+    Test that run_backtest raises ValueError, before writing the name into
+    the script, for a plan whose estimator skipped validation (model_copy
+    does not run the ForecastPlan validator).
     """
     plan_bad = ForecastPlan(
         task_type="single_series",
         forecaster="ForecasterRecursive",
         forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
-        estimator="NonExistentEstimator",
+        estimator="Ridge",
         steps=5,
         frequency="D",
         explanation="Bad estimator for backtesting.",
-    )
+    ).model_copy(update={"estimator": "NonExistentEstimator"})
 
-    with pytest.raises((ValueError, ForecastExecutionError)):
+    err_msg = re.escape("'NonExistentEstimator' is not a supported estimator.")
+    with pytest.raises(ValueError, match=err_msg):
         run_backtest(
             data=df_single,
             profile=profile_single,
@@ -280,3 +287,52 @@ def test_run_backtest_short_series_runs_without_error():
     assert np.isfinite(result["metrics"]["mean_absolute_error"].iloc[0])
     assert "pred" in result["predictions"].columns
     assert len(result["predictions"]) == len(df_short) - cv_short.initial_train_size
+
+
+def test_run_backtest_baseline_returns_metrics_and_conformal_intervals():
+    """
+    Test that run_backtest runs the ForecasterEquivalentDate baseline with
+    conformal intervals and returns one metrics row plus the predictions.
+    """
+    result = run_backtest(
+        data           = df_single,
+        profile        = profile_single,
+        plan           = plan_baseline,
+        cv             = cv_single,
+        cv_explanation = cv_explanation_single,
+        show_progress  = False,
+    )
+
+    assert list(result["metrics"].columns) == [
+        "mean_absolute_error",
+        "mean_squared_error",
+        "mean_absolute_scaled_error",
+    ]
+    assert len(result["metrics"]) == 1
+    assert {"pred", "lower_bound", "upper_bound"} <= set(result["predictions"].columns)
+    assert "interval_method   = 'conformal'" in result["rendered_code"].core
+
+
+def test_run_backtest_show_progress_false_keeps_column_named_like_the_keyword():
+    """
+    Test that `show_progress=False` only rewrites the keyword line of the
+    backtesting call: an exogenous column named `'show_progress = True'`,
+    written in the script as a string literal, is still found.
+    """
+    assistant = ForecastingAssistant()
+    data = df_single.rename(columns={"promo": "show_progress = True"})
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    cv = TimeSeriesFold(steps=5, initial_train_size=60)
+
+    result = run_backtest(
+        data           = data,
+        profile        = profile.data_profile,
+        plan           = plan,
+        cv             = cv,
+        cv_explanation = "",
+        show_progress  = False,
+    )
+
+    assert "'show_progress = True'" in result["rendered_code"].full_script
+    assert len(result["predictions"]) == 140

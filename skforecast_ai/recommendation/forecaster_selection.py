@@ -7,11 +7,13 @@
 from __future__ import annotations
 from typing import Literal
 from .._constants import (
+    DEFAULT_FOUNDATION_MODEL_ID,
     FORECASTER_TASK_TYPES,
-    FREQUENCY_TO_SEASONAL_PERIOD,
     MAX_STATS_SEASONAL_PERIOD,
 )
 from ..schemas import DataProfile
+from ..exceptions import InvalidInputError
+from .autoregressive import arima_seasonal_period
 
 
 def _auto_arima_is_practical(frequency: str | None) -> bool:
@@ -19,8 +21,10 @@ def _auto_arima_is_practical(frequency: str | None) -> bool:
     Check whether an Auto-ARIMA search is affordable for a frequency.
 
     The search fits many seasonal state-space models, and its cost grows
-    with the seasonal period, so high-frequency data (hourly or finer,
-    weekly) makes it impractical.
+    with the seasonal period, so data with a long one (hourly or finer,
+    weekly) makes it impractical. A frequency that is not in
+    `FREQUENCY_TO_SEASONAL_PERIOD` never has a long one
+    (`MAX_UNTABULATED_ARIMA_PERIOD`).
 
     Parameters
     ----------
@@ -30,14 +34,11 @@ def _auto_arima_is_practical(frequency: str | None) -> bool:
     Returns
     -------
     is_practical : bool
-        `False` when the seasonal period implied by `frequency` reaches
-        `MAX_STATS_SEASONAL_PERIOD`, `True` otherwise (including unknown
-        frequencies).
+        `False` when the seasonal period of Auto-ARIMA for `frequency`
+        (`arima_seasonal_period`) reaches `MAX_STATS_SEASONAL_PERIOD`,
+        `True` otherwise (including frequencies without one).
     """
-    if frequency is None:
-        return True
-
-    m = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
+    m = arima_seasonal_period(frequency)
 
     return m is None or m < MAX_STATS_SEASONAL_PERIOD
 
@@ -67,6 +68,9 @@ def select_forecaster_and_candidates(
     `ForecasterStats` is only offered as a candidate when the seasonal
     period implied by the frequency keeps the Auto-ARIMA search
     affordable. It can still be selected explicitly in `plan()`.
+
+    `ForecasterDirectMultiVariate` is only offered for several series in
+    wide format: `plan()` rejects it on long-format data.
     """
     
     if profile.n_series > 1:
@@ -74,8 +78,13 @@ def select_forecaster_and_candidates(
         preferred = "ForecasterRecursiveMultiSeries"
         candidates = [
             "ForecasterRecursiveMultiSeries",
-            "ForecasterDirectMultiVariate"
-        ]            
+            "ForecasterDirectMultiVariate",
+            "ForecasterFoundation",
+        ]
+        # `plan()` rejects ForecasterDirectMultiVariate on long-format data
+        # with several series, whose generated script always failed.
+        if profile.data_format == "long":
+            candidates.remove("ForecasterDirectMultiVariate")
 
     else:
         
@@ -99,6 +108,7 @@ def select_task_type_from_forecaster(
     "multivariate",
     "statistical",
     "foundation",
+    "baseline",
 ]:
     """
     Resolve the task type implied by a selected forecaster.
@@ -114,7 +124,10 @@ def select_task_type_from_forecaster(
         Forecasting task category associated with `forecaster`.
     """
     if forecaster not in FORECASTER_TASK_TYPES:
-        raise ValueError(f"Unknown forecaster '{forecaster}'.")
+        raise InvalidInputError(
+            f"Unknown forecaster '{forecaster}'.",
+            field = "forecaster",
+        )
 
     return FORECASTER_TASK_TYPES[forecaster]
 
@@ -122,7 +135,7 @@ def select_task_type_from_forecaster(
 def select_estimator_and_candidates(
     task_type: str,
     n_observations: int,
-) -> tuple[str, list[str]]:
+) -> tuple[str | None, list[str]]:
     """
     Select the preferred estimator and ordered compatible candidates.
 
@@ -135,28 +148,31 @@ def select_estimator_and_candidates(
 
     Returns
     -------
-    preferred : str
-        Name of the recommended estimator class.
+    preferred : str, None
+        Name of the recommended estimator class. None for the baseline,
+        which has no estimator.
     candidates : list of str
         Ordered list of compatible estimator class names.
-        The first item matches `preferred`.
+        The first item matches `preferred`. Empty for the baseline.
 
     Notes
     -----
     Source: `skforecast_ai/skills/forecasting-single-series/SKILL.md`.
 
-    Foundation tasks always resolve to `'Chronos-2'`. It is the only
-    foundation backend wired into skforecast-ai, and the generated code
-    loads `autogluon/chronos-2-small`. The other backends supported by
-    skforecast (TimesFM, Moirai, TabICL, TabPFN-TS, T0) are reachable
-    only by overriding `estimator_kwargs['model_id']` in the plan.
+    For foundation tasks the estimator is the Hugging Face model ID of the
+    foundation model, and the default is `'autogluon/chronos-2-small'`. No
+    rule ranks the foundation models against each other; any other model
+    supported by skforecast is chosen by passing its ID as `estimator`.
     """
 
     if task_type == "statistical":
         return "Arima", ["Arima"]
     
     if task_type == "foundation":
-        return "Chronos-2", ["Chronos-2"]
+        return DEFAULT_FOUNDATION_MODEL_ID, [DEFAULT_FOUNDATION_MODEL_ID]
+
+    if task_type == "baseline":
+        return None, []
 
     if n_observations < 250:
         return "Ridge", ["Ridge", "RandomForestRegressor", "LGBMRegressor"]

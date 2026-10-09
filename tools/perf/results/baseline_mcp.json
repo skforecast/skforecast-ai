@@ -1,0 +1,901 @@
+{
+ "environment": {
+  "revision": "9cecadb",
+  "python": "3.11.15",
+  "machine": "x86_64",
+  "cpus": 4,
+  "skforecast_ai": "0.4.0",
+  "skforecast": "0.26.0",
+  "pandas": "2.3.3"
+ },
+ "mcp": {
+  "small": {
+   "dataset": "h2o",
+   "runs": 5,
+   "tools": {
+    "startup": {
+     "median": 2.587245,
+     "times": [
+      2.5386,
+      2.5872,
+      2.6172,
+      2.8187,
+      2.586
+     ]
+    },
+    "profile": {
+     "median": 0.040082,
+     "times": [
+      0.0903,
+      0.0363,
+      0.0339,
+      0.0437,
+      0.0401
+     ]
+    },
+    "plan": {
+     "median": 0.01657,
+     "times": [
+      0.0166,
+      0.0156,
+      0.0147,
+      0.0251,
+      0.0184
+     ]
+    },
+    "refine_plan": {
+     "median": 0.013358,
+     "times": [
+      0.0134,
+      0.0129,
+      0.0123,
+      0.0163,
+      0.0157
+     ]
+    },
+    "create_cv": {
+     "median": 0.027854,
+     "times": [
+      0.0279,
+      0.0261,
+      0.0271,
+      0.0414,
+      0.0293
+     ]
+    },
+    "backtest": {
+     "median": 0.112512,
+     "times": [
+      0.1125,
+      0.1278,
+      0.1108,
+      0.1475,
+      0.1075
+     ]
+    },
+    "compare": {
+     "median": 36.034451,
+     "times": [
+      35.2976,
+      36.3273,
+      36.1806,
+      36.0345,
+      34.9722
+     ]
+    },
+    "forecast": {
+     "median": 0.04693,
+     "times": [
+      0.0438,
+      0.0583,
+      0.0426,
+      0.0474,
+      0.0469
+     ]
+    },
+    "get_code": {
+     "median": 0.0061,
+     "times": [
+      0.0056,
+      0.006,
+      0.0061,
+      0.0061,
+      0.0062
+     ]
+    },
+    "get_failure": {
+     "median": 0.006179,
+     "times": [
+      0.0058,
+      0.006,
+      0.0065,
+      0.0062,
+      0.0063
+     ]
+    },
+    "list_objects": {
+     "median": 0.006594,
+     "times": [
+      0.0073,
+      0.0066,
+      0.0063,
+      0.0064,
+      0.0068
+     ]
+    },
+    "describe_object": {
+     "median": 0.009817,
+     "times": [
+      0.0099,
+      0.0101,
+      0.0095,
+      0.0098,
+      0.0095
+     ]
+    }
+   },
+   "profiled": {
+    "split": {
+     "builtins": 36.3531,
+     "other": 0.2067,
+     "skforecast_ai": 0.0034,
+     "pydantic": 0.0019
+    },
+    "own_share": 0.0,
+    "own_functions": [
+     {
+      "function": "mcp/server.py:783:_register",
+      "calls": 8,
+      "cumtime": 0.0028,
+      "share": 0.0,
+      "tottime": 0.0002
+     },
+     {
+      "function": "mcp/server.py:292:run",
+      "calls": 40,
+      "cumtime": 0.0024,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:869:profile",
+      "calls": 6,
+      "cumtime": 0.0023,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:334:wrapper",
+      "calls": 46,
+      "cumtime": 0.0023,
+      "share": 0.0,
+      "tottime": 0.0002
+     },
+     {
+      "function": "mcp/_runtime.py:291:run_call",
+      "calls": 42,
+      "cumtime": 0.0022,
+      "share": 0.0,
+      "tottime": 0.0003
+     },
+     {
+      "function": "mcp/_store.py:278:estimate_nbytes",
+      "calls": 495,
+      "cumtime": 0.0022,
+      "share": 0.0,
+      "tottime": 0.0011
+     },
+     {
+      "function": "mcp/_store.py:308:<genexpr>",
+      "calls": 179,
+      "cumtime": 0.002,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:941:_plan_envelope",
+      "calls": 3,
+      "cumtime": 0.0014,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:250:_heartbeat",
+      "calls": 21,
+      "cumtime": 0.0013,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_store.py:310:<genexpr>",
+      "calls": 132,
+      "cumtime": 0.001,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_runtime.py:330:emit",
+      "calls": 15,
+      "cumtime": 0.0009,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1392:compare",
+      "calls": 6,
+      "cumtime": 0.0008,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_store.py:314:<genexpr>",
+      "calls": 214,
+      "cumtime": 0.0008,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1623:forecast",
+      "calls": 6,
+      "cumtime": 0.0007,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1136:create_cv",
+      "calls": 6,
+      "cumtime": 0.0007,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:378:watch",
+      "calls": 14,
+      "cumtime": 0.0007,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1088:refine_plan",
+      "calls": 6,
+      "cumtime": 0.0006,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1000:plan",
+      "calls": 6,
+      "cumtime": 0.0006,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1316:backtest",
+      "calls": 6,
+      "cumtime": 0.0006,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:339:emit_event",
+      "calls": 8,
+      "cumtime": 0.0005,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:199:pre_parse_json",
+      "calls": 11,
+      "cumtime": 0.0002,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_errors.py:408:tool_error",
+      "calls": 1,
+      "cumtime": 0.0002,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_runtime.py:202:_call_gate",
+      "calls": 7,
+      "cumtime": 0.0002,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:409:build_notices",
+      "calls": 8,
+      "cumtime": 0.0001,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_store.py:191:get",
+      "calls": 9,
+      "cumtime": 0.0001,
+      "share": 0.0,
+      "tottime": 0.0001
+     }
+    ]
+   }
+  },
+  "medium": {
+   "dataset": "bike_sharing",
+   "runs": 5,
+   "tools": {
+    "startup": {
+     "median": 2.619601,
+     "times": [
+      2.6102,
+      2.75,
+      2.6196,
+      2.7135,
+      2.5329
+     ]
+    },
+    "profile": {
+     "median": 0.181581,
+     "times": [
+      0.19,
+      0.173,
+      0.1796,
+      0.2045,
+      0.1816
+     ]
+    },
+    "plan": {
+     "median": 0.016493,
+     "times": [
+      0.0168,
+      0.0158,
+      0.0187,
+      0.0165,
+      0.0161
+     ]
+    },
+    "refine_plan": {
+     "median": 0.013853,
+     "times": [
+      0.0184,
+      0.0135,
+      0.0157,
+      0.0139,
+      0.0133
+     ]
+    },
+    "create_cv": {
+     "median": 0.018973,
+     "times": [
+      0.0198,
+      0.0195,
+      0.019,
+      0.0188,
+      0.0181
+     ]
+    },
+    "backtest": {
+     "median": 1.817444,
+     "times": [
+      1.9029,
+      1.7998,
+      1.745,
+      1.8174,
+      2.071
+     ]
+    },
+    "compare": {
+     "median": 9.303454,
+     "times": [
+      9.3721,
+      8.7033,
+      8.7338,
+      9.3035,
+      9.4165
+     ]
+    },
+    "forecast": {
+     "median": 0.430111,
+     "times": [
+      0.4095,
+      0.3899,
+      0.4425,
+      0.4301,
+      0.6002
+     ]
+    },
+    "get_code": {
+     "median": 0.006679,
+     "times": [
+      0.0067,
+      0.0067,
+      0.0067,
+      0.0068,
+      0.0071
+     ]
+    },
+    "get_failure": {
+     "median": 0.007995,
+     "times": [
+      0.008,
+      0.0063,
+      0.0076,
+      0.0091,
+      0.0081
+     ]
+    },
+    "list_objects": {
+     "median": 0.007642,
+     "times": [
+      0.0076,
+      0.0067,
+      0.007,
+      0.0091,
+      0.0077
+     ]
+    },
+    "describe_object": {
+     "median": 0.01043,
+     "times": [
+      0.0104,
+      0.0104,
+      0.0116,
+      0.0105,
+      0.0099
+     ]
+    }
+   },
+   "profiled": {
+    "split": {
+     "builtins": 11.0403,
+     "other": 0.1871,
+     "skforecast_ai": 0.0035,
+     "pydantic": 0.0018
+    },
+    "own_share": 0.0,
+    "own_functions": [
+     {
+      "function": "mcp/server.py:783:_register",
+      "calls": 8,
+      "cumtime": 0.0032,
+      "share": 0.0,
+      "tottime": 0.0002
+     },
+     {
+      "function": "mcp/_store.py:278:estimate_nbytes",
+      "calls": 731,
+      "cumtime": 0.0028,
+      "share": 0.0,
+      "tottime": 0.0014
+     },
+     {
+      "function": "mcp/_store.py:308:<genexpr>",
+      "calls": 199,
+      "cumtime": 0.0026,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:941:_plan_envelope",
+      "calls": 3,
+      "cumtime": 0.0015,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_store.py:314:<genexpr>",
+      "calls": 442,
+      "cumtime": 0.0015,
+      "share": 0.0,
+      "tottime": 0.0002
+     },
+     {
+      "function": "mcp/server.py:292:run",
+      "calls": 40,
+      "cumtime": 0.0012,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_store.py:310:<genexpr>",
+      "calls": 128,
+      "cumtime": 0.0012,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_runtime.py:291:run_call",
+      "calls": 42,
+      "cumtime": 0.0011,
+      "share": 0.0,
+      "tottime": 0.0003
+     },
+     {
+      "function": "mcp/server.py:869:profile",
+      "calls": 6,
+      "cumtime": 0.0011,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:334:wrapper",
+      "calls": 46,
+      "cumtime": 0.0011,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1000:plan",
+      "calls": 6,
+      "cumtime": 0.0009,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1623:forecast",
+      "calls": 6,
+      "cumtime": 0.0007,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1088:refine_plan",
+      "calls": 6,
+      "cumtime": 0.0007,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1392:compare",
+      "calls": 6,
+      "cumtime": 0.0007,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1316:backtest",
+      "calls": 6,
+      "cumtime": 0.0007,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1136:create_cv",
+      "calls": 6,
+      "cumtime": 0.0006,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:330:emit",
+      "calls": 7,
+      "cumtime": 0.0004,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:250:_heartbeat",
+      "calls": 15,
+      "cumtime": 0.0003,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:378:watch",
+      "calls": 14,
+      "cumtime": 0.0003,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:339:emit_event",
+      "calls": 6,
+      "cumtime": 0.0003,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:199:pre_parse_json",
+      "calls": 11,
+      "cumtime": 0.0002,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_runtime.py:202:_call_gate",
+      "calls": 7,
+      "cumtime": 0.0002,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:409:build_notices",
+      "calls": 8,
+      "cumtime": 0.0001,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_store.py:191:get",
+      "calls": 9,
+      "cumtime": 0.0001,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/_store.py:162:add",
+      "calls": 8,
+      "cumtime": 0.0001,
+      "share": 0.0,
+      "tottime": 0.0
+     }
+    ]
+   }
+  },
+  "large": {
+   "dataset": "store_sales",
+   "runs": 1,
+   "tools": {
+    "startup": {
+     "median": 2.61103,
+     "times": [
+      2.611
+     ]
+    },
+    "profile": {
+     "median": 3.964346,
+     "times": [
+      3.9643
+     ]
+    },
+    "plan": {
+     "median": 0.038065,
+     "times": [
+      0.0381
+     ]
+    },
+    "refine_plan": {
+     "median": 0.031125,
+     "times": [
+      0.0311
+     ]
+    },
+    "create_cv": {
+     "median": 0.056066,
+     "times": [
+      0.0561
+     ]
+    },
+    "backtest": {
+     "median": 28.013777,
+     "times": [
+      28.0138
+     ]
+    },
+    "compare": {
+     "median": 68.343319,
+     "times": [
+      68.3433
+     ]
+    },
+    "forecast": {
+     "median": 8.868807,
+     "times": [
+      8.8688
+     ]
+    },
+    "get_code": {
+     "median": 0.00671,
+     "times": [
+      0.0067
+     ]
+    },
+    "get_failure": {
+     "median": 0.006686,
+     "times": [
+      0.0067
+     ]
+    },
+    "list_objects": {
+     "median": 0.007228,
+     "times": [
+      0.0072
+     ]
+    },
+    "describe_object": {
+     "median": 0.010081,
+     "times": [
+      0.0101
+     ]
+    }
+   },
+   "profiled": {
+    "split": {
+     "builtins": 107.8577,
+     "other": 0.2048,
+     "skforecast_ai": 0.08,
+     "pydantic": 0.0043
+    },
+    "own_share": 0.001,
+    "own_functions": [
+     {
+      "function": "mcp/server.py:783:_register",
+      "calls": 8,
+      "cumtime": 0.1192,
+      "share": 0.001,
+      "tottime": 0.0008
+     },
+     {
+      "function": "mcp/_store.py:278:estimate_nbytes",
+      "calls": 43725,
+      "cumtime": 0.118,
+      "share": 0.001,
+      "tottime": 0.0578
+     },
+     {
+      "function": "mcp/_store.py:308:<genexpr>",
+      "calls": 9161,
+      "cumtime": 0.1178,
+      "share": 0.001,
+      "tottime": 0.0031
+     },
+     {
+      "function": "mcp/_store.py:314:<genexpr>",
+      "calls": 26478,
+      "cumtime": 0.0745,
+      "share": 0.001,
+      "tottime": 0.0095
+     },
+     {
+      "function": "mcp/_store.py:310:<genexpr>",
+      "calls": 7118,
+      "cumtime": 0.0425,
+      "share": 0.0,
+      "tottime": 0.0046
+     },
+     {
+      "function": "mcp/_store.py:307:<listcomp>",
+      "calls": 2009,
+      "cumtime": 0.0036,
+      "share": 0.0,
+      "tottime": 0.0018
+     },
+     {
+      "function": "mcp/_runtime.py:250:_heartbeat",
+      "calls": 33,
+      "cumtime": 0.003,
+      "share": 0.0,
+      "tottime": 0.0004
+     },
+     {
+      "function": "mcp/server.py:292:run",
+      "calls": 40,
+      "cumtime": 0.002,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:869:profile",
+      "calls": 6,
+      "cumtime": 0.0018,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:334:wrapper",
+      "calls": 46,
+      "cumtime": 0.0018,
+      "share": 0.0,
+      "tottime": 0.0002
+     },
+     {
+      "function": "mcp/_runtime.py:291:run_call",
+      "calls": 42,
+      "cumtime": 0.0017,
+      "share": 0.0,
+      "tottime": 0.0003
+     },
+     {
+      "function": "mcp/_runtime.py:330:emit",
+      "calls": 24,
+      "cumtime": 0.0012,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:941:_plan_envelope",
+      "calls": 3,
+      "cumtime": 0.0012,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1623:forecast",
+      "calls": 6,
+      "cumtime": 0.0009,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1088:refine_plan",
+      "calls": 6,
+      "cumtime": 0.0009,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1000:plan",
+      "calls": 6,
+      "cumtime": 0.0009,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1392:compare",
+      "calls": 6,
+      "cumtime": 0.0008,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1316:backtest",
+      "calls": 6,
+      "cumtime": 0.0008,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:1136:create_cv",
+      "calls": 6,
+      "cumtime": 0.0007,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:605:_check_steps",
+      "calls": 2,
+      "cumtime": 0.0005,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:630:<genexpr>",
+      "calls": 1002,
+      "cumtime": 0.0004,
+      "share": 0.0,
+      "tottime": 0.0004
+     },
+     {
+      "function": "mcp/_runtime.py:378:watch",
+      "calls": 14,
+      "cumtime": 0.0004,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:202:_call_gate",
+      "calls": 7,
+      "cumtime": 0.0003,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/_runtime.py:339:emit_event",
+      "calls": 6,
+      "cumtime": 0.0003,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "mcp/server.py:199:pre_parse_json",
+      "calls": 11,
+      "cumtime": 0.0002,
+      "share": 0.0,
+      "tottime": 0.0001
+     }
+    ]
+   }
+  }
+ }
+}

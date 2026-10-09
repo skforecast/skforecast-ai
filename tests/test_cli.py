@@ -1,18 +1,36 @@
 # Unit test cli skforecast_ai
 
 import ast
+import io
 import json
 import re
+import warnings
 
+import numpy as np
 import pandas as pd
 import pytest
 import typer
 from typer.testing import CliRunner
+from skforecast.exceptions.exceptions import rich_warning_handler
 
-from skforecast_ai.cli import app, _parse_initial_train_size, _parse_lags
+from skforecast_ai.cli import (
+    app,
+    _parse_decisions,
+    _parse_exog_columns,
+    _parse_initial_train_size,
+    _parse_lags,
+    _report_error,
+    _showwarning_to_stderr,
+)
+from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.assistant import ForecastingAssistant
 
-from .fixtures_assistant import df_single, df_multi_long, df_multi_wide
+from .fixtures_assistant import (
+    df_categorical_exog,
+    df_multi_long,
+    df_multi_wide,
+    df_single,
+)
 
 runner = CliRunner()
 
@@ -229,6 +247,20 @@ class TestPlan:
         assert data["plan"]["interval"] == [0.1, 0.9]
         assert data["plan"]["interval_method"] is not None
 
+    def test_plan_invalid_interval(self, tmp_path):
+        """
+        Plan with a non-numeric --interval reports the expected format
+        instead of a raw conversion error.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "10", "--interval", "low,high"],
+        )
+        assert result.exit_code != 0
+        assert "Interval must be two comma-separated quantiles" in result.output
+
     def test_plan_missing_steps(self, tmp_path):
         """
         Plan without --steps shows error.
@@ -264,12 +296,52 @@ class TestPlan:
         result = runner.invoke(
             app,
             ["plan", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--estimator-kwargs", '{"n_estimators": 200}',
+             "--steps", "10", "--estimator-kwargs", '{"alpha": 2.0}',
              "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["plan"]["estimator_kwargs"]["n_estimators"] == 200
+        assert data["plan"]["estimator_kwargs"]["alpha"] == 2.0
+
+    def test_plan_json_includes_plan_warnings(self, tmp_path):
+        """
+        Plan --format json carries the warnings of plan() in
+        `plan.warnings`, with the text of the warning emitted.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with pytest.warns(UserWarning, match="not a named parameter"):
+            result = runner.invoke(
+                app,
+                ["plan", csv_path, "--target", "sales", "--date-column", "date",
+                 "--steps", "10", "--estimator", "LGBMRegressor",
+                 "--estimator-kwargs", '{"n_estimatorz": 10}',
+                 "--format", "json", "--quiet"],
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["plan"]["warnings"] == [
+            "'n_estimatorz' is not a named parameter of LGBMRegressor. It is "
+            "passed to the library as an extra parameter, which ignores it "
+            "without an error if it does not exist. Did you mean "
+            "'n_estimators'?"
+        ]
+
+    def test_plan_table_without_plan_warnings_panel(self, tmp_path):
+        """
+        Plan table output leaves out the "Plan Warnings" panel of the
+        display, since the CLI already prints each warning.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with pytest.warns(UserWarning, match="not a named parameter"):
+            result = runner.invoke(
+                app,
+                ["plan", csv_path, "--target", "sales", "--date-column", "date",
+                 "--steps", "10", "--estimator", "LGBMRegressor",
+                 "--estimator-kwargs", '{"n_estimatorz": 10}', "--quiet"],
+            )
+        assert result.exit_code == 0
+        assert "Forecast Plan" in result.output
+        assert "Plan Warnings" not in result.output
 
     def test_plan_estimator_kwargs_invalid_json(self, tmp_path):
         """
@@ -398,11 +470,42 @@ class TestGenerateCode:
         result = runner.invoke(
             app,
             ["forecast-code", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "10", "--estimator-kwargs", '{"n_estimators": 300}',
+             "--steps", "10", "--estimator-kwargs", '{"alpha": 3.0}',
              "--quiet"],
         )
         assert result.exit_code == 0
-        assert "n_estimators" in result.output
+        assert "alpha=3.0" in result.output
+
+    @pytest.mark.parametrize("command", ["forecast-code", "backtest-code"])
+    def test_code_from_plan_loads_data_argument(self, tmp_path, command):
+        """
+        forecast-code and backtest-code with --from-plan write into the script
+        the DATA argument, the file to run it on, not the file of the bundle:
+        forecast-code ignored DATA and wrote the bundle's path, unlike
+        backtest-code and the Python API.
+        """
+        first = _write_csv(tmp_path, df_single, name="first.csv")
+        second = _write_csv(tmp_path, df_single, name="second.csv")
+        plan_result = runner.invoke(
+            app,
+            ["plan", first, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.output)
+        output = tmp_path / "script.py"
+
+        result = runner.invoke(
+            app,
+            [command, second, "--from-plan", str(plan_file),
+             "--output", str(output), "--quiet"],
+        )
+
+        assert result.exit_code == 0, result.output
+        code = output.read_text()
+        assert f"pd.read_csv({second!r}" in code
+        assert "first.csv" not in code
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +524,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--quiet"],
+             "--steps", "5", "--test-size", "5", "--quiet"],
         )
         assert result.exit_code == 0
         assert "MAE" in result.output
@@ -435,7 +538,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "5", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -453,7 +556,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--output-predictions", str(preds_path), "--quiet"],
+             "--steps", "5", "--test-size", "5", "--output-predictions", str(preds_path), "--quiet"],
         )
         assert result.exit_code == 0
         assert preds_path.exists()
@@ -470,7 +573,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--output-code", str(code_path), "--quiet"],
+             "--steps", "5", "--test-size", "5", "--output-code", str(code_path), "--quiet"],
         )
         assert result.exit_code == 0
         assert code_path.exists()
@@ -485,7 +588,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "5", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -522,7 +625,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "0.2", "--estimator", "RandomForestRegressor",
+             "--steps", "5", "--test-size", "5", "--estimator", "RandomForestRegressor",
              "--estimator-kwargs", '{"n_estimators": 150, "random_state": 123}',
              "--format", "json", "--quiet"],
         )
@@ -539,7 +642,7 @@ class TestForecast:
         result = runner.invoke(
             app,
             ["forecast", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--test-size", "20", "--format", "json", "--quiet"],
+             "--steps", "5", "--test-size", "5", "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -616,6 +719,96 @@ class TestForecast:
         assert [p["pred"] for p in direct_preds] == [
             p["pred"] for p in from_plan_preds
         ]
+
+    def test_forecast_exog_dates_not_in_first_column(self, tmp_path):
+        """
+        --exog reads the dates of a CSV whose first column holds a horizon
+        counter: the dates are found as the data loader finds them, and the
+        first column is left out, as `index_col=0` took it as the index in
+        0.3.1.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+        exog_future = pd.DataFrame(
+            {"h": range(1, 6), "date": future_dates,
+             "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        )
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--steps", "5",
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(json.loads(result.output)["predictions"]) == 5
+
+    def test_forecast_exog_error_when_date_column_missing_from_exog(self, tmp_path):
+        """
+        --date-column names a column the exog CSV does not have: the error
+        names it and lists the columns of the file (it printed only the raw
+        KeyError before).
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        exog_future = pd.DataFrame(
+            {"day": pd.date_range("2023-04-11", periods=5), "promo": 0.0}
+        )
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog", exog_path, "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert (
+            "has no column 'date'; its columns are ['day', 'promo']."
+            in " ".join(result.output.split())
+        )
+
+    def test_forecast_exog_error_when_future_dates_have_gap(self, tmp_path):
+        """
+        --exog with a date missing from the horizon raises before running,
+        with the missing date, instead of forecasting with a missing value.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        future_dates = pd.date_range("2023-04-11", periods=6, freq="D").delete(2)
+        exog_future = pd.DataFrame(
+            {"date": future_dates, "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        )
+        exog_path = _write_csv(tmp_path, exog_future, name="future_exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog", exog_path, "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert "`exog` has no row for 1 of the 5 dates to forecast, such as " \
+            "2023-04-13." in " ".join(result.output.split())
+
+    def test_forecast_error_when_data_has_final_rows_without_target(self, tmp_path):
+        """
+        A CSV with future rows appended to carry the exogenous variables (an
+        empty target) raises, naming those rows, before --exog is checked: it
+        said that the exog started before the first date to forecast.
+        """
+        future = pd.DataFrame({
+            "date": pd.date_range("2023-04-11", periods=5, freq="D"),
+            "sales": np.nan,
+            "promo": [0.0, 1.0, 0.0, 1.0, 0.0],
+        })
+        csv_path = _write_csv(tmp_path, pd.concat([df_single, future]))
+        exog_path = _write_csv(
+            tmp_path, future[["date", "promo"]], name="future_exog.csv"
+        )
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--exog", exog_path, "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert (
+            "The data has no target value after 2023-04-10: drop its last 5 "
+            "row(s) (2023-04-11 to 2023-04-15)" in " ".join(result.output.split())
+        )
 
 
 
@@ -853,6 +1046,89 @@ class TestBacktestCodeCVOptions:
         assert result.exit_code == 0, result.output
         return out.read_text()
 
+    def test_backtest_code_exit_code_1_when_direct_forecaster_with_gap(
+        self, tmp_path
+    ):
+        """
+        A direct forecaster with --gap exits with code 1 and the message of
+        backtest_code(): the script would fail. The warning of create_cv()
+        about the same problem is not shown (warnings are errors here).
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest-code", csv_path, "--target", "sales", "--date-column",
+             "date", "--steps", "5", "--forecaster", "ForecasterDirect",
+             "--gap", "2", "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+            "each fold needs steps + gap = 7 steps ahead"
+        ) in " ".join(result.output.split())
+
+    def test_backtest_exit_code_1_when_direct_forecaster_with_gap(self, tmp_path):
+        """
+        `backtest` with a direct forecaster and --gap exits with code 1 and
+        the message of backtest(), without the warning of create_cv().
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--forecaster", "ForecasterDirect", "--gap", "2",
+             "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
+            "each fold needs steps + gap = 7 steps ahead"
+        ) in " ".join(result.output.split())
+
+    def test_backtest_exit_code_1_when_first_window_shorter_than_forecaster(
+        self, tmp_path
+    ):
+        """
+        `backtest` with a horizon that leaves the first training window
+        shorter than the window of the forecaster exits with code 1 and the
+        message of backtest(), without the warning of create_cv().
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--lags", "30", "--initial-train-size", "30",
+             "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "The first training window of the strategy has 30 observations, "
+            "and ForecasterRecursive needs at least 31 (more than its window "
+            "size, 30)"
+        ) in " ".join(result.output.split())
+
+    def test_backtest_code_fails_when_first_window_shorter_than_forecaster(
+        self, tmp_path
+    ):
+        """
+        `backtest-code` exits with code 1, as `backtest` does, for a strategy
+        whose first training window is shorter than the forecaster needs:
+        the script would fail.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest-code", csv_path, "--target", "sales", "--date-column",
+             "date", "--steps", "5", "--lags", "30",
+             "--initial-train-size", "30", "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert "The first training window of the strategy has 30" in result.stderr
+
     def test_backtest_code_forwards_no_refit(self, tmp_path):
         """
         --no-refit reaches create_cv() and the generated script disables
@@ -865,19 +1141,20 @@ class TestBacktestCodeCVOptions:
         """
         --fixed-train-size reaches create_cv() and the generated script uses
         a rolling training window; it used to be dropped for matching the
-        CLI default.
+        CLI default. It is passed with --refit because the training window
+        only matters, and is only written, when the model is refitted.
         """
-        code = self._generate(tmp_path, "--fixed-train-size")
+        code = self._generate(tmp_path, "--refit", "--fixed-train-size")
         assert re.search(r"fixed_train_size\s+= True,", code)
 
     def test_backtest_code_defaults_leave_cv_to_assistant(self, tmp_path):
         """
-        Without CV flags the deterministic defaults apply (refit every fold,
-        expanding window).
+        Without CV flags the deterministic defaults apply: the model is
+        trained once, so the training window is not written.
         """
         code = self._generate(tmp_path)
-        assert re.search(r"refit\s+= True,", code)
-        assert re.search(r"fixed_train_size\s+= False,", code)
+        assert re.search(r"refit\s+= False,", code)
+        assert "fixed_train_size" not in code
 
     def test_backtest_code_accepts_date_initial_train_size(self, tmp_path):
         """
@@ -995,17 +1272,53 @@ class TestBacktest:
         assert "code" in data
         assert "explanation" in data
 
+    def test_backtest_json_records_the_cv_options_passed(self, tmp_path):
+        """
+        Backtest --format json lists in `cv_overridden_fields` the strategy
+        options given on the command line, in the canonical order, and the
+        explanation of the defaults says they were requested; without
+        options the list is empty and the defaults are explained.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        base = ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--format", "json", "--quiet"]
+
+        with_options = runner.invoke(app, [*base, "--gap", "1", "--refit"])
+        without_options = runner.invoke(app, base)
+
+        assert with_options.exit_code == 0, with_options.output
+        assert without_options.exit_code == 0, without_options.output
+        data = json.loads(with_options.output)
+        assert data["cv_overridden_fields"] == ["refit", "gap"]
+        assert data["cv_fields_without_effect"] == []
+        assert data["cv_llm_configured"] is False
+        assert data["cv_defaults_explanation"] == (
+            "Initial training size by default: 70% of the 100 observations "
+            "(70), up to 2023-03-11. `refit` and `gap` as requested."
+        )
+        default = json.loads(without_options.output)
+        assert default["cv_overridden_fields"] == []
+        assert default["cv_fields_without_effect"] == []
+        assert default["cv_defaults_explanation"] == (
+            "Initial training size by default: 70% of the 100 observations "
+            "(70), up to 2023-03-11. Trained once by default: refitting in "
+            "every fold would multiply the training cost by the 6 folds."
+        )
+
     def test_backtest_interval_produces_interval_columns(self, tmp_path):
         """
         Backtest --interval produces prediction interval columns
         (lower_bound/upper_bound) in the JSON predictions output.
         """
         csv_path = _write_csv(tmp_path, df_single)
-        result = runner.invoke(
-            app,
-            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "5", "--interval", "0.1,0.9", "--format", "json", "--quiet"],
-        )
+        # The default strategy leaves 49 rows for the intervals (create_cv warns).
+        with pytest.warns(UserWarning, match="the prediction intervals are estimated"):
+            result = runner.invoke(
+                app,
+                ["backtest", csv_path, "--target", "sales", "--date-column",
+                 "date", "--steps", "5", "--interval", "0.1,0.9", "--format",
+                 "json", "--quiet"],
+            )
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         predictions = data["predictions"]
@@ -1143,6 +1456,30 @@ class TestCompare:
         assert "Comparison Results" in result.output
         assert "Cross-Validation Configuration" in result.output
 
+    def test_compare_adds_baseline_by_default(self, tmp_path):
+        """
+        Compare adds the seasonal naive baseline row unless --no-baseline is
+        passed.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        args = ["compare", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--initial-train-size", "70",
+                "--candidates", self._candidates, "--format", "json", "--quiet"]
+
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["baseline_name"] == "Baseline (seasonal naive)"
+        assert [row["name"] for row in data["results"]] == [
+            "rec", "dir", "Baseline (seasonal naive)"
+        ]
+
+        result = runner.invoke(app, [*args, "--no-baseline"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["baseline_name"] is None
+        assert [row["name"] for row in data["results"]] == ["rec", "dir"]
+
     def test_compare_json_format(self, tmp_path):
         """
         Compare --format json outputs valid JSON with expected keys.
@@ -1152,7 +1489,7 @@ class TestCompare:
             app,
             ["compare", csv_path, "--target", "sales", "--date-column", "date",
              "--steps", "5", "--initial-train-size", "70",
-             "--candidates", self._candidates,
+             "--candidates", self._candidates, "--no-baseline",
              "--format", "json", "--quiet"],
         )
         assert result.exit_code == 0, result.output
@@ -1166,6 +1503,34 @@ class TestCompare:
         assert "explanation" in data
         assert len(data["results"]) == 2
         assert data["best_name"] in data["candidates"]
+
+    def test_compare_json_records_the_cv_options_passed(self, tmp_path):
+        """
+        Compare --format json lists in `cv_overridden_fields` the strategy
+        options given on the command line and says the strategy was created
+        for the plan; without options the list is empty.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        base = ["compare", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--candidates", self._candidates, "--no-baseline",
+                "--format", "json", "--quiet"]
+
+        with_options = runner.invoke(app, [*base, "--refit"])
+        without_options = runner.invoke(app, base)
+
+        assert with_options.exit_code == 0, with_options.output
+        assert without_options.exit_code == 0, without_options.output
+        data = json.loads(with_options.output)
+        assert data["cv_overridden_fields"] == ["refit"]
+        assert data["cv_fields_without_effect"] == []
+        assert data["cv_defaults_explanation"] == (
+            "The strategy was created for the plan (ForecasterRecursive + "
+            "Ridge). Initial training size by default: 70% of the 100 "
+            "observations (70), up to 2023-03-11. `refit` as requested."
+        )
+        default = json.loads(without_options.output)
+        assert default["cv_overridden_fields"] == []
+        assert default["cv_fields_without_effect"] == []
 
     def test_compare_output_code_writes_winning_script(self, tmp_path):
         """
@@ -1232,3 +1597,726 @@ class TestCompare:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["ranking_metric"] == "mean_absolute_scaled_error"
+
+
+# ---------------------------------------------------------------------------
+# Warnings go to stderr
+# ---------------------------------------------------------------------------
+
+
+class TestWarningsToStderr:
+    """Tests for the warning handler that the CLI sends to stderr."""
+
+    def test_backtest_json_stdout_parseable_when_skforecast_warning(self, tmp_path):
+        """
+        A skforecast warning (rich panel printed on stdout by skforecast's own
+        handler) goes to stderr with its format, so the JSON document on
+        stdout stays parseable.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        with warnings.catch_warnings():
+            warnings.simplefilter("always")
+            warnings.showwarning = rich_warning_handler
+            result = runner.invoke(
+                app,
+                ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+                 "--steps", "1", "--initial-train-size", "40", "--refit",
+                 "--format", "json", "--quiet"],
+            )
+            handler_after = warnings.showwarning
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert "metrics" in payload
+        assert "LongTrainingWarning" in result.stderr
+        assert "LongTrainingWarning" not in result.stdout
+        assert handler_after is rich_warning_handler
+
+    def test_showwarning_to_stderr_keeps_explicit_file(self, capsys):
+        """
+        A warning shown on an explicit file is written there, not to stderr.
+        """
+        def file_handler(message, category, filename, lineno, file=None, line=None):
+            print(f"shown: {message}", file=file)
+
+        buffer = io.StringIO()
+        handler = _showwarning_to_stderr(file_handler)
+        handler(UserWarning("to the file"), UserWarning, "f.py", 1, file=buffer)
+        captured = capsys.readouterr()
+        assert "to the file" in buffer.getvalue()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_showwarning_to_stderr_sends_stdout_to_stderr(self, capsys):
+        """
+        A handler that prints on stdout writes to stderr once wrapped.
+        """
+        def printing_handler(message, category, filename, lineno, file=None, line=None):
+            print(f"shown: {message}")
+
+        handler = _showwarning_to_stderr(printing_handler)
+        handler(UserWarning("panel"), UserWarning, "f.py", 1)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == "shown: panel\n"
+
+    def test_main_keeps_handler_when_already_wrapped(self):
+        """
+        A handler already wrapped (a command invoked from another one) is
+        neither wrapped again nor replaced when the command ends.
+        """
+        wrapped = _showwarning_to_stderr(rich_warning_handler)
+        with warnings.catch_warnings():
+            warnings.showwarning = wrapped
+            result = runner.invoke(app, ["config", "path"])
+            assert warnings.showwarning is wrapped
+        assert result.exit_code == 0, result.output
+
+    def test_main_leaves_handler_for_mcp(self, monkeypatch):
+        """
+        The `mcp` command keeps the handler it finds: the server records
+        warnings itself in a worker thread.
+        """
+        seen = {}
+
+        def fake_run_server(**kwargs):
+            seen["handler"] = warnings.showwarning
+
+        monkeypatch.setattr("skforecast_ai.mcp.server.run_server", fake_run_server)
+        with warnings.catch_warnings():
+            warnings.showwarning = rich_warning_handler
+            result = runner.invoke(app, ["mcp", "--allow-dir", "/tmp"])
+        assert result.exit_code == 0, result.output
+        assert seen["handler"] is rich_warning_handler
+
+
+# ---------------------------------------------------------------------------
+# Error contract
+# ---------------------------------------------------------------------------
+
+
+def _write_plan_bundle(tmp_path, csv_path, steps=5):
+    """Write the JSON bundle of `plan` for df_single and return its path."""
+    result = runner.invoke(
+        app,
+        ["plan", csv_path, "--target", "sales", "--date-column", "date",
+         "--steps", str(steps), "--format", "json", "--quiet"],
+    )
+    assert result.exit_code == 0, result.output
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(result.stdout)
+    return str(plan_file)
+
+
+class TestErrorContract:
+    """Tests for how the CLI reports errors."""
+
+    def test_error_on_stderr_with_brackets_kept(self, tmp_path):
+        """
+        An error goes to stderr, with text in brackets kept: rich markup
+        used to eat `[lower, upper]`.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--interval", "0.9,0.1", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "Error: `interval` must be `[lower, upper]` with 0 < lower" in result.stderr
+
+    def test_error_json_object_on_stderr_when_format_json(self, tmp_path):
+        """
+        With --format json an error is a JSON object `{"error": {...}}` with
+        the fields of `ErrorInfo`, on stderr; stdout stays empty.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "missing", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        payload = json.loads(result.stderr)
+        assert list(payload) == ["error"]
+        assert set(payload["error"]) == {"code", "message", "field", "hint"}
+        assert payload["error"]["code"] == "invalid_argument"
+        assert payload["error"]["field"] == "target"
+
+    def test_error_json_when_required_option_missing(self, tmp_path):
+        """
+        A missing required option is reported like any other error: code 1
+        and, with --format json, the JSON object naming the option.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": "--steps is required.",
+                "field": "steps",
+                "hint": None,
+            }
+        }
+
+    def test_error_json_when_no_llm(self, monkeypatch):
+        """
+        Without an LLM, the JSON error carries the CLI message that says how
+        to configure one.
+        """
+        monkeypatch.delenv("SKFORECAST_AI_LLM", raising=False)
+        monkeypatch.setattr("skforecast_ai.cli.get_config_value", lambda key: None)
+        result = runner.invoke(app, ["ask", "Why?", "--format", "json"])
+        assert result.exit_code == 1
+        payload = json.loads(result.stderr)["error"]
+        assert payload["code"] == "llm_required"
+        assert payload["message"] == (
+            "No LLM configured. Set the SKFORECAST_AI_LLM environment variable "
+            "or use the --llm flag."
+        )
+
+    def test_error_json_when_bundle_does_not_validate(self, tmp_path):
+        """
+        A bundle that does not validate is `invalid_argument` with the tip of
+        the text output as `hint`.
+        """
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps({"profile": {}, "plan": {}}))
+        result = runner.invoke(
+            app, ["forecast-code", "--from-plan", str(plan_file), "--format", "json"]
+        )
+        assert result.exit_code == 1
+        payload = json.loads(result.stderr)["error"]
+        assert payload["code"] == "invalid_argument"
+        assert payload["hint"] == (
+            "Use --format json with the source command to produce valid input."
+        )
+
+    def test_error_json_when_csv_is_empty(self, tmp_path):
+        """
+        `profile` of an empty CSV with --format json reports the code
+        'data_unreadable', the field 'data' and the hint on stderr.
+        """
+        csv_path = tmp_path / "empty.csv"
+        csv_path.write_bytes(b"")
+        result = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "sales", "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "data_unreadable",
+                "message": (
+                    f"The CSV file '{csv_path}' could not be read: No columns "
+                    f"to parse from file"
+                ),
+                "field": "data",
+                "hint": (
+                    "Pass a comma-separated text file in UTF-8 with a header "
+                    "row, and the same number of fields in every row."
+                ),
+            }
+        }
+
+    def test_error_text_shows_tip_when_csv_is_empty(self, tmp_path):
+        """
+        In text mode the hint of the error is shown after "Tip: " on stderr.
+        """
+        csv_path = tmp_path / "empty.csv"
+        csv_path.write_bytes(b"")
+        result = runner.invoke(
+            app, ["profile", str(csv_path), "--target", "sales", "--quiet"]
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert (
+            "Tip: Pass a comma-separated text file in UTF-8 with a header "
+            "row, and the same number of fields in every row."
+        ) in " ".join(result.stderr.split())
+
+    def test_report_error_execution_tip(self, capsys):
+        """
+        A failed script points to the `*-code` commands: `--output-code` is
+        only written when the command succeeds.
+        """
+        error = ForecastExecutionError(
+            original_error      = ValueError("boom"),
+            generated_code      = "x = 1",
+            execution_traceback = "Traceback",
+        )
+        _report_error(error, json_errors=False)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Execution Error:" in captured.err
+        assert (
+            "Tip: Run forecast-code or backtest-code with the same options to "
+            "get the script that failed."
+        ) in " ".join(captured.err.split())
+
+        _report_error(error, json_errors=True)
+        payload = json.loads(capsys.readouterr().err)["error"]
+        assert payload["code"] == "execution_failed"
+        assert payload["hint"].startswith("Run forecast-code or backtest-code")
+
+    @pytest.mark.parametrize(
+        "command, value",
+        [("forecast", "code"), ("forecast-code", "table"), ("ask", "code"),
+         ("plan", "xml")],
+    )
+    def test_format_invalid_value_exit_2(self, command, value):
+        """
+        `--format` only accepts the values of the command: any other is a
+        usage error (exit code 2) instead of the default output.
+        """
+        result = runner.invoke(app, [command, "data.csv", "--format", value])
+        assert result.exit_code == 2
+        assert "Invalid value for '--format'" in result.output
+
+    @pytest.mark.parametrize(
+        "command", ["forecast", "forecast-code", "backtest", "backtest-code"],
+    )
+    def test_steps_different_from_plan_raises(self, tmp_path, command):
+        """
+        `--steps` with `--from-plan` must match the steps of the plan, as in
+        Python: it was ignored and the plan's horizon used.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        result = runner.invoke(
+            app,
+            [command, csv_path, "--from-plan", plan_file, "--steps", "3",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": (
+                    "--steps (3) does not match the steps of the plan in "
+                    "--from-plan (5). Omit --steps to use the plan's horizon, "
+                    "or change it with `refine-plan --steps`."
+                ),
+                "field": "steps",
+                "hint": None,
+            }
+        }
+
+    @pytest.mark.parametrize("command", ["forecast", "backtest"])
+    def test_data_of_another_structure_than_plan_raises(self, tmp_path, command):
+        """
+        Data passed with `--from-plan` whose structure differs from the
+        profile of the bundle (an exogenous column is missing) exit with
+        code 1 and say how they differ.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        new_csv = _write_csv(
+            tmp_path, df_single.drop(columns="promo"), name="new.csv"
+        )
+        result = runner.invoke(
+            app,
+            [command, new_csv, "--from-plan", plan_file, "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": (
+                    "The data do not have the structure of the profile passed "
+                    "(exog_columns: ['promo'] != []): profile these data and "
+                    "build the plan from that profile."
+                ),
+                "field": "profile",
+                "hint": (
+                    "Profile these data again and build the plan from that "
+                    "profile."
+                ),
+            }
+        }
+
+    def test_steps_different_from_plan_raises_ask(self, tmp_path):
+        """
+        `ask --from-plan` rejects a different `--steps` before calling the LLM.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        result = runner.invoke(
+            app,
+            ["ask", "Why?", "--from-plan", plan_file, "--steps", "3",
+             "--llm", "test", "--format", "json"],
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr)["error"]["field"] == "steps"
+
+    def test_steps_equal_to_plan_runs(self, tmp_path):
+        """
+        `--steps` equal to the steps of the plan is accepted.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        plan_file = _write_plan_bundle(tmp_path, csv_path, steps=5)
+        result = runner.invoke(
+            app,
+            ["forecast-code", csv_path, "--from-plan", plan_file, "--steps", "5",
+             "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+
+    @pytest.mark.parametrize(
+        "bundle, missing",
+        [({"plan": {}}, "'profile'"), ([1], "'profile' or 'plan'")],
+        ids=["no_profile", "not_an_object"],
+    )
+    def test_error_json_when_bundle_has_no_profile(self, tmp_path, bundle, missing):
+        """
+        A `--from-plan` input without a profile or a plan, or that is not a
+        JSON object, is an invalid argument naming what is missing, not an
+        internal `KeyError` or `TypeError`.
+        """
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(json.dumps(bundle))
+        result = runner.invoke(
+            app, ["forecast-code", "--from-plan", str(plan_file), "--format", "json"]
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": (
+                    f"The --from-plan input has no {missing}: pass the file "
+                    f"written by `plan` or `refine-plan` with --format json."
+                ),
+                "field": "from_plan",
+                "hint": None,
+            }
+        }
+
+    def test_error_json_when_option_value_rejected(self, tmp_path):
+        """
+        A value that an option parser rejects keeps exit code 2 and, with
+        --format json, is the JSON object too; without it, the usage error
+        of the parser.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        args = ["forecast-code", csv_path, "--target", "sales", "--steps", "3",
+                "--interval", "0.1"]
+        result = runner.invoke(app, [*args, "--format", "json"])
+        assert result.exit_code == 2
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "invalid_argument",
+                "message": "Interval must be two comma-separated quantiles, e.g. '0.1,0.9'.",
+                "field": None,
+                "hint": None,
+            }
+        }
+
+        result = runner.invoke(app, args)
+        assert result.exit_code == 2
+        assert "Invalid value" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Decisions added in 0.4.0: --metric, --use-exog, --differentiation,
+# --calendar-features, --target-transformer, --dropna-from-series
+# ---------------------------------------------------------------------------
+
+
+class TestDecisionOptions:
+    """Tests for the options of the overrides added in 0.4.0."""
+
+    def test_parse_decisions_reads_each_option(self):
+        """
+        Each option given becomes a keyword argument of plan(): 'auto' is
+        None, 'none' an empty calendar list, comma-separated metrics a list
+        and 'true'/'false' bools.
+        """
+        assert _parse_decisions() == {}
+        assert _parse_decisions(
+            metric="mean_squared_error,mean_absolute_error",
+            use_exog="False",
+            differentiation="1",
+            calendar_features="month, day_of_week",
+            target_transformer="none",
+            dropna_from_series="true",
+        ) == {
+            "metric": ["mean_squared_error", "mean_absolute_error"],
+            "use_exog": False,
+            "differentiation": 1,
+            "calendar_features": ["month", "day_of_week"],
+            "target_transformer": "none",
+            "dropna_from_series": True,
+        }
+        assert _parse_decisions(
+            metric="auto", use_exog="auto", differentiation="auto",
+            calendar_features="auto", target_transformer="auto",
+            dropna_from_series="auto",
+        ) == dict.fromkeys(
+            ["metric", "use_exog", "differentiation", "calendar_features",
+             "target_transformer", "dropna_from_series"]
+        )
+        assert _parse_decisions(metric="mean_squared_error") == {
+            "metric": "mean_squared_error"
+        }
+        assert _parse_decisions(calendar_features="none") == {"calendar_features": []}
+
+    @pytest.mark.parametrize(
+        "option, value, message",
+        [
+            ("--use-exog", "yes", "--use-exog takes 'true', 'false' or 'auto'"),
+            (
+                "--dropna-from-series", "1",
+                "--dropna-from-series takes 'true', 'false' or 'auto'",
+            ),
+            ("--differentiation", "one", "--differentiation takes an integer"),
+        ],
+    )
+    def test_plan_exit_code_2_when_decision_option_invalid(
+        self, tmp_path, option, value, message
+    ):
+        """
+        A value the option cannot read exits with the usage error of click,
+        which names the values it takes.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", option, value, "--quiet"],
+        )
+
+        assert result.exit_code == 2
+        assert message in " ".join(result.output.split())
+
+    def test_plan_and_refine_plan_with_decision_options(self, tmp_path):
+        """
+        plan applies the options, as plan() does, and refine-plan keeps them
+        when omitted and resets one with 'auto'.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        planned = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--estimator", "Ridge",
+             "--metric", "mean_squared_error", "--use-exog", "false",
+             "--differentiation", "1", "--calendar-features", "none",
+             "--target-transformer", "none", "--dropna-from-series", "true",
+             "--format", "json", "--quiet"],
+        )
+        assert planned.exit_code == 0, planned.output
+        plan = json.loads(planned.output)["plan"]
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(planned.output)
+        refined = runner.invoke(
+            app,
+            ["refine-plan", "--from-plan", str(plan_file), "--steps", "6",
+             "--use-exog", "auto", "--format", "json", "--quiet"],
+        )
+        assert refined.exit_code == 0, refined.output
+        refined_plan = json.loads(refined.output)["plan"]
+
+        kwargs = plan["forecaster_kwargs"]
+        assert kwargs["differentiation"] == 1
+        assert kwargs["calendar_features"] is None
+        assert kwargs["dropna_from_series"] is True
+        assert "transformer_y" not in kwargs
+        assert "transformer_exog" not in kwargs
+        assert plan["metrics_to_compute"] == ["mean_squared_error"]
+        assert plan["use_exog"] is False
+        assert plan["overridden_fields"] == [
+            "estimator", "metric", "use_exog", "differentiation",
+            "calendar_features", "target_transformer", "dropna_from_series",
+        ]
+        assert refined_plan["use_exog"] is True
+        assert refined_plan["forecaster_kwargs"]["differentiation"] == 1
+        assert "use_exog" not in refined_plan["overridden_fields"]
+
+    def test_forecast_and_backtest_with_lags_and_decision_options(self, tmp_path):
+        """
+        forecast and backtest take --lags, --window-features and the new
+        options, and run the plan they describe: forecast without --exog
+        when --use-exog false.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        common = [csv_path, "--target", "sales", "--date-column", "date",
+                  "--steps", "5", "--lags", "1,2,3", "--use-exog", "false",
+                  "--metric", "mean_squared_error", "--format", "json", "--quiet"]
+
+        forecast = runner.invoke(app, ["forecast", *common])
+        backtest = runner.invoke(
+            app, ["backtest", *common, "--initial-train-size", "60"]
+        )
+
+        assert forecast.exit_code == 0, forecast.output
+        assert backtest.exit_code == 0, backtest.output
+        forecast_plan = json.loads(forecast.output)["plan"]
+        backtest_result = json.loads(backtest.output)
+        assert forecast_plan["forecaster_kwargs"]["lags"] == [1, 2, 3]
+        assert forecast_plan["use_exog"] is False
+        assert backtest_result["plan"]["metrics_to_compute"] == ["mean_squared_error"]
+
+    def test_forecast_code_and_backtest_code_from_plan_with_decision_options(
+        self, tmp_path
+    ):
+        """
+        With --from-plan, the options are applied on top of the saved plan
+        through refine_plan, as the other overrides are.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        planned = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(planned.output)
+
+        code = runner.invoke(
+            app,
+            ["forecast-code", "--from-plan", str(plan_file),
+             "--differentiation", "1", "--quiet"],
+        )
+        backtest_code = runner.invoke(
+            app,
+            ["backtest-code", "--from-plan", str(plan_file),
+             "--differentiation", "1", "--quiet"],
+        )
+
+        assert code.exit_code == 0, code.output
+        assert backtest_code.exit_code == 0, backtest_code.output
+        assert re.search(r"differentiation\s+=\s+1,", code.output)
+        assert len(re.findall(r"differentiation\s+=\s+1,", backtest_code.output)) == 2
+
+
+    def test_forecast_and_backtest_from_plan_apply_decision_options(self, tmp_path):
+        """
+        forecast and backtest with --from-plan apply the options on top of
+        the saved plan, and 'auto' resets a choice of the saved plan.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        planned = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--lags", "1,2,3", "--differentiation", "1",
+             "--format", "json", "--quiet"],
+        )
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(planned.output)
+
+        forecast = runner.invoke(
+            app,
+            ["forecast", csv_path, "--from-plan", str(plan_file),
+             "--use-exog", "false", "--differentiation", "auto",
+             "--format", "json", "--quiet"],
+        )
+        backtest = runner.invoke(
+            app,
+            ["backtest", csv_path, "--from-plan", str(plan_file),
+             "--lags", "auto", "--metric", "mean_squared_error",
+             "--initial-train-size", "60", "--format", "json", "--quiet"],
+        )
+
+        assert forecast.exit_code == 0, forecast.output
+        assert backtest.exit_code == 0, backtest.output
+        forecast_plan = json.loads(forecast.output)["plan"]
+        backtest_plan = json.loads(backtest.output)["plan"]
+        assert forecast_plan["use_exog"] is False
+        assert "differentiation" not in forecast_plan["forecaster_kwargs"]
+        assert forecast_plan["forecaster_kwargs"]["lags"] == [1, 2, 3]
+        assert backtest_plan["forecaster_kwargs"]["lags"] != [1, 2, 3]
+        assert backtest_plan["forecaster_kwargs"]["differentiation"] == 1
+        assert backtest_plan["metrics_to_compute"] == ["mean_squared_error"]
+
+
+# ---------------------------------------------------------------------------
+# --exog-columns (profile and plan)
+# ---------------------------------------------------------------------------
+
+
+class TestExogColumnsOption:
+    """Tests for the `--exog-columns` option of `profile` and `plan`."""
+
+    def test_parse_exog_columns_output(self):
+        """
+        'auto' (or the option left out) is None, 'none' an empty list and
+        comma-separated names a list.
+        """
+        assert _parse_exog_columns(None) is None
+        assert _parse_exog_columns(" Auto ") is None
+        assert _parse_exog_columns("NONE") == []
+        assert _parse_exog_columns("promo, weekday") == ["promo", "weekday"]
+
+    @pytest.mark.parametrize(
+        "command", [["profile"], ["plan", "--steps", "5"]], ids=["profile", "plan"]
+    )
+    def test_profile_and_plan_output_when_exog_columns(self, tmp_path, command):
+        """
+        profile and plan pass --exog-columns to profile(): the profile keeps
+        the columns named and lists the others in `unused_columns`.
+        """
+        csv_path = _write_csv(tmp_path, df_categorical_exog)
+        result = runner.invoke(
+            app,
+            [*command[:1], csv_path, *command[1:], "--target", "sales",
+             "--date-column", "date", "--exog-columns", "promo",
+             "--format", "json", "--quiet"],
+        )
+
+        assert result.exit_code == 0, result.output
+        output = json.loads(result.output)
+        data_profile = (output.get("profile") or output)["data_profile"]
+        assert data_profile["exog_columns"] == ["promo"]
+        assert data_profile["unused_columns"] == ["weekday"]
+
+    def test_profile_exit_code_1_when_exog_columns_not_in_data(self, tmp_path):
+        """
+        A column of --exog-columns that is not in the data is reported with
+        the message of profile().
+        """
+        csv_path = _write_csv(tmp_path, df_categorical_exog)
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "sales", "--date-column", "date",
+             "--exog-columns", "price", "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert "`exog_columns` names columns that are not in the data: " in (
+            " ".join(result.output.split())
+        )
+
+    def test_plan_exit_code_1_when_exog_columns_with_from_profile(self, tmp_path):
+        """
+        --exog-columns with --from-profile is an error: the profile loaded
+        already chose its columns.
+        """
+        csv_path = _write_csv(tmp_path, df_categorical_exog)
+        profiled = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "sales", "--date-column", "date",
+             "--format", "json", "--quiet"],
+        )
+        profile_file = tmp_path / "profile.json"
+        profile_file.write_text(profiled.output)
+
+        result = runner.invoke(
+            app,
+            ["plan", "--from-profile", str(profile_file), "--steps", "5",
+             "--exog-columns", "promo", "--quiet"],
+        )
+
+        assert result.exit_code == 1
+        assert (
+            "--exog-columns applies when the data is profiled, not with "
+            "--from-profile: run `skforecast-ai profile` with --exog-columns "
+            "instead."
+        ) in " ".join(result.output.split())

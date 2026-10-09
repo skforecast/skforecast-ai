@@ -2,7 +2,9 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
+from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.recommendation.autoregressive import (
     _aggregate_lags_multiseries,
     _aggregate_lags_multivariate,
@@ -11,6 +13,8 @@ from skforecast_ai.recommendation.autoregressive import (
     select_window_features,
 )
 from skforecast_ai.schemas import DataProfile, SeriesPacf
+
+from ..fixtures_datasets import df_h2o, df_h2o_long, df_items_sales_long
 
 # Mirror the function-local caps in compute_series_pacf.
 MAX_PACF_CAP = 512
@@ -413,6 +417,116 @@ def test_compute_series_pacf_n_lags_cap_default_when_no_frequency(monkeypatch):
     compute_series_pacf(df, _pacf_profile(n, frequency=None))
 
     assert captured == [DEFAULT_PACF_CAP]
+
+
+# ---------------------------------------------------------------------------
+# compute_series_pacf: rows not in date order and repeated rows
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "perturbation",
+    ["sorted", "descending", "shuffled", "duplicated", "duplicated_shuffled"],
+    ids=lambda dt: f"{dt}",
+)
+@pytest.mark.parametrize(
+    "layout",
+    ["index", "date_column", "wide", "long", "multiindex", "multiindex_unnamed"],
+    ids=lambda dt: f"{dt}",
+)
+def test_compute_series_pacf_output_when_rows_not_in_date_order_or_repeated(
+    layout, perturbation
+):
+    """
+    Test that the PACF of each series does not depend on the order of the
+    rows or on repeated identical rows: it is computed on the series in date
+    order without repetitions, as the generated script fits it. On h2o,
+    shuffled rows gave no significant lag and 30 repeated rows the lags
+    [1, 13, 12, 11, 14, 9, 10, 25].
+    """
+    if layout == "index":
+        data, kwargs = df_h2o, {"target": "x"}
+    elif layout == "date_column":
+        data, kwargs = df_h2o.reset_index(), {"target": "x", "date_column": "fecha"}
+    elif layout == "wide":
+        data = df_h2o.assign(y=df_h2o["x"] ** 2)
+        kwargs = {"target": ["x", "y"]}
+    elif layout == "long":
+        data = df_h2o_long
+        kwargs = {
+            "target": "x", "date_column": "date", "series_id_column": "series"
+        }
+    elif layout == "multiindex":
+        data, kwargs = df_h2o_long.set_index(["series", "date"]), {"target": "x"}
+    else:
+        data = df_h2o_long.set_index(["series", "date"])
+        data.index = data.index.set_names(["series", None])
+        kwargs = {"target": "x"}
+
+    if perturbation == "descending":
+        data = data.iloc[::-1]
+    elif perturbation == "shuffled":
+        data = data.sample(frac=1, random_state=1)
+    elif perturbation.startswith("duplicated"):
+        data = pd.concat([data, data.iloc[:30]])
+        if perturbation == "duplicated_shuffled":
+            data = data.sample(frac=1, random_state=1)
+    profile = create_data_profile(data=data, **kwargs)
+    results = compute_series_pacf(data, profile)
+
+    expected_ids = {
+        "index": ["x"], "date_column": ["x"], "wide": ["x", "y"],
+        "long": ["a", "b"], "multiindex": ["a", "b"], "multiindex_unnamed": ["a", "b"],
+    }[layout]
+    assert [result.series_id for result in results] == expected_ids
+    assert [result.n_observations for result in results] == [204] * len(expected_ids)
+    assert results[0].lags == [1, 13, 12, 11, 10, 14, 9]
+    if len(results) > 1:
+        assert results[1].lags == [1, 12, 13, 11, 14, 9, 10]
+
+
+def test_compute_series_pacf_output_when_rows_have_no_date():
+    """
+    Test that rows without a date are left out of the PACF, as the generated
+    script drops them, instead of being read as observations: an outlier on
+    a row without date does not change the lags, which are those of h2o
+    without that row.
+    """
+    data = df_h2o.reset_index()
+    data.loc[100, "fecha"] = pd.NaT
+    data.loc[100, "x"] = 50.0
+    profile = create_data_profile(data=data, target="x", date_column="fecha")
+
+    results = compute_series_pacf(data, profile)
+
+    assert results[0].n_observations == 203
+    assert results[0].lags == [1, 13, 12, 11, 10, 9, 14]
+
+
+def test_compute_series_pacf_output_when_long_text_dates_day_first():
+    """
+    Test that the text dates of long-format data are read once for all the
+    rows, as the generated script parses the whole column: the dates of
+    'item_2', which start with the ambiguous '01/01/2012', are read
+    day-first as the first date of the column ('13/01/2012') says, so the
+    lags are those of the same data with parsed dates.
+    """
+    data = df_items_sales_long[df_items_sales_long["series"] != "item_3"]
+    data = data[
+        (data["series"] == "item_2") | (data["date"] >= "2012-01-13")
+    ].reset_index(drop=True)
+    data_text = data.assign(date=data["date"].dt.strftime("%d/%m/%Y"))
+    profile = create_data_profile(
+        data             = data_text,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+    )
+
+    results = compute_series_pacf(data_text, profile)
+
+    assert [(r.series_id, r.n_observations, r.lags) for r in results] == [
+        ("item_1", 108, [1, 2, 5]),
+        ("item_2", 120, [1]),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -843,3 +957,27 @@ def test_finalize_lags_multivariate_end_to_end():
     assert all(isinstance(lag, int) and lag > 0 for lag in lags)
     # Union of {1, 2, 10} and {2, 3}; all fit within max_lag = 300 // 3.
     assert lags == [1, 2, 3, 10]
+
+
+def test_compute_series_pacf_output_when_target_almost_all_infinite():
+    """
+    Test that a series with too few finite values left for its PACF,
+    because the others are infinite, has no PACF instead of raising: the
+    infinite values are rejected by `forecast()` and `backtest()` when the
+    forecaster reads them.
+    """
+    df = pd.DataFrame(
+        {"target": np.r_[np.full(58, np.inf), [1.0, 2.0]]},
+        index=pd.date_range("2020-01-01", periods=60, freq="D"),
+    )
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"target": 60},
+        target         = "target",
+        index_type     = "datetime",
+        frequency      = "D",
+    )
+
+    series_pacf = compute_series_pacf(df, profile)
+
+    assert series_pacf == []

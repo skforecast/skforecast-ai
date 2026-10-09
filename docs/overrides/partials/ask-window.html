@@ -1,0 +1,69 @@
+<!--
+  Window with example answers of ask(), one tab per object passed as context.
+  Shared by the home page (Jinja include in home.html) and the "Ask the
+  assistant" page (snippet in quick-start/ask-the-assistant.md): each page
+  wraps it in its own figure and caption. Styles in stylesheets/extra.css
+  (.sk-ask), tabs and syntax highlight in javascripts/ask-window.js. The
+  answers are written by hand, not recorded from a model: they show the kind
+  of answer ask() gives and follow its rules (only values of the result, MASE
+  against the one-step naive forecast, no reasons for a ranking). Their
+  numbers are the real results of the home page data, which
+  tools/docs/home_page/generate_home_data.py checks; see
+  tools/docs/home_page/README.md before changing them.
+-->
+<div class="sk-ask">
+<div class="window ask-win">
+  <div class="window-bar"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i><div class="ask-tabs" role="tablist" aria-label="Object passed to ask()"><button type="button" role="tab" class="ask-tab on" id="ask-tab-0" aria-controls="ask-0" aria-selected="true">Forecast</button><button type="button" role="tab" class="ask-tab" id="ask-tab-1" aria-controls="ask-1" aria-selected="false" tabindex="-1">Backtest</button><button type="button" role="tab" class="ask-tab" id="ask-tab-2" aria-controls="ask-2" aria-selected="false" tabindex="-1">Compare</button><button type="button" role="tab" class="ask-tab" id="ask-tab-3" aria-controls="ask-3" aria-selected="false" tabindex="-1">Plan</button><button type="button" role="tab" class="ask-tab" id="ask-tab-4" aria-controls="ask-4" aria-selected="false" tabindex="-1">Question</button></div></div>
+<div class="ask-panel on" id="ask-0" role="tabpanel" aria-labelledby="ask-tab-0">
+  <pre><code data-hl>result = assistant.forecast(data, test_size=36, profile=profile, plan=plan)
+answer = assistant.ask(
+    "Explain the evaluation metrics. Is the MASE good, "
+    "and what do the predictions look like?",
+    context=result,
+)</code></pre>
+  <div class="chat"><p class="a">The MASE is 0.62, below 1: the forecast beats the one-step naive forecast, which repeats the last observed value. On average the predictions miss by 45.8 users per hour (MAE), and each of the 36 comes with an 80% interval from bootstrapped residuals.</p></div>
+</div>
+<div class="ask-panel" id="ask-1" role="tabpanel" aria-labelledby="ask-tab-1">
+  <pre><code data-hl>backtest = assistant.backtest(data, cv, profile=profile, plan=plan)
+answer = assistant.ask(
+    "Explain the backtesting strategy and the metrics. "
+    "Is the model good enough to deploy?",
+    context=backtest,
+)</code></pre>
+  <div class="chat"><p class="a">Trained once and never refit, the model forecasts 17 folds of 36 hours with a MAE of 49.5 users per hour and a MASE of 0.65, so it beats the one-step naive forecast. Whether that error is small enough to deploy depends on what a miss costs you. The errors of each fold are not in the result, so I cannot say how stable it is over time.</p></div>
+</div>
+<div class="ask-panel" id="ask-2" role="tabpanel" aria-labelledby="ask-tab-2">
+  <pre><code data-hl>candidates = [
+    ("LightGBM, recursive", {"forecaster": "ForecasterRecursive"}),
+    ("LightGBM, direct", {"forecaster": "ForecasterDirect"}),
+    ("Ridge, recursive", {"forecaster": "ForecasterRecursive",
+                          "estimator": "Ridge"}),
+]
+comparison = assistant.compare(data, cv, profile=profile, candidates=candidates)
+answer = assistant.ask(
+    "Explain the comparison. Is the margin between the top "
+    "candidates meaningful, or are they practically equivalent?",
+    context=comparison,
+)</code></pre>
+  <div class="chat"><p class="a"><code>LightGBM, recursive</code> ranks first with a MAE of 49.5, 6.7% ahead of <code>LightGBM, direct</code> (53.1), and it beats the seasonal naive baseline by 22.4%. The spread across folds is not in the result, so I cannot tell whether the gap between the top two is meaningful or they are practically equivalent.</p></div>
+</div>
+<div class="ask-panel" id="ask-3" role="tabpanel" aria-labelledby="ask-tab-3">
+  <pre><code data-hl>answer = assistant.ask(
+    "Walk me through this plan: why these lags and window "
+    "features, and how will the prediction interval be produced?",
+    context=profile,
+    plan=plan,
+)</code></pre>
+  <div class="chat"><p class="a">The 28 lags come from the partial autocorrelation of the series: the last hours (1, 2, 3), around the same hour a day earlier (23 to 25) and a week earlier (167, 169). Rolling means over 3, 24 and 168 hours add the recent, daily and weekly level. The 80% interval is built by bootstrapping the residuals of the model.</p></div>
+</div>
+<div class="ask-panel" id="ask-4" role="tabpanel" aria-labelledby="ask-tab-4">
+  <pre><code data-hl># No context: a general question, answered from the skills
+answer = assistant.ask(
+    "For hourly demand with strong daily and weekly seasonality, "
+    "when should I prefer a direct forecasting strategy over a "
+    "recursive one?"
+)</code></pre>
+  <div class="chat"><p class="a">Prefer a direct strategy when the horizon is long enough for recursive errors to pile up, or when each step depends on different lags (the next hour on the last one, the same hour tomorrow on lag 24). The cost is one model per step: <code>ForecasterDirect</code> trains 24 of them for a 24-hour horizon. To decide on your data, rank both with <code>assistant.compare()</code>.</p></div>
+</div>
+</div>
+</div>

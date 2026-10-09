@@ -52,6 +52,7 @@ _TASK_TYPE_SKILLS: dict[str | None, list[str]] = {
     "multivariate": ["choosing-a-forecaster", "forecasting-multiple-series"],
     "statistical": ["statistical-models"],
     "foundation": ["foundation-forecasting"],
+    "baseline": ["baseline-forecasting"],
     None: ["choosing-a-forecaster"],
 }
 
@@ -64,14 +65,14 @@ _KEYWORD_SKILLS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"feature.selection|rfecv|select.feature|select_features|selectfrommodel|feature.importance", re.I), "feature-selection"),
     (re.compile(r"metric|\bmae\b|\bmse\b|\bmape\b|\brmse\b|smape|\bmase\b|rmsse|pinball|\bcrps\b|coverage|scoring|loss.function", re.I), "metric-selection"),
     (re.compile(r"\brnn\b|lstm|\bgru\b|deep.learn|keras|tensorflow|neural|ForecasterRnn", re.I), "deep-learning-forecasting"),
-    (re.compile(r"chronos|timesfm|moirai|foundation|zero.shot|tabicl|pre.?trained|ForecasterFoundation", re.I), "foundation-forecasting"),
+    (re.compile(r"chronos|timesfm|moirai|foundation|zero.shot|cold.start|tabicl|tabpfn|pre.?trained|ForecasterFoundation", re.I), "foundation-forecasting"),
     (re.compile(r"arima|sarimax|\bets\b|\barar\b|\bstatistical\b|exponential.smoothing|seasonal.order|ForecasterStats", re.I), "statistical-models"),
     (re.compile(r"drift|monitor|deploy|production|distribution.shift|out.of.range|RangeDrift|PopulationDrift", re.I), "drift-detection"),
     (re.compile(r"\bbaselines?\b|\bnaive\b|seasonal.naive|\bbenchmark|equivalent.date|ForecasterEquivalentDate|grid_search_equivalent_date", re.I), "baseline-forecasting"),
     # Signature-shaped questions only: the skill is the most expensive one and
     # the workflow skills already carry idiomatic usage.
     (re.compile(r"\bapi\b|\bsignatures?\b|\bkwargs\b|\bparameters?\s+(of|for|does|to)\b|\barguments?\s+(of|for|does|to)\b|\bdefault\s+value", re.I), "complete-api-reference"),
-    (re.compile(r"traceback|\bdebug\b|troubleshoot|exception|\bfails?\b|not.working|TypeError|ValueError|KeyError|IndexError", re.I), "troubleshooting-common-errors"),
+    (re.compile(r"traceback|\bdebug\b|troubleshoot|exception|\bfails?\b|not.working|TypeError|ValueError|KeyError|IndexError|InvalidInputError|DataNotFoundError", re.I), "troubleshooting-common-errors"),
 ]
 
 # When a skill in the key set is selected, the skills in the value set are
@@ -104,25 +105,25 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
 # Measured token estimates (chars / 4) for each skill (SKILL.md + references/).
 _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "autocorrelation-and-lag-selection": 2035,
-    "backtesting-configuration": 1822,
+    "backtesting-configuration": 2076,
     "baseline-forecasting": 1929,
-    "choosing-a-forecaster": 2836,
-    "complete-api-reference": 12546,
+    "choosing-a-forecaster": 2851,
+    "complete-api-reference": 12674,
     "deep-learning-forecasting": 4175,
     "drift-detection": 1249,
-    "feature-engineering": 10937,
-    "feature-selection": 1534,
-    "forecasting-multiple-series": 1766,
+    "feature-engineering": 11003,
+    "feature-selection": 1579,
+    "forecasting-multiple-series": 1869,
     "forecasting-single-series": 1505,
-    "foundation-forecasting": 9244,
-    "hyperparameter-optimization": 5771,
+    "foundation-forecasting": 10130,
+    "hyperparameter-optimization": 5893,
     "metric-selection": 5747,
-    "prediction-intervals": 4487,
-    "statistical-models": 4056,
-    "troubleshooting-common-errors": 2559,
+    "prediction-intervals": 4668,
+    "statistical-models": 4263,
+    "troubleshooting-common-errors": 2587,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 8528  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 8974  # llms-base.txt measured size
 
 # Derived from the prompt rather than hardcoded. A hardcoded figure has to
 # be re-measured by hand after every prompt edit, and silently understates
@@ -223,7 +224,7 @@ def load_llms_reference() -> str:
 
 
 def select_skills(
-    task_type: str | None,
+    task_type: str | list[str] | None,
     question: str,
     token_budget: int | None = None,
 ) -> list[str]:
@@ -233,7 +234,8 @@ def select_skills(
     Uses a two-step strategy:
 
     1. **Profile-based**: resolve base skills from the forecaster's
-       `task_type` using a deterministic routing table.
+       `task_type` using a deterministic routing table. Several task types
+       (for example the profile's and the plan's) add up their skills.
     2. **Keyword augmentation**: scan the user question for topic
        keywords and append matching skills.
 
@@ -242,9 +244,11 @@ def select_skills(
 
     Parameters
     ----------
-    task_type : str, None
+    task_type : str, list of str, None
         The forecasting task category from `ForecastingProfile.task_type`
-        (e.g., `'single_series'`, `'statistical'`). If None, falls
+        or `ForecastPlan.task_type` (e.g., `'single_series'`,
+        `'statistical'`, `'baseline'`), or a list of them whose base
+        skills are combined in order. If None or an empty list, falls
         back to a minimal general-purpose skill set.
     question : str
         The user's natural-language question.
@@ -259,7 +263,12 @@ def select_skills(
     skills : list of str
         Ordered list of skill names to load.
     """
-    base = list(_TASK_TYPE_SKILLS.get(task_type, _TASK_TYPE_SKILLS[None]))
+    task_types = task_type if isinstance(task_type, list) else [task_type]
+    base: list[str] = []
+    for key in task_types or [None]:
+        for skill_name in _TASK_TYPE_SKILLS.get(key, _TASK_TYPE_SKILLS[None]):
+            if skill_name not in base:
+                base.append(skill_name)
 
     augmented: list[str] = []
     for pattern, skill_name in _KEYWORD_SKILLS:

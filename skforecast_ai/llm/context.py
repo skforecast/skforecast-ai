@@ -6,11 +6,15 @@
 ################################################################################
 
 from __future__ import annotations
+import ast
 import re
+import unicodedata
 from typing import Any
+import pandas as pd
 from .._constants import (
     CONTEXT_HEAD_TAIL_ROWS,
     MAX_CONTEXT_DATAFRAME_ROWS,
+    MAX_DESCRIBE_ITEMS,
     MAX_LEADERBOARD_ROWS,
 )
 from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
@@ -20,6 +24,42 @@ from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
 # wide multi-series dataset cannot crowd the prompt.
 MAX_STATS_SERIES = 5
 MAX_PACF_LAGS = 15
+
+# Limits that only `describe()` applies (`for_describe=True`), so its text
+# stays short with hundreds of series: at most `MAX_DESCRIBE_ITEMS` items
+# of any list, and the first `MAX_STATS_SERIES` series of the metrics plus
+# the aggregated rows. Each cut says how many items there were. The
+# context of `ask()` keeps its own limits.
+_AGGREGATED_METRIC_ROWS = ("average", "weighted_average", "pooling")
+
+# Sentences addressed to the LLM of `ask()`: they tell it how to use the
+# context, they state nothing about the result. `describe()` leaves them
+# out (`for_describe=True`); with `for_describe=False` every renderer
+# writes them exactly where it always did.
+PLAN_CODE_NOTE = (
+    "Note: A validated Python script implementing this plan is "
+    "generated separately. Do not generate code yourself."
+)
+SCRIPT_NOTE = (
+    "The script is available to the user as `result.code`; describe it "
+    "from this summary and the plan, do not reproduce it."
+)
+BACKTEST_SCRIPT_NOTE = (
+    "It has not been run: for its metrics, the user runs it or calls "
+    "`assistant.backtest()`."
+)
+FORECAST_SCRIPT_NOTE = (
+    "It has not been run: for its predictions, the user runs it or calls "
+    "`assistant.forecast()`."
+)
+RANKING_NOTE = (
+    "Do not re-rank the candidates or recompute the table, and do not "
+    "suggest reasons for the ranking beyond the metric values: the "
+    "leaderboard reports what happened, not why."
+)
+LEADERBOARD_NOTE = (
+    "Do not name, count, or score a candidate that does not appear below."
+)
 
 
 def _fmt(value: float) -> str:
@@ -35,7 +75,135 @@ def _limited(items, limit: int):
         yield item
 
 
-def _tag(name: str, body: str) -> str:
+def _first_items(items: list, for_describe: bool) -> tuple[list, str]:
+    """
+    Keep the first `MAX_DESCRIBE_ITEMS` items of a list for `describe()`.
+
+    Parameters
+    ----------
+    items : list
+        Items to show.
+    for_describe : bool
+        Whether the list is rendered for `describe()`. When False, every
+        item is kept.
+
+    Returns
+    -------
+    shown : list
+        Items to show.
+    suffix : str
+        `' (first N of M)'` when the list was cut, an empty string
+        otherwise.
+    """
+
+    if not for_describe or len(items) <= MAX_DESCRIBE_ITEMS:
+        return list(items), ""
+
+    return (
+        list(items[:MAX_DESCRIBE_ITEMS]),
+        f" (first {MAX_DESCRIBE_ITEMS} of {len(items)})",
+    )
+
+
+# The start of text that reads as the opening or closing tag of a section
+# ('<forecast_context>', '</forecast_plan', with or without its '>').
+_TAG_START = re.compile(r"<(?=/?[A-Za-z])")
+
+# Line breaks and other control characters, line and paragraph separators,
+# as in the comments of the scripts (`_comment_text`), plus the invisible
+# format characters (a zero-width space), which could split a tag the
+# pattern above would otherwise find.
+_FREE_TEXT_ESCAPED_CATEGORIES = frozenset({"Cc", "Zl", "Zp", "Cf"})
+
+# UTC offset at the end of a date written by the profile (`+02:00`).
+_UTC_OFFSET = re.compile(r"[+-]\d{2}:\d{2}$")
+
+# What `str.splitlines` breaks a text at, written out so the two agree.
+_LINE_BREAK = re.compile(r"\r\n|[\n\r\x0b\x0c\x1c\x1d\x1e\x85  ]")
+
+
+def _without_tags(text: str) -> str:
+    """
+    Write the `<` that starts text read as a tag (`<forecast_context>`,
+    `</forecast_plan`) as `&lt;`, so the text cannot open or close a section.
+    Comparisons such as `n < 500` are left as they are.
+    """
+
+    return _TAG_START.sub("&lt;", text)
+
+
+def _one_line(text: Any) -> str:
+    """
+    Write a name or a message of the data on one line of a section.
+
+    Column names, series ids and the warnings that quote them come from the
+    data (the header of a CSV file) or from a profile loaded from JSON.
+    Characters of the Unicode categories Cc, Zl, Zp and Cf (line breaks and
+    other control characters, line and paragraph separators, invisible
+    format characters) are written as their escape sequence (`'\\n'`
+    becomes the two characters `\\n`), so the text cannot start a line of
+    its own. Tags are escaped by `_tag` when the section is closed.
+
+    Parameters
+    ----------
+    text : object
+        Name or message. Anything that is not a str is formatted with `str`.
+
+    Returns
+    -------
+    text : str
+        The same text on a single line.
+    """
+
+    return "".join(
+        char.encode("unicode_escape").decode("ascii")
+        if unicodedata.category(char) in _FREE_TEXT_ESCAPED_CATEGORIES
+        else char
+        for char in str(text)
+    )
+
+
+def _free_text(text: str, indent: str = "    ") -> str:
+    """
+    Make a free text safe to write as one item of a section.
+
+    The explanations of a profile and of a plan and the reasons of the
+    preprocessing steps are free text: an object loaded from JSON
+    (`--from-plan`) can hold any, and `refine_plan()` appends the reasoning
+    of the LLM, which has paragraphs, to the explanation of the plan. Each
+    line after the first is written indented under the item, so it stays
+    readable and cannot be read as an item of the section; empty lines are
+    dropped. The other characters of the Unicode categories Cc and Cf
+    (control and invisible format characters) are written as their escape
+    sequence, and the `<` that starts text read as a tag is written as
+    `&lt;`. A text without any of them, comparisons such as `n < 500`
+    included, is returned unchanged, as are the texts `plan()` writes.
+
+    Parameters
+    ----------
+    text : str
+        Free text of a profile or a plan.
+    indent : str, default `'    '`
+        What the lines after the first start with: deeper than any item of
+        the section the text is written in.
+
+    Returns
+    -------
+    text : str
+        The same text, without tags, with its lines after the first
+        indented.
+    """
+
+    lines = [
+        _without_tags(_one_line(line.strip()))
+        for line in _LINE_BREAK.split(text)
+    ]
+    lines = [line for line in lines if line] or [""]
+
+    return f"\n{indent}".join(lines)
+
+
+def _tag(name: str, body: str, nested: str = "") -> str:
     """
     Wrap a rendered section body in an XML-style tag.
 
@@ -44,18 +212,30 @@ def _tag(name: str, body: str) -> str:
     `##`. Tagging each section instead makes the boundary between injected
     deterministic output and everything else unambiguous.
 
+    The body carries text this module does not write: names of columns and
+    series, warnings and explanations that quote them, tables of results.
+    Any text in it that reads as a tag is escaped (`_without_tags`), so the
+    only tags of the context are the ones written here.
+
     Parameters
     ----------
     name : str
         Tag name.
     body : str
         Already rendered section body.
+    nested : str, default `''`
+        Section already rendered by this function, written after the body
+        with its tags as they are.
 
     Returns
     -------
     section : str
         Body wrapped in an opening and closing tag.
     """
+
+    body = _without_tags(body)
+    if nested:
+        body = f"{body}\n{nested}"
 
     return f"<{name}>\n{body}\n</{name}>"
 
@@ -167,25 +347,7 @@ def _serialize_dataframe(
                 f"  {col}: min={col_data.min()}, "
                 f"max={col_data.max()}, mean={col_data.mean()}"
             )
-        # A multi-series frame pools every series into the summary above,
-        # so a question about one series ("what is the average forecast for
-        # item_2") has no answer. Break `pred` down by level, capped like
-        # the per-series target statistics of the dataset section.
-        if "level" in df.columns and "pred" in numeric_cols.columns:
-            levels = list(dict.fromkeys(df["level"]))
-            if len(levels) > 1:
-                shown = levels[:MAX_STATS_SERIES]
-                suffix = (
-                    "" if len(levels) <= MAX_STATS_SERIES
-                    else f" (first {MAX_STATS_SERIES} of {len(levels)} levels)"
-                )
-                lines.append(f"Per-level summary of pred (all rows){suffix}:")
-                for level in shown:
-                    level_pred = df.loc[df["level"] == level, "pred"]
-                    lines.append(
-                        f"  {level}: min={level_pred.min()}, "
-                        f"max={level_pred.max()}, mean={level_pred.mean()}"
-                    )
+        lines.extend(_per_level_summary(df, numeric_cols))
         stats = "\n" + "\n".join(lines)
 
     return (
@@ -193,11 +355,55 @@ def _serialize_dataframe(
     )
 
 
+def _per_level_summary(df: Any, numeric_cols: Any) -> list[str]:
+    """
+    Return the lines summarizing the point forecast of each level of a
+    multi-series frame, or none for a single series.
+
+    A multi-series frame pools every series into the per-column summary, so
+    a question about one series ("what is the average forecast for item_2")
+    has no answer, and series of different scales blur together. The point
+    forecast is broken down by level, capped like the per-series target
+    statistics of the dataset section. Foundation models predicting
+    quantiles have no `pred` column: their point forecast is the median,
+    `q_0.5`.
+    """
+    point_col = next(
+        (col for col in ("pred", "q_0.5") if col in numeric_cols.columns),
+        None,
+    )
+    if "level" not in df.columns or point_col is None:
+        return []
+    levels = list(dict.fromkeys(df["level"]))
+    if len(levels) <= 1:
+        return []
+    suffix = (
+        "" if len(levels) <= MAX_STATS_SERIES
+        else f" (first {MAX_STATS_SERIES} of {len(levels)} levels)"
+    )
+    lines = [f"Per-level summary of {point_col} (all rows){suffix}:"]
+    for level in levels[:MAX_STATS_SERIES]:
+        level_pred = df.loc[df["level"] == level, point_col]
+        lines.append(
+            f"  {level}: min={level_pred.min()}, "
+            f"max={level_pred.max()}, mean={level_pred.mean()}"
+        )
+
+    return lines
+
+
 def _summarize_dataframe(df: Any) -> str:
     """Produce a privacy-safe summary without row-level values."""
     parts = [f"Shape: {df.shape[0]} rows x {df.shape[1]} columns"]
     parts.append(f"Columns: {list(df.columns)}")
-    numeric_cols = df.select_dtypes(include="number")
+    # `fold` is an identifier, not a measurement (as in
+    # `_serialize_dataframe`): its statistics would be quoted back as if
+    # they described the predictions, so only the number of folds is given.
+    if "fold" in df.columns:
+        parts.append(f"Folds: {df['fold'].nunique()}")
+    numeric_cols = df.select_dtypes(include="number").drop(
+        columns="fold", errors="ignore"
+    )
     if not numeric_cols.empty:
         # No format spec, for the same reason as `_serialize_dataframe`:
         # when row-level values are withheld these statistics are all the
@@ -209,12 +415,16 @@ def _summarize_dataframe(df: Any) -> str:
                 f"mean={numeric_cols[col].mean()}, "
                 f"std={numeric_cols[col].std()}"
             )
+        parts.extend(_per_level_summary(df, numeric_cols))
     if hasattr(df.index, "min") and len(df) > 0:
         parts.append(f"Index range: {df.index.min()} to {df.index.max()}")
     return "\n".join(parts)
 
 
-def render_dataset_section(profile: ForecastingProfile | None) -> str:
+def render_dataset_section(
+    profile: ForecastingProfile | None,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<dataset>` section describing the profiled data.
 
@@ -222,6 +432,11 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
     ----------
     profile : ForecastingProfile, None
         Profile to describe. None renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which keeps the
+        first `MAX_DESCRIBE_ITEMS` items of each list (target columns,
+        exogenous columns, series with missing values, warnings) and says
+        how many there are.
 
     Returns
     -------
@@ -233,7 +448,11 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
         return ""
 
     dp = profile.data_profile
-    exog = ", ".join(dp.exog_columns) if dp.exog_columns else "none"
+    exog_columns, exog_suffix = _first_items(dp.exog_columns, for_describe)
+    exog = (
+        ", ".join(_one_line(column) for column in exog_columns) + exog_suffix
+        if exog_columns else "none"
+    )
     parts = [
         f"- Observations: {dp.n_observations_display}",
         f"- Series: {dp.n_series}",
@@ -251,15 +470,35 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
     starts = [info.start for info in dp.series_lengths.values() if info.start]
     ends = [info.end for info in dp.series_lengths.values() if info.end]
     if starts and ends:
-        parts.append(f"- Date range: {min(starts)} to {max(ends)}")
+        start, end = min(starts), max(ends)
+        if dp.time_zone is not None:
+            # Local times without their UTC offset, as the dates of a
+            # strategy are written: the offset of one date does not hold
+            # across a daylight saving change, and a date at midnight shows
+            # none, so a model took the offset of the first date for the
+            # time zone of all the data.
+            start, end = _UTC_OFFSET.sub("", start), _UTC_OFFSET.sub("", end)
+        parts.append(f"- Date range: {start} to {end}")
+        if dp.time_zone is not None:
+            # Without it a model said that the dates had no time zone.
+            parts.append(
+                f"- Time zone of the dates: {_one_line(dp.time_zone)} (dates "
+                f"are written as local times)"
+            )
 
+    target = dp.target
+    if isinstance(target, list):
+        shown, suffix = _first_items(target, for_describe)
+        target = f"{shown}{suffix}" if suffix else target
     parts += [
-        f"- Target: {dp.target}",
+        f"- Target: {_one_line(target)}",
         f"- Exogenous columns: {exog}",
     ]
     if dp.categorical_exog:
+        categorical, suffix = _first_items(dp.categorical_exog, for_describe)
         parts.append(
-            f"- Categorical exogenous columns: {', '.join(dp.categorical_exog)}"
+            f"- Categorical exogenous columns: "
+            f"{', '.join(_one_line(column) for column in categorical)}{suffix}"
         )
 
     # Scale of the target. Needed to judge MAPE (unreliable near zero) and
@@ -267,18 +506,32 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
     for series, stats in _limited(dp.target_stats.items(), MAX_STATS_SERIES):
         if not stats:
             continue
-        label = "Target statistics" if len(dp.target_stats) == 1 else f"Target statistics ({series})"
+        label = (
+            "Target statistics" if len(dp.target_stats) == 1
+            else f"Target statistics ({_one_line(series)})"
+        )
         parts.append(
             f"- {label}: min {_fmt(stats['min'])}, max {_fmt(stats['max'])}, "
             f"mean {_fmt(stats['mean'])}, std {_fmt(stats['std'])}"
+        )
+    if for_describe and len(dp.target_stats) > MAX_STATS_SERIES:
+        parts.append(
+            f"- Target statistics shown (first {MAX_STATS_SERIES} of "
+            f"{len(dp.target_stats)} series)"
         )
 
     # Missing values are stated even when there are none: "not mentioned"
     # and "none" are different answers to the user.
     if dp.missing_target:
-        parts.append(f"- Missing in target: {dp.missing_target}")
+        parts.append(
+            f"- Missing in target: "
+            f"{_missing_counts(dp.missing_target, 'series', for_describe)}"
+        )
     if dp.missing_exog:
-        parts.append(f"- Missing in exog: {dp.missing_exog}")
+        parts.append(
+            f"- Missing in exog: "
+            f"{_missing_counts(dp.missing_exog, 'columns', for_describe)}"
+        )
     if not dp.missing_target and not dp.missing_exog:
         parts.append("- Missing values: none")
 
@@ -288,17 +541,65 @@ def render_dataset_section(profile: ForecastingProfile | None) -> str:
     if dp.has_duplicate_timestamps:
         irregularities.append("duplicate timestamps")
     if not dp.index_is_monotonic:
-        irregularities.append("index not sorted")
+        # The profiler sorts rows out of date order, as the generated code
+        # does, and says so in a note. The flag alone reads as something
+        # still to fix: asked what to fix, a model told the user to sort.
+        rows_sorted = any(
+            warning.startswith("Rows not in date order") for warning in dp.warnings
+        )
+        irregularities.append(
+            "index not sorted as given (the generated code sorts it)"
+            if rows_sorted else "index not sorted"
+        )
     parts.append(
         f"- Index irregularities: {', '.join(irregularities) if irregularities else 'none detected'}"
     )
-    for warning in dp.warnings:
-        parts.append(f"- Data warning: {warning}")
+    warnings_shown, suffix = _first_items(dp.warnings, for_describe)
+    for warning in warnings_shown:
+        parts.append(f"- Data warning: {_free_text(warning)}")
+    if suffix:
+        parts.append(f"- Data warnings shown{suffix}")
 
     return _tag("dataset", "\n".join(parts))
 
 
-def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
+def _missing_counts(counts: dict, noun: str, for_describe: bool) -> str:
+    """
+    Render the missing values per series or per column.
+
+    Parameters
+    ----------
+    counts : dict
+        Number of missing values per series or column.
+    noun : str
+        What the keys are (`'series'` or `'columns'`), used in the note
+        of a cut.
+    for_describe : bool
+        Whether the counts are rendered for `describe()`, which keeps the
+        first `MAX_DESCRIBE_ITEMS` of them and states the totals. When
+        False, the dict is rendered as it is.
+
+    Returns
+    -------
+    text : str
+        Rendered counts.
+    """
+
+    if not for_describe or len(counts) <= MAX_DESCRIBE_ITEMS:
+        return f"{counts}"
+
+    shown = dict(list(counts.items())[:MAX_DESCRIBE_ITEMS])
+
+    return (
+        f"{shown} (first {MAX_DESCRIBE_ITEMS} of {len(counts)} {noun}, "
+        f"{sum(counts.values())} missing values in all)"
+    )
+
+
+def render_profile_decision_section(
+    profile: ForecastingProfile | None,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<profile_decision>` section.
 
@@ -309,6 +610,10 @@ def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
     ----------
     profile : ForecastingProfile, None
         Profile whose explanation is rendered. None renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which says for
+        how many series the significant lags are shown when there are more
+        than `MAX_STATS_SERIES`.
 
     Returns
     -------
@@ -319,7 +624,7 @@ def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
     if profile is None:
         return ""
 
-    parts = [profile.explanation]
+    parts = [_free_text(profile.explanation)]
 
     # The temporal structure the profiler found. It is what the plan's
     # lags and features are derived from, so a question about the profile
@@ -329,8 +634,17 @@ def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
             continue
         lags = ", ".join(str(lag) for lag in pacf.lags[:MAX_PACF_LAGS])
         suffix = "" if len(pacf.lags) <= MAX_PACF_LAGS else f" (first {MAX_PACF_LAGS} of {len(pacf.lags)})"
-        label = "Significant lags" if len(profile.series_pacf) == 1 else f"Significant lags for {pacf.series_id}"
+        label = (
+            "Significant lags" if len(profile.series_pacf) == 1
+            else f"Significant lags for {_one_line(pacf.series_id)}"
+        )
         parts.append(f"- {label} (partial autocorrelation, strongest first): {lags}{suffix}")
+    if for_describe and len(profile.series_pacf) > MAX_STATS_SERIES:
+        parts.append(
+            f"- Significant lags shown (first {MAX_STATS_SERIES} of "
+            f"{len(profile.series_pacf)} series; a series without "
+            f"significant lags has no line)"
+        )
     if profile.window_features:
         rendered = ", ".join(
             f"{stat}(window={wf['window_size']})"
@@ -346,7 +660,10 @@ def render_profile_decision_section(profile: ForecastingProfile | None) -> str:
     return _tag("profile_decision", "\n".join(parts))
 
 
-def render_plan_section(plan: ForecastPlan | None) -> str:
+def render_plan_section(
+    plan: ForecastPlan | None,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<forecast_plan>` section.
 
@@ -354,6 +671,11 @@ def render_plan_section(plan: ForecastPlan | None) -> str:
     ----------
     plan : ForecastPlan, None
         Plan to describe. None renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which leaves out
+        `PLAN_CODE_NOTE`, addressed to the LLM of `ask()`, and keeps the
+        first `MAX_DESCRIBE_ITEMS` lags, window features and plan
+        warnings.
 
     Returns
     -------
@@ -364,15 +686,31 @@ def render_plan_section(plan: ForecastPlan | None) -> str:
     if plan is None:
         return ""
 
-    parts = [f"- Steps: {plan.steps}"]
+    # A name from a closed set when the plan is validated; a plan changed
+    # with `model_copy()` is not.
+    parts = [
+        f"- Forecaster: {_one_line(plan.forecaster)}",
+        f"- Steps: {plan.steps}",
+    ]
     if plan.estimator:
         parts.append(f"- Estimator: {plan.estimator}")
     if plan.forecaster_kwargs:
         if "lags" in plan.forecaster_kwargs:
-            parts.append(f"- Lags: {plan.forecaster_kwargs['lags']}")
+            lags = plan.forecaster_kwargs["lags"]
+            if isinstance(lags, list):
+                shown, suffix = _first_items(lags, for_describe)
+                lags = f"{shown}{suffix}" if suffix else lags
+            parts.append(f"- Lags: {lags}")
         if "window_features" in plan.forecaster_kwargs:
+            window_features = plan.forecaster_kwargs["window_features"]
+            if isinstance(window_features, list):
+                shown, suffix = _first_items(window_features, for_describe)
+                window_features = f"{shown}{suffix}" if suffix else window_features
+            parts.append(f"- Window features: {window_features}")
+        if "offset" in plan.forecaster_kwargs:
             parts.append(
-                f"- Window features: {plan.forecaster_kwargs['window_features']}"
+                f"- Baseline offset: {plan.forecaster_kwargs['offset']} steps "
+                f"(n_offsets={plan.forecaster_kwargs.get('n_offsets', 1)})"
             )
     if plan.interval is not None:
         coverage = (plan.interval[1] - plan.interval[0]) * 100
@@ -385,22 +723,110 @@ def render_plan_section(plan: ForecastPlan | None) -> str:
     if plan.metric:
         parts.append(f"- Primary metric: {plan.metric}")
     if plan.preprocessing_steps:
+        # Under their own item, so a step is not read as a detail of the
+        # line before it (the metric).
+        parts.append("- Preprocessing steps:")
         for step in plan.preprocessing_steps:
             prefix = (
                 "[in generated code]" if step.blocking else "[informational]"
             )
-            parts.append(f"  - {prefix} {step.reason}")
-    parts.append(f"- {plan.explanation}")
-    parts.append("")
-    parts.append(
-        "Note: A validated Python script implementing this plan is "
-        "generated separately. Do not generate code yourself."
-    )
+            parts.append(
+                f"  - {prefix} {_free_text(step.reason, indent='      ')}"
+            )
+    if plan.overridden_fields:
+        # Names from a closed set (`OverrideName`) when the plan is
+        # validated; a plan changed with `model_copy()` is not.
+        parts.append(
+            f"- Chosen by the user instead of the rules: "
+            f"{', '.join(_one_line(name) for name in plan.overridden_fields)}"
+        )
+    if plan.warnings:
+        shown, suffix = _first_items(plan.warnings, for_describe)
+        parts.append(f"- Plan warnings{suffix}:")
+        for warning in shown:
+            parts.append(f"  - {_free_text(warning, indent='      ')}")
+    parts.append(f"- {_free_text(plan.explanation)}")
+    if not for_describe:
+        parts.append("")
+        parts.append(PLAN_CODE_NOTE)
 
     return _tag("forecast_plan", "\n".join(parts))
 
 
-def render_script_section(plan: ForecastPlan | None, code: str | None) -> str:
+def backtest_cv_from_code(code: str) -> Any:
+    """
+    Read the `TimeSeriesFold` that a backtesting script builds, without
+    running the script.
+
+    Only the literal arguments of the `cv = TimeSeriesFold(...)` call are
+    read (numbers, booleans, strings, lists, None and the
+    `pd.Timestamp('...')` that the renderer writes for a date), so the
+    description of a script cannot drift from its code.
+
+    Parameters
+    ----------
+    code : str
+        Generated script.
+
+    Returns
+    -------
+    cv : TimeSeriesFold, None
+        The splitter the script builds, or None when the script builds none
+        or its arguments are not literals.
+    """
+
+    from skforecast.model_selection import TimeSeriesFold
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+
+    for node in tree.body:
+        if not (
+            isinstance(node, ast.Assign)
+            and [getattr(t, "id", None) for t in node.targets] == ["cv"]
+            and isinstance(node.value, ast.Call)
+            and getattr(node.value.func, "id", None) == "TimeSeriesFold"
+            and not node.value.args
+        ):
+            continue
+        kwargs = {}
+        for keyword in node.value.keywords:
+            value = keyword.value
+            if (
+                isinstance(value, ast.Call)
+                and ast.unparse(value.func) == "pd.Timestamp"
+                and len(value.args) == 1
+                and not value.keywords
+                and isinstance(value.args[0], ast.Constant)
+                and isinstance(value.args[0].value, str)
+            ):
+                # A date edited by hand may not parse; then the folds are
+                # not counted, as for any other value that cannot be read.
+                try:
+                    kwargs[keyword.arg] = pd.Timestamp(value.args[0].value)
+                except (ValueError, TypeError):
+                    return None
+                continue
+            try:
+                kwargs[keyword.arg] = ast.literal_eval(value)
+            except (ValueError, TypeError, SyntaxError):
+                return None
+        try:
+            return TimeSeriesFold(**kwargs)
+        except Exception:
+            return None
+
+    return None
+
+
+def render_script_section(
+    plan: ForecastPlan | None,
+    code: str | None,
+    for_describe: bool = False,
+    cv_config: dict | None = None,
+) -> str:
     """
     Render the `<script>` section describing a generated script.
 
@@ -416,6 +842,14 @@ def render_script_section(plan: ForecastPlan | None, code: str | None) -> str:
         Plan the script was rendered from. None renders nothing.
     code : str, None
         Generated script. None renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which leaves out
+        `SCRIPT_NOTE`, addressed to the LLM of `ask()`.
+    cv_config : dict, default None
+        Cross-validation strategy of a backtesting script (as returned by
+        `resolve_cv_config`), read from the script with
+        `backtest_cv_from_code`. With it, or with a script that calls a
+        backtesting function, the mode is backtesting.
 
     Returns
     -------
@@ -426,7 +860,37 @@ def render_script_section(plan: ForecastPlan | None, code: str | None) -> str:
     if plan is None or code is None:
         return ""
 
-    if plan.end_train is not None:
+    is_backtest = re.search(
+        r"^metrics, predictions = backtesting_\w+\(", code, re.M
+    )
+    if is_backtest or cv_config is not None:
+        if cv_config is None:
+            mode = (
+                "backtesting: predicts every fold of a cross-validation "
+                "strategy and scores it against the held-out observations "
+                "(its folds could not be counted from the script)"
+            )
+        else:
+            n_folds = cv_config["n_folds"]
+            n_fits = cv_config["n_fits"]
+            trained = (
+                "without training the model (foundation model)"
+                if plan.task_type == "foundation"
+                else f"training the forecaster {n_fits} time"
+                     f"{'s' if n_fits != 1 else ''}"
+            )
+            mode = (
+                f"backtesting: predicts {n_folds} fold"
+                f"{'s' if n_folds != 1 else ''} of {cv_config['steps']} step"
+                f"{'s' if cv_config['steps'] != 1 else ''}, "
+                f"{trained}, and scores the predictions of every fold against "
+                f"the held-out observations"
+            )
+        outputs = (
+            "metrics (one column per metric, one row per series when there "
+            "are several), and predictions of every fold with a `fold` column"
+        )
+    elif plan.end_train is not None:
         mode = (
             f"evaluation: trains up to {plan.end_train}, predicts the "
             f"following {plan.steps} steps and scores them against the "
@@ -452,16 +916,35 @@ def render_script_section(plan: ForecastPlan | None, code: str | None) -> str:
         f"- Variables defined: {outputs}",
         f"- Packages imported: {', '.join(packages) if packages else 'none'}",
         f"- Length: {len(code.splitlines())} lines",
-        "The script is available to the user as `result.code`; describe it "
-        "from this summary and the plan, do not reproduce it.",
     ]
+    if not for_describe:
+        # Asked which metric a backtesting script will give, the model
+        # declined without saying how to get it; asked about a forecasting
+        # script, it said that the script had run and predicted. The
+        # section only describes a script returned as code.
+        in_backtest_mode = is_backtest or cv_config is not None
+        run_note = BACKTEST_SCRIPT_NOTE if in_backtest_mode else FORECAST_SCRIPT_NOTE
+        parts.append(f"{SCRIPT_NOTE} {run_note}")
 
     return _tag("script", "\n".join(parts))
 
 
-def render_cv_section(cv_config: dict | None, note: str | None = None) -> str:
+# `TimeSeriesFold` parameters that only describe how a model is trained. A
+# foundation model is not trained (`backtesting_foundation` overrides both),
+# so they are left out of its context rather than quoted back as facts.
+_TRAINING_CV_PARAMS = ("refit", "fixed_train_size")
+
+
+def render_cv_section(
+    cv_config: dict | None,
+    note: str | None = None,
+    trains: bool = True,
+    overridden: list[str] | None = None,
+    without_effect: list[str] | None = None,
+    llm_configured: bool = False,
+) -> str:
     """
-    Render the `<cross_validation>` section.
+    Render the `<backtesting_strategy>` section (time series cross-validation).
 
     Parameters
     ----------
@@ -471,6 +954,22 @@ def render_cv_section(cv_config: dict | None, note: str | None = None) -> str:
     note : str, default None
         Line prepended to the parameter list, used by a comparison to
         state that the same strategy was applied to every candidate.
+    trains : bool, default True
+        Whether the forecaster is trained. When False (a foundation
+        model), `refit` and `fixed_train_size` are left out: they do not
+        apply to it.
+    overridden : list of str, default None
+        Names of the parameters the user passed to `create_cv()` instead
+        of its defaults (`CVResult.overridden_fields`). None when the
+        origin of the strategy is not known (a `TimeSeriesFold` built by
+        the user): nothing is said about who chose its values.
+    without_effect : list of str, default None
+        Names in `overridden` that have no effect on the forecaster that
+        runs. They are listed apart, so a value the user passed is not
+        presented as the one that ran.
+    llm_configured : bool, default False
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass.
 
     Returns
     -------
@@ -482,9 +981,37 @@ def render_cv_section(cv_config: dict | None, note: str | None = None) -> str:
         return ""
 
     parts = [note] if note else []
-    parts += [f"- {key}: {value}" for key, value in cv_config.items()]
+    parts += [
+        # `inference_windows` is a bound, one per series and fold: a series
+        # is not forecast in a fold where it has no data. Without "up to"
+        # a model read it as the number of forecasts that ran.
+        f"- {key}: up to {value}" if key == "inference_windows"
+        else f"- {key}: {value}"
+        for key, value in cv_config.items()
+        if trains or key not in _TRAINING_CV_PARAMS
+    ]
+    # Who chose each value, as the plan section says it for the plan. The
+    # names come from a closed set (`CVOverrideName`) when the result is
+    # validated; one changed with `model_copy()` is not.
+    ineffective = [name for name in without_effect or [] if name in (overridden or [])]
+    chosen = [name for name in overridden or [] if name not in ineffective]
+    if chosen:
+        parts.append(
+            f"- Chosen by the user instead of the rules: "
+            f"{', '.join(_one_line(name) for name in chosen)}"
+        )
+    if ineffective:
+        parts.append(
+            f"- Passed by the user without effect: "
+            f"{', '.join(_one_line(name) for name in ineffective)}"
+        )
+    if llm_configured:
+        parts.append(
+            "- Parameters not chosen by the user were set by the LLM from "
+            "the prompt."
+        )
 
-    return _tag("cross_validation", "\n".join(parts))
+    return _tag("backtesting_strategy", "\n".join(parts))
 
 
 def render_deterministic_summary_section(explanation: str | None) -> str:
@@ -512,7 +1039,11 @@ def render_deterministic_summary_section(explanation: str | None) -> str:
     return _tag("deterministic_summary", explanation)
 
 
-def render_metrics_section(metrics: Any, has_predictions: bool = False) -> str:
+def render_metrics_section(
+    metrics: Any,
+    has_predictions: bool = False,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<evaluation_metrics>` section.
 
@@ -525,6 +1056,11 @@ def render_metrics_section(metrics: Any, has_predictions: bool = False) -> str:
         None, the section states that no metrics were computed. Without
         it, the absence of the section would leave the LLM free to frame
         the plan's metric choice as a completed evaluation.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which keeps the
+        rows of the first `MAX_STATS_SERIES` series plus the aggregated
+        rows (`average`, `weighted_average`, `pooling`) and says how many
+        series there are.
 
     Returns
     -------
@@ -533,7 +1069,11 @@ def render_metrics_section(metrics: Any, has_predictions: bool = False) -> str:
     """
 
     if metrics is not None:
-        return _tag("evaluation_metrics", metrics.to_string(index=False))
+        if for_describe:
+            body = _first_series_metrics(metrics)
+        else:
+            body = metrics.to_string(index=False)
+        return _tag("evaluation_metrics", body)
 
     if has_predictions:
         return _tag(
@@ -543,6 +1083,45 @@ def render_metrics_section(metrics: Any, has_predictions: bool = False) -> str:
         )
 
     return ""
+
+
+def _first_series_metrics(metrics: Any) -> str:
+    """
+    Render the metrics of the first series plus the aggregated rows.
+
+    Parameters
+    ----------
+    metrics : pandas DataFrame
+        Metrics with one row per series in a `levels` (backtest) or
+        `series` (forecast) column, and the aggregated rows of skforecast.
+
+    Returns
+    -------
+    text : str
+        The table, cut to the rows of the first `MAX_STATS_SERIES` series
+        plus the aggregated rows when there are more series, with a line
+        that says so. Any other table is rendered whole.
+    """
+
+    level_column = next(
+        (col for col in ("levels", "series") if col in metrics.columns), None
+    )
+    if level_column is None:
+        return metrics.to_string(index=False)
+
+    is_aggregated = metrics[level_column].isin(_AGGREGATED_METRIC_ROWS)
+    series = list(dict.fromkeys(metrics.loc[~is_aggregated, level_column]))
+    if len(series) <= MAX_STATS_SERIES:
+        return metrics.to_string(index=False)
+
+    keep = is_aggregated | metrics[level_column].isin(series[:MAX_STATS_SERIES])
+    aggregated = ", plus the aggregated rows" if is_aggregated.any() else ""
+
+    return (
+        f"Rows shown (first {MAX_STATS_SERIES} of {len(series)} series"
+        f"{aggregated}).\n"
+        f"{metrics.loc[keep].to_string(index=False)}"
+    )
 
 
 def render_predictions_section(predictions: Any, send_data: bool = False) -> str:
@@ -575,7 +1154,10 @@ def render_predictions_section(predictions: Any, send_data: bool = False) -> str
     return _tag("predictions", body)
 
 
-def render_comparison_overview_section(result: ComparisonResult) -> str:
+def render_comparison_overview_section(
+    result: ComparisonResult,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<comparison_overview>` section.
 
@@ -583,6 +1165,9 @@ def render_comparison_overview_section(result: ComparisonResult) -> str:
     ----------
     result : ComparisonResult
         Completed comparison to describe.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which leaves out
+        `RANKING_NOTE`, addressed to the LLM of `ask()`.
 
     Returns
     -------
@@ -594,21 +1179,87 @@ def render_comparison_overview_section(result: ComparisonResult) -> str:
     parts = [
         f"- Candidates evaluated: {n_candidates}",
         f"- Ranking metric: {result.ranking_metric}",
-        f"- Winner: {result.best_name}",
-        (
-            f"The ranking is a deterministic ascending sort of the "
-            f"{result.ranking_metric} column (lower is better). Do not "
-            f"re-rank the candidates or recompute the table, and do not "
-            f"suggest reasons for the ranking beyond the metric values: the "
-            f"leaderboard reports what happened, not why."
-        ),
+        f"- Winner: {_one_line(result.best_name)}",
     ]
+    if result.baseline_name is not None:
+        parts.append(
+            f"- Baseline: {result.baseline_name} (ForecasterEquivalentDate, "
+            f"repeats past values). A candidate beats this naive reference "
+            f"only when it ranks above it (strictly lower "
+            f"{result.ranking_metric}; the baseline wins ties). This row is "
+            f"not the reference of MASE or RMSSE: those scale every row, this "
+            f"one included, against the one-step naive forecast on the "
+            f"training data, so the baseline row can also score below 1."
+        )
+    ranking = (
+        f"The ranking is a deterministic ascending sort of the "
+        f"{result.ranking_metric} column (lower is better)."
+    )
+    if not for_describe:
+        ranking += f" {RANKING_NOTE}"
+    parts.append(ranking)
 
     return _tag("comparison_overview", "\n".join(parts))
 
 
+def _shared_cv_note(result: ComparisonResult) -> str:
+    """
+    State how the shared cross-validation strategy applies to the
+    candidates of a comparison.
+
+    skforecast refits `ForecasterStats` in every fold whatever `refit`
+    says, so when one ran with a strategy that does not refit (or does so
+    on another window), the strategy is not applied identically to it and
+    the note says what ran for it, as the comparison explanation does.
+    `ForecasterFoundation` is not trained, so only the folds of the
+    strategy apply to it, and the note says so too.
+
+    Parameters
+    ----------
+    result : ComparisonResult
+        Completed comparison.
+
+    Returns
+    -------
+    note : str
+        Line prepended to the strategy.
+    """
+
+    shared = result.cv_config
+    forecasters = [
+        candidate.plan.forecaster for candidate in result.candidates.values()
+    ]
+    exceptions = []
+    for candidate in result.candidates.values():
+        if candidate.plan.forecaster != "ForecasterStats":
+            continue
+        stats = candidate.cv_config
+        if all(
+            stats.get(key) == shared.get(key)
+            for key in ("refit", "fixed_train_size", "n_fits")
+        ):
+            break
+        window = "fixed" if stats["fixed_train_size"] else "expanding"
+        exceptions.append(
+            f"ForecasterStats: skforecast refits it in every fold, on a "
+            f"{window} window ({stats['n_fits']} trainings)"
+        )
+        break
+    if "ForecasterFoundation" in forecasters:
+        exceptions.append(
+            "ForecasterFoundation: it is not trained, so only the folds apply "
+            "to it"
+        )
+    if not exceptions:
+        return "Applied identically to every candidate."
+
+    return f"Applied to every candidate, except {'; and '.join(exceptions)}."
+
+
 def render_leaderboard_section(
-    results: Any, max_rows: int = MAX_LEADERBOARD_ROWS
+    results: Any,
+    max_rows: int = MAX_LEADERBOARD_ROWS,
+    for_describe: bool = False,
 ) -> str:
     """
     Render the `<leaderboard>` section of a comparison.
@@ -626,6 +1277,9 @@ def render_leaderboard_section(
         Ranked comparison table, sorted best first.
     max_rows : int, default `MAX_LEADERBOARD_ROWS`
         Top rows kept in full.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which leaves out
+        `LEADERBOARD_NOTE`, addressed to the LLM of `ask()`.
 
     Returns
     -------
@@ -638,19 +1292,21 @@ def render_leaderboard_section(
         body = f"Candidates listed: {n_rows} (all shown below).\n{results.to_string()}"
     else:
         omitted = n_rows - max_rows
+        note = "" if for_describe else f" {LEADERBOARD_NOTE}"
         body = (
-            f"Candidates listed: {n_rows}. Only the top {max_rows} rows are "
-            f"shown; the remaining {omitted} ranked below them and were not "
-            f"provided. Do not name, count, or score a candidate that does "
-            f"not appear below.\n\n"
-            f"{results.head(max_rows).to_string()}\n"
-            f"... ({omitted} lower-ranked candidates omitted) ..."
+            f"Candidates listed: {n_rows}. Rows shown (first {max_rows} of "
+            f"{n_rows}): the {omitted} lower-ranked "
+            f"{'rows are' if omitted != 1 else 'row is'} omitted.{note}\n\n"
+            f"{results.head(max_rows).to_string()}"
         )
 
     return _tag("leaderboard", body)
 
 
-def render_failures_section(failures: dict | None) -> str:
+def render_failures_section(
+    failures: dict | None,
+    for_describe: bool = False,
+) -> str:
     """
     Render the `<failed_candidates>` section of a comparison.
 
@@ -662,6 +1318,9 @@ def render_failures_section(failures: dict | None) -> str:
     failures : dict, None
         Mapping of candidate name to `CandidateFailure`. Empty or None
         renders nothing.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, which keeps the
+        first `MAX_DESCRIBE_ITEMS` failures and says how many there are.
 
     Returns
     -------
@@ -672,15 +1331,21 @@ def render_failures_section(failures: dict | None) -> str:
     if not failures:
         return ""
 
+    shown, suffix = _first_items(list(failures.items()), for_describe)
     parts = [
-        f"- {name}: {failure.summary()}" for name, failure in failures.items()
+        f"- {_one_line(name)}: {_free_text(failure.summary())}"
+        for name, failure in shown
     ]
+    if suffix:
+        parts.append(f"- Failures shown{suffix}")
 
     return _tag("failed_candidates", "\n".join(parts))
 
 
 def render_winning_candidate_section(
-    best_name: str, plan: ForecastPlan | None
+    best_name: str,
+    plan: ForecastPlan | None,
+    for_describe: bool = False,
 ) -> str:
     """
     Render the `<winning_candidate>` section of a comparison.
@@ -694,6 +1359,9 @@ def render_winning_candidate_section(
         Name of the top-ranked candidate.
     plan : ForecastPlan, None
         The winner's plan.
+    for_describe : bool, default False
+        Whether the section is rendered for `describe()`, passed on to
+        `render_plan_section`.
 
     Returns
     -------
@@ -702,15 +1370,18 @@ def render_winning_candidate_section(
     """
 
     parts = [
-        f"Name: {best_name}",
+        f"Name: {_one_line(best_name)}",
         (
             "Only the winning configuration is detailed below. The other "
             "candidates are represented by their leaderboard rows."
         ),
-        render_plan_section(plan),
     ]
 
-    return _tag("winning_candidate", "\n".join(p for p in parts if p))
+    return _tag(
+        "winning_candidate",
+        "\n".join(parts),
+        nested = render_plan_section(plan, for_describe=for_describe),
+    )
 
 
 def build_context_message(
@@ -721,6 +1392,10 @@ def build_context_message(
     cv_config: dict | None = None,
     explanation: str | None = None,
     send_data: bool = False,
+    for_describe: bool = False,
+    cv_overridden: list[str] | None = None,
+    cv_without_effect: list[str] | None = None,
+    cv_llm_configured: bool = False,
 ) -> str:
     """
     Serialize a single forecasting run into a context block for the LLM.
@@ -748,7 +1423,7 @@ def build_context_message(
         Evaluation metrics from a completed forecast run.
     cv_config : dict, default None
         Cross-validation configuration from a backtest run. When
-        provided, a `<cross_validation>` section is rendered.
+        provided, a `<backtesting_strategy>` section is rendered.
     explanation : str, default None
         Deterministic human-readable summary produced alongside the run.
         When provided, a `<deterministic_summary>` section is rendered.
@@ -758,6 +1433,17 @@ def build_context_message(
         Whether raw data values may be included. When False, only
         aggregate statistics are shown for predictions. Metrics
         (already aggregated) are always included.
+    for_describe : bool, default False
+        Whether the block is rendered for `describe()`, which leaves out
+        the sentences addressed to the LLM of `ask()`.
+    cv_overridden : list of str, default None
+        Names of the strategy parameters the user passed to `create_cv()`,
+        see `render_cv_section`. None when their origin is not known.
+    cv_without_effect : list of str, default None
+        Names in `cv_overridden` without effect on the forecaster.
+    cv_llm_configured : bool, default False
+        Whether the LLM of `create_cv(prompt=...)` set the other
+        parameters.
 
     Returns
     -------
@@ -766,17 +1452,30 @@ def build_context_message(
     """
 
     return join_sections([
-        render_dataset_section(profile),
-        render_profile_decision_section(profile),
-        render_plan_section(plan),
-        render_cv_section(cv_config),
+        render_dataset_section(profile, for_describe=for_describe),
+        render_profile_decision_section(profile, for_describe=for_describe),
+        render_plan_section(plan, for_describe=for_describe),
+        render_cv_section(
+            cv_config,
+            trains         = plan is None or plan.task_type != "foundation",
+            overridden     = cv_overridden,
+            without_effect = cv_without_effect,
+            llm_configured = cv_llm_configured,
+        ),
         render_deterministic_summary_section(explanation),
-        render_metrics_section(metrics, has_predictions=predictions is not None),
+        render_metrics_section(
+            metrics,
+            has_predictions = predictions is not None,
+            for_describe    = for_describe,
+        ),
         render_predictions_section(predictions, send_data=send_data),
     ])
 
 
-def build_comparison_context(result: ComparisonResult) -> str:
+def build_comparison_context(
+    result: ComparisonResult,
+    for_describe: bool = False,
+) -> str:
     """
     Serialize a forecaster comparison into a context block for the LLM.
 
@@ -804,6 +1503,9 @@ def build_comparison_context(result: ComparisonResult) -> str:
     ----------
     result : ComparisonResult
         Completed comparison to describe.
+    for_describe : bool, default False
+        Whether the block is rendered for `describe()`, which leaves out
+        the sentences addressed to the LLM of `ask()`.
 
     Returns
     -------
@@ -814,18 +1516,26 @@ def build_comparison_context(result: ComparisonResult) -> str:
     return join_sections([
         # The profile is shared by construction, so it is stated once here
         # instead of being repeated inside every candidate's own block.
-        render_dataset_section(result.profile),
-        render_profile_decision_section(result.profile),
-        render_comparison_overview_section(result),
-        render_leaderboard_section(result.results),
-        render_failures_section(result.failures),
+        render_dataset_section(result.profile, for_describe=for_describe),
+        render_profile_decision_section(result.profile, for_describe=for_describe),
+        render_comparison_overview_section(result, for_describe=for_describe),
+        render_leaderboard_section(result.results, for_describe=for_describe),
+        render_failures_section(result.failures, for_describe=for_describe),
         render_cv_section(
             result.cv_config,
-            note="Applied identically to every candidate.",
+            note           = _shared_cv_note(result),
+            overridden     = result.cv_overridden_fields,
+            without_effect = result.cv_fields_without_effect,
+            llm_configured = result.cv_llm_configured,
         ),
-        render_deterministic_summary_section(result.explanation),
+        render_deterministic_summary_section(
+            f"{result.explanation} {result.cv_defaults_explanation}"
+            if result.cv_defaults_explanation else result.explanation
+        ),
         render_winning_candidate_section(
-            result.best_name, result.best_candidate.plan
+            result.best_name,
+            result.best_candidate.plan,
+            for_describe = for_describe,
         ),
     ])
 

@@ -13,6 +13,11 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from skforecast.stats import pacf
+from .._constants import (
+    FREQUENCY_TO_SEASONAL_PERIOD,
+    MAX_UNTABULATED_ARIMA_PERIOD,
+)
+from .._dates import date_positions, row_dates
 from ..schemas import DataProfile, SeriesPacf
 
 
@@ -52,6 +57,29 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
     week, 365-day year). The two shortest qualifying cycles (periods
     >= 2) are returned.
     """
+    return [period for period, _ in _seasonal_cycles(frequency)]
+
+
+def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
+    """
+    Periods of `estimate_seasonality`, each with whether it is a whole
+    cycle: whether the cycle lasts an exact number of steps of the
+    frequency (`'3h'`: 8 steps are a day; `'3D'`: 2 steps are 6 days, not a
+    week).
+
+    Parameters
+    ----------
+    frequency : str, None
+        Pandas frequency string.
+
+    Returns
+    -------
+    cycles : list of tuple of (int, bool)
+        `(period, whole)` for each period of `estimate_seasonality`, in its
+        order. A tabulated period of a variable-length offset is whole when
+        the multiplier divides it (`'2MS'`: 6 of 12; `'5MS'`: 2 of 12 is
+        not), as it is with no multiplier.
+    """
     if frequency is None:
         return []
 
@@ -76,13 +104,16 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
         return []
     multiplier = int(match.group(1)) if match.group(1) else 1
     base = match.group(2).upper().split("-")[0]
+    # The lookup ignores the case, so the millisecond alias "ms" reads as
+    # "MS" here; its periods are kept for the lags, never as whole cycles.
+    exact_case = match.group(2).split("-")[0] == base
 
     # Variable-length / non-fixed offsets: read periods-per-cycle from the
     # table and divide by the multiplier. The >= 1 floor (not >= 2) keeps
     # the degenerate yearly period (e.g. "YE" -> [1]).
     if base in non_fixed_seasonality:
         return [
-            p // multiplier
+            (p // multiplier, exact_case and p % multiplier == 0)
             for p in non_fixed_seasonality[base]
             if p // multiplier >= 1
         ]
@@ -105,12 +136,144 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
     if interval_seconds <= 0:
         return []
 
-    seasons = [
-        int(c // interval_seconds)
-        for c in cycle_seconds
-        if c // interval_seconds >= 2
-    ]
+    # Whether a cycle is whole is decided on integer nanoseconds, which the
+    # division of float seconds cannot tell exactly; a period that the float
+    # division made one step short (3599999 for the millisecond alias "L")
+    # is not whole either.
+    seasons = []
+    for c in cycle_seconds:
+        period = int(c // interval_seconds)
+        if period >= 2:
+            steps, remainder = divmod(c * 1_000_000_000, offset.nanos)
+            seasons.append((period, remainder == 0 and steps == period))
     return seasons[:2]
+
+
+# Aliases that pandas 2.1 infers and pandas 2.2 renamed, by their name in
+# `FREQUENCY_TO_SEASONAL_PERIOD`: month, quarter and year ends, hours and
+# minutes.
+_LEGACY_ALIASES = {
+    "M": "ME", "Q": "QE", "A": "YE", "Y": "YE", "AS": "YS", "H": "h", "T": "min",
+}
+
+
+def tabulated_seasonal_period(frequency: str | None) -> int | None:
+    """
+    Return the seasonal period of `FREQUENCY_TO_SEASONAL_PERIOD` for a
+    frequency, reading an anchored frequency as its base alias.
+
+    An anchor only says on which day a week, quarter or year starts or
+    ends (`'W-WED'`, `'QS-OCT'`, `'QE-DEC'`), not how long it is, so it has
+    the period of its base alias (`'W'`, `'QS'`, `'QE'`), as the lags and
+    the baseline read it (`estimate_seasonality`). The Auto-ARIMA script,
+    the rule that leaves Auto-ARIMA out of the candidates and the baseline
+    read this period first. Multiplied frequencies (`'2W'`) are not in the
+    table: they fall back to `estimate_seasonality` (see
+    `arima_seasonal_period` and `select_baseline_seasonal_period`). The
+    aliases pandas 2.1 infers (`'M'`, `'Q-DEC'`, `'A-DEC'`, `'H'`,
+    `'15T'`) are read as their current names.
+
+    Parameters
+    ----------
+    frequency : str, None
+        Pandas frequency string.
+
+    Returns
+    -------
+    period : int, None
+        Seasonal period in steps, or None when the frequency is None or not
+        in the table.
+    """
+    if frequency is None:
+        return None
+    period = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
+    if period is None:
+        base = frequency.split("-", 1)[0]
+        legacy = re.fullmatch(r"(\d*)([A-Za-z]+)", base)
+        if legacy and legacy.group(2) in _LEGACY_ALIASES:
+            base = f"{legacy.group(1)}{_LEGACY_ALIASES[legacy.group(2)]}"
+        period = FREQUENCY_TO_SEASONAL_PERIOD.get(base)
+
+    return period
+
+
+def arima_seasonal_period(frequency: str | None) -> int | None:
+    """
+    Return the seasonal period `m` of Auto-ARIMA for a frequency, which
+    also decides whether `ForecasterStats` is among the recommended
+    candidates.
+
+    The period of `FREQUENCY_TO_SEASONAL_PERIOD` when the frequency is in
+    it (`tabulated_seasonal_period`). Otherwise the primary period of
+    `estimate_seasonality`, the one the lags always include and the
+    baseline repeats, when it is a whole cycle of 2 to
+    `MAX_UNTABULATED_ARIMA_PERIOD` steps: `'2MS'` gives 6, `'3h'` 8 and
+    `'14h'` 12. A period that is not a whole cycle (`'3D'`: 2 steps are 6
+    days, not a week) would make the seasonal terms model a cycle the data
+    does not have, and a period of 1 is the non-seasonal model Auto-ARIMA
+    fits without `m`: both give None. So does a longer period (`'4W'`: 13,
+    `'2W'`: 26, `'s'`: 3600), whose search is too costly to run without
+    being asked for: `ForecasterStats` stays among the candidates with a
+    non-seasonal model, and `estimator_kwargs={'m': 26}` in `plan()` asks
+    for the seasonal one.
+
+    Parameters
+    ----------
+    frequency : str, None
+        Pandas frequency string.
+
+    Returns
+    -------
+    m : int, None
+        Seasonal period in steps, or None when Auto-ARIMA gets no seasonal
+        period.
+    """
+    period = tabulated_seasonal_period(frequency)
+    if period is not None:
+        return period
+    cycles = _seasonal_cycles(frequency)
+    if cycles and cycles[0][1]:
+        if 2 <= cycles[0][0] <= MAX_UNTABULATED_ARIMA_PERIOD:
+            return cycles[0][0]
+
+    return None
+
+
+def _date_order(dates: pd.DatetimeIndex | None) -> np.ndarray | None:
+    """
+    Return the positions of the rows of one series in date order.
+
+    As the generated script fits the series: the first row of each repeated
+    timestamp, without the rows that have no date.
+
+    Parameters
+    ----------
+    dates : pandas DatetimeIndex, None
+        Date of every row of the series (NaT when missing), or None when
+        the data has no dates.
+
+    Returns
+    -------
+    order : numpy ndarray, None
+        Positions of the rows to read, sorted by date with a stable sort.
+        None when there are no dates, so the rows are read as given.
+    """
+    if dates is None:
+        return None
+
+    keep = np.flatnonzero(
+        ~np.asarray(dates.duplicated(keep="first")) & ~np.asarray(dates.isna())
+    )
+
+    return keep[np.argsort(date_positions(dates)[keep], kind="stable")]
+
+
+def _ordered(values: pd.Series, order: np.ndarray | None) -> pd.Series:
+    """
+    Return `values` at the positions of `order`, or as given when None.
+    """
+
+    return values if order is None else values.iloc[order]
 
 
 def compute_series_pacf(
@@ -162,9 +325,14 @@ def compute_series_pacf(
     Source: `skforecast_ai/skills/autocorrelation-and-lag-selection/SKILL.md`.
 
     NaN handling is delegated to `pacf`, which strips leading/trailing
-    non-finite values and falls back to pairwise deletion for interior
+    non-finite values and uses only the pairs of finite values for interior
     gaps. Runs one PACF per series, so wide datasets incur one PACF
     computation per column.
+
+    Each series is read as the generated script fits it: in date order,
+    with the first row of each repeated timestamp and without the rows that
+    have no date. The rows are not put on the frequency grid, so missing
+    timestamps do not become NaN here.
 
     Lag-selection pipeline (per series):
 
@@ -196,18 +364,26 @@ def compute_series_pacf(
         if seasonalities else default_pacf_lags
     )
 
+    # Each series is read in date order and without repeated timestamps, as
+    # the generated script fits it: unsorted rows give a PACF of shuffled
+    # values, and repeated rows change the lags. The dates are read once for
+    # all the rows, as the script parses the whole date column.
+    dates = row_dates(data, profile.date_column)
     if isinstance(profile.target, list):
-        # Wide format: each target column is a series.
-        series = [(col, data[col]) for col in profile.target]
+        # Wide format: each target column is a series, all on the same rows.
+        order = _date_order(dates)
+        series = [(col, _ordered(data[col], order)) for col in profile.target]
     elif profile.series_id_column is not None:
-        # Long format: group by series id.
-        series = [
-            (str(sid), group[profile.target])
-            for sid, group in data.groupby(profile.series_id_column)
-        ]
+        # Long format: group by series id, in the order of groupby.
+        series = []
+        for sid, positions in data.groupby(profile.series_id_column).indices.items():
+            if dates is not None:
+                positions = positions[_date_order(dates[positions])]
+            series.append((str(sid), data[profile.target].iloc[positions]))
     else:
         # Single series.
-        series = [(profile.target, data[profile.target])]
+        order = _date_order(dates)
+        series = [(profile.target, _ordered(data[profile.target], order))]
 
     results: list[SeriesPacf] = []
     for series_id, values in series:
@@ -219,7 +395,12 @@ def compute_series_pacf(
         # PACF requires nlags < n_valid // 2; clamp without mutating the
         # outer cap so subsequent series still use the full horizon.
         effective_n_lags = max(min(n_lags, n_valid // 2 - 1), 1)
-        pacf_values = pacf(values, nlags=effective_n_lags)
+        try:
+            pacf_values = pacf(values, nlags=effective_n_lags)
+        except ValueError:
+            if _pacf_not_computable(values, effective_n_lags):
+                continue
+            raise
         lags_arr = np.arange(1, effective_n_lags + 1)
         pacf_abs = np.abs(pacf_values[1:])
 
@@ -262,6 +443,38 @@ def compute_series_pacf(
         )
 
     return results
+
+
+def _pacf_not_computable(values: pd.Series, n_lags: int) -> bool:
+    """
+    Tell whether the PACF of a series failed because its infinite values
+    leave too few finite values for `n_lags`.
+
+    `pacf` leaves infinite values out, so a target that is almost all
+    infinite (or written with values beyond the range of a float, which are
+    read as infinite) has too few values left for the lags counted with
+    them. That series has no PACF: `forecast()` and `backtest()` reject the
+    infinite values of a target the forecaster reads
+    (`validate_infinite_target`), and a foundation model reads no lags.
+
+    Parameters
+    ----------
+    values : pandas Series
+        Values of the series.
+    n_lags : int
+        Number of lags the PACF was asked for.
+
+    Returns
+    -------
+    not_computable : bool
+        True when the series holds infinite values and its finite values
+        are too few for `n_lags` (`pacf` needs `n_lags < n // 2`); False
+        when the error of `pacf` has another cause, to be raised as it is.
+    """
+    numbers = values.dropna().to_numpy(dtype=float)
+    n_finite = int(np.isfinite(numbers).sum())
+
+    return n_finite < len(numbers) and (n_finite < 2 or n_lags >= n_finite // 2)
 
 
 def _aggregate_lags_multiseries(

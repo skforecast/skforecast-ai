@@ -40,3 +40,24 @@ def test_extract_datetime_index_output_when_index_type_is_not_datetime():
     data = pd.DataFrame({"value": range(3)}, index=_dates)
 
     assert _extract_datetime_index(data, None, "range", "single", None) is None
+
+
+def test_extract_datetime_index_output_when_first_rows_have_no_series_id():
+    """
+    Test that rows without a series id are left out when choosing the series
+    whose dates are returned, and that no dates are returned when no row has
+    a series id.
+    """
+    data = pd.DataFrame({
+        "date": _dates.append(_dates),
+        "series_id": [None, "a", "a", "b", "b", "b"],
+        "value": range(6),
+    })
+
+    result = _extract_datetime_index(data, "date", "datetime", "long", "series_id")
+    empty = _extract_datetime_index(
+        data.assign(series_id=None), "date", "datetime", "long", "series_id"
+    )
+
+    pd.testing.assert_index_equal(result, pd.DatetimeIndex(_dates[1:], name="date"))
+    assert empty is None

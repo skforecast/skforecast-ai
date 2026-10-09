@@ -13,6 +13,7 @@ import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 
 from ..rendering.backtesting import (
+    render_backtesting_baseline,
     render_backtesting_foundation,
     render_backtesting_multi_series,
     render_backtesting_multivariate,
@@ -20,6 +21,7 @@ from ..rendering.backtesting import (
     render_backtesting_statistical,
 )
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ..exceptions import InvalidInputError
 from .comparison import aggregate_metrics
 from ._exec import exec_rendered
 
@@ -31,6 +33,7 @@ _RENDER_DISPATCH: dict[
     "multivariate": render_backtesting_multivariate,
     "statistical": render_backtesting_statistical,
     "foundation": render_backtesting_foundation,
+    "baseline": render_backtesting_baseline,
 }
 
 
@@ -121,9 +124,10 @@ def render_backtesting_script(
     render_fn = _RENDER_DISPATCH.get(plan.task_type)
     if render_fn is None:
         supported = list(_RENDER_DISPATCH.keys())
-        raise ValueError(
+        raise InvalidInputError(
             f"Unsupported task_type '{plan.task_type}'. "
-            f"Supported types: {supported}"
+            f"Supported types: {supported}",
+            field = "task_type",
         )
     return render_fn(plan, profile, cv)
 
@@ -156,12 +160,15 @@ def _exec_rendered_code(
 
     # The rendered script always shows `show_progress = True`, so the value
     # is patched only in the code that runs, never in the code returned to
-    # the user.
+    # the user. The pattern is anchored to the keyword line of the
+    # backtesting call: a column name written as a string literal in the
+    # script (`'show_progress = True'`) is never rewritten.
     if not show_progress:
         code_to_exec = re.sub(
-            r"show_progress\s*=\s*True",
-            "show_progress = False",
+            r"^(\s+show_progress\s*=\s*)True,$",
+            r"\g<1>False,",
             code_to_exec,
+            flags=re.MULTILINE,
         )
 
     return exec_rendered(code_to_exec, {"data": data.copy()}, "<backtesting>")

@@ -1,6 +1,9 @@
 # Unit test derive_preprocessing_steps recommendation/preprocessing
 
+import re
+
 import pytest
+from skforecast.foundation import get_model_info
 
 from skforecast_ai.recommendation import derive_preprocessing_steps
 from skforecast_ai.schemas import DataProfile, PreprocessingStep
@@ -40,19 +43,61 @@ def test_derive_steps_no_sort_index_step():
     assert "sort_index" not in actions
 
 
-def test_derive_steps_includes_drop_duplicates_when_duplicates():
+@pytest.mark.parametrize(
+    "profile_kwargs, forecaster, expected_snippet",
+    [
+        (
+            {"series_lengths": {"y": 100}, "n_series": 1, "target": "y"},
+            "ForecasterRecursive",
+            "data = data[~data.index.duplicated(keep='first')]",
+        ),
+        (
+            {
+                "series_lengths": {"A": 100, "B": 100},
+                "n_series": 2,
+                "target": "value",
+                "data_format": "long",
+                "date_column": "date",
+                "series_id_column": "series_id",
+            },
+            "ForecasterRecursiveMultiSeries",
+            "data = data.drop_duplicates(subset=[{series_id_column}, "
+            "{date_column}], keep='first')",
+        ),
+    ],
+    ids=["single, dates in the index", "long, dates in a column"],
+)
+def test_derive_steps_drop_duplicates_snippet_per_data_format(
+    profile_kwargs, forecaster, expected_snippet
+):
+    """
+    Test that timestamps repeated in identical rows add a blocking
+    drop_duplicates step that deduplicates on the index, or on the series
+    identifier and date columns for long-format data, whose dates are still
+    a column when the step runs.
+    """
     profile = DataProfile(
-        series_lengths={"y": 100},
-        n_series=1,
-        index_type="datetime",
-        frequency="D",
-        target="y",
-        has_duplicate_timestamps=True,
-        frequency_is_set=True,
+        index_type               = "datetime",
+        frequency                = "D",
+        has_duplicate_timestamps = True,
+        frequency_is_set         = True,
+        **profile_kwargs,
     )
-    steps = derive_preprocessing_steps(profile, "ForecasterRecursive")
-    actions = [s.action for s in steps]
-    assert "drop_duplicates" in actions
+
+    steps = derive_preprocessing_steps(profile, forecaster)
+
+    expected = PreprocessingStep(
+        action       = "drop_duplicates",
+        reason       = (
+            "Timestamps repeated in identical rows are removed: skforecast "
+            "needs one row per timestamp."
+        ),
+        code_snippet = expected_snippet,
+        blocking     = True,
+    )
+    assert [step for step in steps if step.action == "drop_duplicates"] == [
+        expected
+    ]
 
 
 def test_derive_steps_no_asfreq_step():
@@ -184,33 +229,44 @@ def test_derive_steps_includes_handle_categorical_exog_when_categorical():
 
 
 @pytest.mark.parametrize(
-    "forecaster, expected, not_expected",
+    "forecaster, model_id, expected, not_expected",
     [
         (
             "ForecasterRecursive",
+            None,
             "categorical_features='auto'",
-            "Chronos-2 consumes categorical covariates",
+            "consumes categorical covariates",
         ),
         (
             "ForecasterFoundation",
-            "Chronos-2 consumes categorical covariates",
+            "autogluon/chronos-2-small",
+            "'autogluon/chronos-2-small' consumes categorical covariates natively",
             "categorical_features='auto'",
         ),
         (
+            "ForecasterFoundation",
+            "google/timesfm-3.0-pytorch",
+            "'google/timesfm-3.0-pytorch' only accepts numeric covariates, "
+            "so these columns are excluded",
+            "consumes categorical covariates",
+        ),
+        (
             "ForecasterStats",
+            None,
             "only accept numeric exogenous variables",
             "categorical_features='auto'",
         ),
     ],
-    ids=lambda dt: f"forecaster, expected, not_expected: {dt}",
+    ids=lambda dt: f"forecaster, model_id, expected, not_expected: {dt}",
 )
 def test_derive_steps_handle_categorical_exog_reason_per_forecaster(
-    forecaster, expected, not_expected
+    forecaster, model_id, expected, not_expected
 ):
     """
     Test that the handle_categorical_exog reason matches the mechanism the
     forecaster actually offers. Only the ML forecasters take a
-    `categorical_features` argument.
+    `categorical_features` argument, and a foundation model either consumes
+    categorical covariates natively or has them excluded.
     """
     profile = DataProfile(
         series_lengths={"y": 100},
@@ -222,13 +278,187 @@ def test_derive_steps_handle_categorical_exog_reason_per_forecaster(
         categorical_exog=["holiday"],
         frequency_is_set=True,
     )
-    steps = derive_preprocessing_steps(profile, forecaster)
+    foundation_model = get_model_info(model_id) if model_id else None
+    steps = derive_preprocessing_steps(
+        profile          = profile,
+        forecaster       = forecaster,
+        foundation_model = foundation_model,
+    )
     reason = next(
         s.reason for s in steps if s.action == "handle_categorical_exog"
     )
 
     assert expected in reason
     assert not_expected not in reason
+
+
+def test_derive_steps_no_handle_categorical_exog_when_foundation_model_without_covariates():
+    """
+    Test that no handle_categorical_exog step is added for a foundation
+    model that accepts no covariates: no exogenous variable reaches it, so
+    there is nothing to encode or exclude.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["holiday"],
+        categorical_exog=["holiday"],
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(
+        profile          = profile,
+        forecaster       = "ForecasterFoundation",
+        foundation_model = get_model_info("Salesforce/moirai-2.0-R-small"),
+    )
+
+    assert "handle_categorical_exog" not in [s.action for s in steps]
+
+
+def test_derive_steps_ValueError_when_foundation_without_foundation_model():
+    """
+    Test that a ForecasterFoundation with categorical exog and no
+    `foundation_model` raises ValueError, since the step depends on the
+    capabilities of the model.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["holiday"],
+        categorical_exog=["holiday"],
+        frequency_is_set=True,
+    )
+
+    err_msg = re.escape(
+        "`foundation_model` is required to derive the preprocessing steps of "
+        "'ForecasterFoundation'."
+    )
+    with pytest.raises(ValueError, match=err_msg):
+        derive_preprocessing_steps(profile, "ForecasterFoundation")
+
+
+@pytest.mark.parametrize(
+    "missing_target, missing_exog, expected",
+    [
+        (
+            {"y": 3},
+            {},
+            "'autogluon/chronos-2-small' accepts missing values in the series "
+            "used as context, so they are passed as they are.",
+        ),
+        (
+            {},
+            {"promo": 2},
+            "Missing values in the exogenous variables are passed to the model "
+            "unchanged; impute them to control how they are filled.",
+        ),
+    ],
+    ids=lambda dt: f"missing_target, missing_exog, expected: {dt}",
+)
+def test_derive_steps_handle_missing_values_when_foundation(
+    missing_target, missing_exog, expected
+):
+    """
+    Test that a foundation model gets a non-blocking missing-values step
+    based on what the backend accepts, not the ML advice about
+    `dropna_from_series` or NaN-tolerant estimators, which do not apply.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["promo"],
+        missing_target=missing_target,
+        missing_exog=missing_exog,
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(
+        profile          = profile,
+        forecaster       = "ForecasterFoundation",
+        foundation_model = get_model_info("autogluon/chronos-2-small"),
+    )
+    step = next(s for s in steps if s.action == "handle_missing_values")
+
+    assert step.reason == expected
+    assert step.blocking is False
+    assert "dropna_from_series" not in step.reason
+
+
+def test_derive_steps_no_handle_categorical_exog_when_baseline():
+    """
+    Test that no handle_categorical_exog step is added for the baseline,
+    which uses no exogenous variables at all.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["holiday"],
+        categorical_exog=["holiday"],
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(profile, "ForecasterEquivalentDate")
+    actions = [s.action for s in steps]
+
+    assert "handle_categorical_exog" not in actions
+
+
+@pytest.mark.parametrize(
+    "missing_target, missing_exog, has_gaps, expected_actions",
+    [
+        ({"y": 3}, {}, False, ["handle_missing_values"]),
+        ({}, {}, True, ["handle_missing_values"]),
+        ({}, {"holiday": 2}, False, []),
+    ],
+    ids=lambda value: f"{value}",
+)
+def test_derive_steps_handle_missing_values_when_baseline(
+    missing_target, missing_exog, has_gaps, expected_actions
+):
+    """
+    Test that the baseline gets its own missing-values advice (impute the
+    target) when the target has missing values or missing timestamps, and
+    none for missing exogenous values, which it does not use.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["holiday"],
+        missing_target=missing_target,
+        missing_exog=missing_exog,
+        has_gaps=has_gaps,
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(profile, "ForecasterEquivalentDate")
+
+    assert [s.action for s in steps] == expected_actions
+    if expected_actions:
+        assert steps[0] == PreprocessingStep(
+            action="handle_missing_values",
+            reason=(
+                "Impute the missing target values before training. "
+                "ForecasterEquivalentDate repeats past values, so a missing "
+                "value at an equivalent date becomes a missing prediction and "
+                "the metrics cannot be computed."
+            ),
+            code_snippet=(
+                "# Impute missing target values, for example:\n"
+                "# data[target] = data[target].interpolate()"
+            ),
+            blocking=False,
+        )
 
 
 def test_derive_steps_handle_gaps_is_non_blocking():
@@ -266,3 +496,53 @@ def test_derive_steps_all_steps_are_preprocessing_step_instances():
     )
     assert all(isinstance(s, PreprocessingStep) for s in steps)
     assert len(steps) >= 1  # handle_gaps (non-blocking)
+
+
+@pytest.mark.parametrize(
+    "n_categorical, expected_list",
+    [
+        (15, str([f"cat_{i:03d}" for i in range(15)])),
+        (
+            500,
+            str([f"cat_{i:03d}" for i in range(15)]) + " (first 15 of 500)",
+        ),
+    ],
+    ids=["at the limit", "500 columns"],
+)
+def test_derive_steps_handle_categorical_exog_reason_cuts_long_list(
+    n_categorical, expected_list
+):
+    """
+    Test that the reason of the handle_categorical_exog step names at most
+    15 categorical columns and says how many there are, so its length does
+    not grow with the number of columns; 15 columns are all listed.
+    """
+    columns = [f"cat_{i:03d}" for i in range(n_categorical)]
+    profile = DataProfile(
+        series_lengths={"y": 365},
+        n_series=1,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        data_format="single",
+        exog_columns=columns,
+        categorical_exog=columns,
+    )
+
+    reasons = {
+        forecaster: next(
+            s.reason
+            for s in derive_preprocessing_steps(profile, forecaster)
+            if s.action == "handle_categorical_exog"
+        )
+        for forecaster in ("ForecasterStats", "ForecasterRecursive")
+    }
+
+    assert reasons["ForecasterStats"] == (
+        f"Categorical exogenous variables detected: {expected_list}. "
+        f"Statistical models only accept numeric exogenous variables, so "
+        f"these columns are excluded. Encode them manually to include them."
+    )
+    assert reasons["ForecasterRecursive"].startswith(
+        f"Categorical exogenous variables detected: {expected_list}. "
+    )

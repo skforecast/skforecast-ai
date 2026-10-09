@@ -10,6 +10,8 @@ from typing import ClassVar, Literal
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .._display import DisplayMixin, render_profile
+from .._validation import validate_frequency
+from ._compat import PickleDefaultsMixin
 from .explainable import ExplainableResult
 
 class SeriesLengthInfo(BaseModel):
@@ -82,7 +84,7 @@ def _resolve_observation_counts(
     return span_index_length, n_total_observations
 
 
-class DataProfile(BaseModel):
+class DataProfile(PickleDefaultsMixin, BaseModel):
     """
     Profile of the input time series dataset.
 
@@ -112,6 +114,16 @@ class DataProfile(BaseModel):
     n_observations_display : int
         Task-agnostic observation count for display and summaries: the
         series length for a single series, `span_index_length` otherwise.
+    time_zone : str, default None
+        Name of the time zone of the dates (`'Europe/Madrid'`, `'UTC'`),
+        or None when they have none or it cannot be rebuilt from its name.
+        `start_date` is then written as local time, without its UTC
+        offset, and the positions and the dates of a cross-validation
+        strategy are counted on the local times of the data, which skip or
+        repeat an hour at a daylight saving change.
+    span_start_date : str, None
+        First date of the span of `span_index_length`: `start_date`, or in
+        long format the earliest first date of the series.
     target : str, list
         Name(s) of the target column(s). A single string for single
         series and long format. A list of strings for wide format where
@@ -134,15 +146,23 @@ class DataProfile(BaseModel):
         Type of the DataFrame index. One of `'datetime'`, `'range'`,
         `'other'`.
     frequency : str, default None
-        Inferred pandas frequency string (e.g. `'h'`, `'D'`, `'ME'`).
+        Inferred pandas frequency string (e.g. `'h'`, `'D'`, `'ME'`). In long
+        format, the frequency shared by every series.
     frequency_is_set : bool, default False
-        Whether the index already has a frequency set (`index.freq`).
+        Whether the index already has a frequency set (`index.freq`). False
+        when the rows were not in date order.
     index_is_monotonic : bool, default True
-        Whether the index is sorted in ascending order.
+        Whether the input was in ascending date order (within each series,
+        for long format). Rows out of order are sorted before profiling,
+        with a note in `warnings`, so the other fields describe the sorted
+        data.
     has_gaps : bool, default False
-        Whether the datetime index has missing timestamps within its range.
+        Whether the datetime index has missing timestamps within its range
+        (in long format, whether any series has them within its own range).
     has_duplicate_timestamps : bool, default False
-        Whether the index contains duplicate timestamps.
+        Whether some timestamps appear in several identical rows, which the
+        generated code drops. Timestamps repeated with different values
+        raise a `ValueError` during profiling.
     exog_columns : list
         Names of exogenous predictor columns.
     categorical_exog : list
@@ -150,6 +170,11 @@ class DataProfile(BaseModel):
     missing_exog : dict
         Mapping of exogenous column name to count of missing values.
         Only columns with at least one missing value are included.
+    unused_columns : list, default []
+        Columns of the data that are neither the target, the date, the
+        series id nor an exogenous variable: left out with `exog_columns`
+        of `profile()`, or columns of data passed with a saved profile that
+        does not name them. The generated script does not read them.
     data_path : str, default 'data.csv'
         Path to the source CSV file. Derived automatically during
         profiling: if the input is a file path, this stores it; if the
@@ -185,12 +210,14 @@ class DataProfile(BaseModel):
     exog_columns: list[str] = Field(default_factory=list)
     categorical_exog: list[str] = Field(default_factory=list)
     missing_exog: dict[str, int] = Field(default_factory=dict)
+    unused_columns: list[str] = Field(default_factory=list)
 
     # -- Source --
     data_path: str = "data.csv"
 
     # -- Train/test split --
     start_date: str | None = None
+    time_zone: str | None = None
 
     # -- Diagnostics --
     warnings: list[str] = Field(default_factory=list)
@@ -206,6 +233,16 @@ class DataProfile(BaseModel):
             }
         return value
 
+    @field_validator("frequency")
+    @classmethod
+    def _check_frequency(cls, value: str | None) -> str | None:
+        """
+        Check that `frequency` is a pandas frequency alias: it is written
+        into the generated script, also from a profile loaded from JSON.
+        """
+        validate_frequency(value)
+        return value
+
     @model_validator(mode="after")
     def _populate_observation_counts(self) -> "DataProfile":
         """Derive `span_index_length` and `n_total_observations`."""
@@ -216,6 +253,53 @@ class DataProfile(BaseModel):
             self.span_index_length = span
             self.n_total_observations = total
         return self
+
+    @property
+    def span_start_date(self) -> str | None:
+        """
+        First date of the span of the data, where `span_index_length`
+        starts.
+
+        It is `start_date`, except in long format, where `start_date` is
+        the latest first date of the series and the span starts at the
+        earliest one (the union index of the series). The earliest is
+        taken only when `span_index_length` observations at `frequency`
+        run from it to the last date of the series; otherwise (a span
+        counted as the longest series, dates that mix time zones) it is
+        `start_date`, as before.
+
+        Returns
+        -------
+        span_start_date : str, None
+            First date of the span, or None without dates.
+        """
+        if self.data_format != "long" or self.frequency is None:
+            return self.start_date
+        infos = list(self.series_lengths.values())
+        try:
+            starts = [pd.Timestamp(info.start) for info in infos if info.start]
+            ends = [pd.Timestamp(info.end) for info in infos if info.end]
+            if not starts or not ends:
+                return self.start_date
+            start, end = min(starts), max(ends)
+            # The dates of the series carry the UTC offset of their day,
+            # which differs across a daylight saving change: the span is
+            # rebuilt in the zone and written as local time, as
+            # `start_date` is.
+            if self.time_zone is not None and start.tzinfo is not None:
+                start = start.tz_convert(self.time_zone)
+                end = end.tz_convert(self.time_zone)
+            span = pd.date_range(start=start, end=end, freq=self.frequency)
+            if self.time_zone is not None and start.tzinfo is not None:
+                start = start.tz_localize(None)
+        except (ValueError, TypeError):
+            return self.start_date
+        if len(span) != self.span_index_length:
+            return self.start_date
+        # Written as `start_date` is: the date alone at midnight.
+        if start == start.normalize():
+            return str(start.date())
+        return str(start)
 
     @property
     def n_observations_display(self) -> int:
@@ -263,7 +347,9 @@ class SeriesPacf(BaseModel):
     pacf_abs: list[float] = Field(default_factory=list)
 
 
-class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
+class ForecastingProfile(
+    PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel
+):
     """
     High-level profile of the forecasting problem.
 
@@ -288,12 +374,13 @@ class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
         Ordered list of compatible forecaster class names. The first
         item is the preferred default.
     estimator : str, default None
-        Selected scikit-learn compatible estimator name. `None` for
-        forecaster families that do not use an external estimator
-        (statistical, foundation).
+        Selected estimator: a scikit-learn compatible estimator name,
+        `'Arima'` for statistical tasks, or the Hugging Face model ID of
+        the foundation model for foundation tasks. `None` for the
+        baseline, which has no estimator.
     estimator_candidates : list
-        Ordered list of compatible estimator names. Empty when the
-        selected forecaster does not use an external estimator.
+        Ordered list of compatible estimator names. Empty for the
+        baseline.
     series_pacf : list of SeriesPacf
         Per-series PACF-significant lags (the forecaster-invariant lag
         primitive). Empty for statistical and foundation tasks. The
@@ -339,7 +426,7 @@ class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
     def _rich_body(self, console, options):
         yield render_profile(self)
 
-    def _build_llm_context(self, *, send_data: bool):
+    def _build_llm_context(self, *, send_data: bool, for_describe: bool = False):
         """
         Describe the profile to the LLM.
 
@@ -352,6 +439,9 @@ class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
             Whether raw data values may be included. Has no effect here:
             a profile holds summary statistics only. The parameter is part
             of the `ExplainableResult` interface.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -364,7 +454,10 @@ class ForecastingProfile(DisplayMixin, ExplainableResult, BaseModel):
         from .results import LLMContext
 
         return LLMContext(
-            text                = build_context_message(profile=self),
+            text                = build_context_message(
+                                      profile      = self,
+                                      for_describe = for_describe,
+                                  ),
             profile             = self,
             sends_result_values = False,
         )

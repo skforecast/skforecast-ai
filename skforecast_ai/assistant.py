@@ -5,33 +5,68 @@
 ################################################################################
 
 from __future__ import annotations
+import contextlib
+import copy
+import hashlib
+import json
+import numbers
 import sys
 import warnings
+from collections import OrderedDict
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+import numpy as np
 import pandas as pd
 
 if sys.version_info >= (3, 12):
     from typing import Unpack
 else:
     from typing_extensions import Unpack
+from skforecast.exceptions import IgnoredArgumentWarning, LongTrainingWarning
 from skforecast.model_selection import TimeSeriesFold
-from ._constants import FORECASTER_TASK_TYPES, OLLAMA_MAX_CONTEXT_TOKENS
+from ._constants import (
+    AUTOREG_FORECASTERS,
+    BASELINE_FORECASTERS,
+    DIRECT_FORECASTERS,
+    FORECASTER_TASK_TYPES,
+    MAX_FEATURE_FRACTION,
+    OLLAMA_MAX_CONTEXT_TOKENS,
+    REQUIRES_DATETIME_FREQ,
+    SUPPORTED_TRANSFORMERS,
+)
+from ._validation import (
+    check_estimator_installed,
+    validate_calendar_override,
+    validate_estimator,
+    validate_estimator_kwargs,
+    validate_interval,
+    resolve_metric_override,
+    validate_steps,
+)
 from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
     DataSentToLLMWarning,
+    InvalidInputError,
+    InvalidInputTypeError,
     LLMCallError,
     LLMRequiredError,
+    MissingBackendWarning,
+    PlanEditsDiscardedWarning,
+    SkforecastAIError,
     UnrecommendedForecasterWarning,
 )
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
 from .execution.comparison import (
+    add_baseline_candidate,
     aggregate_metrics,
     build_comparison_explanation,
     build_comparison_table,
     compare_sort_key,
+    exclude_costly_candidates,
+    missing_foundation_backend,
     resolve_compare_candidates,
 )
 from .execution.forecast_runner import render_forecast_script
@@ -48,18 +83,34 @@ from .llm import (
 from .llm.diagnostics import check_llm_config
 from .llm.refinement import configure_cv_with_llm, refine_features_with_llm
 from .llm.runtime import run_agent_sync
-from .profiling import create_data_profile, resolve_end_train
+from .profiling import (
+    count_test_observations,
+    create_data_profile,
+    resolve_end_train,
+)
+from .profiling.data_profile import unused_columns_note, validate_target_numeric
 from .recommendation import (
     _build_profile_explanation,
+    baseline_missing_values_note,
     build_cv,
+    build_foundation_explanation,
+    build_metric_override_explanation,
     build_plan_explanation,
     build_forecaster_kwargs,
     check_exog_usage,
+    check_first_window,
     compute_series_pacf,
+    count_estimator_fits,
+    count_inference_windows,
+    cv_as_executed,
     derive_cv_defaults,
     derive_preprocessing_steps,
+    constant_calendar_features,
+    drop_colliding_calendar_features,
     finalize_lags,
     resolve_cv_config,
+    resolve_cv_provenance,
+    select_baseline_config,
     select_calendar_encoding,
     select_calendar_features,
     select_dropna_from_series,
@@ -70,16 +121,22 @@ from .recommendation import (
     select_transformer_exog,
     select_transformer_series,
     select_window_features,
+    warn_first_window,
+    warn_interval_residuals,
 )
 from .schemas import (
+    CV_OVERRIDE_NAMES,
+    OVERRIDE_NAMES,
     REFINE_PLAN_OVERRIDE_KEYS,
     AskResult,
     BacktestResult,
     CandidateConfig,
     CandidateFailure,
     CodeGenerationResult,
+    CompareProgress,
     ComparisonResult,
     CVResult,
+    DataProfile,
     ExplainableResult,
     ForecastingProfile,
     ForecastPlan,
@@ -87,33 +144,403 @@ from .schemas import (
     LLMCheckResult,
     RefinePlanOverrides,
 )
+from ._foundation import foundation_exog_columns, validate_foundation_plan
+from ._future_exog import as_exog_frame, validate_future_exog
+from ._last_window import (
+    validate_backtest_windows,
+    warn_backtest_missing_values,
+    validate_evaluation_partition,
+    validate_infinite_target,
+    validate_last_window,
+    validate_series_lengths,
+)
 from ._utils import (
+    _check_direct_gap,
+    _check_cv_matches_profile,
+    _check_evaluated_target,
+    _check_plan_matches_profile,
+    _check_feature_name_collisions,
+    _cv_in_time_zone,
+    _warn_direct_gap,
+    _warn_window_without_refit,
     _resolve_data_and_target,
     _resolve_inputs_with_profile,
     _strip_code_blocks,
     _unwrap_cv,
+    _with_data_path,
     _validate_forecast_mode,
     resolve_interval_method,
     _validate_lags,
+    _max_window_size,
     _validate_max_window_size,
     _validate_task_input,
     _validate_window_features,
     _apply_interval_to_plan,
     _check_plan_overrides,
+    _data_path_of_run,
+    _revalidate_plan,
+    discarded_plan_edits,
+    plan_override_value,
+    recorded_data_path,
+    structure_differences,
+    warn_long_inference,
+    warn_long_training,
 )
+
+
+# Decisions added in 0.4.0, which `refine_plan()` carries over only when the
+# user chose them (`ForecastPlan.overridden_fields`).
+_CHOSEN_DECISIONS = (
+    "metric",
+    "use_exog",
+    "differentiation",
+    "calendar_features",
+    "target_transformer",
+    "dropna_from_series",
+)
+
+# Forecasters with a `differentiation` argument, whose order skforecast
+# requires to be the one of the strategy of a backtest.
+_DIFFERENTIATION_FORECASTERS = AUTOREG_FORECASTERS | BASELINE_FORECASTERS
+
+
+def _cv_provenance_fields(
+    cv_result: CVResult | None,
+    cv: TimeSeriesFold,
+    cv_config: dict,
+    plan: ForecastPlan | None,
+    profile: ForecastingProfile,
+) -> dict[str, object]:
+    """
+    Fields of a `BacktestResult` or a `ComparisonResult` that say where the
+    values of its strategy come from, for the plan that ran it.
+
+    Empty when the strategy was received as a `TimeSeriesFold`: who chose
+    its values is not known, which is not the same as all of them being
+    defaults, so the results keep `cv_overridden_fields=None`.
+
+    Parameters
+    ----------
+    cv_result : CVResult, None
+        Result of `create_cv()` the strategy came in, or None.
+    cv : TimeSeriesFold
+        Splitter of the strategy, with its parameters as given.
+    cv_config : dict
+        Resolved parameters of the strategy as it runs.
+    plan : ForecastPlan, None
+        Plan that ran the strategy. None for a comparison.
+    profile : ForecastingProfile
+        Profile of the data that ran, which can have more observations
+        than the ones the strategy was created on.
+
+    Returns
+    -------
+    fields : dict
+        Keyword arguments of the result.
+    """
+
+    if cv_result is None:
+        return {}
+
+    without_effect, defaults_explanation = resolve_cv_provenance(
+        created_profile = cv_result.profile,
+        created_plan    = cv_result.plan,
+        cv              = cv,
+        cv_config       = cv_config,
+        plan            = plan,
+        overridden      = list(cv_result.overridden_fields),
+        llm_configured  = cv_result.llm_configured,
+        n_observations  = profile.data_profile.span_index_length,
+    )
+
+    return {
+        "cv_overridden_fields": list(cv_result.overridden_fields),
+        "cv_fields_without_effect": without_effect,
+        "cv_llm_configured": cv_result.llm_configured,
+        "cv_defaults_explanation": defaults_explanation,
+    }
+
+
+def _carried_plan_arguments(
+    plan: ForecastPlan,
+    target_forecaster: str,
+) -> dict[str, object]:
+    """
+    Arguments of `plan()` that `refine_plan()` carries over from a plan,
+    for a refined plan of `target_forecaster`.
+
+    A value is carried over only when the new forecaster can use it: lags
+    and window features only by the autoregressive forecasters, an
+    estimator (and its keyword arguments) only within its own family (an
+    ML regressor is not an ARIMA order, and the baseline has none). The
+    metric, `use_exog`, `differentiation`, `calendar_features`,
+    `target_transformer` and `dropna_from_series` are carried over only
+    when they are in `plan.overridden_fields` (the last four only to the
+    autoregressive forecasters).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan being refined.
+    target_forecaster : str
+        Forecaster of the refined plan.
+
+    Returns
+    -------
+    arguments : dict
+        Keyword arguments of `plan()` other than `profile`.
+    """
+
+    target_task_type = FORECASTER_TASK_TYPES.get(target_forecaster, plan.task_type)
+    inherits_features = target_forecaster in AUTOREG_FORECASTERS
+    inherits_estimator = target_task_type == plan.task_type or (
+        inherits_features and plan.forecaster in AUTOREG_FORECASTERS
+    )
+    kwargs = plan.forecaster_kwargs
+
+    return {
+        "steps": plan.steps,
+        "forecaster": plan.forecaster,
+        "estimator": plan.estimator if inherits_estimator else None,
+        "estimator_kwargs": (
+            (plan.estimator_kwargs or None) if inherits_estimator else None
+        ),
+        "interval": plan.interval,
+        "lags": kwargs.get("lags") if inherits_features else None,
+        "window_features": kwargs.get("window_features") if inherits_features else None,
+        # The decisions added by the overrides of 0.4.0 are carried over
+        # only when the user made them; otherwise the rule decides again.
+        "metric": (
+            plan_override_value(plan, "metric")
+            if "metric" in plan.overridden_fields
+            else None
+        ),
+        # Leaving the exogenous variables out applies to every forecaster;
+        # using them is carried over only to one that the rule does not
+        # leave without them (the baseline, a foundation model).
+        "use_exog": (
+            plan.use_exog
+            if "use_exog" in plan.overridden_fields
+            and (
+                not plan.use_exog
+                or target_task_type not in ("baseline", "foundation")
+            )
+            else None
+        ),
+        **{
+            name: (
+                plan_override_value(plan, name)
+                if name in plan.overridden_fields and inherits_features
+                else None
+            )
+            for name in _CHOSEN_DECISIONS[2:]
+        },
+    }
+
+
+def _chosen_calendar_features(
+    features: list[str],
+    encoding: str | None,
+    data_profile: DataProfile,
+    use_exog: bool,
+) -> dict | None:
+    """
+    Calendar features chosen with `plan(calendar_features=...)`, as the
+    `forecaster_kwargs` entry, or None for an empty list.
+
+    Unlike the rule, which leaves out a calendar feature whose column is an
+    exogenous column, a chosen feature is never dropped: the collision
+    raises (10.4), and so does a choice on data without a datetime index.
+    """
+
+    if not features:
+        return None
+    if data_profile.index_type != "datetime":
+        raise InvalidInputError(
+            f"`calendar_features` {features} need a datetime index, and the "
+            f"data has none. Omit them, or pass the dates as `date_column`.",
+            field = "calendar_features",
+        )
+    if use_exog:
+        _, colliding = drop_colliding_calendar_features(
+            features     = features,
+            encoding     = encoding,
+            exog_columns = data_profile.exog_columns,
+        )
+        if colliding:
+            raise InvalidInputError(
+                f"Calendar features {colliding} create columns already among "
+                f"the exogenous columns {data_profile.exog_columns}. Leave "
+                f"them out of `calendar_features`, or rename the exogenous "
+                f"columns.",
+                field = "calendar_features",
+            )
+
+    return {"features": features, "encoding": encoding}
+
+
+def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
+    """
+    Reject a datetime index without a frequency for a forecaster that needs
+    one.
+
+    Without a frequency the datetime index cannot be regularized, and every
+    forecaster that needs one fails inside the script with a skforecast
+    error that does not say why. Irregular timestamps are often day-first
+    dates that pandas read month-first.
+    """
+    if data_profile.index_type == "datetime" and data_profile.frequency is None:
+        raise InvalidInputError(
+            f"The frequency of the datetime index could not be inferred "
+            f"(the timestamps are irregular or too few), and '{forecaster}' "
+            f"needs a regular DatetimeIndex. Check the dates: day-first "
+            f"values such as '13/02/2023' are read month-first unless parsed "
+            f"explicitly, for example with "
+            f"pandas.to_datetime(..., dayfirst=True).",
+            field = "profile",
+            hint  = (
+                "Write the dates in ISO 8601 (such as '2023-02-13'), so they "
+                "are not read month-first."
+            ),
+        )
+
+
+def _profile_values(data_profile: DataProfile) -> dict[str, str]:
+    """
+    Return the fields of a data profile that describe the values of the
+    data, each as text, to tell whether two profiles describe the same data.
+
+    `data_path`, `warnings` and `unused_columns` are left out: the path is
+    set by the caller, the warnings derive from the values (and hold the
+    note of an earlier refresh), and the columns the data holds besides
+    those of the profile are compared by `_refresh_profile` itself. The
+    column lists are sorted, as `structure_differences` reads them, and NaN
+    statistics (the standard deviation of a target with an infinite value)
+    compare equal through their text.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Data profile to read.
+
+    Returns
+    -------
+    values : dict
+        Text of each field, by field name.
+    """
+
+    values = data_profile.model_dump(
+        exclude={"data_path", "warnings", "unused_columns"}
+    )
+    for name in ("exog_columns", "categorical_exog"):
+        values[name] = sorted(values[name])
+    if isinstance(values["target"], list):
+        values["target"] = sorted(values["target"])
+
+    return {
+        name: json.dumps(value, sort_keys=True, default=str)
+        for name, value in values.items()
+    }
+
+
+# Data profiles kept by `_refresh_profile`, at most (a few datasets in turn).
+_MAX_FRESH_PROFILES = 8
+
+
+def _frame_fingerprint(frame: pd.DataFrame) -> str | None:
+    """
+    Return a digest that changes whenever the values, labels, dtypes or
+    index of a frame change, or None when it cannot be told reliably.
+
+    It is the hash of every row (`pandas.util.hash_pandas_object`, index
+    included) with the shape, labels, dtypes, index type, names and
+    frequency, the categories of categorical columns, the local times of
+    dates with a time zone, and which missing marker (`None`, `NaN`,
+    `pd.NA`) each missing object value is, since pandas hashes them alike. pandas also hashes an object value through
+    its text, so `1` and `'1'` would hash alike: frames with object values
+    (or categories) that are not all text get None, as do a MultiIndex and
+    values that cannot be hashed.
+
+    Parameters
+    ----------
+    frame : pandas DataFrame
+        Data to fingerprint.
+
+    Returns
+    -------
+    fingerprint : str, None
+        Hexadecimal SHA-256, or None.
+    """
+
+    if isinstance(frame.columns, pd.MultiIndex) or isinstance(
+        frame.index, pd.MultiIndex
+    ):
+        return None
+    texts = ("string", "empty")
+    try:
+        digest = hashlib.sha256(repr((
+            frame.shape,
+            list(frame.columns),
+            [repr(dtype) for dtype in frame.dtypes],
+            type(frame.index).__name__,
+            repr(frame.index.dtype),
+            frame.index.name,
+            getattr(frame.index, "freqstr", None),
+        )).encode())
+        arrays = [frame.index, *(frame.iloc[:, i] for i in range(frame.shape[1]))]
+        for values in arrays:
+            if isinstance(values.dtype, pd.CategoricalDtype):
+                # The repr of a categorical dtype is cut after a few
+                # categories: they are hashed in full, with their order.
+                categories = values.dtype.categories
+                if pd.api.types.is_object_dtype(categories.dtype) and (
+                    pd.api.types.infer_dtype(categories) not in texts
+                ):
+                    return None
+                digest.update(repr(values.dtype.ordered).encode())
+                digest.update(
+                    pd.util.hash_pandas_object(categories, index=False)
+                    .to_numpy().tobytes()
+                )
+            elif isinstance(values.dtype, pd.DatetimeTZDtype):
+                # pandas hashes the instants, and the repr of the dtype
+                # names the zone: two zones of the same name with other
+                # rules ('CET' and a fixed offset called 'CET') differ in
+                # their local times, which are hashed too.
+                local = pd.DatetimeIndex(values).tz_localize(None)
+                digest.update(local.asi8.tobytes())
+            elif pd.api.types.is_object_dtype(values.dtype):
+                if pd.api.types.infer_dtype(values) not in texts:
+                    return None
+                array = np.asarray(values, dtype=object)
+                missing = np.flatnonzero(pd.isna(array))
+                digest.update(missing.tobytes())
+                digest.update(
+                    repr([type(array[i]).__name__ for i in missing]).encode()
+                )
+        digest.update(
+            pd.util.hash_pandas_object(frame, index=True).to_numpy().tobytes()
+        )
+    except (TypeError, ValueError):
+        # Values pandas cannot hash, or text it cannot encode (a lone
+        # surrogate): the data are profiled every time, as before.
+        return None
+
+    return digest.hexdigest()
 
 
 class ForecastingAssistant:
     """
-    AI-powered forecasting assistant built on skforecast.
+    Time series forecasting assistant built on skforecast.
 
     Analyses a time series dataset, selects a forecaster and estimator,
     produces a ready-to-run Python script, and optionally executes it,
     returning predictions, metrics, and the exact code that generated them.
 
     All modeling decisions are deterministic and reproducible. An optional
-    LLM adds natural-language explanations and Q&A without influencing
-    any recommendation.
+    LLM explains them and answers questions. On request, it also proposes
+    lags and window features (`refine_plan()`) or a cross-validation
+    strategy (`create_cv()`), which are validated before they are used.
 
     Parameters
     ----------
@@ -215,6 +642,10 @@ class ForecastingAssistant:
         self._agent           = None
         self._cv_agent        = None
         self._plan_refinement_agent = None
+        # Data profiles that `_refresh_profile` computed, by the fingerprint
+        # of the data and the columns of the saved profile: a workflow
+        # passes the same data with the same profile to every method.
+        self._fresh_profiles: OrderedDict[tuple, DataProfile] = OrderedDict()
 
     def profile(
         self,
@@ -222,6 +653,8 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
+        *,
+        exog_columns: list[str] | None = None,
     ) -> ForecastingProfile:
         """
         Profile a dataset and select the recommended forecaster and estimator.
@@ -245,6 +678,15 @@ class ForecastingAssistant:
             Name of the column containing timestamps.
         series_id_column : str, default None
             Name of the column identifying individual series.
+        exog_columns : list of str, default None
+            Columns to use as exogenous variables. If None, every column that
+            is not the target, the date or the series id. Otherwise a subset
+            of them, kept in the order of the data (an empty list for none):
+            the other columns are listed in `DataProfile.unused_columns`,
+            with a note in `DataProfile.warnings`, and neither the plan nor
+            the generated script uses them. A plan built from this profile
+            records the selection (`ForecastPlan.exog_columns`), so it runs
+            on the same columns when it is given without its profile.
 
         Returns
         -------
@@ -253,8 +695,8 @@ class ForecastingAssistant:
             (with alternative candidates) + analysis context.
         """
 
-        data_path = str(data) if isinstance(data, (str, Path)) else "data.csv"
-        data, target = _resolve_data_and_target(data, target)
+        data_path = recorded_data_path(data)
+        data, target = _resolve_data_and_target(data, target, date_column)
 
         data_profile = create_data_profile(
             data             = data,
@@ -262,7 +704,9 @@ class ForecastingAssistant:
             date_column      = date_column,
             series_id_column = series_id_column,
             data_path        = data_path,
+            exog_columns     = exog_columns,
         )
+        validate_target_numeric(data, data_profile.target)
 
         forecaster, forecaster_candidates = select_forecaster_and_candidates(data_profile)
         task_type = select_task_type_from_forecaster(forecaster)
@@ -316,6 +760,13 @@ class ForecastingAssistant:
         estimator_kwargs: dict | None = None,
         lags: int | list[int] | None = None,
         window_features: list[dict[str, list[str] | int]] | None = None,
+        *,
+        metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
+        differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> ForecastPlan:
         """
         Build a detailed `ForecastPlan` from a `ForecastingProfile`.
@@ -330,7 +781,9 @@ class ForecastingAssistant:
         profile : ForecastingProfile
             Output of `profile()`.
         steps : int
-            Forecast horizon (number of steps ahead to predict).
+            Forecast horizon (number of steps ahead to predict): an integer
+            greater than or equal to 1. An integral float (`12.0`) is
+            accepted and stored as an int.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). If
@@ -341,17 +794,32 @@ class ForecastingAssistant:
             `profile.forecaster_candidates` but is a supported
             forecaster, it is used anyway and an
             `UnrecommendedForecasterWarning` is issued.
+            `'ForecasterEquivalentDate'` builds a seasonal naive baseline
+            (single series only) without that warning: it is a reference
+            to compare against, not a recommendation. Its offset is
+            chosen from the frequency, and it takes no `estimator`,
+            `estimator_kwargs`, `lags` or `window_features`.
         estimator : str, default None
             Explicit estimator class name to override the profile
-            recommendation (e.g. `'HistGradientBoostingRegressor'`).
+            recommendation (e.g. `'HistGradientBoostingRegressor'`). For
+            `ForecasterFoundation` it is the Hugging Face model ID of a
+            foundation model supported by skforecast (e.g.
+            `'google/timesfm-3.0-pytorch'`); the default is
+            `'autogluon/chronos-2-small'`.
         estimator_kwargs : dict, default None
             Keyword arguments for the estimator constructor (e.g.
             `{'n_estimators': 200, 'learning_rate': 0.05}`). Merged
             on top of built-in defaults (`random_state`, silencing
-            flags). User values take precedence.
+            flags). User values take precedence. For
+            `ForecasterFoundation` they are passed to `FoundationModel`
+            (e.g. `{'context_length': 1024}`), and the model ID goes in
+            `estimator`, not here.
         lags : int, list of int, default None
             Explicit lag configuration. If provided, bypasses the
-            deterministic PACF-based lag selection.
+            deterministic PACF-based lag selection. Only the ML forecasters
+            take lags: passing them for `ForecasterStats`,
+            `ForecasterFoundation` or `ForecasterEquivalentDate` raises
+            `ValueError`.
         window_features : list of dict, default None
             Explicit window (rolling) features configuration. Each dict
             must contain the keys `'stats'` (a list of rolling statistics)
@@ -363,40 +831,218 @@ class ForecastingAssistant:
             `'mean'`, `'std'`, `'min'`, `'max'`, `'sum'`, `'median'`,
             `'ratio_min_max'`, `'coef_variation'`, and `'ewm'`. If
             provided, bypasses the deterministic window feature selection.
-            deterministic window feature selection.
+            Like `lags`, raises `ValueError` for a forecaster without
+            window features.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, among the regression metrics of
+            skforecast (`'mean_absolute_error'`, `'mean_squared_error'`,
+            ...), with the semantics of `compare()`: the first one is the
+            primary metric (`plan.metric`) and only the ones given are
+            computed (`plan.metrics_to_compute`). If None, the metric is
+            selected from the data (MAE for one series, MASE for several)
+            and the default panel is computed.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns of the profile.
+            False leaves them out (`forecast()` then takes no `exog`); True
+            raises `ValueError` when the data has no exogenous columns or
+            the forecaster cannot use them (`ForecasterEquivalentDate`, a
+            foundation model without covariate support, `ForecasterStats`
+            when every exogenous column is categorical). Columns left out
+            do not shape the plan (their missing values and categories need
+            no handling). If None, they are used whenever the forecaster can
+            use them.
+        differentiation : int, default None
+            Order of differencing applied to the target before training (an
+            integer of at least 1); predictions are integrated back. Only
+            the machine learning forecasters take it. The order counts in
+            the window of the forecaster, so the lags selected leave room
+            for it, the default window features without room for it are
+            left out, and explicit lags and window features must fit with
+            it.
+            If None, the target is not differenced.
+        calendar_features : list of str, default None
+            Calendar features generated from the dates, among `'year'`,
+            `'month'`, `'week'`, `'day_of_week'`, `'day_of_month'`,
+            `'day_of_year'`, `'weekend'`, `'hour'`, `'minute'`, `'second'`
+            and `'quarter'`; an empty list for none. Only the machine
+            learning forecasters take them, and only with a datetime index.
+            A feature whose column is already an exogenous column used by
+            the plan raises `ValueError` (the rule leaves those out). A
+            feature finer than the frequency whose column takes a single
+            value on the data (`'hour'` on daily data, `'day_of_week'` on
+            weekly data) is kept, with a `UserWarning` whose text also goes
+            to `plan.warnings`. The encoding follows the estimator. If None,
+            they are selected from the frequency.
+        target_transformer : str, default None
+            Scaler of the target series of the machine learning
+            forecasters: `'StandardScaler'`, or `'none'` for no scaling.
+            Written as `transformer_y` or `transformer_series` depending on
+            the forecaster. If None, the target is scaled for the
+            estimators that need it (not the tree-based ones).
+        dropna_from_series : bool, default None
+            Whether the machine learning forecasters drop the training rows
+            with missing values. False with missing values in the data and
+            an estimator that does not accept them raises `ValueError`. If
+            None, rows are dropped only when the data has missing values and
+            the estimator does not accept them.
 
         Returns
         -------
         plan : ForecastPlan
-            Detailed forecasting plan.
+            Detailed forecasting plan. Its `warnings` hold the text of the
+            warnings this call emitted, in the order they were emitted, and
+            its `overridden_fields` the arguments passed with a value other
+            than None (an empty `estimator_kwargs` is the default).
+
+        Raises
+        ------
+        ValueError
+            If `steps` is not an integer greater than or equal to 1, if
+            `forecaster` is not supported, if the input does not fit its
+            task type, or if an argument does not apply to it: `lags` and
+            `window_features` for `ForecasterStats`, `ForecasterFoundation`
+            and `ForecasterEquivalentDate`, and also `estimator` and
+            `estimator_kwargs` for `ForecasterEquivalentDate`. For
+            `ForecasterFoundation`, also if `estimator` is not a model
+            supported by skforecast, if `estimator_kwargs` contains
+            `'model_id'`, or if the model cannot predict `interval`. Also if
+            `metric` is empty, repeats a metric or names one outside the
+            regression metrics of skforecast.
+        TypeError
+            If `metric` is not a str or a list of str.
         """
+
+        # Checked first, so an invalid horizon fails before anything is
+        # derived from it (a bool or a string would otherwise be coerced).
+        steps = validate_steps(steps)
+        metric_override = resolve_metric_override(metric)
+        if use_exog is not None and not isinstance(use_exog, bool):
+            raise InvalidInputTypeError(
+                f"`use_exog` must be True, False or None, got {use_exog!r}.",
+                field = "use_exog",
+            )
+        use_exog_override = use_exog
+        if differentiation is not None:
+            error = (
+                InvalidInputTypeError
+                if isinstance(differentiation, bool)
+                or not isinstance(differentiation, numbers.Integral)
+                else InvalidInputError if differentiation < 1 else None
+            )
+            if error is not None:
+                raise error(
+                    f"`differentiation` must be an integer greater than or "
+                    f"equal to 1, got {differentiation!r}.",
+                    field = "differentiation",
+                )
+        differentiation = None if differentiation is None else int(differentiation)
+        calendar_override = validate_calendar_override(calendar_features)
+        if target_transformer is not None and (
+            target_transformer != "none"
+            and target_transformer not in SUPPORTED_TRANSFORMERS
+        ):
+            raise InvalidInputError(
+                f"`target_transformer` must be one of "
+                f"{[*SUPPORTED_TRANSFORMERS, 'none']}, got {target_transformer!r}.",
+                field = "target_transformer",
+            )
+        if dropna_from_series is not None and not isinstance(dropna_from_series, bool):
+            raise InvalidInputTypeError(
+                f"`dropna_from_series` must be True, False or None, got "
+                f"{dropna_from_series!r}.",
+                field = "dropna_from_series",
+            )
+        dropna_override = dropna_from_series
 
         data_profile = profile.data_profile
 
         fc = profile.forecaster
+        unrecommended = False
         if forecaster is not None:
-            if forecaster not in profile.forecaster_candidates:
+            if (
+                forecaster not in profile.forecaster_candidates
+                and forecaster not in BASELINE_FORECASTERS
+            ):
                 if forecaster not in FORECASTER_TASK_TYPES:
-                    raise ValueError(
+                    raise InvalidInputError(
                         f"Forecaster '{forecaster}' is not compatible with this "
                         f"profile. Available candidates: "
-                        f"{profile.forecaster_candidates}."
+                        f"{profile.forecaster_candidates}.",
+                        field = "forecaster",
                     )
-                warnings.warn(
-                    f"Forecaster '{forecaster}' is not among the recommended "
-                    f"candidates for this profile "
-                    f"({profile.forecaster_candidates}), but it is used as "
-                    f"requested. It may be slow or perform poorly on this data.",
-                    UnrecommendedForecasterWarning,
-                )
+                unrecommended = True
             fc = forecaster
 
         task_type = select_task_type_from_forecaster(fc)
 
         # Reject inputs incompatible with the resolved task type
         # (single-series tasks with multi-series input; multivariate with
-        # series of different lengths).
+        # series of different lengths or on long-format data).
         _validate_task_input(data_profile, task_type)
+
+        # Arguments the forecaster has no use for are rejected rather than
+        # silently ignored, so the plan never differs from what was asked.
+        if task_type in ("statistical", "foundation", "baseline"):
+            inapplicable = [("lags", lags), ("window_features", window_features)]
+            if task_type == "baseline":
+                inapplicable = [
+                    ("estimator", estimator),
+                    ("estimator_kwargs", estimator_kwargs),
+                    *inapplicable,
+                ]
+                reason = (
+                    "is a baseline that repeats past values: it has no "
+                    "estimator and no lag or window features"
+                )
+            else:
+                reason = (
+                    "models the past values itself: it takes no lag or "
+                    "window features"
+                )
+            given = [name for name, value in inapplicable if value is not None]
+            if given:
+                raise InvalidInputError(
+                    f"'{fc}' {reason}, so {given} cannot be applied. Omit them.",
+                    field = given[0],
+                )
+            # Arguments of the machine learning forecasters only.
+            given = [
+                name for name, value in (
+                    ("differentiation", differentiation),
+                    ("calendar_features", calendar_override),
+                    ("target_transformer", target_transformer),
+                    ("dropna_from_series", dropna_override),
+                )
+                if value is not None
+            ]
+            if given:
+                raise InvalidInputError(
+                    f"{given} only apply to the machine learning forecasters "
+                    f"({sorted(AUTOREG_FORECASTERS)}), not to '{fc}'. Omit "
+                    f"them.",
+                    field = given[0],
+                )
+
+        # The baseline needs a frequency too (its offset counts periods of
+        # it); checked before its warning about missing values.
+        if task_type == "baseline":
+            _check_frequency_known(fc, data_profile)
+
+        # Every warning this call emits is also kept in `plan.warnings`, with
+        # the same text, so it travels with the plan where Python warnings
+        # are not seen (a server, JSON output, a saved plan).
+        plan_warnings: list[str] = []
+
+        if task_type == "baseline":
+            missing_note = baseline_missing_values_note(data_profile)
+            if missing_note is not None:
+                message = (
+                    f"'{fc}' cannot handle missing values: {missing_note}. "
+                    f"Impute the target before fitting, or the predictions "
+                    f"and metrics will contain missing values."
+                )
+                warnings.warn(message, UserWarning, stacklevel=2)
+                plan_warnings.append(message)
 
         n_obs_total = data_profile.n_total_observations
 
@@ -412,7 +1058,95 @@ class ForecastingAssistant:
         if estimator is not None:
             est = estimator
 
-        if task_type in ("statistical", "foundation"):
+        # The estimator name and its keyword arguments are written into the
+        # generated script, so they are checked before anything is derived.
+        validate_estimator(
+            estimator        = est,
+            estimator_kwargs = estimator_kwargs,
+            task_type        = task_type,
+        )
+        plan_warnings += validate_estimator_kwargs(est, estimator_kwargs)
+
+        # The foundation model is validated before anything else is derived,
+        # so an unsupported model ID or interval fails with its own message.
+        foundation_model = None
+        if task_type == "foundation":
+            foundation_model = validate_foundation_plan(
+                estimator        = est,
+                estimator_kwargs = estimator_kwargs,
+                interval         = interval,
+            )
+        else:
+            validate_interval(
+                interval   = interval,
+                task_type  = task_type,
+                forecaster = fc,
+            )
+
+        if fc in REQUIRES_DATETIME_FREQ:
+            _check_frequency_known(fc, data_profile)
+
+        # The baseline cannot take exogenous variables; the explanation says
+        # they are left out. A foundation model uses the columns its backend
+        # accepts, so a model without covariate support uses none.
+        if task_type == "foundation":
+            use_exog = bool(foundation_exog_columns(
+                info             = foundation_model,
+                exog_columns     = data_profile.exog_columns,
+                categorical_exog = data_profile.categorical_exog,
+            ))
+        else:
+            use_exog = (
+                task_type != "baseline"
+                and check_exog_usage(data_profile.exog_columns)
+            )
+        if use_exog_override is True and not use_exog:
+            if not data_profile.exog_columns and data_profile.unused_columns:
+                reason = (
+                    "the profile has no exogenous columns (`exog_columns` of "
+                    "profile() left them out)"
+                )
+            elif not data_profile.exog_columns:
+                reason = "the data has no exogenous columns"
+            elif task_type == "baseline":
+                reason = f"'{fc}' only repeats past values of the target"
+            else:
+                reason = (
+                    f"'{est}' does not accept the exogenous columns of the "
+                    f"data as covariates"
+                )
+            raise InvalidInputError(
+                f"`use_exog=True` cannot be applied: {reason}. Omit it, or "
+                f"pass False.",
+                field = "use_exog",
+            )
+        if (
+            use_exog_override is True
+            and task_type == "statistical"
+            and set(data_profile.exog_columns) <= set(data_profile.categorical_exog)
+        ):
+            # The ARIMA script leaves categorical columns out, so it would
+            # use none while `forecast()` asked for their future values.
+            raise InvalidInputError(
+                f"`use_exog=True` cannot be applied: '{fc}' only uses numeric "
+                f"exogenous columns, and {data_profile.exog_columns} are "
+                f"categorical. Omit it, or pass False.",
+                field = "use_exog",
+            )
+        rule_use_exog = use_exog
+        if use_exog_override is not None:
+            use_exog = use_exog_override
+        # The exogenous columns the user leaves out do not shape the plan:
+        # their missing values and categories need no handling. (A plan the
+        # rule leaves without them keeps its notes, as before.)
+        planned_profile = data_profile.model_copy(
+            update={"exog_columns": [], "categorical_exog": [], "missing_exog": {}}
+        ) if use_exog_override is False else data_profile
+
+        baseline_explanation = None
+        skipped_calendar_features: list[str] = []
+        dropped_windows: list[int] = []
+        if task_type in ("statistical", "foundation", "baseline"):
             final_lags = None
             final_window_features = None
             transformer_series = None
@@ -443,7 +1177,9 @@ class ForecastingAssistant:
                 # `window_size` (the last-step regressor needs the target at
                 # t + steps), so reserve them from the lag budget. Recursive
                 # forecasters reserve nothing.
-                n_reserved_rows = steps - 1 if "Direct" in fc else 0
+                n_reserved_rows = steps - 1 if fc in DIRECT_FORECASTERS else 0
+                # The differentiation order adds to the window as well.
+                n_reserved_rows += differentiation or 0
                 final_lags = finalize_lags(
                     series_pacf     = profile.series_pacf,
                     task_type       = task_type,
@@ -456,29 +1192,98 @@ class ForecastingAssistant:
                 final_window_features = window_features
             else:
                 final_window_features = profile.window_features
+                if differentiation is not None and final_window_features:
+                    # The rule sized the windows for the whole budget; those
+                    # that leave no room for the order are dropped, as the
+                    # lags selected leave room for it.
+                    max_window = (
+                        int(data_profile.span_index_length * MAX_FEATURE_FRACTION)
+                        - differentiation
+                    )
+                    kept = [
+                        entry for entry in final_window_features
+                        if _max_window_size(None, [entry]) <= max_window
+                    ]
+                    dropped_windows = [
+                        _max_window_size(None, [entry])
+                        for entry in final_window_features
+                        if entry not in kept
+                    ]
+                    final_window_features = kept or None
 
-            if profile.calendar_features:
-                calendar_features = {
-                    "features": profile.calendar_features,
-                    "encoding": select_calendar_encoding(est, task_type),
-                }
+            if differentiation is not None:
+                _validate_max_window_size(
+                    lags              = final_lags,
+                    window_features   = final_window_features,
+                    span_index_length = data_profile.span_index_length,
+                    differentiation   = differentiation,
+                )
+
+            if calendar_override is not None:
+                calendar_features = _chosen_calendar_features(
+                    features     = calendar_override,
+                    encoding     = select_calendar_encoding(est, task_type),
+                    data_profile = data_profile,
+                    use_exog     = use_exog,
+                )
+            elif profile.calendar_features:
+                calendar_encoding = select_calendar_encoding(est, task_type)
+                calendar_names = list(profile.calendar_features)
+                if use_exog:
+                    # A generated column named like an exogenous column makes
+                    # skforecast fail with duplicated feature names; the
+                    # user's column is kept and the calendar feature skipped.
+                    calendar_names, skipped_calendar_features = (
+                        drop_colliding_calendar_features(
+                            features     = calendar_names,
+                            encoding     = calendar_encoding,
+                            exog_columns = data_profile.exog_columns,
+                        )
+                    )
+                if calendar_names:
+                    calendar_features = {
+                        "features": calendar_names,
+                        "encoding": calendar_encoding,
+                    }
+                else:
+                    calendar_features = None
             else:
                 calendar_features = None
 
-            transformer_series = select_transformer_series(est, task_type)
+            if target_transformer is not None:
+                transformer_series = (
+                    None if target_transformer == "none" else target_transformer
+                )
+            else:
+                transformer_series = select_transformer_series(est, task_type)
 
             transformer_exog = select_transformer_exog(
                 estimator        = est,
                 task_type        = task_type,
                 exog_columns     = data_profile.exog_columns,
                 categorical_exog = data_profile.categorical_exog,
-            )
+            ) if use_exog else None
 
-            dropna_from_series = select_dropna_from_series(
+            rule_dropna = select_dropna_from_series(
                 estimator        = est,
                 missing_target   = data_profile.missing_target,
-                missing_exog     = data_profile.missing_exog,
+                missing_exog     = planned_profile.missing_exog,
                 task_type        = task_type,
+                has_gaps         = data_profile.has_gaps,
+            )
+            if dropna_override is False and rule_dropna:
+                # The rule drops the rows only when there are missing values
+                # and the estimator does not accept them: it would fail.
+                raise InvalidInputError(
+                    f"`dropna_from_series=False` cannot be applied: the data "
+                    f"has missing values and '{est}' does not accept them. "
+                    f"Omit it, impute the missing values, or choose an "
+                    f"estimator that accepts them (for example "
+                    f"'LGBMRegressor').",
+                    field = "dropna_from_series",
+                )
+            dropna_from_series = (
+                rule_dropna if dropna_override is None else dropna_override
             )
 
         forecaster_kwargs = build_forecaster_kwargs(
@@ -490,33 +1295,163 @@ class ForecastingAssistant:
             calendar_features  = calendar_features,
             transformer_series = transformer_series,
             transformer_exog   = transformer_exog,
-            dropna_from_series = dropna_from_series
+            dropna_from_series = dropna_from_series,
+            differentiation    = differentiation,
         )
+
+        if task_type == "baseline":
+            forecaster_kwargs, baseline_explanation = select_baseline_config(
+                data_profile
+            )
 
         interval_method = resolve_interval_method(task_type, interval)
 
-        use_exog = check_exog_usage(data_profile.exog_columns)
-
-        preprocessing_steps = derive_preprocessing_steps(data_profile, fc)
-
-        metric, metric_explanation, metrics_to_compute = select_metric(
-            data_profile = data_profile,
+        preprocessing_steps = derive_preprocessing_steps(
+            profile          = planned_profile,
+            forecaster       = fc,
+            foundation_model = foundation_model,
         )
 
+        if metric_override is None:
+            metric, metric_explanation, metrics_to_compute = select_metric(
+                data_profile = data_profile,
+            )
+        else:
+            metric = metric_override[0]
+            metrics_to_compute = metric_override
+            metric_explanation = build_metric_override_explanation(metric_override)
+
+        # `dropna_from_series=False` also means that no value is missing
+        # (missing timestamps become missing values after `asfreq()`), and
+        # then there is no NaN handling to explain: saying the rows are kept
+        # because the estimator tolerates NaN would be wrong for Ridge.
+        has_missing = (
+            bool(data_profile.missing_target)
+            or bool(planned_profile.missing_exog)
+            or data_profile.has_gaps
+        )
         explanation = build_plan_explanation(
-            forecaster         = fc,
-            estimator          = est,
-            lags               = final_lags,
-            window_features    = final_window_features,
-            interval_method    = interval_method,
-            dropna_from_series = dropna_from_series,
-            use_exog           = use_exog,
-            metric_explanation = metric_explanation,
-            calendar_features  = calendar_features,
-            task_type          = task_type,
+            forecaster                = fc,
+            estimator                 = est,
+            lags                      = final_lags,
+            window_features           = final_window_features,
+            interval_method           = interval_method,
+            dropna_from_series        = dropna_from_series if has_missing else None,
+            use_exog                  = use_exog,
+            metric_explanation        = metric_explanation,
+            calendar_features         = calendar_features,
+            task_type                 = task_type,
+            skipped_calendar_features = skipped_calendar_features,
         )
+        if foundation_model is not None:
+            foundation_explanation = build_foundation_explanation(
+                foundation_model = foundation_model,
+                exog_columns     = data_profile.exog_columns,
+                context_length   = (estimator_kwargs or {}).get(
+                    "context_length", foundation_model.default_context_length
+                ),
+                n_observations   = max(
+                    info.length for info in data_profile.series_lengths.values()
+                ),
+                n_series         = data_profile.n_series,
+            )
+            explanation = f"{explanation} {foundation_explanation}"
+        if differentiation is not None:
+            explanation += (
+                f" The target is differenced (order {differentiation}) before "
+                f"training, as requested, and the predictions are integrated "
+                f"back."
+            )
+            if dropped_windows:
+                explanation += (
+                    f" Window features of size {dropped_windows} are left out: "
+                    f"with the differentiation they exceed the data budget."
+                )
+        if calendar_override is not None:
+            explanation += (
+                " Calendar features as requested." if calendar_override
+                else " No calendar features, as requested."
+            )
+        if target_transformer is not None:
+            explanation += (
+                " Target not scaled, as requested." if target_transformer == "none"
+                else f" Target scaled with {target_transformer}, as requested."
+            )
+        if dropna_override is not None:
+            explanation += (
+                " Training rows with missing values are dropped, as requested."
+                if dropna_override
+                else " Training rows with missing values are kept, as requested."
+            )
+        if use_exog_override is False and rule_use_exog:
+            explanation += (
+                f" Exogenous variables {data_profile.exog_columns} are not "
+                f"used, as requested."
+            )
+        if fc == "ForecasterDirectMultiVariate":
+            # Its script predicts one series, the first of the target, which
+            # the plan did not say.
+            explanation += (
+                f" It predicts '{data_profile.target[0]}', the first series of "
+                f"the target, from the lags of all the series."
+                if isinstance(data_profile.target, list)
+                else f" It predicts '{data_profile.target}'."
+            )
+        if baseline_explanation is not None:
+            explanation = f"{explanation} {baseline_explanation}"
+            if data_profile.exog_columns:
+                explanation += (
+                    f" Exogenous variables {data_profile.exog_columns} are "
+                    f"not used: the baseline only repeats past target values."
+                )
 
-        return ForecastPlan(
+        unrecommended_message = None
+        if unrecommended:
+            unrecommended_message = (
+                f"Forecaster '{forecaster}' is not among the recommended "
+                f"candidates for this profile "
+                f"({profile.forecaster_candidates}), but it is used as "
+                f"requested. It may be slow or perform poorly on this data."
+            )
+            plan_warnings.append(unrecommended_message)
+
+        # A chosen calendar feature finer than the frequency (`hour` on daily
+        # data) gives a constant column: skforecast accepts it, so it is a
+        # warning and not an error (decision 5 of 19.1).
+        constant_calendar_message = None
+        constant = constant_calendar_features(
+            calendar_override or [], data_profile
+        )
+        if constant:
+            constant_calendar_message = (
+                f"Calendar features {constant} are finer than the frequency "
+                f"of the data ('{data_profile.frequency}'): each one gives a "
+                f"column with a single value, from which the model learns "
+                f"nothing. Leave them out of `calendar_features`."
+            )
+            plan_warnings.append(constant_calendar_message)
+
+        # The decisions the caller made instead of the rules: None asks for
+        # the rule, and empty keyword arguments are the defaults.
+        overridden_fields = [
+            name
+            for name, value in (
+                ("forecaster", forecaster),
+                ("estimator", estimator),
+                ("estimator_kwargs", estimator_kwargs or None),
+                ("lags", lags),
+                ("window_features", window_features),
+                ("metric", metric_override),
+                ("use_exog", use_exog_override),
+                ("differentiation", differentiation),
+                ("calendar_features", calendar_override),
+                ("target_transformer", target_transformer),
+                ("dropna_from_series", dropna_override),
+            )
+            if value is not None
+        ]
+
+        plan = ForecastPlan(
             task_type           = task_type,
             forecaster          = fc,
             forecaster_kwargs   = forecaster_kwargs,
@@ -530,8 +1465,30 @@ class ForecastingAssistant:
             metrics_to_compute  = metrics_to_compute,
             use_exog            = use_exog,
             preprocessing_steps = preprocessing_steps,
+            warnings            = plan_warnings,
+            overridden_fields   = overridden_fields,
+            # Recorded only when the profile left columns out: without its
+            # profile, the plan would run on every column of the data.
+            exog_columns        = (
+                list(data_profile.exog_columns)
+                if data_profile.unused_columns else None
+            ),
             explanation         = explanation,
         )
+
+        _check_feature_name_collisions(plan, data_profile)
+
+        # Warned once the plan exists, so a forecaster that a later check
+        # rejects (the shape of the data, an argument it has no use for, a
+        # foundation model or an interval it cannot serve) is never said to
+        # be "used as requested", and with warnings raised as errors the
+        # warning never hides that error.
+        if unrecommended_message is not None:
+            warnings.warn(unrecommended_message, UnrecommendedForecasterWarning)
+        if constant_calendar_message is not None:
+            warnings.warn(constant_calendar_message, UserWarning, stacklevel=2)
+
+        return plan
 
     def refine_plan(
         self,
@@ -555,18 +1512,30 @@ class ForecastingAssistant:
           plan. The agent's reasoning is appended to the returned plan's
           `explanation`.
 
-        Supported overrides: `forecaster`, `estimator`, `estimator_kwargs`,
-        `steps`, `interval`, `lags`, `window_features` (see
-        `RefinePlanOverrides`). What matters is whether a key is passed:
-        an omitted key keeps the value of `plan`, while a key passed as
-        None asks for the deterministic default (`interval=None` removes
-        the prediction intervals, `lags=None` re-runs the PACF-based
-        selection, `estimator_kwargs=None` resets the hyperparameters).
+        Supported overrides: `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
+        `interval`, `lags`, `window_features`, `metric`, `use_exog`, `differentiation`,
+        `calendar_features`, `target_transformer`, `dropna_from_series` (see
+        `RefinePlanOverrides`). What matters is whether a key is passed: an omitted
+        key keeps the value of `plan`, while a key passed as None asks for the
+        deterministic default (`interval=None` removes the prediction intervals,
+        `lags=None` re-runs the PACF-based selection, `estimator_kwargs=None` resets the
+        hyperparameters).
 
         Note that `lags` and `window_features` default to the values
         already stored in `plan.forecaster_kwargs`, so refining an
         unrelated field (e.g. `steps`) preserves the existing features
-        rather than re-running the PACF-based selection. The
+        rather than re-running the PACF-based selection. A value the new
+        forecaster cannot use is not carried over: switching to a
+        forecaster without lags (`ForecasterStats`, `ForecasterFoundation`,
+        `ForecasterEquivalentDate`) drops `lags` and `window_features`,
+        switching to another forecaster family drops `estimator` and
+        `estimator_kwargs`, which are then re-derived, and changing the
+        `estimator` without passing `estimator_kwargs` drops the kwargs of
+        the previous estimator. The decisions added in 0.4.0 (`metric`,
+        `use_exog`, `differentiation`, `calendar_features`,
+        `target_transformer`, `dropna_from_series`) are carried over only
+        when they are in `plan.overridden_fields` (and when the new forecaster can apply
+        them); otherwise the rules decide them again. The
         `llm_refined_fields` marks of the original plan are kept for the
         fields whose value is carried over unchanged. The `end_train` split
         boundary is not kept: a refined plan starts in prediction mode, so
@@ -577,9 +1546,10 @@ class ForecastingAssistant:
         each shadowed field, and a note recording the overridden field(s) is
         appended to the explanation). When both are supplied explicitly, the
         LLM has nothing left to decide and is not called. LLM mode does not
-        apply to `task_type` in `('statistical', 'foundation')`, which do not
-        use lags or window features; the prompt is ignored with a
-        `UserWarning`. When the agent omits a field, or the LLM call fails or
+        apply when the refined plan's `task_type` is `'statistical'`,
+        `'foundation'` or `'baseline'`, which do not use lags or window
+        features; the prompt is ignored with a `UserWarning` and the LLM is
+        not called. When the agent omits a field, or the LLM call fails or
         its suggestion is invalid (non-positive, duplicated or empty lags,
         malformed window features) or cannot satisfy the data budget, that
         field keeps the plan's existing value (a `UserWarning` is emitted on
@@ -598,7 +1568,9 @@ class ForecastingAssistant:
         **overrides : Unpack[RefinePlanOverrides]
             Keyword arguments to override. Accepted keys:
             `forecaster`, `estimator`, `estimator_kwargs`, `steps`,
-            `interval`, `lags`, `window_features`. Typed through
+            `interval`, `lags`, `window_features`, `metric`, `use_exog`,
+            `differentiation`, `calendar_features`, `target_transformer`,
+            `dropna_from_series`. Typed through
             `RefinePlanOverrides`, so editors autocomplete them and type
             checkers reject unknown names; unknown keys also raise
             `ValueError` at run time.
@@ -608,19 +1580,47 @@ class ForecastingAssistant:
         plan : ForecastPlan
             Updated plan with overrides (and any LLM refinement) applied. In
             LLM mode, the agent's reasoning is appended to `plan.explanation`.
+            The plan is rebuilt with `plan()`, so its `warnings` are those of
+            that call (the ones of `plan` are not carried over), plus the
+            text of a `PlanEditsDiscardedWarning`; the warnings about the
+            `prompt` that this method emits are not added to them. Its
+            `overridden_fields` names the overrides passed with a value and
+            those of `plan` whose value the refined plan keeps.
+
+        Warns
+        -----
+        PlanEditsDiscardedWarning
+            When `plan` holds values that `plan()` does not build from what
+            is carried over (values edited by hand, such as a key of
+            `forecaster_kwargs`, or a metric that is not passed as `metric`):
+            the refined plan does not keep them.
+            The split boundary, the explanation, the warnings, the marks
+            and the exogenous columns (recorded from the profile) are not
+            compared, nor the fields overridden in the call.
         """
 
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
         invalid_keys = set(overrides) - allowed_keys
         if invalid_keys:
-            raise ValueError(
+            raise InvalidInputError(
                 f"Invalid override keys: {sorted(invalid_keys)}. "
-                f"Allowed keys: {sorted(allowed_keys)}."
+                f"Allowed keys: {sorted(allowed_keys)}.",
+                field = sorted(invalid_keys)[0],
             )
         # Snapshot taken before the LLM branch injects its suggestions into
         # `overrides`, so that an inherited LLM mark is dropped only for a
         # field the caller overrode explicitly.
         explicit_keys = set(overrides)
+
+        # The forecaster of the refined plan, not the one of `plan`, decides
+        # whether the LLM has lags and window features to refine and which
+        # values of `plan` still apply.
+        target_forecaster = (
+            overrides.get("forecaster", plan.forecaster) or profile.forecaster
+        )
+        target_task_type = FORECASTER_TASK_TYPES.get(
+            target_forecaster, plan.task_type
+        )
 
         reasoning = None
         shadowed_fields: list[str] = []
@@ -629,10 +1629,10 @@ class ForecastingAssistant:
             if self.llm is None:
                 raise LLMRequiredError("refine_plan")
 
-            if plan.task_type in ("statistical", "foundation"):
+            if target_task_type in ("statistical", "foundation", "baseline"):
                 warnings.warn(
                     f"LLM plan refinement does not apply to task_type "
-                    f"'{plan.task_type}' (no lags/window_features to refine). "
+                    f"'{target_task_type}' (no lags/window_features to refine). "
                     f"Ignoring prompt.",
                     UserWarning,
                     stacklevel=2,
@@ -661,14 +1661,31 @@ class ForecastingAssistant:
                         span_index_length = profile.data_profile.span_index_length,
                     )
 
-                llm_lags, llm_window_features, reasoning = (
-                    refine_features_with_llm(
-                        agent   = self._resolve_plan_refinement_agent(),
-                        profile = profile,
-                        plan    = plan,
-                        prompt  = prompt,
+                # pydantic-ai builds the provider with the agent, so a
+                # missing API key fails here, before any call: it degrades
+                # like a failed call. A missing package stays an
+                # ImportError, which names the extra to install.
+                try:
+                    refinement_agent = self._resolve_plan_refinement_agent()
+                except ImportError:
+                    raise
+                except Exception as exc:
+                    warnings.warn(
+                        f"LLM plan refinement failed ({exc}). Returning "
+                        f"deterministic plan.",
+                        UserWarning,
+                        stacklevel=2,
                     )
-                )
+                    llm_lags = llm_window_features = reasoning = None
+                else:
+                    llm_lags, llm_window_features, reasoning = (
+                        refine_features_with_llm(
+                            agent   = refinement_agent,
+                            profile = profile,
+                            plan    = plan,
+                            prompt  = prompt,
+                        )
+                    )
                 # Category-A precedence: an explicit lags/window_features
                 # override wins over the LLM suggestion (warn and record each
                 # shadowed field). Otherwise inject the LLM value only when the
@@ -696,24 +1713,65 @@ class ForecastingAssistant:
                             overrides[field] = value
                             llm_applied_fields.append(field)
 
-        steps = overrides.get("steps", plan.steps)
-        forecaster = overrides.get("forecaster", plan.forecaster)
-        estimator = overrides.get("estimator", plan.estimator)
-        estimator_kwargs = overrides.get("estimator_kwargs", plan.estimator_kwargs or None)
-        interval = overrides.get("interval", plan.interval)
-        lags = overrides.get("lags", plan.forecaster_kwargs.get("lags"))
-        window_features = overrides.get("window_features", plan.forecaster_kwargs.get("window_features"))
+        carried = _carried_plan_arguments(plan, target_forecaster)
+        # A differentiation order passed here takes room from the lags and
+        # the window features. Those the rules chose are chosen again with
+        # that order, as `plan()` does, instead of being carried over as
+        # explicit values that no longer fit.
+        if overrides.get("differentiation") is not None:
+            for field in ("lags", "window_features"):
+                if (
+                    field not in overrides
+                    and field not in plan.overridden_fields
+                    and field not in plan.llm_refined_fields
+                ):
+                    carried[field] = None
+        inherited_estimator = carried["estimator"]
+        inherited_lags = carried["lags"]
+        inherited_window_features = carried["window_features"]
 
-        refined_plan = self.plan(
-            profile          = profile,
-            steps            = steps,
-            forecaster       = forecaster,
-            estimator        = estimator,
-            estimator_kwargs = estimator_kwargs,
-            interval         = interval,
-            lags             = lags,
-            window_features  = window_features,
-        )
+        estimator = overrides.get("estimator", inherited_estimator)
+        # Keyword arguments belong to the estimator they were written for
+        # (`alpha` of Ridge, `cross_learning` of Chronos-2), so a different
+        # estimator starts from its own defaults unless new ones are passed.
+        if estimator != inherited_estimator:
+            carried["estimator_kwargs"] = None
+        plan_arguments = {"profile": profile, **carried, **overrides}
+        try:
+            refined_plan = self.plan(**plan_arguments)
+        except InvalidInputError as exc:
+            if (
+                exc.field in _CHOSEN_DECISIONS
+                and exc.field not in explicit_keys
+                and carried.get(exc.field) is not None
+            ):
+                # A decision of `plan` that no longer applies (dropna False
+                # with another estimator, say) is not dropped silently: the
+                # error says where it came from and how to clear it.
+                raise type(exc)(
+                    f"{exc} `{exc.field}` was carried over from the plan, where "
+                    f"the user chose it (`plan.overridden_fields`); pass "
+                    f"`{exc.field}=None` to let the rule decide.",
+                    code  = exc.code,
+                    field = exc.field,
+                    hint  = exc.hint,
+                ) from exc
+            if not llm_applied_fields:
+                raise
+            # A suggestion of the LLM that the plan rejects (lags named like
+            # an exogenous column, too long for the data) falls back to the
+            # values the plan had, which are valid on their own.
+            warnings.warn(
+                f"The LLM suggestion for {llm_applied_fields} was rejected "
+                f"({exc}); the refined plan keeps the previous values.",
+                UserWarning,
+                stacklevel=2,
+            )
+            plan_arguments["lags"] = inherited_lags
+            plan_arguments["window_features"] = inherited_window_features
+            llm_applied_fields = []
+            reasoning = None
+            refined_plan = self.plan(**plan_arguments)
 
         # `self.plan()` returns a fresh plan that knows nothing about the
         # original one, so its LLM marks would otherwise be lost. A mark is
@@ -731,6 +1789,48 @@ class ForecastingAssistant:
             == plan.forecaster_kwargs.get(field)
         ]
         refined_plan.llm_refined_fields = inherited_fields + llm_applied_fields
+
+        # `self.plan()` records every value passed to it, carried over or
+        # suggested by the LLM. A decision of the user is one passed in this
+        # call, or one of `plan` whose value the refined plan still holds.
+        refined_plan.overridden_fields = [
+            name
+            for name in OVERRIDE_NAMES
+            if (
+                name in explicit_keys
+                and overrides[name] is not None
+                and overrides[name] != {}
+            )
+            or (
+                name not in explicit_keys
+                and name in plan.overridden_fields
+                and plan_override_value(refined_plan, name)
+                == plan_override_value(plan, name)
+            )
+        ]
+
+        # Values edited by hand in `plan`, which `self.plan()` does not
+        # rebuild, are lost: said, not dropped silently.
+        discarded = self._discarded_edits(profile, plan, overrides, explicit_keys)
+        message = None
+        if discarded is None:
+            message = (
+                "refine_plan() rebuilds the plan with plan(), which rejects "
+                "the values of the plan for this profile, so values edited by "
+                "hand in the plan may have been discarded without being "
+                "compared."
+            )
+        elif discarded:
+            message = (
+                f"refine_plan() rebuilds the plan with plan(), so these values "
+                f"of the plan, which differ from what plan() builds for it, "
+                f"were discarded: {discarded}. Pass the ones that "
+                f"`refine_plan()` accepts ({sorted(REFINE_PLAN_OVERRIDE_KEYS)}) "
+                f"as overrides to keep them."
+            )
+        if message is not None:
+            refined_plan.warnings.append(message)
+            warnings.warn(message, PlanEditsDiscardedWarning, stacklevel=2)
 
         if reasoning is not None:
             refined_plan.explanation += (
@@ -764,7 +1864,7 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        exog: pd.DataFrame | None = None,
+        exog: pd.DataFrame | pd.Series | None = None,
         interval: list[float] | None = None,
         test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
@@ -774,6 +1874,13 @@ class ForecastingAssistant:
         window_features: list[dict[str, list[str] | int]] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
+        *,
+        metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
+        differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete forecasting script.
@@ -801,6 +1908,9 @@ class ForecastingAssistant:
             Input dataset, a single series, or path to a CSV file. Required
             when `profile` is not provided. When a pandas Series is passed,
             the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         steps : int, default None
             Forecast horizon (number of steps ahead to predict). Required
             when `plan` is not provided. When a `plan` is given it defaults
@@ -823,7 +1933,7 @@ class ForecastingAssistant:
             single-series or wide-format multi-series.
             When `profile` is provided, defaults to the value recorded in
             the profile and must match it if given.
-        exog : pandas DataFrame, default None
+        exog : pandas DataFrame, pandas Series, default None
             Future exogenous variables covering the forecast horizon.
             Mirrors `forecast()` for signature consistency. Because this
             method only generates code (the rendered prediction-mode
@@ -831,6 +1941,9 @@ class ForecastingAssistant:
             time), `exog` is optional here and is used only to validate
             the inputs: it must not be combined with `test_size`, and it
             must not be supplied when the data has no exogenous columns.
+            Unlike `forecast()`, its dates and values are not checked, nor
+            are the last values of the target: the script reads them when
+            it runs.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
@@ -869,6 +1982,9 @@ class ForecastingAssistant:
             Explicit lag configuration. An integer uses lags 1 to `lags`;
             a list uses the specified lags. When None, lags are selected
             automatically from the partial autocorrelation of the series.
+            Raises `ValueError` for a forecaster without lags
+            (`ForecasterStats`, `ForecasterFoundation`,
+            `ForecasterEquivalentDate`).
         window_features : list of dict, default None
             Explicit window (rolling) features configuration. Each dict
             must contain the keys `'stats'` (a list of rolling statistics)
@@ -882,15 +1998,48 @@ class ForecastingAssistant:
             window features are selected automatically from the
             characteristics of the data.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling. If None, profiling
-            is performed from `data`.
+            Pre-computed profile. If None, profiling is performed from
+            `data`. When given, it is usually the profile the plan was
+            built from. `data` is profiled again with its target, date and
+            series id columns: data of another structure (another
+            frequency, an exogenous column missing) raise `ValueError`, and
+            data with other values (new rows or a new series, for example)
+            run with the new profile, which says so in
+            `DataProfile.warnings`. Columns the profile does not name are
+            not used.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. If None, a plan is
             generated from the profile. Requires `profile` to also be
             provided. `forecaster`, `estimator`, `estimator_kwargs`,
             `lags` and `window_features` are fixed by the plan: a value
             equal to the plan's is accepted and a different one raises
-            `ValueError`, pointing to `refine_plan()`.
+            `ValueError`, pointing to `refine_plan()`. The plan is validated
+            again before the script is rendered, so one edited with
+            `model_copy(update=...)` or by assignment raises
+            `ValidationError` unless it is still a valid `ForecastPlan`.
+            A plan built for data of another frequency or shape, or that
+            uses exogenous variables the data does not have, raises
+            `ValueError`.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, as in `plan()`: the first one is
+            the primary metric and only the ones given are computed. When
+            None, they are selected from the data. With `plan`, a value
+            equal to what the plan computes is accepted and a different one
+            raises `ValueError`, pointing to `refine_plan()`.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns, as in `plan()`.
+            When None, the rule decides. With `plan`, it must match
+            `plan.use_exog`.
+        differentiation : int, default None
+            Order of differencing of the target, as in `plan()`. With
+            `plan`, it must match the order of the plan.
+        calendar_features : list of str, default None
+            Calendar features, as in `plan()`; an empty list for none.
+        target_transformer : str, default None
+            `'StandardScaler'` or `'none'`, as in `plan()`.
+        dropna_from_series : bool, default None
+            Whether to drop the training rows with missing values, as in
+            `plan()`. With `plan`, these three must match the plan.
 
         Returns
         -------
@@ -906,13 +2055,14 @@ class ForecastingAssistant:
 
         # A supplied profile is what the script is rendered from. When data
         # is supplied as well, check it is the dataset the profile describes.
+        data_df = data
         if profile is not None and data is not None:
-            _resolve_inputs_with_profile(
+            data_df, *_ = _resolve_inputs_with_profile(
                 data, target, date_column, series_id_column, profile
             )
 
         profile, plan = self._prepare_forecast(
-            data             = data,
+            data             = data_df,
             target           = target,
             date_column      = date_column,
             series_id_column = series_id_column,
@@ -928,7 +2078,16 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             require_exog     = False,
+            overrides        = {
+                "metric": metric,
+                "use_exog": use_exog,
+                "differentiation": differentiation,
+                "calendar_features": calendar_features,
+                "target_transformer": target_transformer,
+                "dropna_from_series": dropna_from_series,
+            },
         )
+        profile = _with_data_path(profile, data)
 
         code = render_forecast_script(
             profile=profile.data_profile, plan=plan
@@ -947,7 +2106,7 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        exog: pd.DataFrame | None = None,
+        exog: pd.DataFrame | pd.Series | None = None,
         interval: list[float] | None = None,
         test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
@@ -957,6 +2116,13 @@ class ForecastingAssistant:
         window_features: list[dict[str, list[str] | int]] | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
+        *,
+        metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
+        differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> ForecastResult:
         """
         Execute a full forecasting workflow end-to-end.
@@ -971,18 +2137,38 @@ class ForecastingAssistant:
         - Evaluation mode (`test_size` is set): the data is split into
         train and test sets, the forecaster is trained on the training
         set, predictions are made for the test set and metrics are
-        computed against the held-out observations.
+        computed against the held-out observations. Before running, a
+        missing value of the training set that the predictions read
+        follows the rule of the prediction mode below (its last dates are
+        not final rows: `test_size` sets them), and with
+        `ForecasterRecursiveMultiSeries` every series needs a value on the
+        last training date and on the test dates.
+        A plan that carries the `end_train` of an earlier evaluation
+        raises `ValueError` when `test_size` is not passed, instead of
+        evaluating the same dates again: pass `test_size` to evaluate.
         - Prediction mode (`test_size` is None, the default): the
         forecaster is trained on all available data and forecasts the
         future. No metrics are returned because there is no ground
         truth to compare against. When the data contains exogenous
         variables, future values must be supplied through `exog`.
+        Before running, final rows without a target value raise
+        `InvalidInputError` (`ForecasterRecursiveMultiSeries`, which
+        ignores them, gives a warning), and so does a missing value of the
+        target that the lags read when the estimator does not tolerate
+        missing values (a warning when it does), or that
+        `ForecasterEquivalentDate` or the inverse of the differentiation
+        reads. A missing value that no lag reads for the `steps` asked, or
+        that only the rolling statistics read (they skip it), is left to
+        the warning of skforecast: the predictions do not use it.
 
         Parameters
         ----------
         data : pandas Series, pandas DataFrame, str, Path
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         steps : int, default None
             Forecast horizon (number of steps ahead to predict). Required
             when `plan` is not provided. When a `plan` is given it defaults
@@ -1005,13 +2191,20 @@ class ForecastingAssistant:
             single-series or wide-format multi-series.
             When `profile` is provided, defaults to the value recorded in
             the profile and must match it if given.
-        exog : pandas DataFrame, default None
-            Future exogenous variables covering the forecast horizon
-            (at least `steps` rows). Used only in prediction mode
-            (`test_size=None`) and required there when the data contains
+        exog : pandas DataFrame, pandas Series, default None
+            Future exogenous variables covering the forecast horizon: a
+            row for each of the `steps` dates that follow the last date of
+            the data (in long format, for each series, with the series id
+            column), indexed or keyed by date as the data. A named pandas
+            Series is one variable. Used only in prediction mode
+            (`test_size=None`) and required there when the plan uses
             exogenous variables. Must not be combined with `test_size`:
             in evaluation mode the test-set exogenous values are taken
-            from the split.
+            from the split. Its columns, dates and values are checked
+            before running: a missing date raises `InvalidInputError`, and
+            a new category or a missing value raises when the estimator
+            does not tolerate missing values and gives a warning when it
+            does.
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` (e.g. `[0.1, 0.9]` for 80 % interval). When
@@ -1050,6 +2243,9 @@ class ForecastingAssistant:
             Explicit lag configuration. An integer uses lags 1 to `lags`;
             a list uses the specified lags. When None, lags are selected
             automatically from the partial autocorrelation of the series.
+            Raises `ValueError` for a forecaster without lags
+            (`ForecasterStats`, `ForecasterFoundation`,
+            `ForecasterEquivalentDate`).
         window_features : list of dict, default None
             Explicit window (rolling) features configuration. Each dict
             must contain the keys `'stats'` (a list of rolling statistics)
@@ -1063,15 +2259,48 @@ class ForecastingAssistant:
             window features are selected automatically from the
             characteristics of the data.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling. If None, profiling
-            is performed from `data`.
+            Pre-computed profile. If None, profiling is performed from
+            `data`. When given, it is usually the profile the plan was
+            built from. `data` is profiled again with its target, date and
+            series id columns: data of another structure (another
+            frequency, an exogenous column missing) raise `ValueError`, and
+            data with other values (new rows or a new series, for example)
+            run with the new profile, which says so in
+            `DataProfile.warnings`. Columns the profile does not name are
+            not used.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. If None, a plan is
             generated from the profile. Requires `profile` to also be
             provided. `forecaster`, `estimator`, `estimator_kwargs`,
             `lags` and `window_features` are fixed by the plan: a value
             equal to the plan's is accepted and a different one raises
-            `ValueError`, pointing to `refine_plan()`.
+            `ValueError`, pointing to `refine_plan()`. The plan is validated
+            again before the script is rendered, so one edited with
+            `model_copy(update=...)` or by assignment raises
+            `ValidationError` unless it is still a valid `ForecastPlan`.
+            A plan built for data of another frequency or shape, or that
+            uses exogenous variables the data does not have, raises
+            `ValueError`.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, as in `plan()`: the first one is
+            the primary metric and only the ones given are computed. When
+            None, they are selected from the data. With `plan`, a value
+            equal to what the plan computes is accepted and a different one
+            raises `ValueError`, pointing to `refine_plan()`.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns, as in `plan()`.
+            When None, the rule decides. With `plan`, it must match
+            `plan.use_exog`.
+        differentiation : int, default None
+            Order of differencing of the target, as in `plan()`. With
+            `plan`, it must match the order of the plan.
+        calendar_features : list of str, default None
+            Calendar features, as in `plan()`; an empty list for none.
+        target_transformer : str, default None
+            `'StandardScaler'` or `'none'`, as in `plan()`.
+        dropna_from_series : bool, default None
+            Whether to drop the training rows with missing values, as in
+            `plan()`. With `plan`, these three must match the plan.
 
         Returns
         -------
@@ -1096,6 +2325,7 @@ class ForecastingAssistant:
         script (`ForecastResult.code`) and the actual execution.
         """
 
+        exog = as_exog_frame(exog)
         data_df, target, date_column, series_id_column = (
             _resolve_inputs_with_profile(
                 data, target, date_column, series_id_column, profile
@@ -1119,7 +2349,60 @@ class ForecastingAssistant:
             profile          = profile,
             plan             = plan,
             require_exog     = True,
+            overrides        = {
+                "metric": metric,
+                "use_exog": use_exog,
+                "differentiation": differentiation,
+                "calendar_features": calendar_features,
+                "target_transformer": target_transformer,
+                "dropna_from_series": dropna_from_series,
+            },
         )
+        profile = _with_data_path(profile, data)
+
+        if plan.end_train is not None:
+            _check_evaluated_target(
+                data         = data_df,
+                data_profile = profile.data_profile,
+                end_train    = plan.end_train,
+                steps        = plan.steps,
+                # ForecasterDirectMultiVariate is scored on its level, the
+                # first target column, as the script writes it.
+                level        = (
+                    profile.data_profile.target[0]
+                    if plan.forecaster == "ForecasterDirectMultiVariate"
+                    and isinstance(profile.data_profile.target, list)
+                    else None
+                ),
+            )
+        elif exog is not None:
+            validate_future_exog(
+                exog    = exog,
+                data    = data_df,
+                profile = profile.data_profile,
+                plan    = plan,
+            )
+        validate_infinite_target(
+            data       = data_df,
+            profile    = profile.data_profile,
+            plan       = plan,
+            prediction = plan.end_train is None,
+        )
+        validate_series_lengths(
+            data      = data_df,
+            profile   = profile.data_profile,
+            plan      = plan,
+            end_train = plan.end_train,
+        )
+        # Last of the checks: it can warn, and a warning is not given for a
+        # forecast that a later check rejects.
+        validate_evaluation_partition(
+            data    = data_df,
+            profile = profile.data_profile,
+            plan    = plan,
+        )
+
+        check_estimator_installed(plan.estimator, plan.task_type)
 
         result = run_forecast(
             data    = data_df,
@@ -1178,6 +2461,15 @@ class ForecastingAssistant:
             Timestamp, it is the last date included in the initial training set. 
             Requires a datetime index with a known frequency; a `ValueError` is 
             raised otherwise, or when the date cannot be parsed.
+
+            When the first training window is shorter than the forecaster
+            of `plan` needs (more than its window: its largest lag or window
+            feature plus the differentiation order, or the offsets of the
+            baseline; plus `steps` for a direct forecaster), for example
+            with a horizon that leaves no room for it, a `UserWarning` says
+            that `backtest()` of this plan raises (`backtest_code()` raises
+            too); the strategy can still serve forecasters with a smaller
+            window in `compare()`.
         fold_stride : int, default None
             Number of observations that the start of the test set advances between
             consecutive folds.
@@ -1191,17 +2483,27 @@ class ForecastingAssistant:
         refit : bool, int, default None
             Whether to refit the forecaster in each fold.
 
-            - If `None`, refit behavior is automatically determined based on the 
-            profile and plan.
+            - If `None`, the forecaster is trained once, in the first fold
+            (`False`, the skforecast default). Refitting multiplies the
+            training cost by the number of folds, which the explanation
+            states.
             - If `True`, the forecaster is refitted in each fold.
             - If `False`, the forecaster is trained only in the first fold.
             - If an integer, the forecaster is trained in the first fold and then refitted
             every `refit` folds.
         fixed_train_size : bool, default None
             Whether the training size is fixed or increases in each fold.
+            Only applies when the forecaster is refitted: with `refit=False`
+            (explicit or by default) it has no effect and an
+            `IgnoredArgumentWarning` says so, except for `ForecasterStats`,
+            which is always refitted.
         gap : int, default None
             Number of observations between the end of the training set and the start of the
-            test set.
+            test set. A direct forecaster cannot be backtested with a gap
+            (each fold would ask it for `steps + gap` steps): for a direct
+            plan, a `UserWarning` says that its `backtest()` and
+            `backtest_code()` raise, while the strategy can still serve the
+            candidates of `compare()` that are not direct.
         skip_folds : int, list, default None
             Number of folds to skip.
 
@@ -1210,7 +2512,8 @@ class ForecastingAssistant:
 
             For example, if `skip_folds=3` and there are 10 folds, the returned folds are
             0, 3, 6, and 9. If `skip_folds=[1, 2, 3]`, the returned folds are 0, 4, 5, 6, 7,
-            8, and 9.
+            8, and 9. A list with an index beyond the folds of the strategy
+            raises `ValueError`.
         allow_incomplete_fold : bool, default None
             Whether to allow the last fold to include fewer observations than `steps`.
             If `False`, the last fold is excluded if it is incomplete.
@@ -1220,16 +2523,28 @@ class ForecastingAssistant:
         result : CVResult
             Cross-validation strategy and the decisions behind it. Pass it
             as `cv` to `backtest()`, `backtest_code()` or `compare()`, or
-            as `result` to `ask()`. Contains the following attributes:
+            as `context` to `ask()`. Contains the following attributes:
 
             - profile: profile the strategy was derived from.
             - plan: plan the strategy was derived from.
             - cv: configured `TimeSeriesFold` fold splitter.
             - cv_config: resolved `TimeSeriesFold` parameters plus the
-            resulting `n_folds`.
-            - code: Python snippet that builds the same `TimeSeriesFold`.
+            resulting `n_folds`. For a `ForecasterStats` plan, the
+            strategy skforecast runs: `refit=True` (it refits ARIMA in
+            every fold) and, when `cv` does not refit,
+            `fixed_train_size=True`.
+            - code: Python snippet that builds the `TimeSeriesFold` of
+            `cv_config`, the one the backtesting script embeds.
             - explanation: human-readable explanation of the chosen
             configuration (LLM reasoning first when a prompt was used).
+            - overridden_fields: names of the parameters passed with a
+            value other than None, instead of the defaults.
+            - fields_without_effect: names in `overridden_fields` that have
+            no effect on the forecaster of the plan.
+            - llm_configured: whether the LLM set the parameters that were
+            not passed (False when its call failed).
+            - defaults_explanation: why the parameters that were not passed
+            have their value, and which ones were passed.
 
         References
         ----------
@@ -1265,12 +2580,43 @@ class ForecastingAssistant:
             )
             use_llm = False
 
+        cv_agent = None
+        if use_llm:
+            # pydantic-ai builds the provider with the agent, so a missing
+            # API key fails here, before any call: it degrades like a
+            # failed call. A missing package stays an ImportError, which
+            # names the extra to install.
+            try:
+                cv_agent = self._resolve_cv_agent()
+            except ImportError:
+                raise
+            except Exception as exc:
+                warnings.warn(
+                    f"LLM CV configuration failed ({exc}). Falling back to "
+                    f"deterministic defaults.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                use_llm = False
+
         if use_llm:
             defaults = configure_cv_with_llm(
-                           agent   = self._resolve_cv_agent(),
-                           profile = profile,
-                           plan    = plan,
-                           prompt  = prompt,
+                           agent    = cv_agent,
+                           profile  = profile,
+                           plan     = plan,
+                           prompt   = prompt,
+                           explicit = frozenset(
+                               name for name, value in {
+                                   "initial_train_size": initial_train_size,
+                                   "refit": refit,
+                                   "fixed_train_size": fixed_train_size,
+                                   "gap": gap,
+                                   "fold_stride": fold_stride,
+                                   "skip_folds": skip_folds,
+                                   "allow_incomplete_fold": allow_incomplete_fold,
+                               }.items()
+                               if value is not None
+                           ),
                        )
         else:
             # Compute deterministic defaults
@@ -1290,32 +2636,103 @@ class ForecastingAssistant:
             if value is not None:
                 defaults[key] = value
 
+        # The parameters the caller chose instead of the defaults: None asks
+        # for the default, any other value is applied above, an empty list
+        # of folds to skip included. In the canonical order, the one the
+        # result keeps, so the text built here names them as `backtest()`
+        # and `compare()` do.
+        overridden_fields = [
+            name for name in CV_OVERRIDE_NAMES if overrides[name] is not None
+        ]
+        # Present when the LLM configured the strategy, absent when its call
+        # failed and the deterministic defaults were used instead.
+        llm_configured = "_reasoning" in defaults
+
         # The LLM narrative is not a TimeSeriesFold parameter: keep it out
         # of the splitter and prepend it to the explanation.
         reasoning = defaults.pop("_reasoning", None)
+
+        # With the `refit` that runs, which the LLM may have chosen.
+        _warn_window_without_refit(
+            fixed_train_size = fixed_train_size,
+            refit            = defaults.get("refit"),
+            forecaster       = plan.forecaster,
+        )
 
         # Same construction and validation path the LLM loop uses, so a
         # configuration that passed there cannot fail here. Resolves a
         # fractional or Timestamp initial_train_size, checks a date-based
         # one against the dataset index and requires at least 2 folds.
         cv = build_cv(cv_params=defaults, data_profile=profile.data_profile)
-        cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
+        _warn_direct_gap(plan, cv.gap)
+        warn_first_window(plan, cv, profile.data_profile)
+        warn_backtest_missing_values(plan, profile.data_profile)
+        warn_interval_residuals(plan, cv, profile.data_profile)
+        cv_config, cv_explanation = resolve_cv_config(
+            cv,
+            profile.data_profile,
+            trains     = plan.task_type != "foundation",
+            forecaster = plan.forecaster,
+        )
 
         if reasoning:
             cv_explanation = f"{reasoning} {cv_explanation}"
 
+        # skforecast refits ForecasterStats in every fold whatever `refit`
+        # says. The script, `cv_config` and the explanation say what runs;
+        # an argument the user passed and that does not run is also warned
+        # about, so it is not replaced without notice.
+        executed = cv_as_executed(cv, plan.forecaster)
+        ignored = [
+            f"`{name}={value!r}`"
+            for name, value, ran in (
+                ("refit", refit, executed.refit),
+                ("fixed_train_size", fixed_train_size, executed.fixed_train_size),
+            )
+            if value is not None and value != ran
+        ]
+        if ignored:
+            warnings.warn(
+                f"{' and '.join(ignored)} do not apply to ForecasterStats: "
+                f"skforecast refits it in every fold, so its backtest runs "
+                f"with `refit=True` and "
+                f"`fixed_train_size={executed.fixed_train_size}`. Pass those "
+                f"values to avoid this warning.",
+                IgnoredArgumentWarning,
+                stacklevel = 2,
+            )
+
         # The same snippet the backtesting script embeds, so the strategy
-        # can be inspected and reproduced on its own.
+        # can be inspected and reproduced on its own. For ForecasterStats it
+        # is the strategy skforecast runs, while `cv` keeps the parameters
+        # as given, so reusing it with another forecaster does not change
+        # how that one is trained.
         code_lines = ["from skforecast.model_selection import TimeSeriesFold", ""]
-        _emit_cv_configuration(code_lines, cv)
+        _emit_cv_configuration(code_lines, executed)
+
+        # Where each value comes from, kept apart from the explanation of
+        # the strategy, which `backtest()` rebuilds from the splitter alone.
+        fields_without_effect, defaults_explanation = resolve_cv_provenance(
+            created_profile = profile,
+            created_plan    = plan,
+            cv              = cv,
+            cv_config       = cv_config,
+            plan            = plan,
+            overridden      = overridden_fields,
+            llm_configured  = llm_configured,
+        )
 
         return CVResult(
-            profile     = profile,
-            plan        = plan,
-            cv          = cv,
-            cv_config   = cv_config,
-            code        = "\n".join(code_lines).rstrip("\n") + "\n",
-            explanation = cv_explanation,
+            profile               = profile,
+            plan                  = plan,
+            cv                    = cv,
+            cv_config             = cv_config,
+            code                  = "\n".join(code_lines).rstrip("\n") + "\n",
+            explanation           = cv_explanation,
+            overridden_fields     = overridden_fields,
+            fields_without_effect = fields_without_effect,
+            llm_configured        = llm_configured,
+            defaults_explanation  = defaults_explanation,
         )
 
     def backtest_code(
@@ -1331,6 +2748,15 @@ class ForecastingAssistant:
         estimator_kwargs: dict | None = None,
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
+        *,
+        lags: int | list[int] | None = None,
+        window_features: list[dict[str, list[str] | int]] | None = None,
+        metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
+        differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> CodeGenerationResult:
         """
         Profile, plan, and generate a complete backtesting script.
@@ -1344,14 +2770,25 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path, None
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
-            None is accepted when `profile` and `plan` are given: the
-            script is rendered from the profile and loads the data path
-            recorded in it.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file. None is accepted when
+            `profile` and `plan` are given: the script is rendered from the
+            profile and loads the data path recorded in it.
         cv : TimeSeriesFold, CVResult
             Time series cross-validation fold splitter (output of
             `create_cv()` or user-constructed) [1]_.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
+            Without `plan` and the arguments of the model (`forecaster`,
+            `estimator`, `estimator_kwargs`, `interval` and the
+            keyword-only overrides), its plan is the one run. Its profile must
+            describe data of the same structure (format, target, series,
+            frequency, exogenous columns), or `ValueError` is raised. A
+            direct forecaster with a `gap` raises `ValueError`: each fold
+            would ask it for `steps + gap` steps. So does a first training
+            window with fewer observations than the forecaster needs: more
+            than its window size, or at least its window size plus `steps`
+            for a direct forecaster.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -1394,12 +2831,48 @@ class ForecastingAssistant:
             flags), with user values taking precedence. When None, only
             the built-in defaults are used.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling.
+            Pre-computed profile, usually the profile the plan was built
+            from. `data` is profiled again with its target, date and
+            series id columns: data of another structure (another
+            frequency, an exogenous column missing) raise `ValueError`, and
+            data with other values (new rows or a new series, for example)
+            run with the new profile, which says so in
+            `DataProfile.warnings`. Columns the profile does not name are
+            not used.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. `forecaster`, `estimator`
             and `estimator_kwargs` are fixed by the plan: a value equal
             to the plan's is accepted and a different one raises
-            `ValueError`, pointing to `refine_plan()`.
+            `ValueError`, pointing to `refine_plan()`. The plan is validated
+            again before the script is rendered, so one edited with
+            `model_copy(update=...)` or by assignment raises
+            `ValidationError` unless it is still a valid `ForecastPlan`.
+        lags : int, list of int, default None
+            Explicit lag configuration, as in `plan()`. With `plan`, it
+            must match the plan.
+        window_features : list of dict, default None
+            Explicit window features configuration, as in `plan()`. With
+            `plan`, it must match the plan.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, as in `plan()`: the first one is
+            the primary metric and only the ones given are computed. When
+            None, they are selected from the data. With `plan`, a value
+            equal to what the plan computes is accepted and a different one
+            raises `ValueError`, pointing to `refine_plan()`.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns, as in `plan()`.
+            When None, the rule decides. With `plan`, it must match
+            `plan.use_exog`.
+        differentiation : int, default None
+            Order of differencing of the target, as in `plan()`. With
+            `plan`, it must match the order of the plan.
+        calendar_features : list of str, default None
+            Calendar features, as in `plan()`; an empty list for none.
+        target_transformer : str, default None
+            `'StandardScaler'` or `'none'`, as in `plan()`.
+        dropna_from_series : bool, default None
+            Whether to drop the training rows with missing values, as in
+            `plan()`. With `plan`, these three must match the plan.
 
         Returns
         -------
@@ -1414,10 +2887,14 @@ class ForecastingAssistant:
 
         Notes
         -----
-        To customize `lags` or `window_features`, build the plan with
-        `plan()` (or `refine_plan()`) and pass it via `plan`, then build a
-        matching `cv` with `create_cv()`. This keeps the plan and the
-        cross-validation configuration consistent.
+        `lags` and `window_features` can be passed here, but the strategy of
+        `create_cv()` was sized for the window of the plan it was built
+        from, and a first training window too short for the window of the
+        forecaster raises (see `cv`).
+
+        To keep both consistent, build the plan with `plan()` (or
+        `refine_plan()`), pass it via `plan`, and build a matching `cv` with
+        `create_cv()`.
 
         References
         ----------
@@ -1426,10 +2903,20 @@ class ForecastingAssistant:
 
         """
 
+        cv_result = cv if isinstance(cv, CVResult) else None
         cv = _unwrap_cv(cv)
+        # Read once, as `backtest()` does: the dates give the time zone of
+        # the strategy the script runs.
+        data_df = data
+        if data is not None:
+            data_df, target, date_column, series_id_column = (
+                _resolve_inputs_with_profile(
+                    data, target, date_column, series_id_column, profile
+                )
+            )
 
         profile, plan = self._prepare_backtest(
-            data             = data,
+            data             = data_df,
             target           = target,
             cv               = cv,
             date_column      = date_column,
@@ -1440,10 +2927,27 @@ class ForecastingAssistant:
             interval         = interval,
             profile          = profile,
             plan             = plan,
+            cv_result        = cv_result,
+            lags             = lags,
+            window_features  = window_features,
+            overrides        = {
+                "metric": metric,
+                "use_exog": use_exog,
+                "differentiation": differentiation,
+                "calendar_features": calendar_features,
+                "target_transformer": target_transformer,
+                "dropna_from_series": dropna_from_series,
+            },
         )
+        profile = _with_data_path(profile, data)
+        # The script would fail, as `backtest()` says before running it.
+        _check_direct_gap(plan, cv)
+        check_first_window(plan, cv, profile.data_profile, strict=False)
 
         code = render_backtesting_script(
-            profile=profile.data_profile, plan=plan, cv=cv
+            profile = profile.data_profile,
+            plan    = plan,
+            cv      = _cv_in_time_zone(cv, data_df, profile.data_profile),
         ).full_script
 
         return CodeGenerationResult(
@@ -1466,6 +2970,15 @@ class ForecastingAssistant:
         profile: ForecastingProfile | None = None,
         plan: ForecastPlan | None = None,
         show_progress: bool = True,
+        *,
+        lags: int | list[int] | None = None,
+        window_features: list[dict[str, list[str] | int]] | None = None,
+        metric: str | list[str] | None = None,
+        use_exog: bool | None = None,
+        differentiation: int | None = None,
+        calendar_features: list[str] | None = None,
+        target_transformer: str | None = None,
+        dropna_from_series: bool | None = None,
     ) -> BacktestResult:
         """
         Execute backtesting with a pre-configured time series cross-validation 
@@ -1480,11 +2993,24 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         cv : TimeSeriesFold, CVResult
             Time series cross-validation fold splitter (output of `create_cv()`
             or user-constructed) [1]_.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
+            Without `plan` and the arguments of the model (`forecaster`,
+            `estimator`, `estimator_kwargs`, `interval` and the
+            keyword-only overrides), its plan is the one run. Its profile must
+            describe data of the same structure (format, target, series,
+            frequency, exogenous columns), or `ValueError` is raised. A
+            direct forecaster with a `gap` raises `ValueError`: each fold
+            would ask it for `steps + gap` steps. So does a first training
+            window with fewer observations than the forecaster needs: more
+            than its window size, or at least its window size plus `steps`
+            for a direct forecaster.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -1527,14 +3053,50 @@ class ForecastingAssistant:
             flags), with user values taking precedence. When None, only
             the built-in defaults are used.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling.
+            Pre-computed profile, usually the profile the plan was built
+            from. `data` is profiled again with its target, date and
+            series id columns: data of another structure (another
+            frequency, an exogenous column missing) raise `ValueError`, and
+            data with other values (new rows or a new series, for example)
+            run with the new profile, which says so in
+            `DataProfile.warnings`. Columns the profile does not name are
+            not used.
         plan : ForecastPlan, default None
             Pre-computed plan to skip planning. `forecaster`, `estimator`
             and `estimator_kwargs` are fixed by the plan: a value equal
             to the plan's is accepted and a different one raises
-            `ValueError`, pointing to `refine_plan()`.
+            `ValueError`, pointing to `refine_plan()`. The plan is validated
+            again before the script is rendered, so one edited with
+            `model_copy(update=...)` or by assignment raises
+            `ValidationError` unless it is still a valid `ForecastPlan`.
         show_progress : bool, default True
             Whether to display a progress bar during backtesting.
+        lags : int, list of int, default None
+            Explicit lag configuration, as in `plan()`. With `plan`, it
+            must match the plan.
+        window_features : list of dict, default None
+            Explicit window features configuration, as in `plan()`. With
+            `plan`, it must match the plan.
+        metric : str, list of str, default None
+            Metric(s) the plan computes, as in `plan()`: the first one is
+            the primary metric and only the ones given are computed. When
+            None, they are selected from the data. With `plan`, a value
+            equal to what the plan computes is accepted and a different one
+            raises `ValueError`, pointing to `refine_plan()`.
+        use_exog : bool, default None
+            Whether the plan uses the exogenous columns, as in `plan()`.
+            When None, the rule decides. With `plan`, it must match
+            `plan.use_exog`.
+        differentiation : int, default None
+            Order of differencing of the target, as in `plan()`. With
+            `plan`, it must match the order of the plan.
+        calendar_features : list of str, default None
+            Calendar features, as in `plan()`; an empty list for none.
+        target_transformer : str, default None
+            `'StandardScaler'` or `'none'`, as in `plan()`.
+        dropna_from_series : bool, default None
+            Whether to drop the training rows with missing values, as in
+            `plan()`. With `plan`, these three must match the plan.
 
         Returns
         -------
@@ -1552,6 +3114,15 @@ class ForecastingAssistant:
             - code: generated Python script reproducing the workflow.
             - explanation: human-readable summary of the configuration
             and results.
+            - cv_overridden_fields: names of the strategy parameters passed
+            to `create_cv()` instead of its defaults. None when `cv` is a
+            `TimeSeriesFold`, whose origin is not known.
+            - cv_fields_without_effect: names in `cv_overridden_fields`
+            that have no effect on the forecaster that ran.
+            - cv_llm_configured: whether the LLM of `create_cv()` set the
+            parameters that were not passed.
+            - cv_defaults_explanation: why the strategy parameters that
+            were not passed have their value, and which ones were passed.
 
         Notes
         -----
@@ -1559,10 +3130,14 @@ class ForecastingAssistant:
         uses them. Exogenous variables are extracted automatically from
         `profile.data_profile.exog_columns`.
 
-        To customize `lags` or `window_features`, build the plan with
-        `plan()` (or `refine_plan()`) and pass it via `plan`, then build a
-        matching `cv` with `create_cv()`. This keeps the plan and the
-        cross-validation configuration consistent.
+        `lags` and `window_features` can be passed here, but the strategy of
+        `create_cv()` was sized for the window of the plan it was built
+        from, and a first training window too short for the window of the
+        forecaster raises (see `cv`).
+
+        To keep both consistent, build the plan with `plan()` (or
+        `refine_plan()`), pass it via `plan`, and build a matching `cv` with
+        `create_cv()`.
 
         References
         ----------
@@ -1571,6 +3146,7 @@ class ForecastingAssistant:
         
         """
 
+        cv_result = cv if isinstance(cv, CVResult) else None
         cv = _unwrap_cv(cv)
 
         data_df, target, date_column, series_id_column = (
@@ -1591,16 +3167,85 @@ class ForecastingAssistant:
             estimator_kwargs = estimator_kwargs,
             profile          = profile,
             plan             = plan,
+            cv_result        = cv_result,
+            lags             = lags,
+            window_features  = window_features,
+            overrides        = {
+                "metric": metric,
+                "use_exog": use_exog,
+                "differentiation": differentiation,
+                "calendar_features": calendar_features,
+                "target_transformer": target_transformer,
+                "dropna_from_series": dropna_from_series,
+            },
+        )
+        profile = _with_data_path(profile, data)
+
+        _check_evaluated_target(
+            data         = data_df,
+            data_profile = profile.data_profile,
+            cv           = cv,
+        )
+        validate_infinite_target(
+            data       = data_df,
+            profile    = profile.data_profile,
+            plan       = plan,
+            prediction = False,
+        )
+        validate_series_lengths(
+            data       = data_df,
+            profile    = profile.data_profile,
+            plan       = plan,
+            whole_data = True,
+        )
+        _check_direct_gap(plan, cv)
+        check_first_window(plan, cv, profile.data_profile)
+        validate_backtest_windows(
+            data    = data_df,
+            profile = profile.data_profile,
+            plan    = plan,
+            cv      = cv,
         )
 
-        # Resolved CV parameters (with the fold count) and their explanation.
-        cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
+        # Resolved CV parameters (with the fold and training counts) and their
+        # explanation, which states the cost of the backtest.
+        cv_config, cv_explanation = resolve_cv_config(
+            cv,
+            profile.data_profile,
+            trains     = plan.task_type != "foundation",
+            forecaster = plan.forecaster,
+        )
+        warn_long_training(
+            estimator_fits = count_estimator_fits(
+                                 n_fits     = cv_config["n_fits"],
+                                 forecaster = plan.forecaster,
+                                 steps      = plan.steps,
+                             ),
+            n_fits         = cv_config["n_fits"],
+            forecaster     = plan.forecaster,
+            steps          = plan.steps,
+        )
+        # A foundation model fits nothing: its cost is the inference of
+        # each series in each fold.
+        warn_long_inference(
+            inference_windows = count_inference_windows(
+                                    n_folds    = cv_config["n_folds"],
+                                    n_series   = profile.data_profile.n_series,
+                                    forecaster = plan.forecaster,
+                                ),
+            n_series          = profile.data_profile.n_series,
+            n_folds           = cv_config["n_folds"],
+        )
+
+        check_estimator_installed(plan.estimator, plan.task_type)
 
         result = run_backtest(
             data           = data_df,
             profile        = profile.data_profile,
             plan           = plan,
-            cv             = cv,
+            cv             = _cv_in_time_zone(
+                                 cv, data_df, profile.data_profile
+                             ),
             cv_explanation = cv_explanation,
             show_progress  = show_progress,
         )
@@ -1613,6 +3258,7 @@ class ForecastingAssistant:
             predictions = result["predictions"],
             code        = result["rendered_code"].full_script,
             explanation = result["explanation"],
+            **_cv_provenance_fields(cv_result, cv, cv_config, plan, profile),
         )
 
     def compare(
@@ -1627,6 +3273,8 @@ class ForecastingAssistant:
         interval: list[float] | None = None,
         profile: ForecastingProfile | None = None,
         show_progress: bool = True,
+        baseline: bool = True,
+        progress_callback: Callable[[CompareProgress], None] | None = None,
     ) -> ComparisonResult:
         """
         Compare several forecaster configurations on the same data.
@@ -1647,11 +3295,17 @@ class ForecastingAssistant:
         data : pandas Series, pandas DataFrame, str, Path
             Input dataset, a single series, or path to a CSV file. When a
             pandas Series is passed, the target is derived from its name.
+            A CSV path or URL is the file the generated script loads, also
+            with a `profile` built from another file; with a DataFrame the
+            script loads the path recorded in the profile.
         cv : TimeSeriesFold, CVResult
             Cross-validation strategy applied identically to every
             candidate. The `steps` value is inferred from `cv.steps`.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
+            Its profile must describe data of the same structure (format,
+            target, series, frequency, exogenous columns), or `ValueError`
+            is raised.
         target : str, list of str, default None
             Name of the column(s) to forecast. Optional only when `data`
             is a pandas Series (the Series name is used instead). For
@@ -1674,15 +3328,21 @@ class ForecastingAssistant:
             `config` holds the forecaster/estimator settings. The `config`
             dict accepts the same override keys understood by `plan()`:
             `'forecaster'`, `'estimator'`, `'estimator_kwargs'`, `'lags'`,
-            and `'window_features'` (see `CandidateConfig`). Names must be
+            `'window_features'`, `'use_exog'`, `'differentiation'`,
+            `'calendar_features'`, `'target_transformer'` and
+            `'dropna_from_series'` (see `CandidateConfig`). Names must be
             unique, and every candidate must belong to the same forecaster
             family: a multivariate forecaster is scored on the single series
             it predicts, a multi-series forecaster on the average across all
-            series, so the two are never ranked together. When None, the
-            set is built from the profile's forecaster candidates of the
-            same family as the recommended forecaster; when that leaves a
-            single forecaster (multi-series data), its estimator candidates
-            are compared instead.
+            series, so the two are never ranked together.
+            `ForecasterFoundation` belongs to the family of the data: it
+            is ranked with the single-series forecasters on one series and
+            with `ForecasterRecursiveMultiSeries` on several. When None,
+            the set is built from the profile's forecaster candidates of
+            the same family as the recommended forecaster (with several
+            series, `ForecasterRecursiveMultiSeries` and
+            `ForecasterFoundation`); when that leaves a single forecaster,
+            its estimator candidates are compared instead.
         metric : str, list of str, default None
             Metric(s) computed per candidate. When a list is passed, the
             first metric is used to rank the table. When None, the plan
@@ -1692,10 +3352,34 @@ class ForecastingAssistant:
             `[lower, upper]` computed for every candidate. When None, no
             prediction intervals are computed.
         profile : ForecastingProfile, default None
-            Pre-computed profile to skip profiling and guarantee a shared
-            profile across candidates.
+            Pre-computed profile, shared by every candidate. `data` is
+            profiled again with its target, date and series id columns:
+            data of another structure (another frequency, an exogenous
+            column missing) raise `ValueError`, and data with other
+            values (new rows or a new series, for example) run with the
+            new profile, which says so in `DataProfile.warnings`. Columns
+            the profile does not name are not used.
         show_progress : bool, default True
             Whether to display a progress bar across candidates.
+        baseline : bool, default True
+            Whether to add a `ForecasterEquivalentDate` baseline (seasonal
+            naive, or naive when no seasonal period applies) as one more
+            row, ranked like the other candidates. The explanation states
+            whether the best configuration beats it and by how much. It is
+            not added for multi-series data, which it cannot forecast, nor
+            when the target has missing values or missing timestamps, which
+            it would repeat as missing predictions (the explanation says
+            why), nor with an asymmetric `interval`, which it cannot
+            predict, nor when `candidates` already contains a
+            `ForecasterEquivalentDate` (that candidate is then the
+            baseline).
+        progress_callback : Callable, default None
+            Function called with a `CompareProgress` when each candidate
+            starts and when it ends, for example to report progress
+            outside a notebook. An exception it raises is not recorded as
+            a candidate failure: it stops the comparison and propagates
+            to the caller, so raising from it cancels the remaining
+            candidates. When None, no events are sent.
 
         Returns
         -------
@@ -1716,6 +3400,16 @@ class ForecastingAssistant:
             describing why it failed. Empty when all candidates succeed.
             - ranking_metric: name of the metric used to sort `results`.
             - explanation: human-readable summary of the comparison.
+            - baseline_name: name of the baseline candidate, or None.
+            - cv_overridden_fields: names of the strategy parameters passed
+            to `create_cv()` instead of its defaults. None when `cv` is a
+            `TimeSeriesFold`, whose origin is not known.
+            - cv_fields_without_effect: names in `cv_overridden_fields`
+            that have no effect on the shared strategy.
+            - cv_llm_configured: whether the LLM of `create_cv()` set the
+            parameters that were not passed.
+            - cv_defaults_explanation: why the strategy parameters that
+            were not passed have their value, and which ones were passed.
             - best_name: name of the top-ranked candidate.
             - best_candidate: top-ranked candidate as a `BacktestResult`.
 
@@ -1724,16 +3418,24 @@ class ForecastingAssistant:
         AllCandidatesFailedError
             If every candidate fails to run. The individual failures are
             available on the `failures` attribute of the raised error.
+        TypeError
+            If `progress_callback` is not callable.
         ValueError
-            If `metric` is an empty list, or if `candidates` is empty,
-            contains a malformed entry, repeats a name, or mixes forecaster
+            If `metric` is an empty list or repeats a metric, or if
+            `candidates` is empty,
+            contains a malformed entry, repeats a name, mixes forecaster
             families whose metrics are not comparable (multi-series with
-            multivariate).
+            multivariate), or uses the name reserved for the baseline, or
+            if `data` does not have the structure of `profile`.
 
         Warns
         -----
         CandidateFailedWarning
             Once per failed candidate.
+        MissingBackendWarning
+            When `candidates` is None and the backend of the default
+            foundation model is not installed, so `ForecasterFoundation`
+            is left out of the comparison.
 
         Notes
         -----
@@ -1750,6 +3452,14 @@ class ForecastingAssistant:
         `forecast_code()`.
         """
 
+        if progress_callback is not None and not callable(progress_callback):
+            raise InvalidInputTypeError(
+                f"`progress_callback` must be callable or None, got "
+                f"{type(progress_callback).__name__}.",
+                field = "progress_callback",
+            )
+
+        cv_result = cv if isinstance(cv, CVResult) else None
         cv = _unwrap_cv(cv)
 
         data_df, target, date_column, series_id_column = (
@@ -1765,8 +3475,47 @@ class ForecastingAssistant:
                 date_column      = date_column,
                 series_id_column = series_id_column,
             )
+        else:
+            profile = self._refresh_profile(data_df, profile)
+        if cv_result is not None:
+            _check_cv_matches_profile(cv_result, profile.data_profile)
+        # Every candidate script loads the file the comparison read.
+        profile = _with_data_path(profile, data)
+        run_data_path = (
+            profile.data_profile.data_path if isinstance(data, (str, Path)) else None
+        )
 
-        candidate_configs = resolve_compare_candidates(candidates, profile)
+        # Automatic candidates leave out a foundation model whose backend
+        # is not installed, rather than fail on every call; the warning and
+        # the explanation say which package to install.
+        excluded: frozenset[str] = frozenset()
+        backend_note = None
+        if candidates is None:
+            excluded, backend_note = missing_foundation_backend(profile)
+            if backend_note is not None:
+                warnings.warn(backend_note, MissingBackendWarning, stacklevel=2)
+        candidate_configs = resolve_compare_candidates(
+            candidates, profile, exclude=excluded
+        )
+
+        # Checked once here: an invalid interval would make every candidate
+        # fail. Whether a method needs a symmetric interval is checked per
+        # candidate by `plan()`.
+        validate_interval(interval)
+
+        # Checked once here: every candidate would fail on the same dates.
+        _check_evaluated_target(
+            data         = data_df,
+            data_profile = profile.data_profile,
+            cv           = cv,
+        )
+
+        baseline_name = None
+        baseline_note = None
+        if baseline:
+            candidate_configs, baseline_name, baseline_note = (
+                add_baseline_candidate(candidate_configs, profile, interval)
+            )
 
         # Resolve the ranking metric and the metric columns once, so the
         # table is consistent across candidates regardless of which ones
@@ -1778,18 +3527,66 @@ class ForecastingAssistant:
                 profile.data_profile
             )
         else:
-            metric_override = [metric] if isinstance(metric, str) else list(metric)
-            if not metric_override:
-                raise ValueError("`metric` must not be an empty list.")
+            metric_override = resolve_metric_override(metric)
             ranking_metric = metric_override[0]
             metric_columns = metric_override
 
         steps = cv.steps
 
-        # Shared CV parameters (with the fold count) and their explanation.
-        # The folds are counted before any candidate runs, on the untouched
-        # `cv`.
+        # Shared CV parameters (with the fold and training counts) and their
+        # explanation. The folds are counted before any candidate runs, on
+        # the untouched `cv`.
         cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
+        n_fits = cv_config["n_fits"]
+
+        # Automatic candidates are also kept within a fit budget: with a
+        # strategy that refits in every fold a direct forecaster can take
+        # hours. Explicit candidates always run; they only get the warning.
+        budget_note = None
+        if candidates is None:
+            candidate_configs, budget_note = exclude_costly_candidates(
+                candidate_configs = candidate_configs,
+                preferred         = profile.forecaster,
+                n_fits            = n_fits,
+                steps             = steps,
+                n_folds           = cv_config["n_folds"],
+            )
+            if budget_note is not None:
+                warnings.warn(budget_note, LongTrainingWarning, stacklevel=2)
+
+        # Warned once per costly candidate here; the warning of each
+        # backtest() call is silenced in the loop so it is not repeated.
+        for _, config in candidate_configs:
+            forecaster = config.get("forecaster") or profile.forecaster
+            warn_long_training(
+                estimator_fits = count_estimator_fits(
+                                     n_fits     = n_fits,
+                                     forecaster = forecaster,
+                                     steps      = steps,
+                                     n_folds    = cv_config["n_folds"],
+                                 ),
+                n_fits         = n_fits,
+                forecaster     = forecaster,
+                steps          = steps,
+            )
+
+        # The foundation candidates run one after another: their inference
+        # windows add up, and one warning states the total.
+        n_series = profile.data_profile.n_series
+        foundation_windows = [
+            count_inference_windows(
+                n_folds    = cv_config["n_folds"],
+                n_series   = n_series,
+                forecaster = config.get("forecaster") or profile.forecaster,
+            )
+            for _, config in candidate_configs
+        ]
+        warn_long_inference(
+            inference_windows = sum(foundation_windows),
+            n_series          = n_series,
+            n_folds           = cv_config["n_folds"],
+            n_candidates      = sum(windows > 0 for windows in foundation_windows),
+        )
 
         iterator: Any = candidate_configs
         if show_progress:
@@ -1799,9 +3596,33 @@ class ForecastingAssistant:
 
         rows: list[tuple[dict, float]] = []
         ranked: list[tuple[str, BacktestResult, float]] = []
+        own_differentiation: dict[str, int | None] = {}
         failures: dict[str, CandidateFailure] = {}
+        n_candidates = len(candidate_configs)
 
-        for name, config in iterator:
+        def notify(event: CompareProgress) -> None:
+            # A callback that cancels leaves the loop early, so the progress
+            # bar would stay open on a partial count.
+            try:
+                progress_callback(event)
+            except BaseException:
+                if show_progress:
+                    iterator.close()
+                raise
+
+        for position, (name, config) in enumerate(iterator):
+            # Called outside the `try` below: an exception raised by the
+            # callback cancels the comparison instead of failing a candidate.
+            if progress_callback is not None:
+                notify(
+                    CompareProgress(
+                        candidate = name,
+                        status    = "started",
+                        completed = position,
+                        total     = n_candidates,
+                    )
+                )
+
             row: dict[str, Any] = {
                 "name": name,
                 "forecaster": config.get("forecaster") or profile.forecaster,
@@ -1813,33 +3634,69 @@ class ForecastingAssistant:
             ranking_value = float("nan")
 
             try:
+                # The metric of the comparison is a decision of each plan,
+                # so it is validated and carried over like any override.
                 cand_plan = self.plan(
-                    profile          = profile,
-                    steps            = steps,
-                    forecaster       = config.get("forecaster"),
-                    estimator        = config.get("estimator"),
-                    estimator_kwargs = config.get("estimator_kwargs"),
-                    lags             = config.get("lags"),
-                    window_features  = config.get("window_features"),
-                    interval         = interval,
+                    profile            = profile,
+                    steps              = steps,
+                    forecaster         = config.get("forecaster"),
+                    estimator          = config.get("estimator"),
+                    estimator_kwargs   = config.get("estimator_kwargs"),
+                    lags               = config.get("lags"),
+                    window_features    = config.get("window_features"),
+                    use_exog           = config.get("use_exog"),
+                    differentiation    = config.get("differentiation"),
+                    calendar_features  = config.get("calendar_features"),
+                    target_transformer = config.get("target_transformer"),
+                    dropna_from_series = config.get("dropna_from_series"),
+                    interval           = interval,
+                    metric             = metric_override,
                 )
-                if metric_override is not None:
-                    cand_plan.metrics_to_compute = list(metric_override)
-                    cand_plan.metric = metric_override[0]
+                # `plan()` records every argument it receives as a decision of
+                # the user. The forecaster and the estimator of an automatic
+                # candidate and of the baseline are chosen here, by the rules:
+                # only the metric of the comparison is the user's.
+                if candidates is None or name == baseline_name:
+                    cand_plan.overridden_fields = [
+                        field for field in cand_plan.overridden_fields
+                        if field == "metric"
+                    ]
+                # Each candidate runs with its own differentiation order: the
+                # shared strategy is copied with it when they differ (10.4).
+                candidate_cv = cv
+                cand_differentiation = cand_plan.forecaster_kwargs.get(
+                    "differentiation"
+                )
+                # The baseline has no order of its own: it runs without one.
+                if (
+                    cand_plan.forecaster in _DIFFERENTIATION_FORECASTERS
+                    and cand_differentiation != cv.differentiation
+                ):
+                    candidate_cv = copy.deepcopy(cv)
+                    candidate_cv.set_params(
+                        {"differentiation": cand_differentiation}
+                    )
+                    if cand_plan.forecaster not in BASELINE_FORECASTERS:
+                        own_differentiation[name] = cand_differentiation
 
                 row["forecaster"] = cand_plan.forecaster
                 row["estimator"] = cand_plan.estimator
 
-                bt = self.backtest(
-                    data             = data_df,
-                    cv               = cv,
-                    target           = target,
-                    date_column      = date_column,
-                    series_id_column = series_id_column,
-                    profile          = profile,
-                    plan             = cand_plan,
-                    show_progress    = False,
-                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=LongTrainingWarning)
+                    # The candidate runs on the DataFrame already read;
+                    # its script loads the file the comparison read.
+                    with _data_path_of_run(run_data_path):
+                        bt = self.backtest(
+                            data             = data_df,
+                            cv               = candidate_cv,
+                            target           = target,
+                            date_column      = date_column,
+                            series_id_column = series_id_column,
+                            profile          = profile,
+                            plan             = cand_plan,
+                            show_progress    = False,
+                        )
                 agg = aggregate_metrics(bt.metrics)
                 for col in metric_columns:
                     row[col] = agg.get(col, float("nan"))
@@ -1859,17 +3716,32 @@ class ForecastingAssistant:
 
             rows.append((row, ranking_value))
 
+            if progress_callback is not None:
+                notify(
+                    CompareProgress(
+                        candidate = name,
+                        status    = "failed" if name in failures else "succeeded",
+                        completed = position + 1,
+                        total     = n_candidates,
+                        error     = row["error"],
+                    )
+                )
+
         results = build_comparison_table(
             rows           = rows,
             metric_columns = metric_columns,
             any_error      = bool(failures),
+            baseline_name  = baseline_name,
         )
 
         # Order the successful candidates using the same
-        # ascending-with-NaN-last, stable ordering as the results table, so
-        # the mapping iterates best to worst and its first entry is the
-        # winner reported by `best_name` / `best_candidate`.
-        ranked_sorted = sorted(ranked, key=compare_sort_key)
+        # ascending-with-NaN-last, stable ordering as the results table
+        # (the baseline wins ties), so the mapping iterates best to worst
+        # and its first entry is the winner reported by `best_name` /
+        # `best_candidate`.
+        ranked_sorted = sorted(
+            ranked, key=lambda item: compare_sort_key(item, baseline_name)
+        )
         if not ranked_sorted:
             raise AllCandidatesFailedError(failures)
         candidate_results = {name: bt for name, bt, _ in ranked_sorted}
@@ -1880,6 +3752,16 @@ class ForecastingAssistant:
             ranking_metric = ranking_metric,
             any_error      = bool(failures),
             cv_explanation = cv_explanation,
+            baseline_name  = baseline_name,
+            baseline_note  = baseline_note,
+            backend_note   = backend_note,
+            budget_note    = budget_note,
+            differentiation_note = (
+                f"These candidates ran on a copy of the strategy with their "
+                f"own differentiation order (the strategy has "
+                f"{cv.differentiation}): {own_differentiation}."
+                if own_differentiation else None
+            ),
         )
 
         return ComparisonResult(
@@ -1890,6 +3772,8 @@ class ForecastingAssistant:
             failures       = failures,
             ranking_metric = ranking_metric,
             explanation    = explanation,
+            baseline_name  = baseline_name,
+            **_cv_provenance_fields(cv_result, cv, cv_config, None, profile),
         )
 
     def ask(
@@ -1900,7 +3784,6 @@ class ForecastingAssistant:
         plan: ForecastPlan | None = None,
         skills: list[str] | None = None,
         include_reference: bool = False,
-        result: ExplainableResult | None = None,
     ) -> AskResult:
         """
         Ask a forecasting question, optionally about an object to explain.
@@ -1936,6 +3819,10 @@ class ForecastingAssistant:
             `forecast_code()` would produce, so the LLM sees the plan and
             the returned `code` is that script. Not accepted with any
             other kind of context, which already carries its own plan.
+            The plan is validated again before the script is rendered, so
+            one edited with `model_copy(update=...)` or by assignment
+            raises `ValidationError` unless it is still a valid
+            `ForecastPlan`.
         skills : list of str, default None
             List of skill names to include in the agent system prompt.
             If None, skills are selected automatically based on the
@@ -1944,9 +3831,6 @@ class ForecastingAssistant:
         include_reference : bool, default False
             Whether to include the skforecast API reference in the
             prompt.
-        result : ExplainableResult, default None
-            Deprecated alias of `context`, removed in 0.4.0. Passing it
-            emits a `DeprecationWarning`.
 
         Returns
         -------
@@ -1976,17 +3860,17 @@ class ForecastingAssistant:
             answer to fall back on.
         TypeError
             If `context` is not explainable (a bare `ForecastPlan` is
-            not: pass `context=profile, plan=plan`), if `plan` accompanies
-            a context other than a `ForecastingProfile`, or if `context`
-            and the deprecated `result` are both given.
+            not: pass `context=profile, plan=plan`), or if `plan`
+            accompanies a context other than a `ForecastingProfile`.
+        pydantic.ValidationError
+            If `plan` does not pass the validators of `ForecastPlan` (a
+            subclass of `ValueError`).
 
         Warns
         -----
         DataSentToLLMWarning
             If `context` carries values of its own (predictions, metrics)
             while `send_data_to_llm` is False.
-        DeprecationWarning
-            If the deprecated `result` alias is used.
 
         Notes
         -----
@@ -1997,42 +3881,33 @@ class ForecastingAssistant:
         if self.llm is None:
             raise LLMRequiredError("ask")
 
-        if result is not None:
-            warnings.warn(
-                "`result` is deprecated and will be removed in 0.4.0. Pass "
-                "the object to explain as `context` instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if context is not None:
-                raise TypeError(
-                    "Pass the object to explain as `context`; `result` is a "
-                    "deprecated alias of it and cannot be combined with it."
-                )
-            context = result
-
         if isinstance(context, ForecastPlan):
-            raise TypeError(
+            raise InvalidInputTypeError(
                 "A `ForecastPlan` cannot be explained on its own: it does not "
                 "carry the dataset it was derived from. Pass "
-                "`context=profile, plan=plan`."
+                "`context=profile, plan=plan`.",
+                field = "context",
             )
         if context is not None and not isinstance(context, ExplainableResult):
-            raise TypeError(
+            raise InvalidInputTypeError(
                 f"`context` must be a `ForecastingProfile` or a workflow "
                 f"result (for example `ForecastResult`, `BacktestResult`, "
                 f"`ComparisonResult`, `CodeGenerationResult`, or `CVResult`), "
-                f"got {type(context).__name__}."
+                f"got {type(context).__name__}.",
+                field = "context",
             )
         if plan is not None and not isinstance(context, ForecastingProfile):
-            raise TypeError(
+            raise InvalidInputTypeError(
                 "`plan` only accompanies a `ForecastingProfile` passed as "
-                "`context`; any other context already carries its own plan."
+                "`context`; any other context already carries its own plan.",
+                field = "plan",
             )
 
         # A profile with a plan is explained through the script the two
-        # produce together, exactly as `forecast_code()` would render it.
+        # produce together, exactly as `forecast_code()` would render it,
+        # after validating the plan again as `forecast_code()` does.
         if isinstance(context, ForecastingProfile) and plan is not None:
+            plan = _revalidate_plan(plan)
             context = CodeGenerationResult(
                 profile = context,
                 plan    = plan,
@@ -2090,11 +3965,21 @@ class ForecastingAssistant:
         # --- Dynamic skill selection when not explicitly provided ---
         resolved_skills = skills
         if resolved_skills is None:
-            task_type = (
-                profile.task_type
-                if profile is not None
-                else None
-            )
+            # The profile gives the data's task type, the plan the one of
+            # the forecaster actually used (a statistical model or the
+            # baseline chosen over the recommendation). A comparison also
+            # ranks its baseline, which the winner's plan does not show.
+            task_types: list[str] = []
+            if profile is not None:
+                task_types.append(profile.task_type)
+            if plan is not None and plan.task_type not in task_types:
+                task_types.append(plan.task_type)
+            if (
+                isinstance(context, ComparisonResult)
+                and context.baseline_name is not None
+                and "baseline" not in task_types
+            ):
+                task_types.append("baseline")
             # Budget the skills against the space the context block has
             # already taken. Only local models expose a context window
             # known up front; hosted windows are provider specific and
@@ -2108,7 +3993,7 @@ class ForecastingAssistant:
                     include_reference  = include_reference,
                 )
             resolved_skills = select_skills(
-                task_type    = task_type,
+                task_type    = task_types,
                 question     = prompt,
                 token_budget = token_budget,
             )
@@ -2116,7 +4001,15 @@ class ForecastingAssistant:
         # --- LLM call ---
         from .llm import AskDeps
 
-        agent = self._resolve_agent()
+        # pydantic-ai builds the provider with the agent, so a missing API
+        # key fails here, before any call. A missing package stays an
+        # ImportError, which names the extra to install.
+        try:
+            agent = self._resolve_agent()
+        except ImportError:
+            raise
+        except Exception as exc:
+            raise LLMCallError(self.llm, exc) from exc
         deps = AskDeps(
             profile           = profile,
             plan              = plan,
@@ -2245,6 +4138,48 @@ class ForecastingAssistant:
         return result.model_copy(update={"call_ok": True})
 
     # --------------------------------------------------------------- private
+    def _discarded_edits(
+        self,
+        profile: ForecastingProfile,
+        plan: ForecastPlan,
+        overrides: dict[str, object],
+        explicit_keys: set[str],
+    ) -> list[str] | None:
+        """
+        Fields of `plan` that `refine_plan()` loses: those that differ from
+        the plan `plan()` builds, from this profile, with what
+        `refine_plan()` carries over (see `discarded_plan_edits`).
+
+        The plan is built without its warnings. When `plan()` rejects the
+        values of `plan` (lags too long for this profile, for example), it
+        is built again with the explicit overrides of the call other than
+        `forecaster`, which replace those values anyway. When that fails
+        too, nothing can be compared and None is returned.
+        """
+
+        carried = _carried_plan_arguments(plan, plan.forecaster)
+        attempts = [
+            carried,
+            {
+                **carried,
+                **{
+                    key: overrides[key]
+                    for key in explicit_keys
+                    if key != "forecaster"
+                },
+            },
+        ]
+        for arguments in attempts:
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    rebuilt = self.plan(profile=profile, **arguments)
+            except SkforecastAIError:
+                continue
+            return discarded_plan_edits(plan, rebuilt, explicit_keys)
+
+        return None
+
     def _prepare_forecast(
         self,
         data: pd.Series | pd.DataFrame | str | Path | None,
@@ -2263,6 +4198,7 @@ class ForecastingAssistant:
         profile: ForecastingProfile | None,
         plan: ForecastPlan | None,
         require_exog: bool,
+        overrides: dict[str, object] | None = None,
     ) -> tuple[ForecastingProfile, ForecastPlan]:
         """
         Resolve profile and plan for the forecasting workflows.
@@ -2312,8 +4248,16 @@ class ForecastingAssistant:
             Pre-computed plan.
         require_exog : bool
             Whether prediction mode must be given `exog` when the data has
-            exogenous columns. True when the workflow executes the script,
-            False when it only renders it.
+            exogenous columns, after the last values of the target are
+            checked (`validate_last_window`). True when the workflow executes
+            the script, False when it only renders it. When True, a `plan`
+            with `end_train` also needs `test_size` (`forecast()` does not
+            evaluate a split it was not asked for).
+        overrides : dict, default None
+            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`,
+            `use_exog`, `differentiation`, `calendar_features`,
+            `target_transformer`, `dropna_from_series`), passed to `plan()`,
+            or checked against a supplied `plan`.
 
         Returns
         -------
@@ -2321,8 +4265,19 @@ class ForecastingAssistant:
             Resolved profile.
         plan : ForecastPlan
             Resolved plan, carrying `end_train` when `test_size` is set.
+
+        Raises
+        ------
+        ValueError
+            When `data` does not have the structure of a given `profile`
+            (`_refresh_profile`), when a `plan` is given for data of
+            another frequency or shape (`_check_plan_matches_profile`), or
+            carries `end_train` without `test_size` and `require_exog` is
+            True.
         """
 
+        overrides = overrides or {}
+        plan = _revalidate_plan(plan)
         _check_plan_overrides(
             plan             = plan,
             forecaster       = forecaster,
@@ -2330,14 +4285,19 @@ class ForecastingAssistant:
             estimator_kwargs = estimator_kwargs,
             lags             = lags,
             window_features  = window_features,
+            **overrides,
         )
 
+        received_profile = profile is not None
         if profile is None:
             profile = self.profile(
                 data             = data,
                 target           = target,
                 date_column      = date_column,
                 series_id_column = series_id_column,
+                # The columns the plan was built for, when its profile left
+                # some out.
+                exog_columns     = plan.exog_columns if plan is not None else None,
             )
 
         # A supplied plan fixes the horizon: the script predicts
@@ -2345,14 +4305,35 @@ class ForecastingAssistant:
         # Mirror `_prepare_backtest`, which rejects `cv.steps != plan.steps`.
         if plan is not None:
             if steps is not None and steps != plan.steps:
-                raise ValueError(
+                raise InvalidInputError(
                     f"`steps` ({steps}) does not match `plan.steps` "
                     f"({plan.steps}). Omit `steps` to use the plan's horizon, "
-                    f"or refine the plan with `refine_plan(steps=...)`."
+                    f"or refine the plan with `refine_plan(steps=...)`.",
+                    field = "steps",
                 )
             steps = plan.steps
         elif steps is None:
-            raise ValueError("`steps` is required when `plan` is not provided.")
+            raise InvalidInputError(
+                "`steps` is required when `plan` is not provided.",
+                field = "steps",
+            )
+
+        if received_profile and data is not None:
+            profile = self._refresh_profile(data, profile)
+        if plan is not None:
+            _check_plan_matches_profile(plan, profile.data_profile)
+            # The split of an earlier evaluation is not reused without
+            # saying so: forecast() would evaluate old dates again when the
+            # future was asked for.
+            if require_exog and test_size is None and plan.end_train is not None:
+                raise InvalidInputError(
+                    f"The plan carries the split of an evaluation "
+                    f"(`end_train='{plan.end_train}'`) and `test_size` was not "
+                    f"passed. Pass `test_size` to evaluate again, or a plan "
+                    f"without it, `plan.model_copy(update={{'end_train': None}})`, "
+                    f"to forecast the future.",
+                    field = "plan",
+                )
 
         has_exog = bool(profile.data_profile.exog_columns)
         # Evaluation mode is driven by `test_size`, or by a pre-built plan
@@ -2360,13 +4341,6 @@ class ForecastingAssistant:
         # else is prediction mode (forecast the future).
         evaluate = test_size is not None or (
             plan is not None and plan.end_train is not None
-        )
-        _validate_forecast_mode(
-            evaluate     = evaluate,
-            exog         = exog,
-            has_exog     = has_exog,
-            steps        = steps,
-            require_exog = require_exog,
         )
 
         if plan is None:
@@ -2379,21 +4353,71 @@ class ForecastingAssistant:
                 interval         = interval,
                 lags             = lags,
                 window_features  = window_features,
+                **overrides,
             )
         elif interval is not None:
             plan = _apply_interval_to_plan(plan, interval)
+
+        if require_exog and not evaluate:
+            # Before `exog` is required: final rows without a target value
+            # are the usual reason it is missing (future rows appended to
+            # carry the exogenous variables).
+            validate_last_window(
+                data    = data,
+                profile = profile.data_profile,
+                plan    = plan,
+            )
+
+        # Validated once the plan is known: whether future `exog` is needed
+        # depends on the plan using it, not only on the data having it.
+        _validate_forecast_mode(
+            evaluate     = evaluate,
+            exog         = exog,
+            has_exog     = has_exog,
+            steps        = steps,
+            require_exog = require_exog,
+            uses_exog    = plan.use_exog,
+        )
 
         # `test_size` is a forecast-only concept, so the split boundary is
         # resolved here rather than in the shared `plan()` method. It is
         # stamped onto the plan whether it was freshly built or supplied.
         if test_size is not None:
+            # The span of the data starts at the earliest first date of the
+            # series (`start_date` is the latest one in long format), so the
+            # test set is counted back from its last date.
             end_train = resolve_end_train(
-                start_date     = profile.data_profile.start_date,
+                start_date     = profile.data_profile.span_start_date,
                 frequency      = profile.data_profile.frequency,
                 n_observations = profile.data_profile.span_index_length,
                 test_size      = test_size,
             )
-            plan = plan.model_copy(update={"end_train": end_train})
+            plan = plan.model_copy(update={"end_train": end_train}, deep=True)
+
+        # One forecast of `steps` observations is evaluated, so a longer test
+        # set would be scored on its first `steps` rows only (without saying
+        # so) and a shorter one cannot hold the forecast.
+        if evaluate and plan.end_train is not None:
+            n_test = count_test_observations(
+                start_date     = profile.data_profile.span_start_date,
+                frequency      = profile.data_profile.frequency,
+                n_observations = profile.data_profile.span_index_length,
+                end_train      = plan.end_train,
+            )
+            if n_test is not None and n_test != plan.steps:
+                raise InvalidInputError(
+                    f"The test set has {n_test} observations but `steps` is "
+                    f"{plan.steps}. forecast() evaluates one forecast of "
+                    f"`steps` observations, so the test set must have the "
+                    f"same length: pass test_size={plan.steps}. To evaluate "
+                    f"over a longer period, use backtest() (create_cv() "
+                    f"builds the folds).",
+                    field = "test_size",
+                )
+
+        # A plan received (saved, or built for other data) is checked
+        # against the exogenous columns of this profile, as `plan()` does.
+        _check_feature_name_collisions(plan, profile.data_profile)
 
         return profile, plan
 
@@ -2410,6 +4434,10 @@ class ForecastingAssistant:
         estimator_kwargs: dict | None,
         profile: ForecastingProfile | None,
         plan: ForecastPlan | None,
+        cv_result: CVResult | None = None,
+        lags: int | list[int] | None = None,
+        window_features: list[dict[str, list[str] | int]] | None = None,
+        overrides: dict[str, object] | None = None,
     ) -> tuple[ForecastingProfile, ForecastPlan]:
         """
         Resolve profile and plan for backtesting workflows.
@@ -2445,6 +4473,21 @@ class ForecastingAssistant:
             Pre-computed profile.
         plan : ForecastPlan, None
             Pre-computed plan.
+        cv_result : CVResult, default None
+            The `CVResult` passed as `cv`, when it was one. Without `plan`
+            and without model arguments (`forecaster`, `estimator`,
+            `estimator_kwargs`, `interval`, `lags`, `window_features` and
+            the `overrides`), its plan is the one run. Its profile must
+            describe data of the same structure.
+        lags : int, list of int, default None
+            Explicit lag configuration.
+        window_features : list of dict, default None
+            Explicit window features configuration.
+        overrides : dict, default None
+            Keyword-only overrides of `plan()` added in 0.4.0 (`metric`,
+            `use_exog`, `differentiation`, `calendar_features`,
+            `target_transformer`, `dropna_from_series`), passed to `plan()`,
+            or checked against a supplied `plan`.
 
         Returns
         -------
@@ -2454,17 +4497,44 @@ class ForecastingAssistant:
             Resolved plan.
         """
 
+        overrides = {
+            name: value for name, value in (overrides or {}).items()
+            if value is not None
+        }
+        plan = _revalidate_plan(plan)
         _check_plan_overrides(
             plan             = plan,
             forecaster       = forecaster,
             estimator        = estimator,
             estimator_kwargs = estimator_kwargs,
+            lags             = lags,
+            window_features  = window_features,
+            **overrides,
         )
+        # A CVResult carries the plan its strategy was created for: without
+        # a plan or model arguments, that plan runs instead of a new default
+        # one (another estimator, no interval).
+        if (
+            plan is None
+            and cv_result is not None
+            and forecaster is None
+            and estimator is None
+            and estimator_kwargs is None
+            and interval is None
+            and lags is None
+            and window_features is None
+            and not overrides
+        ):
+            plan = _revalidate_plan(cv_result.plan)
+        received_plan = plan is not None
 
         if data is None and profile is None:
-            raise ValueError("`data` is required when `profile` is not provided.")
+            raise InvalidInputError(
+                "`data` is required when `profile` is not provided.",
+                field = "data",
+            )
         if data is not None:
-            _, target, date_column, series_id_column = (
+            data_df, target, date_column, series_id_column = (
                 _resolve_inputs_with_profile(
                     data, target, date_column, series_id_column, profile
                 )
@@ -2480,7 +4550,15 @@ class ForecastingAssistant:
                 target           = target,
                 date_column      = date_column,
                 series_id_column = series_id_column,
+                # The columns the plan was built for, when its profile left
+                # some out.
+                exog_columns     = plan.exog_columns if plan is not None else None,
             )
+        elif data is not None:
+            profile = self._refresh_profile(data_df, profile)
+        # Before a plan is built: the strategy must fit these data first.
+        if cv_result is not None:
+            _check_cv_matches_profile(cv_result, profile.data_profile)
 
         if plan is None:
             plan = self.plan(
@@ -2490,19 +4568,234 @@ class ForecastingAssistant:
                 estimator        = estimator,
                 estimator_kwargs = estimator_kwargs,
                 interval         = interval,
+                lags             = lags,
+                window_features  = window_features,
+                **overrides,
             )
         else:
             if cv.steps != plan.steps:
-                raise ValueError(
+                raise InvalidInputError(
                     f"cv.steps ({cv.steps}) does not match plan.steps "
                     f"({plan.steps}). These must be equal: "
                     f"ForecasterDirect and ForecasterDirectMultiVariate "
-                    f"model architectures depend on steps."
+                    f"model architectures depend on steps.",
+                    field = "cv",
                 )
             if interval is not None:
                 plan = _apply_interval_to_plan(plan, interval)
 
+        if received_plan:
+            _check_plan_matches_profile(plan, profile.data_profile)
+        # A plan received (saved, or built for other data) is checked
+        # against the exogenous columns of this profile, as `plan()` does.
+        _check_feature_name_collisions(plan, profile.data_profile)
+        # skforecast rejects inside the script a strategy whose
+        # differentiation order is not the one of a forecaster that has one
+        # (not ForecasterStats nor ForecasterFoundation, which ignore it).
+        plan_differentiation = plan.forecaster_kwargs.get("differentiation")
+        if (
+            plan.forecaster in _DIFFERENTIATION_FORECASTERS
+            and cv.differentiation != plan_differentiation
+        ):
+            raise InvalidInputError(
+                f"The cross-validation strategy has `differentiation="
+                f"{cv.differentiation}` and the plan "
+                f"`differentiation={plan_differentiation}`: they must match. "
+                f"Create the strategy from this plan with `create_cv()`, or "
+                f"pass the same `differentiation`.",
+                field = "cv",
+            )
+
         return profile, plan
+
+    def _refresh_profile(
+        self,
+        data: pd.DataFrame,
+        profile: ForecastingProfile,
+    ) -> ForecastingProfile:
+        """
+        Profile again the data passed with a saved profile.
+
+        The profile is what the plan, the strategy and the script are built
+        on, so it must describe the data that run: daily data run with a
+        monthly profile were resampled without an error, and `end_train`,
+        `cv_config` and the explanation described the old data. The data
+        profile is built with the target, date and series id columns of
+        `profile`, and compared with the saved one (`_profile_values`):
+
+        - same structure and values: `profile` is returned unchanged, and the
+          warnings of profiling them again are not shown;
+        - another structure (`structure_differences`: frequency, target or
+          exogenous columns): `InvalidInputError`;
+        - same structure, other values (new rows, a changed value, a series
+          that appears or disappears in long format, another stamp of the
+          same period such as `'ME'` for `'MS'`): the data are profiled with
+          `profile()`, whose warnings are shown, and the new profile is
+          returned with a note in `DataProfile.warnings` naming the fields
+          that changed.
+
+        The data profile of the same data (same fingerprint, see
+        `_frame_fingerprint`) with the same columns is computed once per
+        assistant and kept (the `_MAX_FRESH_PROFILES` used last), so a workflow
+        that passes the data and the profile to every method profiles the
+        data once.
+
+        Columns of `data` the profile does not name are left out of both
+        profiles and listed in `DataProfile.unused_columns`: the plan and the
+        script read the columns of the profile, so the workflow runs as
+        without them, and a note in `DataProfile.warnings` names those the
+        saved profile did not already leave out (`unused_columns`).
+
+        Parameters
+        ----------
+        data : pandas DataFrame
+            Data the workflow runs on, as read by the caller.
+        profile : ForecastingProfile
+            Profile passed by the caller.
+
+        Returns
+        -------
+        profile : ForecastingProfile
+            Profile of `data`.
+        """
+
+        saved = profile.data_profile
+        targets = saved.target if isinstance(saved.target, list) else [saved.target]
+        known = {
+            *targets, *saved.exog_columns, saved.date_column, saved.series_id_column
+        }
+        unused = [column for column in data.columns if column not in known]
+        if unused:
+            data = data.drop(columns=unused)
+        frame, target = _resolve_data_and_target(
+            data, saved.target, saved.date_column
+        )
+        # The same data profiled with the same columns give the same data
+        # profile: it is kept, so a workflow profiles its data once.
+        fingerprint = _frame_fingerprint(frame)
+        key = (
+            fingerprint, repr(target), saved.date_column, saved.series_id_column
+        )
+        fresh = None
+        # Created here when `__init__` did not: a subclass that does not
+        # call it, or an assistant pickled by an earlier version.
+        kept = self.__dict__.setdefault("_fresh_profiles", OrderedDict())
+        if fingerprint is not None:
+            # Without a lock (the assistant stays picklable): a lookup that
+            # loses a race with another thread profiles the data again.
+            fresh = kept.get(key)
+            if fresh is not None:
+                with contextlib.suppress(KeyError):
+                    kept.move_to_end(key)
+        if fresh is None:
+            # Not shown: the caller saw them when the saved profile was built,
+            # and `profile()` shows them below when the values differ.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                fresh = create_data_profile(
+                    data             = frame,
+                    target           = target,
+                    date_column      = saved.date_column,
+                    series_id_column = saved.series_id_column,
+                )
+            if fingerprint is not None:
+                kept[key] = fresh
+                while len(kept) > _MAX_FRESH_PROFILES:
+                    with contextlib.suppress(KeyError):
+                        kept.popitem(last=False)
+
+        differences = structure_differences(saved, fresh)
+        if differences:
+            raise InvalidInputError(
+                f"The data do not have the structure of the profile passed "
+                f"({'; '.join(differences)}): profile these data and build "
+                f"the plan from that profile.",
+                field = "profile",
+                hint  = (
+                    "Profile these data again and build the plan from that "
+                    "profile."
+                ),
+            )
+
+        notes = []
+        # Columns the saved profile already leaves out (`exog_columns` of
+        # `profile()`, or an earlier refresh) have their note in it.
+        left_out = [
+            str(column) for column in unused
+            if str(column) in saved.unused_columns
+        ]
+        new_unused = [
+            column for column in unused
+            if str(column) not in saved.unused_columns
+        ]
+        if new_unused:
+            shown = [str(column) for column in new_unused[:5]]
+            more = (
+                f" (first 5 of {len(new_unused)})" if len(new_unused) > 5 else ""
+            )
+            notes.append(
+                f"Columns of the data that the profile passed does not name "
+                f"are not used: {shown}{more}. Profile the data again to use "
+                f"them."
+            )
+
+        saved_values = _profile_values(saved)
+        fresh_values = _profile_values(fresh)
+        changed = [
+            name for name in saved_values
+            if saved_values[name] != fresh_values[name]
+        ]
+        if changed:
+            profile = self.profile(
+                data             = data,
+                target           = saved.target,
+                date_column      = saved.date_column,
+                series_id_column = saved.series_id_column,
+            )
+            # Profiled without those columns, the new profile lacks the
+            # note of the saved one.
+            if left_out:
+                notes.insert(0, unused_columns_note(left_out))
+            # An index that lost its `freq` attribute (after a filter or a
+            # concat) holds the same data: the script needs the new profile
+            # to set the frequency, and there is nothing to tell the user.
+            changed = [
+                name for name in changed
+                if name not in ("frequency_is_set", "time_zone")
+            ]
+            if changed:
+                notes.append(
+                    f"The data differ in their values from the profile "
+                    f"passed (changed: {', '.join(changed)}): the profile was "
+                    f"computed again from these data."
+                )
+
+        data_profile = profile.data_profile
+        # A profile that comes back from a result already has its notes.
+        notes = [note for note in notes if note not in data_profile.warnings]
+        # The script reads the data as passed, unused columns included, so
+        # the profile it is rendered from lists them.
+        unused_columns = [str(column) for column in unused]
+        if not notes and unused_columns == data_profile.unused_columns:
+            return profile
+
+        # The note of the saved profile names the columns it left out; it
+        # is rewritten when some of them are no longer in the data.
+        kept = data_profile.warnings
+        stale = unused_columns_note(saved.unused_columns)
+        if left_out != saved.unused_columns and stale in kept:
+            kept = [note for note in kept if note != stale]
+            if left_out:
+                notes.insert(0, unused_columns_note(left_out))
+
+        return profile.model_copy(update={
+            "data_profile": data_profile.model_copy(
+                update={
+                    "warnings":       [*kept, *notes],
+                    "unused_columns": unused_columns,
+                }
+            )
+        })
 
     def _resolve_model(self):
         """

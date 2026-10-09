@@ -20,11 +20,15 @@ from ._helpers import (
     _emit_preprocessing_steps,
     _emit_production_note,
     _emit_reshape_exog_long_to_dict,
-    _emit_reshape_series_long_to_dict,
+    _emit_series_dict,
+    _emit_train_test_split_multiseries,
+    _format_int,
     _format_lags,
     _get_estimator_constructor,
+    _get_interval_method_literal,
     _get_interval_repr,
     _get_target_str,
+    _get_transformer_constructor,
 )
 
 
@@ -56,7 +60,7 @@ def _emit_forecaster_creation_multi(
     if forecaster_class == "ForecasterDirectMultiVariate":
         level = _get_target_str(profile)
         forecaster_kwargs.append(("level", repr(level)))
-        forecaster_kwargs.append(("steps", str(plan.steps)))
+        forecaster_kwargs.append(("steps", _format_int(plan.steps, "steps")))
 
     forecaster_kwargs.append(("lags", _format_lags(lags)))
     if window_features:
@@ -66,21 +70,23 @@ def _emit_forecaster_creation_multi(
 
     if forecaster_class == "ForecasterRecursiveMultiSeries":
         encoding = kwargs.get("encoding", "ordinal")
-        forecaster_kwargs.append(("encoding", f"'{encoding}'"))
+        forecaster_kwargs.append(("encoding", repr(encoding)))
     
     if transformer_series is not None:
-        forecaster_kwargs.append(("transformer_series", f"{transformer_series}()"))
+        forecaster_kwargs.append(
+            ("transformer_series", _get_transformer_constructor(transformer_series))
+        )
     if transformer_exog is not None and use_exog:
         forecaster_kwargs.append(("transformer_exog", "transformer_exog"))
     if categorical_features is not None:
         if forecaster_class == "ForecasterRecursiveMultiSeries" or use_exog:
             forecaster_kwargs.append(
-                ("categorical_features", f"'{categorical_features}'")
+                ("categorical_features", repr(categorical_features))
             )
     if differentiation is not None:
-        forecaster_kwargs.append(("differentiation", str(differentiation)))
+        forecaster_kwargs.append(("differentiation", repr(differentiation)))
     if dropna is not None:
-        forecaster_kwargs.append(("dropna_from_series", str(dropna)))
+        forecaster_kwargs.append(("dropna_from_series", repr(dropna)))
 
     _emit_aligned_kwargs(
         lines,
@@ -119,36 +125,22 @@ def render_forecast_multi_series(
     )
     if not evaluate and use_exog_load:
         _emit_future_exog_loading(loading_lines, profile)
-        if is_wide:
-            _emit_future_exog_index_setup(core_lines, profile)
+        _emit_future_exog_index_setup(
+            core_lines, profile, long_format=not is_wide
+        )
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)
 
     # --- Reshape to dict ---
-    if is_wide:
-        core_lines.append(
+    _emit_series_dict(
+        core_lines,
+        profile,
+        comment=(
             "# Reshape to dict format"
             " (optimal for ForecasterRecursiveMultiSeries)"
-        )
-        if isinstance(profile.target, list):
-            target_cols_repr = repr(profile.target)
-            core_lines.append(
-                f"series_dict = data[{target_cols_repr}].to_dict('series')"
-            )
-        else:
-            core_lines.append(
-                "series_dict = data.to_dict('series')"
-            )
-    else:
-        _emit_reshape_series_long_to_dict(
-            core_lines,
-            profile,
-            comment=(
-                "# Reshape to dict format"
-                " (optimal for ForecasterRecursiveMultiSeries)"
-            ),
-        )
+        ),
+    )
     core_lines.append("")
 
     # --- Exog setup (multi-series) ---
@@ -169,29 +161,12 @@ def render_forecast_multi_series(
 
     # --- Train/test split (evaluation mode) ---
     if evaluate:
-        core_lines.append("# Train/test split")
-        _emit_end_train(core_lines, plan)
-        core_lines.append(
-            "series_dict_train = {k: v.loc[:end_train] for k, v in series_dict.items()}"
+        _emit_train_test_split_multiseries(
+            core_lines,
+            plan,
+            is_wide  = is_wide,
+            use_exog = bool(plan.use_exog and exog_columns),
         )
-        core_lines.append(
-            "series_dict_test  = {k: v.loc[v.index > end_train]"
-            " for k, v in series_dict.items()}"
-        )
-        if plan.use_exog and exog_columns:
-            if is_wide:
-                core_lines.append("exog_train = exog.loc[:end_train]")
-                core_lines.append("exog_test  = exog.loc[exog.index > end_train]")
-            else:
-                core_lines.append(
-                    "exog_dict_train = {k: v.loc[:end_train]"
-                    " for k, v in exog_dict.items()}"
-                )
-                core_lines.append(
-                    "exog_dict_test  = {k: v.loc[v.index > end_train]"
-                    " for k, v in exog_dict.items()}"
-                )
-        core_lines.append("")
     elif plan.use_exog and exog_columns and not is_wide:
         # Prediction mode, long format: reshape the future exogenous
         # variables into the dict format the forecaster expects.
@@ -240,12 +215,14 @@ def render_forecast_multi_series(
         core_lines.append("")
 
         core_lines.append("# Predict intervals")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if plan.use_exog and exog_columns:
             predict_kwargs.append(("exog", exog_pred_var))
-        predict_kwargs.append(("method", f"'{plan.interval_method}'"))
+        predict_kwargs.append(
+            ("method", _get_interval_method_literal(plan.interval_method))
+        )
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(
             core_lines, "predictions = forecaster.predict_interval(", predict_kwargs
@@ -260,7 +237,7 @@ def render_forecast_multi_series(
             core_lines.append(f"forecaster.fit(series={series_fit_var})")
         core_lines.append("")
         core_lines.append("# Predict")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         if plan.use_exog and exog_columns:
             core_lines.append(
                 f"predictions = forecaster.predict("
@@ -320,8 +297,9 @@ def render_forecast_multivariate(
     )
     if not evaluate and use_exog_load:
         _emit_future_exog_loading(loading_lines, profile)
-        if is_wide:
-            _emit_future_exog_index_setup(core_lines, profile)
+        _emit_future_exog_index_setup(
+            core_lines, profile, long_format=not is_wide
+        )
 
     # --- Preprocessing / pivot ---
     _emit_preprocessing_steps(core_lines, plan, profile)
@@ -331,12 +309,19 @@ def render_forecast_multivariate(
     # --- Exog ---
     exog_columns = profile.exog_columns
     use_exog = plan.use_exog and bool(exog_columns)
+    # The series are selected whenever the data has other columns: exogenous
+    # columns the plan does not use, and columns the profile leaves out,
+    # would otherwise be fitted as series.
+    select_series = (
+        bool(exog_columns or profile.unused_columns)
+        and isinstance(profile.target, list)
+    )
 
     # --- Train/test split (evaluation mode) ---
     if evaluate:
         core_lines.append("# Train/test split")
         _emit_end_train(core_lines, plan)
-        if use_exog and isinstance(profile.target, list):
+        if select_series:
             core_lines.append(f"series_cols = {repr(profile.target)}")
         if use_exog:
             core_lines.append(f"exog_features = {repr(exog_columns)}")
@@ -348,7 +333,7 @@ def render_forecast_multivariate(
             core_lines.append("series_test  = series.loc[series.index > end_train]")
         core_lines.append("")
     else:
-        if use_exog and isinstance(profile.target, list):
+        if select_series:
             core_lines.append(f"series_cols = {repr(profile.target)}")
         if use_exog:
             core_lines.append(f"exog_features = {repr(exog_columns)}")
@@ -370,7 +355,9 @@ def render_forecast_multivariate(
     # --- Fit & Predict ---
     if evaluate:
         if is_wide:
-            series_fit_expr = "data_train[series_cols]" if use_exog else "data_train"
+            series_fit_expr = (
+                "data_train[series_cols]" if select_series else "data_train"
+            )
             exog_fit_expr = "data_train[exog_features]"
             exog_pred_expr = "data_test[exog_features]"
         else:
@@ -389,7 +376,7 @@ def render_forecast_multivariate(
         )
     else:
         if is_wide:
-            series_fit_expr = "data[series_cols]" if use_exog else "data"
+            series_fit_expr = "data[series_cols]" if select_series else "data"
             exog_fit_expr = "data[exog_features]"
             exog_pred_expr = "exog_future[exog_features]"
         else:
@@ -409,12 +396,14 @@ def render_forecast_multivariate(
 
         core_lines.append("")
         core_lines.append("# Predict intervals")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         predict_kwargs: list[tuple[str, str]] = []
         predict_kwargs.append(("steps", "steps"))
         if use_exog:
             predict_kwargs.append(("exog", exog_pred_expr))
-        predict_kwargs.append(("method", f"'{plan.interval_method}'"))
+        predict_kwargs.append(
+            ("method", _get_interval_method_literal(plan.interval_method))
+        )
         predict_kwargs.append(("interval", interval_repr))
         _emit_aligned_kwargs(
             core_lines, "predictions = forecaster.predict_interval(", predict_kwargs
@@ -430,7 +419,7 @@ def render_forecast_multivariate(
             core_lines.append(f"forecaster.fit(series={series_fit_expr})")
         core_lines.append("")
         core_lines.append("# Predict")
-        core_lines.append(f"steps = {plan.steps}")
+        core_lines.append(f"steps = {_format_int(plan.steps, 'steps')}")
         if use_exog:
             core_lines.append(
                 f"predictions = forecaster.predict("

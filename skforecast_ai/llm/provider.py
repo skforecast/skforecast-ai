@@ -10,6 +10,7 @@ import urllib.request
 import warnings
 
 from .._constants import OLLAMA_MAX_CONTEXT_TOKENS, RESERVED_RESPONSE_TOKENS
+from ..exceptions import InvalidInputError
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
@@ -70,17 +71,19 @@ def parse_model_string(llm: str | None) -> tuple[str | None, str | None]:
         return (None, None)
 
     if ":" not in llm:
-        raise ValueError(
+        raise InvalidInputError(
             f"Invalid LLM string '{llm}'. Expected format 'provider:model_name' "
-            f"(e.g. 'openai:gpt-5.5', 'ollama:qwen3:8b')."
+            f"(e.g. 'openai:gpt-5.5', 'ollama:qwen3:8b').",
+            field = "llm",
         )
 
     provider, model_name = llm.split(":", 1)
 
     if not model_name:
-        raise ValueError(
+        raise InvalidInputError(
             f"Model name is empty in '{llm}'. Expected format 'provider:model_name' "
-            f"(e.g. 'openai:gpt-5.5', 'ollama:qwen3:8b')."
+            f"(e.g. 'openai:gpt-5.5', 'ollama:qwen3:8b').",
+            field = "llm",
         )
 
     return (provider, model_name)

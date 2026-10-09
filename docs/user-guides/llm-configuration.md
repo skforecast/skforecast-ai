@@ -12,7 +12,7 @@ See [How to install](../quick-start/how-to-install.md#optional-dependencies) for
 
 ---
 
-## Quickstart
+## Quick start
 
 ```bash
 export OPENAI_API_KEY="sk-..."
@@ -55,7 +55,7 @@ When `api_key` is None, the credentials are resolved by pydantic-ai from the env
 |---|---|---|---|---|---|
 | `openai:` | `openai:gpt-5.5` | `OPENAI_API_KEY` | Endpoint of an OpenAI-compatible server. When None, `OPENAI_BASE_URL` if set | `[llm]` | [pydantic-ai](https://pydantic.dev/docs/ai/models/openai/) |
 | `anthropic:` | `anthropic:claude-sonnet-5` | `ANTHROPIC_API_KEY` | Ignored | `[llm]` | [pydantic-ai](https://pydantic.dev/docs/ai/models/anthropic/) |
-| `google:` | `google:gemini-3.5-flash` | `GOOGLE_API_KEY` (`GEMINI_API_KEY` still accepted) | Ignored | `[llm]` | [pydantic-ai](https://pydantic.dev/docs/ai/models/google/) |
+| `google:` | `google:gemini-3.8-flash` | `GOOGLE_API_KEY` (`GEMINI_API_KEY` still accepted) | Ignored | `[llm]` | [pydantic-ai](https://pydantic.dev/docs/ai/models/google/) |
 | `groq:` | `groq:<model>` ([model list](https://console.groq.com/docs/models)) | `GROQ_API_KEY` | Ignored | `[llm]` | [pydantic-ai](https://pydantic.dev/docs/ai/models/groq/) |
 | `bedrock:` | `bedrock:eu.anthropic.claude-sonnet-4-6` | AWS credential chain: `AWS_BEARER_TOKEN_BEDROCK`, or `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or a profile or instance role | AWS region. When None, `AWS_DEFAULT_REGION` or the profile | `[bedrock]` | [pydantic-ai](https://pydantic.dev/docs/ai/models/bedrock/) |
 | `ollama:` | `ollama:qwen3:8b` | None needed; `api_key` is ignored | Server URL, default `http://localhost:11434/v1` | `[llm]` | [pydantic-ai](https://pydantic.dev/docs/ai/models/ollama/) |
@@ -157,7 +157,7 @@ assistant = ForecastingAssistant(llm="lmstudio:my-model", base_url="http://local
 
 # OpenRouter
 assistant = ForecastingAssistant(
-    llm      = "openrouter:google/gemini-3.5-flash",
+    llm      = "openrouter:google/gemini-3.8-flash",
     base_url = "https://openrouter.ai/api/v1",
     api_key  = os.environ["OPENROUTER_API_KEY"],
 )
@@ -235,7 +235,7 @@ skforecast-ai check-llm --test-call --format json
 
 **Sent only for results**, that is, when `context` is a `ForecastResult`, `BacktestResult` or `ComparisonResult`:
 
-- The predictions of the result: in full when there are 30 rows or fewer, otherwise the first and last five plus per-column statistics. A question about a result cannot be answered from summary statistics alone, so these are sent even with `send_data_to_llm=False`; in that case `ask()` emits `DataSentToLLMWarning` to make it visible. Setting `send_data_to_llm=True` acknowledges it and silences the warning. A profile, a `CodeGenerationResult` or a `CVResult` never trigger it.
+- The values the result owns. For a forecast or a backtest, its predictions: in full when there are 30 rows or fewer, otherwise the first and last five plus per-column statistics. For a comparison, only the metrics of its leaderboard: no predictions of any candidate. A question about a result cannot be answered from summary statistics alone, so these are sent even with `send_data_to_llm=False`; in that case `ask()` emits `DataSentToLLMWarning` to make it visible. Setting `send_data_to_llm=True` acknowledges it and silences the warning. A profile, a `CodeGenerationResult` or a `CVResult` never trigger it.
 
 **Never sent**:
 
@@ -245,6 +245,8 @@ skforecast-ai check-llm --test-call --format json
 - The generated code.
 
 `refine_plan(prompt=...)` and `create_cv(prompt=...)` send even less: observation count, frequency, date range, horizon, the current lags and window features, your prompt, and the skills the step needs.
+
+The animation of [Ask the assistant](../quick-start/ask-the-assistant.md) shows these boundaries on one example: the data stays on your machine, `refine_plan()` sends the profile and the plan, and `ask()` sends the predictions and metrics of a result.
 
 If nothing may leave your machine at all, run a [local model with Ollama](#local-models-with-ollama): the same payloads go to `localhost`.
 
@@ -256,13 +258,13 @@ If nothing may leave your machine at all, run a [local model with Ollama](#local
 |---|---|---|
 | `LLMRequiredError: ask() requires an LLM` | The assistant was created without `llm` | Pass `llm="provider:model"` (CLI: `--llm`, `SKFORECAST_AI_LLM` or `config set llm.provider`) |
 | `ModuleNotFoundError: No module named 'pydantic_ai'` | The LLM extra is not installed | `pip install "skforecast-ai[llm]"` (`[bedrock]` for Bedrock) |
-| `ValueError: Invalid LLM string ...` or `Model name is empty ...` | No colon, or nothing after it | Use `provider:model` |
+| `InvalidInputError: Invalid LLM string ...` or `Model name is empty ...` (a `ValueError`) | No colon, or nothing after it | Use `provider:model` |
 | `LLMCallError` wrapping `ConnectionError: Ollama is not reachable` | The Ollama server is down or `base_url` is wrong | `ollama serve`; check the URL ends in `/v1` |
 | `LLMCallError` wrapping a `401` or `UserError: Set the OPENAI_API_KEY environment variable` | Missing or wrong key, or the wrong variable name | Set the variable of the provider, or pass `api_key`; run `check_llm()` |
 | `LLMCallError` wrapping a `404` | Unknown model name, or an OpenAI-compatible server without `/v1` in `base_url` | Check the model list of the provider and the URL |
 | `LLMCallError` wrapping a `429` | Rate limit of the provider | Retry later, or use a smaller model |
-| `UserWarning: LLM plan refinement failed ... Returning deterministic plan.` | The model could not produce valid lags or window features, or the call failed | The deterministic plan is valid; retry with a stronger model or give lags explicitly |
-| `UserWarning: LLM CV configuration failed after 3 attempts ... Falling back to deterministic defaults.` | Same, for `create_cv(prompt=...)` | The deterministic strategy is valid; pass the fold parameters explicitly |
+| `UserWarning: LLM plan refinement failed ... Returning deterministic plan.` | The model could not produce valid lags or window features, or the call failed (a missing API key included) | The deterministic plan is valid; retry with a stronger model or give lags explicitly |
+| `UserWarning: LLM CV configuration failed ... Falling back to deterministic defaults.` | Same, for `create_cv(prompt=...)` | The deterministic strategy is valid; pass the fold parameters explicitly |
 | `UserWarning: Estimated prompt size ... exceeds the Ollama context limit` | The prompt does not fit the 32768 token window | `skills=[]` or `include_reference=False` in `ask()` |
 
 `LLMCallError` keeps the provider exception as `original_error`, so `except LLMCallError as exc: exc.original_error` gives the full detail. Every error and warning of the package is listed in [Exceptions and warnings](../api/exceptions.md).

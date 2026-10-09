@@ -17,7 +17,7 @@ class TestVersion:
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
         assert "skforecast-ai" in result.output
-        assert "0.3.1" in result.output
+        assert "0.4.0" in result.output
 
 
 class TestConfigPath:
@@ -92,11 +92,21 @@ class TestConfigSet:
 
     def test_config_set_invalid_key(self):
         """
-        Config set rejects invalid keys with a helpful error.
+        Config set rejects invalid keys with a helpful error, on stderr.
         """
         result = runner.invoke(app, ["config", "set", "invalid.key", "value"])
         assert result.exit_code == 1
-        assert "Unknown config key" in result.output
+        assert result.stdout == ""
+        assert "Unknown config key" in result.stderr
+
+    def test_config_set_rejects_output_format_key(self):
+        """
+        Config set rejects `output.format`: no command reads it, so accepting
+        it would store a setting with no effect.
+        """
+        result = runner.invoke(app, ["config", "set", "output.format", "json"])
+        assert result.exit_code == 1
+        assert "Unknown config key: 'output.format'" in result.output
 
     def test_config_set_multiple_values(self, tmp_path, monkeypatch):
         """
@@ -113,12 +123,14 @@ class TestConfigSet:
         runner.invoke(
             app, ["config", "set", "llm.base_url", "http://localhost:11434"]
         )
-        result = runner.invoke(app, ["config", "set", "output.format", "json"])
+        result = runner.invoke(
+            app, ["config", "set", "llm.send_data_to_llm", "false"]
+        )
         assert result.exit_code == 0
         content = config_file.read_text()
         assert "openai:gpt-4o" in content
         assert "http://localhost:11434" in content
-        assert "json" in content
+        assert "send_data_to_llm = false" in content
 
 
 class TestConfigShow:
@@ -152,6 +164,30 @@ class TestConfigShow:
         assert result.exit_code == 0
         assert "llm.provider" in result.output
         assert "ollama:llama3" in result.output
+
+    def test_config_show_lists_unknown_keys_as_ignored(self, tmp_path, monkeypatch):
+        """
+        Config show lists keys that are not in `VALID_KEYS`, such as the
+        removed `output.format`, as ignored instead of showing them in the
+        table of values.
+        """
+        config_dir = tmp_path / "skforecast-ai"
+        config_file = config_dir / "config.toml"
+        config_dir.mkdir()
+        config_file.write_text(
+            '[llm]\nprovider = "ollama:llama3"\n\n[output]\nformat = "json"\n'
+        )
+
+        monkeypatch.setattr("skforecast_ai.config.CONFIG_DIR", config_dir)
+        monkeypatch.setattr("skforecast_ai.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("skforecast_ai.cli.CONFIG_FILE", config_file)
+
+        result = runner.invoke(app, ["config", "show"])
+        output = " ".join(result.output.split())
+        assert result.exit_code == 0
+        assert "ollama:llama3" in output
+        assert "Ignored keys (not used by skforecast-ai): output.format." in output
+        assert "json" not in output
 
 
 class TestConfigResolution:

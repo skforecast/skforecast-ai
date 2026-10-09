@@ -6,11 +6,21 @@
 ################################################################################
 
 from __future__ import annotations
+import copy
+import re
 import warnings
 import pandas as pd
 from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
+from .._constants import (
+    AUTOREG_FORECASTERS,
+    DIRECT_FORECASTERS,
+    INTERVAL_RESIDUAL_BINS,
+    MIN_RESIDUALS_PER_BIN,
+    ML_TASK_TYPES,
+)
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
+from ..exceptions import InvalidInputError, InvalidInputTypeError
 
 
 def derive_cv_defaults(
@@ -34,30 +44,16 @@ def derive_cv_defaults(
         recommended defaults.
     """
 
-    span_index_length = profile.data_profile.span_index_length
     steps = plan.steps
-
-    # Compute initial_train_size as an integer first (with floor/ceiling)
-    initial_train_size = int(0.7 * span_index_length)
-    min_train_size = _compute_min_train_size(plan)
-    initial_train_size = max(initial_train_size, min_train_size)
-
-    # Ensure initial_train_size leaves room for at least 2 folds
-    max_train_size = span_index_length - 2 * steps
-    if max_train_size > 0:
-        initial_train_size = min(initial_train_size, max_train_size)
-
-    # Convert to a date string when datetime info is available
-    initial_train_size = _position_to_date(
-        position=initial_train_size,
-        start_date=profile.data_profile.start_date,
-        frequency=profile.data_profile.frequency,
-    )
+    initial_train_size = default_initial_train_size(profile, plan)["value"]
 
     return {
         "steps": steps,
         "initial_train_size": initial_train_size,
-        "refit": True,
+        # Train once, as skforecast does by default: refitting in every fold
+        # multiplies the cost by the number of folds, which grows with the
+        # series length (hours for a direct forecaster on hourly data).
+        "refit": False,
         "fixed_train_size": False,
         "gap": 0,
         "fold_stride": None,
@@ -67,10 +63,419 @@ def derive_cv_defaults(
     }
 
 
+def default_initial_train_size(
+    profile: ForecastingProfile,
+    plan: ForecastPlan,
+) -> dict:
+    """
+    Compute the default `initial_train_size` of a strategy and the rule
+    that fixed it, so the result of `create_cv()` can say why.
+
+    The default is 70% of the observations, raised to the minimum the
+    forecaster of the plan needs (`_compute_min_train_size`) and then
+    lowered so that two folds of `steps` remain; the last bound wins. It
+    is written as a date when the data has dates and a frequency.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile
+        Profiled dataset and high-level modeling decisions.
+    plan : ForecastPlan
+        Detailed forecasting plan.
+
+    Returns
+    -------
+    default : dict
+        `value` (the default, a date string or a number of observations),
+        `position` (the same as a number of observations), `rule`
+        (`'share'`, `'minimum'` or `'two_folds'`, the last one applied),
+        and the numbers of the rules: `n_observations`, `share` (70% of
+        them), `minimum` (what the rule reserves for the forecaster),
+        `needed` (the fewest observations skforecast runs it with, None
+        without a window), `window_size` (None without one) and `steps`.
+    """
+
+    span_index_length = profile.data_profile.span_index_length
+    steps = plan.steps
+
+    # Compute initial_train_size as an integer first (with floor/ceiling)
+    share = int(0.7 * span_index_length)
+    position = share
+    rule = "share"
+    min_train_size = _compute_min_train_size(plan)
+    if min_train_size > position:
+        position = min_train_size
+        rule = "minimum"
+
+    # Ensure initial_train_size leaves room for at least 2 folds
+    max_train_size = span_index_length - 2 * steps
+    if 0 < max_train_size < position:
+        position = max_train_size
+        rule = "two_folds"
+
+    # Convert to a date string when datetime info is available
+    value = _position_to_date(
+        position=position,
+        start_date=profile.data_profile.span_start_date,
+        frequency=profile.data_profile.frequency,
+        time_zone=profile.data_profile.time_zone,
+    )
+
+    # What skforecast needs to run, which is less than the minimum the rule
+    # reserves: more than the window, plus the steps for a direct
+    # forecaster (`first_window_issue`). None without a window.
+    window_size = plan_window_size(plan)
+    needed = None
+    if window_size is not None:
+        needed = window_size + (steps if plan.forecaster in DIRECT_FORECASTERS else 1)
+
+    return {
+        "value": value,
+        "position": position,
+        "rule": rule,
+        "n_observations": span_index_length,
+        "share": share,
+        "minimum": min_train_size,
+        "needed": needed,
+        "window_size": window_size,
+        "steps": steps,
+    }
+
+
+def cv_fields_without_effect(
+    overridden: list[str],
+    cv: TimeSeriesFold,
+    plan: ForecastPlan | None,
+) -> list[str]:
+    """
+    Return the strategy parameters the user passed that have no effect on
+    the forecaster that runs, so they are not reported as requested.
+
+    Parameters
+    ----------
+    overridden : list of str
+        Names of the parameters the user passed to `create_cv()`.
+    cv : TimeSeriesFold
+        Splitter with the parameters as they were given.
+    plan : ForecastPlan, None
+        Plan that runs the strategy. None for the strategy shared by the
+        candidates of a comparison, each with its own forecaster.
+
+    Returns
+    -------
+    without_effect : list of str
+        `refit` and `fixed_train_size` when the model is not trained
+        (`ForecasterFoundation`); for `ForecasterStats`, which skforecast
+        always refits (`cv_as_executed`), `fixed_train_size` when `refit` is
+        falsy and `refit` when the window that runs is the fixed one with
+        or without it; `fixed_train_size` when any other forecaster is
+        trained once. Empty for a comparison
+        (`plan=None`), where the effect depends on each candidate.
+    """
+
+    if plan is None:
+        # The candidates of a comparison have their own forecasters, and
+        # the effect depends on each: a window that does nothing for one
+        # trained once is the one ForecasterStats is refitted on. Nothing
+        # is reported as without effect; the comparison states how each
+        # kind of candidate runs the strategy.
+        ineffective = set()
+    elif plan.task_type == "foundation":
+        ineffective = {"refit", "fixed_train_size"}
+    elif plan.forecaster == "ForecasterStats":
+        # skforecast refits it in every fold whatever `refit` says, on a
+        # fixed window when `refit` is falsy and on the window given
+        # otherwise. A parameter has no effect when the strategy that runs
+        # is the same without it: `fixed_train_size` when `refit` is falsy,
+        # and `refit` when the window it selects is the fixed one anyway.
+        executed = cv_as_executed(cv, plan.forecaster)
+        ineffective = set()
+        if not cv.refit:
+            ineffective.add("fixed_train_size")
+        if not cv.refit or executed.fixed_train_size:
+            ineffective.add("refit")
+    elif not cv.refit:
+        # The window type only matters when the forecaster is refitted.
+        ineffective = {"fixed_train_size"}
+    else:
+        ineffective = set()
+
+    return [name for name in overridden if name in ineffective]
+
+
+def _quoted_names(names: list[str]) -> str:
+    """Write parameter names as code, joined as an English list."""
+    quoted = [f"`{name}`" for name in names]
+    if len(quoted) <= 2:
+        return " and ".join(quoted)
+
+    return ", ".join(quoted[:-1]) + f" and {quoted[-1]}"
+
+
+def build_cv_defaults_explanation(
+    default: dict,
+    cv_config: dict,
+    plan: ForecastPlan | None,
+    overridden: list[str],
+    without_effect: list[str],
+    llm_configured: bool = False,
+    created_for: ForecastPlan | None = None,
+    n_observations: int | None = None,
+) -> str:
+    """
+    Explain why the parameters of a strategy that the user did not pass
+    have their value, and name the ones the user passed.
+
+    The explanation of a strategy (`build_cv_explanation`) states what it
+    is; this text states where each value comes from. Only the defaults
+    with a rule get a reason: `initial_train_size` and `refit`.
+
+    Parameters
+    ----------
+    default : dict
+        Default `initial_train_size` and the rule that fixed it, as
+        returned by `default_initial_train_size` for the plan the strategy
+        was created for.
+    cv_config : dict
+        Resolved parameters of the strategy as it runs (`n_folds`).
+    plan : ForecastPlan, None
+        Plan that runs the strategy. None for the strategy shared by the
+        candidates of a comparison.
+    overridden : list of str
+        Names of the parameters the user passed to `create_cv()`.
+    without_effect : list of str
+        Names in `overridden` without effect, see
+        `cv_fields_without_effect`.
+    llm_configured : bool, default False
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass. No default is explained then: its reasoning,
+        which the explanation of the strategy starts with, does it.
+    created_for : ForecastPlan, default None
+        Plan the strategy was created for, when it is not the one that
+        runs it: the default depended on that plan.
+    n_observations : int, default None
+        Observations of the data the strategy runs on. When they are not
+        the ones it was created on, the text says so: the default was
+        computed on those.
+
+    Returns
+    -------
+    explanation : str
+        Sentences joined by a space. Empty when there is nothing to say.
+    """
+
+    parts: list[str] = []
+    trains = plan is None or plan.task_type != "foundation"
+    forecaster = plan.forecaster if plan is not None else None
+    if created_for is not None:
+        estimator = f" + {created_for.estimator}" if created_for.estimator else ""
+        # A comparison has no plan of its own: its candidates have theirs.
+        which = "another plan" if plan is not None else "the plan"
+        same_model = (
+            plan is not None
+            and plan.forecaster == created_for.forecaster
+            and plan.estimator == created_for.estimator
+        )
+        # The same forecaster and estimator: what differs is the horizon,
+        # the lags, the window features or the differentiation order.
+        detail = (
+            f"{created_for.forecaster}{estimator} with another configuration"
+            if same_model else f"{created_for.forecaster}{estimator}"
+        )
+        parts.append(f"The strategy was created for {which} ({detail}).")
+
+    # A reason is given only for a value that is the default: a result
+    # whose splitter was changed after `create_cv()` keeps its list of
+    # names, so each value is checked against what runs.
+    runs_default_size = (
+        "initial_train_size" not in cv_config
+        or str(cv_config["initial_train_size"])
+        in (str(default["value"]), str(default["position"]))
+    )
+    if (
+        not llm_configured
+        and "initial_train_size" not in overridden
+        and runs_default_size
+    ):
+        steps = default["steps"]
+        steps_text = f"{steps} step{'s' if steps != 1 else ''}"
+        lead = (
+            "Initial training size by default:" if trains
+            else "First fold start by default:"
+        )
+        # The rule reserves more than skforecast needs: the window plus
+        # the steps (or twice the steps), where a recursive forecaster runs
+        # with one observation more than its window.
+        reserves = (
+            "the rule reserves for the forecaster of that plan"
+            if created_for is not None
+            else "the rule reserves for the forecaster"
+        )
+        share = (
+            f"70% of the {default['n_observations']} observations "
+            f"({default['share']})"
+        )
+        date = (
+            f", up to {default['value']}"
+            if isinstance(default["value"], str) else ""
+        )
+        window_size = default["window_size"]
+        if window_size and default["minimum"] == window_size + steps:
+            minimum = f"its window of {window_size} plus the {steps_text}"
+        else:
+            minimum = f"twice the {steps_text}"
+        raised = default["minimum"] > default["share"]
+        if default["rule"] == "share":
+            parts.append(f"{lead} {share}{date}.")
+        elif default["rule"] == "minimum":
+            parts.append(
+                f"{lead} {share} is less than what {reserves}, so it is "
+                f"raised to {default['position']}, {minimum}{date}."
+            )
+        else:
+            start = (
+                f"the {default['minimum']} observations {reserves} ({minimum})"
+                if raised else share
+            )
+            sentence = (
+                f"{lead} {start} is lowered to {default['position']} so that "
+                f"two folds of {steps_text} remain{date}."
+            )
+            # Said only when the backtest cannot run, as `create_cv()` warns.
+            needed = default.get("needed")
+            if needed is not None and default["position"] < needed:
+                whose = (
+                    "the forecaster of that plan" if created_for is not None
+                    else "the forecaster"
+                )
+                sentence += (
+                    f" That is less than the {needed} observations {whose} "
+                    f"needs to run."
+                )
+            parts.append(sentence)
+        if n_observations is not None and n_observations != default["n_observations"]:
+            parts.append(
+                f"It was computed when the strategy was created, on "
+                f"{default['n_observations']} observations; the data it runs on "
+                f"have {n_observations}."
+            )
+
+    refit_is_default = (
+        not llm_configured
+        and "refit" not in overridden
+        and trains
+        and forecaster != "ForecasterStats"
+        and not cv_config.get("refit")
+    )
+    if refit_is_default:
+        n_folds = cv_config.get("n_folds")
+        folds = (
+            f"the {n_folds} fold{'s' if n_folds != 1 else ''}" if n_folds
+            else "the number of folds"
+        )
+        # In a comparison the sentence is about the shared strategy: a
+        # ForecasterStats candidate is refitted in every fold and a
+        # foundation one is not trained, which the comparison states.
+        subject = "Trained once" if plan is not None else "The shared strategy trains once"
+        parts.append(
+            f"{subject} by default: refitting in every fold would "
+            f"multiply the training cost by {folds}."
+        )
+
+    requested = [name for name in overridden if name not in without_effect]
+    if requested:
+        parts.append(f"{_quoted_names(requested)} as requested.")
+    ineffective = [name for name in overridden if name in without_effect]
+    if ineffective:
+        verb = "was passed but has" if len(ineffective) == 1 else "were passed but have"
+        parts.append(
+            f"{_quoted_names(ineffective)} {verb} no effect on this forecaster."
+        )
+
+    return " ".join(parts)
+
+
+def resolve_cv_provenance(
+    created_profile: ForecastingProfile,
+    created_plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    cv_config: dict,
+    plan: ForecastPlan | None,
+    overridden: list[str],
+    llm_configured: bool,
+    n_observations: int | None = None,
+) -> tuple[list[str], str]:
+    """
+    Resolve, for the plan that runs a strategy of `create_cv()`, which of
+    the parameters the user passed have no effect and the text that
+    explains where the values come from.
+
+    `create_cv()` calls it with its own plan; `backtest()` and `compare()`
+    call it with the plan that runs the strategy, which can be another
+    one: the effect of `refit` and `fixed_train_size` depends on the
+    forecaster, while the default `initial_train_size` was computed for
+    the plan of `create_cv()`, and the text says so.
+
+    Parameters
+    ----------
+    created_profile : ForecastingProfile
+        Profile the strategy was created from (`CVResult.profile`).
+    created_plan : ForecastPlan
+        Plan the strategy was created for (`CVResult.plan`).
+    cv : TimeSeriesFold
+        Splitter with the parameters as they were given.
+    cv_config : dict
+        Resolved parameters of the strategy as it runs.
+    plan : ForecastPlan, None
+        Plan that runs the strategy. None for the strategy shared by the
+        candidates of a comparison.
+    overridden : list of str
+        Names of the parameters the user passed to `create_cv()`.
+    llm_configured : bool
+        Whether the LLM of `create_cv(prompt=...)` set the others.
+    n_observations : int, default None
+        Observations of the data the strategy runs on, when they may not
+        be the ones it was created on (`backtest()`, `compare()`).
+
+    Returns
+    -------
+    without_effect : list of str
+        Names in `overridden` without effect, see
+        `cv_fields_without_effect`.
+    defaults_explanation : str
+        Text of `build_cv_defaults_explanation`.
+    """
+
+    without_effect = cv_fields_without_effect(overridden, cv, plan)
+    # The default depended on these decisions of the plan and on no other:
+    # a plan that only changes the metric or the interval is the same one
+    # for the strategy.
+    same_plan = plan is not None and all(
+        getattr(plan, name) == getattr(created_plan, name)
+        for name in ("forecaster", "estimator", "task_type", "steps", "forecaster_kwargs")
+    )
+    defaults_explanation = build_cv_defaults_explanation(
+        default        = default_initial_train_size(created_profile, created_plan),
+        cv_config      = cv_config,
+        plan           = plan,
+        overridden     = overridden,
+        without_effect = without_effect,
+        llm_configured = llm_configured,
+        created_for    = None if same_plan else created_plan,
+        n_observations = n_observations,
+    )
+
+    return without_effect, defaults_explanation
+
+
 def build_cv_explanation(
     cv_params: dict,
     n_observations: int,
     n_folds: int,
+    trains: bool = True,
+    n_fits: int | None = None,
+    forecaster: str | None = None,
+    inference_windows: int | None = None,
 ) -> str:
     """
     Build a human-readable explanation of the cross-validation strategy.
@@ -83,6 +488,24 @@ def build_cv_explanation(
         Total number of observations in the dataset.
     n_folds : int
         Number of folds produced by the configuration.
+    trains : bool, default True
+        Whether the forecaster is trained. A foundation model is not: each
+        fold forecasts from the observations before it, so the training
+        window and the refit settings do not apply and are not described.
+    n_fits : int, default None
+        Number of folds in which the forecaster is trained, see
+        `count_cv_fits`. Stated when the forecaster is refitted. None when
+        unknown.
+    forecaster : str, default None
+        Name of the forecaster the strategy is applied to. For a direct
+        forecaster, which fits one estimator per step, the total number of
+        estimator fits is also stated, and for `ForecasterStats` that it is
+        refitted in every fold (see `cv_as_executed`). None when the
+        strategy is shared by several forecasters.
+    inference_windows : int, default None
+        Number of inference windows of a foundation model (one per series
+        and fold, see `count_inference_windows`), stated when `trains` is
+        False. None when unknown.
 
     Returns
     -------
@@ -96,6 +519,32 @@ def build_cv_explanation(
     fixed_train_size = cv_params["fixed_train_size"]
     gap = cv_params["gap"]
 
+    if not trains:
+        if isinstance(initial_train_size, str):
+            first_desc = f"First fold forecasts from the data up to {initial_train_size}"
+        else:
+            pct = round(100 * initial_train_size / n_observations)
+            first_desc = (
+                f"First fold forecasts from {pct}% of data "
+                f"({initial_train_size} observations)"
+            )
+        parts = [
+            first_desc,
+            "no training (each fold forecasts from the observations before it)",
+            f"{steps}-step horizon",
+        ]
+        if n_folds > 0:
+            parts.append(f"{n_folds} folds")
+        if gap > 0:
+            parts.append(f"gap of {gap} observations")
+        explanation = ", ".join(parts) + "."
+        if inference_windows is not None:
+            explanation += (
+                f" The model forecasts each series in each fold where it "
+                f"has data (up to {inference_windows} inference windows)."
+            )
+        return explanation
+
     if isinstance(initial_train_size, str):
         train_desc = f"Initial training up to {initial_train_size}"
     else:
@@ -104,23 +553,19 @@ def build_cv_explanation(
             f"Using {pct}% of data ({initial_train_size} observations) for"
             f" initial training"
         )
-    window_type = "fixed window" if fixed_train_size else "expanding window"
-
+    trainings = f" ({n_fits} trainings)" if n_fits is not None else ""
     if refit is True:
-        refit_desc = "refit every fold"
-    elif refit is False:
-        refit_desc = "no refit"
-    elif isinstance(refit, int):
-        refit_desc = f"refit every {refit} folds"
+        refit_desc = f"refit every fold{trainings}"
+    elif isinstance(refit, int) and not isinstance(refit, bool) and refit > 0:
+        refit_desc = f"refit every {refit} folds{trainings}"
     else:
-        refit_desc = "no refit"
+        refit_desc = "trained once (no refit)"
 
-    parts = [
-        train_desc,
-        window_type,
-        refit_desc,
-        f"{steps}-step horizon",
-    ]
+    # The window type only matters when the forecaster is refitted.
+    parts = [train_desc]
+    if refit_desc != "trained once (no refit)":
+        parts.append("fixed window" if fixed_train_size else "expanding window")
+    parts += [refit_desc, f"{steps}-step horizon"]
 
     if n_folds > 0:
         parts.append(f"{n_folds} folds")
@@ -132,25 +577,84 @@ def build_cv_explanation(
     if differentiation is not None:
         parts.append(f"differentiation order {differentiation}")
 
-    return ", ".join(parts) + "."
+    explanation = ", ".join(parts) + "."
+    if forecaster == "ForecasterStats":
+        explanation += (
+            " ForecasterStats is refitted in every fold whatever `refit` "
+            "says: skforecast requires it for ARIMA models."
+        )
+    if forecaster in DIRECT_FORECASTERS and n_fits is not None:
+        explanation += (
+            f" {forecaster} fits one estimator per step, so each training "
+            f"fits {steps} estimators "
+            f"({count_estimator_fits(n_fits, forecaster, steps)} fits in all)."
+        )
+
+    return explanation
 
 
-def count_cv_folds(
+def _local_index(
+    start_date: str,
+    n_observations: int,
+    frequency: str,
+    time_zone: str | None,
+) -> pd.DatetimeIndex:
+    """
+    Rebuild the dates of the data, as local times without time zone.
+
+    Without a time zone it is the regular grid from `start_date`. With one,
+    the grid is built in that zone and its local times are returned: they
+    skip an hour at the spring daylight saving change and repeat one in
+    autumn, as the dates of the data do, so the position of a date is the
+    one it has in the data. A zone pandas cannot use gives the regular grid.
+    """
+    aware = _aware_index(start_date, n_observations, frequency, time_zone)
+    if aware is None:
+        return pd.date_range(
+            start=start_date, periods=n_observations, freq=frequency
+        )
+
+    return aware.tz_localize(None)
+
+
+def _aware_index(
+    start_date: str,
+    n_observations: int,
+    frequency: str,
+    time_zone: str | None,
+) -> pd.DatetimeIndex | None:
+    """
+    Rebuild the dates of the data in their time zone, or return None when
+    they have none or pandas cannot build the grid in it.
+    """
+    if time_zone is None:
+        return None
+    try:
+        return pd.date_range(
+            start   = pd.Timestamp(start_date).tz_localize(time_zone),
+            periods = n_observations,
+            freq    = frequency,
+        )
+    except Exception:
+        return None
+
+
+def _split_folds(
     cv: TimeSeriesFold,
     n_observations: int,
     start_date: str | None = None,
     frequency: str | None = None,
-) -> int:
+    time_zone: str | None = None,
+) -> list:
     """
-    Count the folds a cross-validation splitter produces over a dataset.
+    Split a throwaway index the way a cross-validation splitter would.
 
-    Builds a throwaway index of the given length and runs `cv.split` to
-    count the resulting folds. A date-based `initial_train_size` (string or
-    pandas Timestamp) needs a DatetimeIndex so `cv.split` can locate the
-    split date; integer sizes are counted against a plain RangeIndex. This
-    is the single place where a date-based `initial_train_size` is checked
-    against the dataset, for splitters built by `build_cv` as well as for
-    user-supplied ones described by `resolve_cv_config`.
+    Builds a throwaway index of the given length and runs `cv.split` on
+    it, so folds and refits can be counted before any data is loaded. A
+    date-based `initial_train_size` (string or pandas Timestamp) needs a
+    DatetimeIndex so `cv.split` can locate the split date; integer sizes
+    are split on a plain RangeIndex. This is the single place where a
+    date-based `initial_train_size` is checked against the dataset.
 
     The `window_size` of `cv` is unset here (no forecaster attached yet),
     so skforecast emits an `IgnoredArgumentWarning` about the last window.
@@ -174,34 +678,62 @@ def count_cv_folds(
         without it the split date cannot be located on the real index, so
         a `ValueError` is raised rather than counting folds on a guessed
         index.
+    time_zone : str, default None
+        Time zone of the dates of the dataset (`DataProfile.time_zone`),
+        to place a date on their local times (see `_local_index`), or on
+        the dates in their zone when the date has a time zone of its own.
 
     Returns
     -------
-    n_folds : int
-        Number of folds produced by the configuration.
+    folds : list
+        Folds as returned by `cv.split(as_pandas=False)`; the last element
+        of each fold says whether the forecaster is trained in it.
     """
     its = cv.initial_train_size
     if isinstance(its, (str, pd.Timestamp)):
         if start_date is None or frequency is None:
-            raise ValueError(
+            raise InvalidInputError(
                 f"`initial_train_size` is a date ({its!r}) but the dataset has "
                 f"no datetime index with a known frequency, so the split date "
                 f"cannot be located. Pass an integer number of observations "
-                f"instead."
+                f"instead.",
+                field = "initial_train_size",
             )
         if isinstance(its, str):
             try:
                 pd.Timestamp(its)
             except (ValueError, TypeError) as exc:
-                raise ValueError(
+                raise InvalidInputError(
                     f"`initial_train_size` date {its!r} could not be parsed. "
-                    f"Use an ISO date such as '2023-03-01'."
+                    f"Use an ISO date such as '2023-03-01'.",
+                    field = "initial_train_size",
                 ) from exc
         index = pd.date_range(
                     start   = start_date,
                     periods = n_observations,
                     freq    = frequency,
                 )
+        # skforecast places a date by the frequency of the index, which the
+        # local times of a zone with daylight saving changes do not keep:
+        # the date is counted on them here, as the backtesting script
+        # counts it on the data (`_cv_in_time_zone`).
+        local = _local_index(start_date, n_observations, frequency, time_zone)
+        date = pd.Timestamp(its)
+        aware = None
+        if date.tz is not None:
+            aware = _aware_index(start_date, n_observations, frequency, time_zone)
+        if aware is not None:
+            # A date with its own time zone is placed by skforecast on the
+            # dates in their zone, as in the script, which gets it as given.
+            index = aware
+        elif (
+            not local.equals(index)
+            and date.tz is None
+            and local[0] <= date <= local[-1]
+        ):
+            cv = copy.deepcopy(cv)
+            cv.set_params({"initial_train_size": int((local <= date).sum())})
+            index = pd.RangeIndex(n_observations)
     else:
         index = pd.RangeIndex(n_observations)
 
@@ -217,8 +749,209 @@ def count_cv_folds(
     finally:
         cv.verbose = original_verbose
 
-    return len(folds)
+    return folds
 
+
+
+def count_cv_folds(
+    cv: TimeSeriesFold,
+    n_observations: int,
+    start_date: str | None = None,
+    frequency: str | None = None,
+    time_zone: str | None = None,
+) -> int:
+    """
+    Count the folds a cross-validation splitter produces over a dataset.
+
+    A date-based `initial_train_size` is checked against the dataset here,
+    for splitters built by `build_cv` as well as for user-supplied ones
+    described by `resolve_cv_config`.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter.
+    n_observations : int
+        Number of observations spanned by the dataset.
+    start_date : str, default None
+        First date of the dataset. Required when `cv.initial_train_size`
+        is a date string or a pandas Timestamp.
+    frequency : str, default None
+        Index frequency. Required when `cv.initial_train_size` is a date.
+    time_zone : str, default None
+        Time zone of the dates (`DataProfile.time_zone`).
+
+    Returns
+    -------
+    n_folds : int
+        Number of folds produced by the configuration.
+    """
+
+    return len(_split_folds(cv, n_observations, start_date, frequency, time_zone))
+
+
+def count_cv_fits(
+    cv: TimeSeriesFold,
+    n_observations: int,
+    start_date: str | None = None,
+    frequency: str | None = None,
+    time_zone: str | None = None,
+) -> int:
+    """
+    Count how many folds train the forecaster under a splitter.
+
+    Reads the training flag that `TimeSeriesFold.split` sets on each fold:
+    the first fold always trains, and the rest follow `refit` (never with
+    False, every fold with True, every n folds with an integer).
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter.
+    n_observations : int
+        Number of observations spanned by the dataset.
+    start_date : str, default None
+        First date of the dataset. Required when `cv.initial_train_size`
+        is a date string or a pandas Timestamp.
+    frequency : str, default None
+        Index frequency. Required when `cv.initial_train_size` is a date.
+    time_zone : str, default None
+        Time zone of the dates (`DataProfile.time_zone`).
+
+    Returns
+    -------
+    n_fits : int
+        Number of folds in which the forecaster is trained.
+    """
+
+    folds = _split_folds(cv, n_observations, start_date, frequency, time_zone)
+
+    return sum(bool(fold[-1]) for fold in folds)
+
+
+def count_estimator_fits(
+    n_fits: int,
+    forecaster: str,
+    steps: int,
+    n_folds: int | None = None,
+) -> int:
+    """
+    Count the estimator fits of a backtest, the measure of its cost.
+
+    Parameters
+    ----------
+    n_fits : int
+        Number of folds in which the forecaster is trained, see
+        `count_cv_fits`.
+    forecaster : str
+        Name of the skforecast forecaster class.
+    steps : int
+        Forecast horizon of each fold.
+    n_folds : int, default None
+        Number of folds of the strategy, see `count_cv_folds`. skforecast
+        refits `ForecasterStats` in every fold whatever `refit` says (see
+        `cv_as_executed`), so its count is `n_folds` when given. None when
+        `n_fits` already counts the folds of the strategy as executed.
+
+    Returns
+    -------
+    estimator_fits : int
+        Number of times an estimator is fitted: `n_fits * steps` for the
+        direct forecasters, which fit one estimator per step, 0 for
+        `ForecasterFoundation` (never trained) and
+        `ForecasterEquivalentDate` (no estimator), `n_folds` (or `n_fits`
+        when it is None) for `ForecasterStats`, and `n_fits` otherwise.
+    """
+
+    if forecaster in ("ForecasterFoundation", "ForecasterEquivalentDate"):
+        return 0
+    if forecaster in DIRECT_FORECASTERS:
+        return n_fits * steps
+    if forecaster == "ForecasterStats" and n_folds is not None:
+        return n_folds
+
+    return n_fits
+
+
+def count_inference_windows(
+    n_folds: int,
+    n_series: int,
+    forecaster: str,
+) -> int:
+    """
+    Count the inference windows of a backtest, the measure of the cost of a
+    foundation model.
+
+    A foundation model is never trained: it loads its weights once and
+    forecasts each series in each fold, so its time grows with the number
+    of series times the number of folds.
+
+    Parameters
+    ----------
+    n_folds : int
+        Number of folds of the strategy, see `count_cv_folds`.
+    n_series : int
+        Number of series of the data.
+    forecaster : str
+        Name of the skforecast forecaster class.
+
+    Returns
+    -------
+    inference_windows : int
+        `n_folds * n_series` for `ForecasterFoundation`, 0 for any other
+        forecaster (their cost is counted in estimator fits, see
+        `count_estimator_fits`). With long data whose series start on
+        different dates, a series absent from a fold is counted all the
+        same, so it is an upper bound.
+    """
+
+    if forecaster != "ForecasterFoundation":
+        return 0
+
+    return n_folds * n_series
+
+
+def cv_as_executed(
+    cv: TimeSeriesFold,
+    forecaster: str | None,
+) -> TimeSeriesFold:
+    """
+    Return the splitter that skforecast runs for a forecaster.
+
+    `backtesting_stats` refits in every fold unless all the estimators are
+    `skforecast.stats.Sarimax`, and `ForecasterStats` plans always use
+    `Arima`: a `refit` other than `True` (or 1) is replaced by `True`, with
+    the warning silenced by `suppress_warnings=True` in the script. The
+    script writes `fixed_train_size` only when `refit` is set, so after a
+    `refit=False` the training window has the fixed size that is the
+    default of `TimeSeriesFold`. The copy returned states both, so the
+    script, `cv_config` and the explanation describe what runs; the
+    metrics do not change. Any other forecaster runs `cv` as it is.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Configured cross-validation fold splitter. It is not modified.
+    forecaster : str, None
+        Name of the forecaster the strategy is applied to. None when the
+        strategy is shared by several forecasters.
+
+    Returns
+    -------
+    cv : TimeSeriesFold
+        `cv` itself, or for `ForecasterStats` with a `refit` other than
+        `True` (or 1) a shallow copy with `refit=True` and the
+        `fixed_train_size` that runs.
+    """
+
+    if forecaster != "ForecasterStats" or cv.refit == 1:
+        return cv
+
+    executed = copy.copy(cv)
+    executed.fixed_train_size = bool(cv.fixed_train_size) if cv.refit else True
+    executed.refit = True
+
+    return executed
 
 
 def build_cv(
@@ -237,6 +970,12 @@ def build_cv(
     folds it produces over the dataset with `count_cv_folds`, which also
     checks that a date-based size can be located on the dataset index. A
     `ValueError` is raised when fewer than `min_folds` folds result.
+
+    An argument that `TimeSeriesFold` rejects raises `InvalidInputError`
+    (`InvalidInputTypeError` for a wrong type) naming it in `field` when
+    its message names a single one, and a list of `skip_folds` with
+    indexes beyond the folds of the strategy, which `TimeSeriesFold`
+    ignores, raises too.
 
     Parameters
     ----------
@@ -263,37 +1002,129 @@ def build_cv(
         data_profile = data_profile,
     )
 
-    cv = TimeSeriesFold(
-        steps                 = cv_params["steps"],
-        initial_train_size    = cv_params["initial_train_size"],
-        refit                 = cv_params["refit"],
-        fixed_train_size      = cv_params["fixed_train_size"],
-        gap                   = cv_params["gap"],
-        fold_stride           = cv_params.get("fold_stride"),
-        skip_folds            = cv_params.get("skip_folds"),
-        allow_incomplete_fold = cv_params.get("allow_incomplete_fold", True),
-        differentiation       = cv_params.get("differentiation"),
-        verbose               = False,
-    )
+    try:
+        cv = TimeSeriesFold(
+            steps                 = cv_params["steps"],
+            initial_train_size    = cv_params["initial_train_size"],
+            refit                 = cv_params["refit"],
+            fixed_train_size      = cv_params["fixed_train_size"],
+            gap                   = cv_params["gap"],
+            fold_stride           = cv_params.get("fold_stride"),
+            skip_folds            = cv_params.get("skip_folds"),
+            allow_incomplete_fold = cv_params.get("allow_incomplete_fold", True),
+            differentiation       = cv_params.get("differentiation"),
+            verbose               = False,
+        )
 
-    n_folds = count_cv_folds(
-                  cv             = cv,
-                  n_observations = data_profile.span_index_length,
-                  start_date     = data_profile.start_date,
-                  frequency      = data_profile.frequency,
-              )
+        n_folds = count_cv_folds(
+                      cv             = cv,
+                      n_observations = data_profile.span_index_length,
+                      start_date     = data_profile.span_start_date,
+                      frequency      = data_profile.frequency,
+                      time_zone      = data_profile.time_zone,
+                  )
+    except InvalidInputError:
+        raise
+    except (ValueError, TypeError) as exc:
+        raise _strategy_error(exc) from exc
+
+    _check_skip_folds(cv, data_profile)
     if n_folds < min_folds:
         public_params = {
             key: value for key, value in cv_params.items()
             if not key.startswith("_")
         }
-        raise ValueError(
+        raise InvalidInputError(
             f"The resolved CV configuration produces only "
             f"{n_folds} fold(s). At least {min_folds} are required. "
-            f"Resolved parameters: {public_params}."
+            f"Resolved parameters: {public_params}.",
+            code = "insufficient_data",
+            hint = (
+                f"To evaluate a single window, the last `steps` observations, "
+                f"use `forecast` with `test_size` instead: one hold-out, not a "
+                f"backtest. A backtest needs at least {min_folds} folds: a "
+                f"smaller `initial_train_size` (or leave it out for the "
+                f"default), a smaller `fold_stride` or a plan with fewer "
+                f"`steps`."
+            ),
         )
 
     return cv
+
+
+# Arguments of `TimeSeriesFold` that its error messages name in backticks.
+_CV_ARGUMENT = re.compile(
+    r"`(initial_train_size|fold_stride|gap|skip_folds|refit|fixed_train_size"
+    r"|allow_incomplete_fold|steps)\b"
+)
+
+
+def _strategy_error(exc: Exception) -> InvalidInputError:
+    """
+    Turn an error of skforecast while it builds or splits a cross-validation
+    strategy into an `InvalidInputError` naming the argument at fault.
+
+    `TimeSeriesFold` checks its arguments (`gap >= 0`, `fold_stride >= 1`,
+    an `initial_train_size` inside the data, ...) with a `ValueError` or a
+    `TypeError` of its own; the message, which quotes sizes and dates of
+    the index but no value of the data, is kept on one line, and a
+    `TypeError` stays one (`InvalidInputTypeError`).
+    """
+    message = " ".join(str(exc).split()) or type(exc).__name__
+    # A message that names several arguments (`initial_train_size + gap`)
+    # does not say which one to change.
+    named = set(_CV_ARGUMENT.findall(message))
+    error_class = (
+        InvalidInputTypeError if isinstance(exc, TypeError) else InvalidInputError
+    )
+    field = named.pop() if len(named) == 1 else None
+    # The folds are the remedy only when the strategy does not fit in the
+    # data; a value `TimeSeriesFold` rejects by itself (`gap=-1`,
+    # `refit='yes'`) is fixed in its own argument.
+    if field not in (None, "initial_train_size", "steps"):
+        hint = f"Pass a value that `TimeSeriesFold` accepts for `{field}`."
+    else:
+        hint = (
+            "Change the arguments of the strategy (`initial_train_size`, "
+            "`fold_stride`, `gap`, `skip_folds`) or the `steps` of the plan "
+            "so that at least two folds fit in the data."
+        )
+
+    return error_class(
+        f"The cross-validation strategy cannot be built: {message}",
+        field = field,
+        hint  = hint,
+    )
+
+
+def _check_skip_folds(cv: TimeSeriesFold, data_profile: DataProfile) -> None:
+    """
+    Reject a list of `skip_folds` with indexes beyond the folds of `cv`,
+    which `TimeSeriesFold` ignores without an error.
+    """
+    skip_folds = cv.skip_folds
+    if not isinstance(skip_folds, list) or not skip_folds:
+        return
+    unskipped = copy.copy(cv)
+    unskipped.skip_folds = None
+    n_folds = count_cv_folds(
+                  cv             = unskipped,
+                  n_observations = data_profile.span_index_length,
+                  start_date     = data_profile.span_start_date,
+                  frequency      = data_profile.frequency,
+                  time_zone      = data_profile.time_zone,
+              )
+    beyond = [index for index in skip_folds if index >= n_folds]
+    if beyond:
+        shown = (
+            f"{beyond[:5]} and {len(beyond) - 5} more" if len(beyond) > 5
+            else f"{beyond}"
+        )
+        raise InvalidInputError(
+            f"`skip_folds` names folds that do not exist ({shown}): the "
+            f"strategy has {n_folds} folds, numbered from 0 to {n_folds - 1}.",
+            field = "skip_folds",
+        )
 
 
 def _resolve_initial_train_size(
@@ -325,15 +1156,17 @@ def _resolve_initial_train_size(
     """
 
     if isinstance(value, bool):
-        raise ValueError(
+        raise InvalidInputError(
             f"`initial_train_size` must be an int, a float in (0, 1), a date "
-            f"string or a pandas Timestamp, got {value!r}."
+            f"string or a pandas Timestamp, got {value!r}.",
+            field = "initial_train_size",
         )
     if isinstance(value, float):
         if not (0 < value < 1):
-            raise ValueError(
+            raise InvalidInputError(
                 f"initial_train_size as float must satisfy "
-                f"0 < value < 1, got {value}."
+                f"0 < value < 1, got {value}.",
+                field = "initial_train_size",
             )
         return int(value * data_profile.span_index_length)
     if isinstance(value, pd.Timestamp):
@@ -354,10 +1187,12 @@ def _timestamp_to_str(ts: pd.Timestamp) -> str:
     -------
     text : str
         `'YYYY-MM-DD'` when the time component is midnight, otherwise the
-        full `'YYYY-MM-DD HH:MM:SS'` form.
+        full `'YYYY-MM-DD HH:MM:SS'` form. A Timestamp with a time zone
+        keeps the full form with its UTC offset, also at midnight: the date
+        alone would be read in the time zone of the data.
     """
 
-    if ts.hour != 0 or ts.minute != 0 or ts.second != 0:
+    if ts.tz is not None or ts.hour != 0 or ts.minute != 0 or ts.second != 0:
         return str(ts)
     return str(ts.date())
 
@@ -365,6 +1200,8 @@ def _timestamp_to_str(ts: pd.Timestamp) -> str:
 def resolve_cv_config(
     cv: TimeSeriesFold,
     data_profile: DataProfile,
+    trains: bool = True,
+    forecaster: str | None = None,
 ) -> tuple[dict, str]:
     """
     Describe a cross-validation splitter as applied to a profiled dataset.
@@ -382,6 +1219,15 @@ def resolve_cv_config(
         Configured cross-validation fold splitter.
     data_profile : DataProfile
         Profile of the dataset the splitter is applied to.
+    trains : bool, default True
+        Whether the forecaster is trained; False for a foundation model,
+        whose explanation does not describe a training window or refits.
+    forecaster : str, default None
+        Name of the forecaster the strategy is applied to, used to state
+        the estimator fits of a direct forecaster. For `ForecasterStats`
+        the strategy is described as skforecast runs it, refitted in every
+        fold (see `cv_as_executed`). None when the strategy is shared by
+        several forecasters.
 
     Returns
     -------
@@ -389,22 +1235,35 @@ def resolve_cv_config(
         Resolved `TimeSeriesFold` parameters (`steps`,
         `initial_train_size`, `refit`, `fixed_train_size`, `gap`,
         `fold_stride`, `skip_folds`, `allow_incomplete_fold`,
-        `differentiation`) plus `n_folds`.
+        `differentiation`) plus `n_folds` and `n_fits` (folds in which the
+        forecaster is trained, 0 when it is not trained), and for
+        `ForecasterFoundation` `inference_windows` (one per series and
+        fold, see `count_inference_windows`).
     explanation : str
         Multi-sentence description of the strategy, see
         `build_cv_explanation`.
     """
 
+    cv = cv_as_executed(cv, forecaster)
     span_index_length = data_profile.span_index_length
-    n_folds = count_cv_folds(
-                  cv             = cv,
-                  n_observations = span_index_length,
-                  start_date     = data_profile.start_date,
-                  frequency      = data_profile.frequency,
-              )
+    folds = _split_folds(
+                cv             = cv,
+                n_observations = span_index_length,
+                start_date     = data_profile.span_start_date,
+                frequency      = data_profile.frequency,
+                time_zone      = data_profile.time_zone,
+            )
+    n_folds = len(folds)
+    n_fits = sum(bool(fold[-1]) for fold in folds) if trains else 0
     cv_config = {
         "steps": cv.steps,
-        "initial_train_size": cv.initial_train_size,
+        # A Timestamp as text, as `build_cv` stores it: the configuration
+        # serializes to JSON and the explanation reads a date.
+        "initial_train_size": (
+            _timestamp_to_str(cv.initial_train_size)
+            if isinstance(cv.initial_train_size, pd.Timestamp)
+            else cv.initial_train_size
+        ),
         "refit": cv.refit,
         "fixed_train_size": cv.fixed_train_size,
         "gap": cv.gap,
@@ -413,24 +1272,327 @@ def resolve_cv_config(
         "allow_incomplete_fold": cv.allow_incomplete_fold,
         "differentiation": cv.differentiation,
         "n_folds": n_folds,
+        "n_fits": n_fits,
     }
+    inference_windows = None
+    if forecaster == "ForecasterFoundation":
+        inference_windows = count_inference_windows(
+                                n_folds    = n_folds,
+                                n_series   = data_profile.n_series,
+                                forecaster = forecaster,
+                            )
+        cv_config["inference_windows"] = inference_windows
     explanation = build_cv_explanation(
-                      cv_params      = cv_config,
-                      n_observations = span_index_length,
-                      n_folds        = n_folds,
+                      cv_params         = cv_config,
+                      n_observations    = span_index_length,
+                      n_folds           = n_folds,
+                      trains            = trains,
+                      n_fits            = n_fits,
+                      forecaster        = forecaster,
+                      inference_windows = inference_windows,
                   )
 
     return cv_config, explanation
+
+
+def plan_window_size(plan: ForecastPlan) -> int | None:
+    """
+    Return the window size of the forecaster of a plan, as skforecast
+    computes it: the observations it reads before its first prediction.
+
+    For the machine learning forecasters, the largest lag or window feature
+    plus the differentiation order; for the baseline, `offset * n_offsets`.
+    None for the forecasters whose window is not checked here
+    (`ForecasterStats`, `ForecasterFoundation`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Detailed forecasting plan.
+
+    Returns
+    -------
+    window_size : int, None
+        Window size of the forecaster, or None.
+    """
+    kwargs = plan.forecaster_kwargs
+    if plan.task_type in ML_TASK_TYPES:
+        lags = kwargs.get("lags")
+        if isinstance(lags, int):
+            max_lag = lags
+        elif isinstance(lags, list):
+            max_lag = max(lags, default=0)
+        else:
+            max_lag = 0
+        max_window = 0
+        for entry in kwargs.get("window_features") or []:
+            sizes = entry.get("window_size")
+            sizes = sizes if isinstance(sizes, list) else [sizes]
+            max_window = max(
+                [max_window, *(size for size in sizes if isinstance(size, int))]
+            )
+        return max(max_lag, max_window) + (kwargs.get("differentiation") or 0)
+    if plan.task_type == "baseline":
+        offset = kwargs.get("offset", 1)
+        if isinstance(offset, int):
+            return offset * kwargs.get("n_offsets", 1)
+
+    return None
+
+
+def first_window_issue(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> str | None:
+    """
+    Say why the first training window of a strategy is too short for the
+    forecaster of a plan, or return None when it is not.
+
+    skforecast needs more observations in the first training window than
+    the window size of the forecaster (`plan_window_size`), and a direct
+    forecaster, which trains one estimator per step, at least the window
+    size plus `steps`. A strategy whose horizon leaves fewer, such as
+    `steps=100` on 204 observations (2 folds take 200), is valid for
+    `TimeSeriesFold` and fails when the forecaster is backtested.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+    data_profile : DataProfile
+        Profile of the data, to place a date `initial_train_size`.
+
+    Returns
+    -------
+    issue : str, None
+        What fails, or None.
+    """
+    window_size = plan_window_size(plan)
+    if window_size is None:
+        return None
+    # skforecast splits the dates of every series, from the earliest first
+    # date in long format, where `start_date` is the latest one.
+    folds = _split_folds(
+        cv             = cv_as_executed(cv, plan.forecaster),
+        n_observations = data_profile.span_index_length,
+        start_date     = data_profile.span_start_date,
+        frequency      = data_profile.frequency,
+        time_zone      = data_profile.time_zone,
+    )
+    if not folds:
+        return None
+    train_start, train_end = folds[0][1]
+    n_train = train_end - train_start
+    if plan.forecaster in DIRECT_FORECASTERS:
+        needed = window_size + plan.steps
+        reason = (
+            f"its window size, {window_size}, plus the {plan.steps} steps it "
+            f"is trained to predict"
+        )
+    else:
+        needed = window_size + 1
+        reason = f"more than its window size, {window_size}"
+    if n_train >= needed:
+        return None
+
+    return (
+        f"The first training window of the strategy has {n_train} "
+        f"observations, and {plan.forecaster} needs at least {needed} "
+        f"({reason}), so skforecast would fail"
+    )
+
+
+def check_first_window(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+    strict: bool = True,
+) -> None:
+    """
+    Raise when the first training window of a strategy is too short for the
+    forecaster of a plan (see `first_window_issue`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+    data_profile : DataProfile
+        Profile of the data.
+    strict : bool, default True
+        Whether a strategy that skforecast cannot split on the dates of the
+        profile (a date `initial_train_size` outside the data) raises an
+        `InvalidInputError` with the message of skforecast. When False it
+        is left to where the strategy runs (`backtest_code()` returns its
+        script).
+
+    Returns
+    -------
+    None
+    """
+    try:
+        issue = first_window_issue(plan, cv, data_profile)
+    except (ValueError, TypeError) as exc:
+        if strict:
+            raise _strategy_error(exc) from exc
+        return
+    if issue is not None:
+        features = (
+            ", fewer lags or smaller window features"
+            if plan.forecaster in AUTOREG_FORECASTERS else ""
+        )
+        raise InvalidInputError(
+            f"{issue}. Use a later `initial_train_size`, or a shorter "
+            f"horizon (`steps`){features}.",
+            field = "cv",
+            code  = "insufficient_data",
+        )
+
+
+def warn_first_window(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Warn when a strategy is built whose first training window is too short
+    for the forecaster of its plan: its backtest raises (see
+    `check_first_window`), but the strategy can still serve forecasters
+    with a smaller window in `compare()`.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy is built for.
+    cv : TimeSeriesFold
+        Strategy built.
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    None
+    """
+    try:
+        issue = first_window_issue(plan, cv, data_profile)
+    except ValueError:
+        # A strategy that cannot be split is reported by `build_cv()`.
+        return
+    if issue is not None:
+        warnings.warn(
+            f"{issue}: `backtest()` of this plan with this strategy raises. "
+            f"The strategy can still serve the candidates of `compare()` "
+            f"with a smaller window; use a later `initial_train_size`, or a "
+            f"shorter horizon, to backtest this plan.",
+            UserWarning,
+            stacklevel = 3,
+        )
+
+
+# Forecasters whose intervals come from binned residuals of the training rows.
+_RESIDUAL_INTERVAL_FORECASTERS = (
+    "ForecasterRecursive", "ForecasterDirect", "ForecasterEquivalentDate",
+)
+
+
+def warn_interval_residuals(
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Warn when a strategy is built whose first training window leaves too few
+    rows for the prediction intervals of its plan.
+
+    ForecasterRecursive and ForecasterDirect (bootstrapping) and
+    ForecasterEquivalentDate (conformal) estimate the intervals from the
+    residuals of the training rows, which skforecast spreads over up to
+    `INTERVAL_RESIDUAL_BINS` bins of the predicted value. With fewer than
+    `MIN_RESIDUALS_PER_BIN` residuals per bin the intervals tend to be too
+    narrow (a nominal 95% covers 59 to 80% with 2 to 6 per bin, in the
+    simulation skforecast took its rule of thumb from), and with a single
+    residual in a bin the lower bound equals the upper one, with the
+    prediction outside. skforecast warns about it only for out-of-sample
+    residuals, which the generated scripts do not use.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan the strategy is built for.
+    cv : TimeSeriesFold
+        Strategy built.
+    data_profile : DataProfile
+        Profile of the data, to place a date `initial_train_size`.
+
+    Returns
+    -------
+    None
+    """
+    if (
+        plan.interval is None
+        or plan.interval_method not in ("bootstrapping", "conformal")
+        or plan.forecaster not in _RESIDUAL_INTERVAL_FORECASTERS
+    ):
+        return
+    window_size = plan_window_size(plan)
+    if window_size is None:
+        return
+    try:
+        folds = _split_folds(
+            cv             = cv,
+            n_observations = data_profile.span_index_length,
+            start_date     = data_profile.span_start_date,
+            frequency      = data_profile.frequency,
+            time_zone      = data_profile.time_zone,
+        )
+    except ValueError:
+        # A strategy that cannot be split is reported by `build_cv()`.
+        return
+    if not folds:
+        return
+    train_start, train_end = folds[0][1]
+    n_train = train_end - train_start
+    # A direct forecaster trains the estimator of step h on h - 1 rows fewer.
+    extra_steps = plan.steps - 1 if plan.forecaster in DIRECT_FORECASTERS else 0
+    n_rows = n_train - window_size - extra_steps
+    needed = MIN_RESIDUALS_PER_BIN * INTERVAL_RESIDUAL_BINS
+    # A window that leaves no rows is reported by `warn_first_window()`.
+    if n_rows < 1 or n_rows >= needed:
+        return
+    features = (
+        ", or fewer lags or smaller window features"
+        if plan.forecaster in AUTOREG_FORECASTERS else ""
+    )
+    warnings.warn(
+        f"The first training window of the strategy leaves {n_rows} row(s) to "
+        f"train on ({n_train} observations for a window size of "
+        f"{window_size}), so the prediction intervals are estimated from "
+        f"{n_rows} residual(s). skforecast spreads them over up to "
+        f"{INTERVAL_RESIDUAL_BINS} bins, and below {MIN_RESIDUALS_PER_BIN} "
+        f"residuals per bin ({needed} rows) the intervals tend to be too "
+        f"narrow; with a single residual in a bin the lower bound equals the "
+        f"upper one. Read them with caution, or use a later "
+        f"`initial_train_size`{features}.",
+        UserWarning,
+        stacklevel = 3,
+    )
 
 
 def _compute_min_train_size(plan: ForecastPlan) -> int:
     """
     Compute the minimum initial training size based on task type.
 
-    The effective window size of a forecaster is
-    `max(max_lag, max_window_from_window_features)`.
-    `initial_train_size` must exceed this value for skforecast to
-    accept the CV configuration.
+    The window size of the forecaster is the one skforecast computes
+    (`plan_window_size`: the largest lag or window feature plus the
+    differentiation order, or `offset * n_offsets` for the baseline).
+    `initial_train_size` must exceed it for skforecast to accept the CV
+    configuration, so the minimum is the window plus `steps`; without lags
+    or window features, and for the forecasters without a window, it is
+    twice `steps`.
 
     Parameters
     ----------
@@ -443,35 +1605,20 @@ def _compute_min_train_size(plan: ForecastPlan) -> int:
         Minimum number of observations for the initial training set.
     """
 
-    task_type = plan.task_type
     steps = plan.steps
+    window_size = plan_window_size(plan)
 
-    if task_type in ("single_series", "multi_series", "multivariate"):
-        lags = plan.forecaster_kwargs.get("lags")
-        if isinstance(lags, int):
-            max_lag = lags
-        elif isinstance(lags, list):
-            max_lag = max(lags, default=0)
-        else:
-            max_lag = 0
-
-        # Account for window_features which also contribute to window_size
-        max_window = 0
-        wf = plan.forecaster_kwargs.get("window_features")
-        if isinstance(wf, list):
-            for entry in wf:
-                ws = entry.get("window_size")
-                if isinstance(ws, int):
-                    max_window = max(max_window, ws)
-                elif isinstance(ws, list):
-                    max_window = max(max_window, max(ws, default=0))
-
-        effective_window = max(max_lag, max_window)
-        if effective_window == 0:
+    if plan.task_type in ML_TASK_TYPES:
+        differentiation = plan.forecaster_kwargs.get("differentiation") or 0
+        if window_size == differentiation:
+            # No lags nor window features: the order alone is no window.
             return 2 * steps
+        return window_size + steps
 
-        # Need initial_train_size > window_size, so floor at window + steps
-        return effective_window + steps
+    if plan.task_type == "baseline" and window_size is not None:
+        # ForecasterEquivalentDate needs more observations than
+        # `offset * n_offsets` to find every equivalent date.
+        return max(window_size + steps, 2 * steps)
 
     # statistical, foundation
     return 2 * steps
@@ -481,6 +1628,7 @@ def _position_to_date(
     position: int,
     start_date: str | None,
     frequency: str | None,
+    time_zone: str | None = None,
 ) -> int | str:
     """
     Convert an integer position to a date string.
@@ -497,6 +1645,9 @@ def _position_to_date(
         Start date of the datetime index.
     frequency : str, None
         Pandas frequency string.
+    time_zone : str, default None
+        Time zone of the dates (`DataProfile.time_zone`): the date is then
+        the local time at that position (see `_local_index`).
 
     Returns
     -------
@@ -508,7 +1659,7 @@ def _position_to_date(
         return position
 
     try:
-        idx = pd.date_range(start=start_date, periods=position, freq=frequency)
+        idx = _local_index(start_date, position, frequency, time_zone)
         return _timestamp_to_str(idx[-1])
     except Exception:
         return position

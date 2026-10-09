@@ -5,7 +5,11 @@ import warnings
 
 import pytest
 
-from skforecast_ai import ForecastingAssistant, LLMRequiredError
+from skforecast_ai import (
+    ForecastingAssistant,
+    LLMRequiredError,
+    UnrecommendedForecasterWarning,
+)
 from skforecast_ai.schemas.plans import PlanOverrides, WindowFeature
 
 from tests.fixtures_assistant import df_single
@@ -77,8 +81,9 @@ def test_refine_plan_prompt_skips_when_statistical_task_type(monkeypatch):
     """
     assistant = ForecastingAssistant(llm="openai:fake-model")
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=10)
-    plan = plan.model_copy(update={"task_type": "statistical"})
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UnrecommendedForecasterWarning)
+        plan = assistant.plan(profile, steps=10, forecaster="ForecasterStats")
 
     # No agent/model mock set up: if the LLM were called, this would raise.
     with warnings.catch_warnings(record=True) as w:
@@ -91,6 +96,56 @@ def test_refine_plan_prompt_skips_when_statistical_task_type(monkeypatch):
     assert "LLM Refinement Reasoning" not in refined.explanation
     skip_warnings = [x for x in w if "does not apply to task_type" in str(x.message)]
     assert len(skip_warnings) == 1
+
+
+def test_refine_plan_prompt_skips_when_baseline_task_type():
+    """
+    Test that refine_plan() ignores the prompt for a baseline plan without
+    calling the LLM, emitting a UserWarning, and keeps the baseline offset.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, forecaster="ForecasterEquivalentDate")
+
+    # No agent/model mock set up: if the LLM were called, this would raise.
+    warn_msg = re.escape(
+        "LLM plan refinement does not apply to task_type 'baseline' (no "
+        "lags/window_features to refine). Ignoring prompt."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        refined = assistant.refine_plan(profile, plan, prompt="weekly seasonality")
+
+    assert refined.task_type == "baseline"
+    assert refined.forecaster_kwargs == {"offset": 7, "n_offsets": 1}
+
+
+def test_refine_plan_prompt_skips_when_switching_to_baseline():
+    """
+    Test that refine_plan() decides whether to call the LLM from the
+    forecaster of the refined plan: switching an ML plan to the baseline
+    ignores the prompt without calling the LLM, so no LLM suggestion reaches
+    plan(), which would reject lags for the baseline.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    # No agent/model mock set up: if the LLM were called, this would raise.
+    warn_msg = re.escape(
+        "LLM plan refinement does not apply to task_type 'baseline' (no "
+        "lags/window_features to refine). Ignoring prompt."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        refined = assistant.refine_plan(
+            profile,
+            plan,
+            prompt="weekly seasonality",
+            forecaster="ForecasterEquivalentDate",
+        )
+
+    assert refined.task_type == "baseline"
+    assert refined.forecaster_kwargs == {"offset": 7, "n_offsets": 1}
+    assert refined.llm_refined_fields == []
 
 
 # =============================================================================
@@ -550,3 +605,71 @@ def test_refine_plan_prompt_transient_failure_is_not_retried(monkeypatch):
     assert call_count["n"] == 1
     fail_warnings = [x for x in w if "LLM plan refinement failed (" in str(x.message)]
     assert len(fail_warnings) == 1
+
+
+def test_refine_plan_prompt_returns_deterministic_plan_when_api_key_is_missing(
+    monkeypatch,
+):
+    """
+    Test that a missing API key, which pydantic-ai reports when the agent
+    is built and not when it is called, keeps the plan's features with a
+    UserWarning, like a failed call, instead of raising a pydantic-ai
+    UserError.
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    warn_msg = (
+        re.escape(
+            "LLM plan refinement failed (Set the `OPENAI_API_KEY` environment "
+            "variable"
+        )
+        + ".*"
+        + re.escape("Returning deterministic plan.")
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        refined = assistant.refine_plan(profile, plan, prompt="Strong weekly cycles.")
+
+    assert refined.forecaster_kwargs == plan.forecaster_kwargs
+    assert refined.llm_refined_fields == []
+    assert "LLM Refinement Reasoning" not in refined.explanation
+
+
+def test_refine_plan_prompt_keeps_previous_values_when_plan_rejects_suggestion(
+    monkeypatch,
+):
+    """
+    Test that lags suggested by the LLM that plan() rejects (here one named
+    like an exogenous column, 'lag_6') warn and keep the previous lags and
+    window features, without marking any field as refined or appending the
+    LLM reasoning.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    data = df_single.rename(columns={"promo": "lag_6"})
+    profile = assistant.profile(data=data, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    overrides = PlanOverrides(lags=[1, 6], reasoning="Lag 6 captures the cycle.")
+    agent, call_count = _make_fake_agent([overrides])
+    monkeypatch.setattr(assistant, "_plan_refinement_agent", agent)
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+
+    warn_msg = re.escape(
+        "The LLM suggestion for ['lags'] was rejected (Exogenous column(s) "
+        "'lag_6' have the name of a predictor that ForecasterRecursive "
+        "creates (a lag or a window feature), so the script would fail with "
+        "duplicated feature names. Rename them in the data.); the refined "
+        "plan keeps the previous values."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        refined = assistant.refine_plan(profile, plan, prompt="Cycle of 6 days.")
+
+    assert refined.forecaster_kwargs["lags"] == [1, 2, 3, 4, 5, 7]
+    assert refined.forecaster_kwargs["window_features"] == (
+        plan.forecaster_kwargs["window_features"]
+    )
+    assert refined.llm_refined_fields == []
+    assert "Lag 6 captures the cycle." not in refined.explanation
+    assert call_count["n"] == 1

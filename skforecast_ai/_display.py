@@ -22,6 +22,8 @@ from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 
+from ._constants import ML_TASK_TYPES
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -38,10 +40,6 @@ _PREVIEW_ROWS = 5
 _TABLE_KWARGS = {"show_lines": True}
 _SPACER = ""
 MAX_WIDTH = 90
-
-# Task types whose forecasters take lags, window features and calendar
-# features. Statistical and foundation models have none of them.
-_AUTOREG_TASK_TYPES = ("single_series", "multi_series", "multivariate")
 
 
 def _default_console() -> Console:
@@ -384,7 +382,10 @@ def render_cv_config(cv_config: dict) -> Table:
     table.add_column("Parameter")
     table.add_column("Value", justify="right")
     for key, value in cv_config.items():
-        table.add_row(escape(str(key)), _format_value(value))
+        # A bound, as `describe()` and the context of `ask()` write it: a
+        # series without data in a fold is not forecast in it.
+        prefix = "up to " if key == "inference_windows" else ""
+        table.add_row(escape(str(key)), f"{prefix}{_format_value(value)}")
     return table
 
 
@@ -558,7 +559,10 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     return Group(*renderables)
 
 
-def render_plan(plan: ForecastPlan) -> RenderableType:
+def render_plan(
+    plan: ForecastPlan,
+    show_warnings: bool = True,
+) -> RenderableType:
     """
     Render a `ForecastPlan` as a table plus an explanation panel.
 
@@ -571,12 +575,18 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
     ----------
     plan : ForecastPlan
         Plan object to render.
+    show_warnings : bool, default True
+        Whether to show the "Plan Warnings" panel when `plan.warnings` is
+        not empty. The CLI passes False: it already prints each warning
+        when the plan is built.
 
     Returns
     -------
     renderable : rich.console.RenderableType
-        Group containing the plan table, the preprocessing table (only when
-        the plan has preprocessing steps) and the explanation panel.
+        Group containing the plan table, the warnings panel (only when the
+        plan has warnings and `show_warnings` is True), the preprocessing
+        table (only when the plan has preprocessing steps) and the
+        explanation panel.
     """
     table = Table(title="Forecast Plan", **_TABLE_KWARGS)
     table.add_column("Property")
@@ -592,7 +602,9 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
         else "[bold yellow]not detected[/]",
     )
 
-    if plan.task_type in _AUTOREG_TASK_TYPES:
+    # Statistical and foundation models have no lags, window features or
+    # calendar features.
+    if plan.task_type in ML_TASK_TYPES:
         refined = set(plan.llm_refined_fields)
         llm_tag = "  [magenta](LLM-suggested)[/]"
 
@@ -615,6 +627,12 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
             calendar_value = _format_value(None)
         table.add_row("Calendar features", calendar_value)
 
+    if plan.task_type == "baseline":
+        table.add_row("Offset", _format_value(plan.forecaster_kwargs.get("offset")))
+        table.add_row(
+            "Number of offsets", _format_value(plan.forecaster_kwargs.get("n_offsets"))
+        )
+
     table.add_row("Use exog", _format_value(plan.use_exog))
     table.add_row("Interval", _format_value(plan.interval or None))
     if plan.interval:
@@ -628,6 +646,18 @@ def render_plan(plan: ForecastPlan) -> RenderableType:
     )
 
     renderables: list[RenderableType] = [table]
+    if show_warnings and plan.warnings:
+        renderables += [
+            _SPACER,
+            Panel(
+                "\n".join(f"\u2022 {escape(w)}" for w in plan.warnings),
+                title="Plan Warnings",
+                title_align="center",
+                border_style="yellow",
+                padding=(0, 2),
+                expand=True,
+            ),
+        ]
     if plan.preprocessing_steps:
         steps_table = Table(title="Preprocessing Steps", **_TABLE_KWARGS)
         steps_table.add_column("Step")
@@ -807,8 +837,16 @@ class DisplayMixin(JupyterMixin):
         None
         """
         if hasattr(self, "explanation") and self.explanation is not None:
+            # The reasons of the defaults of a cross-validation strategy
+            # are kept in their own field and shown after the explanation.
+            defaults = getattr(self, "defaults_explanation", "") or getattr(
+                self, "cv_defaults_explanation", ""
+            )
+            explanation = (
+                f"{self.explanation} {defaults}" if defaults else self.explanation
+            )
             (console or _default_console()).print(
-                render_explanation(self.explanation, title=self._explanation_title)
+                render_explanation(explanation, title=self._explanation_title)
             )
         else:
             (console or _default_console()).print("No explanation available to display.")

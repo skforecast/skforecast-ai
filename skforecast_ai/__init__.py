@@ -1,4 +1,4 @@
-"""skforecast-ai: AI-powered forecasting assistant built on skforecast.
+"""skforecast-ai: Python time series forecasting assistant built on skforecast.
 
 Works with any scikit-learn compatible estimator (LightGBM, XGBoost, CatBoost,
 Keras, etc.), statistical models (ARIMA, SARIMAX, ETS, ARAR), and zero-shot
@@ -11,16 +11,23 @@ LLM full:  https://skforecast.org/latest/llms-full.txt
 Examples:  https://skforecast.org/latest/examples/examples_english.html
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 from .assistant import ForecastingAssistant
 from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
+    DataContentError,
+    DataNotFoundError,
     DataSentToLLMWarning,
     ForecastExecutionError,
+    InvalidInputError,
+    InvalidInputTypeError,
     LLMCallError,
     LLMRequiredError,
+    MissingBackendWarning,
+    PlanEditsDiscardedWarning,
+    SkforecastAIError,
     UnrecommendedForecasterWarning,
 )
 from .llm.skills import ALL_SKILLS
@@ -28,6 +35,7 @@ from .schemas import (
     AskResult,
     BacktestResult,
     CandidateFailure,
+    CompareProgress,
     ComparisonResult,
     CVResult,
     DataProfile,
@@ -51,8 +59,11 @@ __all__ = [
     "BacktestResult",
     "CandidateFailedWarning",
     "CandidateFailure",
+    "CompareProgress",
     "ComparisonResult",
     "CVResult",
+    "DataContentError",
+    "DataNotFoundError",
     "DataProfile",
     "DataSentToLLMWarning",
     "ExplainableResult",
@@ -60,16 +71,21 @@ __all__ = [
     "ForecastingProfile",
     "ForecastingAssistant",
     "ForecastPlan",
+    "InvalidInputError",
+    "InvalidInputTypeError",
     "LLMCheckResult",
     "LLMContext",
     "RenderedScript",
     "CodeGenerationResult",
     "LLMCallError",
     "LLMRequiredError",
+    "MissingBackendWarning",
+    "PlanEditsDiscardedWarning",
     "PreprocessingStep",
     "ForecastResult",
     "SeriesPacf",
     "SingleRunResult",
+    "SkforecastAIError",
     "UnrecommendedForecasterWarning",
     "__version__",
 ]

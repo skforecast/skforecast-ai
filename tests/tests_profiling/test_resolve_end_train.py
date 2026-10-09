@@ -1,8 +1,11 @@
 # Unit test resolve_end_train
 
+import re
+
 import pandas as pd
 import pytest
 
+from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling import resolve_end_train
 
 
@@ -138,3 +141,95 @@ def test_resolve_end_train_TypeError_when_unsupported_type():
         resolve_end_train(
             start_date="2023-01-01", frequency="D", n_observations=100, test_size=[10]
         )
+
+
+def test_resolve_end_train_InvalidInputError_when_text_is_not_a_date():
+    """
+    Test that a text `test_size` that is not a date raises with the field
+    'test_size' instead of the raw error of pandas.
+    """
+    err_msg = re.escape(
+        "`test_size` is text that is not a date: 'abc'. Pass an integer, a "
+        "fraction in (0, 1) or the first date of the test set, such as "
+        "'2023-03-01'."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        resolve_end_train(
+            start_date=_START, frequency=_FREQ, n_observations=_N, test_size="abc"
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "test_size"
+
+
+def test_resolve_end_train_InvalidInputError_hint_when_no_frequency():
+    """
+    Test that the error of a missing datetime index with a known frequency
+    carries the field 'test_size' and a hint.
+    """
+    err_msg = re.escape(
+        "`test_size` requires a datetime index with a known frequency. Set the "
+        "index frequency (e.g. `data.asfreq(...)`) before forecasting."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        resolve_end_train(
+            start_date=_START, frequency=None, n_observations=_N, test_size=20
+        )
+
+    assert exc_info.value.field == "test_size"
+    assert exc_info.value.hint == (
+        "Give the data a datetime index with a regular frequency, or a date "
+        "column whose dates follow one."
+    )
+
+
+# =============================================================================
+# Tests: sub-daily data and time zones
+# =============================================================================
+@pytest.mark.parametrize(
+    "start, test_size, expected",
+    [
+        ("2023-06-01 03:00:00", 3, "2023-06-02 00:00:00"),
+        ("2023-06-01 03:00:00+02:00", 3, "2023-06-02 00:00:00+02:00"),
+        ("2023-06-01 03:00:00", "2023-06-02 00:00:00", "2023-06-01 23:00:00"),
+        (
+            "2023-06-01 03:00:00+02:00",
+            "2023-06-02 00:00:00",
+            "2023-06-01 23:00:00+02:00",
+        ),
+        (
+            "2023-06-01 03:00:00+02:00",
+            pd.Timestamp("2023-06-02 00:00:00"),
+            "2023-06-01 23:00:00+02:00",
+        ),
+    ],
+    ids=["naive", "tz", "naive_text", "tz_text_without_zone", "tz_timestamp"],
+)
+def test_resolve_end_train_output_when_hourly_data(start, test_size, expected):
+    """
+    Test that on hourly data `end_train` keeps the time also at midnight (a
+    date only made the script train on the whole day), with the time zone of
+    tz-aware dates, and that a `test_size` written without a time zone is read
+    in the zone of the data (it raised TypeError).
+    """
+    end_train = resolve_end_train(
+        start_date=start, frequency="h", n_observations=25, test_size=test_size
+    )
+
+    assert end_train == expected
+
+
+def test_resolve_end_train_output_when_daily_and_monthly_data_keep_the_date_only():
+    """
+    Test that daily and monthly data, all at midnight, still give a date-only
+    `end_train`.
+    """
+    daily = resolve_end_train(
+        start_date="2023-01-01", frequency="D", n_observations=100, test_size=7
+    )
+    monthly = resolve_end_train(
+        start_date="1991-07-01", frequency="MS", n_observations=204, test_size=12
+    )
+
+    assert daily == "2023-04-03"
+    assert monthly == "2007-06-01"

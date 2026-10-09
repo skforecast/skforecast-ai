@@ -44,19 +44,31 @@ skforecast_ai/
   rendering/          script generation from a plan (one module per family)
   execution/          runs rendered scripts; comparison helpers
   llm/                pydantic-ai agents, prompts, context, skills, runtime
+  mcp/                MCP server (`skforecast-ai mcp`): tools over the assistant;
+                      mcp/skills/ is its SKILL.md for agents, written here
   skills/, resources/ synced from skforecast (do not edit by hand)
   cli.py              Typer CLI mirroring the Python API
 tests/                mirrors the package: tests_<subpackage>/, fixtures_*.py
-tools/                maintenance scripts; ask_context_reports/ keeps one
-                      reviewed ask() evaluation per release and dataset
+plugin/               Claude Code plugin of the MCP server (marketplace in
+                      .claude-plugin/); its SKILL.md is a byte for byte copy
+                      of skforecast_ai/mcp/skills/ and its versions follow
+                      pyproject.toml (tests/test_plugin_distribution.py)
+tools/                maintenance scripts (see tools/README.md): ai/ for the
+                      skforecast assets and the LLM context checks,
+                      docs/ for the documentation build
 ```
 
 ## Python environment
 
-Before running any Python command (tests, scripts, notebooks, `pip install`)
-for the first time in a session, run `conda env list` and ask which
-environment to use. Do not assume the active environment. Once the user
-confirms an environment, reuse it for the rest of the session.
+Interactive local session: before running any Python command (tests,
+scripts, notebooks, `pip install`) for the first time in a session, run
+`conda env list` and ask which environment to use. Do not assume the active
+environment. Once the user confirms an environment, reuse it for the rest of
+the session.
+
+Non-interactive or cloud session (nobody to ask, no conda): install with
+`pip install -e ".[test,llm]" ruff` and run the commands below as they are.
+No API key or network is needed for the test suite; LLM calls are mocked.
 
 ## Commands
 
@@ -64,8 +76,8 @@ confirms an environment, reuse it for the rest of the session.
 pytest -n auto                                   # full suite
 pytest tests/test_assistant_ask.py -q            # one file
 ruff check skforecast_ai tests                   # lint (must be clean; CI runs it)
-python tools/update_golden_llm_contexts.py       # regenerate LLM context goldens
-python tools/ask_context_check.py --dry-run      # ask() contexts, no LLM call
+python tools/ai/update_golden_contexts.py        # regenerate LLM context goldens
+python tools/ai/check_ask_context.py --dry-run   # ask() contexts, no LLM call
 PYTHONPATH=. mkdocs build -q -d /tmp/site        # docs build check
 ```
 
@@ -116,22 +128,35 @@ Follow `.github/instructions/testing.instructions.md`. In short:
 
 ## Working with the user
 
-- Do not create git commits. Leave changes uncommitted in the working tree;
-  the author reviews and commits.
+- In a local session, commit finished work without asking, on a working
+  branch (`feature/`, `fix/`, `docs/` or `chore/`), never directly on
+  `main` or `X.Y.x`. Ask before pushing; once a push is approved, opening
+  the pull request needs no further confirmation. Never merge a pull
+  request without the author's confirmation.
+- An autonomous remote session commits and pushes to its own branch, named
+  `feature/<slug>`, `fix/<slug>`, `docs/<slug>` or `chore/<slug>`. Never push
+  to `main` or a release branch (`X.Y.x`), never force push, and do not open
+  a pull request unless asked.
+- Commits and pull requests carry only the author's identity: no
+  `Co-Authored-By` trailer for an AI agent, no session link trailer and no
+  "Generated with" line.
+  The author identity comes from git config or `GIT_AUTHOR_*` and
+  `GIT_COMMITTER_*`; do not override it.
 - Any user-visible change (API, CLI output, generated scripts, warnings)
   gets an entry in `docs/releases/releases.md` under the unreleased version.
 - A change to `llm/context.py`, `llm/prompts.py` or the rendered
-  explanations needs a run of `tools/ask_context_check.py` against a real
+  explanations needs a run of `tools/ai/check_ask_context.py` against a real
   model before the release (it costs money, so the user launches it), and
   the reviewed report is saved as described in
-  `tools/ask_context_reports/README.md`.
+  `tools/ai/ask_context_reports/README.md`.
 - `skforecast_ai/skills/` and `skforecast_ai/resources/llms-base.txt` are
   synced from the skforecast repository with
-  `tools/sync_skforecast_assets.py`; `.github/copilot-instructions.md` is
-  generated upstream. Do not edit any of them here. When a sync adds,
+  `tools/ai/sync_skforecast_assets.py`; `.github/copilot-instructions.md` is
+  generated upstream. Do not edit any of them here. Every sync also
+  rewrites the token estimates in `llm/skills.py`. When a sync adds,
   removes or renames a skill, the script lists the change and the files
   maintained by hand: `llm/skills.py` (`ALL_SKILLS` and the routing
-  tables, plus `tools/measure_skill_tokens.py --update`), the table in
+  tables), the table in
   `docs/user-guides/skills.md` (`tests/test_docs_skills_page.py` checks it
   against `ALL_SKILLS`) and the upstream-order test in
   `tests/tests_llm/test_select_skills.py`.

@@ -7,8 +7,14 @@
 
 from __future__ import annotations
 import traceback
-from typing import TYPE_CHECKING, ClassVar, Literal
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from typing import TYPE_CHECKING, ClassVar, Literal, get_args
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+)
 from .._display import (
     DisplayMixin,
     render_cv_config,
@@ -19,6 +25,8 @@ from .._display import (
     render_plan,
     render_profile,
 )
+from ..exceptions import InvalidInputTypeError
+from ._compat import PickleDefaultsMixin
 from ._types import JSONFrame, JSONTimeSeriesFold, OptionalJSONFrame
 from .explainable import ExplainableResult
 from .plans import ForecastPlan
@@ -26,6 +34,45 @@ from .profiles import ForecastingProfile
 
 if TYPE_CHECKING:
     from rich.console import Console, ConsoleOptions, RenderResult
+
+# Parameters of a cross-validation strategy that the user can pass to
+# `create_cv()`, in the order of its signature. `steps` and
+# `differentiation` are not among them: they always come from the plan.
+CVOverrideName = Literal[
+    "initial_train_size",
+    "fold_stride",
+    "refit",
+    "fixed_train_size",
+    "gap",
+    "skip_folds",
+    "allow_incomplete_fold",
+]
+
+# The same names as a tuple, in their canonical order.
+CV_OVERRIDE_NAMES: tuple[str, ...] = get_args(CVOverrideName)
+
+
+def _with_defaults(explanation: str, defaults_explanation: str) -> str:
+    """
+    Join the explanation of a strategy with the reasons of its defaults,
+    which the results keep apart so the first one stays the same text
+    whoever built the strategy.
+    """
+    if not defaults_explanation:
+        return explanation
+
+    return f"{explanation} {defaults_explanation}"
+
+
+def _ordered_cv_names(value: list[str] | None) -> list[str] | None:
+    """
+    Keep each name once, in the canonical order of `CV_OVERRIDE_NAMES`, so
+    two strategies with the same decisions compare equal. None stays None.
+    """
+    if value is None:
+        return None
+
+    return [name for name in CV_OVERRIDE_NAMES if name in value]
 
 
 class RenderedScript(BaseModel):
@@ -102,7 +149,9 @@ class LLMContext(BaseModel):
     sends_result_values: bool = True
 
 
-class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
+class CodeGenerationResult(
+    PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel
+):
     """
     Result of the `forecast_code` workflow.
 
@@ -120,7 +169,9 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
     plan: ForecastPlan
     code: str
 
-    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+    def _build_llm_context(
+        self, *, send_data: bool, for_describe: bool = False
+    ) -> LLMContext:
         """
         Describe the generated script to the LLM.
 
@@ -131,6 +182,9 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
             a generated script carries no predictions, only the profile
             and plan it was rendered from. The parameter is part of the
             `ExplainableResult` interface.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -142,21 +196,62 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
         # Deferred import: `llm.context` imports from this package, so a
         # module-level import here would be circular.
         from ..llm.context import (
+            backtest_cv_from_code,
             join_sections,
+            render_cv_section,
             render_dataset_section,
             render_plan_section,
             render_profile_decision_section,
             render_script_section,
         )
+        from ..recommendation.backtesting import resolve_cv_config
+
+        # A script of `backtest_code()` is described as a backtest: its
+        # strategy is read from the script and counted over the data, as
+        # `backtest()` counts it.
+        trains = self.plan.task_type != "foundation"
+        cv_config = None
+        cv = backtest_cv_from_code(self.code)
+        if cv is not None:
+            # A strategy that cannot be counted (an `initial_train_size`
+            # date outside the data, which skforecast cannot split) is
+            # described without its counts, and the mode line says so,
+            # rather than failing a description that worked before.
+            try:
+                cv_config, _ = resolve_cv_config(
+                    cv,
+                    self.profile.data_profile,
+                    trains     = trains,
+                    forecaster = self.plan.forecaster,
+                )
+            except (TypeError, ValueError):
+                cv_config = None
+            # The script writes `fixed_train_size` only when the forecaster
+            # is refitted; otherwise it has no effect and its value cannot
+            # be read from the script.
+            if cv_config is not None and not cv_config["refit"]:
+                del cv_config["fixed_train_size"]
 
         # The script itself is not sent; its contract (mode, files, outputs,
         # packages) is, so "what do I need to run it" has an answer.
         return LLMContext(
             text                = join_sections([
-                                      render_dataset_section(self.profile),
-                                      render_profile_decision_section(self.profile),
-                                      render_plan_section(self.plan),
-                                      render_script_section(self.plan, self.code),
+                                      render_dataset_section(
+                                          self.profile, for_describe=for_describe
+                                      ),
+                                      render_profile_decision_section(
+                                          self.profile, for_describe=for_describe
+                                      ),
+                                      render_plan_section(
+                                          self.plan, for_describe=for_describe
+                                      ),
+                                      render_cv_section(cv_config, trains=trains),
+                                      render_script_section(
+                                          self.plan,
+                                          self.code,
+                                          for_describe = for_describe,
+                                          cv_config    = cv_config,
+                                      ),
                                   ]),
             profile             = self.profile,
             plan                = self.plan,
@@ -171,7 +266,9 @@ class CodeGenerationResult(DisplayMixin, ExplainableResult, BaseModel):
         yield render_plan(self.plan)
 
 
-class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
+class SingleRunResult(
+    PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel
+):
     """
     Shared base for the result of a single forecasting or backtesting run.
 
@@ -211,7 +308,9 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
     predictions: JSONFrame
     metrics: OptionalJSONFrame
 
-    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+    def _build_llm_context(
+        self, *, send_data: bool, for_describe: bool = False
+    ) -> LLMContext:
         """
         Describe a single run to the LLM.
 
@@ -219,6 +318,9 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
         ----------
         send_data : bool
             Whether raw prediction values may be included.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -247,17 +349,40 @@ class SingleRunResult(DisplayMixin, ExplainableResult, BaseModel):
         # re-derive from the truncated prediction table.
         cv_config = getattr(self, "cv_config", None)
         explanation = getattr(self, "explanation", None)
+        if explanation is not None:
+            explanation = _with_defaults(
+                explanation, getattr(self, "cv_defaults_explanation", "")
+            )
 
         return LLMContext(
             text    = join_sections([
-                          render_dataset_section(self.profile),
-                          render_profile_decision_section(self.profile),
-                          render_plan_section(self.plan),
-                          render_cv_section(cv_config),
+                          render_dataset_section(
+                              self.profile, for_describe=for_describe
+                          ),
+                          render_profile_decision_section(
+                              self.profile, for_describe=for_describe
+                          ),
+                          render_plan_section(
+                              self.plan, for_describe=for_describe
+                          ),
+                          render_cv_section(
+                              cv_config,
+                              trains         = self.plan.task_type != "foundation",
+                              overridden     = getattr(
+                                  self, "cv_overridden_fields", None
+                              ),
+                              without_effect = getattr(
+                                  self, "cv_fields_without_effect", None
+                              ),
+                              llm_configured = getattr(
+                                  self, "cv_llm_configured", False
+                              ),
+                          ),
                           render_deterministic_summary_section(explanation),
                           render_metrics_section(
                               self.metrics,
                               has_predictions = self.predictions is not None,
+                              for_describe    = for_describe,
                           ),
                           render_predictions_section(
                               self.predictions, send_data=send_data
@@ -282,8 +407,10 @@ class ForecastResult(SingleRunResult):
     code : str
         Generated Python script equivalent to the execution.
     metrics : pandas DataFrame, None
-        Evaluation metrics. DataFrame with columns
-        `['series', 'MAE', 'MSE', 'MASE']`. For single-series tasks
+        Evaluation metrics. DataFrame with a `series` column and one
+        column per metric of `plan.metrics_to_compute` (by default `MAE`,
+        `MSE` and `MASE`, plus `MAPE` when the target has no values near
+        zero). For single-series tasks
         this contains one row; for multi-series tasks one row per level.
         None in prediction mode (`test_size=None`), where there is no
         ground truth to evaluate against.
@@ -314,8 +441,10 @@ class BacktestResult(SingleRunResult):
     plan : ForecastPlan
         Detailed forecasting plan that was executed.
     cv_config : dict
-        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`,
-        for traceability.
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
+        and `n_fits` (trainings), for traceability. For a
+        `ForecasterFoundation` plan, also `inference_windows`, its cost:
+        one forecast per series and fold.
     metrics : pandas DataFrame
         Backtesting metric values returned by skforecast.
     predictions : pandas DataFrame
@@ -325,17 +454,44 @@ class BacktestResult(SingleRunResult):
     explanation : str
         Human-readable explanation of the backtesting configuration
         and results summary.
+    cv_overridden_fields : list, None
+        Names of the strategy parameters the user passed to `create_cv()`
+        instead of its defaults (`CVResult.overridden_fields`). None when
+        `backtest()` received a `TimeSeriesFold`, whose origin is not
+        known.
+    cv_fields_without_effect : list
+        Names in `cv_overridden_fields` that have no effect on the
+        forecaster that ran.
+    cv_llm_configured : bool
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass.
+    cv_defaults_explanation : str
+        Why the strategy parameters that the user did not pass have their
+        value, and which ones the user passed. Shown after `explanation`
+        by `describe()`, `ask()` and the rich display. Empty when
+        `cv_overridden_fields` is None.
     """
 
     cv_config: dict
     explanation: str
+    cv_overridden_fields: list[CVOverrideName] | None = None
+    cv_fields_without_effect: list[CVOverrideName] = Field(default_factory=list)
+    cv_llm_configured: bool = False
+    cv_defaults_explanation: str = ""
 
     _explanation_title: ClassVar[str] = "Backtest Explanation"
+
+    _order_cv_names = field_validator(
+        "cv_overridden_fields", "cv_fields_without_effect", mode="after"
+    )(_ordered_cv_names)
 
     def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield render_explanation(self.explanation, title="Backtest Explanation")
+        yield render_explanation(
+            _with_defaults(self.explanation, self.cv_defaults_explanation),
+            title="Backtest Explanation",
+        )
         yield render_cv_config(self.cv_config)
         yield render_metrics(self.metrics, title="Backtest Metrics")
         yield render_dataframe(self.predictions, title="Backtest Predictions")
@@ -343,14 +499,14 @@ class BacktestResult(SingleRunResult):
         yield render_plan(self.plan)
 
 
-class CVResult(DisplayMixin, ExplainableResult, BaseModel):
+class CVResult(PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel):
     """
     Result of the `create_cv` workflow (a cross-validation strategy).
 
     Wraps the `TimeSeriesFold` splitter together with the resolved
     parameters, the fold count, the snippet that builds the splitter, and
     the explanation of the choices. Pass it to `backtest()`,
-    `backtest_code()` or `compare()` as `cv`, or to `ask()` as `result`.
+    `backtest_code()` or `compare()` as `cv`, or to `ask()` as `context`.
 
     Attributes
     ----------
@@ -363,12 +519,41 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
     cv : TimeSeriesFold
         Configured cross-validation fold splitter.
     cv_config : dict
-        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`.
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
+        and `n_fits` (trainings). For a `ForecasterFoundation` plan, also
+        `inference_windows`, its cost: one forecast per series and fold.
+        For a `ForecasterStats` plan, the strategy skforecast runs:
+        `refit=True` (it refits ARIMA in every fold) and, when `cv` does
+        not refit, `fixed_train_size=True`.
     code : str
-        Python snippet that builds the same `TimeSeriesFold`.
+        Python snippet that builds the `TimeSeriesFold` of `cv_config`,
+        the one the backtesting script embeds.
     explanation : str
         Human-readable explanation of the chosen configuration. When the
         strategy was derived from a prompt, the LLM reasoning comes first.
+    overridden_fields : list
+        Names of the parameters the user passed to `create_cv()` with a
+        value other than None, instead of its defaults: among
+        `initial_train_size`, `fold_stride`, `refit`, `fixed_train_size`,
+        `gap`, `skip_folds` and `allow_incomplete_fold`. A value equal to
+        the default counts. It holds names only; the values are those of
+        `cv`. Empty for a result built without `create_cv()`.
+    fields_without_effect : list
+        Names in `overridden_fields` that have no effect on the forecaster
+        of `plan`: `fixed_train_size` when the forecaster is trained once,
+        and `refit` or `fixed_train_size` when skforecast runs another
+        value for a `ForecasterStats` plan or when the model is not trained
+        (`ForecasterFoundation`).
+    llm_configured : bool
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass. False without a prompt and when the LLM call
+        failed and the deterministic defaults were used.
+    defaults_explanation : str
+        Why the parameters that the user did not pass have their value
+        (the rule that fixed `initial_train_size`, and why the forecaster
+        is trained once), and which ones the user passed. It is kept apart
+        from `explanation`, which only states the strategy; `describe()`,
+        `ask()` and the rich display show one after the other.
 
     Notes
     -----
@@ -385,21 +570,31 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
     cv_config: dict
     code: str
     explanation: str
+    overridden_fields: list[CVOverrideName] = Field(default_factory=list)
+    fields_without_effect: list[CVOverrideName] = Field(default_factory=list)
+    llm_configured: bool = False
+    defaults_explanation: str = ""
 
     _explanation_title: ClassVar[str] = "Cross-Validation Explanation"
+
+    _order_cv_names = field_validator(
+        "overridden_fields", "fields_without_effect", mode="after"
+    )(_ordered_cv_names)
 
     def __iter__(self):
         # Pydantic models iterate over (field, value) pairs, which would let
         # the old `cv, explanation = create_cv(...)` silently unpack the
         # wrong things (or fail with a puzzling "too many values" error).
-        raise TypeError(
+        raise InvalidInputTypeError(
             "`create_cv()` returns a `CVResult`, not a tuple. Use "
             "`result.cv` for the TimeSeriesFold and `result.explanation` "
             "for the explanation, or pass the result itself as `cv` to "
             "`backtest()`, `backtest_code()` or `compare()`."
         )
 
-    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+    def _build_llm_context(
+        self, *, send_data: bool, for_describe: bool = False
+    ) -> LLMContext:
         """
         Describe the cross-validation strategy to the LLM.
 
@@ -409,6 +604,9 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
             Whether raw data values may be included. Has no effect here:
             a strategy carries no predictions or metrics. The parameter is
             part of the `ExplainableResult` interface.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -424,10 +622,17 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
 
         return LLMContext(
             text                = build_context_message(
-                                      profile     = self.profile,
-                                      plan        = self.plan,
-                                      cv_config   = self.cv_config,
-                                      explanation = self.explanation,
+                                      profile      = self.profile,
+                                      plan         = self.plan,
+                                      cv_config    = self.cv_config,
+                                      explanation  = _with_defaults(
+                                          self.explanation,
+                                          self.defaults_explanation,
+                                      ),
+                                      for_describe = for_describe,
+                                      cv_overridden     = self.overridden_fields,
+                                      cv_without_effect = self.fields_without_effect,
+                                      cv_llm_configured = self.llm_configured,
                                   ),
             profile             = self.profile,
             plan                = self.plan,
@@ -438,7 +643,10 @@ class CVResult(DisplayMixin, ExplainableResult, BaseModel):
     def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield render_explanation(self.explanation, title=self._explanation_title)
+        yield render_explanation(
+            _with_defaults(self.explanation, self.defaults_explanation),
+            title=self._explanation_title,
+        )
         yield render_cv_config(self.cv_config)
 
 
@@ -585,7 +793,9 @@ class CandidateFailure(BaseModel):
     ----------
     error_type : str
         Class name of the root-cause exception, for example
-        `'ImportError'`.
+        `'ImportError'`. An input error of skforecast-ai is named after the
+        built-in class it derives from (`'ValueError'` for an
+        `InvalidInputError`), as before these errors had their own classes.
     message : str
         Message of the root-cause exception.
     traceback : str
@@ -622,7 +832,7 @@ class CandidateFailure(BaseModel):
             Plain-data snapshot of the failure.
         """
 
-        from ..exceptions import ForecastExecutionError
+        from ..exceptions import ForecastExecutionError, _reported_type_name
 
         if isinstance(exc, ForecastExecutionError):
             root = exc.original_error
@@ -636,7 +846,7 @@ class CandidateFailure(BaseModel):
             generated_code = None
 
         return cls(
-            error_type     = type(root).__name__,
+            error_type     = _reported_type_name(root),
             message        = str(root),
             traceback      = formatted,
             generated_code = generated_code,
@@ -658,16 +868,64 @@ class CandidateFailure(BaseModel):
             Single-line summary of the failure.
         """
 
-        lines = [line.strip() for line in self.message.splitlines() if line.strip()]
-        first_line = lines[0] if lines else ""
-        summary = f"{self.error_type}: {first_line}" if first_line else self.error_type
-        if len(summary) > max_length:
-            summary = summary[: max_length - 3].rstrip() + "..."
-
-        return summary
+        return _one_line_summary(self.error_type, self.message, max_length)
 
 
-class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
+class CompareProgress(BaseModel):
+    """
+    Progress event that `compare()` passes to its `progress_callback`.
+
+    `compare()` sends one event when a candidate starts (`status`
+    `'started'`) and one when it ends (`'succeeded'` or `'failed'`), so
+    every comparison of `total` candidates sends `2 * total` events.
+
+    Attributes
+    ----------
+    candidate : str
+        Name of the candidate the event refers to, as in the `name`
+        column of `ComparisonResult.results`.
+    status : {'started', 'succeeded', 'failed'}
+        Whether the candidate is about to run, ran, or failed.
+    completed : int
+        Number of candidates that have ended so far, this one included
+        when `status` is not `'started'`.
+    total : int
+        Number of candidates the comparison runs, the baseline included.
+    error : str, default None
+        One-line summary of the failure, the same text as the `error`
+        column of the results table. Only set when `status` is
+        `'failed'`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    candidate: str
+    status: Literal["started", "succeeded", "failed"]
+    completed: int = Field(ge=0)
+    total: int = Field(ge=1)
+    error: str | None = None
+
+
+def _one_line_summary(error_type: str, message: str, max_length: int = 200) -> str:
+    """
+    Summarize an error as `'ErrorType: first non-empty line of the message'`,
+    truncated to `max_length` characters with a trailing ellipsis. Shared by
+    `CandidateFailure.summary()` and `ErrorInfo`, so both describe the same
+    exception with the same text.
+    """
+
+    lines = [line.strip() for line in message.splitlines() if line.strip()]
+    first_line = lines[0] if lines else ""
+    summary = f"{error_type}: {first_line}" if first_line else error_type
+    if len(summary) > max_length:
+        summary = summary[: max_length - 3].rstrip() + "..."
+
+    return summary
+
+
+class ComparisonResult(
+    PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel
+):
     """
     Result of the `compare` workflow (ranks several forecasters).
 
@@ -702,6 +960,27 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
         Name of the metric used to sort `results`.
     explanation : str
         Human-readable summary of the comparison.
+    baseline_name : str, default None
+        Name of the `ForecasterEquivalentDate` candidate that serves as
+        the naive reference, ranked like any other row. None when the
+        comparison has no baseline (`baseline=False`, multi-series data,
+        or a target with missing values).
+    cv_overridden_fields : list, None
+        Names of the strategy parameters the user passed to `create_cv()`
+        instead of its defaults (`CVResult.overridden_fields`). None when
+        `compare()` received a `TimeSeriesFold`, whose origin is not
+        known.
+    cv_fields_without_effect : list
+        Names in `cv_overridden_fields` that have no effect on the shared
+        strategy.
+    cv_llm_configured : bool
+        Whether the LLM of `create_cv(prompt=...)` set the parameters the
+        user did not pass.
+    cv_defaults_explanation : str
+        Why the strategy parameters that the user did not pass have their
+        value, and which ones the user passed. Shown after `explanation`
+        by `describe()`, `ask()` and the rich display. Empty when
+        `cv_overridden_fields` is None.
     best_name : str
         Name of the top-ranked candidate.
     best_candidate : BacktestResult
@@ -734,8 +1013,17 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     failures: dict[str, CandidateFailure] = Field(default_factory=dict)
     ranking_metric: str
     explanation: str
+    baseline_name: str | None = None
+    cv_overridden_fields: list[CVOverrideName] | None = None
+    cv_fields_without_effect: list[CVOverrideName] = Field(default_factory=list)
+    cv_llm_configured: bool = False
+    cv_defaults_explanation: str = ""
 
     _explanation_title: ClassVar[str] = "Comparison Explanation"
+
+    _order_cv_names = field_validator(
+        "cv_overridden_fields", "cv_fields_without_effect", mode="after"
+    )(_ordered_cv_names)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -748,7 +1036,9 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
         """Return the `BacktestResult` of the top-ranked candidate."""
         return self.candidates[self.best_name]
 
-    def _build_llm_context(self, *, send_data: bool) -> LLMContext:
+    def _build_llm_context(
+        self, *, send_data: bool, for_describe: bool = False
+    ) -> LLMContext:
         """
         Describe the comparison to the LLM.
 
@@ -767,6 +1057,9 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
             a comparison renders aggregated leaderboard metrics only,
             never row-level predictions. The parameter is part of the
             `ExplainableResult` interface.
+        for_describe : bool, default False
+            Whether the context is built for `describe()`, which leaves out
+            the sentences addressed to the LLM of `ask()`.
 
         Returns
         -------
@@ -783,7 +1076,9 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
         best = self.best_candidate
 
         return LLMContext(
-            text    = build_comparison_context(self),
+            text    = build_comparison_context(
+                          self, for_describe=for_describe
+                      ),
             profile = self.profile,
             plan    = best.plan,
             code    = best.code,
@@ -792,5 +1087,8 @@ class ComparisonResult(DisplayMixin, ExplainableResult, BaseModel):
     def _rich_body(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield render_explanation(self.explanation, title="Comparison Explanation")
+        yield render_explanation(
+            _with_defaults(self.explanation, self.cv_defaults_explanation),
+            title="Comparison Explanation",
+        )
         yield render_dataframe(self.results, title="Comparison Results")

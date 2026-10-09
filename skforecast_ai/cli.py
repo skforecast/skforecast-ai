@@ -11,11 +11,12 @@ import contextlib
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
-from typing import Annotated
-import pandas as pd
+from typing import Annotated, Literal
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from pydantic import ValidationError
 
@@ -33,17 +34,22 @@ from ._display import (
 from .assistant import ForecastingAssistant
 from .config import (
     CONFIG_FILE,
+    VALID_KEYS,
     get_config_value,
     load_config,
     set_config_value,
 )
 from .exceptions import (
     AllCandidatesFailedError,
+    DataNotFoundError,
     ForecastExecutionError,
+    InvalidInputError,
     LLMCallError,
     LLMRequiredError,
+    SkforecastAIError,
 )
-from ._utils import _validate_lags
+from ._utils import _validate_lags, load_exog
+from .schemas.errors import ErrorInfo
 from .schemas.plans import ForecastPlan
 from .schemas.profiles import ForecastingProfile
 
@@ -60,11 +66,18 @@ DateColumnOption = Annotated[str | None, typer.Option("--date-column", "-d", hel
 SeriesIdColumnOption = Annotated[str | None, typer.Option("--series-id-column", "-s", help="Series identifier column.")]
 StepsOption = Annotated[int | None, typer.Option("--steps", help="Forecast horizon (number of steps).")]
 ForecasterOption = Annotated[str | None, typer.Option("--forecaster", help="Override forecaster class.")]
-EstimatorOption = Annotated[str | None, typer.Option("--estimator", help="Override estimator class.")]
+EstimatorOption = Annotated[str | None, typer.Option("--estimator", help="Override estimator class, or the Hugging Face model ID for ForecasterFoundation (e.g. 'google/timesfm-3.0-pytorch').")]
 EstimatorKwargsOption = Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string, e.g. '{\"n_estimators\": 200}'.")]
-IntervalOption = Annotated[str | None, typer.Option("--interval", help="Prediction interval, e.g. '0.1,0.9'.")]
+IntervalOption = Annotated[str | None, typer.Option("--interval", help="Prediction interval as two quantiles between 0 and 1, e.g. '0.1,0.9' for an 80% interval.")]
 LagsOption = Annotated[str | None, typer.Option("--lags", help="Explicit lags as an int or comma-separated list, e.g. '1,2,3', or 'auto' to re-run the deterministic selection when refining a saved plan.")]
 WindowFeaturesOption = Annotated[str | None, typer.Option("--window-features", help="Explicit window features as JSON array, e.g. '[{\"stats\": [\"mean\"], \"window_size\": 7}]', or 'auto' to re-run the deterministic selection when refining a saved plan.")]
+MetricOption = Annotated[str | None, typer.Option("--metric", help="Metric, or comma-separated metrics whose first one is the primary metric; only those are computed. 'auto' selects them from the data again when refining a saved plan.")]
+UseExogOption = Annotated[str | None, typer.Option("--use-exog", help="Use the exogenous columns: 'true', 'false' (forecast then takes no --exog) or 'auto' for the rule.")]
+DifferentiationOption = Annotated[str | None, typer.Option("--differentiation", help="Order of differencing of the target before training (an integer of at least 1), or 'auto' for the rule (no differencing). Machine learning forecasters only.")]
+CalendarFeaturesOption = Annotated[str | None, typer.Option("--calendar-features", help="Comma-separated calendar features (e.g. 'month,day_of_week'), 'none' for none, or 'auto' for those selected from the frequency. Machine learning forecasters only.")]
+TargetTransformerOption = Annotated[str | None, typer.Option("--target-transformer", help="Scaler of the target: 'StandardScaler', 'none', or 'auto' for the rule. Machine learning forecasters only.")]
+DropnaOption = Annotated[str | None, typer.Option("--dropna-from-series", help="Drop the training rows with missing values: 'true', 'false' or 'auto' for the rule. Machine learning forecasters only.")]
+ExogColumnsOption = Annotated[str | None, typer.Option("--exog-columns", help="Comma-separated columns to use as exogenous variables, 'none' for none, or 'auto' for every column that is not the target, the date or the series id. The other columns are not used.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
 FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
 # CV options default to None so that only the flags actually passed reach
@@ -72,15 +85,17 @@ FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="L
 InitialTrainSizeOption = Annotated[str | None, typer.Option("--initial-train-size", help="Initial training window: number of observations or an ISO date marking the end of the initial training set.")]
 FoldStrideOption = Annotated[int | None, typer.Option("--fold-stride", help="Fold stride (step size between folds).")]
 RefitOption = Annotated[bool | None, typer.Option("--refit/--no-refit", help="Whether to refit the model each fold (default: decided by the assistant).")]
-FixedTrainSizeOption = Annotated[bool | None, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window (default: decided by the assistant).")]
+FixedTrainSizeOption = Annotated[bool | None, typer.Option("--fixed-train-size/--expanding-train", help="Fixed or expanding training window when the forecaster is refitted; needs --refit (default: decided by the assistant).")]
 GapOption = Annotated[int | None, typer.Option("--gap", help="Gap between training and test sets.")]
 AllowIncompleteFoldOption = Annotated[bool | None, typer.Option("--allow-incomplete-fold/--no-incomplete-fold", help="Allow last fold with fewer observations (default: decided by the assistant).")]
-BaseUrlOption = Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint URL.")]
+BaseUrlOption = Annotated[str | None, typer.Option("--base-url", help="Custom LLM endpoint: server URL for ollama or an OpenAI-compatible API, AWS region for bedrock.")]
 ApiKeyOption = Annotated[str | None, typer.Option("--api-key", help="API key for the LLM provider.")]
 OutputOption = Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")]
 OutputPredictionsOption = Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")]
 QuietOption = Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")]
-TableFormatOption = Annotated[str, typer.Option("--format", help="Output format: table or json.")]
+TableFormatOption = Annotated[Literal["table", "json"], typer.Option("--format", help="Output format: table or json.")]
+CodeFormatOption = Annotated[Literal["code", "json"], typer.Option("--format", help="Output format: code or json.")]
+TextFormatOption = Annotated[Literal["text", "json"], typer.Option("--format", help="Output format: text or json.")]
 
 
 def _version_callback(value: bool) -> None:
@@ -108,8 +123,40 @@ app = typer.Typer(
 )
 
 
+def _showwarning_to_stderr(showwarning):
+    """
+    Wrap a `warnings.showwarning` handler so it writes to stderr.
+
+    skforecast installs a handler that prints its warnings as rich panels
+    on stdout, which breaks the JSON of `--format json`. The wrapper sends
+    stdout to stderr while the handler runs, so the panels keep their
+    format; a warning shown on an explicit `file` is left untouched.
+
+    Parameters
+    ----------
+    showwarning : callable
+        Handler to wrap, with the signature of `warnings.showwarning`.
+
+    Returns
+    -------
+    wrapper : callable
+        Handler that runs `showwarning` with stdout sent to stderr.
+    """
+
+    def wrapper(message, category, filename, lineno, file=None, line=None):
+        if file is not None:
+            showwarning(message, category, filename, lineno, file, line)
+            return
+        with contextlib.redirect_stdout(sys.stderr):
+            showwarning(message, category, filename, lineno, file, line)
+
+    wrapper._skforecast_ai_stderr = True
+    return wrapper
+
+
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: Annotated[
         bool | None,
         typer.Option("--version", callback=_version_callback, is_eager=True, help="Show version."),
@@ -120,6 +167,9 @@ def main(
 
     Parameters
     ----------
+    ctx : typer.Context
+        Context of the invocation, used to restore the warning handler when
+        the command ends.
     version : bool, default None
         Show version and exit.
 
@@ -127,6 +177,20 @@ def main(
     -------
     None
     """
+    # Every warning goes to stderr, so stdout holds only the output of the
+    # command (the JSON document with `--format json`). The MCP server keeps
+    # its own handling: it records warnings per call in a worker thread, and
+    # `redirect_stdout` is not thread safe.
+    if ctx.invoked_subcommand == "mcp":
+        return
+    previous = warnings.showwarning
+    if not getattr(previous, "_skforecast_ai_stderr", False):
+        warnings.showwarning = _showwarning_to_stderr(previous)
+
+        def restore() -> None:
+            warnings.showwarning = previous
+
+        ctx.call_on_close(restore)
 
 
 console = Console()
@@ -140,6 +204,10 @@ app.add_typer(config_app, name="config")
 def config_show() -> None:
     """
     Display current configuration.
+
+    Keys that skforecast-ai does not read (left by an older version or
+    written by hand) are listed as ignored instead of being shown as if
+    they had an effect.
 
     Returns
     -------
@@ -156,15 +224,26 @@ def config_show() -> None:
     table.add_column("Value")
     table.add_column("Source", style="dim")
 
+    ignored: list[str] = []
     for section, values in sorted(config.items()):
         if not isinstance(values, dict):
+            ignored.append(section)
             continue
         for key, val in sorted(values.items()):
             full_key = f"{section}.{key}"
+            if full_key not in VALID_KEYS:
+                ignored.append(full_key)
+                continue
             display_val = _mask_secret(full_key, str(val))
             table.add_row(full_key, display_val, str(CONFIG_FILE))
 
-    console.print(table)
+    if table.row_count:
+        console.print(table)
+    if ignored:
+        console.print(
+            f"[yellow]Ignored keys (not used by skforecast-ai):[/yellow] "
+            f"{', '.join(ignored)}. You can remove them from {CONFIG_FILE}."
+        )
 
 
 @config_app.command("set")
@@ -189,7 +268,7 @@ def config_set(
     try:
         set_config_value(key, value)
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        err_console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(code=1)
     display_val = _mask_secret(key, value)
     console.print(f"[green]Set[/green] {key} = {display_val}")
@@ -295,12 +374,49 @@ def _read_json_input(source: str) -> dict:
     else:
         path = Path(source)
         if not path.is_file():
-            raise FileNotFoundError(f"File not found: '{source}'.")
+            raise DataNotFoundError(f"File not found: '{source}'.")
         raw = path.read_text()
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON input: {e}") from e
+        raise InvalidInputError(
+            f"Invalid JSON input: {e}",
+            code = "data_unreadable",
+        ) from e
+
+
+def _read_plan_bundle(source: str) -> tuple[ForecastingProfile, ForecastPlan]:
+    """
+    Read the profile and the plan of a `--from-plan` bundle.
+
+    Parameters
+    ----------
+    source : str
+        Path to the JSON file written by `plan` or `refine-plan`, or `'-'`
+        to read it from stdin.
+
+    Returns
+    -------
+    profile : ForecastingProfile
+        Profile of the bundle.
+    plan : ForecastPlan
+        Plan of the bundle.
+    """
+    bundle = _read_json_input(source)
+    missing = [
+        key for key in ("profile", "plan")
+        if not isinstance(bundle, dict) or key not in bundle
+    ]
+    if missing:
+        raise InvalidInputError(
+            f"The --from-plan input has no {' or '.join(map(repr, missing))}: "
+            f"pass the file written by `plan` or `refine-plan` with "
+            f"--format json.",
+            field = "from_plan",
+        )
+    profile = ForecastingProfile.model_validate(bundle["profile"])
+    plan = ForecastPlan.model_validate(bundle["plan"])
+    return profile, plan
 
 
 def _parse_target(target_str: str) -> str | list[str]:
@@ -339,7 +455,10 @@ def _parse_interval(interval_str: str | None) -> list[float] | None:
     """
     if interval_str is None:
         return None
-    parts = [float(x.strip()) for x in interval_str.split(",")]
+    try:
+        parts = [float(x.strip()) for x in interval_str.split(",")]
+    except ValueError:
+        parts = []
     if len(parts) != 2:
         raise typer.BadParameter(
             "Interval must be two comma-separated quantiles, e.g. '0.1,0.9'."
@@ -419,6 +538,7 @@ def _collect_plan_overrides(
     steps: int | None = None,
     reset_lags: bool = False,
     reset_window_features: bool = False,
+    decisions: dict | None = None,
 ) -> dict:
     """
     Build a dict of plan overrides for `refine_plan`.
@@ -452,6 +572,9 @@ def _collect_plan_overrides(
     reset_window_features : bool, default False
         Ask for the deterministic window feature selection
         (`window_features=None`).
+    decisions : dict, default None
+        Decisions read by `_parse_decisions`, added as they are (a None
+        value asks for the rule).
 
     Returns
     -------
@@ -477,7 +600,128 @@ def _collect_plan_overrides(
         overrides["window_features"] = None
     elif window_features is not None:
         overrides["window_features"] = window_features
+    overrides.update(decisions or {})
     return overrides
+
+
+# Warnings of `create_cv()` about a strategy whose backtest raises: the
+# direct forecaster with a gap and the first training window shorter than
+# the forecaster needs. `backtest` and `backtest-code` raise right after
+# with the same reason, and a candidate of `compare` that cannot run fails
+# with its own reason.
+_STRATEGY_WARNINGS = (
+    r".*`backtest\(\)` and `backtest_code\(\)` of this plan",
+    r".*`backtest\(\)` of this plan with this strategy raises",
+)
+
+
+def _create_cv_to_backtest(assistant: ForecastingAssistant, **kwargs):
+    """
+    Build the strategy that `backtest`, `backtest-code` or `compare` runs,
+    without the warnings of `create_cv()` about a strategy whose backtest of
+    its plan raises: the command says it right after (a failed candidate,
+    for `compare`).
+    """
+    with warnings.catch_warnings():
+        for pattern in _STRATEGY_WARNINGS:
+            warnings.filterwarnings(
+                action   = "ignore",
+                message  = pattern,
+                category = UserWarning,
+            )
+        return assistant.create_cv(**kwargs)
+
+
+def _parse_exog_columns(value: str | None) -> list[str] | None:
+    """
+    Read `--exog-columns`: `'auto'` (or the option left out) maps to None,
+    every column; `'none'` to an empty list. The names are checked by
+    `profile()`.
+    """
+    if value is None or _is_auto(value):
+        return None
+    if value.strip().lower() == "none":
+        return []
+    return [name.strip() for name in value.split(",")]
+
+
+def _parse_bool_option(value: str, option: str) -> bool:
+    """
+    Read 'true' or 'false' (any case) given to a three-state option.
+    """
+    text = value.strip().lower()
+    if text not in ("true", "false"):
+        raise typer.BadParameter(
+            f"{option} takes 'true', 'false' or 'auto', got {value!r}."
+        )
+    return text == "true"
+
+
+def _parse_decisions(
+    metric: str | None = None,
+    use_exog: str | None = None,
+    differentiation: str | None = None,
+    calendar_features: str | None = None,
+    target_transformer: str | None = None,
+    dropna_from_series: str | None = None,
+) -> dict:
+    """
+    Read the options of the decisions added in 0.4.0 (`--metric`,
+    `--use-exog`, `--differentiation`, `--calendar-features`,
+    `--target-transformer`, `--dropna-from-series`).
+
+    Each option given is a key of the result: `'auto'` maps to None, which
+    asks `plan()` for the rule (and `refine_plan()` to decide again), so
+    the dict can be passed to `plan()` and merged into the overrides of
+    `refine_plan()` as it is. The values are checked by the core.
+
+    Returns
+    -------
+    decisions : dict
+        Keyword arguments of `plan()` for the options given.
+    """
+    decisions: dict = {}
+    if metric is not None:
+        metrics = [name.strip() for name in metric.split(",")]
+        decisions["metric"] = (
+            None if _is_auto(metric)
+            else metrics[0] if len(metrics) == 1 else metrics
+        )
+    if use_exog is not None:
+        decisions["use_exog"] = (
+            None if _is_auto(use_exog)
+            else _parse_bool_option(use_exog, "--use-exog")
+        )
+    if differentiation is not None:
+        if _is_auto(differentiation):
+            decisions["differentiation"] = None
+        else:
+            try:
+                decisions["differentiation"] = int(differentiation.strip())
+            except ValueError as e:
+                raise typer.BadParameter(
+                    f"--differentiation takes an integer or 'auto', got "
+                    f"{differentiation!r}."
+                ) from e
+    if calendar_features is not None:
+        if _is_auto(calendar_features):
+            decisions["calendar_features"] = None
+        elif calendar_features.strip().lower() == "none":
+            decisions["calendar_features"] = []
+        else:
+            decisions["calendar_features"] = [
+                name.strip() for name in calendar_features.split(",")
+            ]
+    if target_transformer is not None:
+        decisions["target_transformer"] = (
+            None if _is_auto(target_transformer) else target_transformer.strip()
+        )
+    if dropna_from_series is not None:
+        decisions["dropna_from_series"] = (
+            None if _is_auto(dropna_from_series)
+            else _parse_bool_option(dropna_from_series, "--dropna-from-series")
+        )
+    return decisions
 
 
 def _collect_cv_overrides(
@@ -528,50 +772,6 @@ def _collect_cv_overrides(
     return {key: value for key, value in candidates.items() if value is not None}
 
 
-def _load_exog(
-    path: Path | None,
-    date_column: str | None,
-) -> pd.DataFrame | None:
-    """
-    Load a future exogenous CSV and set its datetime index.
-
-    Mirrors the index setup applied to the main dataset: when a date
-    column is provided it is parsed to datetime and set as the index;
-    otherwise the first column is parsed as the index. The index is
-    sorted so the returned DataFrame carries a DatetimeIndex covering the
-    forecast horizon. The series frequency is enforced later, during
-    execution, where the data profile is always available, keeping the
-    behavior identical regardless of how the workflow was invoked.
-
-    Parameters
-    ----------
-    path : Path, None
-        Path to the future exogenous CSV file. If None, returns None.
-    date_column : str, None
-        Name of the column containing timestamps. If None, the first
-        column is parsed as the datetime index.
-
-    Returns
-    -------
-    exog : pandas DataFrame, None
-        Future exogenous variables indexed by a DatetimeIndex, or None
-        when `path` is None.
-    """
-    if path is None:
-        return None
-    if not path.is_file():
-        raise FileNotFoundError(f"Exog CSV not found: '{path}'.")
-
-    if date_column is not None:
-        exog = pd.read_csv(path)
-        exog[date_column] = pd.to_datetime(exog[date_column])
-        exog = exog.set_index(date_column)
-    else:
-        exog = pd.read_csv(path, index_col=0, parse_dates=True)
-
-    return exog.sort_index()
-
-
 def _write_output(content: str, output: Path | None) -> None:
     """
     Write content to file or stdout.
@@ -604,50 +804,129 @@ def _spinner(message: str, quiet: bool):
             yield
 
 
-@contextlib.contextmanager
-def _error_handler():
+# Remedy for a failed script: `--output-code` is only written when the
+# command succeeds, so the script comes from the matching `*-code` command.
+EXECUTION_TIP = (
+    "Run forecast-code or backtest-code with the same options to get the "
+    "script that failed."
+)
+VALIDATION_TIP = "Use --format json with the source command to produce valid input."
+NO_LLM_MESSAGE = (
+    "No LLM configured. Set the SKFORECAST_AI_LLM environment variable or "
+    "use the --llm flag."
+)
+
+
+def _report_error(exc: Exception, json_errors: bool) -> None:
     """
-    Catch known exceptions and print user-friendly errors.
+    Print an error on stderr, as text or as a JSON object.
+
+    Parameters
+    ----------
+    exc : Exception
+        Error to report.
+    json_errors : bool
+        Whether to print `{"error": {...}}`, the fields of `ErrorInfo`,
+        instead of text (`--format json`).
+
+    Returns
+    -------
+    None
+    """
+    label = "Error"
+    message = str(exc)
+    tip = exc.hint if isinstance(exc, SkforecastAIError) else None
+    if isinstance(exc, LLMRequiredError):
+        message = NO_LLM_MESSAGE
+    elif isinstance(exc, LLMCallError):
+        label = "LLM Error"
+    elif isinstance(exc, ForecastExecutionError):
+        label = "Execution Error"
+        tip = tip or EXECUTION_TIP
+    elif isinstance(exc, AllCandidatesFailedError):
+        label = "Comparison Error"
+    elif isinstance(exc, ValidationError):
+        details = "; ".join(
+            f"{err['loc'][0]}: {err['msg']}" if err.get("loc") else err["msg"]
+            for err in exc.errors()[:3]
+        )
+        message = (
+            f"Invalid input data: {exc.error_count()} validation error(s): "
+            f"{details}"
+        )
+        tip = tip or VALIDATION_TIP
+
+    if json_errors:
+        info = ErrorInfo.from_exception(exc)
+        update = {}
+        if isinstance(exc, LLMRequiredError):
+            update["message"] = message
+        if info.hint is None and tip is not None:
+            update["hint"] = tip
+        if update:
+            info = info.model_copy(update=update)
+        print(json.dumps({"error": info.model_dump(mode="json")}), file=sys.stderr)
+        return
+
+    # The message is escaped: rich markup would eat text in brackets such
+    # as `[lower, upper]`.
+    err_console.print(f"[red]{label}:[/red] {escape(message)}")
+    if tip is not None:
+        err_console.print(f"[dim]Tip: {escape(tip)}[/dim]")
+
+
+@contextlib.contextmanager
+def _error_handler(json_errors: bool = False):
+    """
+    Report known exceptions on stderr and exit with code 1.
+
+    Parameters
+    ----------
+    json_errors : bool, default False
+        Whether to report them as a JSON object (`--format json`).
     """
     try:
         yield
-    except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+    except typer.BadParameter as e:
+        # A value an option parser rejects is a usage error (code 2); the
+        # parser prints it as text unless the output is JSON.
+        if not json_errors:
+            raise
+        _report_error(InvalidInputError(e.message), json_errors)
+        raise typer.Exit(code=2)
+    except (
+        SkforecastAIError, ValidationError, FileNotFoundError, ValueError,
+        KeyError, TypeError,
+    ) as e:
+        _report_error(e, json_errors)
         raise typer.Exit(code=1)
-    except LLMRequiredError:
-        console.print(
-            "[red]Error:[/red] No LLM configured. "
-            "Set the SKFORECAST_AI_LLM environment variable or use the --llm flag."
+
+
+def _check_steps_match_plan(steps: int | None, plan: ForecastPlan) -> None:
+    """
+    Reject a `--steps` that differs from the steps of a `--from-plan` plan.
+
+    The plan fixes the horizon, as in the Python API: a different `--steps`
+    would otherwise be ignored.
+
+    Parameters
+    ----------
+    steps : int, None
+        Value of `--steps`, None when not passed.
+    plan : ForecastPlan
+        Plan read from `--from-plan`.
+
+    Returns
+    -------
+    None
+    """
+    if steps is not None and steps != plan.steps:
+        raise InvalidInputError(
+            f"--steps ({steps}) does not match the steps of the plan in "
+            f"--from-plan ({plan.steps}). Omit --steps to use the plan's "
+            f"horizon, or change it with `refine-plan --steps`.",
+            field = "steps",
         )
-        raise typer.Exit(code=1)
-    except LLMCallError as e:
-        console.print(f"[red]LLM Error:[/red] {e}")
-        raise typer.Exit(code=1)
-    except ForecastExecutionError as e:
-        console.print(f"[red]Execution Error:[/red] {e}")
-        console.print(
-            "[dim]Tip: use --output-code to save the generated script for debugging.[/dim]"
-        )
-        raise typer.Exit(code=1)
-    except AllCandidatesFailedError as e:
-        console.print(f"[red]Comparison Error:[/red] {e}")
-        raise typer.Exit(code=1)
-    except ValidationError as e:
-        n = e.error_count()
-        details = "; ".join(
-            f"{err['loc'][0]}: {err['msg']}" if err.get("loc") else err["msg"]
-            for err in e.errors()[:3]
-        )
-        console.print(
-            f"[red]Error:[/red] Invalid input data: {n} validation error(s): {details}"
-        )
-        console.print(
-            "[dim]Tip: use --format json with the source command to produce valid input.[/dim]"
-        )
-        raise typer.Exit(code=1)
-    except (ValueError, KeyError, TypeError) as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1)
 
 
 def _render_profile_table(profile) -> None:
@@ -670,6 +949,9 @@ def _render_plan_panel(plan) -> None:
     """
     Print a Rich panel summarizing the ForecastPlan.
 
+    The "Plan Warnings" panel is left out: each warning is already printed
+    when the plan is built.
+
     Parameters
     ----------
     plan : ForecastPlan
@@ -679,7 +961,7 @@ def _render_plan_panel(plan) -> None:
     -------
     None
     """
-    console.print(render_plan(plan))
+    console.print(render_plan(plan, show_warnings=False))
 
 
 @app.command()
@@ -688,19 +970,22 @@ def profile(
     target: Annotated[str, typer.Option("--target", "-t", help="Target column name(s), comma-separated.")],
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
+    exog_columns: ExogColumnsOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
     quiet: QuietOption = False,
 ) -> None:
-    """Profile a dataset and recommend a forecaster + estimator."""
-    with _error_handler():
+    """Profile a dataset and recommend a forecaster and an estimator."""
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_target = _parse_target(target)
+        parsed_exog_columns = _parse_exog_columns(exog_columns)
 
         with _spinner("Profiling dataset...", quiet):
             result = assistant.profile(
                 data=data, target=parsed_target, date_column=date_column,
                 series_id_column=series_id_column,
+                exog_columns=parsed_exog_columns,
             )
 
         if format == "json":
@@ -834,38 +1119,66 @@ def plan(
     interval: IntervalOption = None,
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
+    exog_columns: ExogColumnsOption = None,
     from_profile: FromProfileOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
     quiet: QuietOption = False,
 ) -> None:
     """Generate a detailed forecasting plan from a dataset."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         if steps is None:
-            console.print("[red]Error:[/red] --steps is required.")
-            raise typer.Exit(code=1)
+            raise InvalidInputError(
+                "--steps is required.",
+                field = "steps",
+            )
 
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_lags = _parse_lags(lags)
         parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
+
+        parsed_exog_columns = _parse_exog_columns(exog_columns)
 
         if from_profile is not None:
+            if parsed_exog_columns is not None:
+                # The columns are chosen when the data is profiled: the
+                # profile loaded already decided them.
+                raise InvalidInputError(
+                    "--exog-columns applies when the data is profiled, not "
+                    "with --from-profile: run `skforecast-ai profile` with "
+                    "--exog-columns instead.",
+                    field = "exog_columns",
+                )
             profile_data = _read_json_input(from_profile)
             prof = ForecastingProfile.model_validate(profile_data)
         else:
             if data is None or target is None:
-                console.print(
-                    "[red]Error:[/red] DATA and --target are required "
-                    "unless --from-profile is provided."
+                raise InvalidInputError(
+                    "DATA and --target are required "
+                    "unless --from-profile is provided.",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
             with _spinner("Profiling...", quiet):
                 prof = assistant.profile(
                     data=data, target=parsed_target, date_column=date_column,
                     series_id_column=series_id_column,
+                    exog_columns=parsed_exog_columns,
                 )
 
         with _spinner("Planning...", quiet):
@@ -873,7 +1186,7 @@ def plan(
                 profile=prof, steps=steps, forecaster=forecaster,
                 estimator=estimator, estimator_kwargs=parsed_estimator_kwargs,
                 interval=parsed_interval, lags=parsed_lags,
-                window_features=parsed_window_features,
+                window_features=parsed_window_features, **decisions,
             )
 
         if format == "json":
@@ -894,11 +1207,17 @@ def refine_plan(
     estimator: EstimatorOption = None,
     estimator_kwargs: EstimatorKwargsOption = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Override forecast horizon.")] = None,
-    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval, e.g. '0.1,0.9'.")] = None,
+    interval: Annotated[str | None, typer.Option("--interval", help="Override prediction interval as two quantiles between 0 and 1, e.g. '0.1,0.9'.")] = None,
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
-    prompt: Annotated[str | None, typer.Option("--prompt", help="Natural language domain knowledge to guide LLM plan refinement.")] = None,
-    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for plan refinement.")] = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
+    prompt: Annotated[str | None, typer.Option("--prompt", help="Domain knowledge in natural language; the LLM proposes lags and window features from it.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider and model, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
     api_key: ApiKeyOption = None,
     format: TableFormatOption = "table",
@@ -906,7 +1225,7 @@ def refine_plan(
     quiet: QuietOption = False,
 ) -> None:
     """Refine an existing forecasting plan by overriding specific fields or using LLM guidance."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         bundle_data = _read_json_input(from_plan)
         prof = ForecastingProfile.model_validate(bundle_data.get("profile", {}))
         plan_obj = ForecastPlan.model_validate(bundle_data.get("plan", {}))
@@ -936,6 +1255,14 @@ def refine_plan(
             steps=steps,
             reset_lags=_is_auto(lags),
             reset_window_features=_is_auto(window_features),
+            decisions=_parse_decisions(
+                metric             = metric,
+                use_exog           = use_exog,
+                differentiation    = differentiation,
+                calendar_features  = calendar_features,
+                target_transformer = target_transformer,
+                dropna_from_series = dropna_from_series,
+            ),
         )
 
         with _spinner("Refining plan...", quiet):
@@ -967,23 +1294,36 @@ def forecast_code(
     interval: IntervalOption = None,
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
     from_plan: FromPlanOption = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
+    format: CodeFormatOption = "code",
     output: OutputOption = None,
     quiet: QuietOption = False,
 ) -> None:
     """Generate a complete Python forecasting script."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_lags = _parse_lags(lags)
         parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
 
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
 
             # Overrides supplied alongside --from-plan are applied on top of
             # the saved plan through refine_plan, as `forecast` does, instead
@@ -997,22 +1337,24 @@ def forecast_code(
                 window_features=parsed_window_features,
                 reset_lags=_is_auto(lags),
                 reset_window_features=_is_auto(window_features),
+                decisions=decisions,
             )
             if plan_overrides:
                 plan_obj = assistant.refine_plan(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
+            # DATA, when given, is the file the script loads (as in
+            # `backtest-code`); the profile of the bundle describes it.
             result = assistant.forecast_code(
-                data=None, target=None, steps=plan_obj.steps,
+                data=data, target=None, steps=plan_obj.steps,
                 profile=prof, plan=plan_obj,
             )
         else:
             if data is None or target is None or steps is None:
-                console.print(
-                    "[red]Error:[/red] DATA, --target, and --steps are required "
-                    "unless --from-plan is provided."
+                raise InvalidInputError(
+                    "DATA, --target, and --steps are required "
+                    "unless --from-plan is provided.",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
 
             with _spinner("Generating code...", quiet):
@@ -1022,7 +1364,7 @@ def forecast_code(
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval, lags=parsed_lags,
-                    window_features=parsed_window_features,
+                    window_features=parsed_window_features, **decisions,
                 )
 
         if format == "json":
@@ -1049,6 +1391,12 @@ def backtest_code(
     interval: IntervalOption = None,
     lags: LagsOption = None,
     window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
     initial_train_size: InitialTrainSizeOption = None,
     fold_stride: FoldStrideOption = None,
     refit: RefitOption = None,
@@ -1056,29 +1404,27 @@ def backtest_code(
     gap: GapOption = None,
     allow_incomplete_fold: AllowIncompleteFoldOption = None,
     from_plan: FromPlanOption = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: code or json.")] = "code",
+    format: CodeFormatOption = "code",
     output: OutputOption = None,
     quiet: QuietOption = False,
 ) -> None:
     """Generate a complete Python backtesting script without executing it."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
 
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
             resolved_steps = plan_obj.steps
             resolved_target = _parse_target(target) if target else None
             resolved_date_column = date_column
             resolved_series_id = series_id_column
         else:
             if data is None or target is None or steps is None:
-                console.print(
-                    "[red]Error:[/red] DATA, --target, and --steps are required "
-                    "unless --from-plan is provided."
+                raise InvalidInputError(
+                    "DATA, --target, and --steps are required "
+                    "unless --from-plan is provided.",
                 )
-                raise typer.Exit(code=1)
             resolved_target = _parse_target(target)
             resolved_steps = steps
             resolved_date_column = date_column
@@ -1090,6 +1436,14 @@ def backtest_code(
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_lags = _parse_lags(lags)
         parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
 
         with _spinner("Generating backtesting code...", quiet):
             # Profile (if needed)
@@ -1112,6 +1466,7 @@ def backtest_code(
                     interval=parsed_interval,
                     lags=parsed_lags,
                     window_features=parsed_window_features,
+                    **decisions,
                 )
             else:
                 # Overrides supplied alongside --from-plan are applied on top
@@ -1125,6 +1480,7 @@ def backtest_code(
                     window_features=parsed_window_features,
                     reset_lags=_is_auto(lags),
                     reset_window_features=_is_auto(window_features),
+                    decisions=decisions,
                 )
                 if plan_overrides:
                     plan_obj = assistant.refine_plan(
@@ -1141,7 +1497,8 @@ def backtest_code(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
-            cv = assistant.create_cv(
+            cv = _create_cv_to_backtest(
+                assistant,
                 profile=prof,
                 plan=plan_obj,
                 **cv_kwargs,
@@ -1212,7 +1569,7 @@ def _result_to_json(result) -> str:
 
 @app.command()
 def forecast(
-    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
+    data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
     target: TargetOption = None,
     steps: StepsOption = None,
     date_column: DateColumnOption = None,
@@ -1221,25 +1578,42 @@ def forecast(
     estimator: EstimatorOption = None,
     estimator_kwargs: EstimatorKwargsOption = None,
     interval: IntervalOption = None,
-    test_size: Annotated[str | None, typer.Option("--test-size", help="Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). When omitted, forecasts the future.")] = None,
-    exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous variables (prediction mode).")] = None,
+    lags: LagsOption = None,
+    window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
+    test_size: Annotated[str | None, typer.Option("--test-size", help="Evaluation test set size: int (last N obs), float in (0,1) (fraction), or a date (test set start). The test set must hold exactly --steps observations. When omitted, forecasts the future.")] = None,
+    exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous values covering the forecast horizon (prediction mode only).")] = None,
     from_plan: FromPlanOption = None,
     output_predictions: OutputPredictionsOption = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
     format: TableFormatOption = "table",
     quiet: QuietOption = False,
 ) -> None:
-    """Run end-to-end forecasting and report metrics + predictions."""
-    with _error_handler():
+    """Run end-to-end forecasting and report predictions, plus metrics with --test-size."""
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_test_size = _parse_test_size(test_size)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
 
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
 
             # Any override supplied alongside --from-plan is applied on top
             # of the saved plan by re-deriving it through refine_plan. This
@@ -1250,15 +1624,21 @@ def forecast(
                 estimator=estimator,
                 estimator_kwargs=parsed_estimator_kwargs,
                 interval=parsed_interval,
+                lags=parsed_lags,
+                window_features=parsed_window_features,
+                reset_lags=_is_auto(lags),
+                reset_window_features=_is_auto(window_features),
+                decisions=decisions,
             )
             if plan_overrides:
                 plan_obj = assistant.refine_plan(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
 
-            exog_df = _load_exog(
+            exog_df = load_exog(
                 exog,
-                date_column=prof.data_profile.date_column,
+                date_column      = prof.data_profile.date_column,
+                series_id_column = prof.data_profile.series_id_column,
             )
 
             with _spinner("Running forecast from plan...", quiet):
@@ -1274,15 +1654,16 @@ def forecast(
                 )
         else:
             if target is None or steps is None:
-                console.print(
-                    "[red]Error:[/red] --target and --steps are required "
-                    "unless --from-plan is provided."
+                raise InvalidInputError(
+                    "--target and --steps are required "
+                    "unless --from-plan is provided.",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
 
-            exog_df = _load_exog(
-                exog, date_column=date_column
+            exog_df = load_exog(
+                exog,
+                date_column      = date_column,
+                series_id_column = series_id_column,
             )
 
             with _spinner("Running forecast...", quiet):
@@ -1292,7 +1673,8 @@ def forecast(
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
-                    test_size=parsed_test_size, exog=exog_df,
+                    lags=parsed_lags, window_features=parsed_window_features,
+                    test_size=parsed_test_size, exog=exog_df, **decisions,
                 )
 
         if output_predictions is not None:
@@ -1332,23 +1714,31 @@ def _render_backtest_results(result) -> None:
 
 @app.command()
 def backtest(
-    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
+    data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
     target: TargetOption = None,
     steps: StepsOption = None,
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
     forecaster: ForecasterOption = None,
     estimator: EstimatorOption = None,
-    estimator_kwargs: Annotated[str | None, typer.Option("--estimator-kwargs", help="Estimator hyperparameters as JSON string.")] = None,
+    estimator_kwargs: EstimatorKwargsOption = None,
     interval: IntervalOption = None,
+    lags: LagsOption = None,
+    window_features: WindowFeaturesOption = None,
+    metric: MetricOption = None,
+    use_exog: UseExogOption = None,
+    differentiation: DifferentiationOption = None,
+    calendar_features: CalendarFeaturesOption = None,
+    target_transformer: TargetTransformerOption = None,
+    dropna_from_series: DropnaOption = None,
     initial_train_size: InitialTrainSizeOption = None,
     fold_stride: FoldStrideOption = None,
     refit: RefitOption = None,
     fixed_train_size: FixedTrainSizeOption = None,
     gap: GapOption = None,
     allow_incomplete_fold: AllowIncompleteFoldOption = None,
-    prompt: Annotated[str | None, typer.Option("--prompt", help="Optional prompt for LLM-assisted CV configuration.")] = None,
-    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider for CV configuration.")] = None,
+    prompt: Annotated[str | None, typer.Option("--prompt", help="Deployment scenario in natural language; the LLM translates it into the cross-validation strategy.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider and model, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
     api_key: ApiKeyOption = None,
     from_plan: FromPlanOption = None,
@@ -1357,13 +1747,23 @@ def backtest(
     format: TableFormatOption = "table",
     quiet: QuietOption = False,
 ) -> None:
-    """Run backtesting evaluation and report metrics + predictions."""
-    with _error_handler():
+    """Run backtesting evaluation and report metrics and predictions."""
+    with _error_handler(json_errors=format == "json"):
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
         api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
         parsed_estimator_kwargs = _parse_estimator_kwargs(estimator_kwargs)
         parsed_interval = _parse_interval(interval)
+        parsed_lags = _parse_lags(lags)
+        parsed_window_features = _parse_window_features(window_features)
+        decisions = _parse_decisions(
+            metric             = metric,
+            use_exog           = use_exog,
+            differentiation    = differentiation,
+            calendar_features  = calendar_features,
+            target_transformer = target_transformer,
+            dropna_from_series = dropna_from_series,
+        )
 
         assistant = ForecastingAssistant(
             llm=llm_value,
@@ -1372,20 +1772,18 @@ def backtest(
         )
 
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
             parsed_target = _parse_target(target) if target else None
             resolved_steps = plan_obj.steps
             resolved_date_column = date_column
             resolved_series_id = series_id_column
         else:
             if target is None or steps is None:
-                console.print(
-                    "[red]Error:[/red] --target and --steps are required "
-                    "unless --from-plan is provided."
+                raise InvalidInputError(
+                    "--target and --steps are required "
+                    "unless --from-plan is provided.",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
             resolved_steps = steps
             resolved_date_column = date_column
@@ -1412,6 +1810,9 @@ def backtest(
                     estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
+                    lags=parsed_lags,
+                    window_features=parsed_window_features,
+                    **decisions,
                 )
             else:
                 # Apply any override supplied alongside --from-plan on top of
@@ -1422,6 +1823,11 @@ def backtest(
                     estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
+                    lags=parsed_lags,
+                    window_features=parsed_window_features,
+                    reset_lags=_is_auto(lags),
+                    reset_window_features=_is_auto(window_features),
+                    decisions=decisions,
                 )
                 if plan_overrides:
                     plan_obj = assistant.refine_plan(
@@ -1438,14 +1844,16 @@ def backtest(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
-            cv = assistant.create_cv(
+            cv = _create_cv_to_backtest(
+                assistant,
                 profile=prof,
                 plan=plan_obj,
                 prompt=prompt,
                 **cv_kwargs,
-            ).cv
+            )
 
-            # Run backtest
+            # Run backtest, with the whole strategy result: it records the
+            # options passed, which the result states.
             result = assistant.backtest(
                 data=data,
                 target=parsed_target,
@@ -1536,14 +1944,15 @@ def _render_comparison_results(result) -> None:
 
 @app.command()
 def compare(
-    data: Annotated[str, typer.Argument(help="Path to CSV file.")],
+    data: Annotated[str, typer.Argument(help="Path or URL to CSV file.")],
     target: TargetOption = None,
     steps: StepsOption = None,
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
-    candidates: Annotated[str | None, typer.Option("--candidates", help="Candidate configs as JSON array of [name, config] pairs. When omitted, candidates are built from the profile.")] = None,
+    candidates: Annotated[str | None, typer.Option("--candidates", help="Candidate configs as JSON array of [name, config] pairs; config keys: forecaster, estimator, estimator_kwargs, lags, window_features, use_exog, differentiation, calendar_features, target_transformer, dropna_from_series. When omitted, candidates are built from the profile.")] = None,
     metric: Annotated[str | None, typer.Option("--metric", help="Metric(s) to compute, comma-separated. The first ranks the table.")] = None,
     interval: IntervalOption = None,
+    baseline: Annotated[bool, typer.Option("--baseline/--no-baseline", help="Add a seasonal naive baseline (ForecasterEquivalentDate) to the leaderboard. Single series only.")] = True,
     initial_train_size: InitialTrainSizeOption = None,
     fold_stride: FoldStrideOption = None,
     refit: RefitOption = None,
@@ -1556,7 +1965,7 @@ def compare(
     quiet: QuietOption = False,
 ) -> None:
     """Compare several forecasters and report a ranked leaderboard."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
         parsed_candidates = _parse_candidates(candidates)
@@ -1573,19 +1982,21 @@ def compare(
             resolved_series_id = series_id_column
         else:
             if target is None:
-                console.print(
-                    "[red]Error:[/red] --target is required unless "
-                    "--from-profile is provided."
+                raise InvalidInputError(
+                    "--target is required unless "
+                    "--from-profile is provided.",
+                    field = "target",
                 )
-                raise typer.Exit(code=1)
             parsed_target = _parse_target(target)
             resolved_date_column = date_column
             resolved_series_id = series_id_column
             prof = None
 
         if steps is None:
-            console.print("[red]Error:[/red] --steps is required.")
-            raise typer.Exit(code=1)
+            raise InvalidInputError(
+                "--steps is required.",
+                field = "steps",
+            )
 
         with _spinner("Comparing forecasters...", quiet):
             if prof is None:
@@ -1596,10 +2007,10 @@ def compare(
                     series_id_column=resolved_series_id,
                 )
 
-            # A baseline plan derived from the profile default gives a
-            # shared cross-validation strategy; compare() re-plans each
-            # candidate with the same cv.steps.
-            baseline_plan = assistant.plan(profile=prof, steps=steps)
+            # The default plan of the profile gives a shared
+            # cross-validation strategy; compare() re-plans each candidate
+            # with the same cv.steps.
+            default_plan = assistant.plan(profile=prof, steps=steps)
 
             cv_kwargs = _collect_cv_overrides(
                 initial_train_size=_parse_initial_train_size(initial_train_size),
@@ -1610,11 +2021,14 @@ def compare(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
-            cv = assistant.create_cv(
+            # The default plan only sizes the strategy: each candidate that
+            # cannot run with it fails with its own reason.
+            cv = _create_cv_to_backtest(
+                assistant,
                 profile=prof,
-                plan=baseline_plan,
+                plan=default_plan,
                 **cv_kwargs,
-            ).cv
+            )
 
             result = assistant.compare(
                 data=data,
@@ -1627,6 +2041,7 @@ def compare(
                 interval=parsed_interval,
                 profile=prof,
                 show_progress=(not quiet and format != "json"),
+                baseline=baseline,
             )
 
         if output_code is not None:
@@ -1642,23 +2057,23 @@ def compare(
 @app.command()
 def ask(
     prompt: Annotated[str, typer.Argument(help="Natural-language question about forecasting.")],
-    data: Annotated[Path | None, typer.Option("--data", help="Path to CSV file for context.")] = None,
+    data: Annotated[Path | None, typer.Option("--data", help="Path to a CSV file to profile; the LLM receives its profile, never the observations.")] = None,
     target: TargetOption = None,
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
     steps: Annotated[int | None, typer.Option("--steps", help="Forecast horizon. With --data, also builds a plan so the question is answered about the plan.")] = None,
     from_profile: FromProfileOption = None,
     from_plan: FromPlanOption = None,
-    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-5.5'.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider and model, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
     api_key: ApiKeyOption = None,
-    send_data_to_llm: Annotated[bool | None, typer.Option("--send-data-to-llm/--no-send-data-to-llm", help="Allow sending raw data to the LLM.")] = None,
-    skills: Annotated[str | None, typer.Option("--skills", help="Comma-separated skill names to include.")] = None,
-    format: Annotated[str, typer.Option("--format", help="Output format: text or json.")] = "text",
+    send_data_to_llm: Annotated[bool | None, typer.Option("--send-data-to-llm/--no-send-data-to-llm", help="Accepted for parity with the Python API; the CLI never sends observations to the LLM, whatever its value.")] = None,
+    skills: Annotated[str | None, typer.Option("--skills", help="Comma-separated skill names to include, e.g. 'prediction-intervals'. The Skills page of the documentation lists them.")] = None,
+    format: TextFormatOption = "text",
     quiet: QuietOption = False,
 ) -> None:
     """Ask a forecasting question using an LLM."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
         api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
@@ -1684,18 +2099,17 @@ def ask(
         # Nothing is computed inside ask() itself.
         context = None
         if from_plan is not None:
-            bundle = _read_json_input(from_plan)
-            prof = ForecastingProfile.model_validate(bundle["profile"])
-            plan_obj = ForecastPlan.model_validate(bundle["plan"])
+            prof, plan_obj = _read_plan_bundle(from_plan)
+            _check_steps_match_plan(steps, plan_obj)
             context = assistant.forecast_code(profile=prof, plan=plan_obj)
         elif from_profile is not None:
             context = ForecastingProfile.model_validate(_read_json_input(from_profile))
         elif data is not None:
             if target is None:
-                console.print(
-                    "[red]Error:[/red] --target is required with --data."
+                raise InvalidInputError(
+                    "--target is required with --data.",
+                    field = "target",
                 )
-                raise typer.Exit(code=1)
             with _spinner("Profiling...", quiet):
                 prof = assistant.profile(
                     data=str(data), target=_parse_target(target),
@@ -1721,7 +2135,7 @@ def ask(
 
 @app.command(name="check-llm")
 def check_llm(
-    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider, e.g. 'openai:gpt-5.5'.")] = None,
+    llm: Annotated[str | None, typer.Option("--llm", help="LLM provider and model, e.g. 'openai:gpt-5.5'.")] = None,
     base_url: BaseUrlOption = None,
     api_key: ApiKeyOption = None,
     test_call: Annotated[bool, typer.Option("--test-call", help="Send a one-line prompt to the model once the static checks pass.")] = False,
@@ -1729,7 +2143,7 @@ def check_llm(
     quiet: QuietOption = False,
 ) -> None:
     """Check how the LLM configuration resolves and whether it can be used."""
-    with _error_handler():
+    with _error_handler(json_errors=format == "json"):
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
         api_key_value = _resolve(api_key, "SKFORECAST_AI_API_KEY", "llm.api_key")
@@ -1753,3 +2167,43 @@ def check_llm(
 
         if not result.ok:
             raise typer.Exit(code=1)
+
+
+@app.command(name="mcp")
+def mcp_server(
+    allow_dir: Annotated[Path, typer.Option("--allow-dir", help="Directory the server may read data from (required). Only absolute paths of CSV files inside it are accepted, also after resolving symbolic links.")],
+    output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Directory of the files the server writes; also its working directory. Default: a new temporary directory.")] = None,
+    max_objects: Annotated[int, typer.Option("--max-objects", min=1, help="Most objects the server keeps; the least recently used ones are removed beyond it.")] = 256,
+    max_memory_mb: Annotated[int, typer.Option("--max-memory-mb", min=1, help="Memory, in MB, the objects may take; the least recently used ones are removed beyond it.")] = 1024,
+    max_file_mb: Annotated[int, typer.Option("--max-file-mb", min=0, help="Largest CSV file the server reads, in MB, checked before reading it; 0 for no limit.")] = 256,
+    allow_model: Annotated[list[str] | None, typer.Option("--allow-model", help="Model ID prefix of a foundation model that the server may run although its license restricts commercial use, its weights are gated, its provider requires an account or skforecast gives no license information, e.g. google/timesfm-3.0 (repeatable). Other models run without it.")] = None,
+) -> None:
+    """Serve the deterministic workflow to MCP clients (coding agents) over stdio."""
+    try:
+        from .mcp.server import run_server
+    except ModuleNotFoundError as exc:
+        if exc.name is None or exc.name.split(".")[0] != "mcp":
+            raise
+        err_console.print(
+            "[red]Error:[/red] the MCP server needs the `mcp` extra: "
+            "pip install \"skforecast-ai\\[mcp]\""
+        )
+        raise typer.Exit(code=1)
+
+    # stdout carries the protocol: errors go to stderr.
+    try:
+        run_server(
+            allow_dir     = allow_dir,
+            output_dir    = output_dir,
+            max_objects   = max_objects,
+            max_memory_mb = max_memory_mb,
+            max_file_mb   = max_file_mb,
+            allow_models  = allow_model or (),
+        )
+    except InvalidInputError as exc:
+        err_console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1)
+
+
+if __name__ == "__main__":
+    app(prog_name="skforecast-ai")

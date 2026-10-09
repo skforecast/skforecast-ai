@@ -1,0 +1,28 @@
+{
+ "machine": {
+  "platform": "Linux-6.18.44-fc-v64-x86_64-with-glibc2.39",
+  "processor": "x86_64",
+  "torch": "2.14.1+cu130",
+  "threads": 4,
+  "cuda": false
+ },
+ "runs": [
+  {
+   "model": "autogluon/chronos-2-small",
+   "n_series": 1,
+   "n_folds": 1,
+   "seconds": 4.17,
+   "windows": 1
+  },
+  {
+   "model": "autogluon/chronos-2-small",
+   "n_series": 500,
+   "n_folds": 79,
+   "seconds": 1156.6,
+   "windows": 39500
+  }
+ ],
+ "fixed_seconds": 4.14,
+ "seconds_per_window": 0.02918,
+ "windows_per_minute": 1914
+}

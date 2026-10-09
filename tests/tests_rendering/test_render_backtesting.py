@@ -1,6 +1,14 @@
 # Unit test render_backtesting rendering
 
+from datetime import timedelta, timezone
+
+import numpy as np
+import pandas as pd
+import pytest
+
 from skforecast_ai.rendering.backtesting import (
+    _format_initial_train_size,
+    render_backtesting_baseline,
     render_backtesting_foundation,
     render_backtesting_multi_series,
     render_backtesting_multivariate,
@@ -11,16 +19,27 @@ from skforecast_ai.schemas import RenderedScript
 
 from .fixtures_rendering import (
     cv_basic,
+    cv_differentiation,
+    plan_baseline,
+    plan_baseline_with_intervals,
     plan_foundation,
+    plan_foundation_numeric_covariates,
     plan_multi_series,
     plan_multi_series_exog,
     plan_multivariate,
+    plan_multi_series_with_intervals,
+    plan_multivariate_with_intervals,
+    plan_single_differentiation,
+    plan_single_feature_overrides,
+    plan_single_metric_override,
     plan_single_recursive_no_exog,
     plan_statistical,
     plan_statistical_exog,
     profile_multi_long,
+    profile_multi_long_exog,
     profile_multi_wide,
     profile_multi_wide_exog,
+    profile_single,
     profile_single_mixed_exog,
     profile_single_no_exog,
 )
@@ -209,7 +228,9 @@ def test_render_backtesting_multivariate_output_when_wide_format():
 def test_render_backtesting_statistical_output_when_auto_arima():
     """
     Test that render_backtesting_statistical produces the expected
-    full script with backtesting_stats call and freeze_params.
+    full script with backtesting_stats call and freeze_params, and writes
+    the CV that skforecast runs: a `refit=False` splitter becomes
+    `refit=True` with a fixed training window.
     """
     result = render_backtesting_statistical(plan_statistical, profile_single_no_exog, cv_basic)
 
@@ -238,7 +259,8 @@ def test_render_backtesting_statistical_output_when_auto_arima():
         "cv = TimeSeriesFold(\n"
         "    steps              = 10,\n"
         "    initial_train_size = 80,\n"
-        "    refit              = False,\n"
+        "    refit              = True,\n"
+        "    fixed_train_size   = True,\n"
         ")\n"
         "\n"
         "# Run backtesting\n"
@@ -331,6 +353,196 @@ def test_render_backtesting_foundation_output_when_chronos():
         "    series            = data['sales'],\n"
         "    cv                = cv,\n"
         "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_foundation_output_when_model_only_accepts_numeric_covariates():
+    """
+    Test that render_backtesting_foundation passes only the numeric exog,
+    with a note on the excluded categorical ones, and the default context
+    length of the adapter when the model only accepts numeric covariates.
+    """
+    result = render_backtesting_foundation(
+        plan_foundation_numeric_covariates, profile_single_mixed_exog, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_foundation\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Categorical exog excluded (holiday): 'google/timesfm-3.0-pytorch' only accepts numeric covariates\n"
+        "exog_features = ['temp']\n"
+        "\n"
+        "# Create foundation model (timesfm-3.0-pytorch)\n"
+        "estimator = FoundationModel(\n"
+        "    model_id       = 'google/timesfm-3.0-pytorch',\n"
+        "    context_length = 2048,\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterFoundation(estimator=estimator)\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_foundation(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    exog              = data[exog_features],\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_foundation_output_when_multi_series():
+    """
+    Test that render_backtesting_foundation passes wide multi-series data
+    as a dict with one entry per series and no `levels`, so every series
+    is backtested.
+    """
+    result = render_backtesting_foundation(
+        plan_foundation, profile_multi_wide, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_foundation\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Reshape to dict format (one entry per series)\n"
+        "series_dict = data[['series_a', 'series_b']].to_dict('series')\n"
+        "\n"
+        "# Create foundation model (chronos-2-small)\n"
+        "estimator = FoundationModel(\n"
+        "    model_id       = 'autogluon/chronos-2-small',\n"
+        "    context_length = 512,\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterFoundation(estimator=estimator)\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_foundation(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = series_dict,\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_foundation_output_when_multi_series_long_format_with_exog():
+    """
+    Test that render_backtesting_foundation reshapes long-format series and
+    exogenous variables into dicts with one entry per series.
+    """
+    result = render_backtesting_foundation(
+        plan_foundation_numeric_covariates, profile_multi_long_exog, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.preprocessing import reshape_series_long_to_dict, reshape_exog_long_to_dict\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_foundation\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.sort_values('date')\n"
+        "\n"
+        "# Reshape to dict format (one entry per series)\n"
+        "series_dict = reshape_series_long_to_dict(\n"
+        "    data      = data,\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    values    = 'value',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "exog_dict = reshape_exog_long_to_dict(\n"
+        "    data      = data[['series_id', 'date', 'promo']],\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "# Create foundation model (timesfm-3.0-pytorch)\n"
+        "estimator = FoundationModel(\n"
+        "    model_id       = 'google/timesfm-3.0-pytorch',\n"
+        "    context_length = 2048,\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterFoundation(estimator=estimator)\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_foundation(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = series_dict,\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    exog              = exog_dict,\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
         "    suppress_warnings = True,\n"
@@ -482,3 +694,521 @@ def test_render_backtesting_single_series_output_when_no_end_train_needed():
     assert isinstance(result, RenderedScript)
     assert "end_train" not in result.core
     assert "cv = TimeSeriesFold(" in result.core
+
+
+# =============================================================================
+# Tests: render_backtesting_baseline: full script comparison
+# =============================================================================
+def test_render_backtesting_baseline_output_when_seasonal_naive():
+    """
+    Test that render_backtesting_baseline produces the expected full script
+    with backtesting_forecaster and no exogenous variables.
+    """
+    result = render_backtesting_baseline(plan_baseline, profile_single, cv_basic)
+
+    assert isinstance(result, RenderedScript)
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.recursive import ForecasterEquivalentDate\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster (baseline, seasonal naive)\n"
+        "forecaster = ForecasterEquivalentDate(\n"
+        "    offset    = 7,\n"
+        "    n_offsets = 1,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_baseline_output_when_intervals_requested():
+    """
+    Test that render_backtesting_baseline passes the interval together with
+    `interval_method='conformal'`, the only method the baseline supports.
+    """
+    result = render_backtesting_baseline(plan_baseline_with_intervals, profile_single_no_exog, cv_basic)
+
+    assert isinstance(result, RenderedScript)
+
+    expected = (
+        "import pandas as pd\n"
+        "from skforecast.recursive import ForecasterEquivalentDate\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster (baseline, seasonal naive)\n"
+        "forecaster = ForecasterEquivalentDate(\n"
+        "    offset    = 7,\n"
+        "    n_offsets = 1,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    interval          = [0.1, 0.9],\n"
+        "    interval_method   = 'conformal',\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+# =============================================================================
+# Tests: _format_initial_train_size
+# =============================================================================
+@pytest.mark.parametrize(
+    "initial_train_size, expected",
+    [
+        (80, "80"),
+        (np.int64(80), "80"),
+        ("2020-03-31", "'2020-03-31'"),
+        (pd.Timestamp("2020-03-31"), "pd.Timestamp('2020-03-31 00:00:00')"),
+        (
+            pd.Timestamp("2020-03-31", tz="UTC"),
+            "pd.Timestamp('2020-03-31 00:00:00+00:00')",
+        ),
+        (
+            pd.Timestamp("2020-03-31").tz_localize(
+                timezone(timedelta(hours=1), name="x') ; import os ; ('")
+            ),
+            "pd.Timestamp('2020-03-31 00:00:00+01:00')",
+        ),
+        (None, "None"),
+        ("2020') ; import os ; x = ('", "\"2020') ; import os ; x = ('\""),
+    ],
+    ids=[
+        "int",
+        "numpy int",
+        "date string",
+        "Timestamp",
+        "Timestamp with time zone",
+        "Timestamp with a time zone name holding code",
+        "None",
+        "string with code",
+    ],
+)
+def test_format_initial_train_size_output_when_different_types(
+    initial_train_size, expected
+):
+    """
+    Test that the `initial_train_size` of a TimeSeriesFold is written as a
+    plain integer when it is one (numpy integers included), as a pandas
+    Timestamp built from a string literal (the time zone as its offset, never
+    its name), and with repr otherwise, so a string stays a string literal.
+    """
+    assert _format_initial_train_size(initial_train_size) == expected
+
+
+# =============================================================================
+# Tests: multi-series and multivariate backtesting: interval method
+# =============================================================================
+def test_render_backtesting_multi_series_output_when_wide_format_with_intervals():
+    """
+    Test that render_backtesting_multi_series passes the interval together
+    with `interval_method='bootstrapping'`, the method of the plan, since
+    skforecast defaults to conformal intervals in
+    backtesting_forecaster_multiseries.
+    """
+    result = render_backtesting_multi_series(
+        plan_multi_series_with_intervals, profile_multi_wide, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursiveMultiSeries(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        "    encoding  = 'ordinal',\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster_multiseries(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = data[['series_a', 'series_b']],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    interval          = [0.1, 0.9],\n"
+        "    interval_method   = 'bootstrapping',\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_multi_series_output_when_long_format_with_intervals():
+    """
+    Test that render_backtesting_multi_series passes `interval_method` with
+    the interval for long-format data too, where the series are reshaped
+    into a dict.
+    """
+    result = render_backtesting_multi_series(
+        plan_multi_series_with_intervals, profile_multi_long, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.preprocessing import reshape_series_long_to_dict\n"
+        "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.sort_values('date')\n"
+        "\n"
+        "# Reshape to dict format (required for backtesting multi-series)\n"
+        "series_dict = reshape_series_long_to_dict(\n"
+        "    data      = data,\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    values    = 'value',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursiveMultiSeries(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        "    encoding  = 'ordinal',\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster_multiseries(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = series_dict,\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    interval          = [0.1, 0.9],\n"
+        "    interval_method   = 'bootstrapping',\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_multivariate_output_when_wide_format_with_intervals():
+    """
+    Test that render_backtesting_multivariate passes the interval together
+    with `interval_method='bootstrapping'`, the method of the plan.
+    """
+    result = render_backtesting_multivariate(
+        plan_multivariate_with_intervals, profile_multi_wide, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.direct import ForecasterDirectMultiVariate\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterDirectMultiVariate(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    level     = 'series_a',\n"
+        "    steps     = 5,\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster_multiseries(\n"
+        "    forecaster        = forecaster,\n"
+        "    series            = data[['series_a', 'series_b']],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    interval          = [0.1, 0.9],\n"
+        "    interval_method   = 'bootstrapping',\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+    assert result.full_script == expected
+
+
+def test_render_backtesting_single_series_output_when_metric_override():
+    """
+    Test that the backtest of a plan whose metrics were chosen passes only
+    those metrics to skforecast, in the order given.
+    """
+    result = render_backtesting_single_series(
+        plan_single_metric_override, profile_single_no_exog, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_squared_error', 'median_absolute_error'],\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+
+    assert result.full_script == expected
+
+
+def test_render_backtesting_single_series_output_when_differentiation():
+    """
+    Test that the backtest of a plan with a differentiation order writes
+    it into the forecaster and into the strategy `create_cv()` builds.
+    """
+    result = render_backtesting_single_series(
+        plan_single_differentiation, profile_single_no_exog, cv_differentiation
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator       = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags            = 7,\n"
+        "    differentiation = 1,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        "    differentiation    = 1,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+
+    assert result.full_script == expected
+
+
+def test_render_backtesting_single_series_output_when_feature_overrides():
+    """
+    Test that the backtest of a plan with calendar features, target scaling
+    and NaN handling chosen by the user writes them into the forecaster.
+    """
+    result = render_backtesting_single_series(
+        plan_single_feature_overrides, profile_single_no_exog, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from sklearn.linear_model import Ridge\n"
+        "from skforecast.preprocessing import CalendarFeatures\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "calendar_features = CalendarFeatures(\n"
+        "    features = ['month', 'day_of_week'],\n"
+        "    encoding = 'cyclical',\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator          = Ridge(),\n"
+        "    lags               = 7,\n"
+        "    calendar_features  = calendar_features,\n"
+        "    dropna_from_series = True,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+
+    assert result.full_script == expected

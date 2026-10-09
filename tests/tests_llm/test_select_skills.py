@@ -29,14 +29,29 @@ from skforecast_ai.llm.skills import (
         ("multivariate", ["choosing-a-forecaster", "forecasting-multiple-series"]),
         ("statistical", ["statistical-models"]),
         ("foundation", ["foundation-forecasting"]),
+        ("baseline", ["baseline-forecasting"]),
         (None, ["choosing-a-forecaster"]),
+        ([], ["choosing-a-forecaster"]),
+        (
+            ["single_series", "baseline"],
+            [
+                "choosing-a-forecaster",
+                "forecasting-single-series",
+                "baseline-forecasting",
+            ],
+        ),
+        (
+            ["single_series", "statistical"],
+            ["choosing-a-forecaster", "statistical-models"],
+        ),
     ],
     ids=lambda v: f"task_type={v}" if not isinstance(v, list) else str(v),
 )
 def test_select_skills_base_routing(task_type, expected):
     """
-    Test that select_skills returns correct base skills for each task_type
-    when the question has no matching keywords.
+    Test that select_skills returns correct base skills for each task_type,
+    and the combined ones for a list of task types (with the suppression
+    rules applied), when the question has no matching keywords.
     """
     result = select_skills(task_type=task_type, question="general question")
     assert result == expected
@@ -57,6 +72,8 @@ def test_select_skills_base_routing(task_type, expected):
         ("How does feature selection work?", "feature-selection"),
         ("Can I use LSTM for forecasting?", "deep-learning-forecasting"),
         ("How to use Chronos model?", "foundation-forecasting"),
+        ("How do I forecast a cold-start product?", "foundation-forecasting"),
+        ("Can I use TabPFN-TS here?", "foundation-forecasting"),
         ("Fit an ARIMA model", "statistical-models"),
         ("I need drift detection", "drift-detection"),
         ("Give me a naive baseline", "baseline-forecasting"),
@@ -75,6 +92,27 @@ def test_select_skills_keyword_augmentation(question, expected_skill):
     """
     result = select_skills(task_type=None, question=question)
     assert expected_skill in result
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "I get InvalidInputError: `lags` must be positive integers",
+        "Why does forecast() raise InvalidInputTypeError?",
+        "DataNotFoundError: CSV file not found: 'sales.csv'",
+    ],
+    ids=["InvalidInputError", "InvalidInputTypeError", "DataNotFoundError"],
+)
+def test_select_skills_troubleshooting_when_question_quotes_skforecast_ai_error(
+    question,
+):
+    """
+    Test that a question quoting an error class of skforecast-ai selects the
+    troubleshooting skill, as a question quoting `ValueError` or `TypeError`
+    (the classes raised for these errors before 0.4.0) does.
+    """
+    result = select_skills(task_type=None, question=question)
+    assert "troubleshooting-common-errors" in result
 
 
 def test_select_skills_no_duplicate_when_base_matches_keyword():
@@ -451,12 +489,12 @@ def test_skill_inventory_matches_the_skills_directory():
     Test that `ALL_SKILLS` and `_SKILL_TOKEN_ESTIMATES` describe exactly
     the skills present on disk.
 
-    `tools/sync_skforecast_assets.py` refreshes `skills/` by deleting the
+    `tools/ai/sync_skforecast_assets.py` refreshes `skills/` by deleting the
     directory and rewriting it from the pinned skforecast release, so a
     renamed or newly added skill upstream leaves both constants stale. A
     removed skill then raises `FileNotFoundError` at request time, and an
-    added one is simply never selectable. Run
-    `python tools/measure_skill_tokens.py --update` after syncing.
+    added one is simply never selectable. The sync rewrites
+    `_SKILL_TOKEN_ESTIMATES` itself; `ALL_SKILLS` is updated by hand.
     """
     from skforecast_ai.llm.skills import ALL_SKILLS, _SKILLS_DIR
 

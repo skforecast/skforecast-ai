@@ -1,30 +1,47 @@
-# This CITATION.cff file was generated with cffinit.
-# Visit https://bit.ly/cffinit to generate yours today!
+# Citation metadata of skforecast-ai (https://citation-file-format.github.io).
+# GitHub builds its "Cite this repository" button from this file, and Zenodo
+# takes the metadata of each release (description, keywords, authors) from it.
+# There is no `version` or `date-released` on purpose, as in skforecast: Zenodo
+# takes both from each GitHub release, and the version to cite is the one
+# listed on Zenodo. The authors are in the order of the published citations.
 
 cff-version: 1.2.0
 title: skforecast-ai
 message: >-
-  If you use this software, please cite it using the
-  metadata from this file.
+  If you use skforecast-ai in a scientific publication, please cite the
+  version you used. The DOI below always resolves to the latest release, and
+  the DOI of each version is listed on Zenodo.
 type: software
 authors:
   - given-names: Javier
     family-names: Escobar Ortiz
     email: javier.escobar.ortiz@gmail.com
+    orcid: 'https://orcid.org/0009-0005-4399-7634'
   - given-names: Joaquin
     family-names: Amat Rodrigo
     email: j.amatrodrigo@gmail.com
+    orcid: 'https://orcid.org/0009-0001-9531-9828'
+repository-code: 'https://github.com/skforecast/skforecast-ai'
 url: 'https://ai.skforecast.org/'
 abstract: >-
-  Skforecast-ai is a Python library that provides AI-assisted time series 
-  forecasting workflows built on skforecast.
+  skforecast-ai is an AI forecasting assistant for time series built on
+  skforecast. A deterministic, rule-based engine profiles the data, chooses
+  the forecaster, estimator, lags, metric and cross-validation, and returns
+  the forecast together with the skforecast script that produced it. An
+  optional LLM layer explains the decisions and results, refines the plan on
+  request and never changes a result on its own.
 keywords:
-  - forecasting
-  - machine learning
-  - AI
-  - python
   - time series
-doi: 10.5281/zenodo.21338159
+  - forecasting
+  - time series forecasting
+  - machine learning
+  - skforecast
+  - large language models
+  - AI assistant
+  - python
 license: Apache-2.0
-version: 0.3.1
-date-released: '2026-09-11'
+doi: 10.5281/zenodo.21338159
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21338159
+    description: Concept DOI of skforecast-ai, resolves to the latest release.

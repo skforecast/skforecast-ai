@@ -8,6 +8,7 @@ from skforecast_ai.schemas import ForecastPlan, RenderedScript
 from .fixtures_execution import (
     cv_multi,
     cv_single,
+    plan_baseline,
     plan_multi,
     plan_single,
     plan_statistical,
@@ -137,8 +138,9 @@ def test_render_backtesting_script_statistical_contains_stats_call():
         ("single_series", plan_single, profile_single, cv_single),
         ("multi_series", plan_multi, profile_multi, cv_multi),
         ("statistical", plan_statistical, profile_single_no_exog, cv_single),
+        ("baseline", plan_baseline, profile_single, cv_single),
     ],
-    ids=["single_series", "multi_series", "statistical"],
+    ids=["single_series", "multi_series", "statistical", "baseline"],
 )
 def test_render_backtesting_script_dispatches_supported_task_types(
     task_type, plan, profile, cv

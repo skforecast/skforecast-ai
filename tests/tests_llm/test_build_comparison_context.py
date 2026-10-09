@@ -3,7 +3,10 @@
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.llm.context import build_comparison_context
 
-from tests.fixtures_assistant import make_comparison_result
+from tests.fixtures_assistant import (
+    make_comparison_result,
+    make_comparison_with_stats,
+)
 
 assistant = ForecastingAssistant()
 
@@ -28,7 +31,7 @@ def test_build_comparison_context_output_when_all_candidates_succeed():
     assert "- Winner: winner" in context
     assert "<leaderboard>" in context
     assert "runner_up" in context
-    assert "<cross_validation>" in context
+    assert "<backtesting_strategy>" in context
     assert "- initial_train_size: 70" in context
     assert "<deterministic_summary>" in context
     assert "<winning_candidate>" in context
@@ -100,7 +103,7 @@ def test_build_comparison_context_states_shared_sections_once():
 
     assert context.count("<dataset>") == 1
     assert context.count("<profile_decision>") == 1
-    assert context.count("<cross_validation>") == 1
+    assert context.count("<backtesting_strategy>") == 1
     assert context.count("<forecast_plan>") == 1
 
 
@@ -122,7 +125,7 @@ def test_build_comparison_context_wraps_sections_in_single_block():
     assert context.count("</forecast_context>") == 1
 
     for tag in ["dataset", "profile_decision", "comparison_overview",
-                "leaderboard", "failed_candidates", "cross_validation",
+                "leaderboard", "failed_candidates", "backtesting_strategy",
                 "deterministic_summary", "winning_candidate",
                 "forecast_plan"]:
         assert context.count(f"<{tag}>") == 1
@@ -139,3 +142,150 @@ def test_build_comparison_context_no_markdown_headings():
     context = build_comparison_context(comparison)
 
     assert "##" not in context
+
+
+# =============================================================================
+# Tests: shared strategy note
+# =============================================================================
+def test_build_comparison_context_shared_cv_note_when_stats_refits_on_its_own():
+    """
+    Test that the strategy is not said to apply identically to every
+    candidate when a ForecasterStats candidate ran with a refit or window
+    that the shared strategy does not have: the note says what ran for it.
+    """
+    comparison = make_comparison_result(assistant)
+    stats_cv_config = {
+        **comparison.cv_config, "refit": True, "fixed_train_size": True,
+        "n_fits": 6,
+    }
+
+    context = build_comparison_context(
+        make_comparison_with_stats(assistant, comparison, stats_cv_config)
+    )
+
+    assert (
+        "<backtesting_strategy>\nApplied to every candidate, except "
+        "ForecasterStats: skforecast refits it in every fold, on a fixed "
+        "window (6 trainings).\n"
+    ) in context
+    assert "Applied identically to every candidate." not in context
+
+
+def test_build_comparison_context_shared_cv_note_when_identical():
+    """
+    Test that the note stays "Applied identically to every candidate."
+    without a ForecasterStats candidate, and with one whose strategy is the
+    shared one (a strategy that already refits in every fold).
+    """
+    comparison = make_comparison_result(assistant)
+    same_cv = make_comparison_with_stats(assistant, comparison, dict(comparison.cv_config))
+
+    for result in (comparison, same_cv):
+        context = build_comparison_context(result)
+        assert (
+            "<backtesting_strategy>\nApplied identically to every candidate.\n"
+        ) in context
+
+
+def _with_foundation(comparison, name):
+    """
+    Return a copy of `comparison` whose candidate `name` has a
+    ForecasterFoundation plan (only the forecaster name is read by the note).
+    """
+    candidate = comparison.candidates[name]
+    plan = candidate.plan.model_copy(
+        update={"forecaster": "ForecasterFoundation", "task_type": "foundation"}
+    )
+    candidates = {
+        **comparison.candidates, name: candidate.model_copy(update={"plan": plan})
+    }
+    return comparison.model_copy(update={"candidates": candidates})
+
+
+def test_build_comparison_context_shared_cv_note_when_foundation_runs():
+    """
+    Test that the strategy is not said to apply identically to every
+    candidate when a ForecasterFoundation candidate ran: it is not trained,
+    so only the folds apply to it. With a ForecasterStats candidate that
+    refits on its own too, the note names both.
+    """
+    comparison = make_comparison_result(assistant)
+    stats_cv_config = {
+        **comparison.cv_config, "refit": True, "fixed_train_size": True,
+        "n_fits": 6,
+    }
+    with_stats = make_comparison_with_stats(assistant, comparison, stats_cv_config)
+    other = next(name for name in comparison.candidates if name != "runner_up")
+
+    foundation_only = build_comparison_context(_with_foundation(comparison, other))
+    both = build_comparison_context(_with_foundation(with_stats, other))
+
+    assert (
+        "<backtesting_strategy>\nApplied to every candidate, except "
+        "ForecasterFoundation: it is not trained, so only the folds apply to "
+        "it.\n"
+    ) in foundation_only
+    assert (
+        "<backtesting_strategy>\nApplied to every candidate, except "
+        "ForecasterStats: skforecast refits it in every fold, on a fixed "
+        "window (6 trainings); and ForecasterFoundation: it is not trained, "
+        "so only the folds apply to it.\n"
+    ) in both
+
+
+# =============================================================================
+# Tests: provenance of the strategy
+# =============================================================================
+def test_build_comparison_context_output_when_strategy_provenance_given():
+    """
+    Test that the names the user passed to `create_cv()`, those without
+    effect and the LLM flag reach the shared `<backtesting_strategy>`, and
+    that the explanation of the defaults ends `<deterministic_summary>`.
+    """
+    comparison = make_comparison_result(assistant)
+    comparison = comparison.model_copy(update={
+        "cv_overridden_fields": ["refit", "fixed_train_size"],
+        "cv_fields_without_effect": ["fixed_train_size"],
+        "cv_llm_configured": True,
+        "cv_defaults_explanation": "`refit` as requested.",
+    })
+
+    context = build_comparison_context(comparison)
+
+    strategy = context[
+        context.index("<backtesting_strategy>"):
+        context.index("</backtesting_strategy>")
+    ]
+    summary = context[
+        context.index("<deterministic_summary>"):
+        context.index("</deterministic_summary>")
+    ]
+    assert strategy.endswith(
+        "- Chosen by the user instead of the rules: refit\n"
+        "- Passed by the user without effect: fixed_train_size\n"
+        "- Parameters not chosen by the user were set by the LLM from the "
+        "prompt.\n"
+    )
+    assert summary == (
+        f"<deterministic_summary>\n{comparison.explanation} "
+        "`refit` as requested.\n"
+    )
+
+
+def test_build_comparison_context_output_when_strategy_provenance_unknown():
+    """
+    Test that a comparison run with a bare TimeSeriesFold has no provenance
+    line in the strategy and its summary is the explanation alone.
+    """
+    comparison = make_comparison_result(assistant)
+
+    context = build_comparison_context(comparison)
+
+    strategy = context[
+        context.index("<backtesting_strategy>"):
+        context.index("</backtesting_strategy>")
+    ]
+    assert "Chosen by the user" not in strategy
+    assert "without effect" not in strategy
+    assert "set by the LLM" not in strategy
+    assert f"<deterministic_summary>\n{comparison.explanation}\n" in context

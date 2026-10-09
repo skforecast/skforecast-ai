@@ -76,6 +76,22 @@ profile_multi_wide = DataProfile(
     data_path="data.csv",
 )
 
+# Wide data with a column the profile leaves out (`exog_columns=[]` of
+# `profile()`, or data passed with a saved profile that does not name it).
+profile_multi_wide_unused_columns = profile_multi_wide.model_copy(
+    update={"unused_columns": ["temp"]}
+)
+
+# Single series whose profile leaves the categorical column out
+# (`exog_columns=['temp']` of `profile()`).
+profile_single_unused_columns = profile_single_mixed_exog.model_copy(
+    update={
+        "exog_columns": ["temp"],
+        "categorical_exog": [],
+        "unused_columns": ["holiday"],
+    }
+)
+
 profile_multi_long = DataProfile(
     data_format="long",
     n_series=2,
@@ -170,6 +186,48 @@ plan_single_recursive_no_exog = ForecastPlan(
     use_exog=False,
     end_train="2023-03-12",
     explanation="Single series recursive forecasting without exogenous.",
+)
+
+# The metrics chosen with `plan(metric=[...])`: only those are computed.
+plan_single_metric_override = plan_single_recursive_no_exog.model_copy(
+    update={
+        "metric": "mean_squared_error",
+        "metrics_to_compute": ["mean_squared_error", "median_absolute_error"],
+        "overridden_fields": ["metric"],
+    }
+)
+
+# `plan(use_exog=False)` on data with exogenous columns.
+plan_single_without_exog = plan_single_recursive.model_copy(
+    update={"use_exog": False, "overridden_fields": ["use_exog"]}
+)
+
+# `plan(differentiation=1)`: the target is differenced before training.
+plan_single_differentiation = plan_single_recursive_no_exog.model_copy(
+    update={
+        "forecaster_kwargs": {"lags": 7, "differentiation": 1},
+        "overridden_fields": ["differentiation"],
+    }
+)
+
+# `plan(estimator='Ridge', calendar_features=['month', 'day_of_week'],
+# target_transformer='none', dropna_from_series=True)`.
+plan_single_feature_overrides = plan_single_recursive_no_exog.model_copy(
+    update={
+        "estimator": "Ridge",
+        "forecaster_kwargs": {
+            "lags": 7,
+            "calendar_features": {
+                "features": ["month", "day_of_week"],
+                "encoding": "cyclical",
+            },
+            "dropna_from_series": True,
+        },
+        "overridden_fields": [
+            "estimator", "calendar_features", "target_transformer",
+            "dropna_from_series",
+        ],
+    }
 )
 
 plan_single_direct = ForecastPlan(
@@ -315,6 +373,36 @@ plan_multivariate = ForecastPlan(
     explanation="Multivariate forecasting.",
 )
 
+plan_multi_series_with_intervals = ForecastPlan(
+    task_type="multi_series",
+    forecaster="ForecasterRecursiveMultiSeries",
+    forecaster_kwargs={"lags": 7, "encoding": "ordinal"},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    interval=[0.1, 0.9],
+    interval_method="bootstrapping",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Multi-series forecasting with bootstrapped intervals.",
+)
+
+plan_multivariate_with_intervals = ForecastPlan(
+    task_type="multivariate",
+    forecaster="ForecasterDirectMultiVariate",
+    forecaster_kwargs={"lags": 7},
+    estimator="LGBMRegressor",
+    estimator_kwargs={},
+    steps=5,
+    frequency="D",
+    interval=[0.1, 0.9],
+    interval_method="bootstrapping",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Multivariate forecasting with bootstrapped intervals.",
+)
+
 plan_statistical = ForecastPlan(
     task_type="statistical",
     forecaster="ForecasterStats",
@@ -360,8 +448,8 @@ plan_foundation = ForecastPlan(
     task_type="foundation",
     forecaster="ForecasterFoundation",
     forecaster_kwargs={},
-    estimator=None,
-    estimator_kwargs={"model_id": "autogluon/chronos-2-small", "context_length": 512},
+    estimator="autogluon/chronos-2-small",
+    estimator_kwargs={"context_length": 512},
     steps=10,
     frequency="D",
     use_exog=False,
@@ -373,8 +461,8 @@ plan_foundation_with_intervals = ForecastPlan(
     task_type="foundation",
     forecaster="ForecasterFoundation",
     forecaster_kwargs={},
-    estimator=None,
-    estimator_kwargs={"model_id": "autogluon/chronos-2-small", "context_length": 512},
+    estimator="autogluon/chronos-2-small",
+    estimator_kwargs={"context_length": 512},
     steps=10,
     frequency="D",
     interval=[0.1, 0.9],
@@ -382,6 +470,73 @@ plan_foundation_with_intervals = ForecastPlan(
     use_exog=False,
     end_train="2023-03-12",
     explanation="Foundation model with quantile predictions.",
+)
+
+plan_foundation_numeric_covariates = ForecastPlan(
+    task_type="foundation",
+    forecaster="ForecasterFoundation",
+    forecaster_kwargs={},
+    estimator="google/timesfm-3.0-pytorch",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=True,
+    end_train="2023-03-12",
+    explanation="Foundation model that only accepts numeric covariates.",
+)
+
+plan_baseline = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Seasonal naive baseline.",
+)
+
+plan_baseline_naive = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 1, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Naive baseline.",
+)
+
+plan_baseline_with_intervals = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    interval=[0.1, 0.9],
+    interval_method="conformal",
+    use_exog=False,
+    end_train="2023-03-12",
+    explanation="Seasonal naive baseline with conformal intervals.",
+)
+
+plan_baseline_no_end_train = ForecastPlan(
+    task_type="baseline",
+    forecaster="ForecasterEquivalentDate",
+    forecaster_kwargs={"offset": 7, "n_offsets": 1},
+    estimator=None,
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=False,
+    end_train=None,
+    explanation="Seasonal naive baseline (prediction mode).",
 )
 
 
@@ -419,6 +574,19 @@ plan_single_predict_exog = ForecastPlan(
     explanation="Single series with exog (prediction mode).",
 )
 
+plan_foundation_numeric_covariates_no_end_train = ForecastPlan(
+    task_type="foundation",
+    forecaster="ForecasterFoundation",
+    forecaster_kwargs={},
+    estimator="google/timesfm-3.0-pytorch",
+    estimator_kwargs={},
+    steps=10,
+    frequency="D",
+    use_exog=True,
+    end_train=None,
+    explanation="Foundation model with numeric covariates (prediction mode).",
+)
+
 
 # =============================================================================
 # CV mock for backtesting tests
@@ -434,4 +602,12 @@ cv_basic = SimpleNamespace(
     skip_folds=None,
     allow_incomplete_fold=True,
     differentiation=None,
+)
+
+# The strategy `create_cv()` builds for a plan with `differentiation=1`.
+cv_differentiation = SimpleNamespace(**{**vars(cv_basic), "differentiation": 1})
+
+# Foundation plan in prediction mode with exogenous variables.
+plan_foundation_exog_no_end_train = plan_foundation.model_copy(
+    update={"end_train": None, "use_exog": True}
 )

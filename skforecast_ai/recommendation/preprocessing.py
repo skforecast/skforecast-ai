@@ -6,17 +6,26 @@
 ################################################################################
 
 from __future__ import annotations
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from .._constants import (
     AUTOREG_FORECASTERS,
+    BASELINE_FORECASTERS,
     DIRECT_FORECASTERS,
     CATEGORICAL_FORECASTERS,
     DROPNA_FORECASTERS,
+    DROP_DUPLICATE_INDEX_SNIPPET,
+    DROP_DUPLICATE_ROWS_SNIPPET,
+    ENCODE_TARGET_SNIPPET,
+    MAX_DESCRIBE_ITEMS,
+    PROVIDE_DATETIME_INDEX_SNIPPET,
     REQUIRES_DATETIME_FREQ,
     TREE_BASED_ESTIMATORS,
     NAN_TOLERANT_ESTIMATORS,
 )
 from ..schemas import DataProfile, PreprocessingStep
+
+if TYPE_CHECKING:
+    from skforecast.foundation import FoundationModelInfo
 
 
 def select_transformer_series(
@@ -50,7 +59,7 @@ def select_transformer_series(
     Source: `skforecast_ai/skills/feature-engineering/SKILL.md`,
     `skforecast_ai/skills/forecasting-single-series/SKILL.md`.
     """
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
     if estimator is None:
         return None
@@ -98,7 +107,7 @@ def select_transformer_exog(
     building the appropriate `ColumnTransformer` that leaves categorical
     columns untouched.
     """
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
     if estimator is None:
         return None
@@ -118,6 +127,7 @@ def select_dropna_from_series(
     missing_target: dict[str, int],
     missing_exog: dict[str, int],
     task_type: str,
+    has_gaps: bool = False,
 ) -> bool | None:
     """
     Determine whether to drop NaN rows from training matrices.
@@ -132,6 +142,9 @@ def select_dropna_from_series(
         Mapping of exogenous column name to count of missing values.
     task_type : str
         Forecasting task category.
+    has_gaps : bool, default False
+        Whether the index has missing timestamps. `asfreq()` inserts them
+        as rows with missing values, so they count as missing values.
 
     Returns
     -------
@@ -146,9 +159,9 @@ def select_dropna_from_series(
     `skforecast_ai/resources/llms-base.txt` (NaN handling section).
     """
 
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return None
-    has_missing = bool(missing_target) or bool(missing_exog)
+    has_missing = bool(missing_target) or bool(missing_exog) or has_gaps
     if not has_missing:
         return False
     if estimator in NAN_TOLERANT_ESTIMATORS:
@@ -183,6 +196,7 @@ def build_forecaster_kwargs(
     transformer_series: str | None = None,
     transformer_exog: str | None = None,
     dropna_from_series: bool | None = None,
+    differentiation: int | None = None,
 ) -> dict[str, Any]:
     """
     Build the keyword arguments dict for instantiating a forecaster.
@@ -219,6 +233,9 @@ def build_forecaster_kwargs(
         `'StandardScaler'`). None when no scaling is needed.
     dropna_from_series : bool, default None
         NaN handling flag. None for statistical/foundation forecasters.
+    differentiation : int, default None
+        Differentiation order of the target, written only when given and
+        the forecaster is a machine learning one.
 
     Returns
     -------
@@ -229,7 +246,7 @@ def build_forecaster_kwargs(
     -----
     Source: `skforecast_ai/skills/choosing-a-forecaster/SKILL.md`.
     """
-    if task_type in ("statistical", "foundation"):
+    if task_type in ("statistical", "foundation", "baseline"):
         return {}
 
     kwargs: dict[str, Any] = {}
@@ -263,12 +280,16 @@ def build_forecaster_kwargs(
     if forecaster in DROPNA_FORECASTERS and dropna_from_series is not None:
         kwargs["dropna_from_series"] = dropna_from_series
 
+    if forecaster in AUTOREG_FORECASTERS and differentiation is not None:
+        kwargs["differentiation"] = differentiation
+
     return kwargs
 
 
 def derive_preprocessing_steps(
     profile: DataProfile,
     forecaster: str,
+    foundation_model: FoundationModelInfo | None = None,
 ) -> list[PreprocessingStep]:
     """
     Determine required preprocessing steps for a given profile and forecaster.
@@ -287,6 +308,12 @@ def derive_preprocessing_steps(
         Universal data profile from Stage 1.
     forecaster : str
         Name of the skforecast forecaster class.
+    foundation_model : FoundationModelInfo, default None
+        Capabilities of the foundation model of a `ForecasterFoundation`
+        plan. They decide how missing values are handled and whether
+        categorical exogenous variables are consumed natively, excluded,
+        or not used at all. Required when `forecaster` is
+        `'ForecasterFoundation'`.
 
     Returns
     -------
@@ -298,13 +325,26 @@ def derive_preprocessing_steps(
     steps: list[PreprocessingStep] = []
 
     # --- Duplicate timestamps ---
+    # Only identical rows reach this point (profiling raises when repeated
+    # rows differ). Long-format data still holds the dates in a column when
+    # the step runs, before the series are reshaped, so it deduplicates on
+    # the identifier and date columns instead of the index.
     if profile.has_duplicate_timestamps:
+        if (
+            profile.data_format == "long"
+            and profile.series_id_column is not None
+            and profile.date_column is not None
+        ):
+            code_snippet = DROP_DUPLICATE_ROWS_SNIPPET
+        else:
+            code_snippet = DROP_DUPLICATE_INDEX_SNIPPET
         steps.append(PreprocessingStep(
             action="drop_duplicates",
-            reason="Duplicate timestamps cause errors in skforecast.",
-            code_snippet=(
-                "data = data[~data.index.duplicated(keep='first')]"
+            reason=(
+                "Timestamps repeated in identical rows are removed: skforecast "
+                "needs one row per timestamp."
             ),
+            code_snippet=code_snippet,
             blocking=True,
         ))
 
@@ -317,11 +357,7 @@ def derive_preprocessing_steps(
                     "Provide a DatetimeIndex or date column for "
                     "time-based features."
                 ),
-                code_snippet=(
-                    "# Set a DatetimeIndex:\n"
-                    "# data.index = pd.date_range(start=..., "
-                    "periods=len(data), freq=...)"
-                ),
+                code_snippet=PROVIDE_DATETIME_INDEX_SNIPPET,
                 blocking=True,
             ))
 
@@ -347,14 +383,61 @@ def derive_preprocessing_steps(
                 "The target column is not numeric. Regression forecasters "
                 "require a numeric target."
             ),
-            code_snippet=(
-                "# Convert target to numeric"
-            ),
+            code_snippet=ENCODE_TARGET_SNIPPET,
             blocking=True,
         ))
 
     # --- Missing values ---
-    if profile.missing_target or profile.missing_exog:
+    if forecaster in BASELINE_FORECASTERS:
+        # The baseline ignores the exogenous variables and has neither
+        # `dropna_from_series` nor an estimator, so only imputing the target
+        # helps.
+        if profile.missing_target or profile.has_gaps:
+            steps.append(PreprocessingStep(
+                action="handle_missing_values",
+                reason=(
+                    "Impute the missing target values before training. "
+                    "ForecasterEquivalentDate repeats past values, so a "
+                    "missing value at an equivalent date becomes a missing "
+                    "prediction and the metrics cannot be computed."
+                ),
+                code_snippet=(
+                    "# Impute missing target values, for example:\n"
+                    "# data[target] = data[target].interpolate()"
+                ),
+                blocking=False,
+            ))
+    elif foundation_model is not None and (
+        profile.missing_target or profile.missing_exog
+    ):
+        # A foundation model is not trained: `dropna_from_series` and
+        # NaN-tolerant estimators do not apply, only what the backend accepts.
+        parts: list[str] = []
+        if profile.missing_target and foundation_model.supports_nan_in_series:
+            parts.append(
+                f"'{foundation_model.model_id}' accepts missing values in the "
+                f"series used as context, so they are passed as they are."
+            )
+        elif profile.missing_target:
+            parts.append(
+                f"'{foundation_model.model_id}' does not accept missing values "
+                f"in the series used as context: impute them before fitting."
+            )
+        if profile.missing_exog:
+            parts.append(
+                "Missing values in the exogenous variables are passed to the "
+                "model unchanged; impute them to control how they are filled."
+            )
+        steps.append(PreprocessingStep(
+            action="handle_missing_values",
+            reason=" ".join(parts),
+            code_snippet=(
+                "# Impute missing values only if needed, for example:\n"
+                "# data[column] = data[column].interpolate()"
+            ),
+            blocking=False,
+        ))
+    elif profile.missing_target or profile.missing_exog:
         steps.append(PreprocessingStep(
             action="handle_missing_values",
             reason=(
@@ -371,11 +454,16 @@ def derive_preprocessing_steps(
         ))
 
     # --- Categorical exogenous variables ---
-    if profile.categorical_exog:
-        detected = (
-            f"Categorical exogenous variables detected: "
-            f"{profile.categorical_exog}."
-        )
+    # The baseline uses no exogenous variables, so there is nothing to encode.
+    if profile.categorical_exog and forecaster not in BASELINE_FORECASTERS:
+        # Cut where the reason is built: it is free text, which neither
+        # `describe()` nor `ask()` can cut, so its length would grow with the
+        # number of categorical columns.
+        categorical = profile.categorical_exog
+        listed = str(categorical[:MAX_DESCRIBE_ITEMS])
+        if len(categorical) > MAX_DESCRIBE_ITEMS:
+            listed += f" (first {MAX_DESCRIBE_ITEMS} of {len(categorical)})"
+        detected = f"Categorical exogenous variables detected: {listed}."
         if forecaster == "ForecasterStats":
             steps.append(PreprocessingStep(
                 action="handle_categorical_exog",
@@ -404,17 +492,41 @@ def derive_preprocessing_steps(
                 ),
                 blocking=False,
             ))
+        elif foundation_model is None:
+            raise ValueError(
+                f"`foundation_model` is required to derive the preprocessing "
+                f"steps of '{forecaster}'."
+            )
+        elif not foundation_model.allow_exog:
+            # No exogenous variable reaches the model; the plan explanation
+            # says so, and there is nothing to encode.
+            pass
+        elif foundation_model.supports_categorical_covariates:
+            steps.append(PreprocessingStep(
+                action="handle_categorical_exog",
+                reason=(
+                    f"{detected} '{foundation_model.model_id}' consumes "
+                    f"categorical covariates natively, so no encoding is "
+                    f"needed."
+                ),
+                code_snippet=(
+                    f"# '{foundation_model.model_id}' consumes categorical "
+                    f"covariates natively."
+                ),
+                blocking=False,
+            ))
         else:
             steps.append(PreprocessingStep(
                 action="handle_categorical_exog",
                 reason=(
-                    f"{detected} Chronos-2 consumes categorical covariates "
-                    f"natively, so no encoding is needed."
+                    f"{detected} '{foundation_model.model_id}' only accepts "
+                    f"numeric covariates, so these columns are excluded. "
+                    f"Encode them manually to include them."
                 ),
                 code_snippet=(
-                    "# Chronos-2 consumes categorical covariates natively.\n"
-                    "# Encode them manually only when model_id is overridden\n"
-                    "# with a backend that requires numeric covariates."
+                    "# Categorical exog is excluded from the foundation model.\n"
+                    "# To include it, encode it as numeric first, e.g.:\n"
+                    "# data = pd.get_dummies(data, columns=[...], dtype=float)"
                 ),
                 blocking=False,
             ))

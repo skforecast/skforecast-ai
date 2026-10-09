@@ -1,0 +1,916 @@
+{
+ "environment": {
+  "revision": "788aeb6",
+  "python": "3.11.15",
+  "machine": "x86_64",
+  "cpus": 4,
+  "skforecast_ai": "0.4.0",
+  "skforecast": "0.26.0",
+  "pandas": "2.3.3"
+ },
+ "mcp": {
+  "small": {
+   "dataset": "h2o",
+   "notes": [],
+   "runs": 5,
+   "tools": {
+    "startup": {
+     "median": 2.690045,
+     "times": [
+      2.690045,
+      2.679104,
+      4.24684,
+      2.661193,
+      2.757338
+     ]
+    },
+    "profile": {
+     "median": 0.046366,
+     "times": [
+      0.077982,
+      0.046366,
+      0.076389,
+      0.034804,
+      0.043098
+     ]
+    },
+    "plan": {
+     "median": 0.015305,
+     "times": [
+      0.015305,
+      0.013583,
+      0.037383,
+      0.013832,
+      0.019918
+     ]
+    },
+    "refine_plan": {
+     "median": 0.014221,
+     "times": [
+      0.014,
+      0.014221,
+      0.029191,
+      0.01263,
+      0.017527
+     ]
+    },
+    "create_cv": {
+     "median": 0.033813,
+     "times": [
+      0.033813,
+      0.025938,
+      0.084802,
+      0.030099,
+      0.038882
+     ]
+    },
+    "backtest": {
+     "median": 0.136657,
+     "times": [
+      0.115906,
+      0.114251,
+      0.265646,
+      0.136657,
+      0.13827
+     ]
+    },
+    "compare": {
+     "median": 36.952102,
+     "times": [
+      36.42481,
+      37.375768,
+      39.598988,
+      36.339243,
+      36.952102
+     ]
+    },
+    "forecast": {
+     "median": 0.04042,
+     "times": [
+      0.043803,
+      0.046154,
+      0.038969,
+      0.04042,
+      0.038592
+     ]
+    },
+    "get_code": {
+     "median": 0.006534,
+     "times": [
+      0.006487,
+      0.007363,
+      0.00632,
+      0.006534,
+      0.00682
+     ]
+    },
+    "get_failure": {
+     "median": 0.006393,
+     "times": [
+      0.006391,
+      0.007413,
+      0.006063,
+      0.006393,
+      0.009179
+     ]
+    },
+    "list_objects": {
+     "median": 0.006968,
+     "times": [
+      0.006729,
+      0.009759,
+      0.006576,
+      0.006968,
+      0.007555
+     ]
+    },
+    "describe_object": {
+     "median": 0.009944,
+     "times": [
+      0.00966,
+      0.015355,
+      0.009677,
+      0.009944,
+      0.010222
+     ]
+    }
+   },
+   "profiled": {
+    "split": {
+     "builtins": 44.3616,
+     "skforecast": 33.0824,
+     "estimator": 3.6746,
+     "numpy": 1.635,
+     "other": 1.2411,
+     "pandas": 0.4783,
+     "skforecast_ai": 0.0237,
+     "pydantic": 0.0029
+    },
+    "own_share": 0.0,
+    "own_functions": [
+     {
+      "function": "mcp/_runtime.py:360:target",
+      "calls": 7,
+      "cumtime": 42.0038,
+      "share": 0.497,
+      "tottime": 0.0002
+     },
+     {
+      "function": "assistant.py:2802:backtest",
+      "calls": 5,
+      "cumtime": 41.8477,
+      "share": 0.495,
+      "tottime": 0.0004
+     },
+     {
+      "function": "execution/_exec.py:32:exec_rendered",
+      "calls": 6,
+      "cumtime": 41.8166,
+      "share": 0.495,
+      "tottime": 0.0001
+     },
+     {
+      "function": "execution/backtesting_runner.py:40:run_backtest",
+      "calls": 5,
+      "cumtime": 41.7797,
+      "share": 0.494,
+      "tottime": 0.0001
+     },
+     {
+      "function": "execution/backtesting_runner.py:135:_exec_rendered_code",
+      "calls": 5,
+      "cumtime": 41.7778,
+      "share": 0.494,
+      "tottime": 0.0003
+     },
+     {
+      "function": "mcp/server.py:1465:work",
+      "calls": 1,
+      "cumtime": 41.7099,
+      "share": 0.494,
+      "tottime": 0.0002
+     },
+     {
+      "function": "assistant.py:3080:compare",
+      "calls": 1,
+      "cumtime": 41.6941,
+      "share": 0.493,
+      "tottime": 0.0004
+     },
+     {
+      "function": "mcp/server.py:1344:work",
+      "calls": 1,
+      "cumtime": 0.1888,
+      "share": 0.002,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1649:work",
+      "calls": 1,
+      "cumtime": 0.0572,
+      "share": 0.001,
+      "tottime": 0.0
+     },
+     {
+      "function": "recommendation/backtesting.py:222:_split_folds",
+      "calls": 14,
+      "cumtime": 0.057,
+      "share": 0.001,
+      "tottime": 0.0005
+     },
+     {
+      "function": "assistant.py:2014:forecast",
+      "calls": 1,
+      "cumtime": 0.0512,
+      "share": 0.001,
+      "tottime": 0.0001
+     },
+     {
+      "function": "execution/forecast_runner.py:65:run_forecast",
+      "calls": 1,
+      "cumtime": 0.0409,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "execution/forecast_runner.py:189:_exec_rendered_code",
+      "calls": 1,
+      "cumtime": 0.0406,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "recommendation/backtesting.py:724:resolve_cv_config",
+      "calls": 8,
+      "cumtime": 0.0329,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1296:_finish_run",
+      "calls": 3,
+      "cumtime": 0.0261,
+      "share": 0.0,
+      "tottime": 0.0002
+     },
+     {
+      "function": "mcp/server.py:898:work",
+      "calls": 1,
+      "cumtime": 0.0219,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "assistant.py:579:profile",
+      "calls": 1,
+      "cumtime": 0.0208,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "recommendation/backtesting.py:850:first_window_issue",
+      "calls": 6,
+      "cumtime": 0.0206,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "_utils.py:788:_resolve_data_and_target",
+      "calls": 20,
+      "cumtime": 0.02,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "assistant.py:4391:_refresh_profile",
+      "calls": 7,
+      "cumtime": 0.0185,
+      "share": 0.0,
+      "tottime": 0.0003
+     },
+     {
+      "function": "schemas/explainable.py:36:describe",
+      "calls": 8,
+      "cumtime": 0.0184,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1183:work",
+      "calls": 1,
+      "cumtime": 0.0179,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "assistant.py:4204:_prepare_backtest",
+      "calls": 5,
+      "cumtime": 0.0173,
+      "share": 0.0,
+      "tottime": 0.0001
+     },
+     {
+      "function": "recommendation/backtesting.py:192:_local_index",
+      "calls": 15,
+      "cumtime": 0.017,
+      "share": 0.0,
+      "tottime": 0.0
+     },
+     {
+      "function": "recommendation/backtesting.py:915:check_first_window",
+      "calls": 5,
+      "cumtime": 0.0168,
+      "share": 0.0,
+      "tottime": 0.0
+     }
+    ]
+   }
+  },
+  "medium": {
+   "dataset": "bike_sharing",
+   "notes": [],
+   "runs": 5,
+   "tools": {
+    "startup": {
+     "median": 2.620132,
+     "times": [
+      2.559111,
+      2.620132,
+      2.489652,
+      2.848317,
+      2.734323
+     ]
+    },
+    "profile": {
+     "median": 0.089997,
+     "times": [
+      0.089997,
+      0.086725,
+      0.091677,
+      0.081171,
+      0.091251
+     ]
+    },
+    "plan": {
+     "median": 0.017407,
+     "times": [
+      0.017917,
+      0.017597,
+      0.014227,
+      0.014164,
+      0.017407
+     ]
+    },
+    "refine_plan": {
+     "median": 0.014721,
+     "times": [
+      0.016647,
+      0.01678,
+      0.013893,
+      0.013108,
+      0.014721
+     ]
+    },
+    "create_cv": {
+     "median": 0.129439,
+     "times": [
+      0.129439,
+      0.14563,
+      0.122993,
+      0.121528,
+      0.150238
+     ]
+    },
+    "backtest": {
+     "median": 1.86276,
+     "times": [
+      1.86276,
+      1.964155,
+      1.768292,
+      2.046648,
+      1.831277
+     ]
+    },
+    "compare": {
+     "median": 8.64985,
+     "times": [
+      8.64985,
+      8.419902,
+      8.327521,
+      9.229625,
+      8.894488
+     ]
+    },
+    "forecast": {
+     "median": 0.533971,
+     "times": [
+      0.552657,
+      0.508156,
+      0.527219,
+      0.572739,
+      0.533971
+     ]
+    },
+    "get_code": {
+     "median": 0.007567,
+     "times": [
+      0.007567,
+      0.008056,
+      0.006494,
+      0.008868,
+      0.006565
+     ]
+    },
+    "get_failure": {
+     "median": 0.006962,
+     "times": [
+      0.006962,
+      0.006954,
+      0.006671,
+      0.00909,
+      0.007127
+     ]
+    },
+    "list_objects": {
+     "median": 0.0087,
+     "times": [
+      0.009042,
+      0.0087,
+      0.007422,
+      0.009522,
+      0.006951
+     ]
+    },
+    "describe_object": {
+     "median": 0.010399,
+     "times": [
+      0.010399,
+      0.013176,
+      0.009754,
+      0.014802,
+      0.009879
+     ]
+    }
+   },
+   "profiled": {
+    "split": {
+     "builtins": 17.3379,
+     "estimator": 7.8435,
+     "pandas": 3.7149,
+     "other": 1.1264,
+     "numpy": 0.9202,
+     "skforecast": 0.834,
+     "skforecast_ai": 0.0328,
+     "pydantic": 0.0032
+    },
+    "own_share": 0.001,
+    "own_functions": [
+     {
+      "function": "mcp/_runtime.py:360:target",
+      "calls": 7,
+      "cumtime": 15.6243,
+      "share": 0.491,
+      "tottime": 0.0002
+     },
+     {
+      "function": "execution/_exec.py:32:exec_rendered",
+      "calls": 5,
+      "cumtime": 15.0613,
+      "share": 0.473,
+      "tottime": 0.0002
+     },
+     {
+      "function": "assistant.py:2802:backtest",
+      "calls": 4,
+      "cumtime": 14.8307,
+      "share": 0.466,
+      "tottime": 0.0008
+     },
+     {
+      "function": "execution/backtesting_runner.py:40:run_backtest",
+      "calls": 4,
+      "cumtime": 14.7121,
+      "share": 0.462,
+      "tottime": 0.0
+     },
+     {
+      "function": "execution/backtesting_runner.py:135:_exec_rendered_code",
+      "calls": 4,
+      "cumtime": 14.7106,
+      "share": 0.462,
+      "tottime": 0.0004
+     },
+     {
+      "function": "mcp/server.py:1465:work",
+      "calls": 1,
+      "cumtime": 11.554,
+      "share": 0.363,
+      "tottime": 0.0006
+     },
+     {
+      "function": "assistant.py:3080:compare",
+      "calls": 1,
+      "cumtime": 11.5241,
+      "share": 0.362,
+      "tottime": 0.0003
+     },
+     {
+      "function": "mcp/server.py:1344:work",
+      "calls": 1,
+      "cumtime": 3.3765,
+      "share": 0.106,
+      "tottime": 0.0005
+     },
+     {
+      "function": "mcp/server.py:1649:work",
+      "calls": 1,
+      "cumtime": 0.6031,
+      "share": 0.019,
+      "tottime": 0.0006
+     },
+     {
+      "function": "assistant.py:2014:forecast",
+      "calls": 1,
+      "cumtime": 0.5826,
+      "share": 0.018,
+      "tottime": 0.0003
+     },
+     {
+      "function": "execution/forecast_runner.py:65:run_forecast",
+      "calls": 1,
+      "cumtime": 0.3542,
+      "share": 0.011,
+      "tottime": 0.0
+     },
+     {
+      "function": "execution/forecast_runner.py:189:_exec_rendered_code",
+      "calls": 1,
+      "cumtime": 0.3533,
+      "share": 0.011,
+      "tottime": 0.0001
+     },
+     {
+      "function": "_dates.py:111:row_dates",
+      "calls": 12,
+      "cumtime": 0.2324,
+      "share": 0.007,
+      "tottime": 0.0001
+     },
+     {
+      "function": "_dates.py:101:_as_dates",
+      "calls": 12,
+      "cumtime": 0.2321,
+      "share": 0.007,
+      "tottime": 0.0003
+     },
+     {
+      "function": "assistant.py:3963:_prepare_forecast",
+      "calls": 4,
+      "cumtime": 0.1752,
+      "share": 0.006,
+      "tottime": 0.0001
+     },
+     {
+      "function": "_last_window.py:91:_check_wide",
+      "calls": 1,
+      "cumtime": 0.1673,
+      "share": 0.005,
+      "tottime": 0.0001
+     },
+     {
+      "function": "_last_window.py:21:validate_last_window",
+      "calls": 1,
+      "cumtime": 0.1673,
+      "share": 0.005,
+      "tottime": 0.0
+     },
+     {
+      "function": "_last_window.py:161:_target_frame",
+      "calls": 1,
+      "cumtime": 0.1665,
+      "share": 0.005,
+      "tottime": 0.0001
+     },
+     {
+      "function": "_utils.py:788:_resolve_data_and_target",
+      "calls": 17,
+      "cumtime": 0.0923,
+      "share": 0.003,
+      "tottime": 0.0001
+     },
+     {
+      "function": "profiling/data_profile.py:3005:read_csv_file",
+      "calls": 5,
+      "cumtime": 0.0741,
+      "share": 0.002,
+      "tottime": 0.0001
+     },
+     {
+      "function": "_utils.py:1110:_resolve_inputs_with_profile",
+      "calls": 10,
+      "cumtime": 0.0661,
+      "share": 0.002,
+      "tottime": 0.0002
+     },
+     {
+      "function": "mcp/server.py:898:work",
+      "calls": 1,
+      "cumtime": 0.0635,
+      "share": 0.002,
+      "tottime": 0.0005
+     },
+     {
+      "function": "assistant.py:579:profile",
+      "calls": 1,
+      "cumtime": 0.059,
+      "share": 0.002,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:1296:_finish_run",
+      "calls": 3,
+      "cumtime": 0.0548,
+      "share": 0.002,
+      "tottime": 0.0001
+     },
+     {
+      "function": "assistant.py:4391:_refresh_profile",
+      "calls": 6,
+      "cumtime": 0.0507,
+      "share": 0.002,
+      "tottime": 0.0004
+     }
+    ]
+   }
+  },
+  "large": {
+   "dataset": "store_sales",
+   "notes": [],
+   "runs": 1,
+   "tools": {
+    "startup": {
+     "median": 2.610506,
+     "times": [
+      2.610506
+     ]
+    },
+    "profile": {
+     "median": 3.541373,
+     "times": [
+      3.541373
+     ]
+    },
+    "plan": {
+     "median": 0.033793,
+     "times": [
+      0.033793
+     ]
+    },
+    "refine_plan": {
+     "median": 0.030632,
+     "times": [
+      0.030632
+     ]
+    },
+    "create_cv": {
+     "median": 0.055118,
+     "times": [
+      0.055118
+     ]
+    },
+    "backtest": {
+     "median": 27.199146,
+     "times": [
+      27.199146
+     ]
+    },
+    "compare": {
+     "median": 63.659009,
+     "times": [
+      63.659009
+     ]
+    },
+    "forecast": {
+     "median": 7.85822,
+     "times": [
+      7.85822
+     ]
+    },
+    "get_code": {
+     "median": 0.008951,
+     "times": [
+      0.008951
+     ]
+    },
+    "get_failure": {
+     "median": 0.00889,
+     "times": [
+      0.00889
+     ]
+    },
+    "list_objects": {
+     "median": 0.007694,
+     "times": [
+      0.007694
+     ]
+    },
+    "describe_object": {
+     "median": 0.010474,
+     "times": [
+      0.010474
+     ]
+    }
+   },
+   "profiled": {
+    "split": {
+     "builtins": 306.9421,
+     "pandas": 135.6301,
+     "estimator": 9.9886,
+     "numpy": 8.0911,
+     "skforecast": 6.884,
+     "other": 5.9039,
+     "skforecast_ai": 0.992,
+     "pydantic": 0.0378
+    },
+    "own_share": 0.002,
+    "own_functions": [
+     {
+      "function": "mcp/_runtime.py:360:target",
+      "calls": 7,
+      "cumtime": 201.4091,
+      "share": 0.424,
+      "tottime": 0.0002
+     },
+     {
+      "function": "execution/_exec.py:32:exec_rendered",
+      "calls": 4,
+      "cumtime": 188.7836,
+      "share": 0.398,
+      "tottime": 0.0001
+     },
+     {
+      "function": "assistant.py:2802:backtest",
+      "calls": 4,
+      "cumtime": 185.1282,
+      "share": 0.39,
+      "tottime": 0.0564
+     },
+     {
+      "function": "execution/backtesting_runner.py:40:run_backtest",
+      "calls": 3,
+      "cumtime": 180.9963,
+      "share": 0.381,
+      "tottime": 0.0
+     },
+     {
+      "function": "execution/backtesting_runner.py:135:_exec_rendered_code",
+      "calls": 3,
+      "cumtime": 180.9889,
+      "share": 0.381,
+      "tottime": 0.0003
+     },
+     {
+      "function": "mcp/server.py:1465:work",
+      "calls": 1,
+      "cumtime": 129.8506,
+      "share": 0.274,
+      "tottime": 0.0064
+     },
+     {
+      "function": "assistant.py:3080:compare",
+      "calls": 1,
+      "cumtime": 128.7748,
+      "share": 0.271,
+      "tottime": 0.0004
+     },
+     {
+      "function": "mcp/server.py:1344:work",
+      "calls": 1,
+      "cumtime": 58.0235,
+      "share": 0.122,
+      "tottime": 0.005
+     },
+     {
+      "function": "mcp/server.py:1649:work",
+      "calls": 1,
+      "cumtime": 9.3092,
+      "share": 0.02,
+      "tottime": 0.0046
+     },
+     {
+      "function": "assistant.py:2014:forecast",
+      "calls": 1,
+      "cumtime": 9.0954,
+      "share": 0.019,
+      "tottime": 0.0102
+     },
+     {
+      "function": "execution/forecast_runner.py:65:run_forecast",
+      "calls": 1,
+      "cumtime": 7.8176,
+      "share": 0.016,
+      "tottime": 0.0
+     },
+     {
+      "function": "execution/forecast_runner.py:189:_exec_rendered_code",
+      "calls": 1,
+      "cumtime": 7.8173,
+      "share": 0.016,
+      "tottime": 0.0001
+     },
+     {
+      "function": "mcp/server.py:898:work",
+      "calls": 1,
+      "cumtime": 3.861,
+      "share": 0.008,
+      "tottime": 0.0043
+     },
+     {
+      "function": "assistant.py:579:profile",
+      "calls": 1,
+      "cumtime": 3.8139,
+      "share": 0.008,
+      "tottime": 0.0019
+     },
+     {
+      "function": "_last_window.py:749:validate_series_lengths",
+      "calls": 5,
+      "cumtime": 2.6148,
+      "share": 0.006,
+      "tottime": 0.0173
+     },
+     {
+      "function": "_last_window.py:839:_series_spans",
+      "calls": 5,
+      "cumtime": 2.5758,
+      "share": 0.005,
+      "tottime": 0.1207
+     },
+     {
+      "function": "profiling/data_profile.py:156:create_data_profile",
+      "calls": 2,
+      "cumtime": 2.5132,
+      "share": 0.005,
+      "tottime": 0.0169
+     },
+     {
+      "function": "recommendation/autoregressive.py:202:compute_series_pacf",
+      "calls": 1,
+      "cumtime": 2.1561,
+      "share": 0.005,
+      "tottime": 0.0381
+     },
+     {
+      "function": "mcp/server.py:1296:_finish_run",
+      "calls": 3,
+      "cumtime": 2.1119,
+      "share": 0.004,
+      "tottime": 0.0008
+     },
+     {
+      "function": "assistant.py:4391:_refresh_profile",
+      "calls": 6,
+      "cumtime": 1.9301,
+      "share": 0.004,
+      "tottime": 0.0016
+     },
+     {
+      "function": "mcp/server.py:436:write_frame",
+      "calls": 7,
+      "cumtime": 1.8374,
+      "share": 0.004,
+      "tottime": 0.0001
+     },
+     {
+      "function": "assistant.py:4204:_prepare_backtest",
+      "calls": 4,
+      "cumtime": 1.6889,
+      "share": 0.004,
+      "tottime": 0.0001
+     },
+     {
+      "function": "_utils.py:788:_resolve_data_and_target",
+      "calls": 17,
+      "cumtime": 1.1269,
+      "share": 0.002,
+      "tottime": 0.0002
+     },
+     {
+      "function": "profiling/data_profile.py:3005:read_csv_file",
+      "calls": 4,
+      "cumtime": 0.8874,
+      "share": 0.002,
+      "tottime": 0.0001
+     },
+     {
+      "function": "_utils.py:1110:_resolve_inputs_with_profile",
+      "calls": 10,
+      "cumtime": 0.8382,
+      "share": 0.002,
+      "tottime": 0.0003
+     }
+    ]
+   }
+  }
+ }
+}

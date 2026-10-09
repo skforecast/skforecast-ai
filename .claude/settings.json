@@ -1,11 +1,89 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "permissions": {
     "allow": [
-      "Bash(python -c \"from skforecast.utils import save_forecaster; print\\('ok'\\)\")",
-      "Bash(python -c \"import mkdocs; print\\('mkdocs', mkdocs.__version__\\)\")",
-      "Bash(python -)",
-      "Bash(python -c \"import skforecast,os; print\\(os.path.dirname\\(skforecast.__file__\\)\\)\")",
-      "Bash(python c:/tmp/fix_docs.py)"
+      "Bash(python -m pytest *)",
+      "Bash(pytest *)",
+      "Bash(PYTHONPATH=. python -m pytest *)",
+      "Bash(ruff check *)",
+      "Bash(python -m ruff check *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git branch *)",
+      "Bash(git rev-parse *)",
+      "Bash(conda env list)",
+      "Bash(python tools/ai/update_golden_contexts.py *)",
+      "Bash(python tools/ai/check_ask_context.py --dry-run *)",
+      "Bash(python tools/ai/measure_skill_tokens.py *)"
+    ],
+    "ask": [
+      "Bash(gh pr merge *)",
+      "mcp__plugin_github_github__merge_pull_request"
+    ],
+    "deny": [
+      "Edit(/skforecast_ai/skills/**)",
+      "Write(/skforecast_ai/skills/**)",
+      "Edit(/skforecast_ai/resources/llms-base.txt)",
+      "Write(/skforecast_ai/resources/llms-base.txt)",
+      "Edit(/.github/copilot-instructions.md)",
+      "Write(/.github/copilot-instructions.md)",
+      "Read(/.env)",
+      "Read(/.env.*)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py\"",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_bash_guard.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/post_edit_check.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop_check.py\""
+          }
+        ]
+      }
     ]
   }
 }

@@ -7,6 +7,11 @@ on:
   pull_request:
     branches:
     - main
+  workflow_dispatch:
+
+concurrency:
+  group: unit-tests-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -14,6 +19,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v7
@@ -37,27 +44,34 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
+      with:
+        persist-credentials: false
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v7
+    - name: Set up uv and Python ${{ matrix.python-version }}
+      uses: astral-sh/setup-uv@v10.2.0
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'pip'
+        activate-environment: true  # creates .venv and puts it on PATH for the next steps
+        enable-cache: true
+        cache-dependency-glob: "pyproject.toml"
+        prune-cache: true
 
     - name: Install system dependency libomp on macOS
       if: startsWith(matrix.platform, 'macos-')
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: 1
+        HOMEBREW_NO_INSTALL_CLEANUP: 1
       run: |
         brew install libomp
 
     - name: Install Python dependencies
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install -e ".[test]"
+        uv pip install -e ".[test]"
 
     - name: Show environment info
       run: |
         python --version
-        python -m pip list
+        uv pip list
         python -c "import sys; print('Python executable:', sys.executable)"
         echo "OS: ${{ runner.os }}"
         echo "Platform: ${{ matrix.platform }}"
@@ -67,4 +81,19 @@ jobs:
       env:
         KERAS_BACKEND: torch
       run: |
-        pytest -vv -s  # Extra verbosity and show print statements
+        # -q keeps the log short so failures are easy to find; -ra lists them at the end;
+        # verbosity_assertions=2 keeps the full assertion diffs of -vv. Failed tests are
+        # also shown as annotations (pytest-github-actions-annotate-failures).
+        # The log is kept to list the failures in the summary of the run.
+        pytest -q -ra -o verbosity_assertions=2 --exclude-warning-annotations 2>&1 | tee pytest.log
+
+    - name: List failed tests in the run summary
+      if: ${{ failure() && hashFiles('pytest.log') != '' }}
+      shell: bash
+      run: |
+        {
+          echo "### Failed tests: Python ${{ matrix.python-version }}, ${{ matrix.platform }}"
+          echo '```'
+          sed -n '/short test summary info/,$p' pytest.log
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"

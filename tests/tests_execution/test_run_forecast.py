@@ -1,6 +1,8 @@
 # Unit test run_forecast execution/runner
 
+import re
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,6 +15,7 @@ from .fixtures_execution import (
     df_multi,
     df_single,
     df_single_future_exog,
+    plan_baseline,
     plan_multi,
     plan_single,
     plan_single_custom_kwargs,
@@ -126,27 +129,68 @@ def test_run_forecast_statistical_returns_predictions():
     assert "upper_bound" in result["predictions"].columns
 
 
+# Tests: run_forecast: baseline
+
+
+def test_run_forecast_baseline_repeats_last_seasonal_period():
+    """
+    Test that run_forecast runs the ForecasterEquivalentDate baseline: each
+    prediction repeats the training value one offset (7 days) earlier, the
+    conformal interval columns are present and the metrics are computed.
+    """
+    result = run_forecast(data=df_single, profile=profile_single, plan=plan_baseline)
+
+    train = df_single.set_index("date").loc[:_end_train_single, "sales"]
+    expected_pred = train.iloc[-7:-2].to_numpy()
+
+    predictions = result["predictions"]
+    assert list(predictions.columns) == ["pred", "lower_bound", "upper_bound"]
+    np.testing.assert_allclose(predictions["pred"].to_numpy(), expected_pred)
+    assert list(result["metrics"].columns) == ["series", "MAE", "MSE", "MASE"]
+    assert "ForecasterEquivalentDate" in result["rendered_code"].imports
+
+
 # Tests: run_forecast: unsupported task type
 
 
-def test_run_forecast_ForecastExecutionError_when_invalid_estimator():
+def test_run_forecast_ValueError_when_estimator_not_supported():
     """
-    Test that run_forecast raises ForecastExecutionError when the generated
-    code references an estimator that cannot be imported.
+    Test that run_forecast raises ValueError, before writing the name into
+    the script, for a plan whose estimator skipped validation (model_copy
+    does not run the ForecastPlan validator).
     """
     plan_bad = ForecastPlan(
         task_type="single_series",
         forecaster="ForecasterRecursive",
         forecaster_kwargs={"lags": [1, 2, 3], "dropna_from_series": False},
-        estimator="NonExistentEstimator",
+        estimator="Ridge",
         steps=5,
         frequency="D",
         end_train=_end_train_single,
         explanation="Bad estimator.",
-    )
+    ).model_copy(update={"estimator": "NonExistentEstimator"})
 
-    with pytest.raises((ValueError, ForecastExecutionError)):
+    err_msg = re.escape("'NonExistentEstimator' is not a supported estimator.")
+    with pytest.raises(ValueError, match=err_msg):
         run_forecast(data=df_single, profile=profile_single, plan=plan_bad)
+
+
+def test_run_forecast_ForecastExecutionError_when_exog_column_is_missing():
+    """
+    Test that a script failing while it runs (the data lacks the exogenous
+    column of the profile) raises ForecastExecutionError with the line and
+    the statement of the executed code that failed.
+    """
+    data = df_single.rename(columns={"promo": "discount"})
+
+    with pytest.raises(ForecastExecutionError, match=re.escape("KeyError")) as exc_info:
+        run_forecast(data=data, profile=profile_single, plan=plan_single)
+
+    error = exc_info.value
+    statement = "forecaster.fit(y=data_train['sales'], exog=data_train[exog_features])"
+    assert isinstance(error.original_error, KeyError)
+    assert error.failed_statement == statement
+    assert error.generated_code.splitlines()[error.failed_line - 1] == statement
 
 
 

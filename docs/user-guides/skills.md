@@ -11,7 +11,7 @@ Skills are plain Markdown files bundled with the package under `skforecast_ai/sk
 
 ## Where the skills come from
 
-The skills are the ones skforecast publishes in its own repository, copied verbatim by `tools/sync_skforecast_assets.py` from the skforecast branch that `pyproject.toml` pins. They are never edited in skforecast-ai, so a skill always describes the skforecast version the generated scripts run on. The upstream [Workflow skills](https://skforecast.org/latest/quick-start/ai-assisted-forecasting.html#workflow-skills) table is the canonical list.
+The skills are the ones skforecast publishes in its own repository, copied verbatim by `tools/ai/sync_skforecast_assets.py` from the skforecast branch that `pyproject.toml` pins. They are never edited in skforecast-ai, so a skill always describes the skforecast version the generated scripts run on. The upstream [Workflow skills](https://skforecast.org/latest/quick-start/ai-assisted-forecasting.html#workflow-skills) table is the canonical list.
 
 Each skill follows the open [Agent Skills](https://agentskills.io/specification) standard: a directory named after the skill with a `SKILL.md` file whose YAML front matter declares `name` and `description`, a Markdown body with the instructions, and an optional `references/` folder with longer material (API signatures, worked examples). Because the format is standard, any agent that supports it (GitHub Copilot, Claude Code and others) can load the same skills directly from the skforecast repository.
 
@@ -37,7 +37,7 @@ print(ALL_SKILLS)
 | `feature-engineering` | Calendar features, holiday distances, rolling statistics with `RollingFeatures`, differencing, categorical exogenous variables. |
 | `forecasting-single-series` | `ForecasterRecursive` and `ForecasterDirect`: data preparation, training, prediction, backtesting, intervals. |
 | `forecasting-multiple-series` | Global models with `ForecasterRecursiveMultiSeries` and `ForecasterDirectMultiVariate`: data formats, encoding, per-series transformers. |
-| `foundation-forecasting` | Zero-shot forecasting with pre-trained foundation models (Chronos, TimesFM, Moirai, TabPFN-TS and others) through `ForecasterFoundation`. |
+| `foundation-forecasting` | Zero-shot forecasting with pre-trained foundation models (Chronos, TimesFM, Moirai, TabPFN-TS and others) through `ForecasterFoundation`: accurate forecasts without training, also for short or new (cold-start) series. |
 | `baseline-forecasting` | Seasonal-naive and equivalent-date baselines with `ForecasterEquivalentDate`, and how to benchmark a model against them. |
 | `metric-selection` | Which metric fits the forecaster type, the prediction output and multi-series aggregation; configuring `metric` in backtesting and search. |
 | `backtesting-configuration` | Mapping a deployment scenario (retraining frequency, horizon, data budget) to `TimeSeriesFold` parameters. |
@@ -56,14 +56,15 @@ print(ALL_SKILLS)
 
 When `skills` is not passed, `ask()` selects them in three steps.
 
-**1. Base skills from the context.** If `context` carries a profile (a `ForecastingProfile` or any result), its `task_type` picks the foundational skills. Without a context, the general `choosing-a-forecaster` skill is used alone.
+**1. Base skills from the context.** If `context` carries a profile (a `ForecastingProfile` or any result), its `task_type` picks the foundational skills. When the context also carries a plan whose forecaster has another task type (a `ForecasterStats` or `ForecasterEquivalentDate` chosen over the recommendation), the skills of that task type are added, and a `ComparisonResult` with a baseline row adds `baseline-forecasting`. Without a context, the general `choosing-a-forecaster` skill is used alone.
 
-| `profile.task_type` | Base skills |
+| Task type | Base skills |
 |---|---|
 | `single_series` | `choosing-a-forecaster`, `forecasting-single-series` |
 | `multi_series`, `multivariate` | `choosing-a-forecaster`, `forecasting-multiple-series` |
 | `statistical` | `statistical-models` |
 | `foundation` | `foundation-forecasting` |
+| `baseline` | `baseline-forecasting` |
 | no context | `choosing-a-forecaster` |
 
 **2. Keyword augmentation from the question.** The prompt is scanned for topic keywords and the matching skills are added:
@@ -78,12 +79,12 @@ When `skills` is not passed, `ask()` selects them in three steps.
 | feature selection, rfecv, feature importance | `feature-selection` |
 | metric, mae, mape, rmse, mase, pinball, coverage | `metric-selection` |
 | lstm, gru, rnn, keras, neural | `deep-learning-forecasting` |
-| chronos, timesfm, moirai, foundation, zero-shot | `foundation-forecasting` |
+| chronos, timesfm, moirai, tabpfn, foundation, zero-shot, cold start | `foundation-forecasting` |
 | arima, sarimax, ets, arar, statistical | `statistical-models` |
 | drift, monitor, production, distribution shift | `drift-detection` |
 | baseline, naive, benchmark, equivalent date | `baseline-forecasting` |
 | api, signature, kwargs, "parameters of", "default value" | `complete-api-reference` |
-| traceback, debug, exception, fails, TypeError, ValueError | `troubleshooting-common-errors` |
+| traceback, debug, exception, fails, TypeError, ValueError, InvalidInputError | `troubleshooting-common-errors` |
 
 **3. Conflict resolution and budget.** Some skills suppress others whose guidance would be misleading next to them: `foundation-forecasting` removes the lag, feature and interval skills (a foundation model needs none of them), `deep-learning-forecasting` removes the single and multi-series workflow skills, and `statistical-models` removes them together with feature engineering and selection. The remaining skills are sorted by the `ALL_SKILLS` priority and trimmed to a token budget: a fixed ceiling for hosted providers, and for local `ollama:` models also the space left in the context window after the role prompt, the rendered context and the room reserved for the answer. Trimming drops the last (least foundational) skills first.
 

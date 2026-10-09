@@ -27,11 +27,59 @@ class ExplainableResult:
     """
 
     def _build_llm_context(
-        self, *, send_data: bool
+        self, *, send_data: bool, for_describe: bool = False
     ) -> LLMContext:  # pragma: no cover - overridden by subclasses
         raise NotImplementedError(
             f"{type(self).__name__} must implement _build_llm_context"
         )
+
+    def describe(self) -> str:
+        """
+        Describe the result in plain text.
+
+        The text is the context `ask()` sends to the LLM about this result,
+        with the predictions summarized instead of listed row by row,
+        without the sentences that only tell the LLM how to answer, and
+        with its lists cut as described in the Notes when there are many
+        series. It is deterministic and needs no LLM, so it can be shown to
+        a user or passed to an agent as it is. A plan is
+        described through the script rendered from it:
+        `assistant.forecast_code(profile=profile, plan=plan).describe()`.
+
+        Returns
+        -------
+        description : str
+            Sections wrapped in XML-style tags (`<dataset>`,
+            `<forecast_plan>`, ...), the same ones `ask()` sends.
+
+        Notes
+        -----
+        It never includes values row by row: predictions are summarized
+        by their shape, columns, minimum, maximum, mean and standard
+        deviation, and metrics are included as computed.
+
+        Its length does not grow with the number of series: it keeps the
+        first 15 items of each list (target and exogenous columns, series
+        or columns with missing values, data warnings, lags, window
+        features, failed candidates) and the statistics, significant lags
+        and metrics of the first 5 series, plus the aggregated metric rows
+        (`average`, `weighted_average`, `pooling`), and says how many
+        there are. With 500 series it is about 4,000 to 5,500 characters. The
+        explanation texts (of the profile, the plan, the cross-validation
+        or the comparison) are kept whole, so the lags that the plan
+        explanation names are all listed there. The context of `ask()`
+        keeps every list whole.
+
+        The summary of the predictions is computed over all their rows,
+        and with several series the point forecast is also summarized for
+        each of the first 5 series, while `ask()` sends their rows. The
+        `fold` column of a backtest is an
+        identifier: only the number of folds is given. The script of
+        `backtest_code()` is described as a backtest, with its
+        cross-validation strategy, number of folds and trainings.
+        """
+
+        return self._build_llm_context(send_data=False, for_describe=True).text
 
     def to_llm_context(self, *, send_data: bool = False) -> LLMContext:
         """
