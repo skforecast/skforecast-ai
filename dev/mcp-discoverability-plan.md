@@ -241,8 +241,42 @@ documentada. Mirar una semana después de 2.3 si la ficha aparece sola.
 repo `skforecast`, con enlace a la guía. Es la audiencia que ya existe.
 Decidís vosotros dónde; yo redacto el texto.
 
+Estado, 2026-10-09: texto propuesto, sin llevar todavía al repo
+`skforecast`. Versión para el README, corta:
+
+```markdown
+### Use skforecast from your coding agent
+
+[skforecast-ai](https://github.com/skforecast/skforecast-ai) brings
+skforecast to coding agents such as Claude Code, Cursor or VS Code through
+an [MCP server](https://ai.skforecast.org/stable/user-guides/mcp-server.html).
+Ask in plain language ("Forecast the next 12 months of `data/sales.csv` and
+tell me how accurate it is") and the agent profiles the file, plans a
+forecaster, backtests it and forecasts. Every decision comes from
+deterministic rules, not from the language model, and every result comes
+with the skforecast script that produced it.
+
+In Claude Code:
+
+    /plugin marketplace add skforecast/skforecast-ai
+    /plugin install skforecast-ai@skforecast-ai
+
+With any other MCP client (it needs [uv](https://docs.astral.sh/uv/)):
+
+    uvx skforecast-ai-mcp --allow-dir /absolute/path/to/project
+```
+
+Versión para la documentación: el mismo texto, más un párrafo con lo que el
+servidor hace con los datos (solo lee los CSV del directorio permitido y
+nunca devuelve filas al agente) y el enlace a la guía para el resto.
+
 4.2. **Badge del registro en el README** de este repo, cuando la ficha esté
 publicada.
+
+Estado, 2026-10-09: hecho. El badge "MCP Registry" está en la fila
+`Package`, junto al de "MCP server", y enlaza a la búsqueda de la web del
+registro (`registry.modelcontextprotocol.io/?q=skforecast`): el registro no
+tiene una página por ficha ni un badge propio.
 
 4.3. **Revisión a los 14 días de 2.3**: en qué directorios aparece la ficha
 sin haberla enviado (Glama, PulseMCP, Smithery, mcp.so) y enviar a mano solo
