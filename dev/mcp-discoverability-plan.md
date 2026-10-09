@@ -166,6 +166,30 @@ Yo: `claude plugin validate --strict ./plugin`, la lista de comprobación
 previa de claude.com y la tabla de qué componentes cargan en cada app. Tú: el
 envío en `claude.ai/directory/manage` (pide un plan de pago de claude.ai).
 
+Estado, 2026-10-09, leída la lista de comprobación del portal
+(`claude.com/docs/plugins/pre-submission-checklist`):
+
+- **Bloqueaba**: la carpeta del plugin no tenía README (mínimo 40 palabras
+  fuera de bloques de código). Añadido `plugin/README.md`, con lo que el
+  plugin ejecuta, lee, escribe y descarga, que es lo que mira el escaneo de
+  seguridad.
+- **Cumple**: `license` en `plugin.json`, nombre propio, paquete fijado a una
+  versión exacta, sin credenciales, repositorio de 4 MiB y 575 ficheros.
+- **Dudoso, lo dirá el `Validate` del portal**: la lista pide que las rutas
+  del comando de un servidor MCP salgan de `${CLAUDE_PLUGIN_ROOT}` "sin otra
+  variable" cuando el plugin es una subcarpeta, y el nuestro pasa
+  `${CLAUDE_PROJECT_DIR}` a `--allow-dir`; y el ejemplo de pin es
+  `uvx <paquete>==1.2.3`, no `uvx --from "paquete[extra]==1.2.3"`. Si alguno
+  bloquea, la salida es el comando corto: `uvx skforecast-ai-mcp==X.Y.Z`.
+- **Seguro**: un lanzador con paquete fijado siempre queda retenido para un
+  revisor de Anthropic (`Runs a pinned npx or uvx package`). No es un
+  rechazo.
+- **Alcance**: el servidor local carga en Claude Code y en Cowork cuando la
+  sesión corre en el ordenador del usuario; en el chat de claude.ai se
+  ignora y solo carga el skill.
+- El directorio lee una rama: la de por defecto, `main`, salvo que se le dé
+  otra. El README tiene que estar en ella antes de enviar.
+
 3.2. **Glama**. Tú: el formulario "Add MCP Server". Yo: los textos y revisar
 qué pide su revisión (licencia y README ya están).
 
