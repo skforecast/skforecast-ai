@@ -8,7 +8,7 @@
 
 | | |
 | --- | --- |
-| Package | ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue) [![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai/) [![Total downloads](https://static.pepy.tech/personalized-badge/skforecast-ai?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=total%20downloads)](https://pepy.tech/projects/skforecast-ai) [![PyPI monthly downloads](https://img.shields.io/pypi/dm/skforecast-ai?color=blue&label=pypi%20downloads)](https://pypistats.org/packages/skforecast-ai) |
+| Package | ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue) [![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai/) [![Total downloads](https://static.pepy.tech/personalized-badge/skforecast-ai?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=total%20downloads)](https://pepy.tech/projects/skforecast-ai) [![PyPI monthly downloads](https://img.shields.io/pypi/dm/skforecast-ai?color=blue&label=pypi%20downloads)](https://pypistats.org/packages/skforecast-ai) [![MCP server](https://img.shields.io/badge/MCP-server-blue?logo=modelcontextprotocol&logoColor=white)](https://ai.skforecast.org/stable/user-guides/mcp-server.html) |
 | Meta | [![License](https://img.shields.io/github/license/skforecast/skforecast-ai)](https://github.com/skforecast/skforecast-ai/blob/main/LICENSE) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21338159.svg)](https://doi.org/10.5281/zenodo.21338159) |
 | Testing | [![Build status](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/skforecast/skforecast-ai/actions/workflows/unit-tests.yml) [![codecov](https://codecov.io/gh/skforecast/skforecast-ai/branch/main/graph/badge.svg)](https://codecov.io/gh/skforecast/skforecast-ai) |
 | Community | [![!discord](https://img.shields.io/static/v1?logo=discord&label=discord&message=chat&color=lightgreen)](https://discord.gg/3V52qpNkuj) [![!linkedin](https://img.shields.io/static/v1?logo=linkedin&label=LinkedIn&message=news&color=lightblue)](https://www.linkedin.com/company/skforecast/) [![Forecasting Python](https://img.shields.io/static/v1?logo=readme&logoColor=white&label=Blog&labelColor=%23333333&message=Forecasting%20Python&color=%23ffab40)](https://cienciadedatos.net/en/forecasting-python) |
@@ -103,6 +103,20 @@ answer = assistant.ask(
 
 </details>
 
+<details>
+<summary><b>From your coding agent (MCP server)</b></summary>
+
+In Claude Code, install the server and its skill as a plugin:
+
+```text
+/plugin marketplace add skforecast/skforecast-ai
+/plugin install skforecast-ai@skforecast-ai
+```
+
+Then ask in plain language: *"Forecast the next 12 months of `data/sales.csv` and tell me how accurate it is."* The agent brings the language model and calls skforecast-ai as tools; every decision still comes from the same deterministic rules, every result comes with the script that produced it, and responses never carry rows of your data. The setups for Cursor, VS Code, Codex and Claude Desktop are in [MCP server for coding agents](https://ai.skforecast.org/stable/user-guides/mcp-server.html).
+
+</details>
+
 
 ## Features
 
@@ -114,7 +128,7 @@ answer = assistant.ask(
 - **[Model selection](https://ai.skforecast.org/stable/user-guides/agentic-forecasting.html)** with `compare()`: every candidate is backtested with the same data and cross-validation, and the ranking is a plain sort of the metric. For a single series, a seasonal naive baseline is ranked alongside them, so you also see whether a model beats the simplest reasonable forecast.
 - **Reproducible**: the same input always gives the same profile, plan, script and predictions.
 - **Python or terminal**: the [CLI](https://ai.skforecast.org/stable/user-guides/cli-usage.html) runs the same pipeline from a CSV file or URL.
-- **Coding agents**: an [MCP server](https://ai.skforecast.org/stable/user-guides/mcp-server.html) gives Claude Code, Cursor and other MCP clients the same pipeline as tools, with a skill that teaches them to use it. Responses never carry rows of your data. In Claude Code: `/plugin marketplace add skforecast/skforecast-ai` and `/plugin install skforecast-ai@skforecast-ai`.
+- **Coding agents**: an [MCP server](https://ai.skforecast.org/stable/user-guides/mcp-server.html) gives Claude Code, Cursor and other MCP clients the same pipeline as tools, with a skill that teaches them to use it. Responses never carry rows of your data.
 
 The engine chooses among the forecasters of skforecast: recursive and direct, multi-series and multivariate, statistical (ARIMA) and foundation models.
 

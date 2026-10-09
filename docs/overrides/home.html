@@ -291,9 +291,9 @@
       <div class="sec-head">
         <span class="kicker">Workflows</span>
         <h2>One call, or every step in your hands</h2>
-        <p>The same engine behind three entry points. Each step returns an object you can inspect, change and pass on.</p>
+        <p>The same engine behind four entry points. Each step returns an object you can inspect, change and pass on.</p>
       </div>
-      <div class="ways">
+      <div class="ways pairs">
         <article class="way">
           <span class="tagline">Fast path</span>
           <h3>From data to forecast in one call</h3>
@@ -328,6 +328,17 @@ result = assistant.backtest(
     --target y --steps 12 \
     --output forecast.py</code></pre>
           <a class="more" href="{{ 'user-guides/cli-usage.html' | url }}">Using the CLI →</a>
+        </article>
+        <article class="way">
+          <span class="tagline">Coding agents</span>
+          <h3>The same pipeline as tools for your agent</h3>
+          <pre class="snip sh"><code><span class="tk-m"># In Claude Code; your agent brings the LLM,</span>
+<span class="tk-m"># the decisions stay with the rules</span>
+<span class="tk-m">&gt;</span> /plugin marketplace add skforecast/skforecast-ai
+<span class="tk-m">&gt;</span> /plugin install skforecast-ai@skforecast-ai
+
+<span class="tk-m">&gt;</span> Forecast the next 12 months of data/sales.csv</code></pre>
+          <a class="more" href="{{ 'user-guides/mcp-server.html' | url }}">MCP server for coding agents →</a>
         </article>
       </div>
     </div>

@@ -1651,6 +1651,12 @@ partials/ask-window.html, styled in extra.css (.sk-ask).
   margin-top: 48px;
 }
 
+/* Four entry points read better as two rows of two than as four narrow
+   columns, where every snippet would scroll. */
+.sk-home .ways.pairs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .sk-home .way.llm .tagline {
   color: var(--llm-ink);
 }
@@ -1669,6 +1675,10 @@ partials/ask-window.html, styled in extra.css (.sk-ask).
   .sk-home .ways.two {
     grid-template-columns: minmax(0, 1fr);
     margin-top: 32px;
+  }
+
+  .sk-home .ways.pairs {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
