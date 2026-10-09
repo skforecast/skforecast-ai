@@ -2,6 +2,7 @@
 
 import json
 import re
+import struct
 from pathlib import Path
 
 from skforecast_ai import __version__
@@ -96,3 +97,18 @@ def test_plugin_readme_meets_the_directory_requirements():
 
     assert len(prose.split()) >= 40
     assert 'uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai mcp' in readme
+
+
+def test_plugin_icon_meets_the_directory_requirements():
+    """
+    Test that the icon of the plugin is where the plugin directory of
+    Anthropic looks for it and is what it accepts: a square PNG of 512 to
+    2048 pixels on each side, under 2 MB.
+    """
+    icon = (PLUGIN / ".claude-plugin" / "icon.png").read_bytes()
+    width, height = struct.unpack(">II", icon[16:24])
+
+    assert icon[:8] == b"\x89PNG\r\n\x1a\n"
+    assert width == height
+    assert 512 <= width <= 2048
+    assert len(icon) < 2 * 1024 * 1024
