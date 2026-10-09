@@ -56,7 +56,11 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
 
 === "VS Code"
 
-    In `.vscode/mcp.json` of the project (or run **MCP: Open User Configuration** from the Command Palette for every project). The key is `servers`, not `mcpServers`:
+    This button adds the server to your user configuration and asks for the directory the first time it starts:
+
+    [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522skforecast-ai%2522%252C%2522command%2522%253A%2522uvx%2522%252C%2522args%2522%253A%255B%2522skforecast-ai-mcp%2522%252C%2522--allow-dir%2522%252C%2522%2524%257Binput%253Aallow_dir%257D%2522%255D%252C%2522inputs%2522%253A%255B%257B%2522type%2522%253A%2522promptString%2522%252C%2522id%2522%253A%2522allow_dir%2522%252C%2522description%2522%253A%2522Absolute%2520path%2520of%2520the%2520directory%2520with%2520your%2520CSV%2520files%2520%2528the%2520server%2520reads%2520only%2520inside%2520it%2529%2522%257D%255D%257D)
+
+    It writes the command `uvx skforecast-ai-mcp --allow-dir <the directory you give>` (see the note below the tabs). To write the configuration yourself: in `.vscode/mcp.json` of the project (or run **MCP: Open User Configuration** from the Command Palette for every project). The key is `servers`, not `mcpServers`:
 
     ```json
     {
@@ -127,6 +131,16 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
     and copy that folder into the skills directory of your agent (`.claude/skills/` of your project, or `~/.claude/skills/` for every project, with Claude Code).
 
 The path of `--allow-dir` must be absolute: the client starts the server from a working directory of its own choosing. The place and format of the configuration are those of each client, so check its documentation if they differ.
+
+!!! note "A shorter command: `skforecast-ai-mcp`"
+    The package [skforecast-ai-mcp](https://pypi.org/project/skforecast-ai-mcp/) is a launcher with no logic of its own: it installs `skforecast-ai[mcp]` at its same version and runs `skforecast-ai mcp` with the arguments it receives. These two commands start the same server, with the same options and the same first start:
+
+    ```bash
+    uvx skforecast-ai-mcp --allow-dir /absolute/path/to/project
+    uvx --from "skforecast-ai[mcp]" skforecast-ai mcp --allow-dir /absolute/path/to/project
+    ```
+
+    In the configurations above, that is `"args": ["skforecast-ai-mcp", "--allow-dir", "/absolute/path/to/project"]`; pin a version with `skforecast-ai-mcp==<version>`.
 
 !!! tip "Warm up uvx before the first start"
     **The first start is slow.** `uvx` downloads and installs the package and its dependencies the first time, and Python loads them for the first time: about 30 seconds with a fast connection, more with a slow one. A client may give up on a server that takes that long to start: Claude Code waits 30 seconds by default. Run this once before connecting the agent, so later starts take a few seconds (the first one up to 10, the next ones about 2). With the plugin of Claude Code, use `"skforecast-ai[mcp]==<version>"`:

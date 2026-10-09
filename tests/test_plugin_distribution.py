@@ -82,3 +82,17 @@ def test_plugin_marketplace_and_server_command():
     assert server["skforecast-ai"]["args"][2:] == [
         "skforecast-ai", "mcp", "--allow-dir", "${CLAUDE_PROJECT_DIR}",
     ]
+
+
+def test_plugin_readme_meets_the_directory_requirements():
+    """
+    Test that the plugin folder has a README with at least 40 words outside
+    code blocks, which the plugin directory of Anthropic requires and shows
+    as the description of the listing, and that it shows the command the
+    plugin runs.
+    """
+    readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
+    prose = re.sub(r"```.*?```", "", readme, flags=re.DOTALL)
+
+    assert len(prose.split()) >= 40
+    assert 'uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai mcp' in readme

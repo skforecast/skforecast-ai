@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.skforecast/skforecast-ai",
+  "title": "skforecast-ai",
+  "description": "Forecast time series in CSV files: deterministic skforecast workflows and the script that ran.",
+  "repository": {
+    "url": "https://github.com/skforecast/skforecast-ai",
+    "source": "github"
+  },
+  "websiteUrl": "https://ai.skforecast.org/stable/user-guides/mcp-server.html",
+  "version": "0.4.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "skforecast-ai-mcp",
+      "version": "0.4.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--allow-dir",
+          "description": "Absolute path of the directory the server may read CSV files from. Give the narrowest one that holds your data.",
+          "format": "filepath",
+          "isRequired": true
+        }
+      ]
+    }
+  ]
+}
