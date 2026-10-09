@@ -1,0 +1,2586 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+      
+      
+        <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
+      
+      
+        <link rel="canonical" href="https://ai.skforecast.org/stable/user-guides/mcp-server.html">
+      
+      
+        <link rel="prev" href="cli-usage.html">
+      
+      
+        <link rel="next" href="../api/assistant.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../img/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>MCP server for coding agents - skforecast-AI Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        
+        <link rel="stylesheet" href="../assets/external/fonts.googleapis.com/css.5a42ceff.css">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Ubuntu Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-1L7X239QEB"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-1L7X239QEB",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-1L7X239QEB",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>if("undefined"!=typeof __md_analytics){var consent=__md_get("__consent");consent&&consent.analytics&&__md_analytics()}</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mcp-server-for-coding-agents" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-banner">
+          <div class="md-banner__inner md-grid md-typeset">
+            
+              <button class="md-banner__button md-icon" aria-label="Don't show this again">
+                
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+              </button>
+            
+            
+  New in the skforecast ecosystem:
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+Every forecast of skforecast-ai runs on
+<a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
+
+          </div>
+          
+            <script>var el=document.querySelector("[data-md-component=announce]");if(el){var content=el.querySelector(".md-typeset");__md_hash(content.innerHTML)===__md_get("__announce")&&(el.hidden=!0)}</script>
+          
+        </aside>
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  <div>
+  This is documentation for an unstable development version.
+  
+    <a href="../.." id="version-switch-link">
+      <strong>Switch to latest stable version.</strong>
+    </a>
+  
+</div>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL(".."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="skforecast-AI Docs" class="md-header__button md-logo" aria-label="skforecast-AI Docs" data-md-component="logo">
+      
+  <img src="../img/logo-skforecast.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            skforecast-AI Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              MCP server for coding agents
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/skforecast/skforecast-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../index.html" class="md-tabs__link">
+          
+  
+  
+  Home
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../quick-start/how-to-install.html" class="md-tabs__link">
+          
+  
+  
+  Quick start
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="agentic-forecasting.html" class="md-tabs__link">
+          
+  
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/assistant.html" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../releases/releases.html" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../more/about-skforecast-ai.html" class="md-tabs__link">
+          
+  
+  
+  More
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="skforecast-AI Docs" class="md-nav__button md-logo" aria-label="skforecast-AI Docs" data-md-component="logo">
+      
+  <img src="../img/logo-skforecast.png" alt="logo">
+
+    </a>
+    skforecast-AI Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/skforecast/skforecast-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Home
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to skforecast-ai
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Quick start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/how-to-install.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/first-forecast.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first forecast
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/ask-the-assistant.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ask the assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="agentic-forecasting.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic forecasting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="agentic-forecasting-step-by-step.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic forecasting step by step
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="llm-configuration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuring the LLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="skills.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills for the LLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="cli-usage.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server for coding agents
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="mcp-server.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server for coding agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-the-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Check the installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-session-looks-like" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a session looks like
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#server-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-agent-sees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the agent sees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#foundation-models-and-licenses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foundation models and licenses
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-agent-does-before-it-calls-the-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the agent does before it calls the server
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Errors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The skill
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/assistant.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schemas
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Schemas
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/schemas/results.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/schemas/plans.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plans
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/schemas/profiles.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/exceptions.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exceptions and warnings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/cli.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/mcp.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/releases.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    More
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    More
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../more/about-skforecast-ai.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About skforecast-ai
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../more/consulting.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Consulting and professional services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="mcp-server-for-coding-agents">MCP server for coding agents<a class="headerlink" href="#mcp-server-for-coding-agents" title="Permanent link">&para;</a></h1>
+<p>Coding agents such as Claude Code, Cursor or Claude Desktop can call <strong>skforecast-ai</strong> as a set of tools through the <a href="https://modelcontextprotocol.io">Model Context Protocol</a> (MCP). The agent brings the language model: it reads your request, calls the tools and explains the results. skforecast-ai brings the forecasting: every decision (forecaster, estimator, lags, metric, cross-validation) is made by the same deterministic rules as in Python, and every result comes with the script that produced it.</p>
+<p>Once the server is connected, you ask in plain language:</p>
+<ul>
+<li><em>"Forecast the next 12 months of <code>data/sales.csv</code> and tell me how accurate it is."</em></li>
+<li><em>"Compare the candidate models for <code>data/demand.csv</code> and show me the leaderboard."</em></li>
+<li><em>"Give me the script that produced that forecast."</em></li>
+</ul>
+<p>The server needs Python 3.10 or newer. Most of the setups below start it with <a href="https://docs.astral.sh/uv/">uv</a> (<code>uvx</code>), which installs the package for you, so install uv first.</p>
+<hr />
+<h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
+<p>Pick the tab of your agent. Every setup gives the server one directory, <code>--allow-dir</code>: it only reads CSV files inside it, so give it the narrowest directory that holds your data.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><input id="__tabbed_1_6" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Claude Code</label><label for="__tabbed_1_2">Cursor</label><label for="__tabbed_1_3">VS Code</label><label for="__tabbed_1_4">Codex</label><label for="__tabbed_1_5">Claude Desktop</label><label for="__tabbed_1_6">pip or pipx</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>Claude Code installs the server and its skill as a plugin from the marketplace of this repository:</p>
+<div class="language-text highlight"><pre><span></span><code>/plugin marketplace add skforecast/skforecast-ai
+/plugin install skforecast-ai@skforecast-ai
+</code></pre></div>
+<p>The plugin starts <code>uvx --from "skforecast-ai[mcp]==&lt;version&gt;" skforecast-ai mcp --allow-dir &lt;your project&gt;</code>, where <code>&lt;version&gt;</code> is the version of the plugin (<code>claude plugin list</code> shows it).</p>
+<div class="admonition warning">
+<p class="admonition-title">The plugin can read every CSV file of your project</p>
+<p>The allowed directory is the project you open in Claude Code. That includes an export of credentials or of personal data saved as <code>.csv</code>, whose values an error or a summary can quote.</p>
+</div>
+<p>To pass other options (another directory, <code>--allow-model</code>, <code>HF_HUB_OFFLINE</code>, or the backend of a foundation model with <code>uvx --with</code>), add the server by hand instead and disable the plugin: with both, two servers run. For every project (<code>--scope user</code>):</p>
+<div class="language-bash highlight"><pre><span></span><code>claude<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>--scope<span class="w"> </span>user<span class="w"> </span>skforecast-ai<span class="w"> </span>--<span class="w"> </span>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span><span class="w"> </span>skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span class="w"> </span>/absolute/path/to/project
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>In <code>.cursor/mcp.json</code> of the project (or <code>~/.cursor/mcp.json</code> for every project):</p>
+<div class="language-json highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"skforecast-ai"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"uvx"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="s2">"--from"</span><span class="p">,</span><span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">"skforecast-ai"</span><span class="p">,</span><span class="w"> </span><span class="s2">"mcp"</span><span class="p">,</span><span class="w"> </span><span class="s2">"--allow-dir"</span><span class="p">,</span><span class="w"> </span><span class="s2">"/absolute/path/to/project"</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>In <code>.vscode/mcp.json</code> of the project (or run <strong>MCP: Open User Configuration</strong> from the Command Palette for every project). The key is <code>servers</code>, not <code>mcpServers</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"servers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"skforecast-ai"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"uvx"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="s2">"--from"</span><span class="p">,</span><span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">"skforecast-ai"</span><span class="p">,</span><span class="w"> </span><span class="s2">"mcp"</span><span class="p">,</span><span class="w"> </span><span class="s2">"--allow-dir"</span><span class="p">,</span><span class="w"> </span><span class="s2">"/absolute/path/to/project"</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>In <code>~/.codex/config.toml</code>:</p>
+<div class="language-toml highlight"><pre><span></span><code><span class="k">[mcp_servers.skforecast-ai]</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"uvx"</span>
+<span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="s2">"--from"</span><span class="p">,</span><span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span><span class="p">,</span>
+<span class="w">  </span><span class="s2">"skforecast-ai"</span><span class="p">,</span><span class="w"> </span><span class="s2">"mcp"</span><span class="p">,</span><span class="w"> </span><span class="s2">"--allow-dir"</span><span class="p">,</span><span class="w"> </span><span class="s2">"/absolute/path/to/project"</span><span class="p">,</span>
+<span class="p">]</span>
+<span class="n">startup_timeout_sec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">120</span>
+<span class="n">tool_timeout_sec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1800</span>
+</code></pre></div>
+<p>The two timeouts are needed: by default Codex waits 10 seconds for a server to start, less than the first start of <code>uvx</code> takes, and 60 seconds for a tool to answer, less than a comparison can take.</p>
+</div>
+<div class="tabbed-block">
+<p>Open <strong>Settings &gt; Developer &gt; Edit Config</strong>, which opens <code>claude_desktop_config.json</code> (<code>~/Library/Application Support/Claude/</code> on macOS, <code>%APPDATA%\Claude\</code> on Windows), add the server and restart the application:</p>
+<div class="language-json highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"skforecast-ai"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"uvx"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="s2">"--from"</span><span class="p">,</span><span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">"skforecast-ai"</span><span class="p">,</span><span class="w"> </span><span class="s2">"mcp"</span><span class="p">,</span><span class="w"> </span><span class="s2">"--allow-dir"</span><span class="p">,</span><span class="w"> </span><span class="s2">"/absolute/path/to/data"</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>Install the package with its <code>mcp</code> extra (also included in <code>all</code>) in a Python environment, or with pipx in an environment of its own:</p>
+<div class="language-bash highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span>
+pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span>
+</code></pre></div>
+<p>The client then starts the command <code>skforecast-ai mcp --allow-dir /absolute/path/to/data</code>, for example with <code>"command": "skforecast-ai"</code> in the JSON of the Cursor tab. If it does not find <code>skforecast-ai</code>, give the absolute path of the one in your environment (<code>which skforecast-ai</code> on Linux and macOS, <code>where skforecast-ai</code> on Windows), or start it with the Python of that environment: <code>/path/to/python -m skforecast_ai mcp --allow-dir /absolute/path/to/data</code>.</p>
+<p>Copy the skill by hand: find it in your installation with</p>
+<div class="language-bash highlight"><pre><span></span><code>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"from importlib.resources import files; print(files('skforecast_ai') / 'mcp' / 'skills' / 'skforecast-ai-forecasting')"</span>
+</code></pre></div>
+<p>and copy that folder into the skills directory of your agent (<code>.claude/skills/</code> of your project, or <code>~/.claude/skills/</code> for every project, with Claude Code).</p>
+</div>
+</div>
+</div>
+<p>The path of <code>--allow-dir</code> must be absolute: the client starts the server from a working directory of its own choosing. The place and format of the configuration are those of each client, so check its documentation if they differ.</p>
+<div class="admonition tip">
+<p class="admonition-title">Warm up uvx before the first start</p>
+<p><strong>The first start takes about a minute.</strong> <code>uvx</code> downloads and installs the package and its dependencies the first time (about 60 seconds), and a client may give up on a server that takes that long to start. Run this once before connecting the agent, so later starts take about 2 seconds (with the plugin of Claude Code, use <code>"skforecast-ai[mcp]==&lt;version&gt;"</code>):</p>
+<div class="language-bash highlight"><pre><span></span><code>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span><span class="w"> </span>skforecast-ai<span class="w"> </span>--version
+</code></pre></div>
+</div>
+<p><strong>Install the skill.</strong> <a href="#the-skill">The skill</a> teaches the agent how to use the tools. The plugin of Claude Code already includes it. For Cursor, VS Code, Codex and other agents, install it with the <a href="https://github.com/vercel-labs/skills">skills</a> command:</p>
+<div class="language-bash highlight"><pre><span></span><code>npx<span class="w"> </span>skills<span class="w"> </span>add<span class="w"> </span>skforecast/skforecast-ai<span class="w"> </span>--skill<span class="w"> </span>skforecast-ai-forecasting
+</code></pre></div>
+<p>Without the skill the server still works: the most important of its rules also reach the agent in the instructions of the server.</p>
+<hr />
+<h2 id="check-the-installation">Check the installation<a class="headerlink" href="#check-the-installation" title="Permanent link">&para;</a></h2>
+<p>Check that the agent sees the server before you ask for a forecast:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Client</th>
+<th style="text-align: left;">How to check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Claude Code</td>
+<td style="text-align: left;"><code>/mcp</code> in a session, or <code>claude mcp list</code> in a terminal</td>
+</tr>
+<tr>
+<td style="text-align: left;">Cursor</td>
+<td style="text-align: left;">The MCP section of its settings lists the server and its tools</td>
+</tr>
+<tr>
+<td style="text-align: left;">VS Code</td>
+<td style="text-align: left;"><strong>MCP: List Servers</strong> in the Command Palette; <strong>Show Output</strong> opens the log of the server</td>
+</tr>
+<tr>
+<td style="text-align: left;">Codex</td>
+<td style="text-align: left;"><code>/mcp</code> in a session, or <code>codex mcp list</code> in a terminal</td>
+</tr>
+<tr>
+<td style="text-align: left;">Claude Desktop</td>
+<td style="text-align: left;">After the restart, the server appears among the connectors of the chat box ("+" button)</td>
+</tr>
+</tbody>
+</table>
+<p>Then ask something that needs the server, for example <em>"Profile <code>/absolute/path/to/project/data.csv</code> with skforecast-ai"</em>. The agent should call the <code>profile</code> tool and answer with the frequency of the data and the recommended forecaster. If the server does not appear, see <a href="#troubleshooting">Troubleshooting</a>.</p>
+<hr />
+<h2 id="what-a-session-looks-like">What a session looks like<a class="headerlink" href="#what-a-session-looks-like" title="Permanent link">&para;</a></h2>
+<p>You ask, for example, <em>"Forecast the next 12 months of <code>/path/to/data/h2o.csv</code> and tell me how accurate it is"</em>. The agent then calls:</p>
+<ol>
+<li><code>profile(data_path="/path/to/data/h2o.csv", target="x")</code>: the frequency, the series, the exogenous columns and the recommended forecaster, as a profile id. Every column other than the target, the date and the series ids is an exogenous variable, unless <code>exog_columns</code> names the ones to use.</li>
+<li><code>plan(profile_id=..., steps=12)</code>: lags, window features, metric and preprocessing, as a plan id.</li>
+<li><code>create_cv(plan_id=...)</code>: the cross-validation strategy, with its cost (estimator fits, or inference windows for a foundation model, which is never trained). A notice warns when the backtest will be long.</li>
+<li><code>backtest(cv_id=...)</code> and, to compare configurations, <code>compare(cv_id=...)</code>.</li>
+<li><code>forecast(plan_id=...)</code>: the forecast of the next 12 months.</li>
+</ol>
+<p>Each of these tools returns an id for the next ones, a plain-text summary (the one <code>describe()</code> gives in Python) and the warnings of the call. The summary of a backtest or a forecast carries its metrics and statistics of the predictions, and that of a comparison its leaderboard; the predictions themselves, row by row, go to CSV files in the output directory, listed in <code>files</code>. <code>get_code</code> returns the script that ran, which you can run yourself without the server. The <a href="../api/mcp.html">API reference</a> lists every tool, its arguments and its errors.</p>
+<p><strong>Long calls.</strong> <code>compare</code> sends a progress notification when each candidate starts and ends. Any long call (a backtest, a forecast, a candidate of <code>compare</code>) also sends one every 5 seconds while it runs, naming what runs and for how long ("ForecasterStats: running (35 s)"), so a client does not give up on a request that is still working, as long as it asked for progress. Cancelling a call waits for the candidate or the backtest in progress to end: a cancelled <code>compare</code> skips its remaining candidates, and a cancelled call registers nothing. Until it ends, only the read tools (<code>get_code</code>, <code>get_failure</code>, <code>list_objects</code>, <code>describe_object</code>) answer; the others wait their turn.</p>
+<hr />
+<h2 id="server-options">Server options<a class="headerlink" href="#server-options" title="Permanent link">&para;</a></h2>
+<p>The agent starts the server itself, as a command, and talks to it over its standard input and output. <code>--allow-dir</code> is required: the server only reads CSV files inside that directory.</p>
+<div class="language-bash highlight"><pre><span></span><code>skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span class="w"> </span>/path/to/data
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Option</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>--allow-dir</code></td>
+<td style="text-align: left;">(required)</td>
+<td style="text-align: left;">Directory the server may read, as an absolute path (an empty or relative value is rejected). Only absolute paths of <code>.csv</code> files inside it are accepted, also after resolving symbolic links.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>--output-dir</code></td>
+<td style="text-align: left;">a new temporary directory</td>
+<td style="text-align: left;">Where the server writes predictions, metrics, leaderboards and long texts. It is also the working directory of the server, and it is kept when the server stops. Its path is logged when the server starts.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>--max-objects</code></td>
+<td style="text-align: left;">256</td>
+<td style="text-align: left;">Most objects (profiles, plans, results) the server keeps.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>--max-memory-mb</code></td>
+<td style="text-align: left;">1024</td>
+<td style="text-align: left;">Memory the objects may take. Beyond either limit, the least recently used objects are removed.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>--max-file-mb</code></td>
+<td style="text-align: left;">256</td>
+<td style="text-align: left;">Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it. 0 for no limit.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>--allow-model</code></td>
+<td style="text-align: left;">(none)</td>
+<td style="text-align: left;">Model ID prefix of a foundation model that the server does not run by default, for example <code>google/timesfm-3.0</code>. Repeat it for several. See <a href="#foundation-models-and-licenses">Foundation models and licenses</a>.</td>
+</tr>
+</tbody>
+</table>
+<p>When it starts, the server checks that it can write to the output directory and stops with an error otherwise. It writes its log to the standard error, one line per event: the directories it uses when it starts, the message and traceback of an unexpected error with its id, and one line when the client disconnects (it then exits with code 0, also in the middle of a call).</p>
+<p><strong>Options in the configuration of the client.</strong> Options of the server go at the end of <code>args</code> (for example <code>"--allow-model", "google/timesfm-3.0"</code> to run TimesFM 3.0 once you have accepted its license), and variables of its environment in <code>env</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"skforecast-ai"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"uvx"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="s2">"--from"</span><span class="p">,</span><span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">"skforecast-ai"</span><span class="p">,</span><span class="w"> </span><span class="s2">"mcp"</span><span class="p">,</span><span class="w"> </span><span class="s2">"--allow-dir"</span><span class="p">,</span><span class="w"> </span><span class="s2">"/absolute/path/to/project"</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">"--allow-model"</span><span class="p">,</span><span class="w"> </span><span class="s2">"google/timesfm-3.0"</span>
+<span class="w">      </span><span class="p">],</span>
+<span class="w">      </span><span class="nt">"env"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"HF_HUB_OFFLINE"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1"</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>With <code>claude mcp add</code>, the variables go before <code>--</code>: <code>claude mcp add --scope user skforecast-ai -e HF_HUB_OFFLINE=1 -- uvx ...</code>. In <code>~/.codex/config.toml</code>, an <code>env = { HF_HUB_OFFLINE = "1" }</code> line under <code>[mcp_servers.skforecast-ai]</code>.</p>
+<p><strong>Update.</strong> The plugin of Claude Code runs the version it was published with: update it with <code>claude plugin update skforecast-ai@skforecast-ai</code>. <code>uvx</code> keeps using the version it downloaded first: run <code>uvx --refresh --from "skforecast-ai[mcp]" skforecast-ai --version</code> to get the newest one, or pin the one you want in <code>args</code> (<code>"skforecast-ai[mcp]==&lt;version&gt;"</code>). With pip, <code>pip install -U "skforecast-ai[mcp]"</code>.</p>
+<hr />
+<h2 id="what-the-agent-sees">What the agent sees<a class="headerlink" href="#what-the-agent-sees" title="Permanent link">&para;</a></h2>
+<p>The data never travels whole to the agent, and the agent's language model sees what the agent reads:</p>
+<ul>
+<li><strong>Summaries</strong> carry statistics (minimum, maximum, mean, standard deviation, missing values), dates, column names and series ids, the decisions and their explanations, the metrics, statistics of the predictions and the leaderboard of a comparison. Never rows of the data or of the predictions. The summary of a plan also names the data file its script reads; the other summaries do not name it.</li>
+<li><strong>Messages</strong> of errors and warnings are forwarded as the library writes them. They can name columns and series ids and quote up to 5 values of the data (categories, dates). The server cuts an error message at 4,000 characters, its hint at 1,000 and each text of its <code>details</code> at 500, and sends at most 20 warnings of 1,000 characters each (<code>notices_omitted</code> counts the rest). An unexpected error (<code>internal_error</code>) carries only the type of the exception and an id: its message and traceback, which can quote a value, go to the log of the server (stderr) under that id.</li>
+<li><strong>The allowed directory.</strong> The instructions the server gives the agent when it connects name the absolute path of <code>--allow-dir</code>, so the agent can find a file you name by a relative path without searching your file system.</li>
+<li><strong>Scripts</strong> (<code>get_code</code>) name the path of the data file they read. <strong>Failures</strong> (<code>get_failure</code>) do not (the code that ran reads the data in memory), but they hold a traceback, which can quote values.</li>
+<li><strong>Files</strong> in the output directory hold rows (predictions, metrics). The agent reads them only if it opens them.</li>
+</ul>
+<p><code>values_included</code> is always false in the response of a tool that creates an object, as a reminder that no rows of the data or of the predictions were sent; the metrics and the leaderboard are in the summary.</p>
+<hr />
+<h2 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Files.</strong> The server reads only absolute paths of <code>.csv</code> files inside <code>--allow-dir</code>. A path outside it is rejected before the server looks at the file system, so the error does not say whether the file exists, and checked again after resolving symbolic links. URLs are rejected: download the file first. A file that changes between the profile and a later call, or during a call, is rejected (<code>data_changed</code>).</li>
+<li><strong>Code.</strong> The server never accepts a plan, a profile or a strategy as JSON, only ids and typed arguments, and checks every value the scripts use.</li>
+<li><strong>Network.</strong> The server does not open network connections itself. Foundation models (<code>ForecasterFoundation</code>) download their weights the first time they run, and their backend contacts the Hugging Face Hub on each run to check them, without sending data. Set <code>HF_HUB_OFFLINE=1</code> in the environment of the server to forbid any connection to the Hugging Face Hub (and use only models already downloaded). Through the server, foundation models only take the <code>estimator_kwargs</code> that keep the data on your machine.</li>
+<li><strong>Working directory.</strong> The server runs in the output directory, so a library that writes files next to it (CatBoost writes <code>catboost_info/</code>) does not write into your project.</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Scripts run with your permissions</p>
+<p>The scripts run in the process of the server, with the permissions of the user who started it: the server limits what the agent can read and pass, not what a script can do. Run it as a user without access to what the agent should not reach.</p>
+</div>
+<h3 id="foundation-models-and-licenses">Foundation models and licenses<a class="headerlink" href="#foundation-models-and-licenses" title="Permanent link">&para;</a></h3>
+<p>The server reads the license of each foundation model from skforecast. By default it only runs the models whose license does not restrict commercial use, whose weights are not gated and whose provider requires no account of its own. The others need <code>--allow-model</code> with their prefix, once you have read and accepted their license. So does a model for which skforecast gives no license information.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Model</th>
+<th style="text-align: left;">Model ID prefix</th>
+<th style="text-align: left;">Runs by default</th>
+<th style="text-align: left;">License</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Chronos-2 (the default model)</td>
+<td style="text-align: left;"><code>autogluon/chronos-2</code>, <code>amazon/chronos-2</code></td>
+<td style="text-align: left;">Yes</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">TimesFM 2.5</td>
+<td style="text-align: left;"><code>google/timesfm-2.5</code></td>
+<td style="text-align: left;">Yes</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">TabICL</td>
+<td style="text-align: left;"><code>soda-inria/tabicl</code></td>
+<td style="text-align: left;">Yes</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">Nori</td>
+<td style="text-align: left;"><code>Synthefy/Nori</code></td>
+<td style="text-align: left;">Yes</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">t0</td>
+<td style="text-align: left;"><code>theforecastingcompany/t0</code></td>
+<td style="text-align: left;">Yes</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">TimesFM 3.0</td>
+<td style="text-align: left;"><code>google/timesfm-3.0</code></td>
+<td style="text-align: left;">With <code>--allow-model</code></td>
+<td style="text-align: left;">Non-commercial</td>
+</tr>
+<tr>
+<td style="text-align: left;">Moirai</td>
+<td style="text-align: left;"><code>Salesforce/moirai-2</code></td>
+<td style="text-align: left;">With <code>--allow-model</code></td>
+<td style="text-align: left;">CC-BY-NC-4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">TabPFN</td>
+<td style="text-align: left;"><code>priorlabs/tabpfn</code></td>
+<td style="text-align: left;">With <code>--allow-model</code></td>
+<td style="text-align: left;">Non-commercial; Prior Labs requires an account and accepting its license</td>
+</tr>
+<tr>
+<td style="text-align: left;">TS-ICL</td>
+<td style="text-align: left;"><code>taharnbl/TS-ICL</code></td>
+<td style="text-align: left;">With <code>--allow-model</code></td>
+<td style="text-align: left;">Non-commercial</td>
+</tr>
+</tbody>
+</table>
+<p>Without the option, <code>plan</code>, <code>refine_plan</code> and <code>compare</code> reject those models with <code>model_not_allowed</code>, whose hint tells the agent which option to ask you for.</p>
+<p>The first time a model whose weights are not in the local Hugging Face cache is used, a <code>ModelDownloadNotice</code> tells the agent, with the license that skforecast registers for models of that name (the server does not check that the repository exists); later plans and comparisons with the model carry that license in a <code>ModelLicenseNotice</code>. TabPFN keeps its weights in a cache of its own, so its notice only says that the server cannot tell whether they are downloaded.</p>
+<h3 id="what-the-agent-does-before-it-calls-the-server">What the agent does before it calls the server<a class="headerlink" href="#what-the-agent-does-before-it-calls-the-server" title="Permanent link">&para;</a></h3>
+<p>The server only controls its own tools. Its instructions, its errors and its skill tell the agent never to copy a file into <code>--allow-dir</code>, never to write data for you (future values of exogenous variables, missing months) and to ask before writing a corrected copy. An agent can still try to do it with the tools of its client (a <code>cp</code> in the shell, reading a file and writing it again), also before the first call to the server, when no message of the server has reached it.</p>
+<p>In the checks of this release a small model tried to copy a file from outside the directory in 1 of 3 sessions, and to write a corrected copy before it was asked to in 1 of 12; a larger one in none. In one of those sessions the client allowed the write: the copy had the missing months filled with values of the agent's own, described as an interpolation, and the forecast was made on it.</p>
+<div class="admonition warning">
+<p class="admonition-title">Keep the agent asking before it writes</p>
+<p>What stops it is the permission to write of your client: keep the agent asking before it writes or runs shell commands in the project (the default of Claude Code), and read what it proposes to write. With a small model, open any corrected copy and compare it with your file before you trust a forecast made on it.</p>
+</div>
+<hr />
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Symptom</th>
+<th style="text-align: left;">Cause</th>
+<th style="text-align: left;">Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">The server does not appear, or fails to start the first time</td>
+<td style="text-align: left;"><code>uvx</code> is still downloading the package when the client gives up</td>
+<td style="text-align: left;">Run the warm up command of <a href="#install">Install</a> once, then restart the client. In Codex, set <code>startup_timeout_sec</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">The client cannot find <code>uvx</code> or <code>skforecast-ai</code></td>
+<td style="text-align: left;">The client starts the server with a <code>PATH</code> that is not the one of your terminal</td>
+<td style="text-align: left;">Give the absolute path of the command (<code>which uvx</code>, <code>which skforecast-ai</code>)</td>
+</tr>
+<tr>
+<td style="text-align: left;">The server stops as soon as it starts</td>
+<td style="text-align: left;"><code>--allow-dir</code> is missing, relative or not a directory, or the output directory is not writable</td>
+<td style="text-align: left;">Give an absolute path; the log of the server (stderr, shown by the client) says which</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>path_not_allowed</code></td>
+<td style="text-align: left;">The file is outside <code>--allow-dir</code></td>
+<td style="text-align: left;">Copy the file there yourself, or restart the server with another <code>--allow-dir</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>invalid_path</code> or <code>url_not_allowed</code></td>
+<td style="text-align: left;">The path is relative, is not a <code>.csv</code> file or is a URL</td>
+<td style="text-align: left;">Give the absolute path of a CSV file; download a URL first</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>model_not_allowed</code></td>
+<td style="text-align: left;">The license of the foundation model restricts its use</td>
+<td style="text-align: left;">Read its license and add <code>--allow-model</code> with its prefix</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>missing_dependency</code></td>
+<td style="text-align: left;">The backend of a foundation model is not installed where the server runs</td>
+<td style="text-align: left;">Install the package the hint names, or add it with <code>--with</code> to <code>uvx</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unknown_id</code></td>
+<td style="text-align: left;">The server restarted, or removed the object to stay within its limits</td>
+<td style="text-align: left;">Ask the agent to profile the data again</td>
+</tr>
+<tr>
+<td style="text-align: left;">A tool times out in Codex</td>
+<td style="text-align: left;">A comparison takes longer than the default 60 seconds</td>
+<td style="text-align: left;">Set <code>tool_timeout_sec</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">Two skforecast-ai servers in <code>/mcp</code> of Claude Code</td>
+<td style="text-align: left;">The plugin and a server added by hand both run</td>
+<td style="text-align: left;">Disable one of them</td>
+</tr>
+</tbody>
+</table>
+<p>To see why a server does not start, run its command in a terminal: it prints the error and stops, or waits for a client (stop it with Ctrl+C).</p>
+<hr />
+<h2 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h2>
+<p>A failed call returns an error whose text is <code>Error executing tool &lt;name&gt;:</code> followed by a JSON object with <code>code</code>, <code>message</code>, <code>field</code>, <code>hint</code> and <code>details</code>. <code>code</code> is stable, so the agent can act on it: the <a href="../api/mcp.html#errors">error codes</a> are those of the Python API plus the ones of the server (<code>unknown_id</code>, <code>inconsistent_ids</code>, <code>invalid_path</code>, <code>path_not_allowed</code>, <code>url_not_allowed</code>, <code>data_changed</code>, <code>model_not_allowed</code>, <code>file_too_large</code>). When a script fails, <code>details.failure_id</code> names its traceback and code, which <code>get_failure</code> returns.</p>
+<hr />
+<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Calls run one at a time; a call waits for the previous one to end.</li>
+<li>The server reads CSV files of at most <code>--max-file-mb</code> (256 MB by default), and a horizon (<code>steps</code>) longer than the longest series is rejected when the plan is built.</li>
+<li>Ids live while the server runs. An id of a previous run, or of an object removed to stay within <code>--max-objects</code> and <code>--max-memory-mb</code>, gives <code>unknown_id</code> saying which.</li>
+<li>A summary, a script or a failure longer than 20,000 characters is cut in the response; the full text is written to the output directory.</li>
+<li>Foundation models (<code>ForecasterFoundation</code>) need their backend package where the server runs: Chronos-2, the default, needs <code>chronos-forecasting</code> (the <code>foundation</code> extra). Without it, <code>backtest</code> and <code>forecast</code> answer <code>missing_dependency</code>, whose hint gives the <code>pip install</code> command and the <code>--with</code> option of <code>uvx</code>.</li>
+<li>The script of a forecast with future exogenous values reads them from <code>exog_future.csv</code> in its working directory: copy the file there to run it.</li>
+</ul>
+<hr />
+<h2 id="the-skill">The skill<a class="headerlink" href="#the-skill" title="Permanent link">&para;</a></h2>
+<p>The skill, <code>SKILL.md</code>, teaches the agent the workflow, how far to trust each result, the cost of a backtest, the format of dates, what each error code asks for and what reaches the agent. It is written for the agent that calls the server; the <a href="skills.html">skills for the LLM</a> are a different thing, the skforecast guides that <code>ask()</code> sends to its own model. It follows the <a href="https://agentskills.io/specification">Agent Skills</a> standard.</p>
+<details class="note">
+<summary>The SKILL.md shipped with the package</summary>
+<div class="language-markdown highlight"><pre><span></span><code>---
+name: skforecast-ai-forecasting
+<span class="gu">description: Forecast time series stored in CSV files with the tools of the skforecast-ai MCP server (profile, plan, create_cv, backtest, compare, forecast). Use when asked to forecast, backtest or compare forecasting models on tabular time series and the skforecast-ai server is connected. Also use it before answering what the server or you can see of the user's data (privacy) and what the server does not do.</span>
+<span class="gu">---</span>
+
+<span class="gh"># Forecasting with the skforecast-ai MCP server</span>
+
+The server runs a deterministic forecasting workflow built on skforecast.
+Every decision (forecaster, estimator, lags, metric, cross-validation) comes
+from rules, so the same inputs give the same results. You choose the inputs
+and explain the results; the server decides and computes. Never invent a
+number: every figure you report must come from a response or one of its
+files. Do not derive one either: no percentage, difference or ratio that a
+response does not give ("45% better" from a metric, a margin between two
+candidates).
+
+<span class="gu">## Workflow</span>
+
+<span class="k">1.</span> `profile(data_path, target, date_column?, series_id_column?,
+   exog_columns?)`: the absolute path of a CSV file inside the directory
+   the server may read, which its instructions name: build the path from
+   it when the user gives a relative one, without searching the file
+   system. <span class="sb">`target`</span> is one column, or a list of columns for
+   several series side by side; <span class="sb">`series_id_column`</span> names the column of
+   series ids when the series are stacked. Every other column is an
+   exogenous variable unless <span class="sb">`exog_columns`</span> names the ones to use (an
+   empty list for none); set it only when the user asks. Read the summary
+   and the <span class="sb">`notices`</span>: frequency, series, gaps, exogenous columns and the
+   recommended forecaster. Do not open the data file with your own tools
+   to look at it: <span class="sb">`profile`</span> gives its columns and statistics without rows.
+   When the user named the column to forecast, pass it as <span class="sb">`target`</span> at
+   once. Only when they did not, call <span class="sb">`profile`</span> without <span class="sb">`target`</span>: its
+   error lists the columns of the file, so never guess a target to see
+   them. Read the file only to locate a problem an error reports.
+<span class="k">2.</span> <span class="sb">`plan(profile_id, steps, ...)`</span>: <span class="sb">`steps`</span> is the horizon in observations
+   (12 for a year of monthly data), at most the length of the longest
+   series. When the user gives no horizon (or no target, and more than one
+   column could be it), ask; if you assume one, say so before the results. Leave the other arguments out to take the recommendation; set
+   them only when the user asks. <span class="sb">`metric`</span> (one metric, or a list whose
+   first one ranks) replaces the metric selected from the data, and only
+   the metrics given are computed. <span class="sb">`use_exog: false`</span> leaves the
+   exogenous columns out, so <span class="sb">`forecast`</span> needs no <span class="sb">`exog_path`</span>.
+   <span class="sb">`differentiation`</span> (usually 1, for a series with a trend) differences
+   the target before training; build the strategy of <span class="sb">`create_cv`</span> from
+   that plan, since a backtest needs the same order in both.
+   <span class="sb">`calendar_features`</span> (an empty list for none), <span class="sb">`target_transformer`</span>
+   (<span class="sb">`StandardScaler`</span> or <span class="sb">`none`</span>) and <span class="sb">`dropna_from_series`</span> replace the
+   rules of the machine learning forecasters.
+<span class="k">3.</span> Optionally <span class="sb">`refine_plan(plan_id, overrides)`</span> to change some decisions.
+   An omitted key keeps the value of the plan; every key but
+   <span class="sb">`forecaster`</span>, <span class="sb">`estimator`</span> and <span class="sb">`steps`</span> set to null goes back to the
+   default.
+<span class="k">4.</span> <span class="sb">`create_cv(plan_id, ...)`</span>: the backtesting strategy. Read <span class="sb">`cost`</span> before
+   running anything; above 50 estimator fits (2000 inference windows for a
+   foundation model) it already carries the <span class="sb">`LongTrainingWarning`</span> the
+   backtest would emit. A notice says when a
+   <span class="sb">`backtest`</span> of its plan would fail (a direct forecaster with <span class="sb">`gap`</span>, or
+   a first training window shorter than the forecaster needs): change
+   the strategy as the notice says before running it.
+<span class="k">5.</span> <span class="sb">`backtest(cv_id, plan_id?)`</span>: the accuracy of the plan of the strategy
+   over its folds. <span class="sb">`plan_id`</span> backtests another plan of the same profile on
+   the same folds.
+<span class="k">6.</span> Optionally <span class="sb">`compare(cv_id, candidates?)`</span>: several configurations on the
+   same folds, ranked by its <span class="sb">`metric`</span>, else by the metric chosen for the
+   plan of the strategy, else by the one selected from the data, with a
+   seasonal naive baseline. <span class="sb">`links.best_plan_id`</span> is the plan of the winner. Without
+   <span class="sb">`candidates`</span> it runs the forecasters the profile recommends for the
+   family of the data (with several series, ForecasterRecursiveMultiSeries
+   and ForecasterFoundation), or the estimators of the recommended
+   forecaster when that leaves one, without those above 500 estimator
+   fits. Without <span class="sb">`interval`</span> it uses the interval of the plan of the
+   strategy, so the winner keeps it (with an asymmetric interval there
+   is no baseline: it only takes symmetric ones, such as <span class="sb">`[0.1, 0.9]`</span>).
+   The candidates do not take <span class="sb">`use_exog`</span> from that plan: to compare
+   without exogenous variables, <span class="sb">`profile`</span> with <span class="sb">`exog_columns: []`</span>.
+<span class="k">7.</span> <span class="sb">`forecast(plan_id, test_size?, exog_path?)`</span>: the future. <span class="sb">`exog_path`</span> is
+   required when the plan uses exogenous variables: without a file of
+   future values from the user, ask for it, or build the plan again with
+   <span class="sb">`use_exog: false`</span> and say that they were left out. Never write those
+   values yourself, nor answer with a <span class="sb">`test_size`</span> evaluation instead. With
+   <span class="sb">`test_size`</span> it is a single hold-out evaluation instead, without
+   <span class="sb">`exog_path`</span>: pass the integer <span class="sb">`steps`</span> (the last <span class="sb">`steps`</span> observations) or
+   the ISO 8601 date the test set starts at. A fraction only works when it
+   gives exactly <span class="sb">`steps`</span> observations.
+
+<span class="sb">`get_code(object_id)`</span> returns the Python script that ran (for a plan, the
+one that would run; a profile has none), so the user can reproduce any
+result without the server, and <span class="sb">`requirements`</span>, the packages to install
+for it with the versions the server runs: name those, not others. Hand
+the script as it is; if you change anything (the path of the data, a
+comment), say what. <span class="sb">`describe_object(object_id)`</span> returns a response
+again; <span class="sb">`list_objects()`</span> lists the ids.
+
+<span class="gu">## How far to trust a result</span>
+
+From most to least reliable:
+
+<span class="k">1.</span> A <span class="sb">`compare`</span> in which the winner beats the baseline: measured over the
+   <span class="sb">`n_folds`</span> of the strategy (at least 2) against a reference. If the
+   baseline wins, say so: the data may not be forecastable better than
+   repeating the last season. There is no baseline with several series,
+   when the target has missing values or dates, or with an asymmetric
+   interval (the summary says why):
+   then read the rows per series of <span class="sb">`files.best_metrics`</span> (<span class="sb">`files.metrics`</span>
+   of a backtest). A <span class="sb">`mean_absolute_scaled_error`</span> below 1 beats the
+   one-step naive forecast of that series, above 1 does worse. The summary
+   only gives the average, so the worst series is not in it: name it.
+<span class="k">2.</span> A <span class="sb">`backtest`</span>: measured over the same folds, but without a reference.
+<span class="k">3.</span> A <span class="sb">`forecast`</span> with <span class="sb">`test_size`</span>: one window of <span class="sb">`steps`</span> observations. It
+   can be lucky or unlucky; do not present it as the accuracy of the model,
+   nor as the forecast of the future: its dates are already in the data (a
+   <span class="sb">`HoldoutEvaluationNotice`</span> names them).
+<span class="k">4.</span> A <span class="sb">`forecast`</span> of the future: no measure of error at all. Report it with
+   the accuracy of the backtest or comparison of the same plan.
+
+<span class="sb">`mean_absolute_scaled_error`</span> and <span class="sb">`root_mean_squared_scaled_error`</span> divide
+the error by that of the one-step naive forecast (repeat the previous
+value) on the training data, in every result and every row of a
+leaderboard (a <span class="sb">`MetricReferenceNotice`</span> of a backtest or a forecast says
+so). That reference is not a seasonal naive forecast nor the baseline of
+<span class="sb">`compare`</span>: never report a value below 1 as beating either, nor turn it
+into a percentage against them.
+
+Prediction intervals are estimates: report them as such, and only from the
+rows of <span class="sb">`files.predictions`</span> (the bounds of each step). If you have not read
+that file, do not describe the interval: name the file. The summary gives
+the minimum, maximum and mean of each bound, not a width, so no width and
+no range around the point comes from it. Read <span class="sb">`notices`</span> before you report
+anything: any notice can change what the result means (a data problem, a
+warning of the plan, a long training), so tell the user about it.
+
+<span class="gu">## Cost</span>
+
+<span class="sb">`create_cv`</span> returns the <span class="sb">`cost`</span> of backtesting its plan: <span class="sb">`n_folds`</span>, <span class="sb">`n_fits`</span>
+(trainings of the forecaster), <span class="sb">`estimator_fits`</span> and <span class="sb">`inference_windows`</span>. A
+direct forecaster trains one estimator per step; ForecasterStats is
+refitted in every fold whatever <span class="sb">`refit`</span> says; foundation models and the
+baseline count 0 estimator fits. A foundation model is never trained: its
+cost is <span class="sb">`inference_windows`</span>, one per series and fold (and it downloads its
+weights the first time). <span class="sb">`compare`</span> runs every candidate on the same folds,
+so it costs about the sum of theirs (its response reports the totals).
+<span class="sb">`compare_estimator_fits`</span> and <span class="sb">`compare_inference_windows`</span> of <span class="sb">`create_cv`</span>
+are those sums for a <span class="sb">`compare`</span> without <span class="sb">`candidates`</span>, which can be far more
+than the plan (with <span class="sb">`refit=true`</span>, ForecasterDirect fits one estimator per
+step and fold; with many series, the foundation model forecasts each one in
+each fold); a <span class="sb">`CompareCostNotice`</span> says so (for a foundation plan, its own
+<span class="sb">`LongTrainingWarning`</span> notice says it instead). <span class="sb">`inference_windows`</span> is an
+upper bound: a series without data in a fold is not forecast in it. Above
+50 estimator fits, or 2000 inference windows (added up over the foundation
+candidates of a <span class="sb">`compare`</span>), a run gets a <span class="sb">`LongTrainingWarning`</span> notice and
+can take minutes on a CPU; <span class="sb">`compare`</span> without <span class="sb">`candidates`</span> leaves out the
+candidates above 500 estimator fits. Before an expensive run (a <span class="sb">`backtest`</span> or a <span class="sb">`compare`</span> above those
+thresholds), stop and do not run it: tell the user the number of fits and
+the cheaper strategies, an integer <span class="sb">`refit`</span> (retrain every n folds), fewer
+folds (a larger <span class="sb">`fold_stride`</span> or a later <span class="sb">`initial_train_size`</span>) or
+<span class="sb">`refit=false`</span> (train once, no help for ForecasterStats nor for a foundation
+model). Run the expensive one only when the user chooses it in so many
+words: asking to retrain regularly is not that choice.
+
+Progress and cancellation: <span class="sb">`compare`</span> reports when each candidate starts
+and ends, and any long call (a backtest, a forecast, a candidate) sends a
+progress notification every 5 seconds while it runs, naming what runs and
+for how long ("ForecasterStats: running (35 s)"). Cancelling a <span class="sb">`compare`</span>
+waits for the candidate in progress to end and skips the rest; cancelling
+another tool waits for it to end (the backtest or the forecast in
+progress). Meanwhile only the read tools (<span class="sb">`get_code`</span>, <span class="sb">`get_failure`</span>,
+<span class="sb">`list_objects`</span>, <span class="sb">`describe_object`</span>) answer: the others wait their turn.
+
+<span class="gu">## What a result says, and what the server does not do</span>
+
+Report what was measured, never why. A ranking says which candidate had the
+lowest error over the folds, not what makes it better for the data: give
+no cause, even hedged, for a ranking, a metric or the shape of a forecast
+(a seasonal pattern, an event, too little data). Asked why, say that the
+server does not measure it and restate the metric and its values.
+
+The server does not search hyperparameters (<span class="sb">`compare`</span> runs the candidates
+you list: call it that, not a grid search), detect anomalies, select
+features or fill in missing values. Say so, offer what it does and stop
+there. Do not do any of it another way in the same answer, by hand from
+the files or with your own script, even labeled as outside the server:
+that is for the user to ask once they know.
+
+<span class="gu">## Inputs</span>
+
+<span class="k">-</span><span class="w"> </span>Paths: absolute paths of <span class="sb">`.csv`</span> files inside the allowed directory,
+  which the instructions of the server name (also <span class="sb">`details.allowed_dir`</span>
+  of a path error). No URLs: download the file first. No relative paths
+  and no <span class="sb">`~`</span>. Never copy or move a file of the user into that directory
+  yourself: tell them it is outside, and that they can copy it there or
+  restart the server with another <span class="sb">`--allow-dir`</span>.
+<span class="k">-</span><span class="w"> </span>Dates: ISO 8601 text, <span class="sb">`"2012-01-01"`</span>, where an argument takes one
+  (<span class="sb">`initial_train_size`</span> of <span class="sb">`create_cv`</span>, <span class="sb">`test_size`</span> of <span class="sb">`forecast`</span>). A count
+  is a number, never text: <span class="sb">`"12"`</span> is rejected.
+<span class="k">-</span><span class="w"> </span>Arguments are strict: an unknown argument or a wrong type is an error,
+  never ignored. Metrics are the names of skforecast:
+  <span class="sb">`mean_absolute_error`</span>, <span class="sb">`mean_squared_error`</span>,
+  <span class="sb">`mean_absolute_scaled_error`</span>, and the others the schema lists.
+<span class="k">-</span><span class="w"> </span>Messages of the library name the arguments of its Python API: <span class="sb">`data`</span> is
+  <span class="sb">`data_path`</span>, <span class="sb">`exog`</span> is <span class="sb">`exog_path`</span>, <span class="sb">`profile`</span>, <span class="sb">`plan`</span> and <span class="sb">`cv`</span> are the
+  ids <span class="sb">`profile_id`</span>, <span class="sb">`plan_id`</span> and <span class="sb">`cv_id`</span>, and <span class="sb">`forecast()`</span> or
+  <span class="sb">`backtest()`</span> are the tools <span class="sb">`forecast`</span> and <span class="sb">`backtest`</span>. A message can
+  also give advice that needs Python (read the file with pandas,
+  <span class="sb">`dayfirst=True`</span>): follow the <span class="sb">`hint`</span> of the error instead.
+<span class="k">-</span><span class="w"> </span>Future exogenous values (<span class="sb">`exog_path`</span>): one row per date of the horizon
+  (and per series when they are stacked), with the date column of the data.
+<span class="k">-</span><span class="w"> </span>Ids are valid while the server runs. After a restart, or when an id was
+  removed to keep the server within its limits, create the object again.
+
+<span class="gu">## Data problems</span>
+
+When the profile, a notice or an error shows a problem in the CSV file
+(missing dates, rows without a target, a wrong date column, duplicated
+dates, dates written in more than one format or day first, a series without
+values, an exogenous column named like a lag or a window feature), tell the
+user what it is and what it changes. Never change their file. Only if they
+agree, write a corrected copy inside the allowed directory, under a new
+name, and <span class="sb">`profile`</span> the copy; say what you changed. An error names the
+first problem it finds, so the file can have others (the error of
+repeated dates with different values also counts the identical repeated
+rows and the missing dates): tell the user all of them when you ask, and
+ask again before fixing a problem they have not agreed to.
+
+<span class="gu">## Foundation models</span>
+
+<span class="sb">`ForecasterFoundation`</span> forecasts with a pre-trained model, without
+training. Its default model is Chronos-2 (<span class="sb">`autogluon/chronos-2-small`</span>).
+Each of the others has its own license and size, so tell the user which
+model, its license and that it downloads its weights before you choose
+one; never switch models on your own. State a license only as a response
+gives it: a <span class="sb">`ModelLicenseNotice`</span> or a <span class="sb">`ModelDownloadNotice`</span> of a plan
+with a foundation model or of a comparison that ran one, or the message
+of <span class="sb">`model_not_allowed`</span>. Through the server they only take
+the <span class="sb">`estimator_kwargs`</span> <span class="sb">`context_length`</span>, <span class="sb">`cross_learning`</span>,
+<span class="sb">`point_estimate`</span>, <span class="sb">`max_horizon`</span>, <span class="sb">`add_calendar_features`</span> and
+<span class="sb">`n_fourier_terms`</span>. Models whose license
+restricts commercial use, whose weights are gated or whose provider
+requires an account (today the prefixes <span class="sb">`google/timesfm-3.0`</span>,
+<span class="sb">`Salesforce/moirai-2`</span>, <span class="sb">`priorlabs/tabpfn`</span> and <span class="sb">`taharnbl/TS-ICL`</span>), and any
+model for which skforecast gives no license information, only run when
+the user started the server with <span class="sb">`--allow-model PREFIX`</span>; without it they
+are <span class="sb">`model_not_allowed`</span>. A model
+without its backend package installed where the server runs is
+<span class="sb">`missing_dependency`</span>.
+
+<span class="gu">## Responses</span>
+
+<span class="k">-</span><span class="w"> </span><span class="sb">`summary`</span>: plain text with the decisions, their explanations and
+  statistics. A backtest or a forecast adds its metrics and the minimum,
+  maximum and mean of the predictions; a comparison, its leaderboard. A
+  long summary is cut at 20,000 characters; the full text is in
+  <span class="sb">`files.summary`</span>.
+<span class="k">-</span><span class="w"> </span><span class="sb">`values_included`</span> is always false: no response holds rows of the data
+  or of the predictions. The summaries do carry the metrics and the
+  leaderboard; the rows (predictions, metrics per fold or series, the
+  whole leaderboard) are CSV files listed in <span class="sb">`files`</span>. Read them when you
+  need the values.
+<span class="k">-</span><span class="w"> </span><span class="sb">`notices`</span>: the warnings of the call, with their source (<span class="sb">`data`</span>, <span class="sb">`plan`</span>
+  or <span class="sb">`runtime`</span>); at most 20, and <span class="sb">`notices_omitted`</span> counts the rest. A
+  profile carries the problems of the data (<span class="sb">`DataProfileWarning`</span>: missing
+  dates, short series, missing values), and a plan carries them again with
+  its own warnings, so you see them where you decide.
+<span class="k">-</span><span class="w"> </span><span class="sb">`links`</span>: the ids an object was built from. <span class="sb">`changeable`</span>: the arguments
+  of <span class="sb">`refine_plan`</span> or <span class="sb">`create_cv`</span> that build a variant of it.
+
+<span class="gu">## Errors</span>
+
+An error arrives as <span class="sb">`Error executing tool &lt;name&gt;: `</span> followed by a JSON
+object <span class="sb">`{code, message, field, hint, details}`</span>. Act on <span class="sb">`code`</span> and <span class="sb">`field`</span>,
+and follow <span class="sb">`hint`</span> when there is one:
+
+| code | What to do |
+|---|---|
+| <span class="sb">`invalid_argument`</span> | Fix the argument named in <span class="sb">`field`</span>, as the message says. |
+| <span class="sb">`insufficient_data`</span> | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later <span class="sb">`initial_train_size`</span>). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
+| <span class="sb">`data_not_found`</span>, <span class="sb">`invalid_path`</span>, <span class="sb">`url_not_allowed`</span> | Pass the absolute path of a CSV file inside the allowed directory. |
+| <span class="sb">`path_not_allowed`</span> | The file is outside the allowed directory (<span class="sb">`details.allowed_dir`</span>). Do not copy or move it yourself: tell the user, who can copy it there or restart the server with another <span class="sb">`--allow-dir`</span>. |
+| <span class="sb">`data_unreadable`</span> | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header). Tell the user, as for the data problems above. |
+| <span class="sb">`file_too_large`</span> | The file is larger than the server reads (<span class="sb">`--max-file-mb`</span>, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |
+| <span class="sb">`data_changed`</span> | The file changed: call <span class="sb">`profile`</span> again (or the tool again for an exogenous file). |
+| <span class="sb">`unknown_id`</span> | Use an id from <span class="sb">`list_objects`</span>, or create the object again. |
+| <span class="sb">`inconsistent_ids`</span> | Pass <span class="sb">`backtest`</span> a plan and a strategy built from the same profile. |
+| <span class="sb">`execution_failed`</span>, <span class="sb">`all_candidates_failed`</span> | <span class="sb">`get_failure(details.failure_id)`</span> returns the traceback and the code. |
+| <span class="sb">`missing_dependency`</span> | Tell the user which package to install; <span class="sb">`hint`</span> says how, for pip and for uvx. A foundation model without its backend fails this way before running (in <span class="sb">`compare`</span>, such a candidate fails and is ranked last). |
+| <span class="sb">`model_not_allowed`</span> | Tell the user the license in the message; only if they accept it, ask them to restart the server with the <span class="sb">`--allow-model`</span> option of <span class="sb">`hint`</span>. |
+| <span class="sb">`internal_error`</span> | Report it to the user with <span class="sb">`details.error_id`</span>, which finds the message in the log of the server; do not retry with the same inputs. |
+
+A candidate of <span class="sb">`compare`</span> that fails is ranked last instead of failing the
+call: <span class="sb">`get_failure(comparison_id, candidate)`</span> says why.
+
+<span class="gu">## Privacy</span>
+
+The server never sends rows of data in a response. Messages of errors and
+warnings are forwarded as the library writes them: they can name columns
+and series ids and quote up to 5 values of the data (categories, dates).
+The server cuts a message at 4,000 characters, a hint at 1,000, each text
+of <span class="sb">`details`</span> at 500 and each notice at 1,000. An unexpected error
+(<span class="sb">`internal_error`</span>) carries only the type of the exception and an id
+(<span class="sb">`details.error_id`</span>): its message, which can quote a value, goes to the log
+of the server with that id. A failure (<span class="sb">`get_failure`</span>) holds a traceback,
+which can quote values. The scripts of <span class="sb">`get_code`</span> and the summary of a
+plan name the path of the data file; the other summaries and the failures
+do not. Tell the user when they ask what you can see.
+
+Foundation models download their weights from the Hugging Face Hub the
+first time they run; a <span class="sb">`ModelDownloadNotice`</span> (source <span class="sb">`plan`</span>) says so, with
+the license skforecast registers for models of that name, the first time a
+model whose weights are not in the local cache is used. Otherwise a
+<span class="sb">`ModelLicenseNotice`</span> gives that license. Later runs still
+contact the Hub to check the cached weights, without sending data. The
+user can forbid any connection to it by starting the server with
+<span class="sb">`HF_HUB_OFFLINE=1`</span>.
+</code></pre></div>
+</details>
+<hr />
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../api/mcp.html">MCP server API</a>: every tool, its arguments, its files and its errors.</li>
+<li><a href="cli-usage.html">Using the CLI</a>: the <code>mcp</code> command next to the other commands.</li>
+<li><a href="skills.html">Skills for the LLM</a>: the skforecast guides that <code>ask()</code> sends to its model, not to a coding agent.</li>
+<li><a href="https://agentskills.io/specification">Agent Skills specification</a>: the format of a <code>SKILL.md</code> file.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="cli-usage.html" class="md-footer__link md-footer__link--prev" aria-label="Previous: Using the CLI">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Using the CLI
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../api/assistant.html" class="md-footer__link md-footer__link--next" aria-label="Next: Assistant">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Assistant
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026-present Joaquín Amat Rodrigo and Javier Escobar Ortiz
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://www.linkedin.com/company/skforecast/" target="_blank" rel="noopener" title="www.linkedin.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M416 32H31.9C14.3 32 0 46.5 0 64.3v383.4C0 465.5 14.3 480 31.9 480H416c17.6 0 32-14.5 32-32.3V64.3c0-17.8-14.4-32.3-32-32.3M135.4 416H69V202.2h66.5V416zM102.2 96a38.5 38.5 0 1 1 0 77 38.5 38.5 0 1 1 0-77m282.1 320h-66.4V312c0-24.8-.5-56.7-34.5-56.7-34.6 0-39.9 27-39.9 54.9V416h-66.4V202.2h63.7v29.2h.9c8.9-16.8 30.6-34.5 62.9-34.5 67.2 0 79.7 44.3 79.7 101.9z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/skforecast/skforecast-ai" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://discord.gg/3V52qpNkuj" target="_blank" rel="noopener" title="discord.gg" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M492.5 69.8c-.2-.3-.4-.6-.8-.7-38.1-17.5-78.4-30-119.7-37.1-.4-.1-.8 0-1.1.1s-.6.4-.8.8c-5.5 9.9-10.5 20.2-14.9 30.6-44.6-6.8-89.9-6.8-134.4 0-4.5-10.5-9.5-20.7-15.1-30.6-.2-.3-.5-.6-.8-.8s-.7-.2-1.1-.2C162.5 39 122.2 51.5 84.1 69c-.3.1-.6.4-.8.7C7.1 183.5-13.8 294.6-3.6 404.2c0 .3.1.5.2.8s.3.4.5.6c44.4 32.9 94 58 146.8 74.2.4.1.8.1 1.1 0s.7-.4.9-.7c11.3-15.4 21.4-31.8 30-48.8.1-.2.2-.5.2-.8s0-.5-.1-.8-.2-.5-.4-.6-.4-.3-.7-.4c-15.8-6.1-31.2-13.4-45.9-21.9-.3-.2-.5-.4-.7-.6s-.3-.6-.3-.9 0-.6.2-.9.3-.5.6-.7c3.1-2.3 6.2-4.7 9.1-7.1.3-.2.6-.4.9-.4s.7 0 1 .1c96.2 43.9 200.4 43.9 295.5 0 .3-.1.7-.2 1-.2s.7.2.9.4c2.9 2.4 6 4.9 9.1 7.2.2.2.4.4.6.7s.2.6.2.9-.1.6-.3.9-.4.5-.6.6c-14.7 8.6-30 15.9-45.9 21.8-.2.1-.5.2-.7.4s-.3.4-.4.7-.1.5-.1.8.1.5.2.8c8.8 17 18.8 33.3 30 48.8.2.3.6.6.9.7s.8.1 1.1 0c52.9-16.2 102.6-41.3 147.1-74.2.2-.2.4-.4.5-.6s.2-.5.2-.8c12.3-126.8-20.5-236.9-86.9-334.5zm-302 267.7c-29 0-52.8-26.6-52.8-59.2s23.4-59.2 52.8-59.2c29.7 0 53.3 26.8 52.8 59.2 0 32.7-23.4 59.2-52.8 59.2m195.4 0c-29 0-52.8-26.6-52.8-59.2s23.4-59.2 52.8-59.2c29.7 0 53.3 26.8 52.8 59.2 0 32.7-23.2 59.2-52.8 59.2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+      <div class="md-consent" data-md-component="consent" id="__consent" hidden>
+        <div class="md-consent__overlay"></div>
+        <aside class="md-consent__inner">
+          <form class="md-consent__form md-grid md-typeset" name="consent">
+            
+
+
+  
+
+
+<h4>Cookie consent</h4>
+<p>We use cookies to recognize your repeated visits and preferences, as well as to measure the effectiveness of our documentation and whether users find what they're searching for. With your consent, you're helping us to make our documentation better.</p>
+<input class="md-toggle" type="checkbox" id="__settings" >
+<div class="md-consent__settings">
+  <ul class="task-list">
+    
+    
+      
+        
+  
+  
+    
+    
+  
+  <li class="task-list-item">
+    <label class="task-list-control">
+      <input type="checkbox" name="analytics" checked>
+      <span class="task-list-indicator"></span>
+      Google Analytics
+    </label>
+  </li>
+
+      
+    
+    
+      
+        
+  
+  
+    
+    
+  
+  <li class="task-list-item">
+    <label class="task-list-control">
+      <input type="checkbox" name="github" checked>
+      <span class="task-list-indicator"></span>
+      GitHub
+    </label>
+  </li>
+
+      
+    
+    
+  </ul>
+</div>
+<div class="md-consent__controls">
+  
+    
+      <button class="md-button md-button--primary">Accept</button>
+    
+    
+    
+  
+    
+    
+    
+      <label class="md-button" for="__settings">Manage settings</label>
+    
+  
+</div>
+          </form>
+        </aside>
+      </div>
+      <script>var consent=__md_get("__consent");if(consent)for(var input of document.forms.consent.elements)input.name&&(input.checked=consent[input.name]||!1);else"file:"!==location.protocol&&setTimeout((function(){document.querySelector("[data-md-component=consent]").hidden=!1}),250);var form=document.forms.consent;for(var action of["submit","reset"])form.addEventListener(action,(function(e){if(e.preventDefault(),"reset"===e.type)for(var n of document.forms.consent.elements)n.name&&(n.checked=!1);__md_set("__consent",Object.fromEntries(Array.from(new FormData(form).keys()).map((function(e){return[e,!0]})))),location.hash="",location.reload()}))</script>
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["announce.dismiss", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "toc.integrate", "navigation.breadcrumbs", "content.code.copy", "content.code.annotate", "content.code.select", "content.tooltips", "search.suggest", "search.highlight", "search.share"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/version-switcher.js"></script>
+      
+        <script src="../javascripts/ask-window.js"></script>
+      
+        <script src="../javascripts/home.js"></script>
+      
+    
+  </body>
+</html>
