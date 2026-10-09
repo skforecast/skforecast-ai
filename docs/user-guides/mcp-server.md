@@ -128,6 +128,16 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
 
 The path of `--allow-dir` must be absolute: the client starts the server from a working directory of its own choosing. The place and format of the configuration are those of each client, so check its documentation if they differ.
 
+!!! note "A shorter command: `skforecast-ai-mcp`"
+    The package [skforecast-ai-mcp](https://pypi.org/project/skforecast-ai-mcp/) is a launcher with no logic of its own: it installs `skforecast-ai[mcp]` at its same version and runs `skforecast-ai mcp` with the arguments it receives. These two commands start the same server, with the same options and the same first start:
+
+    ```bash
+    uvx skforecast-ai-mcp --allow-dir /absolute/path/to/project
+    uvx --from "skforecast-ai[mcp]" skforecast-ai mcp --allow-dir /absolute/path/to/project
+    ```
+
+    In the configurations above, that is `"args": ["skforecast-ai-mcp", "--allow-dir", "/absolute/path/to/project"]`; pin a version with `skforecast-ai-mcp==<version>`.
+
 !!! tip "Warm up uvx before the first start"
     **The first start is slow.** `uvx` downloads and installs the package and its dependencies the first time, and Python loads them for the first time: about 30 seconds with a fast connection, more with a slow one. A client may give up on a server that takes that long to start: Claude Code waits 30 seconds by default. Run this once before connecting the agent, so later starts take a few seconds (the first one up to 10, the next ones about 2). With the plugin of Claude Code, use `"skforecast-ai[mcp]==<version>"`:
 

@@ -136,6 +136,18 @@ del proyecto que el README lleva la línea `mcp-name`.
 2.5. **Según 2.4, cerrar A2**: si el comando corto arranca igual, la guía lo
 nombra (yo, en otra rama `docs/`).
 
+Estado, 2026-10-09: 2.1 y 2.2 hechos (`skforecast-ai-mcp` 0.4.0 en PyPI, con
+la línea `mcp-name` en su descripción; `JavierEscobarOrtiz` es miembro
+público de la organización). Queda añadir a Joaquín como Owner del puente
+en PyPI y que él añada a Javier en `skforecast-ai`. De 2.3, `mcp-publisher`
+1.8.1 instalado con Homebrew y `validate` pasa; **falta `login` y
+`publish`**: la API del registro da 404 para la ficha. De 2.4, medido el
+arranque del comando corto (24 a 33 s en frío en cuatro arranques, igual que
+el del plugin; 1,2 s en caliente), apuntado en el log de
+`tools/mcp/README.md`; **falta** la consulta a la API y la instalación desde
+VS Code, que necesitan la ficha publicada. 2.5 hecho: la guía nombra el
+comando corto en una nota de `Install`; el plugin no cambia (A2).
+
 ## Fase 3: directorios (en paralelo con las fases 1 y 2)
 
 No dependen del puente ni del registro.
